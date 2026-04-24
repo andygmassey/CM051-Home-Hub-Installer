@@ -96,6 +96,12 @@ PIPELINE_DIR="${LIFELINE_DIR}/import-pipeline"
 # PWG_PIPELINE_REPO="https://github.com/your-org/pipeline.git" ./install.sh
 PIPELINE_REPO="${PWG_PIPELINE_REPO:-https://github.com/andygmassey/CM041-People-Graph.git}"
 
+# Hub power policy scripts (MacBook-as-Hub support). Ships in HR015 under
+# hub-power/. At release the installer tarball bundles a copy under
+# ${SCRIPT_DIR}/hub-power/; in dev it may be symlinked there. Override:
+# HUB_POWER_REPO="https://github.com/your-org/infra.git" ./install.sh
+HUB_POWER_REPO="${PWG_HUB_POWER_REPO:-https://github.com/andygmassey/HR015-Gaming-PC.git}"
+
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 1: PREREQUISITES (automatic — no user input)
 # ══════════════════════════════════════════════════════════════════════
@@ -2030,7 +2036,65 @@ DOCEOF
     ok "Lifeline Doctor running at http://localhost:8090/doctor"
 fi
 
-# ── 3.14 Tailscale (so the iOS / Watch companion can reach this Mac) ─
+# ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────
+#
+# Installs a LaunchAgent that pauses / resumes Docker services and
+# Ollama based on AC / battery state, and brings things back cleanly
+# after sleep. Design doc: HR015/HUB_PORTABILITY_PLAN.md.
+#
+# Safe on Mac Minis and Studios (always-on AC): the watcher sees tier
+# "ac" every tick and takes no action. Only MacBooks see transitions.
+#
+# Source: HR015's hub-power/ directory. The installer tarball bundles
+# a copy; dev environments may symlink. If neither is present we fall
+# back to cloning from HUB_POWER_REPO.
+
+progress "Setting up hub power policy (MacBook-as-Hub)"
+
+HUB_POWER_DIR="${LIFELINE_DIR}/hub-power"
+HUB_POWER_SNIPPET=""
+HUB_POWER_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh" ]]; then
+    HUB_POWER_SNIPPET="${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh"
+    HUB_POWER_SOURCE="bundled"
+    mkdir -p "$HUB_POWER_DIR"
+    cp -R "${SCRIPT_DIR}/hub-power/"* "$HUB_POWER_DIR/"
+    ok "Hub power scripts bundled with installer"
+elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+    HUB_POWER_SOURCE="existing"
+    info "Reusing existing hub-power install at ${HUB_POWER_DIR}"
+else
+    info "Cloning hub-power scripts..."
+    HUB_POWER_TMP="$(mktemp -d)"
+    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$HUB_POWER_TMP" 2>/dev/null \
+       && [[ -d "$HUB_POWER_TMP/hub-power" ]]; then
+        mkdir -p "$HUB_POWER_DIR"
+        cp -R "$HUB_POWER_TMP/hub-power/"* "$HUB_POWER_DIR/"
+        rm -rf "$HUB_POWER_TMP"
+        HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+        HUB_POWER_SOURCE="cloned"
+        ok "Hub power scripts cloned from ${HUB_POWER_REPO}"
+    else
+        rm -rf "$HUB_POWER_TMP"
+        warn "Could not obtain hub-power scripts (bundled / cloned both failed)."
+        warn "Skipping LaunchAgent install. Mac Mini deployments are unaffected."
+        warn "MacBook deployments can install manually later from HR015's hub-power/."
+    fi
+fi
+
+if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
+    if LIFELINE_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
+        ok "Hub power LaunchAgent loaded (label com.creativemachines.lifeline.hub-power)"
+        info "Policy override: edit ~/.lifeline/power.conf (normal / aggressive / eco)"
+    else
+        warn "Hub power LaunchAgent install failed. See output above."
+        warn "Mac Mini deployments are unaffected; MacBook users should retry."
+    fi
+fi
+
+# ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
 #
 # Lifeline's iOS companion app talks to this Mac's API at port 8089.
 # On the home Wi-Fi the LAN IP works; out and about it doesn't. Tailscale
@@ -2268,6 +2332,31 @@ echo ""
 echo -e "  Config:    ${CONFIG_DIR}/.env"
 echo -e "  Data:      ${DATA_DIR}"
 echo -e "  Logs:      ${LOGS_DIR}"
+echo ""
+# ── Mac Mini Hub vs MacBook Hub ────────────────────────────────────
+#
+# If the hub-power LaunchAgent installed, tell the user which SKU
+# they are running and how to tune it. Detecting battery presence is
+# cheap: pmset reports a percentage only on machines with a battery.
+
+HAS_BATTERY=false
+if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+    HAS_BATTERY=true
+fi
+
+echo -e "  ${BOLD}Hub deployment:${NC}"
+if [[ "$HAS_BATTERY" == true ]]; then
+    echo "     MacBook Hub. Docker + Ollama will pause automatically when"
+    echo "     you unplug, and resume when you plug back in. Battery life"
+    echo "     stays roughly as it was before Lifeline."
+else
+    echo "     Mac Mini / Studio Hub. Always-on AC: nothing is paused."
+    echo "     hub-power sees tier 'ac' every tick and takes no action."
+fi
+if [[ -f "${HOME}/.lifeline/power.conf" ]]; then
+    echo "     Policy override: edit ~/.lifeline/power.conf"
+    echo "                      (POWER_POLICY=normal | aggressive | eco)"
+fi
 echo ""
 echo -e "  ${BOLD}Need help?${NC}"
 echo "    During beta, email andy@creativemachines.ai."
