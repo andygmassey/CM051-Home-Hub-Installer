@@ -1112,16 +1112,35 @@ progress() {
 # so the Mac stays awake even when the display is off.
 # This requires admin privileges (sudo) which the user already has
 # from the Homebrew install step.
+#
+# Battery-aware: on a MacBook Hub we only set never-sleep when on AC.
+# On battery we preserve default sleep so the hub-power LaunchAgent
+# (step 3.14) can manage the sleep -> wake transition and bring
+# services back cleanly. Mac Mini / Studio installs keep the
+# original always-on behaviour.
+
+HAS_BATTERY=false
+if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+    HAS_BATTERY=true
+fi
 
 SLEEP_SETTING=$(pmset -g | grep '^ sleep' | awk '{print $2}' 2>/dev/null || echo "")
 if [[ "$SLEEP_SETTING" != "0" ]]; then
-    info "Preventing automatic sleep (Lifeline needs to stay awake)..."
-    info "(System Settings > Energy > Prevent automatic sleeping when display is off)"
-    info "macOS will now ask for your Mac login password to change this setting."
-    sudo pmset -a sleep 0 2>/dev/null && \
-    sudo pmset -a womp 1 2>/dev/null && \
-    ok "Sleep disabled, wake-on-network enabled" || \
-    warn "Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
+    if [[ "$HAS_BATTERY" == true ]]; then
+        info "MacBook Hub detected: setting never-sleep on AC only (hub-power handles battery transitions)"
+        info "macOS will now ask for your Mac login password to change this setting."
+        sudo pmset -c sleep 0 2>/dev/null && \
+        sudo pmset -a womp 1 2>/dev/null && \
+        ok "Sleep disabled on AC, battery sleep preserved, wake-on-network enabled" || \
+        warn "Could not change sleep settings. Enable 'Prevent automatic sleeping when plugged in' in System Settings > Energy."
+    else
+        info "Desktop Hub (no battery) detected: disabling sleep system-wide"
+        info "macOS will now ask for your Mac login password to change this setting."
+        sudo pmset -a sleep 0 2>/dev/null && \
+        sudo pmset -a womp 1 2>/dev/null && \
+        ok "Sleep disabled, wake-on-network enabled" || \
+        warn "Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
+    fi
 fi
 
 progress "Checking Homebrew and system tools"
