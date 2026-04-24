@@ -2016,7 +2016,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     <key>EnvironmentVariables</key>
     <dict>
         <key>DOCTOR_PORT</key>
-        <string>8089</string>
+        <string>8090</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@creativemachines.ai</string>
     </dict>
@@ -2027,7 +2027,7 @@ DOCEOF
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "Lifeline Doctor running at http://localhost:8089/doctor"
+    ok "Lifeline Doctor running at http://localhost:8090/doctor"
 fi
 
 # ── 3.14 Tailscale (so the iOS / Watch companion can reach this Mac) ─
@@ -2263,12 +2263,15 @@ echo ""
 echo "  Dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
-echo "     - Doctor:   http://localhost:8089/doctor"
+echo "     - Doctor:   http://localhost:8090/doctor"
 echo ""
 echo -e "  Config:    ${CONFIG_DIR}/.env"
 echo -e "  Data:      ${DATA_DIR}"
 echo -e "  Logs:      ${LOGS_DIR}"
 echo ""
-echo -e "  ${BOLD}Questions? Issues? Text Andy.${NC}"
+echo -e "  ${BOLD}Need help?${NC}"
+echo "    During beta, email andy@creativemachines.ai."
+echo "    A dedicated support@creativemachines.ai address will be"
+echo "    live by general launch."
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
