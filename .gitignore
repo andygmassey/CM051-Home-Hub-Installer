@@ -1,0 +1,63 @@
+# Secrets — NEVER commit (parity with other PWG / Creative Machines repos)
+.env
+.env.*
+!.env.example
+*.env
+SERVER_INFO.md
+config.local.*
+*.pem
+*.key
+*_private*
+*credentials*
+*token*
+secrets/
+credentials/
+
+# State files (contain user-specific data)
+state.json
+*.state
+
+# Real-person fixtures / private test directories (per HR015 Rule Zero)
+fixtures_private/
+conversations/
+transcripts/
+raw_data/
+.pii-blocklist
+
+# Python (if any test harnesses land here)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# User-specific deployment config
+deploy.local.yml
+
+# Operator session prompts
+AGENT_PROMPT.md
+REVIEW_FIXES_PROMPT.md
+
+# Claude Code
+.claude/
+
+# Test artefacts
+test_installs/
+scratch/
