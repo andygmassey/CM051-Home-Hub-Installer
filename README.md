@@ -24,11 +24,56 @@ curl -fsSL https://lifeline.dev/install.sh | bash
 - OAuth local-callback flow for Gmail / Google Workspace / Outlook
 - Nice TUI (gum / dialog / custom) to replace raw prompts
 
+## Hub power policy (MacBook-as-Hub)
+
+The installer wires in a LaunchAgent that pauses and resumes Docker + Ollama based on AC / battery state, and brings services back cleanly after sleep. This is what lets Lifeline run on a laptop Hub without destroying the battery.
+
+- Scripts: shipped from HR015 under `hub-power/`. Design doc: `HR015/HUB_PORTABILITY_PLAN.md`.
+- Wired at step 3.14 of `install.sh`, which sources `hub-power/INSTALL_SNIPPET.sh`.
+- Installed copy: `~/.lifeline/hub-power/`.
+- LaunchAgent plist: `~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist` (label `com.creativemachines.lifeline.hub-power`).
+- User override: `~/.lifeline/power.conf` with `POWER_POLICY=normal | aggressive | eco`.
+- Log: `~/.lifeline/hub-power.log` (bounded to the last 10,000 lines).
+
+Mac Mini / Studio owners need do nothing. The watcher sees tier `ac` every tick and takes no action.
+
+### Manual management
+
+Check status:
+
+```bash
+launchctl list | grep com.creativemachines.lifeline.hub-power
+tail -f ~/.lifeline/hub-power.log
+```
+
+Unload:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
+```
+
+Reload (after editing policy or updating scripts):
+
+```bash
+launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" \
+    ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
+```
+
+Uninstall completely:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
+rm ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
+rm -rf ~/.lifeline/hub-power
+# Leave ~/.lifeline/power.conf if you might reinstall; the policy choice survives.
+```
+
 ## Sibling projects
 
-- **HR015 - Gaming PC** — parent infra repo, where this installer was born
-- **CM050 - Home Hub Update System** — Sparkle-based auto-update pipeline for the installed Hub (pairs with this one at runtime)
-- **CM031 - PWG Companion** — iOS companion app that pairs with the Hub this installer sets up
+- **HR015 - Gaming PC** - parent infra repo, where this installer was born; hosts the `hub-power/` scripts
+- **CM050 - Home Hub Update System** - Sparkle-based auto-update pipeline for the installed Hub (pairs with this one at runtime)
+- **CM031 - PWG Companion** - iOS companion app that pairs with the Hub this installer sets up
 
 ## Security / privacy rules
 
