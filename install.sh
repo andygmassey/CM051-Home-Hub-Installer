@@ -132,11 +132,13 @@ step "Checking prerequisites"
 #
 # For the beta, we use an activation code entered here.
 # Set LIFELINE_BETA=1 to skip (F&F testers don't need a code).
-if [[ "${LIFELINE_BETA:-0}" != "1" ]]; then
-    # TODO: activate against a licence server or local code check
-    # For now, beta mode is the default
-    :
-fi
+# Activation check is not wired up yet (licence server and StoreKit
+# receipts come with App Store packaging, CM043 Phase 4). Today every
+# install behaves as beta, so the conditional block was a no-op with
+# a single ':' inside. Dropped the empty block; left the TODO tag at
+# file level so the activation path gets picked up during packaging.
+#
+# TODO(app-store-packaging): activate against licence server or local code check
 
 # macOS check
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -2100,10 +2102,14 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
             ENV_FILE="${CONFIG_DIR}/.env"
             if [[ -f "$ENV_FILE" ]]; then
                 if grep -q "^LIFELINE_TAILSCALE_IP=" "$ENV_FILE"; then
-                    # In-place rewrite of the line
+                    # In-place rewrite of the line. Trap ensures the
+                    # temp file is cleaned up even if sed or mv fails
+                    # partway through (disk full, interrupted signal).
                     TMP_ENV=$(mktemp)
+                    trap 'rm -f "$TMP_ENV"' EXIT
                     sed "s|^LIFELINE_TAILSCALE_IP=.*|LIFELINE_TAILSCALE_IP=\"${LIFELINE_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TMP_ENV"
                     mv "$TMP_ENV" "$ENV_FILE"
+                    trap - EXIT
                 else
                     echo "LIFELINE_TAILSCALE_IP=\"${LIFELINE_TAILSCALE_IP}\"" >> "$ENV_FILE"
                 fi
