@@ -1939,8 +1939,8 @@ echo ""
 echo "  This will remove:"
 echo "    - Docker containers (lifeline-qdrant, lifeline-oxigraph, lifeline-redis)"
 echo "    - Docker volumes (your knowledge graph data)"
-echo "    - Lifeline directory (~/.lifeline)"
-echo "    - Doctor and export watcher launchd services"
+echo "    - Lifeline directory (~/.lifeline, except power.conf)"
+echo "    - Doctor, export watcher, and hub power launchd services"
 echo "    - Lifeline commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -1949,6 +1949,8 @@ echo "    - Homebrew"
 echo "    - Ollama or downloaded models (may be 5-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
+echo "    - Your hub power policy (~/.lifeline/power.conf)"
+echo "      kept so a reinstall reuses your existing policy"
 echo ""
 read -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM
 if [[ "$CONFIRM" != "YES" ]]; then
@@ -1969,11 +1971,14 @@ launchctl bootout "gui/$(id -u)/com.lifeline.fda-rerun" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.lifeline.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.colima.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.colima.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -1981,8 +1986,14 @@ sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing Keychain entry..."
 security delete-generic-password -s "Lifeline Recovery Key" 2>/dev/null || true
 
-echo "  Removing Lifeline directory..."
-rm -rf "${HOME}/.lifeline"
+echo "  Removing Lifeline directory (hub power policy preserved)..."
+# Preserve ~/.lifeline/power.conf so a reinstall reuses the user's hub power policy.
+# Everything else under ~/.lifeline goes.
+if [[ -d "${HOME}/.lifeline" ]]; then
+    find "${HOME}/.lifeline" -mindepth 1 -maxdepth 1 ! -name 'power.conf' -exec rm -rf {} + 2>/dev/null || true
+    # If power.conf wasn't there, the directory is now empty - drop it too.
+    rmdir "${HOME}/.lifeline" 2>/dev/null || true
+fi
 
 echo ""
 echo "  Done. Lifeline has been removed."
