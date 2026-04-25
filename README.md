@@ -6,6 +6,18 @@ The one-shot macOS installer for the Lifeline Home Hub. This is the script a use
 curl -fsSL https://lifeline.dev/install.sh | bash
 ```
 
+## Install prerequisites
+
+| Requirement | Why |
+|---|---|
+| macOS 13 (Ventura) or later | Modern Docker, Ollama, security features |
+| Apple Silicon (M1+) | Performance for on-device AI |
+| 16 GB RAM minimum, 24 GB recommended | AI model size limits |
+| 35 GB free disk | Docker images, AI model, embedding model, databases |
+| **Plugged into AC power** | Phase 3 takes 10-15 minutes of continuous Docker pulls + Ollama model downloads. On a MacBook the hub power LaunchAgent (step 3.14) pauses Docker and Ollama on battery, which makes the installer's readiness probes time out. Stay on AC for the full install. |
+
+Run `bash install.sh --check` to verify prerequisites without installing anything. The check warns if you're on battery.
+
 ---
 
 ## Status (2026-04-24)
