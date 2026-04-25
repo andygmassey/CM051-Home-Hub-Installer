@@ -212,6 +212,32 @@ else
     ok "${FREE_GB} GB free disk space"
 fi
 
+# Power source check. On a MacBook, Phase 3 takes 10-15 minutes of
+# continuous Docker pulls and Ollama model downloads. The hub power
+# LaunchAgent installed at step 3.14 pauses Docker and Ollama when
+# the battery drops below the policy threshold, which can hang the
+# installer's readiness probes for the full timeout (90 s / 300 s).
+# Warn the user to stay on AC.
+HAS_BATTERY=false
+if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+    HAS_BATTERY=true
+fi
+
+if [[ "$HAS_BATTERY" == true ]]; then
+    POWER_SOURCE=$(pmset -g batt 2>/dev/null | grep -oE "'(AC Power|Battery Power)'" | head -1 | tr -d "'")
+    if [[ "$POWER_SOURCE" == "AC Power" ]]; then
+        ok "Power source: AC (good for the 10-15 minute install)"
+    else
+        warn "Power source: ${POWER_SOURCE:-Battery Power}"
+        warn "Phase 3 takes 10-15 minutes of Docker + Ollama downloads."
+        warn "On battery, the hub power LaunchAgent (step 3.14) may pause"
+        warn "Docker / Ollama mid-install and hang the readiness probes."
+        warn "Plug into AC power for the full install."
+    fi
+else
+    ok "Power source: AC (desktop Mac, no battery)"
+fi
+
 # Check Docker availability (don't install yet — just check)
 HAS_DOCKER=false
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
