@@ -1678,9 +1678,12 @@ else
     if git clone --quiet "$PIPELINE_REPO" "$PIPELINE_DIR" 2>/dev/null; then
         HAS_PIPELINE=true
     else
-        warn "Import pipeline not available (private repo – beta testers only)."
+        warn "Import pipeline not available (private repo - beta testers only)."
         info "This is expected for now. GDPR import will be available in a future update."
         info "Your Mac data (iMessage, Safari, etc.) was already extracted above."
+        info "To install later once you have access:"
+        info "  git clone ${PIPELINE_REPO} ${PIPELINE_DIR}"
+        info "  Override the source repo with PWG_PIPELINE_REPO=<url> ./install.sh"
     fi
 fi
 
@@ -2099,7 +2102,12 @@ else
         rm -rf "$HUB_POWER_TMP"
         warn "Could not obtain hub-power scripts (bundled / cloned both failed)."
         warn "Skipping LaunchAgent install. Mac Mini deployments are unaffected."
-        warn "MacBook deployments can install manually later from HR015's hub-power/."
+        warn "MacBook deployments need this for battery / sleep handling."
+        info "To install later once you have access:"
+        info "  git clone ${HUB_POWER_REPO} /tmp/hub-power-src"
+        info "  mkdir -p ${HUB_POWER_DIR} && cp -R /tmp/hub-power-src/hub-power/* ${HUB_POWER_DIR}/"
+        info "  LIFELINE_INSTALL_ROOT=${HUB_POWER_DIR} bash ${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+        info "  Override the source repo with PWG_HUB_POWER_REPO=<url> ./install.sh"
     fi
 fi
 
