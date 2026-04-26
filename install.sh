@@ -74,7 +74,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo ""
     echo "  POWER_POLICY"
     echo "    Hub power policy on MacBooks: normal | aggressive | eco."
-    echo "    Read from ~/.lifeline/power.conf at runtime, not at install"
+    echo "    Read from ~/.ostler/power.conf at runtime, not at install"
     echo "    time. Edit that file post-install to change."
     echo ""
     echo "Your personal data stays on your machine. Ostler makes only narrow"
@@ -106,7 +106,7 @@ step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 
 # ── Paths ──────────────────────────────────────────────────────────
 
-LIFELINE_DIR="${HOME}/.lifeline"
+LIFELINE_DIR="${HOME}/.ostler"
 DATA_DIR="${LIFELINE_DIR}/data"
 CONFIG_DIR="${LIFELINE_DIR}/config"
 LOGS_DIR="${LIFELINE_DIR}/logs"
@@ -655,11 +655,11 @@ fi  # end of SKIP_PHASE2 check (user input questions)
 
 # We need the security module available for validation. Copy it now.
 mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
-# SECURITY_DIR is the PARENT — the package lives at SECURITY_DIR/lifeline_security/
+# SECURITY_DIR is the PARENT – the package lives at SECURITY_DIR/ostler_security/
 HAS_SECURITY_MODULE=false
-if [[ -d "${SCRIPT_DIR}/lifeline_security" ]]; then
+if [[ -d "${SCRIPT_DIR}/ostler_security" ]]; then
     mkdir -p "$SECURITY_DIR"
-    cp -R "${SCRIPT_DIR}/lifeline_security" "$SECURITY_DIR/"
+    cp -R "${SCRIPT_DIR}/ostler_security" "$SECURITY_DIR/"
     HAS_SECURITY_MODULE=true
 
     # The security module imports `cryptography` at the top level,
@@ -725,7 +725,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
         VALIDATE_MSG=$(printf '%s' "$PASSPHRASE" | "$LIFELINE_PYTHON" -c "
 import sys
 sys.path.insert(0, '${SECURITY_DIR}')
-from lifeline_security.passphrase import validate_passphrase_strength
+from ostler_security.passphrase import validate_passphrase_strength
 pp = sys.stdin.read()
 ok, msg = validate_passphrase_strength(pp)
 if not ok:
@@ -753,7 +753,7 @@ if not ok:
     done
 else
     warn "Security module not found. Passphrase setup will be skipped."
-    warn "You can run the security setup later: python3 -m lifeline_security.setup_wizard"
+    warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
 fi
 
 # ── 8. AI model (automatic) ────────────────────────────────────────
@@ -895,7 +895,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
         if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
             LIFELINE_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
         elif [[ -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
-            # Extract the mbox out of the zip into ~/.lifeline/imports/takeout/
+            # Extract the mbox out of the zip into ~/.ostler/imports/takeout/
             TAKEOUT_EXTRACT_DIR="${LIFELINE_DIR}/imports/takeout"
             mkdir -p "${TAKEOUT_EXTRACT_DIR}"
             info "Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
@@ -1069,7 +1069,7 @@ echo ""
 echo "  Your personal data stays on this machine. Ostler makes only narrow"
 echo "  outbound queries for public-data enrichment and (optional) web search,"
 echo "  plus model/software updates. Full detail in the privacy policy."
-echo "  You can remove everything at any time with: lifeline-uninstall"
+echo "  You can remove everything at any time with: ostler-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
 echo "    1. You are 18 or older"
@@ -1285,7 +1285,7 @@ else
 
     # Set up Colima auto-start on boot (if using Colima)
     if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
-        COLIMA_PLIST="${HOME}/Library/LaunchAgents/com.lifeline.colima.plist"
+        COLIMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
         if [[ ! -f "$COLIMA_PLIST" ]]; then
             mkdir -p "${HOME}/Library/LaunchAgents"
             cat > "$COLIMA_PLIST" <<COLEOF
@@ -1294,7 +1294,7 @@ else
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.lifeline.colima</string>
+    <string>com.ostler.colima</string>
     <key>ProgramArguments</key>
     <array>
         <string>$(which colima)</string>
@@ -1469,7 +1469,7 @@ from pathlib import Path
 sys.path.insert(0, '${SECURITY_DIR}')
 passphrase = sys.stdin.read()
 try:
-    from lifeline_security.passphrase import setup_passphrase
+    from ostler_security.passphrase import setup_passphrase
     result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
     print('RECOVERY_KEY=' + result['recovery_key'])
 except Exception as e:
@@ -1483,7 +1483,7 @@ except Exception as e:
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
         warn "Security setup failed. Continuing without database encryption."
-        warn "You can run the security setup later: python3 -m lifeline_security.setup_wizard"
+        warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
     else
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_KEY=" | cut -d= -f2-)
         ok "Databases encrypted. Passphrase required at each startup."
@@ -1557,13 +1557,13 @@ print(json.dumps(summary, default=str))
     else
         info "No FDA sources available right now. You can grant Full Disk Access"
         info "later in System Settings > Privacy & Security > Full Disk Access"
-        info "and re-run: lifeline-fda"
+        info "and re-run: ostler-fda"
     fi
 
     # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
     # iCloud syncs. Calendar, Notes, Photos face recognition etc. can
     # take hours to fully sync after first app launch.
-    FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist"
+    FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
         # Calculate the run date: now + 12 hours
         FDA_RERUN_HOUR=$(date -v+12H +%H)
@@ -1579,10 +1579,10 @@ print(json.dumps(summary, default=str))
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.lifeline.fda-rerun</string>
+    <string>com.ostler.fda-rerun</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${LIFELINE_DIR}/bin/lifeline-fda</string>
+        <string>${LIFELINE_DIR}/bin/ostler-fda</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -1642,7 +1642,7 @@ cat > "${LIFELINE_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
     image: qdrant/qdrant:v1.12.1
-    container_name: lifeline-qdrant
+    container_name: ostler-qdrant
     ports:
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
@@ -1652,7 +1652,7 @@ services:
 
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph:0.4.6
-    container_name: lifeline-oxigraph
+    container_name: ostler-oxigraph
     ports:
       - "127.0.0.1:7878:7878"
     volumes:
@@ -1662,7 +1662,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: lifeline-redis
+    container_name: ostler-redis
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -1774,31 +1774,31 @@ if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]
         ok "GDPR import complete"
     else
         warn "GDPR import had errors. You can re-run with:"
-        warn "  lifeline-import ${EXPORTS_DIR} --user-name \"${USER_NAME}\" --verbose"
+        warn "  ostler-import ${EXPORTS_DIR} --user-name \"${USER_NAME}\" --verbose"
     fi
 elif [[ -n "$EXPORTS_DIR" ]]; then
     info "GDPR exports detected but import pipeline not yet available."
-    info "Your exports are safe. Import them later with: lifeline-import ${EXPORTS_DIR}"
+    info "Your exports are safe. Import them later with: ostler-import ${EXPORTS_DIR}"
 fi
 
-# ── 3.12 lifeline-import command ──────────────────────────────────
+# ── 3.12 ostler-import command ──────────────────────────────────
 
-IMPORT_SCRIPT="${LIFELINE_DIR}/bin/lifeline-import"
+IMPORT_SCRIPT="${LIFELINE_DIR}/bin/ostler-import"
 mkdir -p "${LIFELINE_DIR}/bin"
 
-if [[ -f "${SCRIPT_DIR}/lifeline-import.sh" ]]; then
-    cp "${SCRIPT_DIR}/lifeline-import.sh" "$IMPORT_SCRIPT"
+if [[ -f "${SCRIPT_DIR}/ostler-import.sh" ]]; then
+    cp "${SCRIPT_DIR}/ostler-import.sh" "$IMPORT_SCRIPT"
 else
     cat > "$IMPORT_SCRIPT" <<'IMPORTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
-LIFELINE_DIR="${HOME}/.lifeline"
+LIFELINE_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${LIFELINE_DIR}/import-pipeline"
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: lifeline-import <exports-dir> [--user-name \"Name\"] [--verbose]"
+    echo "Usage: ostler-import <exports-dir> [--user-name \"Name\"] [--verbose]"
     echo ""
-    echo "Example: lifeline-import ~/Downloads/gdpr-exports/ --user-name \"Tom\" --verbose"
+    echo "Example: ostler-import ~/Downloads/gdpr-exports/ --user-name \"Tom\" --verbose"
     exit 1
 fi
 
@@ -1824,12 +1824,12 @@ fi
 
 chmod +x "$IMPORT_SCRIPT"
 
-# Create a lifeline-fda command for re-running FDA extraction
+# Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
-cat > "${LIFELINE_DIR}/bin/lifeline-fda" <<'FDAEOF'
+cat > "${LIFELINE_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail
-LIFELINE_DIR="${HOME}/.lifeline"
+LIFELINE_DIR="${HOME}/.ostler"
 FDA_DIR="${LIFELINE_DIR}/fda-module"
 LIFELINE_PYTHON="${LIFELINE_DIR}/.venv/bin/python3"
 
@@ -1850,8 +1850,8 @@ echo "(Grant Full Disk Access to Terminal if prompted)"
 echo ""
 
 # Load the user's source-consent list from .env so re-runs respect it.
-if [[ -f "${HOME}/.lifeline/config/.env" ]]; then
-    set -a; source "${HOME}/.lifeline/config/.env"; set +a
+if [[ -f "${HOME}/.ostler/config/.env" ]]; then
+    set -a; source "${HOME}/.ostler/config/.env"; set +a
 fi
 "\$LIFELINE_PYTHON" -c "
 import sys
@@ -1861,16 +1861,16 @@ from pathlib import Path
 run_all(Path('${LIFELINE_DIR}/imports/fda'))
 "
 FDAEOF
-chmod +x "${LIFELINE_DIR}/bin/lifeline-fda"
+chmod +x "${LIFELINE_DIR}/bin/ostler-fda"
 
 # Create an export watcher script — scans Downloads for new GDPR exports
-cat > "${LIFELINE_DIR}/bin/lifeline-scan-exports" <<'SCANEOF'
+cat > "${LIFELINE_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
 #!/usr/bin/env bash
 # Scans ~/Downloads for recognised GDPR export files.
 # Run manually or via launchd (checks every 4 hours).
 set -euo pipefail
 
-LIFELINE_DIR="${HOME}/.lifeline"
+LIFELINE_DIR="${HOME}/.ostler"
 SCAN_STATE="${LIFELINE_DIR}/state/scan_state.json"
 DOWNLOADS="${HOME}/Downloads"
 
@@ -1915,7 +1915,7 @@ if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; th
 fi
 
 # Show notification
-osascript -e "display notification \"${#FOUND[@]} data export(s) found in Downloads. Open Terminal and run: lifeline-import ~/Downloads/\" with title \"Ostler\" subtitle \"GDPR exports ready to import\""
+osascript -e "display notification \"${#FOUND[@]} data export(s) found in Downloads. Open Terminal and run: ostler-import ~/Downloads/\" with title \"Ostler\" subtitle \"GDPR exports ready to import\""
 
 echo "$FOUND_HASH" >> "$SCAN_STATE"
 
@@ -1925,21 +1925,21 @@ if [[ -t 1 ]]; then
     printf '  %s\n' "${FOUND[@]}"
 fi
 SCANEOF
-chmod +x "${LIFELINE_DIR}/bin/lifeline-scan-exports"
+chmod +x "${LIFELINE_DIR}/bin/ostler-scan-exports"
 
 # Set up launchd plist to scan every 4 hours
 mkdir -p "${HOME}/Library/LaunchAgents"
-SCAN_PLIST="${HOME}/Library/LaunchAgents/com.lifeline.export-scan.plist"
+SCAN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 cat > "$SCAN_PLIST" <<SPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.lifeline.export-scan</string>
+    <string>com.ostler.export-scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${LIFELINE_DIR}/bin/lifeline-scan-exports</string>
+        <string>${LIFELINE_DIR}/bin/ostler-scan-exports</string>
     </array>
     <key>StartInterval</key>
     <integer>14400</integer>
@@ -1965,35 +1965,35 @@ case "$USER_SHELL" in
         # Fish uses a different syntax
         FISH_CONFIG="${HOME}/.config/fish/config.fish"
         mkdir -p "$(dirname "$FISH_CONFIG")"
-        if ! grep -q "lifeline/bin" "$FISH_CONFIG" 2>/dev/null; then
+        if ! grep -q "ostler/bin" "$FISH_CONFIG" 2>/dev/null; then
             echo '' >> "$FISH_CONFIG"
             echo '# Ostler' >> "$FISH_CONFIG"
-            echo 'set -gx PATH $HOME/.lifeline/bin $PATH' >> "$FISH_CONFIG"
+            echo 'set -gx PATH $HOME/.ostler/bin $PATH' >> "$FISH_CONFIG"
         fi
         SHELL_RC=""  # skip the bash/zsh block below
         ;;
     *)    SHELL_RC="${HOME}/.zshrc" ;;  # default to zsh on macOS
 esac
 
-if [[ -n "$SHELL_RC" ]] && ! grep -q "lifeline/bin" "$SHELL_RC" 2>/dev/null; then
+if [[ -n "$SHELL_RC" ]] && ! grep -q "ostler/bin" "$SHELL_RC" 2>/dev/null; then
     echo '' >> "$SHELL_RC"
     echo '# Ostler' >> "$SHELL_RC"
-    echo 'export PATH="${HOME}/.lifeline/bin:${PATH}"' >> "$SHELL_RC"
+    echo 'export PATH="${HOME}/.ostler/bin:${PATH}"' >> "$SHELL_RC"
 fi
 
 export PATH="${LIFELINE_DIR}/bin:${PATH}"
 
 # Create uninstall script
-cat > "${LIFELINE_DIR}/bin/lifeline-uninstall" <<'UNINSTALLEOF'
+cat > "${LIFELINE_DIR}/bin/ostler-uninstall" <<'UNINSTALLEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 echo ""
 echo "  Ostler Uninstaller"
 echo ""
 echo "  This will remove:"
-echo "    - Docker containers (lifeline-qdrant, lifeline-oxigraph, lifeline-redis)"
+echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis)"
 echo "    - Docker volumes (your knowledge graph data)"
-echo "    - Ostler directory (~/.lifeline, except power.conf)"
+echo "    - Ostler directory (~/.ostler, except power.conf)"
 echo "    - Doctor, export watcher, and hub power launchd services"
 echo "    - Ostler commands from PATH"
 echo ""
@@ -2003,7 +2003,7 @@ echo "    - Homebrew"
 echo "    - Ollama or downloaded models (may be 5-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
-echo "    - Your hub power policy (~/.lifeline/power.conf)"
+echo "    - Your hub power policy (~/.ostler/power.conf)"
 echo "      kept so a reinstall reuses your existing policy"
 echo ""
 read -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM
@@ -2014,39 +2014,39 @@ fi
 
 echo ""
 echo "  Stopping services..."
-cd "${HOME}/.lifeline" 2>/dev/null && docker compose down -v 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.lifeline.doctor" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.doctor.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.lifeline.it-guy" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.it-guy.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.lifeline.export-scan" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.export-scan.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.lifeline.fda-rerun" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.lifeline.colima" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.colima.plist" 2>/dev/null || true
+cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.it-guy" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist" 2>/dev/null || true
-rm -f "${HOME}/Library/LaunchAgents/com.lifeline.doctor.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.lifeline.it-guy.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.lifeline.export-scan.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.lifeline.colima.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
 
 echo "  Removing Keychain entry..."
-security delete-generic-password -s "Lifeline Recovery Key" 2>/dev/null || true
+security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
 
 echo "  Removing Ostler directory (hub power policy preserved)..."
-# Preserve ~/.lifeline/power.conf so a reinstall reuses the user's hub power policy.
-# Everything else under ~/.lifeline goes.
-if [[ -d "${HOME}/.lifeline" ]]; then
-    find "${HOME}/.lifeline" -mindepth 1 -maxdepth 1 ! -name 'power.conf' -exec rm -rf {} + 2>/dev/null || true
+# Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power policy.
+# Everything else under ~/.ostler goes.
+if [[ -d "${HOME}/.ostler" ]]; then
+    find "${HOME}/.ostler" -mindepth 1 -maxdepth 1 ! -name 'power.conf' -exec rm -rf {} + 2>/dev/null || true
     # If power.conf wasn't there, the directory is now empty - drop it too.
-    rmdir "${HOME}/.lifeline" 2>/dev/null || true
+    rmdir "${HOME}/.ostler" 2>/dev/null || true
 fi
 
 echo ""
@@ -2054,9 +2054,9 @@ echo "  Done. Ostler has been removed."
 echo "  (You may want to remove the PATH line from your shell config.)"
 echo ""
 UNINSTALLEOF
-chmod +x "${LIFELINE_DIR}/bin/lifeline-uninstall"
+chmod +x "${LIFELINE_DIR}/bin/ostler-uninstall"
 
-ok "lifeline-import, lifeline-fda, and lifeline-uninstall commands installed"
+ok "ostler-import, ostler-fda, and ostler-uninstall commands installed"
 
 # ── 3.13 Ostler Doctor ──────────────────────────────────────────
 
@@ -2080,14 +2080,14 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     ok "Doctor dependencies installed"
 
     mkdir -p "${HOME}/Library/LaunchAgents"
-    DOCTOR_PLIST="${HOME}/Library/LaunchAgents/com.lifeline.doctor.plist"
+    DOCTOR_PLIST="${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
     cat > "$DOCTOR_PLIST" <<DOCEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.lifeline.doctor</string>
+    <string>com.ostler.doctor</string>
     <key>ProgramArguments</key>
     <array>
         <string>${DOCTOR_DIR}/.venv/bin/python3</string>
@@ -2176,7 +2176,7 @@ fi
 if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
     if LIFELINE_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
         ok "Hub power LaunchAgent loaded (label com.creativemachines.lifeline.hub-power)"
-        info "Policy override: edit ~/.lifeline/power.conf (normal / aggressive / eco)"
+        info "Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
     else
         warn "Hub power LaunchAgent install failed. See output above."
         warn "Mac Mini deployments are unaffected; MacBook users should retry."
@@ -2298,7 +2298,7 @@ else
     HEALTHY=false
 fi
 
-if docker exec lifeline-redis redis-cli ping 2>/dev/null | grep -q PONG; then
+if docker exec ostler-redis redis-cli ping 2>/dev/null | grep -q PONG; then
     ok "Redis healthy"
 else
     warn "Redis not responding"
@@ -2332,7 +2332,7 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     if [[ "${SAVE_KEYCHAIN:-y}" != "n" && "${SAVE_KEYCHAIN:-y}" != "N" ]]; then
         security add-generic-password \
             -a "${USER_ID}" \
-            -s "Lifeline Recovery Key" \
+            -s "Ostler Recovery Key" \
             -w "${RECOVERY_KEY}" \
             -T "" \
             -U 2>/dev/null && {
@@ -2401,7 +2401,7 @@ echo "     - Twitter:   Settings > Your account > Download an archive"
 echo "     - WhatsApp:  Settings > Account > Request account info"
 echo ""
 echo "  2. Once exports arrive, import them:"
-echo -e "     ${BOLD}lifeline-import ~/Downloads/gdpr-exports/ \\${NC}"
+echo -e "     ${BOLD}ostler-import ~/Downloads/gdpr-exports/ \\${NC}"
 echo -e "     ${BOLD}    --user-name \"${USER_NAME}\" --verbose${NC}"
 echo ""
 echo -e "  3. ${BOLD}Connect your accounts${NC} (see POST_INSTALL_SETUP.md):"
@@ -2442,8 +2442,8 @@ else
     echo "     Mac Mini / Studio Hub. Always-on AC: nothing is paused."
     echo "     hub-power sees tier 'ac' every tick and takes no action."
 fi
-if [[ -f "${HOME}/.lifeline/power.conf" ]]; then
-    echo "     Policy override: edit ~/.lifeline/power.conf"
+if [[ -f "${HOME}/.ostler/power.conf" ]]; then
+    echo "     Policy override: edit ~/.ostler/power.conf"
     echo "                      (POWER_POLICY=normal | aggressive | eco)"
 fi
 echo ""

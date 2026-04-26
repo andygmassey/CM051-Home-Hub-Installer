@@ -23,4 +23,4 @@ Upstream timing: after launch (mid-late May 2026), when contribution builds mark
 | Apple Mail FDA channel / reader | Covered by Andy's provisional patent; "zero CASA, zero Google API surface" is a structural moat for Lifeline |
 | PWG integration hooks (if any custom ones are added) | Lifeline-specific; shouldn't leak into a generic framework |
 | Privacy-classifier routing (personal-data → local LLM, public → cloud) | Patent-adjacent, Lifeline product logic |
-| Any tool that reads from `lifeline_security`, `lifeline_fda`, or PWG graph | Product layer, not framework layer |
+| Any tool that reads from `ostler_security`, `lifeline_fda`, or PWG graph | Product layer, not framework layer |
