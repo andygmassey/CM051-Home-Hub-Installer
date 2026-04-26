@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Lifeline — Beta Installer
-# Usage: curl -fsSL https://lifeline.dev/install.sh | bash
+# Ostler – Beta Installer
+# Usage: curl -fsSL https://ostler.ai/install.sh | bash
 #
 # Structure:
 #   Phase 1: Check prerequisites (automatic, no input)
@@ -37,9 +37,9 @@ for arg in "$@"; do
 done
 
 if [[ "$SHOW_HELP" == true ]]; then
-    echo "Lifeline Installer"
+    echo "Ostler Installer"
     echo ""
-    echo "Usage: curl -fsSL lifeline.dev/install.sh | bash"
+    echo "Usage: curl -fsSL ostler.ai/install.sh | bash"
     echo "       bash install.sh [--check] [--help]"
     echo ""
     echo "Options:"
@@ -77,10 +77,10 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    Read from ~/.lifeline/power.conf at runtime, not at install"
     echo "    time. Edit that file post-install to change."
     echo ""
-    echo "Your personal data stays on your machine. Lifeline makes only narrow"
+    echo "Your personal data stays on your machine. Ostler makes only narrow"
     echo "public-data queries (Wikidata for enrichment, optional web search via"
     echo "SearXNG) and downloads model and software updates. See the privacy"
-    echo "policy at creativemachines.ai/lifeline/legal-privacy for full detail."
+    echo "policy at creativemachines.ai/ostler/legal-privacy for full detail."
     exit 0
 fi
 
@@ -144,7 +144,7 @@ elif [[ -x /usr/local/bin/brew ]]; then
 fi
 
 echo ""
-echo -e "${BOLD}  Lifeline — Your personal knowledge graph${NC}"
+echo -e "${BOLD}  Ostler – Your personal knowledge graph${NC}"
 echo -e "  Local-first. Private. Yours."
 echo ""
 echo "  This installer will ask you a few questions, then set up"
@@ -158,7 +158,7 @@ step "Checking prerequisites"
 # When the installer is bundled inside the Mac App Store app:
 # - Apple ID gives us the user's name (no need to ask)
 # - StoreKit receipt proves purchase
-# - Activation code for free Lifeline month is generated here
+# - Activation code for free Ostler month is generated here
 # - The whole Phase 2 reduces to: passphrase + confirm
 #
 # For the beta, we use an activation code entered here.
@@ -327,10 +327,10 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 step "Setup (answer a few questions, then walk away)"
 
 echo ""
-echo -e "  ${BOLD}What Lifeline needs from your Mac${NC}"
+echo -e "  ${BOLD}What Ostler needs from your Mac${NC}"
 echo ""
 echo "  macOS will ask you to approve two permissions. These are"
-echo "  required for Lifeline to work:"
+echo "  required for Ostler to work:"
 echo ""
 echo -e "    ${BOLD}Contacts${NC}          Your name + contacts for the knowledge graph"
 echo -e "    ${BOLD}Files & Folders${NC}   Find data exports in your Downloads folder"
@@ -347,22 +347,22 @@ echo "  webmail only — add those accounts to Mac Mail first:"
 echo "    System Settings > Internet Accounts > add account > tick Mail"
 echo ""
 echo "  Apple handles the authentication; messages land in your local Mail"
-echo "  store; Lifeline reads from there via Full Disk Access. No passwords"
-echo "  for Lifeline to hold, no OAuth clients, no cloud API calls."
+echo "  store; Ostler reads from there via Full Disk Access. No passwords"
+echo "  for Ostler to hold, no OAuth clients, no cloud API calls."
 echo "  More accounts in Mail = more depth in your knowledge graph."
 echo ""
 echo "  Same trick for calendars: add them to Apple Calendar (System"
-echo "  Settings > Internet Accounts) and Lifeline reads everything together."
+echo "  Settings > Internet Accounts) and Ostler reads everything together."
 echo ""
-echo "  Your personal data stays on this machine. Lifeline makes a few"
+echo "  Your personal data stays on this machine. Ostler makes a few"
 echo "  narrow public-data queries (described in the privacy policy) plus"
 echo "  model and software downloads. These are standard Apple prompts."
 echo ""
 read -p "  Ready to continue? (Y/n): " PERMS_OK
 if [[ "${PERMS_OK:-y}" == "n" || "${PERMS_OK:-y}" == "N" ]]; then
     echo ""
-    echo "  No problem. Review what Lifeline needs at:"
-    echo "  creativemachines.ai/lifeline/privacy"
+    echo "  No problem. Review what Ostler needs at:"
+    echo "  creativemachines.ai/ostler/privacy"
     echo ""
     echo "  Re-run the installer when you are ready."
     exit 0
@@ -605,7 +605,7 @@ _link() {
 echo ""
 echo -e "  ${BOLD}Your data sources${NC}"
 echo ""
-echo "  Lifeline imports from 20 platforms. Request your data exports"
+echo "  Ostler imports from 20 platforms. Request your data exports"
 echo "  now — they take 1-3 days to arrive by email. You can do this"
 echo "  on your phone while the installer runs."
 echo ""
@@ -621,7 +621,7 @@ printf "    %-14s %s\n" "Twitter / X"    "$(_link 'https://x.com/settings/downlo
 printf "    %-14s %s\n" "WhatsApp"       "Settings > Account > Request Account Info"
 echo ""
 echo "  When your exports arrive, just download them to your"
-echo "  Downloads folder. Lifeline will find them automatically."
+echo "  Downloads folder. Ostler will find them automatically."
 echo ""
 echo "  Skip any you do not use. You can always import more later."
 echo ""
@@ -699,7 +699,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
     echo -e "  ${BOLD}Why a strong passphrase matters${NC}"
     echo ""
-    echo "  This is not a newsletter signup. Lifeline will hold every"
+    echo "  This is not a newsletter signup. Ostler will hold every"
     echo "  relationship, every conversation, every pattern in your life."
     echo "  Think of it like the password for your entire digital soul."
     echo ""
@@ -886,9 +886,9 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
         info "Found Google Takeout zip at ${TAKEOUT_ZIP_PATH} (${ZIP_SIZE_MB} MB)"
     fi
     echo ""
-    echo "  Lifeline can read your full Gmail content from a Takeout export"
+    echo "  Ostler can read your full Gmail content from a Takeout export"
     echo "  WITHOUT connecting to Google's API. Your Gmail messages stay on"
-    echo "  this machine; Google never sees that Lifeline exists."
+    echo "  this machine; Google never sees that Ostler exists."
     echo ""
     read -p "  Import Gmail messages from this Takeout? (Y/n): " TAKEOUT_CONFIRM
     if [[ "${TAKEOUT_CONFIRM:-y}" != "n" && "${TAKEOUT_CONFIRM:-y}" != "N" ]]; then
@@ -936,7 +936,7 @@ fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  ${BOLD}Which Mac sources should Lifeline learn from?${NC}"
+echo -e "  ${BOLD}Which Mac sources should Ostler learn from?${NC}"
 echo ""
 echo "  Each source can be turned on or off. You can change these"
 echo "  any time later. Sensitive ones (face recognition) are off"
@@ -1043,8 +1043,8 @@ echo "  Enabled sources: ${LIFELINE_FDA_SOURCES//,/, }"
 
 if [[ "$HAS_APPLE_MAIL_GMAIL" == false && "$LIFELINE_FDA_SOURCES" == *"apple_mail"* ]]; then
     info "Tip: to include your Gmail, add it to Mac Mail first"
-    info "(System Settings > Internet Accounts). Lifeline reads from Mail's"
-    info "local store — Google never sees that Lifeline exists."
+    info "(System Settings > Internet Accounts). Ostler reads from Mail's"
+    info "local store – Google never sees that Ostler exists."
 fi
 
 # ── 10. Consent ───────────────────────────────────────────────────
@@ -1054,7 +1054,7 @@ echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo -e "  ${BOLD}Before we begin${NC}"
 echo ""
-echo "  Lifeline will now install the following on this Mac:"
+echo "  Ostler will now install the following on this Mac:"
 echo ""
 echo "    - Docker containers via Colima (Qdrant, Oxigraph, Redis)"
 echo "    - Ollama with ${AI_MODEL} (${AI_MODEL_SIZE})"
@@ -1066,16 +1066,16 @@ echo "    - Import ${CONTACT_COUNT} contacts from iCloud"
 echo "    - Import GDPR exports from ${EXPORTS_DIR}"
 echo "    - Import from your selected Mac sources (above)"
 echo ""
-echo "  Your personal data stays on this machine. Lifeline makes only narrow"
+echo "  Your personal data stays on this machine. Ostler makes only narrow"
 echo "  outbound queries for public-data enrichment and (optional) web search,"
 echo "  plus model/software updates. Full detail in the privacy policy."
 echo "  You can remove everything at any time with: lifeline-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
 echo "    1. You are 18 or older"
-echo "    2. You understand what Lifeline stores and how"
+echo "    2. You understand what Ostler stores and how"
 echo "    3. You have set a passphrase you will remember"
-echo "    4. You accept the terms at creativemachines.ai/lifeline/terms"
+echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
 while true; do
@@ -1396,7 +1396,7 @@ fi
 progress "Saving your configuration"
 
 cat > "${CONFIG_DIR}/.env" <<ENVEOF
-# Lifeline configuration — generated by installer
+# Ostler configuration – generated by installer
 USER_ID="${USER_ID}"
 USER_NAME="${USER_NAME}"
 ASSISTANT_NAME="${ASSISTANT_NAME}"
@@ -1528,7 +1528,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     info "Reading Safari, iMessage, Notes, Calendar, Photos, Reminders, Mail..."
     info "This reads macOS databases directly — no export needed."
     info "(If macOS asks for Full Disk Access, grant it for faster onboarding."
-    info " You can skip it — Lifeline works without it, just with less data.)"
+    info " You can skip it – Ostler works without it, just with less data.)"
     echo ""
 
     # Pass user's per-source consent (set in Phase 2) to the extractor.
@@ -1804,13 +1804,13 @@ fi
 
 if [[ ! -d "$PIPELINE_DIR/contact_syncer" ]]; then
     echo "Error: Import pipeline not installed."
-    echo "Re-run the Lifeline installer to set it up."
+    echo "Re-run the Ostler installer to set it up."
     exit 1
 fi
 
 if [[ ! -d "$PIPELINE_DIR/.venv" ]]; then
     echo "Error: Python environment not set up."
-    echo "Re-run the Lifeline installer to fix this."
+    echo "Re-run the Ostler installer to fix this."
     exit 1
 fi
 
@@ -1835,13 +1835,13 @@ LIFELINE_PYTHON="${LIFELINE_DIR}/.venv/bin/python3"
 
 if [[ ! -d "$FDA_DIR/lifeline_fda" ]]; then
     echo "Error: FDA extraction module not installed."
-    echo "Re-run the Lifeline installer to set it up."
+    echo "Re-run the Ostler installer to set it up."
     exit 1
 fi
 
 if [[ ! -f "$LIFELINE_PYTHON" ]]; then
     echo "Error: Python environment not set up."
-    echo "Re-run the Lifeline installer to fix this."
+    echo "Re-run the Ostler installer to fix this."
     exit 1
 fi
 
@@ -1915,7 +1915,7 @@ if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; th
 fi
 
 # Show notification
-osascript -e "display notification \"${#FOUND[@]} data export(s) found in Downloads. Open Terminal and run: lifeline-import ~/Downloads/\" with title \"Lifeline\" subtitle \"GDPR exports ready to import\""
+osascript -e "display notification \"${#FOUND[@]} data export(s) found in Downloads. Open Terminal and run: lifeline-import ~/Downloads/\" with title \"Ostler\" subtitle \"GDPR exports ready to import\""
 
 echo "$FOUND_HASH" >> "$SCAN_STATE"
 
@@ -1967,7 +1967,7 @@ case "$USER_SHELL" in
         mkdir -p "$(dirname "$FISH_CONFIG")"
         if ! grep -q "lifeline/bin" "$FISH_CONFIG" 2>/dev/null; then
             echo '' >> "$FISH_CONFIG"
-            echo '# Lifeline' >> "$FISH_CONFIG"
+            echo '# Ostler' >> "$FISH_CONFIG"
             echo 'set -gx PATH $HOME/.lifeline/bin $PATH' >> "$FISH_CONFIG"
         fi
         SHELL_RC=""  # skip the bash/zsh block below
@@ -1977,7 +1977,7 @@ esac
 
 if [[ -n "$SHELL_RC" ]] && ! grep -q "lifeline/bin" "$SHELL_RC" 2>/dev/null; then
     echo '' >> "$SHELL_RC"
-    echo '# Lifeline' >> "$SHELL_RC"
+    echo '# Ostler' >> "$SHELL_RC"
     echo 'export PATH="${HOME}/.lifeline/bin:${PATH}"' >> "$SHELL_RC"
 fi
 
@@ -1988,14 +1988,14 @@ cat > "${LIFELINE_DIR}/bin/lifeline-uninstall" <<'UNINSTALLEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 echo ""
-echo "  Lifeline Uninstaller"
+echo "  Ostler Uninstaller"
 echo ""
 echo "  This will remove:"
 echo "    - Docker containers (lifeline-qdrant, lifeline-oxigraph, lifeline-redis)"
 echo "    - Docker volumes (your knowledge graph data)"
-echo "    - Lifeline directory (~/.lifeline, except power.conf)"
+echo "    - Ostler directory (~/.lifeline, except power.conf)"
 echo "    - Doctor, export watcher, and hub power launchd services"
-echo "    - Lifeline commands from PATH"
+echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
 echo "    - Docker Desktop or Colima"
@@ -2040,7 +2040,7 @@ sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing Keychain entry..."
 security delete-generic-password -s "Lifeline Recovery Key" 2>/dev/null || true
 
-echo "  Removing Lifeline directory (hub power policy preserved)..."
+echo "  Removing Ostler directory (hub power policy preserved)..."
 # Preserve ~/.lifeline/power.conf so a reinstall reuses the user's hub power policy.
 # Everything else under ~/.lifeline goes.
 if [[ -d "${HOME}/.lifeline" ]]; then
@@ -2050,7 +2050,7 @@ if [[ -d "${HOME}/.lifeline" ]]; then
 fi
 
 echo ""
-echo "  Done. Lifeline has been removed."
+echo "  Done. Ostler has been removed."
 echo "  (You may want to remove the PATH line from your shell config.)"
 echo ""
 UNINSTALLEOF
@@ -2058,9 +2058,9 @@ chmod +x "${LIFELINE_DIR}/bin/lifeline-uninstall"
 
 ok "lifeline-import, lifeline-fda, and lifeline-uninstall commands installed"
 
-# ── 3.13 Lifeline Doctor ──────────────────────────────────────────
+# ── 3.13 Ostler Doctor ──────────────────────────────────────────
 
-progress "Setting up Lifeline Doctor diagnostic dashboard"
+progress "Setting up Ostler Doctor diagnostic dashboard"
 
 DOCTOR_DIR="${LIFELINE_DIR}/doctor"
 mkdir -p "$DOCTOR_DIR"
@@ -2117,7 +2117,7 @@ DOCEOF
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "Lifeline Doctor running at http://localhost:8090/doctor"
+    ok "Ostler Doctor running at http://localhost:8090/doctor"
 fi
 
 # ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────
@@ -2185,12 +2185,12 @@ fi
 
 # ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
 #
-# Lifeline's iOS companion app talks to this Mac's API at port 8089.
+# Ostler's iOS companion app talks to this Mac's API at port 8089.
 # On the home Wi-Fi the LAN IP works; out and about it doesn't. Tailscale
 # gives this Mac a stable private IP (100.x.x.x) reachable from your
 # phone anywhere, encrypted end-to-end, with no public exposure.
 # Free for personal use up to 100 devices. Skipping this step is fine
-# if you never use Lifeline's companion away from home Wi-Fi.
+# if you never use Ostler's companion away from home Wi-Fi.
 
 LIFELINE_TAILSCALE_IP=""
 
@@ -2249,7 +2249,7 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
 
         if [[ -n "$LIFELINE_TAILSCALE_IP" ]]; then
             ok "Tailscale IP: ${LIFELINE_TAILSCALE_IP}"
-            echo "  Use this address in the Lifeline iOS companion app:"
+            echo "  Use this address in the Ostler iOS companion app:"
             echo "    http://${LIFELINE_TAILSCALE_IP}:8089"
             # Persist to .env (replace existing line if present, append otherwise)
             ENV_FILE="${CONFIG_DIR}/.env"
@@ -2367,9 +2367,9 @@ echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 if [[ "$HEALTHY" == true ]]; then
-    echo -e "${GREEN}${BOLD}  Lifeline is running!${NC}"
+    echo -e "${GREEN}${BOLD}  Ostler is running!${NC}"
 else
-    echo -e "${YELLOW}${BOLD}  Lifeline is partially running (check warnings above)${NC}"
+    echo -e "${YELLOW}${BOLD}  Ostler is partially running (check warnings above)${NC}"
 fi
 
 echo ""
