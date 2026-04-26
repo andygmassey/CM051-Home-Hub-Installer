@@ -52,6 +52,31 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "  3. Installs everything automatically (~10-15 minutes)"
     echo "  4. You walk away and come back to a working system"
     echo ""
+    echo "Environment variables (advanced - override before running):"
+    echo ""
+    echo "  PWG_PIPELINE_REPO"
+    echo "    Source repo for the import pipeline (CM041)."
+    echo "    Default: https://github.com/andygmassey/CM041-People-Graph.git"
+    echo ""
+    echo "  PWG_HUB_POWER_REPO"
+    echo "    Source repo for the hub-power LaunchAgent scripts (HR015)."
+    echo "    Default: https://github.com/andygmassey/HR015-Gaming-PC.git"
+    echo ""
+    echo "  WIKI_OBSIDIAN_DIR"
+    echo "    Enable Obsidian vault output for the wiki compiler. Empty"
+    echo "    means disabled."
+    echo "    Default: (unset)"
+    echo ""
+    echo "  OLLAMA_HEADLINE_MODEL"
+    echo "    Model used for short fact headlines in the wiki compiler"
+    echo "    (CM044). Larger narrative summaries use a separate model."
+    echo "    Default: qwen3:8b"
+    echo ""
+    echo "  POWER_POLICY"
+    echo "    Hub power policy on MacBooks: normal | aggressive | eco."
+    echo "    Read from ~/.lifeline/power.conf at runtime, not at install"
+    echo "    time. Edit that file post-install to change."
+    echo ""
     echo "Your personal data stays on your machine. Ostler makes only narrow"
     echo "public-data queries (Wikidata for enrichment, optional web search via"
     echo "SearXNG) and downloads model and software updates. See the privacy"
@@ -96,6 +121,12 @@ PIPELINE_DIR="${LIFELINE_DIR}/import-pipeline"
 # PWG_PIPELINE_REPO="https://github.com/your-org/pipeline.git" ./install.sh
 PIPELINE_REPO="${PWG_PIPELINE_REPO:-https://github.com/andygmassey/CM041-People-Graph.git}"
 
+# Hub power policy scripts (MacBook-as-Hub support). Ships in HR015 under
+# hub-power/. At release the installer tarball bundles a copy under
+# ${SCRIPT_DIR}/hub-power/; in dev it may be symlinked there. Override:
+# HUB_POWER_REPO="https://github.com/your-org/infra.git" ./install.sh
+HUB_POWER_REPO="${PWG_HUB_POWER_REPO:-https://github.com/andygmassey/HR015-Gaming-PC.git}"
+
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 1: PREREQUISITES (automatic — no user input)
 # ══════════════════════════════════════════════════════════════════════
@@ -132,11 +163,13 @@ step "Checking prerequisites"
 #
 # For the beta, we use an activation code entered here.
 # Set LIFELINE_BETA=1 to skip (F&F testers don't need a code).
-if [[ "${LIFELINE_BETA:-0}" != "1" ]]; then
-    # TODO: activate against a licence server or local code check
-    # For now, beta mode is the default
-    :
-fi
+# Activation check is not wired up yet (licence server and StoreKit
+# receipts come with App Store packaging, CM043 Phase 4). Today every
+# install behaves as beta, so the conditional block was a no-op with
+# a single ':' inside. Dropped the empty block; left the TODO tag at
+# file level so the activation path gets picked up during packaging.
+#
+# TODO(app-store-packaging): activate against licence server or local code check
 
 # macOS check
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -202,6 +235,32 @@ if [[ $FREE_GB -lt 35 ]]; then
     fi
 else
     ok "${FREE_GB} GB free disk space"
+fi
+
+# Power source check. On a MacBook, Phase 3 takes 10-15 minutes of
+# continuous Docker pulls and Ollama model downloads. The hub power
+# LaunchAgent installed at step 3.14 pauses Docker and Ollama when
+# the battery drops below the policy threshold, which can hang the
+# installer's readiness probes for the full timeout (90 s / 300 s).
+# Warn the user to stay on AC.
+HAS_BATTERY=false
+if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+    HAS_BATTERY=true
+fi
+
+if [[ "$HAS_BATTERY" == true ]]; then
+    POWER_SOURCE=$(pmset -g batt 2>/dev/null | grep -oE "'(AC Power|Battery Power)'" | head -1 | tr -d "'")
+    if [[ "$POWER_SOURCE" == "AC Power" ]]; then
+        ok "Power source: AC (good for the 10-15 minute install)"
+    else
+        warn "Power source: ${POWER_SOURCE:-Battery Power}"
+        warn "Phase 3 takes 10-15 minutes of Docker + Ollama downloads."
+        warn "On battery, the hub power LaunchAgent (step 3.14) may pause"
+        warn "Docker / Ollama mid-install and hang the readiness probes."
+        warn "Plug into AC power for the full install."
+    fi
+else
+    ok "Power source: AC (desktop Mac, no battery)"
 fi
 
 # Check Docker availability (don't install yet — just check)
@@ -1104,16 +1163,35 @@ progress() {
 # so the Mac stays awake even when the display is off.
 # This requires admin privileges (sudo) which the user already has
 # from the Homebrew install step.
+#
+# Battery-aware: on a MacBook Hub we only set never-sleep when on AC.
+# On battery we preserve default sleep so the hub-power LaunchAgent
+# (step 3.14) can manage the sleep -> wake transition and bring
+# services back cleanly. Mac Mini / Studio installs keep the
+# original always-on behaviour.
+
+HAS_BATTERY=false
+if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+    HAS_BATTERY=true
+fi
 
 SLEEP_SETTING=$(pmset -g | grep '^ sleep' | awk '{print $2}' 2>/dev/null || echo "")
 if [[ "$SLEEP_SETTING" != "0" ]]; then
-    info "Preventing automatic sleep (Ostler needs to stay awake)..."
-    info "(System Settings > Energy > Prevent automatic sleeping when display is off)"
-    info "macOS will now ask for your Mac login password to change this setting."
-    sudo pmset -a sleep 0 2>/dev/null && \
-    sudo pmset -a womp 1 2>/dev/null && \
-    ok "Sleep disabled, wake-on-network enabled" || \
-    warn "Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
+    if [[ "$HAS_BATTERY" == true ]]; then
+        info "MacBook Hub detected: setting never-sleep on AC only (hub-power handles battery transitions)"
+        info "macOS will now ask for your Mac login password to change this setting."
+        sudo pmset -c sleep 0 2>/dev/null && \
+        sudo pmset -a womp 1 2>/dev/null && \
+        ok "Sleep disabled on AC, battery sleep preserved, wake-on-network enabled" || \
+        warn "Could not change sleep settings. Enable 'Prevent automatic sleeping when plugged in' in System Settings > Energy."
+    else
+        info "Desktop Hub (no battery) detected: disabling sleep system-wide"
+        info "macOS will now ask for your Mac login password to change this setting."
+        sudo pmset -a sleep 0 2>/dev/null && \
+        sudo pmset -a womp 1 2>/dev/null && \
+        ok "Sleep disabled, wake-on-network enabled" || \
+        warn "Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
+    fi
 fi
 
 progress "Checking Homebrew and system tools"
@@ -1651,9 +1729,12 @@ else
     if git clone --quiet "$PIPELINE_REPO" "$PIPELINE_DIR" 2>/dev/null; then
         HAS_PIPELINE=true
     else
-        warn "Import pipeline not available (private repo – beta testers only)."
+        warn "Import pipeline not available (private repo - beta testers only)."
         info "This is expected for now. GDPR import will be available in a future update."
         info "Your Mac data (iMessage, Safari, etc.) was already extracted above."
+        info "To install later once you have access:"
+        info "  git clone ${PIPELINE_REPO} ${PIPELINE_DIR}"
+        info "  Override the source repo with PWG_PIPELINE_REPO=<url> ./install.sh"
     fi
 fi
 
@@ -1912,8 +1993,8 @@ echo ""
 echo "  This will remove:"
 echo "    - Docker containers (lifeline-qdrant, lifeline-oxigraph, lifeline-redis)"
 echo "    - Docker volumes (your knowledge graph data)"
-echo "    - Ostler directory (~/.lifeline)"
-echo "    - Doctor and export watcher launchd services"
+echo "    - Ostler directory (~/.lifeline, except power.conf)"
+echo "    - Doctor, export watcher, and hub power launchd services"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -1922,6 +2003,8 @@ echo "    - Homebrew"
 echo "    - Ollama or downloaded models (may be 5-23 GB)"
 echo "      To remove: ollama rm <model-name>"
 echo "    - Your original GDPR export files"
+echo "    - Your hub power policy (~/.lifeline/power.conf)"
+echo "      kept so a reinstall reuses your existing policy"
 echo ""
 read -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM
 if [[ "$CONFIRM" != "YES" ]]; then
@@ -1942,11 +2025,14 @@ launchctl bootout "gui/$(id -u)/com.lifeline.fda-rerun" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.lifeline.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.lifeline.colima.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.lifeline.colima.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -1954,8 +2040,14 @@ sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing Keychain entry..."
 security delete-generic-password -s "Lifeline Recovery Key" 2>/dev/null || true
 
-echo "  Removing Ostler directory..."
-rm -rf "${HOME}/.lifeline"
+echo "  Removing Ostler directory (hub power policy preserved)..."
+# Preserve ~/.lifeline/power.conf so a reinstall reuses the user's hub power policy.
+# Everything else under ~/.lifeline goes.
+if [[ -d "${HOME}/.lifeline" ]]; then
+    find "${HOME}/.lifeline" -mindepth 1 -maxdepth 1 ! -name 'power.conf' -exec rm -rf {} + 2>/dev/null || true
+    # If power.conf wasn't there, the directory is now empty - drop it too.
+    rmdir "${HOME}/.lifeline" 2>/dev/null || true
+fi
 
 echo ""
 echo "  Done. Ostler has been removed."
@@ -2014,7 +2106,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     <key>EnvironmentVariables</key>
     <dict>
         <key>DOCTOR_PORT</key>
-        <string>8089</string>
+        <string>8090</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@creativemachines.ai</string>
     </dict>
@@ -2025,10 +2117,73 @@ DOCEOF
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "Ostler Doctor running at http://localhost:8089/doctor"
+    ok "Ostler Doctor running at http://localhost:8090/doctor"
 fi
 
-# ── 3.14 Tailscale (so the iOS / Watch companion can reach this Mac) ─
+# ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────
+#
+# Installs a LaunchAgent that pauses / resumes Docker services and
+# Ollama based on AC / battery state, and brings things back cleanly
+# after sleep. Design doc: HR015/HUB_PORTABILITY_PLAN.md.
+#
+# Safe on Mac Minis and Studios (always-on AC): the watcher sees tier
+# "ac" every tick and takes no action. Only MacBooks see transitions.
+#
+# Source: HR015's hub-power/ directory. The installer tarball bundles
+# a copy; dev environments may symlink. If neither is present we fall
+# back to cloning from HUB_POWER_REPO.
+
+progress "Setting up hub power policy (MacBook-as-Hub)"
+
+HUB_POWER_DIR="${LIFELINE_DIR}/hub-power"
+HUB_POWER_SNIPPET=""
+HUB_POWER_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh" ]]; then
+    HUB_POWER_SNIPPET="${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh"
+    HUB_POWER_SOURCE="bundled"
+    mkdir -p "$HUB_POWER_DIR"
+    cp -R "${SCRIPT_DIR}/hub-power/"* "$HUB_POWER_DIR/"
+    ok "Hub power scripts bundled with installer"
+elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+    HUB_POWER_SOURCE="existing"
+    info "Reusing existing hub-power install at ${HUB_POWER_DIR}"
+else
+    info "Cloning hub-power scripts..."
+    HUB_POWER_TMP="$(mktemp -d)"
+    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$HUB_POWER_TMP" 2>/dev/null \
+       && [[ -d "$HUB_POWER_TMP/hub-power" ]]; then
+        mkdir -p "$HUB_POWER_DIR"
+        cp -R "$HUB_POWER_TMP/hub-power/"* "$HUB_POWER_DIR/"
+        rm -rf "$HUB_POWER_TMP"
+        HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+        HUB_POWER_SOURCE="cloned"
+        ok "Hub power scripts cloned from ${HUB_POWER_REPO}"
+    else
+        rm -rf "$HUB_POWER_TMP"
+        warn "Could not obtain hub-power scripts (bundled / cloned both failed)."
+        warn "Skipping LaunchAgent install. Mac Mini deployments are unaffected."
+        warn "MacBook deployments need this for battery / sleep handling."
+        info "To install later once you have access:"
+        info "  git clone ${HUB_POWER_REPO} /tmp/hub-power-src"
+        info "  mkdir -p ${HUB_POWER_DIR} && cp -R /tmp/hub-power-src/hub-power/* ${HUB_POWER_DIR}/"
+        info "  LIFELINE_INSTALL_ROOT=${HUB_POWER_DIR} bash ${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+        info "  Override the source repo with PWG_HUB_POWER_REPO=<url> ./install.sh"
+    fi
+fi
+
+if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
+    if LIFELINE_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
+        ok "Hub power LaunchAgent loaded (label com.creativemachines.lifeline.hub-power)"
+        info "Policy override: edit ~/.lifeline/power.conf (normal / aggressive / eco)"
+    else
+        warn "Hub power LaunchAgent install failed. See output above."
+        warn "Mac Mini deployments are unaffected; MacBook users should retry."
+    fi
+fi
+
+# ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
 #
 # Ostler's iOS companion app talks to this Mac's API at port 8089.
 # On the home Wi-Fi the LAN IP works; out and about it doesn't. Tailscale
@@ -2100,10 +2255,14 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
             ENV_FILE="${CONFIG_DIR}/.env"
             if [[ -f "$ENV_FILE" ]]; then
                 if grep -q "^LIFELINE_TAILSCALE_IP=" "$ENV_FILE"; then
-                    # In-place rewrite of the line
+                    # In-place rewrite of the line. Trap ensures the
+                    # temp file is cleaned up even if sed or mv fails
+                    # partway through (disk full, interrupted signal).
                     TMP_ENV=$(mktemp)
+                    trap 'rm -f "$TMP_ENV"' EXIT
                     sed "s|^LIFELINE_TAILSCALE_IP=.*|LIFELINE_TAILSCALE_IP=\"${LIFELINE_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TMP_ENV"
                     mv "$TMP_ENV" "$ENV_FILE"
+                    trap - EXIT
                 else
                     echo "LIFELINE_TAILSCALE_IP=\"${LIFELINE_TAILSCALE_IP}\"" >> "$ENV_FILE"
                 fi
@@ -2257,12 +2416,40 @@ echo ""
 echo "  Dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
-echo "     - Doctor:   http://localhost:8089/doctor"
+echo "     - Doctor:   http://localhost:8090/doctor"
 echo ""
 echo -e "  Config:    ${CONFIG_DIR}/.env"
 echo -e "  Data:      ${DATA_DIR}"
 echo -e "  Logs:      ${LOGS_DIR}"
 echo ""
-echo -e "  ${BOLD}Questions? Issues? Text Andy.${NC}"
+# ── Mac Mini Hub vs MacBook Hub ────────────────────────────────────
+#
+# If the hub-power LaunchAgent installed, tell the user which SKU
+# they are running and how to tune it. Detecting battery presence is
+# cheap: pmset reports a percentage only on machines with a battery.
+
+HAS_BATTERY=false
+if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+    HAS_BATTERY=true
+fi
+
+echo -e "  ${BOLD}Hub deployment:${NC}"
+if [[ "$HAS_BATTERY" == true ]]; then
+    echo "     MacBook Hub. Docker + Ollama will pause automatically when"
+    echo "     you unplug, and resume when you plug back in. Battery life"
+    echo "     stays roughly as it was before Lifeline."
+else
+    echo "     Mac Mini / Studio Hub. Always-on AC: nothing is paused."
+    echo "     hub-power sees tier 'ac' every tick and takes no action."
+fi
+if [[ -f "${HOME}/.lifeline/power.conf" ]]; then
+    echo "     Policy override: edit ~/.lifeline/power.conf"
+    echo "                      (POWER_POLICY=normal | aggressive | eco)"
+fi
+echo ""
+echo -e "  ${BOLD}Need help?${NC}"
+echo "    During beta, email andy@creativemachines.ai."
+echo "    A dedicated support@creativemachines.ai address will be"
+echo "    live by general launch."
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
