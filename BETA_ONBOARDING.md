@@ -19,7 +19,7 @@ Both SKUs get the same installer. The LaunchAgent detects AC vs battery at runti
 
 ## Hub power policy override
 
-`~/.lifeline/power.conf`:
+`~/.ostler/power.conf`:
 
 ```
 POWER_POLICY=normal    # or "aggressive" or "eco"
@@ -41,7 +41,7 @@ Check it's running:
 
 ```bash
 launchctl list | grep com.creativemachines.lifeline.hub-power
-tail -f ~/.lifeline/hub-power.log
+tail -f ~/.ostler/hub-power.log
 ```
 
 Reload after editing `power.conf` is **not needed**, but reloading after updating the scripts is:
@@ -57,17 +57,17 @@ Fully remove:
 ```bash
 launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
 rm ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
-rm -rf ~/.lifeline/hub-power
-# Keep ~/.lifeline/power.conf if the user may reinstall.
+rm -rf ~/.ostler/hub-power
+# Keep ~/.ostler/power.conf if the user may reinstall.
 ```
 
 ---
 
 ## Common tester questions
 
-**"My laptop is hot and the fan is on."** Either plugged in (expected, hub-power has nothing to do) or the user picked `aggressive` (explain the trade-off). Check `cat ~/.lifeline/power.conf`.
+**"My laptop is hot and the fan is on."** Either plugged in (expected, hub-power has nothing to do) or the user picked `aggressive` (explain the trade-off). Check `cat ~/.ostler/power.conf`.
 
-**"Lifeline stopped working after I unplugged."** Expected, the Docker stack is paused. It resumes within about 60 seconds of going back on AC. Check `~/.lifeline/hub-power.log` for the tier transitions.
+**"Lifeline stopped working after I unplugged."** Expected, the Docker stack is paused. It resumes within about 60 seconds of going back on AC. Check `~/.ostler/hub-power.log` for the tier transitions.
 
 **"I want it to always run no matter what."** Set `POWER_POLICY=aggressive`. Warn about battery.
 

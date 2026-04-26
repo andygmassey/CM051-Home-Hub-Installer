@@ -29,13 +29,13 @@ All OoTB ZeroClaw channels supported, grouped by configuration complexity:
 | **Token + allowlist** | Telegram, Discord, Slack, Mattermost, Bluesky, Mastodon, Nostr | Prompt for bot token (or equivalent) + list of allowed user IDs |
 | **Pair-code / QR** | WhatsApp Web | Reuses existing ZeroClaw pair-code flow; defer QR scan to post-install on first run |
 | **OAuth browser-callback** | Gmail, Google Workspace, Outlook | Local HTTP callback server + browser launch + token exchange + encrypted store |
-| **External-account stub** | Matrix, Signal, IRC | Show "requires external account; configure later via `lifeline channel <name> setup`" |
+| **External-account stub** | Matrix, Signal, IRC | Show "requires external account; configure later via `ostler channel <name> setup`" |
 
 ### Out of scope (v1.1 or later)
 
 - Rich TUI with arrow-key navigation (launch uses clean prompts; polish later)
 - Per-channel connection health dashboard
-- Re-run wizard for users who skipped channels first time (defer to `lifeline channel setup`)
+- Re-run wizard for users who skipped channels first time (defer to `ostler channel setup`)
 - Channel removal flow
 
 ### Architecture

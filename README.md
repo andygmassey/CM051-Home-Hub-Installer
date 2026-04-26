@@ -42,10 +42,10 @@ The installer wires in a LaunchAgent that pauses and resumes Docker + Ollama bas
 
 - Scripts: shipped from HR015 under `hub-power/`. Design doc: `HR015/HUB_PORTABILITY_PLAN.md`.
 - Wired at step 3.14 of `install.sh`, which sources `hub-power/INSTALL_SNIPPET.sh`.
-- Installed copy: `~/.lifeline/hub-power/`.
+- Installed copy: `~/.ostler/hub-power/`.
 - LaunchAgent plist: `~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist` (label `com.creativemachines.lifeline.hub-power`).
-- User override: `~/.lifeline/power.conf` with `POWER_POLICY=normal | aggressive | eco`.
-- Log: `~/.lifeline/hub-power.log` (bounded to the last 10,000 lines).
+- User override: `~/.ostler/power.conf` with `POWER_POLICY=normal | aggressive | eco`.
+- Log: `~/.ostler/hub-power.log` (bounded to the last 10,000 lines).
 
 Mac Mini / Studio owners need do nothing. The watcher sees tier `ac` every tick and takes no action.
 
@@ -55,7 +55,7 @@ Check status:
 
 ```bash
 launchctl list | grep com.creativemachines.lifeline.hub-power
-tail -f ~/.lifeline/hub-power.log
+tail -f ~/.ostler/hub-power.log
 ```
 
 Unload:
@@ -77,8 +77,8 @@ Uninstall completely:
 ```bash
 launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
 rm ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
-rm -rf ~/.lifeline/hub-power
-# Leave ~/.lifeline/power.conf if you might reinstall; the policy choice survives.
+rm -rf ~/.ostler/hub-power
+# Leave ~/.ostler/power.conf if you might reinstall; the policy choice survives.
 ```
 
 ## Sibling projects
