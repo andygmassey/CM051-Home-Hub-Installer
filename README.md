@@ -1,9 +1,9 @@
-# CM051 — Lifeline Home Hub Installer
+# CM051 – Ostler Home Hub Installer
 
-The one-shot macOS installer for the Lifeline Home Hub. This is the script a user runs to go from zero to a working local-first Lifeline Hub on their Mac.
+The one-shot macOS installer for the Ostler Home Hub. This is the script a user runs to go from zero to a working local-first Ostler Hub on their Mac.
 
 ```bash
-curl -fsSL https://lifeline.dev/install.sh | bash
+curl -fsSL https://ostler.ai/install.sh | bash
 ```
 
 ---
