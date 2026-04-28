@@ -2439,17 +2439,71 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     echo ""
     read -p "  Save recovery key to Keychain? (Y/n): " SAVE_KEYCHAIN
     if [[ "${SAVE_KEYCHAIN:-y}" != "n" && "${SAVE_KEYCHAIN:-y}" != "N" ]]; then
-        security add-generic-password \
-            -a "${USER_ID}" \
-            -s "Ostler Recovery Key" \
-            -w "${RECOVERY_KEY}" \
-            -T "" \
-            -U 2>/dev/null && {
-            ok "Recovery key saved to Keychain (search 'Lifeline' in Passwords app)"
-            SAVED_TO_KEYCHAIN=true
-        } || {
-            warn "Could not save to Keychain. Please write it down."
-        }
+        # Prefer an explicit Security.framework call so we can pin the
+        # accessibility class to kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        # and kSecAttrSynchronizable=false. This keeps the recovery key
+        # out of Time Machine backups and Migration Assistant – matching
+        # OstlerPasskeyHelper / CM031 / ostler_security elsewhere.
+        # The `security` CLI cannot set these attributes, so we shell
+        # out to swift when available, and fall back to the CLI otherwise.
+        SAVED_TO_KEYCHAIN_VIA="cli"
+        SWIFT_BIN=""
+        if command -v swift &>/dev/null; then
+            SWIFT_BIN="swift"
+        elif xcrun -f swift &>/dev/null 2>&1; then
+            SWIFT_BIN="$(xcrun -f swift)"
+        fi
+        if [[ -n "$SWIFT_BIN" ]]; then
+            KC_HELPER=$(mktemp -t ostler-kc.XXXXXX.swift)
+            cat > "$KC_HELPER" << 'SWIFTEOF'
+import Foundation
+import Security
+guard
+    let service = ProcessInfo.processInfo.environment["KC_SERVICE"],
+    let account = ProcessInfo.processInfo.environment["KC_ACCOUNT"],
+    let password = ProcessInfo.processInfo.environment["KC_PASSWORD"],
+    let pwData = password.data(using: .utf8)
+else { exit(2) }
+let baseQuery: [String: Any] = [
+    kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: service,
+    kSecAttrAccount as String: account,
+]
+SecItemDelete(baseQuery as CFDictionary)
+var addQuery = baseQuery
+addQuery[kSecValueData as String] = pwData
+addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+addQuery[kSecAttrSynchronizable as String] = NSNumber(value: false)
+let status = SecItemAdd(addQuery as CFDictionary, nil)
+exit(status == errSecSuccess ? 0 : 1)
+SWIFTEOF
+            if KC_SERVICE="Ostler Recovery Key" \
+               KC_ACCOUNT="${USER_ID}" \
+               KC_PASSWORD="${RECOVERY_KEY}" \
+               "$SWIFT_BIN" "$KC_HELPER" 2>/dev/null; then
+                SAVED_TO_KEYCHAIN_VIA="swift"
+                ok "Recovery key saved to Keychain (search 'Ostler' in Passwords app)"
+                SAVED_TO_KEYCHAIN=true
+            fi
+            rm -f "$KC_HELPER"
+        fi
+        # Fallback: `security` CLI. Default accessibility class is
+        # kSecAttrAccessibleWhenUnlocked (item travels in Time Machine
+        # backups / Migration Assistant). Acceptable for first-run when
+        # swift isn't available – the user is told to write it down.
+        if [[ "$SAVED_TO_KEYCHAIN" == false ]]; then
+            if security add-generic-password \
+                -a "${USER_ID}" \
+                -s "Ostler Recovery Key" \
+                -w "${RECOVERY_KEY}" \
+                -T "" \
+                -U 2>/dev/null; then
+                ok "Recovery key saved to Keychain (search 'Ostler' in Passwords app)"
+                SAVED_TO_KEYCHAIN=true
+            else
+                warn "Could not save to Keychain. Please write it down."
+            fi
+        fi
     fi
 
     if [[ "$SAVED_TO_KEYCHAIN" == false ]]; then
