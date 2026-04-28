@@ -1782,15 +1782,25 @@ elif [[ -d "$PIPELINE_DIR/contact_syncer" ]]; then
     HAS_PIPELINE=true
 else
     info "Cloning import pipeline..."
-    if git clone --quiet "$PIPELINE_REPO" "$PIPELINE_DIR" 2>/dev/null; then
+    PIPELINE_CLONE_LOG="$(mktemp -t ostler-pipeline-clone.XXXXXX.log)"
+    if git clone --quiet "$PIPELINE_REPO" "$PIPELINE_DIR" 2>"$PIPELINE_CLONE_LOG"; then
         HAS_PIPELINE=true
+        rm -f "$PIPELINE_CLONE_LOG"
     else
         warn "Import pipeline not available (private repo - beta testers only)."
+        # Surface the underlying git error so credential / network /
+        # repo-not-found failures are distinguishable. Trim noise.
+        if [[ -s "$PIPELINE_CLONE_LOG" ]]; then
+            warn "Git said:"
+            sed -e 's/^/    /' "$PIPELINE_CLONE_LOG" | head -5
+        fi
         info "This is expected for now. GDPR import will be available in a future update."
         info "Your Mac data (iMessage, Safari, etc.) was already extracted above."
+        info "Repo URL: ${PIPELINE_REPO}"
         info "To install later once you have access:"
         info "  git clone ${PIPELINE_REPO} ${PIPELINE_DIR}"
         info "  Override the source repo with PWG_PIPELINE_REPO=<url> ./install.sh"
+        rm -f "$PIPELINE_CLONE_LOG"
     fi
 fi
 
@@ -2208,19 +2218,29 @@ elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
 else
     info "Cloning hub-power scripts..."
     HUB_POWER_TMP="$(mktemp -d)"
-    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$HUB_POWER_TMP" 2>/dev/null \
+    HUB_POWER_CLONE_LOG="$(mktemp -t ostler-hub-power-clone.XXXXXX.log)"
+    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$HUB_POWER_TMP" 2>"$HUB_POWER_CLONE_LOG" \
        && [[ -d "$HUB_POWER_TMP/hub-power" ]]; then
         mkdir -p "$HUB_POWER_DIR"
         cp -R "$HUB_POWER_TMP/hub-power/"* "$HUB_POWER_DIR/"
         rm -rf "$HUB_POWER_TMP"
+        rm -f "$HUB_POWER_CLONE_LOG"
         HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
         HUB_POWER_SOURCE="cloned"
         ok "Hub power scripts cloned from ${HUB_POWER_REPO}"
     else
         rm -rf "$HUB_POWER_TMP"
         warn "Could not obtain hub-power scripts (bundled / cloned both failed)."
+        # Surface the underlying git error so credential / network /
+        # repo-not-found failures are distinguishable.
+        if [[ -s "$HUB_POWER_CLONE_LOG" ]]; then
+            warn "Git said:"
+            sed -e 's/^/    /' "$HUB_POWER_CLONE_LOG" | head -5
+        fi
+        rm -f "$HUB_POWER_CLONE_LOG"
         warn "Skipping LaunchAgent install. Mac Mini deployments are unaffected."
         warn "MacBook deployments need this for battery / sleep handling."
+        info "Repo URL: ${HUB_POWER_REPO}"
         info "To install later once you have access:"
         info "  git clone ${HUB_POWER_REPO} /tmp/hub-power-src"
         info "  mkdir -p ${HUB_POWER_DIR} && cp -R /tmp/hub-power-src/hub-power/* ${HUB_POWER_DIR}/"
