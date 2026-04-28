@@ -691,17 +691,18 @@ fi  # end of SKIP_PHASE2 check (user input questions)
 # ── 7. Passphrase ──────────────────────────────────────────────────
 # (This section runs on every install -- has its own re-run detection)
 
-# We need the security module available for validation. Copy it now.
+# Install the ostler_security package into the Hub venv as a proper
+# pip-installable package. Until 2026-04-28 this was a `cp -R` of the
+# source dir plus runtime `sys.path.insert` hacks; that left the
+# package off PYTHONPATH for any deployed entry point that did not
+# patch sys.path itself (CM041 ical-server.py, whatsapp_bridge,
+# CM048 ingest.py all silently fell through to plaintext SQLite).
+# pyproject.toml in ostler_security/ now declares it as a real
+# package with cryptography + pysqlcipher3 as deps; pip handles
+# both the install path and the dependency tree.
 mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
-# SECURITY_DIR is the PARENT – the package lives at SECURITY_DIR/ostler_security/
 HAS_SECURITY_MODULE=false
-if [[ -d "${SCRIPT_DIR}/ostler_security" ]]; then
-    mkdir -p "$SECURITY_DIR"
-    cp -R "${SCRIPT_DIR}/ostler_security" "$SECURITY_DIR/"
-    HAS_SECURITY_MODULE=true
-
-    # The security module imports `cryptography` at the top level,
-    # so we need it installed BEFORE passphrase validation.
+if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
     # macOS Sonoma+ blocks pip3 install to system Python, so use a venv.
     OSTLER_VENV="${OSTLER_DIR}/.venv"
     if [[ ! -d "$OSTLER_VENV" ]]; then
@@ -709,9 +710,27 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" ]]; then
     fi
     OSTLER_PIP="${OSTLER_VENV}/bin/pip"
     OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
-    "$OSTLER_PIP" install --quiet "cryptography>=46.0.1,<47.0.0" 2>/dev/null || {
-        warn "Could not install cryptography. Passphrase validation may not work."
-    }
+
+    # pip install the package (drags cryptography + pysqlcipher3 in).
+    # Also keep a copy of the source under SECURITY_DIR so other
+    # tools that read non-Python assets (e.g. setup wizard reading
+    # bip39_english.txt from a known on-disk path) still work; the
+    # package_data inclusion in the wheel covers the import path.
+    if "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/tmp/ostler-pip-install.log; then
+        HAS_SECURITY_MODULE=true
+        # Mirror the source for diagnostic / read-the-file flows.
+        mkdir -p "$SECURITY_DIR"
+        cp -R "${SCRIPT_DIR}/ostler_security" "$SECURITY_DIR/"
+        ok "Security module installed into venv"
+    else
+        warn "Could not install ostler_security into the Hub venv."
+        warn "Encryption + passphrase validation will not work."
+        if [[ -s /tmp/ostler-pip-install.log ]]; then
+            warn "pip said:"
+            sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
+        fi
+        rm -f /tmp/ostler-pip-install.log
+    fi
 fi
 
 # Copy FDA extraction module if available
@@ -762,7 +781,6 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
         # Validate using the Python module (use venv Python for cryptography)
         VALIDATE_MSG=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
 import sys
-sys.path.insert(0, '${SECURITY_DIR}')
 from ostler_security.passphrase import validate_passphrase_strength
 pp = sys.stdin.read()
 ok, msg = validate_passphrase_strength(pp)
@@ -1504,7 +1522,6 @@ if [[ -n "$PASSPHRASE" && "$HAS_SECURITY_MODULE" == true ]]; then
     SETUP_OUTPUT=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
 import sys, os
 from pathlib import Path
-sys.path.insert(0, '${SECURITY_DIR}')
 passphrase = sys.stdin.read()
 try:
     from ostler_security.passphrase import setup_passphrase
