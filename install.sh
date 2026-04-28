@@ -2668,7 +2668,7 @@ if [[ -f "${HOME}/.ostler/power.conf" ]]; then
 fi
 echo ""
 echo -e "  ${BOLD}Need help?${NC}"
-echo "    During beta, email andy@creativemachines.ai."
+echo "    During beta, email support@creativemachines.ai."
 echo "    A dedicated support@creativemachines.ai address will be"
 echo "    live by general launch."
 echo ""
