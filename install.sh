@@ -22,12 +22,14 @@ set -euo pipefail
 CHECK_ONLY=false
 SHOW_HELP=false
 SHOW_LICENSES=false
+ALLOW_PLAINTEXT=0
 
 for arg in "$@"; do
     case "$arg" in
         --check) CHECK_ONLY=true ;;
         --help|-h) SHOW_HELP=true ;;
         --licenses|--licences) SHOW_LICENSES=true ;;
+        --allow-plaintext) ALLOW_PLAINTEXT=1 ;;
     esac
 done
 
@@ -80,9 +82,13 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "       bash install.sh [--check] [--help]"
     echo ""
     echo "Options:"
-    echo "  --check     Check prerequisites without installing anything"
-    echo "  --help      Show this help message"
-    echo "  --licenses  Print third-party open-source attributions and exit"
+    echo "  --check             Check prerequisites without installing anything"
+    echo "  --help              Show this help message"
+    echo "  --licenses          Print third-party open-source attributions and exit"
+    echo "  --allow-plaintext   Dev/CI only. Permit install to complete without"
+    echo "                      database encryption. NOT FOR PRODUCTION USE."
+    echo "                      Writes a posture marker at"
+    echo "                      ~/.ostler/security-posture/install.json."
     echo ""
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
@@ -145,6 +151,16 @@ ok()    { echo -e "${GREEN}[ok]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; }
 fail()  { echo -e "${RED}[fail]${NC}  $*"; exit 1; }
 step()  { echo -e "\n${BOLD}==> $*${NC}"; }
+
+# ── --allow-plaintext loud warning ─────────────────────────────────
+# If the operator passed --allow-plaintext, repeat a yellow warning
+# three times so it cannot be missed in CI logs or terminal scrollback.
+# This flag is dev/CI only. Production installs MUST run encrypted.
+if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
+    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
+    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
+fi
 
 # ── Paths ──────────────────────────────────────────────────────────
 
@@ -727,13 +743,33 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         cp -R "${SCRIPT_DIR}/ostler_security" "$SECURITY_DIR/"
         ok "Security module installed into venv"
     else
-        warn "Could not install ostler_security into the Hub venv."
-        warn "Encryption + passphrase validation will not work."
-        if [[ -s /tmp/ostler-pip-install.log ]]; then
-            warn "pip said:"
-            sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
+        # Hard-fail: deployed services (CM041 ical-server, CM041
+        # whatsapp-bridge, CM048 ingest) refuse to start at import
+        # time without ostler_security. Continuing the install would
+        # produce a green "succeeded" summary followed by services
+        # that will not boot. Surface the failure now.
+        # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
+        if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+            warn "Could not install ostler_security into the Hub venv."
+            warn "Encryption + passphrase validation will not work."
+            warn "Continuing because --allow-plaintext was passed."
+            if [[ -s /tmp/ostler-pip-install.log ]]; then
+                warn "pip said:"
+                sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
+            fi
+            rm -f /tmp/ostler-pip-install.log
+        else
+            echo ""
+            warn "Could not install ostler_security into the Hub venv."
+            warn "Encryption + passphrase validation will not work, and"
+            warn "the deployed services refuse to start without them."
+            if [[ -s /tmp/ostler-pip-install.log ]]; then
+                warn "pip said:"
+                sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
+            fi
+            rm -f /tmp/ostler-pip-install.log
+            fail "ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
         fi
-        rm -f /tmp/ostler-pip-install.log
     fi
 fi
 
@@ -1517,11 +1553,20 @@ info "Installing security Python dependencies..."
 export SQLCIPHER_CFLAGS="-I$(brew --prefix sqlcipher)/include"
 export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
 "$OSTLER_PIP" install --quiet "pysqlcipher3>=1.2.0,<2.0.0" 2>/dev/null || {
-    warn "pysqlcipher3 install failed. Databases will not be encrypted."
-    warn "You may need to install manually: ${OSTLER_PIP} install pysqlcipher3"
+    # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "pysqlcipher3 install failed. Databases will not be encrypted."
+        warn "You may need to install manually: ${OSTLER_PIP} install pysqlcipher3"
+        warn "Continuing because --allow-plaintext was passed."
+    else
+        warn "pysqlcipher3 install failed."
+        warn "You may need to install manually: ${OSTLER_PIP} install pysqlcipher3"
+        fail "pysqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
+    fi
 }
 
 # Run passphrase setup (using the passphrase collected in Phase 2)
+# See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
 if [[ -n "$PASSPHRASE" && "$HAS_SECURITY_MODULE" == true ]]; then
     SETUP_OUTPUT=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
 import sys, os
@@ -1541,14 +1586,54 @@ except Exception as e:
     unset PASSPHRASE
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
-        warn "Security setup failed. Continuing without database encryption."
-        warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
+        if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+            warn "Security setup failed. Continuing without database encryption."
+            warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
+            warn "Continuing because --allow-plaintext was passed."
+        else
+            warn "Security setup failed. Output:"
+            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -10
+            fail "Passphrase setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
+        fi
     else
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_KEY=" | cut -d= -f2-)
         ok "Databases encrypted. Passphrase required at each startup."
     fi
-else
+elif [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+    # Re-run: security already configured in a previous install.
+    # This is the legitimate skip path; nothing to do.
     unset PASSPHRASE 2>/dev/null || true
+else
+    # PASSPHRASE empty or HAS_SECURITY_MODULE=false without an existing
+    # keychain. Deployed services refuse to start without encryption,
+    # so this would produce a green "succeeded" summary followed by
+    # services that will not boot.
+    unset PASSPHRASE 2>/dev/null || true
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "No passphrase set; databases will not be encrypted."
+        warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
+        warn "Continuing because --allow-plaintext was passed."
+    else
+        fail "No passphrase set and no existing security configuration. Re-run with --allow-plaintext for dev/CI, or re-run the installer and complete the passphrase prompt."
+    fi
+fi
+
+# Posture marker for --allow-plaintext installs. Runtime guards in
+# CM041 / CM048 will eventually read this to skip the hard-fail in
+# dev mode; out of scope to wire that up here.
+# See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
+if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+    POSTURE_DIR="${OSTLER_DIR}/security-posture"
+    mkdir -p "$POSTURE_DIR"
+    POSTURE_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    cat > "${POSTURE_DIR}/install.json" <<EOF
+{
+  "encryption": "deliberately_disabled",
+  "reason": "--allow-plaintext flag",
+  "timestamp": "${POSTURE_TS}"
+}
+EOF
+    info "Wrote posture marker: ${POSTURE_DIR}/install.json"
 fi
 
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
