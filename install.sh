@@ -1661,7 +1661,9 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    # Valkey: BSD-3-Clause LF fork of Redis (Redis 7.4+ relicensed to RSAL/SSPL).
+    # Drop-in compatible with our redis-py client and protocol.
+    image: valkey/valkey:8-alpine
     container_name: ostler-redis
     ports:
       - "127.0.0.1:6379:6379"
