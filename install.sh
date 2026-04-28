@@ -1735,6 +1735,22 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
     if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
         ok "${AI_MODEL} already available"
     else
+        # Show the licence summary before the pull so the user knows
+        # what they are accepting. Default Ostler models (Qwen family)
+        # are Apache 2.0; the Gemma fallback for low-RAM Macs ships
+        # under Google's restrictive Gemma Terms of Use.
+        case "$AI_MODEL" in
+            qwen*)
+                info "Licence: ${AI_MODEL} is Apache 2.0. Full text: ${OSTLER_DIR}/LICENSES/Apache-2.0.txt"
+                ;;
+            gemma*)
+                warn "Licence: ${AI_MODEL} ships under Google's Gemma Terms of Use, not Apache 2.0."
+                warn "         Read https://ai.google.dev/gemma/terms before commercial use."
+                ;;
+            *)
+                info "Licence: ${AI_MODEL} – check upstream terms before commercial use."
+                ;;
+        esac
         info "Pulling ${AI_MODEL} (${AI_MODEL_SIZE})... this may take a few minutes."
         ollama pull "$AI_MODEL"
         ok "${AI_MODEL} ready"
