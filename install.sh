@@ -47,6 +47,14 @@ fi
 if [[ "$SHOW_LICENSES" == true ]]; then
     if [[ -f "${HOME}/.ostler/THIRD_PARTY_NOTICES.md" ]]; then
         cat "${HOME}/.ostler/THIRD_PARTY_NOTICES.md"
+        if [[ -d "${HOME}/.ostler/LICENSES" ]]; then
+            echo ""
+            echo "================================================================"
+            echo "Full licence text for each SPDX identifier above:"
+            echo "  ${HOME}/.ostler/LICENSES/"
+            echo "================================================================"
+            ls "${HOME}/.ostler/LICENSES/" 2>/dev/null | sed 's/^/  /'
+        fi
     elif [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/THIRD_PARTY_NOTICES.md" ]]; then
         cat "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/THIRD_PARTY_NOTICES.md"
     else
@@ -54,6 +62,8 @@ if [[ "$SHOW_LICENSES" == true ]]; then
         echo ""
         echo "The full attribution catalogue lives in your Hub install at:"
         echo "  ~/.ostler/THIRD_PARTY_NOTICES.md"
+        echo "Full licence texts at:"
+        echo "  ~/.ostler/LICENSES/"
         echo ""
         echo "Install Ostler first (see --help), or read the public version at:"
         echo "  https://creativemachines.ai/ostler/licenses.html"
@@ -134,14 +144,14 @@ step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 
 # ── Paths ──────────────────────────────────────────────────────────
 
-LIFELINE_DIR="${HOME}/.ostler"
-DATA_DIR="${LIFELINE_DIR}/data"
-CONFIG_DIR="${LIFELINE_DIR}/config"
-LOGS_DIR="${LIFELINE_DIR}/logs"
+OSTLER_DIR="${HOME}/.ostler"
+DATA_DIR="${OSTLER_DIR}/data"
+CONFIG_DIR="${OSTLER_DIR}/config"
+LOGS_DIR="${OSTLER_DIR}/logs"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SECURITY_DIR="${LIFELINE_DIR}/security-module"
-SECURITY_CONFIG_DIR="${LIFELINE_DIR}/security"
-PIPELINE_DIR="${LIFELINE_DIR}/import-pipeline"
+SECURITY_DIR="${OSTLER_DIR}/security-module"
+SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
+PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 
 # ── External resources (overridable via env vars) ──────────────────
 
@@ -190,7 +200,7 @@ step "Checking prerequisites"
 # - The whole Phase 2 reduces to: passphrase + confirm
 #
 # For the beta, we use an activation code entered here.
-# Set LIFELINE_BETA=1 to skip (F&F testers don't need a code).
+# Set OSTLER_BETA=1 to skip (F&F testers don't need a code).
 # Activation check is not wired up yet (licence server and StoreKit
 # receipts come with App Store packaging, CM043 Phase 4). Today every
 # install behaves as beta, so the conditional block was a no-op with
@@ -334,8 +344,8 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
         FV_ENABLED=true
     fi
     # Check if iCloud contacts were previously exported
-    if [[ -f "${LIFELINE_DIR}/imports/icloud-contacts.vcf" ]]; then
-        EXPORTS_DIR="${LIFELINE_DIR}/imports"
+    if [[ -f "${OSTLER_DIR}/imports/icloud-contacts.vcf" ]]; then
+        EXPORTS_DIR="${OSTLER_DIR}/imports"
     fi
     SKIP_PHASE2=true
 
@@ -446,9 +456,9 @@ if [[ -n "$CARD_DATA" ]]; then
 
     # Back up contacts FIRST — before we do anything with them.
     # This is a safety net in case anything goes wrong during import.
-    CONTACTS_BACKUP="${LIFELINE_DIR}/backups/contacts-backup-$(date +%Y%m%d-%H%M%S).vcf"
-    CONTACTS_EXPORT="${LIFELINE_DIR}/imports/icloud-contacts.vcf"
-    mkdir -p "${LIFELINE_DIR}/imports" "${LIFELINE_DIR}/backups"
+    CONTACTS_BACKUP="${OSTLER_DIR}/backups/contacts-backup-$(date +%Y%m%d-%H%M%S).vcf"
+    CONTACTS_EXPORT="${OSTLER_DIR}/imports/icloud-contacts.vcf"
+    mkdir -p "${OSTLER_DIR}/imports" "${OSTLER_DIR}/backups"
     CONTACT_COUNT=$(osascript -e '
 tell application "Contacts"
     set vcfData to vcard of every person
@@ -693,20 +703,20 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" ]]; then
     # The security module imports `cryptography` at the top level,
     # so we need it installed BEFORE passphrase validation.
     # macOS Sonoma+ blocks pip3 install to system Python, so use a venv.
-    LIFELINE_VENV="${LIFELINE_DIR}/.venv"
-    if [[ ! -d "$LIFELINE_VENV" ]]; then
-        python3 -m venv "$LIFELINE_VENV"
+    OSTLER_VENV="${OSTLER_DIR}/.venv"
+    if [[ ! -d "$OSTLER_VENV" ]]; then
+        python3 -m venv "$OSTLER_VENV"
     fi
-    LIFELINE_PIP="${LIFELINE_VENV}/bin/pip"
-    LIFELINE_PYTHON="${LIFELINE_VENV}/bin/python3"
-    "$LIFELINE_PIP" install --quiet "cryptography>=46.0.1,<47.0.0" 2>/dev/null || {
+    OSTLER_PIP="${OSTLER_VENV}/bin/pip"
+    OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
+    "$OSTLER_PIP" install --quiet "cryptography>=46.0.1,<47.0.0" 2>/dev/null || {
         warn "Could not install cryptography. Passphrase validation may not work."
     }
 fi
 
 # Copy FDA extraction module if available
 # FDA_DIR is the PARENT — the package lives at FDA_DIR/lifeline_fda/
-FDA_DIR="${LIFELINE_DIR}/fda-module"
+FDA_DIR="${OSTLER_DIR}/fda-module"
 HAS_FDA_MODULE=false
 if [[ -d "${SCRIPT_DIR}/lifeline_fda" ]]; then
     mkdir -p "$FDA_DIR"
@@ -750,7 +760,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
         echo ""
 
         # Validate using the Python module (use venv Python for cryptography)
-        VALIDATE_MSG=$(printf '%s' "$PASSPHRASE" | "$LIFELINE_PYTHON" -c "
+        VALIDATE_MSG=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
 import sys
 sys.path.insert(0, '${SECURITY_DIR}')
 from ostler_security.passphrase import validate_passphrase_strength
@@ -890,12 +900,12 @@ else
 fi
 
 # Also include the auto-exported iCloud contacts
-if [[ -f "${LIFELINE_DIR}/imports/icloud-contacts.vcf" ]]; then
+if [[ -f "${OSTLER_DIR}/imports/icloud-contacts.vcf" ]]; then
     if [[ -z "$EXPORTS_DIR" ]]; then
-        EXPORTS_DIR="${LIFELINE_DIR}/imports"
+        EXPORTS_DIR="${OSTLER_DIR}/imports"
     else
         # Copy vCard into the exports dir so the pipeline picks it up
-        cp "${LIFELINE_DIR}/imports/icloud-contacts.vcf" "${EXPORTS_DIR}/" 2>/dev/null || true
+        cp "${OSTLER_DIR}/imports/icloud-contacts.vcf" "${EXPORTS_DIR}/" 2>/dev/null || true
     fi
 fi
 
@@ -924,7 +934,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
             LIFELINE_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
         elif [[ -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
             # Extract the mbox out of the zip into ~/.ostler/imports/takeout/
-            TAKEOUT_EXTRACT_DIR="${LIFELINE_DIR}/imports/takeout"
+            TAKEOUT_EXTRACT_DIR="${OSTLER_DIR}/imports/takeout"
             mkdir -p "${TAKEOUT_EXTRACT_DIR}"
             info "Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
             EXTRACTED_MBOX=$(python3 -c "
@@ -1472,26 +1482,26 @@ fi
 
 # Venv was created in Phase 2 for passphrase validation.
 # Ensure it exists (re-run safe) and install remaining dependencies.
-LIFELINE_VENV="${LIFELINE_DIR}/.venv"
-if [[ ! -d "$LIFELINE_VENV" ]]; then
-    python3 -m venv "$LIFELINE_VENV"
+OSTLER_VENV="${OSTLER_DIR}/.venv"
+if [[ ! -d "$OSTLER_VENV" ]]; then
+    python3 -m venv "$OSTLER_VENV"
 fi
-LIFELINE_PIP="${LIFELINE_VENV}/bin/pip"
-LIFELINE_PYTHON="${LIFELINE_VENV}/bin/python3"
+OSTLER_PIP="${OSTLER_VENV}/bin/pip"
+OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
 
 info "Installing security Python dependencies..."
-"$LIFELINE_PIP" install --quiet "cryptography>=46.0.1,<47.0.0" 2>/dev/null || true
+"$OSTLER_PIP" install --quiet "cryptography>=46.0.1,<47.0.0" 2>/dev/null || true
 
 export SQLCIPHER_CFLAGS="-I$(brew --prefix sqlcipher)/include"
 export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
-"$LIFELINE_PIP" install --quiet "pysqlcipher3>=1.2.0,<2.0.0" 2>/dev/null || {
+"$OSTLER_PIP" install --quiet "pysqlcipher3>=1.2.0,<2.0.0" 2>/dev/null || {
     warn "pysqlcipher3 install failed. Databases will not be encrypted."
-    warn "You may need to install manually: ${LIFELINE_PIP} install pysqlcipher3"
+    warn "You may need to install manually: ${OSTLER_PIP} install pysqlcipher3"
 }
 
 # Run passphrase setup (using the passphrase collected in Phase 2)
 if [[ -n "$PASSPHRASE" && "$HAS_SECURITY_MODULE" == true ]]; then
-    SETUP_OUTPUT=$(printf '%s' "$PASSPHRASE" | "$LIFELINE_PYTHON" -c "
+    SETUP_OUTPUT=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
 import sys, os
 from pathlib import Path
 sys.path.insert(0, '${SECURITY_DIR}')
@@ -1562,12 +1572,12 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # Pass user's per-source consent (set in Phase 2) to the extractor.
     FDA_OUTPUT=$(LIFELINE_FDA_SOURCES="${LIFELINE_FDA_SOURCES}" \
                  LIFELINE_TAKEOUT_PATH="${LIFELINE_TAKEOUT_PATH:-}" \
-                 "$LIFELINE_PYTHON" -c "
+                 "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
 from lifeline_fda.extract_all import run_all
 from pathlib import Path
-summary = run_all(Path('${LIFELINE_DIR}/imports/fda'))
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
 print(json.dumps(summary, default=str))
 " 2>&1) || true
 
@@ -1581,7 +1591,7 @@ print(json.dumps(summary, default=str))
     done
 
     if [[ $FDA_OK -gt 0 ]]; then
-        ok "Extracted from ${FDA_OK} source(s). Data saved to ${LIFELINE_DIR}/imports/fda/"
+        ok "Extracted from ${FDA_OK} source(s). Data saved to ${OSTLER_DIR}/imports/fda/"
     else
         info "No FDA sources available right now. You can grant Full Disk Access"
         info "later in System Settings > Privacy & Security > Full Disk Access"
@@ -1610,7 +1620,7 @@ print(json.dumps(summary, default=str))
     <string>com.ostler.fda-rerun</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${LIFELINE_DIR}/bin/ostler-fda</string>
+        <string>${OSTLER_DIR}/bin/ostler-fda</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -1666,7 +1676,7 @@ if [[ "$PORT_CONFLICT" == true ]]; then
     warn "Stop the conflicting services or change the ports in docker-compose.yml"
 fi
 
-cat > "${LIFELINE_DIR}/docker-compose.yml" <<'DCEOF'
+cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
     image: qdrant/qdrant:v1.12.1
@@ -1705,7 +1715,7 @@ volumes:
   redis_data:
 DCEOF
 
-cd "$LIFELINE_DIR"
+cd "$OSTLER_DIR"
 docker compose up -d
 ok "Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
 
@@ -1813,8 +1823,8 @@ fi
 
 # ── 3.12 ostler-import command ──────────────────────────────────
 
-IMPORT_SCRIPT="${LIFELINE_DIR}/bin/ostler-import"
-mkdir -p "${LIFELINE_DIR}/bin"
+IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
+mkdir -p "${OSTLER_DIR}/bin"
 
 if [[ -f "${SCRIPT_DIR}/ostler-import.sh" ]]; then
     cp "${SCRIPT_DIR}/ostler-import.sh" "$IMPORT_SCRIPT"
@@ -1822,8 +1832,8 @@ else
     cat > "$IMPORT_SCRIPT" <<'IMPORTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
-LIFELINE_DIR="${HOME}/.ostler"
-PIPELINE_DIR="${LIFELINE_DIR}/import-pipeline"
+OSTLER_DIR="${HOME}/.ostler"
+PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: ostler-import <exports-dir> [--user-name \"Name\"] [--verbose]"
@@ -1845,8 +1855,8 @@ if [[ ! -d "$PIPELINE_DIR/.venv" ]]; then
 fi
 
 cd "$PIPELINE_DIR"
-if [[ -f "${LIFELINE_DIR}/config/.env" ]]; then
-    set -a; source "${LIFELINE_DIR}/config/.env"; set +a
+if [[ -f "${OSTLER_DIR}/config/.env" ]]; then
+    set -a; source "${OSTLER_DIR}/config/.env"; set +a
 fi
 .venv/bin/python3 -m contact_syncer.import_all --exports-dir "$1" "${@:2}"
 IMPORTEOF
@@ -1856,12 +1866,12 @@ chmod +x "$IMPORT_SCRIPT"
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
-cat > "${LIFELINE_DIR}/bin/ostler-fda" <<'FDAEOF'
+cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail
-LIFELINE_DIR="${HOME}/.ostler"
-FDA_DIR="${LIFELINE_DIR}/fda-module"
-LIFELINE_PYTHON="${LIFELINE_DIR}/.venv/bin/python3"
+OSTLER_DIR="${HOME}/.ostler"
+FDA_DIR="${OSTLER_DIR}/fda-module"
+OSTLER_PYTHON="${OSTLER_DIR}/.venv/bin/python3"
 
 if [[ ! -d "$FDA_DIR/lifeline_fda" ]]; then
     echo "Error: FDA extraction module not installed."
@@ -1869,7 +1879,7 @@ if [[ ! -d "$FDA_DIR/lifeline_fda" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$LIFELINE_PYTHON" ]]; then
+if [[ ! -f "$OSTLER_PYTHON" ]]; then
     echo "Error: Python environment not set up."
     echo "Re-run the Ostler installer to fix this."
     exit 1
@@ -1883,28 +1893,28 @@ echo ""
 if [[ -f "${HOME}/.ostler/config/.env" ]]; then
     set -a; source "${HOME}/.ostler/config/.env"; set +a
 fi
-"\$LIFELINE_PYTHON" -c "
+"\$OSTLER_PYTHON" -c "
 import sys
 sys.path.insert(0, '${FDA_DIR}')
 from lifeline_fda.extract_all import run_all
 from pathlib import Path
-run_all(Path('${LIFELINE_DIR}/imports/fda'))
+run_all(Path('${OSTLER_DIR}/imports/fda'))
 "
 FDAEOF
-chmod +x "${LIFELINE_DIR}/bin/ostler-fda"
+chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
 # Create an export watcher script — scans Downloads for new GDPR exports
-cat > "${LIFELINE_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
+cat > "${OSTLER_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
 #!/usr/bin/env bash
 # Scans ~/Downloads for recognised GDPR export files.
 # Run manually or via launchd (checks every 4 hours).
 set -euo pipefail
 
-LIFELINE_DIR="${HOME}/.ostler"
-SCAN_STATE="${LIFELINE_DIR}/state/scan_state.json"
+OSTLER_DIR="${HOME}/.ostler"
+SCAN_STATE="${OSTLER_DIR}/state/scan_state.json"
 DOWNLOADS="${HOME}/Downloads"
 
-mkdir -p "${LIFELINE_DIR}/state"
+mkdir -p "${OSTLER_DIR}/state"
 
 # Known patterns for each platform's export
 FOUND=()
@@ -1955,7 +1965,7 @@ if [[ -t 1 ]]; then
     printf '  %s\n' "${FOUND[@]}"
 fi
 SCANEOF
-chmod +x "${LIFELINE_DIR}/bin/ostler-scan-exports"
+chmod +x "${OSTLER_DIR}/bin/ostler-scan-exports"
 
 # Set up launchd plist to scan every 4 hours
 mkdir -p "${HOME}/Library/LaunchAgents"
@@ -1969,7 +1979,7 @@ cat > "$SCAN_PLIST" <<SPEOF
     <string>com.ostler.export-scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${LIFELINE_DIR}/bin/ostler-scan-exports</string>
+        <string>${OSTLER_DIR}/bin/ostler-scan-exports</string>
     </array>
     <key>StartInterval</key>
     <integer>14400</integer>
@@ -2011,10 +2021,10 @@ if [[ -n "$SHELL_RC" ]] && ! grep -q "ostler/bin" "$SHELL_RC" 2>/dev/null; then
     echo 'export PATH="${HOME}/.ostler/bin:${PATH}"' >> "$SHELL_RC"
 fi
 
-export PATH="${LIFELINE_DIR}/bin:${PATH}"
+export PATH="${OSTLER_DIR}/bin:${PATH}"
 
 # Create uninstall script
-cat > "${LIFELINE_DIR}/bin/ostler-uninstall" <<'UNINSTALLEOF'
+cat > "${OSTLER_DIR}/bin/ostler-uninstall" <<'UNINSTALLEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 echo ""
@@ -2084,7 +2094,7 @@ echo "  Done. Ostler has been removed."
 echo "  (You may want to remove the PATH line from your shell config.)"
 echo ""
 UNINSTALLEOF
-chmod +x "${LIFELINE_DIR}/bin/ostler-uninstall"
+chmod +x "${OSTLER_DIR}/bin/ostler-uninstall"
 
 ok "ostler-import, ostler-fda, and ostler-uninstall commands installed"
 
@@ -2092,7 +2102,7 @@ ok "ostler-import, ostler-fda, and ostler-uninstall commands installed"
 
 progress "Setting up Ostler Doctor diagnostic dashboard"
 
-DOCTOR_DIR="${LIFELINE_DIR}/doctor"
+DOCTOR_DIR="${OSTLER_DIR}/doctor"
 mkdir -p "$DOCTOR_DIR"
 
 if [[ -d "${SCRIPT_DIR}/doctor/agent" ]]; then
@@ -2165,7 +2175,7 @@ fi
 
 progress "Setting up hub power policy (MacBook-as-Hub)"
 
-HUB_POWER_DIR="${LIFELINE_DIR}/hub-power"
+HUB_POWER_DIR="${OSTLER_DIR}/hub-power"
 HUB_POWER_SNIPPET=""
 HUB_POWER_SOURCE=""
 
@@ -2198,13 +2208,13 @@ else
         info "To install later once you have access:"
         info "  git clone ${HUB_POWER_REPO} /tmp/hub-power-src"
         info "  mkdir -p ${HUB_POWER_DIR} && cp -R /tmp/hub-power-src/hub-power/* ${HUB_POWER_DIR}/"
-        info "  LIFELINE_INSTALL_ROOT=${HUB_POWER_DIR} bash ${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
+        info "  OSTLER_INSTALL_ROOT=${HUB_POWER_DIR} bash ${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
         info "  Override the source repo with PWG_HUB_POWER_REPO=<url> ./install.sh"
     fi
 fi
 
 if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
-    if LIFELINE_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
+    if OSTLER_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
         ok "Hub power LaunchAgent loaded (label com.creativemachines.lifeline.hub-power)"
         info "Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
     else
@@ -2221,7 +2231,7 @@ fi
 # in installer tarball, then fetched from the same HR015 clone we
 # already used for hub-power, then a final fallback to a stub.
 
-NOTICES_DEST="${LIFELINE_DIR}/THIRD_PARTY_NOTICES.md"
+NOTICES_DEST="${OSTLER_DIR}/THIRD_PARTY_NOTICES.md"
 NOTICES_SOURCE=""
 
 if [[ -f "${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md" ]]; then
@@ -2244,6 +2254,42 @@ if [[ -n "$NOTICES_SOURCE" && -s "$NOTICES_DEST" ]]; then
 else
     warn "Could not install THIRD_PARTY_NOTICES.md (non-fatal)."
     warn "Read the public version at https://creativemachines.ai/ostler/licenses.html"
+fi
+
+# Companion: install the LICENSES/ directory containing canonical licence
+# texts for every SPDX identifier referenced in THIRD_PARTY_NOTICES.md.
+# Same source preference as the NOTICES file.
+LICENSES_DEST="${OSTLER_DIR}/LICENSES"
+LICENSES_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/LICENSES" ]]; then
+    mkdir -p "$LICENSES_DEST"
+    cp -R "${SCRIPT_DIR}/LICENSES/"* "$LICENSES_DEST/"
+    LICENSES_SOURCE="bundled"
+elif [[ -n "${HUB_POWER_TMP:-}" && -d "${HUB_POWER_TMP}/LICENSES" ]]; then
+    mkdir -p "$LICENSES_DEST"
+    cp -R "${HUB_POWER_TMP}/LICENSES/"* "$LICENSES_DEST/"
+    LICENSES_SOURCE="cloned (HR015)"
+elif command -v curl >/dev/null 2>&1; then
+    # Best-effort fetch of canonical licence texts from the HR015 repo.
+    # Files are small and stable. Non-fatal if any fail.
+    mkdir -p "$LICENSES_DEST"
+    LICENSES_BASE="https://raw.githubusercontent.com/andygmassey/HR015-Gaming-PC/main/LICENSES"
+    LICENSES_FETCHED=0
+    for f in Apache-2.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
+        if curl -fsSL --max-time 30 "${LICENSES_BASE}/${f}" -o "${LICENSES_DEST}/${f}" 2>/dev/null; then
+            LICENSES_FETCHED=$((LICENSES_FETCHED + 1))
+        fi
+    done
+    if [[ "$LICENSES_FETCHED" -gt 0 ]]; then
+        LICENSES_SOURCE="fetched (${LICENSES_FETCHED} files)"
+    fi
+fi
+
+if [[ -n "$LICENSES_SOURCE" ]]; then
+    ok "Licence texts installed at ${LICENSES_DEST}/ (source: ${LICENSES_SOURCE})"
+else
+    warn "Could not install LICENSES/ directory (non-fatal)."
 fi
 
 # ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
