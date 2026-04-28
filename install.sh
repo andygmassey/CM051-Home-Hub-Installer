@@ -17,24 +17,51 @@
 
 set -euo pipefail
 
-# ── stdin check ────────────────────────────────────────────────────
-# When piped via `curl | bash`, stdin is the script not the terminal.
-# We need terminal input for passphrase etc, so redirect from /dev/tty.
-if [[ ! -t 0 ]]; then
-    exec < /dev/tty
-fi
-
 # ── Flags ──────────────────────────────────────────────────────────
 
 CHECK_ONLY=false
 SHOW_HELP=false
+SHOW_LICENSES=false
 
 for arg in "$@"; do
     case "$arg" in
         --check) CHECK_ONLY=true ;;
         --help|-h) SHOW_HELP=true ;;
+        --licenses|--licences) SHOW_LICENSES=true ;;
     esac
 done
+
+# ── stdin check ────────────────────────────────────────────────────
+# When piped via `curl | bash`, stdin is the script not the terminal.
+# We need terminal input for passphrase etc, so redirect from /dev/tty.
+# Skip for read-only flags so they work in non-interactive contexts.
+if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 ]]; then
+    exec < /dev/tty
+fi
+
+# Print third-party attribution and exit. Reads from the post-install
+# location at ~/.ostler/THIRD_PARTY_NOTICES.md if present (covering the
+# "after install" case), otherwise falls back to bundled / cloned
+# sources, otherwise points the user at the website. Available to every
+# user with a working install.
+if [[ "$SHOW_LICENSES" == true ]]; then
+    if [[ -f "${HOME}/.ostler/THIRD_PARTY_NOTICES.md" ]]; then
+        cat "${HOME}/.ostler/THIRD_PARTY_NOTICES.md"
+    elif [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/THIRD_PARTY_NOTICES.md" ]]; then
+        cat "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/THIRD_PARTY_NOTICES.md"
+    else
+        echo "Ostler third-party acknowledgements"
+        echo ""
+        echo "The full attribution catalogue lives in your Hub install at:"
+        echo "  ~/.ostler/THIRD_PARTY_NOTICES.md"
+        echo ""
+        echo "Install Ostler first (see --help), or read the public version at:"
+        echo "  https://creativemachines.ai/ostler/licenses.html"
+        echo ""
+        echo "If you spot a missing or incorrect entry, email legal@ostler.ai."
+    fi
+    exit 0
+fi
 
 if [[ "$SHOW_HELP" == true ]]; then
     echo "Ostler Installer"
@@ -43,8 +70,9 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "       bash install.sh [--check] [--help]"
     echo ""
     echo "Options:"
-    echo "  --check   Check prerequisites without installing anything"
-    echo "  --help    Show this help message"
+    echo "  --check     Check prerequisites without installing anything"
+    echo "  --help      Show this help message"
+    echo "  --licenses  Print third-party open-source attributions and exit"
     echo ""
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
@@ -2183,6 +2211,39 @@ if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
         warn "Hub power LaunchAgent install failed. See output above."
         warn "Mac Mini deployments are unaffected; MacBook users should retry."
     fi
+fi
+
+# ── 3.14b Third-party attribution catalogue ─────────────────────
+#
+# Land THIRD_PARTY_NOTICES.md at ~/.ostler/ so the user can read it
+# offline via `install.sh --licenses` and so any compliance review
+# can verify what we ship attribution for. Source preference: bundled
+# in installer tarball, then fetched from the same HR015 clone we
+# already used for hub-power, then a final fallback to a stub.
+
+NOTICES_DEST="${LIFELINE_DIR}/THIRD_PARTY_NOTICES.md"
+NOTICES_SOURCE=""
+
+if [[ -f "${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md" ]]; then
+    cp "${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md" "$NOTICES_DEST"
+    NOTICES_SOURCE="bundled"
+elif [[ -n "${HUB_POWER_TMP:-}" && -f "${HUB_POWER_TMP}/THIRD_PARTY_NOTICES.md" ]]; then
+    cp "${HUB_POWER_TMP}/THIRD_PARTY_NOTICES.md" "$NOTICES_DEST"
+    NOTICES_SOURCE="cloned (HR015)"
+elif command -v curl >/dev/null 2>&1; then
+    if curl -fsSL --max-time 30 \
+        "https://raw.githubusercontent.com/andygmassey/HR015-Gaming-PC/main/THIRD_PARTY_NOTICES.md" \
+        -o "$NOTICES_DEST" 2>/dev/null; then
+        NOTICES_SOURCE="fetched"
+    fi
+fi
+
+if [[ -n "$NOTICES_SOURCE" && -s "$NOTICES_DEST" ]]; then
+    ok "Third-party attributions installed (source: ${NOTICES_SOURCE})"
+    info "View any time with: bash install.sh --licenses"
+else
+    warn "Could not install THIRD_PARTY_NOTICES.md (non-fatal)."
+    warn "Read the public version at https://creativemachines.ai/ostler/licenses.html"
 fi
 
 # ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
