@@ -354,7 +354,7 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
     set -a; source "${CONFIG_DIR}/.env"; set +a
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
-    ASSISTANT_NAME="${ASSISTANT_NAME:-Atlas}"
+    ASSISTANT_NAME="${ASSISTANT_NAME:-Marvin}"
     USER_TZ="${TIMEZONE:-UTC}"
     COUNTRY_CODE="${DEFAULT_COUNTRY_CODE:-44}"
     EXPORTS_DIR=""
@@ -630,15 +630,15 @@ echo "  graph. Give it a name you will enjoy talking to."
 echo ""
 echo "  Some ideas (or type your own):"
 echo ""
-echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, carries the weight"
-echo -e "    ${BOLD}Sage${NC}       – calm, wise, knows everything about you"
-echo -e "    ${BOLD}Argus${NC}      – watchful, misses nothing, dry sense of humour"
-echo -e "    ${BOLD}Cosmo${NC}      – curious, warm, enthusiastic about everything"
-echo -e "    ${BOLD}Sable${NC}      – quiet, efficient, gets things done"
+echo -e "    ${BOLD}Marvin${NC}     – the laconic, brilliant assistant from Hitchhiker's Guide"
+echo -e "    ${BOLD}Joshua${NC}     – the calm, careful AI from WarGames"
+echo -e "    ${BOLD}Samantha${NC}   – the warm, attentive companion from Her"
+echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
+echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
 echo ""
 
-read -p "  Assistant name [Atlas]: " ASSISTANT_NAME
-ASSISTANT_NAME=${ASSISTANT_NAME:-Atlas}
+read -p "  Assistant name [Marvin]: " ASSISTANT_NAME
+ASSISTANT_NAME=${ASSISTANT_NAME:-Marvin}
 
 ok "Your assistant is called ${ASSISTANT_NAME}"
 
