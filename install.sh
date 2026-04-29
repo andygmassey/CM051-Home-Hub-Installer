@@ -971,7 +971,7 @@ fi
 # If we found a Takeout zip or a loose mbox above, offer to import.
 # This is the "structural moat" path: read full Gmail content
 # without ever holding Google OAuth credentials. See policy §2.
-LIFELINE_TAKEOUT_PATH=""
+OSTLER_TAKEOUT_PATH=""
 if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     echo ""
     if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
@@ -989,7 +989,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     read -p "  Import Gmail messages from this Takeout? (Y/n): " TAKEOUT_CONFIRM
     if [[ "${TAKEOUT_CONFIRM:-y}" != "n" && "${TAKEOUT_CONFIRM:-y}" != "N" ]]; then
         if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
-            LIFELINE_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
+            OSTLER_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
         elif [[ -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
             # Extract the mbox out of the zip into ~/.ostler/imports/takeout/
             TAKEOUT_EXTRACT_DIR="${OSTLER_DIR}/imports/takeout"
@@ -1013,7 +1013,7 @@ except Exception as e:
     sys.exit(1)
 " 2>/dev/null)
             if [[ -n "$EXTRACTED_MBOX" && -f "$EXTRACTED_MBOX" ]]; then
-                LIFELINE_TAKEOUT_PATH="$EXTRACTED_MBOX"
+                OSTLER_TAKEOUT_PATH="$EXTRACTED_MBOX"
                 ok "Extracted to ${EXTRACTED_MBOX}"
             else
                 warn "Could not extract Gmail mbox from the Takeout zip — skipping."
@@ -1026,7 +1026,7 @@ fi
 #
 # Per-source consent. Each FDA source is opt-in. Photos face data
 # (GDPR Art. 9 special-category) is OFF unless the user explicitly
-# ticks it. The result is exported as LIFELINE_FDA_SOURCES env var,
+# ticks it. The result is exported as OSTLER_FDA_SOURCES env var,
 # which extract_all.py reads in Phase 3.
 
 echo ""
@@ -1071,11 +1071,11 @@ EVERYTHING="${RECOMMENDED},imessage,apple_mail,photos_metadata"
 
 case "$PRESET" in
     1)
-        LIFELINE_FDA_SOURCES="$RECOMMENDED"
+        OSTLER_FDA_SOURCES="$RECOMMENDED"
         ok "Recommended sources selected"
         ;;
     2)
-        LIFELINE_FDA_SOURCES="$EVERYTHING"
+        OSTLER_FDA_SOURCES="$EVERYTHING"
         ok "All sources selected (face recognition still off)"
         ;;
     3)
@@ -1114,30 +1114,30 @@ case "$PRESET" in
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
         # Build comma-separated list
         IFS=','
-        LIFELINE_FDA_SOURCES="${ENABLED[*]}"
+        OSTLER_FDA_SOURCES="${ENABLED[*]}"
         unset IFS
         ;;
     *)
         warn "Unrecognised choice. Using Recommended."
-        LIFELINE_FDA_SOURCES="$RECOMMENDED"
+        OSTLER_FDA_SOURCES="$RECOMMENDED"
         ;;
 esac
 
 # If a Takeout import was confirmed in section 9.4, add google_takeout
 # to the enabled sources list. Done AFTER the case so it covers all
 # presets including Customise (where the user might forget to tick it).
-if [[ -n "${LIFELINE_TAKEOUT_PATH:-}" ]]; then
-    if [[ -z "${LIFELINE_FDA_SOURCES:-}" ]]; then
-        LIFELINE_FDA_SOURCES="google_takeout"
-    elif [[ "${LIFELINE_FDA_SOURCES}" != *"google_takeout"* ]]; then
-        LIFELINE_FDA_SOURCES="${LIFELINE_FDA_SOURCES},google_takeout"
+if [[ -n "${OSTLER_TAKEOUT_PATH:-}" ]]; then
+    if [[ -z "${OSTLER_FDA_SOURCES:-}" ]]; then
+        OSTLER_FDA_SOURCES="google_takeout"
+    elif [[ "${OSTLER_FDA_SOURCES}" != *"google_takeout"* ]]; then
+        OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES},google_takeout"
     fi
 fi
 
 echo ""
-echo "  Enabled sources: ${LIFELINE_FDA_SOURCES//,/, }"
+echo "  Enabled sources: ${OSTLER_FDA_SOURCES//,/, }"
 
-if [[ "$HAS_APPLE_MAIL_GMAIL" == false && "$LIFELINE_FDA_SOURCES" == *"apple_mail"* ]]; then
+if [[ "$HAS_APPLE_MAIL_GMAIL" == false && "$OSTLER_FDA_SOURCES" == *"apple_mail"* ]]; then
     info "Tip: to include your Gmail, add it to Mac Mail first"
     info "(System Settings > Internet Accounts). Ostler reads from Mail's"
     info "local store – Google never sees that Ostler exists."
@@ -1514,16 +1514,16 @@ DEFAULT_PRIVACY_LEVEL=L2
 
 # Per-source FDA consent — comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
-# lifeline_fda.extract_all via the LIFELINE_FDA_SOURCES env var.
-LIFELINE_FDA_SOURCES="${LIFELINE_FDA_SOURCES:-safari_history,safari_bookmarks,apple_notes,calendar,reminders}"
+# lifeline_fda.extract_all via the OSTLER_FDA_SOURCES env var.
+OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,apple_notes,calendar,reminders}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
-LIFELINE_TAKEOUT_PATH="${LIFELINE_TAKEOUT_PATH:-}"
+OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 
 # Tailscale IPv4 for this Mac. Set in 3.14 by the installer if Tailscale
 # was installed and signed in. Used by the iOS / Watch companion to reach
 # this Mac from anywhere. Empty if Tailscale is not in use.
-LIFELINE_TAILSCALE_IP="${LIFELINE_TAILSCALE_IP:-}"
+OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
 ENVEOF
 
 ok "Config saved to ${CONFIG_DIR}/.env"
@@ -1676,8 +1676,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     echo ""
 
     # Pass user's per-source consent (set in Phase 2) to the extractor.
-    FDA_OUTPUT=$(LIFELINE_FDA_SOURCES="${LIFELINE_FDA_SOURCES}" \
-                 LIFELINE_TAKEOUT_PATH="${LIFELINE_TAKEOUT_PATH:-}" \
+    FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
+                 OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -2443,7 +2443,7 @@ fi
 # Free for personal use up to 100 devices. Skipping this step is fine
 # if you never use Ostler's companion away from home Wi-Fi.
 
-LIFELINE_TAILSCALE_IP=""
+OSTLER_TAILSCALE_IP=""
 
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -2490,32 +2490,32 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
         info "Waiting for you to sign in to Tailscale (up to 60 seconds)..."
         info "If a Tailscale window appears, sign in with Apple / Google / Microsoft."
         TS_WAIT=0
-        while [[ -z "$LIFELINE_TAILSCALE_IP" && $TS_WAIT -lt 60 ]]; do
-            LIFELINE_TAILSCALE_IP=$("$TS_CLI" ip --4 2>/dev/null | head -1 || true)
-            if [[ -z "$LIFELINE_TAILSCALE_IP" ]]; then
+        while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 60 ]]; do
+            OSTLER_TAILSCALE_IP=$("$TS_CLI" ip --4 2>/dev/null | head -1 || true)
+            if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
                 sleep 3
                 TS_WAIT=$((TS_WAIT + 3))
             fi
         done
 
-        if [[ -n "$LIFELINE_TAILSCALE_IP" ]]; then
-            ok "Tailscale IP: ${LIFELINE_TAILSCALE_IP}"
+        if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
+            ok "Tailscale IP: ${OSTLER_TAILSCALE_IP}"
             echo "  Use this address in the Ostler iOS companion app:"
-            echo "    http://${LIFELINE_TAILSCALE_IP}:8089"
+            echo "    http://${OSTLER_TAILSCALE_IP}:8089"
             # Persist to .env (replace existing line if present, append otherwise)
             ENV_FILE="${CONFIG_DIR}/.env"
             if [[ -f "$ENV_FILE" ]]; then
-                if grep -q "^LIFELINE_TAILSCALE_IP=" "$ENV_FILE"; then
+                if grep -q "^OSTLER_TAILSCALE_IP=" "$ENV_FILE"; then
                     # In-place rewrite of the line. Trap ensures the
                     # temp file is cleaned up even if sed or mv fails
                     # partway through (disk full, interrupted signal).
                     TMP_ENV=$(mktemp)
                     trap 'rm -f "$TMP_ENV"' EXIT
-                    sed "s|^LIFELINE_TAILSCALE_IP=.*|LIFELINE_TAILSCALE_IP=\"${LIFELINE_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TMP_ENV"
+                    sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TMP_ENV"
                     mv "$TMP_ENV" "$ENV_FILE"
                     trap - EXIT
                 else
-                    echo "LIFELINE_TAILSCALE_IP=\"${LIFELINE_TAILSCALE_IP}\"" >> "$ENV_FILE"
+                    echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
                 fi
             fi
         else
