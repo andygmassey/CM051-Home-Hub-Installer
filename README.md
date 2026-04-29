@@ -18,6 +18,12 @@ curl -fsSL https://ostler.ai/install.sh | bash
 
 Run `bash install.sh --check` to verify prerequisites without installing anything. The check warns if you're on battery.
 
+### Mid-install battery transitions
+
+A MacBook install spawns a background battery watcher at the start of Phase 3 (step 3.0a). It polls `pmset` every 60 seconds and prints a yellow warning if the user disconnects from AC, then a green confirmation when they plug back in. The watcher exists because the hub-power LaunchAgent that pauses Docker / Ollama on battery is not installed until step 3.14, leaving Phase 3 itself unprotected.
+
+The watcher is killed at the start of Phase 4 (so health-check output is not interleaved) and is also killed by an EXIT trap as a backup. Mac Mini / Studio installs see no watcher (no battery present, nothing to poll).
+
 ---
 
 ## Status (2026-04-24)
@@ -38,7 +44,7 @@ Run `bash install.sh --check` to verify prerequisites without installing anythin
 
 ## Hub power policy (MacBook-as-Hub)
 
-The installer wires in a LaunchAgent that pauses and resumes Docker + Ollama based on AC / battery state, and brings services back cleanly after sleep. This is what lets Lifeline run on a laptop Hub without destroying the battery.
+The installer wires in a LaunchAgent that pauses and resumes Docker + Ollama based on AC / battery state, and brings services back cleanly after sleep. This is what lets Ostler run on a laptop Hub without destroying the battery.
 
 - Scripts: shipped from HR015 under `hub-power/`. Design doc: `HR015/HUB_PORTABILITY_PLAN.md`.
 - Wired at step 3.14 of `install.sh`, which sources `hub-power/INSTALL_SNIPPET.sh`.

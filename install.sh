@@ -1290,6 +1290,59 @@ if [[ "$SLEEP_SETTING" != "0" ]]; then
     fi
 fi
 
+# ── 3.0a Phase 3 battery watcher ───────────────────────────────────
+# The hub-power LaunchAgent that pauses Docker / Ollama on battery is
+# not installed until step 3.14, so during Phase 3 itself the user is
+# unprotected: a Mac that starts on AC and gets unplugged mid-install
+# will silently stall on the next Docker pull or Ollama download.
+#
+# Spawn a background watcher for MacBook installs that polls power
+# state every 60 seconds and prints a visible warning on a battery
+# transition. Cheap (one pmset call/min); the EXIT trap kills it
+# before the script returns; Phase 4 also kills it explicitly so the
+# health check output is not interleaved with stale poll messages.
+PHASE3_BATTERY_WATCH_PID=""
+cleanup_battery_watch() {
+    if [[ -n "$PHASE3_BATTERY_WATCH_PID" ]]; then
+        kill "$PHASE3_BATTERY_WATCH_PID" 2>/dev/null || true
+        PHASE3_BATTERY_WATCH_PID=""
+    fi
+}
+trap cleanup_battery_watch EXIT
+
+if [[ "$HAS_BATTERY" == true ]]; then
+    (
+        last_seen="ac"
+        while true; do
+            sleep 60
+            current=$(pmset -g batt 2>/dev/null | grep -oE "'(AC Power|Battery Power)'" | head -1 | tr -d "'" || echo "unknown")
+            case "$current" in
+                "Battery Power")
+                    if [[ "$last_seen" != "battery" ]]; then
+                        echo ""
+                        echo -e "${YELLOW}[warn]${NC} You're now on battery power."
+                        echo -e "${YELLOW}[warn]${NC} The Hub power LaunchAgent isn't installed yet (step 3.14)."
+                        echo -e "${YELLOW}[warn]${NC} Phase 3 may stall on Docker pulls or Ollama downloads."
+                        echo -e "${YELLOW}[warn]${NC} Plug back into AC to keep things moving."
+                        echo ""
+                        last_seen="battery"
+                    fi
+                    ;;
+                "AC Power")
+                    if [[ "$last_seen" == "battery" ]]; then
+                        echo ""
+                        echo -e "${GREEN}[ok]${NC} Back on AC. Continuing."
+                        echo ""
+                        last_seen="ac"
+                    fi
+                    ;;
+            esac
+        done
+    ) &
+    PHASE3_BATTERY_WATCH_PID=$!
+    info "Phase 3 battery watcher armed (PID $PHASE3_BATTERY_WATCH_PID)"
+fi
+
 progress "Checking Homebrew and system tools"
 
 if command -v brew &>/dev/null; then
@@ -2530,6 +2583,11 @@ fi
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 4: HEALTH CHECK + COMPLETION
 # ══════════════════════════════════════════════════════════════════════
+
+# Stop the Phase 3 battery watcher so its poll messages don't interleave
+# with the health-check output. The hub-power LaunchAgent installed at
+# 3.14 is now responsible for battery awareness from here on.
+cleanup_battery_watch
 
 step "Running health check"
 
