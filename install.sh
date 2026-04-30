@@ -68,7 +68,7 @@ if [[ "$SHOW_LICENSES" == true ]]; then
         echo "  ~/.ostler/LICENSES/"
         echo ""
         echo "Install Ostler first (see --help), or read the public version at:"
-        echo "  https://creativemachines.ai/ostler/licenses.html"
+        echo "  https://ostler.ai/licenses.html"
         echo ""
         echo "If you spot a missing or incorrect entry, email legal@ostler.ai."
     fi
@@ -2448,7 +2448,7 @@ if [[ -n "$NOTICES_SOURCE" && -s "$NOTICES_DEST" ]]; then
     info "View any time with: bash install.sh --licenses"
 else
     warn "Could not install THIRD_PARTY_NOTICES.md (non-fatal)."
-    warn "Read the public version at https://creativemachines.ai/ostler/licenses.html"
+    warn "Read the public version at https://ostler.ai/licenses.html"
 fi
 
 # Companion: install the LICENSES/ directory containing canonical licence
