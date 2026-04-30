@@ -774,12 +774,12 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
 fi
 
 # Copy FDA extraction module if available
-# FDA_DIR is the PARENT — the package lives at FDA_DIR/lifeline_fda/
+# FDA_DIR is the PARENT – the package lives at FDA_DIR/ostler_fda/
 FDA_DIR="${OSTLER_DIR}/fda-module"
 HAS_FDA_MODULE=false
-if [[ -d "${SCRIPT_DIR}/lifeline_fda" ]]; then
+if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     mkdir -p "$FDA_DIR"
-    cp -R "${SCRIPT_DIR}/lifeline_fda" "$FDA_DIR/"
+    cp -R "${SCRIPT_DIR}/ostler_fda" "$FDA_DIR/"
     HAS_FDA_MODULE=true
 fi
 
@@ -1565,9 +1565,9 @@ EMBED_BATCH_SIZE=50
 DEFAULT_COUNTRY_CODE=${COUNTRY_CODE}
 DEFAULT_PRIVACY_LEVEL=L2
 
-# Per-source FDA consent — comma-separated list of enabled sources.
+# Per-source FDA consent – comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
-# lifeline_fda.extract_all via the OSTLER_FDA_SOURCES env var.
+# ostler_fda.extract_all via the OSTLER_FDA_SOURCES env var.
 OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,apple_notes,calendar,reminders}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
@@ -1734,7 +1734,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
-from lifeline_fda.extract_all import run_all
+from ostler_fda.extract_all import run_all
 from pathlib import Path
 summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
 print(json.dumps(summary, default=str))
@@ -2058,7 +2058,7 @@ OSTLER_DIR="${HOME}/.ostler"
 FDA_DIR="${OSTLER_DIR}/fda-module"
 OSTLER_PYTHON="${OSTLER_DIR}/.venv/bin/python3"
 
-if [[ ! -d "$FDA_DIR/lifeline_fda" ]]; then
+if [[ ! -d "$FDA_DIR/ostler_fda" ]]; then
     echo "Error: FDA extraction module not installed."
     echo "Re-run the Ostler installer to set it up."
     exit 1
@@ -2081,7 +2081,7 @@ fi
 "\$OSTLER_PYTHON" -c "
 import sys
 sys.path.insert(0, '${FDA_DIR}')
-from lifeline_fda.extract_all import run_all
+from ostler_fda.extract_all import run_all
 from pathlib import Path
 run_all(Path('${OSTLER_DIR}/imports/fda'))
 "
@@ -2250,14 +2250,14 @@ launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -2410,7 +2410,7 @@ fi
 
 if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
     if OSTLER_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
-        ok "Hub power LaunchAgent loaded (label com.creativemachines.lifeline.hub-power)"
+        ok "Hub power LaunchAgent loaded (label com.creativemachines.ostler.hub-power)"
         info "Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
     else
         warn "Hub power LaunchAgent install failed. See output above."
