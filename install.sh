@@ -3179,7 +3179,10 @@ fi
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.1.0})"
 
 OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.1.0}"
-OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-assistant}"
+# Interim: distribution lives on the installer repo while the public-visibility
+# hold on the new ostler-ai org clears (GitHub new-account heuristic, ~7d from
+# 2026-04-26). Migrates back to ostler-ai/ostler-installer when that lifts.
+OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-andygmassey/CM051-Home-Hub-Installer}"
 OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
 ASSISTANT_BINARY="${OSTLER_DIR}/bin/ostler-assistant"
