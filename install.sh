@@ -503,7 +503,7 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
     set -a; source "${CONFIG_DIR}/.env"; set +a
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
-    ASSISTANT_NAME="${ASSISTANT_NAME:-Marvin}"
+    ASSISTANT_NAME="${ASSISTANT_NAME:-}"
     USER_TZ="${TIMEZONE:-UTC}"
     COUNTRY_CODE="${DEFAULT_COUNTRY_CODE:-44}"
     EXPORTS_DIR=""
@@ -791,15 +791,17 @@ echo "  graph. Give it a name you will enjoy talking to."
 echo ""
 echo "  Some ideas (or type your own):"
 echo ""
-echo -e "    ${BOLD}Marvin${NC}     – the laconic, brilliant assistant from Hitchhiker's Guide"
 echo -e "    ${BOLD}Joshua${NC}     – the calm, careful AI from WarGames"
 echo -e "    ${BOLD}Samantha${NC}   – the warm, attentive companion from Her"
 echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
 echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
 echo ""
 
-read -p "  Assistant name [Marvin]: " ASSISTANT_NAME
-ASSISTANT_NAME=${ASSISTANT_NAME:-Marvin}
+read -p "  Assistant name: " ASSISTANT_NAME
+while [[ -z "$ASSISTANT_NAME" ]]; do
+    warn "Your assistant needs a name. Pick from the suggestions above or type your own."
+    read -p "  Assistant name: " ASSISTANT_NAME
+done
 
 ok "Your assistant is called ${ASSISTANT_NAME}"
 
