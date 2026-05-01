@@ -105,7 +105,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    ostler_fda, contact_syncer, hub-power, doctor, third-party"
     echo "    notices); under curl|bash we download the tarball, extract"
     echo "    it, and re-exec from inside."
-    echo "    Default: https://ostler.ai/install.tar.gz"
+    echo "    Default: https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
     echo ""
     echo "  PWG_PIPELINE_REPO"
     echo "    Source repo for the import pipeline (CM041 People Graph)."
@@ -210,7 +210,11 @@ PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 #      pointing the user at the tarball download flow.
 #
 # Override the tarball URL with OSTLER_INSTALLER_TARBALL_URL.
-DEFAULT_INSTALLER_TARBALL_URL="https://ostler.ai/install.tar.gz"
+# The default points at the GitHub Release artifact on the public
+# ostler-ai/ostler-installer mirror (versioned, signed, free, standard
+# pattern). Cloudflare Pages serving a static tarball was considered
+# but loses versioning + signing; GitHub Release is the long-term home.
+DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
 INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
 if [[ -n "${OSTLER_BOOTSTRAP_SCRIPT_DIR:-}" ]]; then
