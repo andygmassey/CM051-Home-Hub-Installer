@@ -99,16 +99,22 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "Environment variables (advanced - override before running):"
     echo ""
     echo "  PWG_PIPELINE_REPO"
-    echo "    Source repo for the import pipeline (CM041)."
-    echo "    Default: https://github.com/andygmassey/CM041-People-Graph.git"
-    echo "    Note: defaults will move to the creativemachines-ai org as"
-    echo "    repos migrate. Set this env var to pin a specific source"
-    echo "    if needed (e.g. a fork during private beta)."
+    echo "    Source repo for the import pipeline (CM041 People Graph)."
+    echo "    Default: empty (productised tarball bundles the pipeline)."
+    echo "    Set this env var to a clone URL if you are running install.sh"
+    echo "    directly without a tarball (e.g. dev or private beta access)."
     echo ""
     echo "  PWG_HUB_POWER_REPO"
     echo "    Source repo for the hub-power LaunchAgent scripts (HR015)."
-    echo "    Default: https://github.com/andygmassey/HR015-Gaming-PC.git"
-    echo "    Same migration note as above."
+    echo "    Default: empty (productised tarball bundles the scripts)."
+    echo "    Mac Mini / Studio deployments do not need this. MacBook hubs"
+    echo "    may set it to a clone URL for sleep / battery handling."
+    echo ""
+    echo "  PWG_NOTICES_BASE_URL"
+    echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
+    echo "    LICENSES/ tree when neither the tarball nor the hub-power"
+    echo "    clone provides them. Default: empty (warn-only). Example:"
+    echo "    https://raw.githubusercontent.com/<org>/<repo>/main"
     echo ""
     echo "  WIKI_OBSIDIAN_DIR"
     echo "    Enable Obsidian vault output for the wiki compiler. Empty"
@@ -174,16 +180,40 @@ SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 
 # ── External resources (overridable via env vars) ──────────────────
+#
+# Both URLs default to empty in the productised installer. The
+# productised path bundles the pipeline + hub-power scripts in the
+# installer tarball (see ${SCRIPT_DIR}/contact_syncer and
+# ${SCRIPT_DIR}/hub-power), so the clone fallback only fires for
+# developers running install.sh directly without a tarball. Empty
+# defaults mean a cold curl-pipe-bash install never points at a
+# private dev repo; the clone path becomes opt-in via env var.
+#
+# These were previously hard-coded to andygmassey/* repos which are
+# private, so an unauthenticated cold install hit a clone failure
+# (handled non-fatally, but produced confusing log noise about repos
+# the user had no business knowing about). The migration to a
+# creativemachines-ai org public mirror is queued; until that lands,
+# overrides are how dev / beta installs source these.
 
-# Source repo for the import pipeline. Override at install time, e.g.
+# Source repo for the import pipeline (CM041 People Graph). Override:
 # PWG_PIPELINE_REPO="https://github.com/your-org/pipeline.git" ./install.sh
-PIPELINE_REPO="${PWG_PIPELINE_REPO:-https://github.com/andygmassey/CM041-People-Graph.git}"
+PIPELINE_REPO="${PWG_PIPELINE_REPO:-}"
 
 # Hub power policy scripts (MacBook-as-Hub support). Ships in HR015 under
 # hub-power/. At release the installer tarball bundles a copy under
 # ${SCRIPT_DIR}/hub-power/; in dev it may be symlinked there. Override:
-# HUB_POWER_REPO="https://github.com/your-org/infra.git" ./install.sh
-HUB_POWER_REPO="${PWG_HUB_POWER_REPO:-https://github.com/andygmassey/HR015-Gaming-PC.git}"
+# PWG_HUB_POWER_REPO="https://github.com/your-org/infra.git" ./install.sh
+HUB_POWER_REPO="${PWG_HUB_POWER_REPO:-}"
+
+# Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
+# LICENSES/ tree. Same productisation rule: bundled tarball is the
+# primary path, raw fetch is the fallback. Empty default keeps the
+# productised install from probing a private repo. Set this to the
+# raw.githubusercontent.com base URL of any branch holding the
+# canonical attribution files (no trailing slash):
+# PWG_NOTICES_BASE_URL="https://raw.githubusercontent.com/<org>/<repo>/main"
+NOTICES_BASE_URL="${PWG_NOTICES_BASE_URL:-}"
 
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 1: PREREQUISITES (automatic — no user input)
@@ -1939,6 +1969,16 @@ elif [[ -d "$PIPELINE_DIR/contact_syncer" ]]; then
     info "Updating existing pipeline..."
     cd "$PIPELINE_DIR" && git pull --quiet 2>/dev/null || warn "Could not update pipeline (offline?)"
     HAS_PIPELINE=true
+elif [[ -z "$PIPELINE_REPO" ]]; then
+    # Productised install path: no tarball-bundled pipeline and no
+    # PWG_PIPELINE_REPO override. The pipeline ships with the
+    # installer tarball at release; if a user gets here without one,
+    # GDPR import is simply unavailable (their Mac-side data extracted
+    # above is unaffected).
+    info "Import pipeline not bundled with installer."
+    info "Mac-side data (iMessage, Safari, etc.) was extracted above."
+    info "GDPR-export import will be available when the pipeline ships."
+    info "Beta testers with access can set PWG_PIPELINE_REPO=<url> and re-run."
 else
     info "Cloning import pipeline..."
     PIPELINE_CLONE_LOG="$(mktemp -t ostler-pipeline-clone.XXXXXX.log)"
@@ -2374,6 +2414,13 @@ elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
     HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
     HUB_POWER_SOURCE="existing"
     info "Reusing existing hub-power install at ${HUB_POWER_DIR}"
+elif [[ -z "$HUB_POWER_REPO" ]]; then
+    # Productised install path: no tarball-bundled scripts and no
+    # PWG_HUB_POWER_REPO override. Mac Mini / Studio deployments do
+    # not need this LaunchAgent (always-on AC); only MacBook hubs do.
+    info "Hub power scripts not bundled with installer."
+    info "Mac Mini / Studio deployments are unaffected (always-on AC)."
+    info "MacBook hubs: set PWG_HUB_POWER_REPO=<url> and re-run."
 else
     info "Cloning hub-power scripts..."
     HUB_POWER_TMP="$(mktemp -d)"
@@ -2423,8 +2470,11 @@ fi
 # Land THIRD_PARTY_NOTICES.md at ~/.ostler/ so the user can read it
 # offline via `install.sh --licenses` and so any compliance review
 # can verify what we ship attribution for. Source preference: bundled
-# in installer tarball, then fetched from the same HR015 clone we
-# already used for hub-power, then a final fallback to a stub.
+# in installer tarball, then fetched from the same HUB_POWER clone we
+# already used (when the operator opted into one), then a final
+# raw-fetch fallback gated on PWG_NOTICES_BASE_URL. The productised
+# tarball ships these files bundled, so the curl fallback only fires
+# in dev runs that opt into a base URL.
 
 NOTICES_DEST="${OSTLER_DIR}/THIRD_PARTY_NOTICES.md"
 NOTICES_SOURCE=""
@@ -2435,9 +2485,12 @@ if [[ -f "${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md" ]]; then
 elif [[ -n "${HUB_POWER_TMP:-}" && -f "${HUB_POWER_TMP}/THIRD_PARTY_NOTICES.md" ]]; then
     cp "${HUB_POWER_TMP}/THIRD_PARTY_NOTICES.md" "$NOTICES_DEST"
     NOTICES_SOURCE="cloned (HR015)"
-elif command -v curl >/dev/null 2>&1; then
+elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
+    # Final fallback: raw fetch from the operator-provided base URL.
+    # Empty default means a productised cold install never probes a
+    # private repo; warn-only branch below documents the public link.
     if curl -fsSL --max-time 30 \
-        "https://raw.githubusercontent.com/andygmassey/HR015-Gaming-PC/main/THIRD_PARTY_NOTICES.md" \
+        "${NOTICES_BASE_URL}/THIRD_PARTY_NOTICES.md" \
         -o "$NOTICES_DEST" 2>/dev/null; then
         NOTICES_SOURCE="fetched"
     fi
@@ -2465,11 +2518,12 @@ elif [[ -n "${HUB_POWER_TMP:-}" && -d "${HUB_POWER_TMP}/LICENSES" ]]; then
     mkdir -p "$LICENSES_DEST"
     cp -R "${HUB_POWER_TMP}/LICENSES/"* "$LICENSES_DEST/"
     LICENSES_SOURCE="cloned (HR015)"
-elif command -v curl >/dev/null 2>&1; then
-    # Best-effort fetch of canonical licence texts from the HR015 repo.
-    # Files are small and stable. Non-fatal if any fail.
+elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
+    # Best-effort fetch of canonical licence texts from the
+    # operator-provided base URL. Files are small and stable.
+    # Non-fatal if any fail.
     mkdir -p "$LICENSES_DEST"
-    LICENSES_BASE="https://raw.githubusercontent.com/andygmassey/HR015-Gaming-PC/main/LICENSES"
+    LICENSES_BASE="${NOTICES_BASE_URL}/LICENSES"
     LICENSES_FETCHED=0
     for f in Apache-2.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
         if curl -fsSL --max-time 30 "${LICENSES_BASE}/${f}" -o "${LICENSES_DEST}/${f}" 2>/dev/null; then
