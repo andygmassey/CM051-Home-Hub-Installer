@@ -2082,7 +2082,7 @@ services:
     image: ghcr.io/ostler-ai/ostler-wiki-site:0.1
     container_name: ostler-wiki-site
     ports:
-      - "127.0.0.1:8044:8044"
+      - "127.0.0.1:8044:8000"
     volumes:
       - wiki_docs:/app/site
     restart: unless-stopped
