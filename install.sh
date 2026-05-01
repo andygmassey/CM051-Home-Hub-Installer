@@ -98,6 +98,15 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo ""
     echo "Environment variables (advanced - override before running):"
     echo ""
+    echo "  OSTLER_INSTALLER_TARBALL_URL"
+    echo "    Where install.sh fetches the installer tarball when invoked"
+    echo "    via curl|bash. The single install.sh script does not contain"
+    echo "    the bundled assets it needs to install (ostler_security,"
+    echo "    ostler_fda, contact_syncer, hub-power, doctor, third-party"
+    echo "    notices); under curl|bash we download the tarball, extract"
+    echo "    it, and re-exec from inside."
+    echo "    Default: https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
+    echo ""
     echo "  PWG_PIPELINE_REPO"
     echo "    Source repo for the import pipeline (CM041 People Graph)."
     echo "    Default: empty (productised tarball bundles the pipeline)."
@@ -174,10 +183,99 @@ OSTLER_DIR="${HOME}/.ostler"
 DATA_DIR="${OSTLER_DIR}/data"
 CONFIG_DIR="${OSTLER_DIR}/config"
 LOGS_DIR="${OSTLER_DIR}/logs"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SECURITY_DIR="${OSTLER_DIR}/security-module"
 SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+
+# ── SCRIPT_DIR resolution (tarball / dev / curl|bash bootstrap) ───
+#
+# The installer copies bundled assets (ostler_security/, ostler_fda/,
+# contact_syncer/, hub-power/, doctor/, THIRD_PARTY_NOTICES.md,
+# LICENSES/) from SCRIPT_DIR into ~/.ostler/ during install. Three
+# install paths exist:
+#
+#   1. Tarball mode (productised launch). User downloaded
+#      ostler-installer-X.tar.gz, extracted it, ran ./install.sh
+#      from inside. BASH_SOURCE[0] is a real file path; the standard
+#      cd+dirname dance works.
+#
+#   2. Dev mode. Developer cloned the installer repo and ran
+#      ./install.sh from their checkout. Same shape as tarball mode.
+#
+#   3. curl|bash mode. `curl ... | bash`. BASH_SOURCE[0] is empty,
+#      cd+dirname collapses to $HOME, and every `${SCRIPT_DIR}/<asset>`
+#      lookup below would silently miss. We refuse to silently degrade –
+#      if a canonical tarball URL is configured, we bootstrap from it
+#      and re-exec; otherwise we fail with an actionable message
+#      pointing the user at the tarball download flow.
+#
+# Override the tarball URL with OSTLER_INSTALLER_TARBALL_URL.
+# The default points at the GitHub Release artifact on the public
+# ostler-ai/ostler-installer mirror (versioned, signed, free, standard
+# pattern). Cloudflare Pages serving a static tarball was considered
+# but loses versioning + signing; GitHub Release is the long-term home.
+DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
+INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
+
+if [[ -n "${OSTLER_BOOTSTRAP_SCRIPT_DIR:-}" ]]; then
+    # Re-entry from a curl|bash bootstrap. The outer invocation
+    # extracted a tarball and exec'd us with this env var pointing at
+    # the extracted directory.
+    SCRIPT_DIR="${OSTLER_BOOTSTRAP_SCRIPT_DIR}"
+elif [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    # Tarball or dev mode.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    # curl|bash mode. Try to bootstrap.
+    BOOTSTRAP_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-installer-XXXXXX")"
+    trap 'rm -rf "${BOOTSTRAP_TMPDIR:-}"' EXIT INT TERM
+
+    echo "==> Bootstrapping installer tarball from ${INSTALLER_TARBALL_URL}"
+    if ! curl --fail --silent --show-error --location \
+            --output "${BOOTSTRAP_TMPDIR}/install.tar.gz" \
+            "${INSTALLER_TARBALL_URL}" 2>"${BOOTSTRAP_TMPDIR}/curl.err"; then
+        echo
+        echo "ERROR: Could not download the installer tarball."
+        echo
+        echo "  URL:    ${INSTALLER_TARBALL_URL}"
+        echo "  Reason: $(cat "${BOOTSTRAP_TMPDIR}/curl.err" 2>/dev/null || echo unknown)"
+        echo
+        echo "The installer needs bundled assets (ostler_security, ostler_fda,"
+        echo "contact_syncer, hub-power, doctor, third-party notices) that this"
+        echo "single install.sh script does not contain. Fix one of:"
+        echo
+        echo "  1. Wait until the installer tarball is published. We are tracking"
+        echo "     this at https://ostler.ai/launch."
+        echo
+        echo "  2. Override the tarball URL if you have one staged:"
+        echo "       curl -fsSL https://ostler.ai/install.sh | \\"
+        echo "         OSTLER_INSTALLER_TARBALL_URL=https://your-host/install.tar.gz \\"
+        echo "         bash"
+        echo
+        echo "  3. Clone the installer repo and run ./install.sh from your"
+        echo "     checkout (dev mode), with PWG_PIPELINE_REPO + PWG_HUB_POWER_REPO"
+        echo "     set to source repos you have access to."
+        echo
+        exit 1
+    fi
+
+    if ! tar -xzf "${BOOTSTRAP_TMPDIR}/install.tar.gz" -C "${BOOTSTRAP_TMPDIR}"; then
+        echo "ERROR: Downloaded tarball did not extract cleanly. Aborting."
+        exit 1
+    fi
+
+    BOOTSTRAP_SCRIPT="$(find "${BOOTSTRAP_TMPDIR}" -maxdepth 3 -name install.sh -type f -print -quit)"
+    if [[ -z "${BOOTSTRAP_SCRIPT}" ]]; then
+        echo "ERROR: Tarball did not contain install.sh. Aborting."
+        exit 1
+    fi
+
+    BOOTSTRAP_DIR="$(cd "$(dirname "${BOOTSTRAP_SCRIPT}")" && pwd)"
+    export OSTLER_BOOTSTRAP_SCRIPT_DIR="${BOOTSTRAP_DIR}"
+    # Drop the cleanup trap before exec so the extracted tree survives.
+    trap - EXIT INT TERM
+    exec bash "${BOOTSTRAP_SCRIPT}" "$@"
+fi
 
 # ── External resources (overridable via env vars) ──────────────────
 #
