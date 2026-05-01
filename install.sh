@@ -2074,14 +2074,62 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  # Personal wiki (Andypedia) -- the human-readable browse layer over
+  # the Oxigraph graph + Qdrant vectors. Compiled by wiki-compiler
+  # below into the shared wiki_docs volume; served by MkDocs Material.
+  # See CM044 (PWG Personal Wiki) for compiler internals.
+  wiki-site:
+    image: ostler-wiki-site:latest
+    container_name: ostler-wiki-site
+    ports:
+      - "127.0.0.1:8044:8044"
+    volumes:
+      - wiki_docs:/app/site
+    restart: unless-stopped
+
+  # Wiki compiler -- runs on demand (compose profile "compile") to
+  # rebuild the wiki from current Oxigraph + Qdrant state. Invoked
+  # at install time by Phase 3.16 and on a recurring schedule by the
+  # wiki-recompile LaunchAgent (separate piece). Reads the data
+  # volumes read-only so a buggy compiler can never clobber the
+  # source of truth.
+  wiki-compiler:
+    image: ostler-wiki-compiler:latest
+    container_name: ostler-wiki-compiler
+    profiles: [compile]
+    volumes:
+      - wiki_docs:/app/output
+      - oxigraph_data:/app/oxigraph:ro
+      - qdrant_data:/app/qdrant:ro
+    environment:
+      # CM044 productisation knobs (set by CM044 PR #22). Empty
+      # defaults are intentional: the compiler treats "" as "no
+      # operator-specific filter" and emits a generic wiki rather
+      # than failing. Operators override per-machine via
+      # ~/.ostler/.env or the env block at install time.
+      - PWG_USER_ID=${PWG_USER_ID:-}
+      - PWG_AI_CHAT_WINGS=${PWG_AI_CHAT_WINGS:-}
+      - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
+      - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
+      - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}
+
 volumes:
   qdrant_data:
   oxigraph_data:
   redis_data:
+  wiki_docs:
 DCEOF
 
 cd "$OSTLER_DIR"
-docker compose up -d
+# Bring up the data services only at this phase. The wiki-site
+# image is added by piece 1 of the wiki-container brief but its
+# first-compile + serve happens later in Phase 3.16 (piece 2);
+# wiki-compiler is profile-gated so it never starts at all here.
+# Naming the services explicitly keeps install resilient against
+# a missing wiki image (e.g. registry not yet wired) -- the data
+# layer comes up first; the wiki layer fails on its own phase
+# with its own error surface.
+docker compose up -d qdrant oxigraph redis
 ok "Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
 
 # ── 3.9 AI models ─────────────────────────────────────────────────
@@ -2436,7 +2484,8 @@ echo ""
 echo "  Ostler Uninstaller"
 echo ""
 echo "  This will remove:"
-echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis)"
+echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
+echo "      ostler-wiki-site, ostler-wiki-compiler)"
 echo "    - Docker volumes (your knowledge graph data)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
 echo "    - Doctor, export watcher, hub power, and email-ingest launchd services"
