@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler wiki recompile LaunchAgent.
+
+        Daily, runs the wiki-compiler against the current Oxigraph
+        plus Qdrant state and ensures wiki-site is up. Pattern
+        mirrors the email-ingest LaunchAgent shipped earlier
+        (com.creativemachines.ostler.email-ingest).
+
+        Pieces:
+          1. The compose service definitions for wiki-compiler and
+             wiki-site (separate PR adds them to install.sh).
+          2. The first-compile invocation in Phase 3.16 of
+             install.sh (separate PR).
+          3. This LaunchAgent for the recurring schedule.
+
+        The installer renders the placeholders below at install time:
+          OSTLER_BIN  -> $OSTLER_DIR/bin
+          OSTLER_HOME -> $HOME (used as working directory)
+          OSTLER_LOGS -> $LOGS_DIR (~/.ostler/logs by default)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.wiki-recompile</string>
+
+    <!--
+        Wrapper script invokes docker compose; placeholder is
+        replaced at install time with the absolute path.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/wiki-recompile-tick.sh</string>
+    </array>
+
+    <!--
+        Daily (86400 seconds). Open question for Andy: drop to
+        hourly (3600s) if the wiki should reflect new emails and
+        conversations within the hour rather than next day.
+        Daily is the safer v1 default: gentler on disk, lower
+        battery / fan impact on a MacBook hub, and the user can
+        always manually run the wrapper for a fresh compile.
+    -->
+    <key>StartInterval</key>
+    <integer>86400</integer>
+
+    <!--
+        RunAtLoad fires once at LaunchAgent load (login or post-
+        install). The first compile already happened during install
+        Phase 3.16, so this is mostly a "catch up after a long
+        machine-off period" safety net.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!--
+        Working directory: the wrapper cd's into $OSTLER_DIR
+        anyway so docker compose finds the compose file, but a
+        sane $HOME-relative resolution context is still useful.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. Doctor surfaces these
+        logs so the operator can see whether last recompile
+        succeeded without spelunking launchctl.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/wiki-recompile.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/wiki-recompile.err</string>
+
+    <!--
+        Background priority. A wiki recompile is not latency-
+        critical; we don't want it competing with foreground work
+        for I/O on the user's daily-driver Mac.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
