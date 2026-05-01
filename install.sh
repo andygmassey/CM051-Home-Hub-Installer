@@ -2952,6 +2952,53 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
     fi
 fi
 
+# ── 3.16 Wiki (Andypedia) -- first compile and serve ─────────────────
+#
+# Resolves install UX BLOCKING #1: the customer's first encounter
+# with Ostler is a browsable, human-readable wiki at
+# http://localhost:8044, not Qdrant raw vectors and a SPARQL form.
+# CM044 produces a wiki-compiler that builds an MkDocs Material site
+# from the live Oxigraph + Qdrant state; piece 1 of this brief added
+# both services to the compose stack. This phase invokes the first
+# compile and starts the wiki-site container.
+#
+# Empty-wiki path: when the user has not run `ostler-import` yet,
+# Oxigraph has no Person triples and the compiler produces a
+# placeholder index page (see CM044 for the empty-wiki UX). The
+# install does NOT fail in that case -- the wiki simply says
+# "your wiki will populate after your first import" and the user
+# follows the next-steps banner.
+#
+# Image source open question: the wiki-site / wiki-compiler images
+# may not be pullable from a public registry yet. If the docker
+# compose run fails with "manifest unknown" or similar, this phase
+# warn-logs and continues -- the data layer (Phase 3.8) is already
+# up, so the user has everything except the wiki UI. Piece 1's PR
+# body documents the pre-built-vs-build-at-install decision.
+
+progress "Compiling your personal wiki (first run)"
+
+WIKI_FIRST_COMPILE_OK=false
+cd "$OSTLER_DIR"
+if docker compose --profile compile run --rm wiki-compiler 2>&1 | tail -10; then
+    if docker compose up -d wiki-site 2>&1 | tail -3; then
+        WIKI_FIRST_COMPILE_OK=true
+        ok "Wiki running at http://localhost:8044"
+    else
+        warn "Wiki compiled but wiki-site container failed to start."
+        warn "  Try: docker compose -f ${OSTLER_DIR}/docker-compose.yml up -d wiki-site"
+    fi
+else
+    warn "Wiki first-compile failed. Common causes:"
+    warn "  - ostler-wiki-compiler image not yet pullable (registry not wired)"
+    warn "  - Oxigraph not yet healthy at this phase (check logs above)"
+    warn "  - Insufficient disk for the wiki output volume"
+    warn "  Manual retry once the cause is resolved:"
+    warn "    cd ${OSTLER_DIR}"
+    warn "    docker compose --profile compile run --rm wiki-compiler"
+    warn "    docker compose up -d wiki-site"
+fi
+
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 4: HEALTH CHECK + COMPLETION
 # ══════════════════════════════════════════════════════════════════════
@@ -3148,7 +3195,18 @@ echo "     - iCloud Calendar (app-specific password)"
 echo "     - Gmail (OAuth via gws CLI)"
 echo "     - WhatsApp (pair code linking)"
 echo ""
-echo "  Dashboards:"
+# Primary user-facing URL: the wiki. This is the everything-Ostler
+# dashboard the customer opens in a browser. The dev / debug
+# dashboards below are available but de-emphasised so the next-
+# steps banner reads as "go look at your wiki" rather than "here
+# are five raw API surfaces". Resolves install UX BLOCKING #1.
+if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
+    echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
+else
+    echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
+fi
+echo ""
+echo "  Developer dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
 echo "     - Doctor:   http://localhost:8089/doctor"
