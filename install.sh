@@ -2766,7 +2766,7 @@ echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler)"
 echo "    - Docker volumes (your knowledge graph data)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
-echo "    - Doctor, export watcher, hub power, email-ingest, and wiki-recompile launchd services"
+echo "    - Doctor, export watcher, hub power, email-ingest, wiki-recompile, and assistant launchd services"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -2803,6 +2803,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
@@ -2811,6 +2813,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -3134,6 +3137,159 @@ if [[ -n "$WIKI_RECOMPILE_SNIPPET" && -f "$WIKI_RECOMPILE_SNIPPET" ]]; then
         warn "  docker compose --profile compile run --rm wiki-compiler"
     fi
 fi
+
+# ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
+#
+# Stages the customer-facing assistant binary and registers a daemon
+# LaunchAgent that runs it under the user's account. The binary is
+# the upstream zeroclaw runtime renamed at tar time by Phase B's
+# release pipeline; the LaunchAgent points it at the config.toml
+# Phase D's wizard wrote in section 3.5b.
+#
+# Pieces:
+#   1. Resolve the release URL and SHA-256 sidecar URL.
+#   2. Download both into a temp dir.
+#   3. Verify SHA-256 (abort on mismatch -- silent acceptance of
+#      a bad download would put a tampered binary on the daily
+#      driver Mac, so this is an explicit hard fail).
+#   4. Extract to ${OSTLER_DIR}/bin/ostler-assistant.
+#   5. Clear the macOS quarantine xattr because v0.1 ships
+#      unsigned (Andy's Developer ID work is task #136).
+#   6. Source assistant-agent/INSTALL_SNIPPET.sh to register the
+#      LaunchAgent.
+#
+# Failure mode: if the download / verify / extract chain fails,
+# warn and skip the LaunchAgent install. The wizard-written
+# config.toml stays in place so a later manual binary install
+# (re-run the installer when the network recovers, or stage the
+# binary by hand) wires up cleanly.
+#
+# Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
+# are env-overridable so an enterprise fork or pre-release smoke
+# can point at a different release without editing install.sh.
+# Defaults track ostler-ai/ostler-assistant v0.1.
+#
+# Open question: there is no zeroclaw subcommand for "encrypt the
+# plaintext password the wizard just wrote" -- the secrets store
+# auto-migrates legacy enc: values to enc2: on read but does not
+# bootstrap from plaintext. The TOML stays mode 0600 in the
+# meantime. A `config encrypt-secrets` subcommand would close the
+# window; flagged as a follow-up Rust PR (or roll into Phase E).
+
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.1})"
+
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.1}"
+OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-assistant}"
+OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
+OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
+ASSISTANT_BINARY="${OSTLER_DIR}/bin/ostler-assistant"
+
+# Apple Silicon only at v0.1. The Phase B release workflow does
+# not produce an x86_64 build (customer Macs are arm64 by the
+# brief). Surface this clearly rather than letting curl 404 on
+# a non-existent Intel asset.
+ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
+if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
+    warn "ostler-assistant v${OSTLER_ASSISTANT_VERSION} is Apple Silicon only (detected: ${ARCH_DETECTED})."
+    warn "Skipping binary install. The wizard-written config.toml stays in place."
+    info "Intel support is not on the v0.1 roadmap; raise a request if required."
+    ASSISTANT_BINARY_INSTALLED=false
+else
+
+ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
+ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
+ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+
+ASSISTANT_TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$ASSISTANT_TMPDIR"' EXIT
+
+ASSISTANT_BINARY_INSTALLED=false
+
+if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+   && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+
+    # Verify SHA-256. Phase B writes the sidecar as
+    # `<hex>  <filename>` (shasum default). Recompute against
+    # the local download and compare hex prefixes. A mismatch
+    # is an explicit hard fail: continuing past this point
+    # would stage a tampered or partial binary.
+    EXPECTED_SHA="$(awk '{print $1}' "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256")"
+    ACTUAL_SHA="$(shasum -a 256 "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" | awk '{print $1}')"
+    if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
+        err "ostler-assistant tarball SHA-256 mismatch."
+        err "  expected: ${EXPECTED_SHA:-<empty sidecar>}"
+        err "  actual:   ${ACTUAL_SHA}"
+        err "  url:      ${ASSISTANT_ARCHIVE_URL}"
+        err "  Refusing to stage a binary that does not match the published checksum."
+        rm -rf "$ASSISTANT_TMPDIR"
+        trap - EXIT
+        exit 1
+    fi
+
+    mkdir -p "${OSTLER_DIR}/bin"
+    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "${OSTLER_DIR}/bin"; then
+        chmod 0755 "$ASSISTANT_BINARY"
+        # Unsigned binary at v0.1 (Developer ID work is task #136).
+        # Clearing the quarantine xattr lets the LaunchAgent run
+        # without the user having to right-click + Allow in Privacy
+        # & Security on first launch. Operator-installed daemons
+        # under ~/.ostler/bin are explicitly trusted by the install
+        # they just authorised; quarantine adds friction without
+        # buying anything beyond what FileVault and the SHA verify
+        # above already cover.
+        xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+        if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
+            ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY}"
+            ASSISTANT_BINARY_INSTALLED=true
+        else
+            warn "ostler-assistant extracted but --version check failed."
+            warn "Skipping LaunchAgent install. Try: ${ASSISTANT_BINARY} --version"
+        fi
+    else
+        warn "Could not extract ostler-assistant tarball; skipping LaunchAgent."
+    fi
+else
+    warn "Could not download ostler-assistant v${OSTLER_ASSISTANT_VERSION} from ${ASSISTANT_ARCHIVE_URL}"
+    if [[ -s "$ASSISTANT_TMPDIR/curl.log" ]]; then
+        warn "Curl said:"
+        sed -e 's/^/    /' "$ASSISTANT_TMPDIR/curl.log" | head -5
+    fi
+    warn "Common causes: tag v${OSTLER_ASSISTANT_VERSION} not yet published, network offline,"
+    warn "or running ahead of Phase B's release pipeline. Re-run the installer once the"
+    warn "release lands, or stage the binary manually:"
+    info "  curl -fL -o /tmp/ostler.tgz ${ASSISTANT_ARCHIVE_URL}"
+    info "  tar xzf /tmp/ostler.tgz -C ${OSTLER_DIR}/bin"
+    info "  bash ${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"
+fi
+
+rm -rf "$ASSISTANT_TMPDIR"
+trap - EXIT
+
+# Stage the assistant-agent INSTALL_SNIPPET assets even when the
+# binary download failed. The snippet refuses to run without the
+# binary, but a later manual stage just needs to source it.
+if [[ -d "${SCRIPT_DIR}/assistant-agent" && -f "${SCRIPT_DIR}/assistant-agent/INSTALL_SNIPPET.sh" ]]; then
+    mkdir -p "$OSTLER_ASSISTANT_DIR"
+    cp -R "${SCRIPT_DIR}/assistant-agent/"* "$OSTLER_ASSISTANT_DIR/"
+fi
+
+if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    if OSTLER_INSTALL_ROOT="$OSTLER_ASSISTANT_DIR" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
+       bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"; then
+        ok "Ostler assistant LaunchAgent loaded (label com.creativemachines.ostler.assistant)"
+        info "Logs: ${LOGS_DIR}/ostler-assistant.log (and .err)"
+        info "Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
+    else
+        warn "Ostler assistant LaunchAgent install failed. See output above."
+        warn "Wizard config stays in place; binary stays staged. Manual retry:"
+        warn "  bash ${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"
+    fi
+fi
+
+fi  # end Apple Silicon guard
 
 # ── 3.14b Third-party attribution catalogue ─────────────────────
 #
@@ -3570,6 +3726,12 @@ fi
 # without knowing what to do.
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     echo ""
+    if [[ "${ASSISTANT_BINARY_INSTALLED:-false}" == true ]]; then
+        echo -e "  ${GREEN}${BOLD}Your assistant ${ASSISTANT_NAME} is running.${NC}"
+    else
+        echo -e "  ${YELLOW}${BOLD}${ASSISTANT_NAME}'s binary did not install -- channels are configured but no daemon is up.${NC}"
+        echo "  See warnings above for the download / extract failure."
+    fi
     echo -e "  ${BOLD}Talk to ${ASSISTANT_NAME}:${NC}"
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
         echo "     - iMessage from: ${CHANNEL_IMESSAGE_ALLOWED}"
