@@ -167,6 +167,27 @@ warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; }
 fail()  { echo -e "${RED}[fail]${NC}  $*"; exit 1; }
 step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 
+# Retry a model pull up to 3 times with exponential backoff. A 6.6 GB
+# pull over hotel WiFi is fragile; a single network blip should not
+# abort the entire install at 80% progress.
+ollama_pull_with_retry() {
+    local model="$1"
+    local attempt=1
+    local backoff=10
+    while (( attempt <= 3 )); do
+        if ollama pull "$model"; then
+            return 0
+        fi
+        if (( attempt < 3 )); then
+            warn "ollama pull ${model} failed (attempt ${attempt}/3). Retrying in ${backoff}s..."
+            sleep "$backoff"
+            backoff=$((backoff * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
 # ── --allow-plaintext loud warning ─────────────────────────────────
 # If the operator passed --allow-plaintext, repeat a yellow warning
 # three times so it cannot be missed in CI logs or terminal scrollback.
@@ -570,6 +591,11 @@ echo "  It also exports your contacts for the knowledge graph."
 echo "  (Your data stays on this machine — nothing is sent anywhere.)"
 echo ""
 
+# Capture stderr separately so we can detect a Contacts permission denial
+# (errAEEventNotPermitted = -1743) and surface it cleanly. The previous
+# `2>/dev/null || echo ""` swallowed denials silently and left the user
+# wondering why nothing happened.
+CARD_STDERR=$(mktemp)
 CARD_DATA=$(osascript -e '
 tell application "Contacts"
     set myCard to my card
@@ -592,7 +618,14 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>/dev/null || echo "")
+end tell' 2>"$CARD_STDERR" || true)
+
+if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+    warn "macOS Contacts permission was declined or not yet granted."
+    warn "You can re-grant it in System Settings > Privacy & Security > Contacts."
+    warn "Continuing without contact-card auto-fill – Ostler will ask you instead."
+fi
+rm -f "$CARD_STDERR"
 
 if [[ -n "$CARD_DATA" ]]; then
     DETECTED_NAME=$(echo "$CARD_DATA" | cut -d'|' -f1)
@@ -1328,12 +1361,28 @@ fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+
+# Batch the sudo prompts at the end of Phase 2 so the unattended Phase 3
+# is genuinely unattended. macOS sudo timestamp lasts ~5 minutes; both
+# Phase-3.0 (pmset) and Homebrew's own sudo calls land well within that
+# window so the user is not interrupted mid-install. This was the audit's
+# top "walk away" complaint (~2026-05-01).
+echo -e "  ${YELLOW}One-time password prompt: macOS needs your Mac password to disable${NC}"
+echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing).${NC}"
+echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
+echo ""
+sudo -v || fail "Need sudo access to disable sleep + install Homebrew. Re-run when ready."
+# Refresh the sudo timestamp every 60s while this script runs, so a long
+# Phase 3 (e.g. slow ollama pull) does not silently expire it.
+( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
+SUDO_KEEPALIVE_PID=$!
+trap '[[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && kill "${SUDO_KEEPALIVE_PID}" 2>/dev/null || true' EXIT
+
+echo ""
 echo -e "  ${GREEN}${BOLD}  All questions answered. Installing now.${NC}"
 NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
-    echo -e "  ${YELLOW}  Note: Homebrew install will ask for your Mac password once.${NC}"
-    echo -e "  ${YELLOW}  After that, everything is fully unattended.${NC}"
 else
     echo -e "  ${GREEN}  You can walk away — this takes about 10-15 minutes.${NC}"
 fi
@@ -1403,14 +1452,12 @@ SLEEP_SETTING=$(pmset -g | grep '^ sleep' | awk '{print $2}' 2>/dev/null || echo
 if [[ "$SLEEP_SETTING" != "0" ]]; then
     if [[ "$HAS_BATTERY" == true ]]; then
         info "MacBook Hub detected: setting never-sleep on AC only (hub-power handles battery transitions)"
-        info "macOS will now ask for your Mac login password to change this setting."
         sudo pmset -c sleep 0 2>/dev/null && \
         sudo pmset -a womp 1 2>/dev/null && \
         ok "Sleep disabled on AC, battery sleep preserved, wake-on-network enabled" || \
         warn "Could not change sleep settings. Enable 'Prevent automatic sleeping when plugged in' in System Settings > Energy."
     else
         info "Desktop Hub (no battery) detected: disabling sleep system-wide"
-        info "macOS will now ask for your Mac login password to change this setting."
         sudo pmset -a sleep 0 2>/dev/null && \
         sudo pmset -a womp 1 2>/dev/null && \
         ok "Sleep disabled, wake-on-network enabled" || \
@@ -1852,8 +1899,39 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
 
     info "Reading Safari, iMessage, Notes, Calendar, Photos, Reminders, Mail..."
     info "This reads macOS databases directly — no export needed."
-    info "(If macOS asks for Full Disk Access, grant it for faster onboarding."
-    info " You can skip it – Ostler works without it, just with less data.)"
+    echo ""
+    # macOS does NOT prompt for Full Disk Access from a terminal-launched
+    # script – it silently denies. Probe by trying to read a file that
+    # only succeeds with FDA, and walk the user through the manual grant
+    # if denied. This was the #1 silent-failure UX issue in the install
+    # audit (~2026-05-01).
+    FDA_PROBE_PATHS=(
+        "$HOME/Library/Mail"
+        "$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+    )
+    FDA_GRANTED=false
+    for probe in "${FDA_PROBE_PATHS[@]}"; do
+        if [[ -r "$probe" ]] || ls "$probe" >/dev/null 2>&1; then
+            FDA_GRANTED=true
+            break
+        fi
+    done
+    if [[ "$FDA_GRANTED" == false ]]; then
+        warn "Full Disk Access not granted to Terminal."
+        warn "macOS will NOT prompt for it from a script – you must grant it manually."
+        echo ""
+        echo "  To grant Full Disk Access:"
+        echo "    1. Open System Settings > Privacy & Security > Full Disk Access"
+        echo "    2. Click + and add Terminal (or whichever terminal you ran this in)"
+        echo "    3. Toggle it ON"
+        echo "    4. Re-run the installer"
+        echo ""
+        echo "  Continuing without FDA – Ostler will work, just with less data"
+        echo "  (no iMessage / Mail history; just contacts / calendars / GDPR exports)."
+        echo ""
+    else
+        info "Full Disk Access detected – full extraction available."
+    fi
     echo ""
 
     # Pass user's per-source consent (set in Phase 2) to the extractor.
@@ -2014,7 +2092,9 @@ if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "nomic-embed-text already available"
 else
     info "Pulling nomic-embed-text (274 MB)..."
-    ollama pull nomic-embed-text
+    if ! ollama_pull_with_retry nomic-embed-text; then
+        fail "Could not pull nomic-embed-text after 3 attempts. Check your network and re-run the installer."
+    fi
     ok "Embedding model ready"
 fi
 
@@ -2039,7 +2119,9 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
                 ;;
         esac
         info "Pulling ${AI_MODEL} (${AI_MODEL_SIZE})... this may take a few minutes."
-        ollama pull "$AI_MODEL"
+        if ! ollama_pull_with_retry "$AI_MODEL"; then
+            fail "Could not pull ${AI_MODEL} after 3 attempts. Check your network and re-run the installer."
+        fi
         ok "${AI_MODEL} ready"
     fi
 else
@@ -2469,7 +2551,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     <key>EnvironmentVariables</key>
     <dict>
         <key>DOCTOR_PORT</key>
-        <string>8090</string>
+        <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@creativemachines.ai</string>
     </dict>
@@ -2480,7 +2562,7 @@ DOCEOF
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "Ostler Doctor running at http://localhost:8090/doctor"
+    ok "Ostler Doctor running at http://localhost:8089/doctor"
 fi
 
 # ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────
@@ -2692,10 +2774,15 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
         # Wait up to 60s for the user to sign in (Tailscale.app shows a sign-in
         # window or menu-bar item). Once authenticated, `tailscale ip --4`
         # prints the IPv4 address.
-        info "Waiting for you to sign in to Tailscale (up to 60 seconds)..."
+        # 180s window: a non-technical user reading the prompt, switching
+        # to the GUI, completing OAuth (Apple/Google/Microsoft sign-in
+        # with possible 2FA), and returning easily eats 2-3 minutes.
+        # 60s is too short and was the most-tripped Phase-3 timeout in
+        # the install audit (~2026-05-01).
+        info "Waiting for you to sign in to Tailscale (up to 3 minutes)..."
         info "If a Tailscale window appears, sign in with Apple / Google / Microsoft."
         TS_WAIT=0
-        while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 60 ]]; do
+        while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
             OSTLER_TAILSCALE_IP=$("$TS_CLI" ip --4 2>/dev/null | head -1 || true)
             if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
                 sleep 3
@@ -2862,7 +2949,7 @@ SWIFTEOF
         echo -e "  ${RED}WRITE THIS DOWN NOW. It will not be shown again.${NC}"
         echo ""
         echo "  Store it in one of these places:"
-        echo "    • Passwords app (search 'Lifeline')"
+        echo "    • Passwords app (search 'Ostler')"
         echo "    • Print it and keep it somewhere safe"
         echo "    • Apple Notes with a locked note"
     fi
@@ -2931,7 +3018,7 @@ echo ""
 echo "  Dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
-echo "     - Doctor:   http://localhost:8090/doctor"
+echo "     - Doctor:   http://localhost:8089/doctor"
 echo ""
 echo -e "  Config:    ${CONFIG_DIR}/.env"
 echo -e "  Data:      ${DATA_DIR}"
@@ -2952,7 +3039,7 @@ echo -e "  ${BOLD}Hub deployment:${NC}"
 if [[ "$HAS_BATTERY" == true ]]; then
     echo "     MacBook Hub. Docker + Ollama will pause automatically when"
     echo "     you unplug, and resume when you plug back in. Battery life"
-    echo "     stays roughly as it was before Lifeline."
+    echo "     stays roughly as it was before Ostler."
 else
     echo "     Mac Mini / Studio Hub. Always-on AC: nothing is paused."
     echo "     hub-power sees tier 'ac' every tick and takes no action."
