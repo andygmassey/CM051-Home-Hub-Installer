@@ -2079,7 +2079,7 @@ services:
   # below into the shared wiki_docs volume; served by MkDocs Material.
   # See CM044 (PWG Personal Wiki) for compiler internals.
   wiki-site:
-    image: ostler-wiki-site:latest
+    image: ghcr.io/ostler-ai/ostler-wiki-site:0.1
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8044"
@@ -2094,7 +2094,7 @@ services:
   # volumes read-only so a buggy compiler can never clobber the
   # source of truth.
   wiki-compiler:
-    image: ostler-wiki-compiler:latest
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler:0.1
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
