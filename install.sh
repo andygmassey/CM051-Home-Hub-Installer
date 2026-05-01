@@ -2488,7 +2488,7 @@ echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler)"
 echo "    - Docker volumes (your knowledge graph data)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
-echo "    - Doctor, export watcher, hub power, and email-ingest launchd services"
+echo "    - Doctor, export watcher, hub power, email-ingest, and wiki-recompile launchd services"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -2523,6 +2523,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/nu
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
@@ -2530,6 +2532,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -2775,6 +2778,82 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
         warn "Mail data is still ingestible manually:"
         warn "  python3 -m ostler_fda.apple_mail_mbox --emit-mbox /tmp/manual.mbox.txt"
         warn "  pwg-email-ingest mbox /tmp/manual.mbox.txt"
+    fi
+fi
+
+# ── 3.14d Wiki recompile LaunchAgent (daily Andypedia rebuild) ───
+#
+# Daily LaunchAgent that re-runs the wiki-compiler against the
+# current Oxigraph + Qdrant state, so emails / conversations /
+# imports landed in the previous 24 hours are reflected in the
+# user's wiki the next morning. Companion to Phase 3.16's first
+# compile -- that one runs once at install time; this one is the
+# recurring schedule.
+#
+# Source: the same bundled-or-clone fallback chain as hub-power
+# and email-ingest. Lives under wiki-recompile/ in the installer
+# tarball / HR015 clone.
+
+progress "Setting up wiki-recompile LaunchAgent (daily rebuild)"
+
+WIKI_RECOMPILE_DIR="${OSTLER_DIR}/wiki-recompile"
+WIKI_RECOMPILE_SNIPPET=""
+WIKI_RECOMPILE_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/wiki-recompile" && -f "${SCRIPT_DIR}/wiki-recompile/INSTALL_SNIPPET.sh" ]]; then
+    WIKI_RECOMPILE_SNIPPET="${SCRIPT_DIR}/wiki-recompile/INSTALL_SNIPPET.sh"
+    WIKI_RECOMPILE_SOURCE="bundled"
+    mkdir -p "$WIKI_RECOMPILE_DIR"
+    cp -R "${SCRIPT_DIR}/wiki-recompile/"* "$WIKI_RECOMPILE_DIR/"
+    ok "Wiki-recompile scripts bundled with installer"
+elif [[ -f "${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    WIKI_RECOMPILE_SNIPPET="${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh"
+    WIKI_RECOMPILE_SOURCE="existing"
+    info "Reusing existing wiki-recompile install at ${WIKI_RECOMPILE_DIR}"
+elif [[ -z "$HUB_POWER_REPO" ]]; then
+    info "Wiki-recompile scripts not bundled with installer."
+    info "Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
+else
+    info "Cloning wiki-recompile scripts..."
+    WIKI_RECOMPILE_TMP="$(mktemp -d)"
+    WIKI_RECOMPILE_CLONE_LOG="$(mktemp -t ostler-wiki-recompile-clone.XXXXXX.log)"
+    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$WIKI_RECOMPILE_TMP" 2>"$WIKI_RECOMPILE_CLONE_LOG" \
+       && [[ -d "$WIKI_RECOMPILE_TMP/wiki-recompile" ]]; then
+        mkdir -p "$WIKI_RECOMPILE_DIR"
+        cp -R "$WIKI_RECOMPILE_TMP/wiki-recompile/"* "$WIKI_RECOMPILE_DIR/"
+        rm -rf "$WIKI_RECOMPILE_TMP"
+        rm -f "$WIKI_RECOMPILE_CLONE_LOG"
+        WIKI_RECOMPILE_SNIPPET="${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh"
+        WIKI_RECOMPILE_SOURCE="cloned"
+        ok "Wiki-recompile scripts cloned from ${HUB_POWER_REPO}"
+    else
+        rm -rf "$WIKI_RECOMPILE_TMP"
+        warn "Could not obtain wiki-recompile scripts (bundled / cloned both failed)."
+        if [[ -s "$WIKI_RECOMPILE_CLONE_LOG" ]]; then
+            warn "Git said:"
+            sed -e 's/^/    /' "$WIKI_RECOMPILE_CLONE_LOG" | head -5
+        fi
+        rm -f "$WIKI_RECOMPILE_CLONE_LOG"
+        warn "Skipping wiki-recompile LaunchAgent install."
+        info "Wiki will not auto-update; you can re-run the first-compile manually:"
+        info "  cd ${OSTLER_DIR}"
+        info "  docker compose --profile compile run --rm wiki-compiler"
+    fi
+fi
+
+if [[ -n "$WIKI_RECOMPILE_SNIPPET" && -f "$WIKI_RECOMPILE_SNIPPET" ]]; then
+    if OSTLER_INSTALL_ROOT="$WIKI_RECOMPILE_DIR" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       bash "$WIKI_RECOMPILE_SNIPPET"; then
+        ok "Wiki-recompile LaunchAgent loaded (label com.creativemachines.ostler.wiki-recompile)"
+        info "Daily tick. Manual run: bash ${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
+        info "Logs: ${LOGS_DIR}/wiki-recompile.log (and .err)"
+    else
+        warn "Wiki-recompile LaunchAgent install failed. See output above."
+        warn "Wiki will not auto-update; manual rebuild stays available:"
+        warn "  cd ${OSTLER_DIR}"
+        warn "  docker compose --profile compile run --rm wiki-compiler"
     fi
 fi
 
