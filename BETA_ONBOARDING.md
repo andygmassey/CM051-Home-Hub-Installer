@@ -40,23 +40,23 @@ Changes take effect within 60 seconds. No restart needed, the watcher reloads th
 Check it's running:
 
 ```bash
-launchctl list | grep com.creativemachines.lifeline.hub-power
+launchctl list | grep com.creativemachines.ostler.hub-power
 tail -f ~/.ostler/hub-power.log
 ```
 
 Reload after editing `power.conf` is **not needed**, but reloading after updating the scripts is:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" \
-    ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
+    ~/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist
 ```
 
 Fully remove:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
-rm ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power"
+rm ~/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist
 rm -rf ~/.ostler/hub-power
 # Keep ~/.ostler/power.conf if the user may reinstall.
 ```

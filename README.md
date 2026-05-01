@@ -49,7 +49,7 @@ The installer wires in a LaunchAgent that pauses and resumes Docker + Ollama bas
 - Scripts: shipped from HR015 under `hub-power/`. Design doc: `HR015/HUB_PORTABILITY_PLAN.md`.
 - Wired at step 3.14 of `install.sh`, which sources `hub-power/INSTALL_SNIPPET.sh`.
 - Installed copy: `~/.ostler/hub-power/`.
-- LaunchAgent plist: `~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist` (label `com.creativemachines.lifeline.hub-power`).
+- LaunchAgent plist: `~/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist` (label `com.creativemachines.ostler.hub-power`).
 - User override: `~/.ostler/power.conf` with `POWER_POLICY=normal | aggressive | eco`.
 - Log: `~/.ostler/hub-power.log` (bounded to the last 10,000 lines).
 
@@ -60,29 +60,29 @@ Mac Mini / Studio owners need do nothing. The watcher sees tier `ac` every tick 
 Check status:
 
 ```bash
-launchctl list | grep com.creativemachines.lifeline.hub-power
+launchctl list | grep com.creativemachines.ostler.hub-power
 tail -f ~/.ostler/hub-power.log
 ```
 
 Unload:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power"
 ```
 
 Reload (after editing policy or updating scripts):
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" \
-    ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
+    ~/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist
 ```
 
 Uninstall completely:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.creativemachines.lifeline.hub-power"
-rm ~/Library/LaunchAgents/com.creativemachines.lifeline.hub-power.plist
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power"
+rm ~/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist
 rm -rf ~/.ostler/hub-power
 # Leave ~/.ostler/power.conf if you might reinstall; the policy choice survives.
 ```
