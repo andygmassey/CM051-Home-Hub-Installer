@@ -3232,21 +3232,108 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
     mkdir -p "${OSTLER_DIR}/bin"
     if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "${OSTLER_DIR}/bin"; then
         chmod 0755 "$ASSISTANT_BINARY"
-        # Unsigned binary at v0.1 (Developer ID work is task #136).
-        # Clearing the quarantine xattr lets the LaunchAgent run
-        # without the user having to right-click + Allow in Privacy
-        # & Security on first launch. Operator-installed daemons
-        # under ~/.ostler/bin are explicitly trusted by the install
-        # they just authorised; quarantine adds friction without
-        # buying anything beyond what FileVault and the SHA verify
-        # above already cover.
-        xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
-        if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
-            ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY}"
-            ASSISTANT_BINARY_INSTALLED=true
+
+        # Three-state binary check. The SHA-256 verification
+        # earlier in this section already caught a tampered
+        # download, but a malformed extract or an upstream
+        # release-pipeline bug could still hand us a file that
+        # is not even a Mach-O. We refuse to silently degrade
+        # such a binary to the unsigned-quarantine-strip path:
+        # clearing the quarantine xattr on a corrupt binary
+        # would let it run without the right-click-and-Allow
+        # ceremony that would otherwise alert the operator.
+        # Per feedback_no_silent_security_fallback: security
+        # paths must hard-fail, not silently degrade.
+        #
+        # State distinction:
+        #   1. `file` does not report Mach-O => state "corrupt".
+        #      A random-bytes replacement, an empty file, or any
+        #      non-executable extracted in error lands here. We
+        #      can't trust codesign output below for non-Mach-O
+        #      input -- codesign reports "not signed at all" for
+        #      both legitimately-unsigned binaries AND completely
+        #      garbage data, so without this Mach-O gate the
+        #      detection silently misclassifies garbage as
+        #      "unsigned" and strips the quarantine xattr.
+        #   2. `codesign -dv` reports Authority=Developer ID
+        #      Application => state "signed". Upstream pipeline
+        #      stamped this build via release/sign-and-notarize.sh.
+        #   3. Otherwise => state "unsigned". Today's default
+        #      tarball, an ad-hoc-signed local build, or any
+        #      non-Developer-ID signature. Trust path is the
+        #      same: clear the quarantine xattr on the operator-
+        #      authorised install.
+        ASSISTANT_BINARY_SIGN_STATE="unknown"
+        binary_file_type="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
+        codesign_dv_output="$(codesign -dv --verbose=4 "$ASSISTANT_BINARY" 2>&1 || true)"
+
+        if [[ "$binary_file_type" != *"Mach-O"* ]]; then
+            ASSISTANT_BINARY_SIGN_STATE="corrupt"
+        elif echo "$codesign_dv_output" | grep -qE "Authority=Developer ID Application"; then
+            ASSISTANT_BINARY_SIGN_STATE="signed"
         else
-            warn "ostler-assistant extracted but --version check failed."
-            warn "Skipping LaunchAgent install. Try: ${ASSISTANT_BINARY} --version"
+            # A valid Mach-O without a Developer ID signature
+            # (today's default unsigned, or an ad-hoc / non-
+            # Developer-ID signed build). Trust path: the
+            # operator authorised this install, FileVault
+            # protects the artefact at rest, the SHA-256
+            # verified the download. Strip the xattr.
+            ASSISTANT_BINARY_SIGN_STATE="unsigned"
+        fi
+
+        case "$ASSISTANT_BINARY_SIGN_STATE" in
+            signed)
+                # Signed + notarised binaries are Gatekeeper-
+                # trusted; the quarantine xattr resolves cleanly
+                # on first run via Apple's online ticket lookup,
+                # so we leave it in place rather than stripping.
+                ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY} (signed)"
+                info "Apple notarisation will be verified by Gatekeeper on first launch."
+                ;;
+            unsigned)
+                # Unsigned binary (today's default, or a forked
+                # build that opted out of signing). Clearing the
+                # quarantine xattr lets the LaunchAgent run
+                # without the user having to right-click + Allow
+                # in Privacy & Security on first launch.
+                # Operator-installed daemons under ~/.ostler/bin
+                # are explicitly trusted by the install they
+                # just authorised; quarantine adds friction
+                # without buying anything beyond what FileVault
+                # and the SHA verify above already cover.
+                xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+                ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY} (unsigned)"
+                info "Quarantine xattr cleared. Once the Developer-ID build is"
+                info "available the installer will skip this step automatically."
+                ;;
+            corrupt)
+                # Refuse to install. The SHA-256 sidecar already
+                # passed (we wouldn't be here otherwise), so a
+                # corrupt binary at this point implies an
+                # upstream release-pipeline bug or a runtime
+                # filesystem fault. Either way: don't strip
+                # quarantine, don't load the LaunchAgent, leave
+                # the binary in place for the operator to
+                # inspect.
+                err "ostler-assistant binary at ${ASSISTANT_BINARY} is not a Mach-O executable."
+                err "  file --brief reported: ${binary_file_type}"
+                err "  codesign -dv reported:"
+                err "$(printf '%s\n' "$codesign_dv_output" | sed -e 's/^/    /' | head -5)"
+                err "Refusing to strip quarantine or load the LaunchAgent."
+                err "Re-run the installer once the upstream tarball is fixed."
+                # ASSISTANT_BINARY_INSTALLED stays false (its
+                # initial value), so the LaunchAgent step
+                # downstream is skipped without further action.
+                ;;
+        esac
+
+        if [[ "$ASSISTANT_BINARY_SIGN_STATE" != "corrupt" ]]; then
+            if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
+                ASSISTANT_BINARY_INSTALLED=true
+            else
+                warn "ostler-assistant extracted but --version check failed."
+                warn "Skipping LaunchAgent install. Try: ${ASSISTANT_BINARY} --version"
+            fi
         fi
     else
         warn "Could not extract ostler-assistant tarball; skipping LaunchAgent."
