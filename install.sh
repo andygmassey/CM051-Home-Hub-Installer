@@ -2439,7 +2439,7 @@ echo "  This will remove:"
 echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis)"
 echo "    - Docker volumes (your knowledge graph data)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
-echo "    - Doctor, export watcher, and hub power launchd services"
+echo "    - Doctor, export watcher, hub power, and email-ingest launchd services"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -2472,12 +2472,15 @@ launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -2642,6 +2645,87 @@ if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
     else
         warn "Hub power LaunchAgent install failed. See output above."
         warn "Mac Mini deployments are unaffected; MacBook users should retry."
+    fi
+fi
+
+# ── 3.14a Email-ingest LaunchAgent (CM046 hourly drain) ──────────
+#
+# Hourly LaunchAgent that drains any new messages from Apple Mail
+# into a Gmail-format mbox and hands it to CM046's email adapter,
+# which threads + cleans + writes CM048 conversation files. Runs on
+# every Mac (Mini and MacBook) -- everyone has email.
+#
+# Source: HR015's email-ingest/ directory (sibling of hub-power/).
+# Same bundle / clone fallback chain as 3.14 above so a productised
+# install (tarball with assets) and a dev install (clone HR015)
+# both work.
+
+progress "Setting up email-ingest LaunchAgent (hourly Apple Mail drain)"
+
+EMAIL_INGEST_DIR="${OSTLER_DIR}/email-ingest"
+EMAIL_INGEST_SNIPPET=""
+EMAIL_INGEST_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/email-ingest" && -f "${SCRIPT_DIR}/email-ingest/INSTALL_SNIPPET.sh" ]]; then
+    EMAIL_INGEST_SNIPPET="${SCRIPT_DIR}/email-ingest/INSTALL_SNIPPET.sh"
+    EMAIL_INGEST_SOURCE="bundled"
+    mkdir -p "$EMAIL_INGEST_DIR"
+    cp -R "${SCRIPT_DIR}/email-ingest/"* "$EMAIL_INGEST_DIR/"
+    ok "Email-ingest scripts bundled with installer"
+elif [[ -f "${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    EMAIL_INGEST_SNIPPET="${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh"
+    EMAIL_INGEST_SOURCE="existing"
+    info "Reusing existing email-ingest install at ${EMAIL_INGEST_DIR}"
+elif [[ -z "$HUB_POWER_REPO" ]]; then
+    info "Email-ingest scripts not bundled with installer."
+    info "Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
+else
+    info "Cloning email-ingest scripts..."
+    EMAIL_INGEST_TMP="$(mktemp -d)"
+    EMAIL_INGEST_CLONE_LOG="$(mktemp -t ostler-email-ingest-clone.XXXXXX.log)"
+    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$EMAIL_INGEST_TMP" 2>"$EMAIL_INGEST_CLONE_LOG" \
+       && [[ -d "$EMAIL_INGEST_TMP/email-ingest" ]]; then
+        mkdir -p "$EMAIL_INGEST_DIR"
+        cp -R "$EMAIL_INGEST_TMP/email-ingest/"* "$EMAIL_INGEST_DIR/"
+        rm -rf "$EMAIL_INGEST_TMP"
+        rm -f "$EMAIL_INGEST_CLONE_LOG"
+        EMAIL_INGEST_SNIPPET="${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh"
+        EMAIL_INGEST_SOURCE="cloned"
+        ok "Email-ingest scripts cloned from ${HUB_POWER_REPO}"
+    else
+        rm -rf "$EMAIL_INGEST_TMP"
+        warn "Could not obtain email-ingest scripts (bundled / cloned both failed)."
+        # Surface the underlying git error so credential / network /
+        # repo-not-found failures are distinguishable.
+        if [[ -s "$EMAIL_INGEST_CLONE_LOG" ]]; then
+            warn "Git said:"
+            sed -e 's/^/    /' "$EMAIL_INGEST_CLONE_LOG" | head -5
+        fi
+        rm -f "$EMAIL_INGEST_CLONE_LOG"
+        warn "Skipping email-ingest LaunchAgent install."
+        info "Repo URL: ${HUB_POWER_REPO}"
+        info "To install later once you have access:"
+        info "  git clone ${HUB_POWER_REPO} /tmp/hub-src"
+        info "  mkdir -p ${EMAIL_INGEST_DIR} && cp -R /tmp/hub-src/email-ingest/* ${EMAIL_INGEST_DIR}/"
+        info "  OSTLER_INSTALL_ROOT=${EMAIL_INGEST_DIR} OSTLER_DIR=${OSTLER_DIR} LOGS_DIR=${LOGS_DIR} \\"
+        info "    bash ${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh"
+    fi
+fi
+
+if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
+    if OSTLER_INSTALL_ROOT="$EMAIL_INGEST_DIR" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       bash "$EMAIL_INGEST_SNIPPET"; then
+        ok "Email-ingest LaunchAgent loaded (label com.creativemachines.ostler.email-ingest)"
+        info "Hourly tick. First run clamped to last 90 days."
+        info "Manual run: bash ${OSTLER_DIR}/bin/email-ingest-tick.sh"
+        info "Logs: ${LOGS_DIR}/email-ingest.log (and .err)"
+    else
+        warn "Email-ingest LaunchAgent install failed. See output above."
+        warn "Mail data is still ingestible manually:"
+        warn "  python3 -m ostler_fda.apple_mail_mbox --emit-mbox /tmp/manual.mbox.txt"
+        warn "  pwg-email-ingest mbox /tmp/manual.mbox.txt"
     fi
 fi
 
