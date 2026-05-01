@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler assistant LaunchAgent (daemon mode).
+
+        Long-running autonomous runtime: gateway server, configured
+        channels (iMessage and email at v0.1), heartbeat monitor,
+        and the cron scheduler. The customer-facing binary
+        ostler-assistant is the upstream zeroclaw renamed at tar
+        time; daemon semantics are unchanged.
+
+        The installer renders the placeholders below at install time:
+          OSTLER_BIN              -> $OSTLER_DIR/bin
+          OSTLER_HOME             -> $HOME
+          OSTLER_LOGS             -> $LOGS_DIR
+          OSTLER_ASSISTANT_CONFIG -> $OSTLER_DIR/assistant-config
+
+        ZEROCLAW_WORKSPACE points the binary at Phase D's config
+        directory. The config-dir resolver short-circuits to the
+        workspace value when config.toml exists there, so this
+        single env var binds runtime to the installer-emitted
+        TOML without touching the binary CLI surface.
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.assistant</string>
+
+    <!--
+        daemon subcommand spins up the long-running runtime
+        (gateway + channels + heartbeat + scheduler). See
+        ostler-ai/ostler-assistant src/main.rs Commands::Daemon.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>OSTLER_BIN/ostler-assistant</string>
+        <string>daemon</string>
+    </array>
+
+    <!--
+        Config resolution via env. ZEROCLAW_WORKSPACE is the
+        documented top-level entry point (resolve_runtime_config_dirs
+        in crates/zeroclaw-config/src/schema.rs). When config.toml
+        exists at the workspace path, resolve_config_dir_for_workspace
+        treats the workspace dir AS the config dir. Phase D's
+        installer emits config.toml at $OSTLER_DIR/assistant-config,
+        so the env var below is sufficient.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ZEROCLAW_WORKSPACE</key>
+        <string>OSTLER_ASSISTANT_CONFIG</string>
+    </dict>
+
+    <!--
+        RunAtLoad: start the daemon at LaunchAgent load (login
+        or post-install).
+
+        KeepAlive (dict form): only restart on abnormal exit. A
+        clean exit zero (e.g. SIGTERM during uninstall, or daemon
+        deciding to stop on a fatal config error it has already
+        surfaced) does not retry. SuccessfulExit=false matches
+        the launchd convention for "respawn on crash, leave alone
+        on intentional shutdown".
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!--
+        Throttle restarts so a tight crash loop on a misconfigured
+        channel does not burn battery / saturate the log rotator.
+        10 seconds matches the launchd default but is set
+        explicitly so the value is reviewable in the file.
+    -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!--
+        Working directory: HOME so any relative paths in the
+        binary resolve against the user's home rather than /.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. Doctor surfaces these
+        logs so the operator can see boot-time failures without
+        spelunking launchctl print.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/ostler-assistant.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/ostler-assistant.err</string>
+
+    <!--
+        Interactive process type because the daemon serves
+        websocket gateway traffic the user is interactively
+        producing (iMessage replies, dashboard clicks). Adaptive
+        is the closest match for "responsive but not realtime";
+        but Background is what the existing wiki-recompile uses
+        and is the conservative pick for a v0.1 always-on agent
+        that is mostly idle. Open question for the operator:
+        flip to Adaptive if iMessage latency feels sluggish.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
