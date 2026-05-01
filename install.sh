@@ -3232,17 +3232,45 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
     mkdir -p "${OSTLER_DIR}/bin"
     if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "${OSTLER_DIR}/bin"; then
         chmod 0755 "$ASSISTANT_BINARY"
-        # Unsigned binary at v0.1 (Developer ID work is task #136).
-        # Clearing the quarantine xattr lets the LaunchAgent run
-        # without the user having to right-click + Allow in Privacy
-        # & Security on first launch. Operator-installed daemons
-        # under ~/.ostler/bin are explicitly trusted by the install
-        # they just authorised; quarantine adds friction without
-        # buying anything beyond what FileVault and the SHA verify
-        # above already cover.
-        xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+
+        # Detect whether the binary was Developer-ID signed +
+        # notarised by ostler-ai/ostler-assistant#4. Once Andy
+        # populates the GitHub signing secrets, the release
+        # workflow stamps the tarball with a Hardened-Runtime
+        # signature; codesign reports `Authority=Developer ID
+        # Application` for those builds. Ad-hoc and unsigned
+        # binaries return empty.
+        ASSISTANT_BINARY_SIGNED=false
+        if codesign -dv --verbose=4 "$ASSISTANT_BINARY" 2>&1 \
+            | grep -qE "Authority=Developer ID Application"; then
+            ASSISTANT_BINARY_SIGNED=true
+        fi
+
+        if [[ "$ASSISTANT_BINARY_SIGNED" == true ]]; then
+            # Signed + notarised binaries are Gatekeeper-trusted;
+            # the quarantine xattr resolves cleanly on first run
+            # via Apple's online ticket lookup, so we leave it in
+            # place rather than stripping. Stripping a trusted
+            # binary's xattrs is benign but unnecessary.
+            ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY} (signed)"
+            info "Apple notarisation will be verified by Gatekeeper on first launch."
+        else
+            # Unsigned binary (today's default, or a forked build
+            # that opted out of signing). Clearing the quarantine
+            # xattr lets the LaunchAgent run without the user
+            # having to right-click + Allow in Privacy & Security
+            # on first launch. Operator-installed daemons under
+            # ~/.ostler/bin are explicitly trusted by the install
+            # they just authorised; quarantine adds friction
+            # without buying anything beyond what FileVault and
+            # the SHA verify above already cover.
+            xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+            ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY} (unsigned)"
+            info "Quarantine xattr cleared. Once the Developer-ID build is"
+            info "available the installer will skip this step automatically."
+        fi
+
         if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
-            ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY}"
             ASSISTANT_BINARY_INSTALLED=true
         else
             warn "ostler-assistant extracted but --version check failed."
