@@ -503,7 +503,7 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
     set -a; source "${CONFIG_DIR}/.env"; set +a
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
-    ASSISTANT_NAME="${ASSISTANT_NAME:-Marvin}"
+    ASSISTANT_NAME="${ASSISTANT_NAME:-}"
     USER_TZ="${TIMEZONE:-UTC}"
     COUNTRY_CODE="${DEFAULT_COUNTRY_CODE:-44}"
     EXPORTS_DIR=""
@@ -791,17 +791,192 @@ echo "  graph. Give it a name you will enjoy talking to."
 echo ""
 echo "  Some ideas (or type your own):"
 echo ""
-echo -e "    ${BOLD}Marvin${NC}     – the laconic, brilliant assistant from Hitchhiker's Guide"
 echo -e "    ${BOLD}Joshua${NC}     – the calm, careful AI from WarGames"
 echo -e "    ${BOLD}Samantha${NC}   – the warm, attentive companion from Her"
 echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
 echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
 echo ""
 
-read -p "  Assistant name [Marvin]: " ASSISTANT_NAME
-ASSISTANT_NAME=${ASSISTANT_NAME:-Marvin}
+read -p "  Assistant name: " ASSISTANT_NAME
+while [[ -z "$ASSISTANT_NAME" ]]; do
+    warn "Your assistant needs a name. Pick from the suggestions above or type your own."
+    read -p "  Assistant name: " ASSISTANT_NAME
+done
 
 ok "Your assistant is called ${ASSISTANT_NAME}"
+
+# ── 4a. Channels (how to talk to your assistant) ──────────────────
+#
+# Captures the customer's preferred input/output channels so the
+# Ostler assistant has somewhere to receive and reply to messages.
+# v0.1 supports iMessage (default; macOS-native, no external auth)
+# and email (IMAP/SMTP via app password). Other channels (Telegram,
+# Slack, Discord, WhatsApp, etc.) are exposed by the Rust runtime
+# but require additional auth flow that is out of scope for v0.1
+# and lands in v0.2 via the assistant's own `setup channels` CLI.
+#
+# Captured here, written to disk in section 3.5c (after the .env
+# write) so the password sits on disk for the shortest possible
+# window before encryption setup. The TOML lands at
+# ${OSTLER_DIR}/assistant-config/config.toml mode 0600.
+#
+# Open question for Andy: this wizard duplicates a small subset of
+# the assistant's own `ostler-assistant setup channels --interactive`
+# wizard. Long-term we could delegate to the Rust binary, but that
+# requires Phase C (binary install) to land first AND for the
+# assistant CLI's UX to fit inline with the installer flow. For
+# v0.1, capturing here keeps the install one continuous flow.
+
+echo ""
+echo -e "  ${BOLD}How would you like to talk to ${ASSISTANT_NAME}?${NC}"
+echo ""
+echo "  Pick one or more channels. You can change these later by"
+echo "  editing ${HOME}/.ostler/assistant-config/config.toml."
+echo ""
+echo -e "    ${BOLD}1. iMessage${NC}      – simplest, uses your Mac's Messages.app"
+echo -e "    ${BOLD}2. Email${NC}         – IMAP/SMTP via an app password"
+echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
+echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
+echo ""
+read -p "  Channel choice [3]: " CHANNEL_CHOICE
+CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
+
+# Normalise into per-channel boolean flags for the config writer.
+CHANNEL_IMESSAGE_ENABLED=false
+CHANNEL_EMAIL_ENABLED=false
+CHANNEL_IMESSAGE_ALLOWED=""
+CHANNEL_EMAIL_USERNAME=""
+CHANNEL_EMAIL_PASSWORD=""
+CHANNEL_EMAIL_FROM=""
+CHANNEL_EMAIL_IMAP_HOST=""
+CHANNEL_EMAIL_IMAP_PORT=993
+CHANNEL_EMAIL_SMTP_HOST=""
+CHANNEL_EMAIL_SMTP_PORT=587
+
+case "$CHANNEL_CHOICE" in
+    1) CHANNEL_IMESSAGE_ENABLED=true ;;
+    2) CHANNEL_EMAIL_ENABLED=true ;;
+    3|"") CHANNEL_IMESSAGE_ENABLED=true; CHANNEL_EMAIL_ENABLED=true ;;
+    4) info "Skipping channel setup. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive" ;;
+    *)
+        warn "Unrecognised choice '${CHANNEL_CHOICE}'; defaulting to iMessage + email."
+        CHANNEL_IMESSAGE_ENABLED=true
+        CHANNEL_EMAIL_ENABLED=true
+        ;;
+esac
+
+# ── iMessage details ───────────────────────────────────────────────
+#
+# The Rust runtime's IMessageConfig requires `allowed_contacts` to
+# act as an inbound allowlist. Empty list = deny all (per the
+# schema comment in crates/zeroclaw-config/src/schema.rs line 7147).
+# We require at least one entry when iMessage is enabled so the
+# customer doesn't end up with a silently-mute assistant.
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
+    echo ""
+    echo -e "  ${BOLD}iMessage allowed contacts${NC}"
+    echo ""
+    echo "  Phone numbers or Apple ID emails that ${ASSISTANT_NAME} should accept"
+    echo "  messages from. Comma-separated. You'll usually want at least"
+    echo "  your own iCloud-linked phone or email here."
+    echo ""
+    echo "  Example: +447700900000, you@example.com"
+    echo ""
+    while [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; do
+        read -p "  Allowed contacts: " CHANNEL_IMESSAGE_ALLOWED
+        if [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
+            warn "iMessage needs at least one allowed contact. Try again or pick"
+            warn "a different channel choice (re-run installer)."
+        fi
+    done
+fi
+
+# ── Email details ──────────────────────────────────────────────────
+#
+# Provider presets pre-fill the IMAP/SMTP host + port + TLS for
+# the common cases. "Custom" prompts for everything. Gmail and
+# iCloud both require an app password (NOT the user's main
+# account password) -- the prompts reflect this.
+if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+    echo ""
+    echo -e "  ${BOLD}Email provider${NC}"
+    echo ""
+    echo "    1. Gmail (requires app password)"
+    echo "    2. iCloud (requires app-specific password)"
+    echo "    3. Outlook / Office 365"
+    echo "    4. Other / custom IMAP+SMTP"
+    echo ""
+    read -p "  Provider [1]: " EMAIL_PROVIDER
+    EMAIL_PROVIDER=${EMAIL_PROVIDER:-1}
+
+    case "$EMAIL_PROVIDER" in
+        1)
+            CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com"
+            CHANNEL_EMAIL_IMAP_PORT=993
+            CHANNEL_EMAIL_SMTP_HOST="smtp.gmail.com"
+            CHANNEL_EMAIL_SMTP_PORT=587
+            echo ""
+            echo "  Gmail requires an APP PASSWORD (not your main Google password)."
+            echo "  Generate one at: https://myaccount.google.com/apppasswords"
+            ;;
+        2)
+            CHANNEL_EMAIL_IMAP_HOST="imap.mail.me.com"
+            CHANNEL_EMAIL_IMAP_PORT=993
+            CHANNEL_EMAIL_SMTP_HOST="smtp.mail.me.com"
+            CHANNEL_EMAIL_SMTP_PORT=587
+            echo ""
+            echo "  iCloud requires an APP-SPECIFIC PASSWORD."
+            echo "  Generate one at: https://appleid.apple.com (Sign-In and Security)"
+            ;;
+        3)
+            CHANNEL_EMAIL_IMAP_HOST="outlook.office365.com"
+            CHANNEL_EMAIL_IMAP_PORT=993
+            CHANNEL_EMAIL_SMTP_HOST="smtp.office365.com"
+            CHANNEL_EMAIL_SMTP_PORT=587
+            ;;
+        4)
+            echo ""
+            read -p "  IMAP host: " CHANNEL_EMAIL_IMAP_HOST
+            read -p "  IMAP port [993]: " imap_port_in
+            CHANNEL_EMAIL_IMAP_PORT=${imap_port_in:-993}
+            read -p "  SMTP host: " CHANNEL_EMAIL_SMTP_HOST
+            read -p "  SMTP port [587]: " smtp_port_in
+            CHANNEL_EMAIL_SMTP_PORT=${smtp_port_in:-587}
+            ;;
+        *)
+            warn "Unrecognised provider '${EMAIL_PROVIDER}'; using Gmail defaults."
+            CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com"
+            CHANNEL_EMAIL_IMAP_PORT=993
+            CHANNEL_EMAIL_SMTP_HOST="smtp.gmail.com"
+            CHANNEL_EMAIL_SMTP_PORT=587
+            ;;
+    esac
+
+    echo ""
+    read -p "  Email address (also used as IMAP/SMTP username): " CHANNEL_EMAIL_USERNAME
+    CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
+
+    # Hidden password input (read -s); confirm with re-entry so a
+    # typo doesn't silently lock the assistant out of email.
+    while true; do
+        echo ""
+        read -s -p "  Password (hidden): " CHANNEL_EMAIL_PASSWORD
+        echo ""
+        read -s -p "  Confirm Password: " _email_confirm_input
+        echo ""
+        if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
+            break
+        fi
+        warn "Passwords did not match (or were empty). Try again."
+    done
+    unset _email_confirm_input
+
+    ok "Email channel: ${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST}"
+fi
+
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
+    ok "iMessage channel: ${CHANNEL_IMESSAGE_ALLOWED}"
+fi
 
 # ── 5. Data sources ───────────────────────────────────────────────
 #
@@ -1755,6 +1930,108 @@ OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
 ENVEOF
 
 ok "Config saved to ${CONFIG_DIR}/.env"
+
+# ── 3.5b Assistant config (channels TOML) ──────────────────────────
+#
+# Persists the channel choices captured by the section 4a wizard
+# into ${OSTLER_DIR}/assistant-config/config.toml. Loaded at runtime
+# by the ostler-assistant binary (Phase C, separate PR drops the
+# binary at ${OSTLER_DIR}/bin/ostler-assistant) once the
+# ZEROCLAW_WORKSPACE env var is set to ${OSTLER_DIR}/assistant-config
+# in the LaunchAgent.
+#
+# Format follows the schema in
+# crates/zeroclaw-config/src/{schema.rs,scattered_types.rs}. Sections
+# only emitted for enabled channels, so a "skip for now" install
+# produces an empty config that the assistant will treat as
+# defaults.
+#
+# Password handling: written in plaintext. The assistant supports
+# `enc2:` ciphertext for sensitive fields but cannot encrypt before
+# its own first run. Mode 0600 limits exposure to this user.
+# Phase C should add a post-install `ostler-assistant secrets
+# encrypt-config` step once the binary is staged so the plaintext
+# window closes within the install flow.
+
+ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
+mkdir -p "$ASSISTANT_CONFIG_DIR"
+ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
+umask_orig=$(umask)
+umask 0077
+{
+    cat <<'TOMLPREAMBLE'
+# Ostler assistant configuration.
+#
+# Generated by the Ostler installer. Edit by hand or re-run the
+# installer to regenerate. Sensitive fields (e.g. email password)
+# are stored in plaintext until the assistant first runs and
+# encrypts them in place with the `enc2:` ChaCha20-Poly1305
+# scheme. See crates/zeroclaw-config/src/secrets.rs for details.
+
+# Schema version this file was written against. Matches
+# CURRENT_SCHEMA_VERSION in crates/zeroclaw-config/src/migration.rs
+# at install time so the assistant doesn't trigger a no-op
+# migration on first load.
+schema_version = 2
+TOMLPREAMBLE
+
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+        echo
+        echo "[channels]"
+    fi
+
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
+        echo
+        echo "[channels.imessage]"
+        echo "enabled = true"
+        echo -n 'allowed_contacts = ['
+        # Convert the comma-separated bash string into a TOML array of
+        # quoted strings. Trim whitespace around each entry so the
+        # user can put spaces between commas.
+        first=true
+        IFS=',' read -ra _imsg_arr <<< "$CHANNEL_IMESSAGE_ALLOWED"
+        for entry in "${_imsg_arr[@]}"; do
+            entry="${entry# }"; entry="${entry% }"
+            entry="${entry//\"/\\\"}"
+            if [[ "$first" == true ]]; then first=false; else echo -n ', '; fi
+            echo -n "\"$entry\""
+        done
+        echo "]"
+    fi
+
+    if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+        # Escape any embedded double quotes in email fields so a
+        # provider hostname with weird characters can't break the
+        # TOML.
+        _esc() { printf '%s' "$1" | sed 's/"/\\"/g'; }
+        echo
+        echo "[channels.email]"
+        echo "enabled = true"
+        echo "imap_host = \"$(_esc "$CHANNEL_EMAIL_IMAP_HOST")\""
+        echo "imap_port = ${CHANNEL_EMAIL_IMAP_PORT}"
+        echo "imap_folder = \"INBOX\""
+        echo "smtp_host = \"$(_esc "$CHANNEL_EMAIL_SMTP_HOST")\""
+        echo "smtp_port = ${CHANNEL_EMAIL_SMTP_PORT}"
+        echo "smtp_tls = true"
+        echo "username = \"$(_esc "$CHANNEL_EMAIL_USERNAME")\""
+        echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""
+        echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
+        echo "allowed_senders = []"
+    fi
+} > "$ASSISTANT_CONFIG"
+chmod 600 "$ASSISTANT_CONFIG"
+umask "$umask_orig"
+
+# Scrub the plaintext password from the bash environment as soon as
+# the file is written. The TOML still has it on disk; this just
+# narrows the in-memory exposure for the rest of the install.
+unset CHANNEL_EMAIL_PASSWORD
+
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+    ok "Assistant config saved to ${ASSISTANT_CONFIG} (mode 0600)"
+else
+    info "No channels configured. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
+fi
 
 # ── 3.6 Security setup ────────────────────────────────────────────
 
@@ -3283,6 +3560,27 @@ if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
     echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
 else
     echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
+fi
+
+# Channel summary: tell the customer how to actually talk to the
+# assistant they just named. Lines only appear when the section 4a
+# wizard captured a config; "skip for now" gets the manual-setup
+# hint instead so the user never lands at a quiet assistant
+# without knowing what to do.
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+    echo ""
+    echo -e "  ${BOLD}Talk to ${ASSISTANT_NAME}:${NC}"
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
+        echo "     - iMessage from: ${CHANNEL_IMESSAGE_ALLOWED}"
+    fi
+    if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+        echo "     - Email to:     ${CHANNEL_EMAIL_USERNAME}"
+    fi
+    echo "     (edit ${OSTLER_DIR}/assistant-config/config.toml to change)"
+elif [[ -n "${CHANNEL_CHOICE:-}" && "$CHANNEL_CHOICE" == "4" ]]; then
+    echo ""
+    echo "  No channels configured. Set one up later via:"
+    echo "     ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
 fi
 echo ""
 echo "  Developer dashboards:"
