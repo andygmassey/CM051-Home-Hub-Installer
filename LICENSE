@@ -1,0 +1,21 @@
+Copyright (c) 2026 Creative Machines Limited. All rights reserved.
+
+This repository hosts installation scripts and binary release artefacts for
+the Ostler personal AI Hub. Use of this repository's contents (including the
+installer script and any binary releases distributed via GitHub Releases) is
+permitted solely for the purpose of installing and operating the Ostler
+software on the licensee's own hardware, in accordance with the End User
+Licence Agreement at https://ostler.ai/eula.
+
+No license is granted, expressly or by implication, to:
+  - copy, mirror, or redistribute any binary release artefact;
+  - modify, decompile, disassemble, or reverse-engineer any binary;
+  - create derivative works based on this repository's contents;
+  - use any part of this repository for any commercial purpose other
+    than the licensee's own internal operation of the Ostler software.
+
+Ostler, the Ostler logo, Creative Machines, and related marks are
+trademarks of Creative Machines Limited.
+
+For licensing enquiries: legal@ostler.ai
+For security disclosures: security@ostler.ai (see SECURITY.md / RFC 9116)
