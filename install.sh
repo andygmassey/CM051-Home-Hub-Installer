@@ -3176,9 +3176,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.1})"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.1.0})"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.1}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.1.0}"
 OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-assistant}"
 OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
