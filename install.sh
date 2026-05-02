@@ -3556,6 +3556,51 @@ else
     HEALTHY=false
 fi
 
+# ── ostler-assistant doctor probe (best-effort, non-fatal) ────────
+#
+# Surfaces the cron-delivery + imessage-tcc posture markers that
+# piece D of the cron-fix stack added in ostler-assistant. The
+# daemon may not be fully booted when the installer reaches this
+# point (channels still connecting, first cron sync in progress);
+# any failure here is logged as deferred, not as an install error.
+# Operators are reminded to re-run `ostler-assistant doctor` after
+# first launch to verify.
+#
+# See piece D / task #278 of the cron diagnosis brief.
+
+if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
+    DOCTOR_OUTPUT=$(timeout 10 "${ASSISTANT_BINARY}" doctor 2>&1) || \
+        DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
+
+    if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
+        info "ostler-assistant doctor: deferred (daemon may still be"
+        info "  starting; run \`ostler-assistant doctor\` after first"
+        info "  launch to verify cron-delivery + imessage-tcc posture)."
+    else
+        # Count error markers in the human-readable output. The
+        # doctor module emits ❌ for Severity::Error and prefixes
+        # the category. We do not fail the install here -- we just
+        # surface the count so the operator knows to re-run.
+        DOCTOR_ERRORS=$(printf '%s\n' "$DOCTOR_OUTPUT" | grep -c '❌' 2>/dev/null || echo 0)
+        if [[ "$DOCTOR_ERRORS" -gt 0 ]]; then
+            warn "ostler-assistant doctor reported ${DOCTOR_ERRORS} error(s)."
+            warn "  Run \`${ASSISTANT_BINARY} doctor\` after first launch"
+            warn "  to inspect. cron-delivery / imessage-tcc are common"
+            warn "  early markers (channels still connecting + Apple"
+            warn "  Events permission for Messages.app)."
+            # Intentionally leaving the install HEALTHY flag
+            # untouched: the daemon is still in startup grace at
+            # install time; the markers may flip to OK on their own
+            # once channels finish booting. Operator re-runs the
+            # doctor command after first launch to verify.
+        else
+            ok "ostler-assistant doctor: no errors detected"
+        fi
+    fi
+else
+    info "ostler-assistant binary not installed; skipping doctor probe"
+fi
+
 # ── Show recovery key (saved from Phase 2/3) ──────────────────────
 
 if [[ -n "$RECOVERY_KEY" ]]; then
