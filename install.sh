@@ -208,6 +208,20 @@ SECURITY_DIR="${OSTLER_DIR}/security-module"
 SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 
+# Two-zone layout: ~/Documents/Ostler/ holds the customer's
+# generated content (wiki MDs, call transcripts, daily briefs,
+# quick captures, one-off exports). ~/.ostler/ above is the
+# engine room (databases, configs, logs, caches). The user-facing
+# tree is created at install time and survives an uninstall by
+# default; the customer is asked whether to keep it. See
+# /tmp/tnm_brief_two_zone_architecture_2026-05-02.md (Gap 4).
+USER_FACING_ROOT="${HOME}/Documents/Ostler"
+USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
+# Ordered list of subdirs created under ${USER_FACING_ROOT}.
+# Conversations/ is intentionally absent for now; it lands in a
+# follow-up PR once the brief's zoning question is resolved.
+USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
+
 # ── SCRIPT_DIR resolution (tarball / dev / curl|bash bootstrap) ───
 #
 # The installer copies bundled assets (ostler_security/, ostler_fda/,
@@ -1058,6 +1072,29 @@ fi  # end of SKIP_PHASE2 check (user input questions)
 # package with cryptography + pysqlcipher3 as deps; pip handles
 # both the install path and the dependency tree.
 mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
+
+# Two-zone layout: create the customer's user-facing tree under
+# ~/Documents/Ostler/ on first install. Subsequent runs honour
+# the sentinel and skip, so a customer who has deliberately
+# removed (or renamed) one of the subdirs is not surprised by
+# its silent re-creation on the next install.sh run. mkdir -p
+# is itself idempotent; the sentinel exists only to express
+# "we have already announced this layout to this install".
+if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
+    info "Creating user-facing content tree at ${USER_FACING_ROOT}/"
+    mkdir -p "$USER_FACING_ROOT"
+    for sub in "${USER_TREE_SUBDIRS[@]}"; do
+        mkdir -p "${USER_FACING_ROOT}/${sub}"
+    done
+    {
+        echo "Ostler user-facing tree created on $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        echo "Subdirs: ${USER_TREE_SUBDIRS[*]}"
+    } > "$USER_TREE_SENTINEL"
+    ok "User-facing tree ready"
+else
+    info "User-facing tree already announced (sentinel present); skipping"
+fi
+
 HAS_SECURITY_MODULE=false
 if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
     # macOS Sonoma+ blocks pip3 install to system Python, so use a venv.
@@ -2758,6 +2795,57 @@ export PATH="${OSTLER_DIR}/bin:${PATH}"
 cat > "${OSTLER_DIR}/bin/ostler-uninstall" <<'UNINSTALLEOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# ── Argument parsing ───────────────────────────────────────────
+# Default: prompt the customer interactively. Two non-interactive
+# overrides are supported for scripted use (CI, beta-onboarding
+# automation, customer-support tooling):
+#
+#   --keep-content     ~/Documents/Ostler/ stays put after uninstall
+#   --remove-content   ~/Documents/Ostler/ is also removed
+#
+# These are mutually exclusive. Specifying neither falls through
+# to the interactive Y/n prompt below.
+KEEP_CONTENT_DECISION=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --keep-content)
+            KEEP_CONTENT_DECISION="keep"
+            shift
+            ;;
+        --remove-content)
+            KEEP_CONTENT_DECISION="remove"
+            shift
+            ;;
+        --help|-h)
+            cat <<'HELPEOF'
+Usage: ostler-uninstall [options]
+
+Removes the Ostler installation. Always removes ~/.ostler/ (except
+power.conf), Docker volumes, LaunchAgents, and the PATH entry.
+
+By default, prompts whether to also remove ~/Documents/Ostler/
+(your generated wiki, transcripts, captures, exports). Use the
+flags below to skip the prompt:
+
+  --keep-content     Keep ~/Documents/Ostler/ after uninstall
+  --remove-content   Remove ~/Documents/Ostler/ as well
+  --help, -h         Show this help
+
+The interactive YES confirm gate cannot be skipped.
+HELPEOF
+            exit 0
+            ;;
+        *)
+            echo "  Unknown argument: $1" >&2
+            echo "  Run 'ostler-uninstall --help' for usage." >&2
+            exit 2
+            ;;
+    esac
+done
+
+USER_FACING_ROOT="${HOME}/Documents/Ostler"
+
 echo ""
 echo "  Ostler Uninstaller"
 echo ""
@@ -2782,6 +2870,65 @@ read -p "  Are you sure? This cannot be undone. (type YES to confirm): " CONFIRM
 if [[ "$CONFIRM" != "YES" ]]; then
     echo "  Cancelled."
     exit 0
+fi
+
+# ── User-facing content (Wiki/Transcripts/Captures/etc.) ───────
+# Decide whether to also remove ~/Documents/Ostler/. The default
+# is "keep": the customer's generated content survives an
+# uninstall so that a re-install (or a switch to a different host
+# that mounts the same Documents folder) finds the wiki + the
+# transcripts intact.
+if [[ -d "$USER_FACING_ROOT" ]]; then
+    # File counts per subdir, shown before prompting so the
+    # customer sees what is at stake. Counts are best-effort:
+    # a permission error or an empty subdir reports 0.
+    count_dir() {
+        local d="$1"
+        if [[ -d "$d" ]]; then
+            find "$d" -type f 2>/dev/null | wc -l | tr -d ' '
+        else
+            echo 0
+        fi
+    }
+    WIKI_COUNT="$(count_dir "$USER_FACING_ROOT/Wiki")"
+    TRANSCRIPTS_COUNT="$(count_dir "$USER_FACING_ROOT/Transcripts")"
+    BRIEFS_COUNT="$(count_dir "$USER_FACING_ROOT/Daily-Briefs")"
+    CAPTURES_COUNT="$(count_dir "$USER_FACING_ROOT/Captures")"
+    EXPORTS_COUNT="$(count_dir "$USER_FACING_ROOT/Exports")"
+
+    echo ""
+    echo "  Your generated content at ${USER_FACING_ROOT}/:"
+    echo "    Wiki:          ${WIKI_COUNT} pages"
+    echo "    Transcripts:   ${TRANSCRIPTS_COUNT} files"
+    echo "    Daily briefs:  ${BRIEFS_COUNT} entries"
+    echo "    Captures:      ${CAPTURES_COUNT} items"
+    echo "    Exports:       ${EXPORTS_COUNT} items"
+    echo ""
+
+    if [[ -z "$KEEP_CONTENT_DECISION" ]]; then
+        # Interactive prompt. Default Y matches the bolded letter
+        # in the question, per the productisation contract:
+        # bolded letter == default action.
+        read -p "  Keep your generated content? [Y/n]: " KEEP_REPLY
+        case "${KEEP_REPLY:-Y}" in
+            n|N|no|NO|No)  KEEP_CONTENT_DECISION="remove" ;;
+            *)             KEEP_CONTENT_DECISION="keep" ;;
+        esac
+    else
+        # Avoid the ${VAR^} ucfirst expansion: macOS ships bash 3.2
+        # which doesn't support it; explicit branches keep the
+        # uninstaller portable across the bash versions customers
+        # actually have installed.
+        case "$KEEP_CONTENT_DECISION" in
+            keep)    echo "  --keep-content flag set; ${USER_FACING_ROOT}/ will be preserved." ;;
+            remove)  echo "  --remove-content flag set; ${USER_FACING_ROOT}/ will be removed." ;;
+        esac
+    fi
+else
+    # Tree never created (or already removed). Treat as keep so
+    # we do not ask a redundant question, and so a stray flag
+    # value does not cause a no-op rm to run.
+    KEEP_CONTENT_DECISION="keep"
 fi
 
 echo ""
@@ -2830,8 +2977,19 @@ if [[ -d "${HOME}/.ostler" ]]; then
     rmdir "${HOME}/.ostler" 2>/dev/null || true
 fi
 
+# ── Apply the keep-content decision made earlier ───────────────
+if [[ "$KEEP_CONTENT_DECISION" == "remove" ]]; then
+    echo "  Removing user-facing content at ${USER_FACING_ROOT}/..."
+    rm -rf "$USER_FACING_ROOT"
+elif [[ -d "$USER_FACING_ROOT" ]]; then
+    echo "  Keeping your generated content at ${USER_FACING_ROOT}/."
+fi
+
 echo ""
 echo "  Done. Ostler has been removed."
+if [[ "$KEEP_CONTENT_DECISION" == "keep" && -d "$USER_FACING_ROOT" ]]; then
+    echo "  Your generated content remains at ${USER_FACING_ROOT}/."
+fi
 echo "  (You may want to remove the PATH line from your shell config.)"
 echo ""
 UNINSTALLEOF
