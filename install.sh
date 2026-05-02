@@ -1620,8 +1620,20 @@ PHASE3_START=$(date +%s)
 
 # ── Progress bar ───────────────────────────────────────────────────
 
-# Count steps dynamically based on what we're actually going to do
-TOTAL_STEPS=9  # Homebrew, Docker, Ollama, Config, Security, FDA, Databases, Models, Pipeline
+# Count steps dynamically based on what we're actually going to do.
+# Keep this base + the conditional adders below in sync with the
+# `progress "..."` call sites further down install.sh, otherwise the
+# percentage either undershoots (looks stalled) or overshoots
+# (looks broken). tests/test_progress_bar_total_steps.sh asserts
+# the two stay in agreement; if a new progress step lands without a
+# matching TOTAL_STEPS bump, that test fails in CI before customers
+# ever see the misshapen bar.
+#
+# Unconditional steps (14): Homebrew, Docker, Ollama, Config,
+# Security, FDA, Databases, Models, Pipeline, Hub Power Policy,
+# Email-Ingest LaunchAgent, Wiki-Recompile LaunchAgent,
+# Ostler-Assistant Binary, Wiki First Compile.
+TOTAL_STEPS=14
 [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))  # GDPR import
 TOTAL_STEPS=$((TOTAL_STEPS + 1))  # Doctor
 CURRENT_STEP=0
