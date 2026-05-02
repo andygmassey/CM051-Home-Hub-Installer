@@ -164,6 +164,12 @@ fi
 info()  { echo -e "${BLUE}[info]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[ok]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; }
+# Used by hard-fail paths that need to surface a security or
+# integrity message. Goes to stderr so it never gets swallowed by
+# tee /dev/null on the calling side; keeps red [ERROR] colour to
+# match the visual class of `fail` (which exits) without exiting
+# itself -- caller decides whether to exit or recover.
+err()   { printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; }
 fail()  { echo -e "${RED}[fail]${NC}  $*"; exit 1; }
 step()  { echo -e "\n${BOLD}==> $*${NC}"; }
 
@@ -249,7 +255,15 @@ USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 # ostler-ai/ostler-installer mirror (versioned, signed, free, standard
 # pattern). Cloudflare Pages serving a static tarball was considered
 # but loses versioning + signing; GitHub Release is the long-term home.
-DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
+# Interim installer-tarball mirror. The canonical home will be
+# https://github.com/ostler-ai/ostler-installer/releases/... once
+# the ostler-ai org clears GitHub's new-account hold (task #271);
+# until then we host the release artefact on the andygmassey
+# mirror so `curl -fsSL ostler.ai/install.sh | bash` works.
+# NOTE: the matching `install.tar.gz` release artefact still
+# needs publishing on this repo as a separate one-shot release
+# step (operator-side; this installer never publishes itself).
+DEFAULT_INSTALLER_TARBALL_URL="https://github.com/andygmassey/CM051-Home-Hub-Installer/releases/latest/download/install.tar.gz"
 INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
 if [[ -n "${OSTLER_BOOTSTRAP_SCRIPT_DIR:-}" ]]; then
@@ -2391,15 +2405,25 @@ services:
 
   # Personal wiki (Andypedia) -- the human-readable browse layer over
   # the Oxigraph graph + Qdrant vectors. Compiled by wiki-compiler
-  # below into the shared wiki_docs volume; served by MkDocs Material.
+  # below into the shared wiki-docs volume; served by MkDocs Material.
   # See CM044 (PWG Personal Wiki) for compiler internals.
+  #
+  # Volume paths fixed in the Gap 3 PR:
+  #   - wiki-docs at /docs/docs (MkDocs's default docs_dir under
+  #     the image's WORKDIR /docs). Was wiki_docs:/app/site, which
+  #     never matched what the wiki-site image expects.
+  #   - Knowledge images bind-mounted from the user-facing zone so
+  #     a single host directory backs both the HTML site at :8044
+  #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
+  #     (no 11GB duplication). Read-only into the container.
   wiki-site:
     image: ghcr.io/ostler-ai/ostler-wiki-site:0.1
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
     volumes:
-      - wiki_docs:/app/site
+      - wiki-docs:/docs/docs:ro
+      - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
     restart: unless-stopped
 
   # Wiki compiler -- runs on demand (compose profile "compile") to
@@ -2408,15 +2432,36 @@ services:
   # wiki-recompile LaunchAgent (separate piece). Reads the data
   # volumes read-only so a buggy compiler can never clobber the
   # source of truth.
+  #
+  # Volume paths fixed in the Gap 3 PR:
+  #   - wiki-docs at /wiki (matches the compiler image's
+  #     WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output,
+  #     which the compiler image never wrote to.
+  #   - Obsidian vault target at /wiki/obsidian, bind-mounted from
+  #     the user-facing zone (~/Documents/Ostler/Wiki/ by default).
+  #     OSTLER_WIKI_DIR overrides the host path for operators who
+  #     want the vault on a different volume.
+  #   - _images/ at /wiki/obsidian/_images:ro so the post-processor's
+  #     rewritten ../_images/<slug>/file.jpg srcs (see
+  #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
+  #     against the same content the wiki-site mounts.
   wiki-compiler:
     image: ghcr.io/ostler-ai/ostler-wiki-compiler:0.1
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
-      - wiki_docs:/app/output
+      - wiki-docs:/wiki
+      - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
+      - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
     environment:
+      # Inside-container path the compiler writes the MkDocs source
+      # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
+      - WIKI_OUTPUT_DIR=/wiki
+      # Inside-container path the Obsidian post-processor writes to.
+      # Pinned to /wiki/obsidian to match the bind-mount above.
+      - WIKI_OBSIDIAN_DIR=/wiki/obsidian
       # CM044 productisation knobs (set by CM044 PR #22). Empty
       # defaults are intentional: the compiler treats "" as "no
       # operator-specific filter" and emits a generic wiki rather
@@ -2432,7 +2477,7 @@ volumes:
   qdrant_data:
   oxigraph_data:
   redis_data:
-  wiki_docs:
+  wiki-docs:
 DCEOF
 
 cd "$OSTLER_DIR"
@@ -3738,6 +3783,16 @@ fi
 # body documents the pre-built-vs-build-at-install decision.
 
 progress "Compiling your personal wiki (first run)"
+
+# Make sure the user-facing Wiki tree (created in Phase 3 by the
+# user-tree block) plus the Wiki/_images/ subdirectory both
+# exist BEFORE the first compile, so the host bind-mounts in
+# the wiki-compiler service have a real directory to point at.
+# Docker's auto-create on bind would otherwise root-own the dir
+# (Docker Desktop) or fail (Colima), neither of which the
+# customer would diagnose. mkdir -p is idempotent so re-runs
+# of install.sh are harmless.
+mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"
