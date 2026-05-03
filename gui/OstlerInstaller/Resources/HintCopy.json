@@ -1,0 +1,197 @@
+{
+  "prereq_check": {
+    "id": "prereq_check",
+    "title": "Checking your Mac",
+    "subtitle": "macOS, Apple Silicon, RAM, disk",
+    "why": "Ostler runs entirely on this machine. We confirm it has the muscle for local AI before we touch anything.",
+    "duration_estimate_s": 5,
+    "long_running_threshold_s": 30,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "setup_questions": {
+    "id": "setup_questions",
+    "title": "A few questions",
+    "subtitle": "Two minutes, then you can walk away",
+    "why": "Your name, your country, your timezone, your assistant's name. These shape everything Ostler does later, but you only answer them once.",
+    "duration_estimate_s": 120,
+    "long_running_threshold_s": 300,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "homebrew_install": {
+    "id": "homebrew_install",
+    "title": "Installing Homebrew + system tools",
+    "subtitle": "The package layer Ostler uses",
+    "why": "Homebrew is the standard macOS package manager. Ostler uses it to fetch Docker, Ollama, and a few CLI tools. Nothing system-wide that conflicts with what you already have.",
+    "duration_estimate_s": 90,
+    "long_running_threshold_s": 240,
+    "long_running_copy": "First-time Homebrew install can take a few minutes on slow networks.",
+    "illustration": null,
+    "needs_fda": false
+  },
+  "docker_install": {
+    "id": "docker_install",
+    "title": "Starting Docker",
+    "subtitle": "Container runtime for the data pipeline",
+    "why": "Ostler runs its databases (Qdrant, Oxigraph, Redis) and wiki in Docker. Ollama and the assistant binary run natively – Docker is only the data layer.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 180,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "ollama_install": {
+    "id": "ollama_install",
+    "title": "Setting up Ollama",
+    "subtitle": "Local AI engine (no cloud)",
+    "why": "Ollama runs language models on your Mac's Apple Silicon. Every prompt your assistant answers, every wiki summary, runs through this. Nothing leaves the machine.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 180,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "config_save": {
+    "id": "config_save",
+    "title": "Saving your configuration",
+    "subtitle": "Names, timezone, channel choices",
+    "why": "Writes your answers to ~/.ostler/config/ so future runs (and the assistant) pick them up without asking again.",
+    "duration_estimate_s": 5,
+    "long_running_threshold_s": 30,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "encrypt_db": {
+    "id": "encrypt_db",
+    "title": "Encrypting your databases",
+    "subtitle": "PBKDF2 + SQLCipher + recovery key",
+    "why": "Your knowledge graph is encrypted at rest with the passphrase you chose. The recovery key is shown once – write it down. We cannot help if both are lost.",
+    "duration_estimate_s": 15,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "fda_extract": {
+    "id": "fda_extract",
+    "title": "Reading your Mac's databases",
+    "subtitle": "The instant onboarding bit",
+    "why": "Ostler reads Safari, iMessage, Notes, Calendar, Photos, Reminders, and Mail directly from macOS. Nothing leaves your machine. Full Disk Access is a one-time grant in System Settings.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 30,
+    "long_running_copy": "First-run extraction can take a couple of minutes if your Mail or Photos library is large.",
+    "illustration": "fda_extract.pdf",
+    "needs_fda": true
+  },
+  "graph_db_start": {
+    "id": "graph_db_start",
+    "title": "Starting the knowledge graph",
+    "subtitle": "Qdrant + Oxigraph + Redis",
+    "why": "Three small databases boot up: vectors for semantic search, RDF triples for relationships, Redis for the message bus. All local, all yours.",
+    "duration_estimate_s": 30,
+    "long_running_threshold_s": 90,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "ai_models": {
+    "id": "ai_models",
+    "title": "Downloading AI models",
+    "subtitle": "This is the big one (~7GB)",
+    "why": "The assistant model and the embedding model. One large download, then nothing more from the cloud. If your connection drops we retry three times.",
+    "duration_estimate_s": 600,
+    "long_running_threshold_s": 300,
+    "long_running_copy": "On a slow connection this can take 15-20 minutes. You can leave the installer running.",
+    "illustration": null,
+    "needs_fda": false
+  },
+  "import_pipeline": {
+    "id": "import_pipeline",
+    "title": "Installing the data import pipeline",
+    "subtitle": "Parsers for 20+ platforms",
+    "why": "The pipeline parses the data sources you've consented to: GDPR exports, Apple Mail, iCloud calendars, browser history. Each parser is local Python, no cloud.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 180,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "import_data": {
+    "id": "import_data",
+    "title": "Importing your data",
+    "subtitle": "Building your knowledge graph",
+    "why": "First-pass import: contacts, conversations, calendar events, Safari history. The wiki compiler runs after this, turning the graph into pages you can read.",
+    "duration_estimate_s": 300,
+    "long_running_threshold_s": 240,
+    "long_running_copy": "Import time scales with your history. Years of iMessage data can take 10-20 minutes.",
+    "illustration": null,
+    "needs_fda": false
+  },
+  "doctor_setup": {
+    "id": "doctor_setup",
+    "title": "Setting up Ostler Doctor",
+    "subtitle": "Diagnostic dashboard",
+    "why": "Doctor is the local-only health dashboard. If something stops working, Doctor tells you what and why. No telemetry, no cloud – diagnostics stay on your Mac.",
+    "duration_estimate_s": 15,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "hub_power": {
+    "id": "hub_power",
+    "title": "Hub power policy",
+    "subtitle": "MacBook battery-aware mode",
+    "why": "On a MacBook Hub, Docker and Ollama pause when you unplug and resume when you plug in, so your battery life stays roughly normal. On a Mac Mini, this is a no-op.",
+    "duration_estimate_s": 15,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "email_ingest": {
+    "id": "email_ingest",
+    "title": "Email ingest",
+    "subtitle": "Hourly Apple Mail drain",
+    "why": "Once an hour, Ostler drains new mail from Apple Mail's local store into the graph. Apple does the auth (IMAP/OAuth), Ostler reads the local copy. Zero credentials held by us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "wiki_recompile_agent": {
+    "id": "wiki_recompile_agent",
+    "title": "Wiki rebuild scheduler",
+    "subtitle": "Daily knowledge compilation",
+    "why": "Once a day (default 4am) the wiki compiler reruns over fresh data. Karpathy-style: facts in, knowledge out. You can also trigger it on demand later.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "ostler_assistant": {
+    "id": "ostler_assistant",
+    "title": "Installing the assistant",
+    "subtitle": "Your local AI agent",
+    "why": "The Rust binary that drives iMessage, email, and tool use. Lives at ~/.ostler/bin and runs as a launchd agent. Everything it can do is gated by the channels and permissions you set.",
+    "duration_estimate_s": 30,
+    "long_running_threshold_s": 90,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "wiki_compile": {
+    "id": "wiki_compile",
+    "title": "Compiling your wiki",
+    "subtitle": "First-run knowledge build",
+    "why": "Turns the imported graph into a browsable wiki at localhost:8044. Pages: people, places, organisations, threads, topics. Each one is a flat MkDocs page you can also edit by hand.",
+    "duration_estimate_s": 240,
+    "long_running_threshold_s": 180,
+    "long_running_copy": "First compile crunches everything from scratch. Subsequent runs are incremental and much faster.",
+    "illustration": null,
+    "needs_fda": false
+  },
+  "health_check": {
+    "id": "health_check",
+    "title": "Health check",
+    "subtitle": "Confirming everything is up",
+    "why": "Quick sanity pass – every container running, every LaunchAgent loaded, the wiki responding. If anything is off, the report tells you exactly what.",
+    "duration_estimate_s": 15,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  }
+}

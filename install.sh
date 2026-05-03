@@ -38,7 +38,7 @@ done
 # When piped via `curl | bash`, stdin is the script not the terminal.
 # We need terminal input for passphrase etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
-if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 ]]; then
+if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
 fi
 
@@ -163,17 +163,47 @@ else
     RED='' GREEN='' YELLOW='' BLUE='' BOLD='' NC=''
 fi
 
-info()  { echo -e "${BLUE}[info]${NC}  $*"; }
-ok()    { echo -e "${GREEN}[ok]${NC}    $*"; }
-warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; }
+# Default no-op stubs for the GUI helpers so any info/warn/err call
+# that fires before SCRIPT_DIR is resolved + lib/progress_emitter.sh
+# is sourced does not error out. The real helpers are installed
+# later, after SCRIPT_DIR is known. They are also installed by the
+# fallback path if the lib file is missing entirely.
+gui_emit()        { :; }
+gui_step_begin()  { :; }
+gui_step_end()    { :; }
+gui_log()         { :; }
+gui_warn()        { :; }
+gui_phase()       { :; }
+gui_done()        { :; }
+gui_active()      { return 1; }
+gui_needs_sudo()  { :; }
+gui_needs_fda()   { :; }
+
+info()  { echo -e "${BLUE}[info]${NC}  $*"; gui_log info "$*"; }
+ok()    { echo -e "${GREEN}[ok]${NC}    $*"; gui_log info "$*"; }
+warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # Used by hard-fail paths that need to surface a security or
 # integrity message. Goes to stderr so it never gets swallowed by
 # tee /dev/null on the calling side; keeps red [ERROR] colour to
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
-err()   { printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; }
-fail()  { echo -e "${RED}[fail]${NC}  $*"; exit 1; }
-step()  { echo -e "\n${BOLD}==> $*${NC}"; }
+err()   { printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
+fail()  { echo -e "${RED}[fail]${NC}  $*"; gui_log error "$*"; gui_done fail; exit 1; }
+
+# step() opens a top-level section ("==> Title"). When OSTLER_GUI=1,
+# also emits a PHASE marker so the GUI sidebar can swap to the next
+# top-level chunk. Optional 2nd arg = stable id; if omitted, derived
+# from the title.
+step()  {
+    local title="$1"
+    local id="${2:-}"
+    if [[ -z "$id" ]]; then
+        id="$(printf '%s' "$title" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_')"
+        [[ -z "$id" ]] && id="step"
+    fi
+    echo -e "\n${BOLD}==> $title${NC}"
+    gui_phase "$id" "$title"
+}
 
 # Retry a model pull up to 3 times with exponential backoff. A 6.6 GB
 # pull over hotel WiFi is fragile; a single network blip should not
@@ -328,6 +358,54 @@ else
     exec bash "${BOOTSTRAP_SCRIPT}" "$@"
 fi
 
+# ── GUI progress emitter (sourced) ─────────────────────────────────
+#
+# Loads helpers `gui_emit`, `gui_step_begin`, `gui_step_end`,
+# `gui_read`, `gui_log`, `gui_warn` and friends. Gated by the
+# OSTLER_GUI=1 env var; when unset every helper is a silent no-op so
+# the curl|bash TTY path stays byte-for-byte identical to today.
+#
+# Search order:
+#   1. ${SCRIPT_DIR}/lib/progress_emitter.sh    (tarball / dev / curl|bash bootstrap)
+#   2. ${HOME}/.ostler/lib/progress_emitter.sh  (post-install re-run)
+# Falls back to inline no-op stubs if neither path exists, so an
+# install missing the lib file degrades cleanly to TTY behaviour.
+if [[ -f "${SCRIPT_DIR}/lib/progress_emitter.sh" ]]; then
+    # shellcheck source=lib/progress_emitter.sh
+    source "${SCRIPT_DIR}/lib/progress_emitter.sh"
+elif [[ -f "${HOME}/.ostler/lib/progress_emitter.sh" ]]; then
+    # shellcheck source=lib/progress_emitter.sh
+    source "${HOME}/.ostler/lib/progress_emitter.sh"
+else
+    gui_emit()        { :; }
+    gui_step_begin()  { :; }
+    gui_step_end()    { :; }
+    gui_read()        {
+        # Minimal fallback if lib is missing. Mirrors the TTY half of
+        # the full helper so install.sh keeps working.
+        local title="$1" kind="${2:-text}" default_value="${3:-}"
+        local user_prompt="  ${title}"
+        [[ -n "$default_value" ]] && user_prompt="${user_prompt} [${default_value}]"
+        user_prompt="${user_prompt}: "
+        local answer=""
+        if [[ "$kind" == "secret" ]]; then
+            read -r -s -p "$user_prompt" answer || true
+            printf '\n' >&2
+        else
+            read -r -p "$user_prompt" answer || true
+        fi
+        [[ -z "$answer" && -n "$default_value" ]] && answer="$default_value"
+        printf '%s' "$answer"
+    }
+    gui_log()         { :; }
+    gui_warn()        { :; }
+    gui_phase()       { :; }
+    gui_done()        { :; }
+    gui_active()      { return 1; }
+    gui_needs_sudo()  { :; }
+    gui_needs_fda()   { :; }
+fi
+
 # ── External resources (overridable via env vars) ──────────────────
 #
 # Both URLs default to empty in the productised installer. The
@@ -388,7 +466,7 @@ echo "  This installer will ask you a few questions, then set up"
 echo "  everything automatically. You can walk away after the questions."
 echo ""
 
-step "Checking prerequisites"
+step "Checking prerequisites" "prereq_check"
 
 # ── Licence / activation check ─────────────────────────────────────
 # TODO (post-App Store): Verify Home Hub purchase via StoreKit receipt.
@@ -553,7 +631,7 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
     echo "  Assistant:  ${ASSISTANT_NAME}"
     echo "  Timezone:   ${USER_TZ}"
     echo ""
-    read -p "  Continue with these settings? (Y/n): " REUSE
+    REUSE="$(gui_read "Continue with these settings? (Y/n)" yesno "" "" "" "reuse_settings")"
     if [[ "${REUSE:-y}" == "n" || "${REUSE:-y}" == "N" ]]; then
         SKIP_PHASE2=false
     fi
@@ -561,7 +639,7 @@ fi
 
 if [[ "$SKIP_PHASE2" == false ]]; then
 
-step "Setup (answer a few questions, then walk away)"
+step "Setup (answer a few questions, then walk away)" "setup_questions"
 
 echo ""
 echo -e "  ${BOLD}What Ostler needs from your Mac${NC}"
@@ -595,7 +673,7 @@ echo "  Your personal data stays on this machine. Ostler makes a few"
 echo "  narrow public-data queries (described in the privacy policy) plus"
 echo "  model and software downloads. These are standard Apple prompts."
 echo ""
-read -p "  Ready to continue? (Y/n): " PERMS_OK
+PERMS_OK="$(gui_read "Ready to continue? (Y/n)" yesno "" "macOS will prompt for Contacts and Files & Folders access. Optional Full Disk Access can be granted later." "" "perms_ok")"
 if [[ "${PERMS_OK:-y}" == "n" || "${PERMS_OK:-y}" == "N" ]]; then
     echo ""
     echo "  No problem. Review what Ostler needs at:"
@@ -764,15 +842,15 @@ fi
 echo -e "  ${BOLD}Your details${NC}"
 echo ""
 if [[ -n "$DETECTED_NAME" ]]; then
-    read -p "  Full name (as it appears in your contacts) [${DETECTED_NAME}]: " USER_NAME
+    USER_NAME="$(gui_read "Full name (as it appears in your contacts)" text "${DETECTED_NAME}" "" "" "user_name")"
     USER_NAME=${USER_NAME:-$DETECTED_NAME}
 else
-    read -p "  Full name (e.g. Tom Harrison): " USER_NAME
+    USER_NAME="$(gui_read "Full name (e.g. Tom Harrison)" text "" "" "" "user_name")"
 fi
 
 DETECTED_FIRST_LOWER=$(echo "${DETECTED_FIRST:-}" | tr '[:upper:]' '[:lower:]')
 DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]' | cut -d' ' -f1)}
-read -p "  What should your assistant call you? [${DEFAULT_ID}]: " USER_ID
+USER_ID="$(gui_read "What should your assistant call you?" text "${DEFAULT_ID}" "" "" "user_id")"
 USER_ID=${USER_ID:-$DEFAULT_ID}
 
 # ── 2. Confirm country code ───────────────────────────────────────
@@ -780,9 +858,9 @@ USER_ID=${USER_ID:-$DEFAULT_ID}
 echo ""
 if [[ -n "$DETECTED_CODE" ]]; then
     echo "  Country code detected from your contact card: +${DETECTED_CODE}"
-    read -p "  Use +${DETECTED_CODE}? (Y/n): " CC_CONFIRM
+    CC_CONFIRM="$(gui_read "Use +${DETECTED_CODE}? (Y/n)" yesno "" "" "" "country_code_confirm")"
     if [[ "${CC_CONFIRM:-y}" == "n" || "${CC_CONFIRM:-y}" == "N" ]]; then
-        read -p "  Enter country code (e.g. 44 for UK, 1 for US): " COUNTRY_CODE
+        COUNTRY_CODE="$(gui_read "Enter country code (e.g. 44 for UK, 1 for US)" text "" "" "" "country_code")"
     else
         COUNTRY_CODE="$DETECTED_CODE"
     fi
@@ -790,7 +868,7 @@ else
     echo "  Your country code is used to normalise phone numbers during"
     echo "  contact import (e.g. 44 for UK, 1 for US, 852 for HK)."
     echo ""
-    read -p "  Default country code: " COUNTRY_CODE
+    COUNTRY_CODE="$(gui_read "Default country code" text "44" "Used to normalise phone numbers during contact import." "" "country_code")"
     COUNTRY_CODE=${COUNTRY_CODE:-44}
 fi
 
@@ -956,14 +1034,14 @@ DETECTED_TZ=$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || ec
 if [[ -n "$DETECTED_TZ" ]]; then
     echo ""
     echo "  Detected timezone: ${DETECTED_TZ}"
-    read -p "  Use this timezone? (Y/n): " TZ_CONFIRM
+    TZ_CONFIRM="$(gui_read "Use this timezone? (Y/n)" yesno "" "Detected timezone: ${DETECTED_TZ}" "" "tz_confirm")"
     if [[ "${TZ_CONFIRM:-y}" == "n" || "${TZ_CONFIRM:-y}" == "N" ]]; then
-        read -p "  Enter timezone (e.g. Europe/London, Asia/Hong_Kong): " USER_TZ
+        USER_TZ="$(gui_read "Enter timezone (e.g. Europe/London, Asia/Hong_Kong)" text "" "" "" "user_tz")"
     else
         USER_TZ="$DETECTED_TZ"
     fi
 else
-    read -p "  Enter timezone (e.g. Europe/London, Asia/Hong_Kong): " USER_TZ
+    USER_TZ="$(gui_read "Enter timezone (e.g. Europe/London, Asia/Hong_Kong)" text "UTC" "" "" "user_tz")"
     USER_TZ=${USER_TZ:-UTC}
 fi
 
@@ -984,10 +1062,10 @@ echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
 echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
 echo ""
 
-read -p "  Assistant name: " ASSISTANT_NAME
+ASSISTANT_NAME="$(gui_read "Assistant name" text "" "Pick from the suggestions or type your own. This is the name your assistant will respond to." "" "assistant_name")"
 while [[ -z "$ASSISTANT_NAME" ]]; do
     warn "Your assistant needs a name. Pick from the suggestions above or type your own."
-    read -p "  Assistant name: " ASSISTANT_NAME
+    ASSISTANT_NAME="$(gui_read "Assistant name" text "" "Pick from the suggestions or type your own." "" "assistant_name")"
 done
 
 ok "Your assistant is called ${ASSISTANT_NAME}"
@@ -1026,7 +1104,7 @@ echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
 echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
 echo -e "    ${BOLD}5. + WhatsApp${NC}    – iMessage + email + WhatsApp (read-only)"
 echo ""
-read -p "  Channel choice [3]: " CHANNEL_CHOICE
+CHANNEL_CHOICE="$(gui_read "Channel choice" choice "3" "1=iMessage only, 2=email only, 3=both, 4=skip" "1,2,3,4" "channel_choice")"
 CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
 
 # Normalise into per-channel boolean flags for the config writer.
@@ -1149,7 +1227,7 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     echo "  Example: +447700900000, you@example.com"
     echo ""
     while [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; do
-        read -p "  Allowed contacts: " CHANNEL_IMESSAGE_ALLOWED
+        CHANNEL_IMESSAGE_ALLOWED="$(gui_read "Allowed contacts" text "" "Comma-separated phone numbers or Apple ID emails. e.g. +447700900000, you@example.com" "" "imessage_allowed")"
         if [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
             warn "iMessage needs at least one allowed contact. Try again or pick"
             warn "a different channel choice (re-run installer)."
@@ -1172,7 +1250,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     echo "    3. Outlook / Office 365"
     echo "    4. Other / custom IMAP+SMTP"
     echo ""
-    read -p "  Provider [1]: " EMAIL_PROVIDER
+    EMAIL_PROVIDER="$(gui_read "Provider" choice "1" "1=Gmail, 2=iCloud, 3=Outlook, 4=Other custom IMAP+SMTP" "1,2,3,4" "email_provider")"
     EMAIL_PROVIDER=${EMAIL_PROVIDER:-1}
 
     case "$EMAIL_PROVIDER" in
@@ -1202,11 +1280,11 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             ;;
         4)
             echo ""
-            read -p "  IMAP host: " CHANNEL_EMAIL_IMAP_HOST
-            read -p "  IMAP port [993]: " imap_port_in
+            CHANNEL_EMAIL_IMAP_HOST="$(gui_read "IMAP host" text "" "" "" "imap_host")"
+            imap_port_in="$(gui_read "IMAP port" text "993" "" "" "imap_port")"
             CHANNEL_EMAIL_IMAP_PORT=${imap_port_in:-993}
-            read -p "  SMTP host: " CHANNEL_EMAIL_SMTP_HOST
-            read -p "  SMTP port [587]: " smtp_port_in
+            CHANNEL_EMAIL_SMTP_HOST="$(gui_read "SMTP host" text "" "" "" "smtp_host")"
+            smtp_port_in="$(gui_read "SMTP port" text "587" "" "" "smtp_port")"
             CHANNEL_EMAIL_SMTP_PORT=${smtp_port_in:-587}
             ;;
         *)
@@ -1219,16 +1297,16 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     esac
 
     echo ""
-    read -p "  Email address (also used as IMAP/SMTP username): " CHANNEL_EMAIL_USERNAME
+    CHANNEL_EMAIL_USERNAME="$(gui_read "Email address (also used as IMAP/SMTP username)" text "" "" "" "email_username")"
     CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
 
-    # Hidden password input (read -s); confirm with re-entry so a
+    # Hidden password input (kind=secret); confirm with re-entry so a
     # typo doesn't silently lock the assistant out of email.
     while true; do
         echo ""
-        read -s -p "  Password (hidden): " CHANNEL_EMAIL_PASSWORD
+        CHANNEL_EMAIL_PASSWORD="$(gui_read "Password (hidden)" secret "" "App-specific password from your provider, NOT your main account password." "" "email_password")"
         echo ""
-        read -s -p "  Confirm Password: " _email_confirm_input
+        _email_confirm_input="$(gui_read "Confirm Password" secret "" "" "" "email_password_confirm")"
         echo ""
         if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
             break
@@ -1285,7 +1363,7 @@ echo "  Downloads folder. Ostler will find them automatically."
 echo ""
 echo "  Skip any you do not use. You can always import more later."
 echo ""
-read -p "  Press Enter to continue: " _
+_="$(gui_read "Press Enter to continue" text "" "Continue when ready." "" "exports_ack")"
 
 # ── 6. FileVault check (silent if enabled) ─────────────────────────
 
@@ -1301,7 +1379,7 @@ else
     echo ""
     echo "  Enable it: System Settings > Privacy & Security > FileVault"
     echo ""
-    read -p "  Continue without FileVault? (y/N): " FV_CONTINUE
+    FV_CONTINUE="$(gui_read "Continue without FileVault? (y/N)" yesno "n" "FileVault is strongly recommended. Without it, physical access to your Mac means access to your data." "" "filevault_skip")"
     if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
         echo "  Enable FileVault first, then re-run this installer."
         exit 1
@@ -1450,7 +1528,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
 
     while true; do
-        read -s -p "  Enter passphrase: " PASSPHRASE
+        PASSPHRASE="$(gui_read "Enter passphrase" secret "" "Used to encrypt your databases. Cannot be recovered. We recommend storing it in your password manager before continuing." "" "passphrase")"
         echo ""
 
         # Validate using the Python module (use venv Python for cryptography)
@@ -1470,7 +1548,7 @@ if not ok:
             continue
         fi
 
-        read -s -p "  Confirm passphrase: " PASSPHRASE_CONFIRM
+        PASSPHRASE_CONFIRM="$(gui_read "Confirm passphrase" secret "" "Re-enter the same passphrase to confirm." "" "passphrase_confirm")"
         echo ""
 
         if [[ "$PASSPHRASE" != "$PASSPHRASE_CONFIRM" ]]; then
@@ -1569,7 +1647,7 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
         echo "     - ${exp}"
     done
     echo ""
-    read -p "  Import these during install? (Y/n): " IMPORT_CONFIRM
+    IMPORT_CONFIRM="$(gui_read "Import these during install? (Y/n)" yesno "" "Found GDPR exports will be imported into your knowledge graph during install." "" "import_confirm")"
     if [[ "${IMPORT_CONFIRM:-y}" == "n" || "${IMPORT_CONFIRM:-y}" == "N" ]]; then
         EXPORTS_DIR=""
     fi
@@ -1580,7 +1658,7 @@ else
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
     echo ""
-    read -p "  Have exports elsewhere? Enter path (or press Enter to skip): " MANUAL_PATH
+    MANUAL_PATH="$(gui_read "Have exports elsewhere? Enter path (or press Enter to skip)" text "" "Path to a directory containing GDPR exports (LinkedIn, Facebook, etc.)" "" "manual_exports_path")"
     if [[ -n "$MANUAL_PATH" ]]; then
         MANUAL_PATH="${MANUAL_PATH/#\~/$HOME}"
         if [[ -d "$MANUAL_PATH" ]]; then
@@ -1621,7 +1699,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     echo "  WITHOUT connecting to Google's API. Your Gmail messages stay on"
     echo "  this machine; Google never sees that Ostler exists."
     echo ""
-    read -p "  Import Gmail messages from this Takeout? (Y/n): " TAKEOUT_CONFIRM
+    TAKEOUT_CONFIRM="$(gui_read "Import Gmail messages from this Takeout? (Y/n)" yesno "" "Reads Gmail content from the Takeout file directly. Google never sees Ostler." "" "takeout_confirm")"
     if [[ "${TAKEOUT_CONFIRM:-y}" != "n" && "${TAKEOUT_CONFIRM:-y}" != "N" ]]; then
         if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
             OSTLER_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
@@ -1697,7 +1775,7 @@ cat <<MENU
 
 MENU
 
-read -p "  Choose 1, 2, or 3 (or press Enter for [1]): " PRESET
+PRESET="$(gui_read "Choose 1, 2, or 3" choice "1" "1=Recommended, 2=Everything, 3=Customise" "1,2,3" "fda_preset")"
 PRESET=${PRESET:-1}
 
 # Default sets
@@ -1722,7 +1800,7 @@ case "$PRESET" in
             local default="$3"
             local prompt_default
             if [[ "$default" == "Y" ]]; then prompt_default="Y/n"; else prompt_default="y/N"; fi
-            read -p "  $2 [$prompt_default]: " ans
+            ans="$(gui_read "$2" yesno "$default" "Toggle this data source on or off." "" "src_$1")"
             ans="${ans:-$default}"
             if [[ "$ans" == "y" || "$ans" == "Y" ]]; then
                 ENABLED+=("$1")
@@ -2044,7 +2122,7 @@ echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
 while true; do
-    read -p "  Type INSTALL to proceed (or CANCEL to quit): " CONSENT
+    CONSENT="$(gui_read "Type INSTALL to proceed (or CANCEL to quit)" text "" "Confirms you accept the terms and the install can begin." "" "consent_install")"
     if [[ "$CONSENT" == "INSTALL" ]]; then
         break
     elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
@@ -2108,7 +2186,19 @@ TOTAL_STEPS=$((TOTAL_STEPS + 1))  # Doctor
 CURRENT_STEP=0
 
 progress() {
-    # Usage: progress "What is happening right now"
+    # Usage: progress "What is happening right now" [stable-id]
+    #
+    # Emits a TTY progress bar (unchanged) AND, when OSTLER_GUI=1, a
+    # STEP_END for the previous step + STEP_BEGIN for this one. The
+    # optional 2nd arg is the stable id surfaced to the GUI; when
+    # omitted it is derived from the title.
+    local title="$1"
+    local id="${2:-}"
+    if [[ -z "$id" ]]; then
+        id="$(printf '%s' "$title" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_')"
+        [[ -z "$id" ]] && id="step"
+    fi
+
     CURRENT_STEP=$((CURRENT_STEP + 1))
     local PCT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
     local BAR_WIDTH=30
@@ -2129,6 +2219,15 @@ progress() {
             ETA=" (~${REMAIN}s remaining)"
         fi
     fi
+
+    # Close any prior step (no-op if none open) before opening this
+    # one. STEP_BEGIN carries idx/total so the GUI can render its own
+    # progress bar without re-deriving from PCT.
+    if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
+        gui_step_end ok
+    fi
+    gui_step_begin "$id" "$title" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
+    gui_emit PCT "step=$id" "pct=$PCT"
 
     echo ""
     echo -e "  ${BOLD}[${BAR}] ${PCT}%${ETA}${NC}"
@@ -2226,7 +2325,7 @@ if [[ "$HAS_BATTERY" == true ]]; then
     info "Phase 3 battery watcher armed (PID $PHASE3_BATTERY_WATCH_PID)"
 fi
 
-progress "Checking Homebrew and system tools"
+progress "Checking Homebrew and system tools" "homebrew_install"
 
 if command -v brew &>/dev/null; then
     ok "Homebrew installed"
@@ -2241,7 +2340,7 @@ fi
 
 # ── 3.2 Docker ─────────────────────────────────────────────────────
 
-progress "Starting Docker"
+progress "Starting Docker" "docker_install"
 
 if [[ "$HAS_DOCKER" == true ]]; then
     ok "Docker running"
@@ -2356,7 +2455,7 @@ fi
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
 
-progress "Setting up Ollama (local AI engine)"
+progress "Setting up Ollama (local AI engine)" "ollama_install"
 
 if command -v ollama &>/dev/null; then
     ok "Ollama installed"
@@ -2425,7 +2524,7 @@ fi
 
 # ── 3.5 Write config ──────────────────────────────────────────────
 
-progress "Saving your configuration"
+progress "Saving your configuration" "config_save"
 
 cat > "${CONFIG_DIR}/.env" <<ENVEOF
 # Ostler configuration – generated by installer
@@ -2568,7 +2667,7 @@ fi
 
 # ── 3.6 Security setup ────────────────────────────────────────────
 
-progress "Encrypting your databases"
+progress "Encrypting your databases" "encrypt_db"
 
 # Install SQLCipher
 if ! brew list sqlcipher &>/dev/null 2>&1; then
@@ -2772,7 +2871,7 @@ fi
 
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
 
-progress "Extracting data from your Mac (the instant bit)"
+progress "Extracting data from your Mac (the instant bit)" "fda_extract"
 
 if [[ "$HAS_FDA_MODULE" == true ]]; then
     # Pre-launch apps to trigger iCloud sync ONLY if their databases are
@@ -2924,7 +3023,7 @@ fi
 
 # ── 3.8 Docker services ───────────────────────────────────────────
 
-progress "Starting your knowledge graph databases"
+progress "Starting your knowledge graph databases" "graph_db_start"
 
 # Check for port conflicts before starting containers
 _check_port() {
@@ -3161,7 +3260,7 @@ fi
 
 # ── 3.9 AI models ─────────────────────────────────────────────────
 
-progress "Downloading AI models (this is the big one)"
+progress "Downloading AI models (this is the big one)" "ai_models"
 
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "nomic-embed-text already available"
@@ -3205,7 +3304,7 @@ fi
 
 # ── 3.10 Import pipeline ──────────────────────────────────────────
 
-progress "Installing the data import pipeline"
+progress "Installing the data import pipeline" "import_pipeline"
 
 # The import pipeline is bundled with the installer if available,
 # or cloned from PIPELINE_REPO (defined in the config block at the top
@@ -3282,7 +3381,7 @@ fi
 # ── 3.11 Run GDPR import if exports were provided ────────────────
 
 if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]]; then
-    progress "Importing your data (building your knowledge graph)"
+    progress "Importing your data (building your knowledge graph)" "import_data"
     info "This may take 5-15 minutes depending on how much data you have..."
     cd "$PIPELINE_DIR"
     if .venv/bin/python -m contact_syncer.import_all \
@@ -3711,7 +3810,7 @@ ok "ostler-import, ostler-fda, and ostler-uninstall commands installed"
 
 # ── 3.13 Ostler Doctor ──────────────────────────────────────────
 
-progress "Setting up Ostler Doctor diagnostic dashboard"
+progress "Setting up Ostler Doctor diagnostic dashboard" "doctor_setup"
 
 DOCTOR_DIR="${OSTLER_DIR}/doctor"
 mkdir -p "$DOCTOR_DIR"
@@ -3784,7 +3883,7 @@ fi
 # a copy; dev environments may symlink. If neither is present we fall
 # back to cloning from HUB_POWER_REPO.
 
-progress "Setting up hub power policy (MacBook-as-Hub)"
+progress "Setting up hub power policy (MacBook-as-Hub)" "hub_power"
 
 HUB_POWER_DIR="${OSTLER_DIR}/hub-power"
 HUB_POWER_SNIPPET=""
@@ -3863,7 +3962,7 @@ fi
 # install (tarball with assets) and a dev install (clone HR015)
 # both work.
 
-progress "Setting up email-ingest LaunchAgent (hourly Apple Mail drain)"
+progress "Setting up email-ingest LaunchAgent (hourly Apple Mail drain)" "email_ingest"
 
 EMAIL_INGEST_DIR="${OSTLER_DIR}/email-ingest"
 EMAIL_INGEST_SNIPPET=""
@@ -3945,7 +4044,7 @@ fi
 # and email-ingest. Lives under wiki-recompile/ in the installer
 # tarball / HR015 clone.
 
-progress "Setting up wiki-recompile LaunchAgent (daily rebuild)"
+progress "Setting up wiki-recompile LaunchAgent (daily rebuild)" "wiki_recompile_agent"
 
 WIKI_RECOMPILE_DIR="${OSTLER_DIR}/wiki-recompile"
 WIKI_RECOMPILE_SNIPPET=""
@@ -4046,7 +4145,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.1.0})"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.1.0})" "ostler_assistant"
 
 OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.1.0}"
 # Customer-facing distribution. v0.1.0 binary published to
@@ -4348,7 +4447,7 @@ echo "  reach from anywhere — encrypted, no public exposure, free for"
 echo "  personal use. Without it, the iOS companion only works on"
 echo "  your home Wi-Fi."
 echo ""
-read -p "  Install Tailscale now? (Y/n): " TAILSCALE_CONFIRM
+TAILSCALE_CONFIRM="$(gui_read "Install Tailscale now? (Y/n)" yesno "Y" "Tailscale lets you reach the assistant securely from your phone or other Macs." "" "tailscale_confirm")"
 
 if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
@@ -4449,7 +4548,7 @@ fi
 # up, so the user has everything except the wiki UI. Piece 1's PR
 # body documents the pre-built-vs-build-at-install decision.
 
-progress "Compiling your personal wiki (first run)"
+progress "Compiling your personal wiki (first run)" "wiki_compile"
 
 # Make sure the user-facing Wiki tree (created in Phase 3 by the
 # user-tree block) plus the Wiki/_images/ subdirectory both
@@ -4491,7 +4590,7 @@ fi
 # 3.14 is now responsible for battery awareness from here on.
 cleanup_battery_watch
 
-step "Running health check"
+step "Running health check" "health_check"
 
 HEALTHY=true
 
@@ -4594,7 +4693,7 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     echo "  We can save this to your macOS Keychain (Passwords app)"
     echo "  so you do not have to write it down."
     echo ""
-    read -p "  Save recovery key to Keychain? (Y/n): " SAVE_KEYCHAIN
+    SAVE_KEYCHAIN="$(gui_read "Save recovery key to Keychain? (Y/n)" yesno "Y" "Stores your encryption recovery key in the macOS Keychain for safekeeping." "" "save_keychain")"
     if [[ "${SAVE_KEYCHAIN:-y}" != "n" && "${SAVE_KEYCHAIN:-y}" != "N" ]]; then
         # Prefer an explicit Security.framework call so we can pin the
         # accessibility class to kSecAttrAccessibleWhenUnlockedThisDeviceOnly
@@ -4816,3 +4915,13 @@ echo "    A dedicated support@creativemachines.ai address will be"
 echo "    live by general launch."
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+# ── GUI completion markers ─────────────────────────────────────────
+# Close any still-open step + signal completion to the GUI. No-op
+# under TTY mode (OSTLER_GUI unset). The GUI consumes DONE to flip
+# its sidebar to the success state and offer a "Reveal in Finder"
+# affordance for ~/Documents/Ostler.
+if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
+    gui_step_end ok
+fi
+gui_done ok

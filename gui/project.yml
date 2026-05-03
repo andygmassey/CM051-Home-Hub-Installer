@@ -1,0 +1,69 @@
+name: OstlerInstaller
+options:
+  bundleIdPrefix: ai.ostler
+  deploymentTarget:
+    macOS: "14.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEVELOPMENT_TEAM: V95N2B8X7A
+    CODE_SIGN_STYLE: Manual
+    PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
+    PRODUCT_NAME: OstlerInstaller
+    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.1.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
+    OTHER_CODE_SIGN_FLAGS: "--timestamp"
+  configs:
+    Debug:
+      CODE_SIGN_IDENTITY: "-"
+      ENABLE_HARDENED_RUNTIME: NO
+    Release:
+      CODE_SIGN_IDENTITY: "Developer ID Application"
+
+targets:
+  OstlerInstaller:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: OstlerInstaller
+        excludes:
+          - "Resources/Illustrations/*"
+    resources:
+      - path: OstlerInstaller/Resources
+    info:
+      path: OstlerInstaller/Info.plist
+      properties:
+        CFBundleName: OstlerInstaller
+        CFBundleDisplayName: Ostler Installer
+        CFBundleIdentifier: ai.ostler.installer
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        CFBundlePackageType: APPL
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        LSApplicationCategoryType: public.app-category.utilities
+        NSAppleEventsUsageDescription: "Ostler needs to ask for your administrator password to install Hub services."
+    entitlements:
+      path: OstlerInstaller/OstlerInstaller.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.cs.allow-unsigned-executable-memory: false
+        com.apple.security.cs.disable-library-validation: true
+        com.apple.security.cs.allow-jit: false
+        com.apple.security.cs.allow-dyld-environment-variables: true
+        com.apple.security.automation.apple-events: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
+        SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        ARCHS: "$(ARCHS_STANDARD)"

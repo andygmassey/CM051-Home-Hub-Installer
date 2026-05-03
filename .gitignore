@@ -61,3 +61,15 @@ REVIEW_FIXES_PROMPT.md
 # Test artefacts
 test_installs/
 scratch/
+
+# Xcode (gui/) – keep project.yml + sources, drop build output and
+# user-specific Xcode metadata. The .xcodeproj is regenerated from
+# project.yml via `xcodegen generate` so it doesn't need to live in
+# git either, but we DO commit it for now so a fresh checkout can
+# `xcodebuild ... build` without needing xcodegen.
+gui/build/
+gui/DerivedData/
+gui/**/xcuserdata/
+gui/**/*.xcworkspace/xcuserdata/
+gui/**/.build/
+gui/**/Packages/
