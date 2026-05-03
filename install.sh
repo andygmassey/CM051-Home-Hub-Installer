@@ -2227,10 +2227,43 @@ PHASE3_START=$(date +%s)
 
 # ── Progress bar ───────────────────────────────────────────────────
 
-# Count steps dynamically based on what we're actually going to do
-TOTAL_STEPS=9  # Homebrew, Docker, Ollama, Config, Security, FDA, Databases, Models, Pipeline
-[[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))  # GDPR import
-TOTAL_STEPS=$((TOTAL_STEPS + 1))  # Doctor
+# TOTAL_STEPS = how many `progress` calls will fire during Phase 3.
+# Computed dynamically by walking the script so a future PR that
+# adds a new `progress` line cannot quietly desynchronise the bar.
+# The cold-install audit of 2026-05-02 caught exactly this drift:
+# Vane bundling + the GUI-wrapper PR each added a `progress` call
+# without bumping the hard-coded base, so the bar saturated at
+# ~145% by the wiki phase.
+#
+# Strategy:
+#   1. Count every `progress "..."` line in the script.
+#   2. Subtract the ones whose enclosing `if` evaluates false at
+#      this point (we can only check Phase 2 flags here -- gates
+#      that depend on Phase 3 state, e.g. HAS_PIPELINE, are
+#      best-effort).
+#   3. If the count looks broken (zero, non-numeric, missing
+#      script), fall back to the known-good base of 16 + the GDPR
+#      conditional so the bar is never absent.
+#
+# Drift gate: tests/test_total_steps_dynamic.sh verifies the
+# computation against a fixture; a new conditional `progress`
+# call must be paired with a matching subtract entry below.
+
+TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/null || echo 0)"
+
+# Conditional `progress` calls -- one entry per gated section.
+# Subtract from the auto-count if the gate evaluates false. Add
+# new entries here whenever a `progress` line is added inside an
+# `if [[ ... ]]` that depends on a Phase 2 flag.
+[[ -z "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # GDPR import (~line 3448)
+
+# Defensive fallback for unusual invocation paths (BASH_SOURCE
+# resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
+# Better to overshoot 100% by a step or two than divide by zero.
+if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
+    TOTAL_STEPS=16
+    [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+fi
 CURRENT_STEP=0
 
 progress() {
