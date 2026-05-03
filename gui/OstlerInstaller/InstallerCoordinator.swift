@@ -118,10 +118,14 @@ final class InstallerCoordinator: ObservableObject {
 
     private func launchInstaller() throws {
         // Resolve install.sh path. Search order:
-        //   1. App bundle Resources/install.sh        (productised .app)
+        //   1. App bundle Resources/install.sh        (productised .app, primary)
         //   2. ../../install.sh relative to the .app  (running from
         //      gui/build/ during dev)
-        //   3. OSTLER_INSTALL_SH env var override     (CI / dev)
+        //   3. OSTLER_INSTALL_SH env var override     (last-resort dev hook)
+        //
+        // Bundle-first protects customer installs: a stale or hostile
+        // OSTLER_INSTALL_SH cannot redirect the installer to an
+        // arbitrary script when the .app ships a copy of install.sh.
         let scriptPath = resolveInstallScriptPath()
         guard FileManager.default.isExecutableFile(atPath: scriptPath) else {
             throw NSError(domain: "OstlerInstaller", code: 1,
@@ -232,14 +236,12 @@ final class InstallerCoordinator: ObservableObject {
     }
 
     private func resolveInstallScriptPath() -> String {
-        if let env = ProcessInfo.processInfo.environment["OSTLER_INSTALL_SH"], !env.isEmpty {
-            return env
-        }
+        // 1. App bundle Resources/install.sh (productised .app).
         if let bundled = Bundle.main.path(forResource: "install", ofType: "sh") {
             return bundled
         }
-        // Dev fallback: walk up from the app bundle to find install.sh
-        // sitting next to gui/.
+        // 2. Dev fallback: walk up from the app bundle to find
+        //    install.sh sitting next to gui/.
         let appPath = Bundle.main.bundlePath
         let candidates = [
             (appPath as NSString).deletingLastPathComponent + "/install.sh",
@@ -250,7 +252,13 @@ final class InstallerCoordinator: ObservableObject {
         for c in candidates where FileManager.default.fileExists(atPath: (c as NSString).expandingTildeInPath) {
             return (c as NSString).expandingTildeInPath
         }
-        return "/usr/local/bin/install.sh"
+        // 3. OSTLER_INSTALL_SH env var (last-resort dev hook).
+        if let env = ProcessInfo.processInfo.environment["OSTLER_INSTALL_SH"], !env.isEmpty {
+            return env
+        }
+        // Sentinel: returns a path that the caller's executability
+        // check will reject with a clear error.
+        return "(install.sh not bundled and no dev copy found)"
     }
 
     // ── Incoming data parsing ────────────────────────────────────

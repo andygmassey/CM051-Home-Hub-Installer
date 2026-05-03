@@ -67,6 +67,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
         SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         ARCHS: "$(ARCHS_STANDARD)"
+    postBuildScripts:
+      - name: Bundle install.sh + progress_emitter.sh into Resources
+        script: |
+          set -euo pipefail
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}"
+          cp -p "${SRCROOT}/../install.sh"             "${DEST}/install.sh"
+          cp -p "${SRCROOT}/../lib/progress_emitter.sh" "${DEST}/progress_emitter.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/progress_emitter.sh"
+        inputFiles:
+          - $(SRCROOT)/../install.sh
+          - $(SRCROOT)/../lib/progress_emitter.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/progress_emitter.sh
 
 schemes:
   OstlerInstaller:
