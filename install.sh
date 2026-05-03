@@ -148,6 +148,13 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    Read from ~/.ostler/power.conf at runtime, not at install"
     echo "    time. Edit that file post-install to change."
     echo ""
+    echo "  PWG_IMESSAGE_PROBE_OUTCOME"
+    echo "    Test-only override for the install-time iMessage TCC probe"
+    echo "    in Phase 3.18. When set, the probe skips osascript and uses"
+    echo "    the value verbatim. Accepted values:"
+    echo "    granted-and-working | tcc-denied | check-failed."
+    echo "    Real macOS installs leave this unset."
+    echo ""
     echo "Your personal data stays on your machine. Ostler makes only narrow"
     echo "public-data queries (Wikidata for enrichment, local web search via"
     echo "the bundled Vane + SearXNG container at http://localhost:3000) and"
@@ -4850,6 +4857,141 @@ else
     info "Vane not responding (optional; see Phase 3.8b warnings)"
 fi
 
+# ── 3.18 iMessage TCC posture probe (install-time snapshot) ──────
+#
+# v0.1 supports iMessage as a conversation channel. macOS gates
+# AppleEvents to Messages.app behind explicit consent (System
+# Settings > Privacy & Security > Automation). When the operator
+# has not authorised it, osascript-based delivery fails with error
+# -1743 (errAEEventNotPermitted) and conversations sent via
+# iMessage silently never leave the box.
+#
+# This is a READ-ONLY probe: it asks for the iMessage account
+# count, which requires the same Automation permission a real
+# send would, but does NOT send a message. Running it at install
+# time also acts as the trigger for the macOS Automation consent
+# prompt -- surfacing the dialog while the customer is in
+# install-context, not at first-brief in production.
+#
+# We mirror the daemon's probe shape (zeroclaw-runtime
+# imessage_tcc.rs uses `count of accounts`) so the install-time
+# snapshot and the daemon's runtime probe converge on the same
+# fact. This marker is the install-time SNAPSHOT only:
+# ostler-assistant runs its own probe at startup and tracks
+# ongoing health independently. Re-run install.sh --repair to
+# refresh the snapshot.
+#
+# See piece D / task #213 (daemon-side probe) and task #278
+# (this install-time snapshot).
+#
+# Skipped when iMessage is not an enabled channel -- there is no
+# point probing a permission the customer has not consented to.
+
+if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+    info "Probing iMessage Automation permission (read-only)..."
+
+    IMESSAGE_POSTURE_DIR="${OSTLER_DIR}/imessage-posture"
+    IMESSAGE_POSTURE_FILE="${IMESSAGE_POSTURE_DIR}/state.md"
+    IMESSAGE_TCC_STATUS="check-failed"
+    IMESSAGE_TCC_STDERR=""
+
+    mkdir -p "$IMESSAGE_POSTURE_DIR"
+
+    # Test-shim hook: lets test harnesses inject an outcome without
+    # invoking osascript. Real macOS installs leave this unset.
+    if [[ -n "${PWG_IMESSAGE_PROBE_OUTCOME:-}" ]]; then
+        case "$PWG_IMESSAGE_PROBE_OUTCOME" in
+            granted-and-working|tcc-denied|check-failed)
+                IMESSAGE_TCC_STATUS="$PWG_IMESSAGE_PROBE_OUTCOME"
+                ;;
+            *)
+                IMESSAGE_TCC_STATUS="check-failed"
+                ;;
+        esac
+        IMESSAGE_TCC_STDERR="(test shim: PWG_IMESSAGE_PROBE_OUTCOME)"
+    else
+        IMESSAGE_PROBE_STDERR=$(mktemp)
+        if osascript -e 'tell application "Messages" to count of accounts' \
+                >/dev/null 2>"$IMESSAGE_PROBE_STDERR"; then
+            IMESSAGE_TCC_STATUS="granted-and-working"
+        else
+            if grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$IMESSAGE_PROBE_STDERR" 2>/dev/null; then
+                IMESSAGE_TCC_STATUS="tcc-denied"
+            else
+                IMESSAGE_TCC_STATUS="check-failed"
+            fi
+            IMESSAGE_TCC_STDERR=$(head -c 400 "$IMESSAGE_PROBE_STDERR" 2>/dev/null || true)
+        fi
+        rm -f "$IMESSAGE_PROBE_STDERR"
+    fi
+
+    IMESSAGE_TCC_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    {
+        echo "# iMessage TCC posture (install-time snapshot)"
+        echo ""
+        echo "Source: install.sh probe at install time"
+        echo "Status: ${IMESSAGE_TCC_STATUS}"
+        echo "Captured at: ${IMESSAGE_TCC_TIMESTAMP}"
+        echo "Probe: osascript \"tell application \\\"Messages\\\" to count of accounts\""
+        echo "Detection: exit-code + stderr regex (-1743 / not authorized / errAEEventNotPermitted)"
+        echo ""
+        echo "Note: Runtime health is tracked separately by ostler-assistant's"
+        echo "own iMessage TCC probe (one-shot at daemon startup, refreshed on"
+        echo "doctor invocation). This file is a one-shot snapshot from the"
+        echo "installer. Re-run install.sh --repair (or wait for the daemon's"
+        echo "next probe cycle) to refresh."
+        echo ""
+    } > "$IMESSAGE_POSTURE_FILE"
+
+    case "$IMESSAGE_TCC_STATUS" in
+        granted-and-working)
+            {
+                echo "## Status detail"
+                echo ""
+                echo "Automation permission for Messages.app is granted."
+                echo "iMessage delivery should work; if a brief later fails,"
+                echo "run \`ostler-assistant doctor\` to see runtime status."
+            } >> "$IMESSAGE_POSTURE_FILE"
+            ok "iMessage Automation permission: granted"
+            ;;
+        tcc-denied)
+            {
+                echo "## Remediation"
+                echo ""
+                echo "Automation permission for Messages.app was not granted."
+                echo "Open System Settings > Privacy & Security > Automation,"
+                echo "find the row for Terminal (or Ostler Installer), and"
+                echo "enable the Messages tick. Re-run install.sh --repair to"
+                echo "refresh this marker."
+            } >> "$IMESSAGE_POSTURE_FILE"
+            warn "iMessage Automation permission: not granted (-1743)."
+            warn "  Conversations sent to iMessage will silently fail until"
+            warn "  this is resolved. See next-steps banner for remediation."
+            ;;
+        check-failed)
+            {
+                echo "## Status detail"
+                echo ""
+                echo "Probe ran but the result did not match a known shape."
+                echo "Stderr fragment:"
+                echo ""
+                echo '```'
+                printf '%s\n' "${IMESSAGE_TCC_STDERR}"
+                echo '```'
+                echo ""
+                echo "Re-run install.sh --repair to retry the probe, or run"
+                echo "\`ostler-assistant doctor\` to see runtime status once"
+                echo "the daemon is up."
+            } >> "$IMESSAGE_POSTURE_FILE"
+            warn "iMessage Automation permission: probe inconclusive."
+            warn "  See ${IMESSAGE_POSTURE_FILE} for the stderr fragment."
+            ;;
+    esac
+
+    chmod 600 "$IMESSAGE_POSTURE_FILE"
+fi
+
 # ── ostler-assistant doctor probe (best-effort, non-fatal) ────────
 #
 # Surfaces the cron-delivery + imessage-tcc posture markers that
@@ -5104,6 +5246,28 @@ elif [[ -n "${CHANNEL_CHOICE:-}" && "$CHANNEL_CHOICE" == "4" ]]; then
     echo ""
     echo "  No channels configured. Set one up later via:"
     echo "     ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
+fi
+
+# iMessage Automation permission banner. Silent on
+# granted-and-working (Apple-restraint brand voice). Surfaces
+# remediation when the install-time probe could not confirm
+# delivery, so the customer is not left wondering why their
+# briefs never arrive. The marker file at
+# ~/.ostler/imessage-posture/state.md has the full detail.
+if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" \
+        && -n "${IMESSAGE_TCC_STATUS:-}" \
+        && "${IMESSAGE_TCC_STATUS}" != "granted-and-working" ]]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}iMessage delivery posture: NOT YET CONFIRMED${NC}"
+    if [[ "$IMESSAGE_TCC_STATUS" == "tcc-denied" ]]; then
+        echo "     Open System Settings > Privacy & Security > Automation,"
+        echo "     find the Terminal (or Ostler Installer) row, and enable"
+        echo "     the Messages tick. Re-run install.sh --repair to refresh."
+    else
+        echo "     The probe could not confirm Messages.app permission."
+        echo "     See ${OSTLER_DIR}/imessage-posture/state.md for detail,"
+        echo "     or run \`ostler-assistant doctor\` once the daemon is up."
+    fi
 fi
 echo ""
 if [[ "$VANE_OK" == true ]]; then
