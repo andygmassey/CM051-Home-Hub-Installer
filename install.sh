@@ -2551,6 +2551,17 @@ TOMLPREAMBLE
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
         echo "allowed_senders = []"
     fi
+
+    # Wire the assistant's web_search tool to the bundled Vane
+    # container (Phase 3.8b). Without this block the customer has
+    # Vane running AND the assistant supports Vane (ostler-assistant
+    # #17), but the two are not connected -- the assistant would
+    # fall back to its compiled-in default. Always emit; Vane is
+    # bundled by default.
+    echo
+    echo "[tools.web_search]"
+    echo "provider = \"vane\""
+    echo "vane_url = \"http://localhost:3000\""
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
 umask "$umask_orig"
@@ -2560,9 +2571,8 @@ umask "$umask_orig"
 # narrows the in-memory exposure for the rest of the install.
 unset CHANNEL_EMAIL_PASSWORD
 
-if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
-    ok "Assistant config saved to ${ASSISTANT_CONFIG} (mode 0600)"
-else
+ok "Assistant config saved to ${ASSISTANT_CONFIG} (mode 0600)"
+if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true ]]; then
     info "No channels configured. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
 fi
 
