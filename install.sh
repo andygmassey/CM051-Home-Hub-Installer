@@ -1788,6 +1788,7 @@ fi
 
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
+OSTLER_CONSENT_THIRD_PARTY_DECISION=""
 
 if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
@@ -1917,6 +1918,96 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
         esac
     done
 fi
+
+# ── 10b.5 Third-party-data acknowledgement (every region) ────────
+#
+# Caveat 1 of /tmp/tnm_brief_three_caveats_2026-05-03.md. Region-
+# agnostic mandatory consent. Mitigates the "we have records of
+# people who never consented" surface (inbox / contacts / messages /
+# photos / calendar attendees) by capturing explicit user
+# acknowledgement that they are processing this data as a private
+# personal-records keeper.
+#
+# Wording is verbatim from legal/consent_strings.py
+# (THIRD_PARTY_DATA_NOTICE) and flagged [DRAFT - pending legal review].
+# Decision is held in OSTLER_CONSENT_THIRD_PARTY_DECISION until
+# Phase 3 pip-installs ostler_security; we then persist via consent_cli
+# alongside Article 9 and the WhatsApp / voice tickboxes.
+#
+# Decline behaviour mirrors Article 9: cannot continue. Clean abort
+# + rm -rf ~/.ostler/ to leave no residue. The third-party data is
+# the entire reason Ostler exists; declining means the user is not
+# willing to keep these records, and the install should not proceed.
+
+echo ""
+echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${BOLD}About the data on your Mac that's not just yours${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+echo ""
+echo "  Ostler reads parts of your life that contain information about"
+echo "  other people – emails they sent you, messages they wrote, faces"
+echo "  in your photos, contact details, calendar attendees. This is"
+echo "  normal. It's your inbox, your contacts, your life as it actually"
+echo "  exists."
+echo ""
+echo "  Everything stays on this Mac. Creative Machines never receives"
+echo "  any of it. There is no cloud account holding it."
+echo ""
+echo -e "  ${BOLD}Before you continue, please understand:${NC}"
+echo ""
+echo "    - You are keeping these records for yourself, like a private"
+echo "      address book, a personal diary, or a journal. Ostler is the"
+echo "      tool that helps you organise and search what you already"
+echo "      have. You decide what to keep and what to delete."
+echo ""
+echo "    - Specific requests to be removed. If anyone you have records"
+echo "      of asks you to be removed, you can delete that person from"
+echo "      Ostler entirely (Settings -> People -> Delete a person). The"
+echo "      deletion removes their data from your wiki, your graph,"
+echo "      your search index, and your assistant's memory."
+echo ""
+echo "    - Nothing leaves your Mac. Not to us, not to a cloud, not to"
+echo "      a third party – except in the specific cases listed in our"
+echo "      Privacy Policy at ostler.ai/privacy (mainly: optional cloud"
+echo "      routing for non-personal questions, software update checks,"
+echo "      public metadata enrichment)."
+echo ""
+echo "  Read more at docs.ostler.ai/privacy/third-party-data."
+echo ""
+echo "  Your decision:"
+echo ""
+echo "    [Y] I understand. Continue."
+echo "    [N] I do not consent. (cancels and removes the installer;"
+echo "        nothing is stored on this Mac)"
+echo ""
+while true; do
+    read -p "  Your decision (Y / N): " THIRD_PARTY
+    case "${THIRD_PARTY:-}" in
+        y|Y)
+            OSTLER_CONSENT_THIRD_PARTY_DECISION="accepted"
+            break
+            ;;
+        n|N)
+            OSTLER_CONSENT_THIRD_PARTY_DECISION="declined"
+            # Mirror Article 9 decline: leave no ~/.ostler/ residue.
+            # By this point Phase 2 may have written the contacts
+            # export under ~/.ostler/imports/; wipe the lot.
+            if [[ -d "$OSTLER_DIR" ]]; then
+                rm -rf "$OSTLER_DIR" 2>/dev/null || true
+            fi
+            unset PASSPHRASE 2>/dev/null || true
+            echo ""
+            echo "  No problem. Nothing has been installed and nothing was"
+            echo "  written to your Mac."
+            echo ""
+            echo "  If you change your mind, re-run the installer."
+            exit 0
+            ;;
+        *)
+            echo "  Please answer Y or N."
+            ;;
+    esac
+done
 
 # ── 10c. Final install confirmation (every region) ────────────────
 
@@ -2656,6 +2747,21 @@ PY
             --region "$OSTLER_REGION" \
             --user-id "${USER_ID:-andy}" 2>/dev/null || \
             warn "Could not persist EU voice consent (continuing - cm041 will refuse to start)"
+    fi
+
+    # Third-party-data acknowledgement (every region). Decline aborts
+    # earlier in Phase 2, so by the time we get here the value is
+    # always "accepted" (or empty if the install was resumed in a way
+    # that skipped the screen, in which case we omit the record and
+    # Doctor's Consent tile will surface "missing" as a posture marker).
+    if [[ -n "$OSTLER_CONSENT_THIRD_PARTY_DECISION" ]]; then
+        USER_ID="${USER_ID:-andy}" \
+        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
+            --tickbox third_party_data_personal_records \
+            --decision "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
+            --region "$OSTLER_REGION" \
+            --user-id "${USER_ID:-andy}" 2>/dev/null || \
+            warn "Could not persist third-party-data acknowledgement (continuing)"
     fi
 
     ok "Consent records and region persisted to ~/.ostler/posture/"
