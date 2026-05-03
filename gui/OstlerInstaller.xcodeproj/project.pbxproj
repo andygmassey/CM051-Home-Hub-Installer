@@ -118,6 +118,7 @@
 			buildPhases = (
 				573FCA21A33278A6BA0D6D15 /* Sources */,
 				BC061E46C88E5D80D0115AEC /* Resources */,
+				85C2D9F477A56E8B5F27EA85 /* Bundle install.sh + progress_emitter.sh into Resources */,
 			);
 			buildRules = (
 			);
@@ -174,6 +175,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		85C2D9F477A56E8B5F27EA85 /* Bundle install.sh + progress_emitter.sh into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../install.sh",
+				"$(SRCROOT)/../lib/progress_emitter.sh",
+			);
+			name = "Bundle install.sh + progress_emitter.sh into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/progress_emitter.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}\"\ncp -p \"${SRCROOT}/../install.sh\"             \"${DEST}/install.sh\"\ncp -p \"${SRCROOT}/../lib/progress_emitter.sh\" \"${DEST}/progress_emitter.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/progress_emitter.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		573FCA21A33278A6BA0D6D15 /* Sources */ = {
