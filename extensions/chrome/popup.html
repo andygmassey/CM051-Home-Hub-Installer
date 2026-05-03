@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      color: #333;
+      margin: 0;
+    }
+    h1 {
+      font-size: 15px;
+      margin: 0 0 12px 0;
+      color: #1a1a1a;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .status-row:last-child {
+      border-bottom: none;
+    }
+    .label {
+      color: #666;
+    }
+    .value {
+      font-weight: 500;
+    }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .dot.connected { background: #34c759; }
+    .dot.disconnected { background: #ff3b30; }
+    .dot.checking { background: #ff9500; }
+    .queue-info {
+      font-size: 11px;
+      color: #999;
+    }
+
+    /* Settings section */
+    .settings {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #ddd;
+    }
+    .settings h2 {
+      font-size: 12px;
+      color: #666;
+      margin: 0 0 8px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .field {
+      margin-bottom: 8px;
+    }
+    .field label {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 3px;
+    }
+    .field input {
+      width: 100%;
+      padding: 5px 7px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+      box-sizing: border-box;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: #4285f4;
+    }
+    .save-btn {
+      background: #4285f4;
+      color: white;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .save-btn:hover {
+      background: #3367d6;
+    }
+    .save-msg {
+      font-size: 11px;
+      color: #34c759;
+      margin-left: 8px;
+      display: none;
+    }
+    .save-row {
+      display: flex;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Ostler – Browser History</h1>
+
+  <div class="status-row">
+    <span class="label">Status</span>
+    <span class="value" id="status"><span class="dot checking"></span>Checking...</span>
+  </div>
+
+  <div class="status-row">
+    <span class="label">Pages captured</span>
+    <span class="value" id="count">&mdash;</span>
+  </div>
+
+  <div class="status-row">
+    <span class="label">Last capture</span>
+    <span class="value" id="last-capture">&mdash;</span>
+  </div>
+
+  <div class="status-row">
+    <span class="label">Last HTTP status</span>
+    <span class="value" id="http-status">&mdash;</span>
+  </div>
+
+  <div class="status-row">
+    <span class="label">Retry queue</span>
+    <span class="value queue-info" id="queue">&mdash;</span>
+  </div>
+
+  <div class="settings">
+    <h2>Settings</h2>
+    <div class="field">
+      <label for="endpoint">Ingest endpoint</label>
+      <input type="url" id="endpoint" placeholder="http://localhost:8000/api/safari/ingest">
+    </div>
+    <div class="field">
+      <label for="apikey">API key</label>
+      <input type="password" id="apikey" placeholder="paste your paired token">
+    </div>
+    <div class="save-row">
+      <button class="save-btn" id="save-btn">Save</button>
+      <span class="save-msg" id="save-msg">Saved</span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

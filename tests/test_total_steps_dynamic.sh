@@ -88,72 +88,40 @@ if [[ "$CONDITIONAL_PROGRESS_COUNT" -ne "$SUBTRACT_COUNT" ]]; then
 fi
 echo "PASS: subtract list matches conditional progress() count (${CONDITIONAL_PROGRESS_COUNT})"
 
-# ── End-to-end: computation with EXPORTS_DIR set ────────────────
-# Extract the TOTAL_STEPS computation block from install.sh, run
-# it in isolation with a mocked EXPORTS_DIR, assert the result.
+# ── Structural: progress count is sane ──────────────────────────
+# The end-to-end subshell test was removed: BASH_SOURCE is bash's
+# auto-managed call-stack array and cannot be reliably overridden
+# via `bash -c`, so the previous attempt fell through to the
+# defensive fallback and asserted PASS tautologically. The
+# structural checks above (auto-count line uses BASH_SOURCE,
+# subtract list matches conditional progress count) cover the
+# contract -- if the auto-count line is correct and the subtract
+# list is in sync, install.sh's runtime computation is also
+# correct.
 TOTAL_PROGRESS_CALLS="$(grep -cE '^[[:space:]]*progress "' "$INSTALL_SCRIPT")"
-
-# The block runs from `TOTAL_STEPS="$(grep ` to `CURRENT_STEP=0`.
-COMPUTE_BLOCK="$(mktemp)"
-trap 'rm -f "$COMPUTE_BLOCK"' EXIT
-
-awk '
-    /^TOTAL_STEPS="\$\(grep / { capture = 1 }
-    capture                   { print }
-    /^CURRENT_STEP=0$/        { capture = 0; exit }
-' "$INSTALL_SCRIPT" > "$COMPUTE_BLOCK"
-
-if [[ ! -s "$COMPUTE_BLOCK" ]]; then
-    echo "FAIL [extract]: could not extract the TOTAL_STEPS computation block" >&2
+if [[ "$TOTAL_PROGRESS_CALLS" -lt 10 ]]; then
+    echo "FAIL [progress-too-few]: only ${TOTAL_PROGRESS_CALLS} progress() calls found (expected >=10)" >&2
+    echo "  Either install.sh shrunk dramatically or the regex broke." >&2
     exit 1
 fi
+echo "PASS: install.sh has ${TOTAL_PROGRESS_CALLS} progress() calls (auto-count input)"
 
-# Source the block via a child shell with controlled environment.
-# The block uses ${BASH_SOURCE[0]}, which the child shell must see
-# as the install.sh path. `bash -c` clears BASH_SOURCE so we
-# rebuild it explicitly.
-T_WITH_GDPR="$(EXPORTS_DIR=/tmp/fixture-exports bash -c "
-    set -e
-    BASH_SOURCE=('$INSTALL_SCRIPT')
-    $(cat "$COMPUTE_BLOCK")
-    echo \$TOTAL_STEPS
-")"
-
-if [[ "$T_WITH_GDPR" -ne "$TOTAL_PROGRESS_CALLS" ]]; then
-    echo "FAIL [end-to-end-with-gdpr]: TOTAL_STEPS=${T_WITH_GDPR}, expected ${TOTAL_PROGRESS_CALLS} (every progress call counts)" >&2
+# ── Defensive fallback constant in sane range ───────────────────
+# Read the fallback constant out of install.sh; assert it's > 0
+# (so the bar never divides by zero) and <= the actual progress
+# count (overshooting <100% is preferable to undershooting >100%
+# on the bar).
+FALLBACK_VALUE="$(grep -E '^[[:space:]]+TOTAL_STEPS=[0-9]+$' "$INSTALL_SCRIPT" \
+    | head -n 1 | awk -F= '{print $2}')"
+if [[ -z "$FALLBACK_VALUE" || "$FALLBACK_VALUE" -le 0 ]]; then
+    echo "FAIL [fallback-missing]: defensive fallback constant not found or non-positive" >&2
     exit 1
 fi
-echo "PASS: TOTAL_STEPS=${T_WITH_GDPR} when EXPORTS_DIR is set (matches all progress() calls)"
-
-T_NO_GDPR="$(EXPORTS_DIR= bash -c "
-    set -e
-    BASH_SOURCE=('$INSTALL_SCRIPT')
-    $(cat "$COMPUTE_BLOCK")
-    echo \$TOTAL_STEPS
-")"
-
-if [[ "$T_NO_GDPR" -ne "$((TOTAL_PROGRESS_CALLS - 1))" ]]; then
-    echo "FAIL [end-to-end-no-gdpr]: TOTAL_STEPS=${T_NO_GDPR}, expected $((TOTAL_PROGRESS_CALLS - 1)) (GDPR step subtracted)" >&2
+if [[ "$FALLBACK_VALUE" -gt "$TOTAL_PROGRESS_CALLS" ]]; then
+    echo "FAIL [fallback-too-high]: fallback=${FALLBACK_VALUE} exceeds actual progress count ${TOTAL_PROGRESS_CALLS}" >&2
     exit 1
 fi
-echo "PASS: TOTAL_STEPS=${T_NO_GDPR} when EXPORTS_DIR is empty (GDPR subtracted)"
-
-# ── Defensive fallback ──────────────────────────────────────────
-# When BASH_SOURCE points at an unreadable file, the auto-count
-# returns 0 / fails the regex check. Fallback must produce a sane
-# value so the progress bar never divides by zero.
-T_FALLBACK="$(EXPORTS_DIR= bash -c "
-    set -e
-    BASH_SOURCE=('/nonexistent-path-for-fallback-test')
-    $(cat "$COMPUTE_BLOCK")
-    echo \$TOTAL_STEPS
-")"
-
-if [[ "$T_FALLBACK" -le 0 ]]; then
-    echo "FAIL [fallback]: defensive fallback produced TOTAL_STEPS=${T_FALLBACK} (must be > 0)" >&2
-    exit 1
-fi
-echo "PASS: defensive fallback yields TOTAL_STEPS=${T_FALLBACK} when BASH_SOURCE is unreadable"
+echo "PASS: defensive fallback=${FALLBACK_VALUE} (>0, <= actual progress count ${TOTAL_PROGRESS_CALLS})"
 
 echo ""
 echo "ALL TOTAL_STEPS DYNAMIC TESTS PASSED"
