@@ -1637,11 +1637,19 @@ info "Scanning for GDPR data exports..."
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
-    # LinkedIn: Connections.csv in a folder
+    # LinkedIn: Connections.csv in a folder. The previous
+    # `-path "*/linkedin*"` predicate was case-sensitive and
+    # excluded LinkedIn's actual export folder name
+    # `Basic_LinkedInDataExport_<date>/` (no lowercase "linkedin"
+    # substring), so every real LinkedIn export was silently
+    # missed. Connections.csv is LinkedIn-specific enough to
+    # discriminate without a path filter; the post-detect prompt
+    # at line ~1700 lets the user opt out if a non-LinkedIn
+    # Connections.csv is mis-attributed.
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("LinkedIn: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
-    done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" -path "*/linkedin*" 2>/dev/null || true)
+    done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" 2>/dev/null || true)
 
     # Facebook: folder containing friends.json or friend_requests_received.json
     while IFS= read -r f; do
