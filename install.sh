@@ -120,6 +120,13 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    Mac Mini / Studio deployments do not need this. MacBook hubs"
     echo "    may set it to a clone URL for sleep / battery handling."
     echo ""
+    echo "  PWG_DOCTOR_REPO"
+    echo "    Source repo for the Ostler Doctor diagnostic dashboard"
+    echo "    (HR015 doctor/agent/ subtree). Default: empty (productised"
+    echo "    tarball bundles the agent). Set to a clone URL if you are"
+    echo "    running install.sh directly without a tarball; without it"
+    echo "    the Doctor LaunchAgent is skipped with a warn-only message."
+    echo ""
     echo "  PWG_NOTICES_BASE_URL"
     echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
     echo "    LICENSES/ tree when neither the tarball nor the hub-power"
@@ -432,6 +439,14 @@ PIPELINE_REPO="${PWG_PIPELINE_REPO:-}"
 # ${SCRIPT_DIR}/hub-power/; in dev it may be symlinked there. Override:
 # PWG_HUB_POWER_REPO="https://github.com/your-org/infra.git" ./install.sh
 HUB_POWER_REPO="${PWG_HUB_POWER_REPO:-}"
+
+# Ostler Doctor diagnostic dashboard. Ships in HR015 under doctor/agent/.
+# Same bundle-or-clone fallback chain as hub-power. Productised tarball
+# bundles a copy under ${SCRIPT_DIR}/doctor/agent/; without that and
+# without an override the LaunchAgent is skipped warn-only (the rest of
+# Ostler runs without Doctor). Override:
+# PWG_DOCTOR_REPO="https://github.com/your-org/hr015.git" ./install.sh
+DOCTOR_REPO="${PWG_DOCTOR_REPO:-}"
 
 # Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
 # LICENSES/ tree. Same productisation rule: bundled tarball is the
@@ -3879,11 +3894,49 @@ progress "Setting up Ostler Doctor diagnostic dashboard" "doctor_setup"
 DOCTOR_DIR="${OSTLER_DIR}/doctor"
 mkdir -p "$DOCTOR_DIR"
 
+# Source resolution: bundled tarball first, existing re-run second,
+# clone fallback third, warn-and-skip last. Same shape as
+# hub-power / email-ingest / wiki-recompile.
 if [[ -d "${SCRIPT_DIR}/doctor/agent" ]]; then
     cp -R "${SCRIPT_DIR}/doctor/agent/"* "$DOCTOR_DIR/"
-    ok "Copied Doctor agent files"
+    ok "Doctor agent files bundled with installer"
+elif [[ -f "${DOCTOR_DIR}/status_collector.py" ]]; then
+    info "Reusing existing Doctor agent install at ${DOCTOR_DIR}"
+elif [[ -z "$DOCTOR_REPO" ]]; then
+    # Productised install path: no tarball-bundled scripts and no
+    # PWG_DOCTOR_REPO override. Doctor is optional (the rest of
+    # Ostler works without it); warn so the operator notices, but
+    # do not fail the install.
+    info "Doctor agent files not bundled with installer."
+    info "Set PWG_DOCTOR_REPO=<url> and re-run to install."
+    info "(The rest of Ostler runs without the Doctor dashboard.)"
 else
-    warn "Doctor agent files not found — skipping (set up later)"
+    info "Cloning Doctor agent..."
+    DOCTOR_TMP="$(mktemp -d)"
+    DOCTOR_CLONE_LOG="$(mktemp -t ostler-doctor-clone.XXXXXX.log)"
+    if git clone --quiet --depth 1 "$DOCTOR_REPO" "$DOCTOR_TMP" 2>"$DOCTOR_CLONE_LOG" \
+       && [[ -d "$DOCTOR_TMP/doctor/agent" ]]; then
+        cp -R "$DOCTOR_TMP/doctor/agent/"* "$DOCTOR_DIR/"
+        rm -rf "$DOCTOR_TMP"
+        rm -f "$DOCTOR_CLONE_LOG"
+        ok "Doctor agent cloned from ${DOCTOR_REPO}"
+    else
+        rm -rf "$DOCTOR_TMP"
+        warn "Could not obtain Doctor agent (bundled / cloned both failed)."
+        # Surface the underlying git error so credential / network /
+        # repo-not-found failures are distinguishable.
+        if [[ -s "$DOCTOR_CLONE_LOG" ]]; then
+            warn "Git said:"
+            sed -e 's/^/    /' "$DOCTOR_CLONE_LOG" | head -5
+        fi
+        rm -f "$DOCTOR_CLONE_LOG"
+        warn "Skipping Doctor LaunchAgent install."
+        info "Repo URL: ${DOCTOR_REPO}"
+        info "To install later once you have access:"
+        info "  git clone ${DOCTOR_REPO} /tmp/doctor-src"
+        info "  cp -R /tmp/doctor-src/doctor/agent/* ${DOCTOR_DIR}/"
+        info "  Override the source repo with PWG_DOCTOR_REPO=<url> ./install.sh"
+    fi
 fi
 
 if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
