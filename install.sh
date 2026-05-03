@@ -2198,11 +2198,60 @@ echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing
 echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
 echo ""
 sudo -v || fail "Need sudo access to disable sleep + install Homebrew. Re-run when ready."
+
+# ── Composite cleanup ─────────────────────────────────────────────
+#
+# Phase 3 allocates several runtime resources (sudo keepalive,
+# battery watcher, assistant download tmpdir, Tailscale env-edit
+# tmpfile) that must be torn down when the install exits, fails,
+# or is interrupted. Bash `trap ... EXIT` is destructive -- each
+# new registration replaces the previous one -- so the previous
+# pattern of per-resource traps leaked everything except the
+# most recently registered handler. The cold-install audit
+# (2026-05-02) found the sudo keepalive and battery watcher both
+# leaking after the assistant download phase overwrote their
+# traps; worst case a stale `sudo -n true` runs every 60s on the
+# customer's machine until reboot.
+#
+# Pattern: each resource has a flag variable. Allocator sets the
+# flag; consumer (or composite_cleanup itself if we exit
+# mid-phase) frees the resource and clears the flag. `trap
+# composite_cleanup EXIT` is registered ONCE here and never
+# overwritten.
+#
+# Adding a new resource: declare its flag below, allocate via
+# `FLAG=value`, free via `<release>; FLAG=""`, and add a stanza
+# to composite_cleanup. tests/test_composite_cleanup.sh asserts
+# the flag list and stanza list stay in sync.
+SUDO_KEEPALIVE_PID=""
+PHASE3_BATTERY_WATCH_PID=""
+ASSISTANT_TMPDIR=""
+TAILSCALE_TMP_ENV=""
+
+composite_cleanup() {
+    if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
+        kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+        SUDO_KEEPALIVE_PID=""
+    fi
+    if [[ -n "${PHASE3_BATTERY_WATCH_PID:-}" ]]; then
+        kill "$PHASE3_BATTERY_WATCH_PID" 2>/dev/null || true
+        PHASE3_BATTERY_WATCH_PID=""
+    fi
+    if [[ -n "${ASSISTANT_TMPDIR:-}" ]]; then
+        rm -rf "$ASSISTANT_TMPDIR"
+        ASSISTANT_TMPDIR=""
+    fi
+    if [[ -n "${TAILSCALE_TMP_ENV:-}" ]]; then
+        rm -f "$TAILSCALE_TMP_ENV"
+        TAILSCALE_TMP_ENV=""
+    fi
+}
+trap composite_cleanup EXIT
+
 # Refresh the sudo timestamp every 60s while this script runs, so a long
 # Phase 3 (e.g. slow ollama pull) does not silently expire it.
 ( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
-trap '[[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && kill "${SUDO_KEEPALIVE_PID}" 2>/dev/null || true' EXIT
 
 echo ""
 echo -e "  ${GREEN}${BOLD}  All questions answered. Installing now.${NC}"
@@ -2323,14 +2372,20 @@ fi
 # transition. Cheap (one pmset call/min); the EXIT trap kills it
 # before the script returns; Phase 4 also kills it explicitly so the
 # health check output is not interleaved with stale poll messages.
-PHASE3_BATTERY_WATCH_PID=""
+# cleanup_battery_watch is called explicitly by Phase 4 to kill
+# the watcher before the health-check output starts -- otherwise
+# stale "transitioned to battery" messages can interleave with
+# the summary banner. composite_cleanup (registered above) is
+# the EXIT handler; this function is just a directly-callable
+# convenience that lets Phase 4 free the resource early.
+# PHASE3_BATTERY_WATCH_PID is already declared in the composite
+# cleanup block; no second init here.
 cleanup_battery_watch() {
     if [[ -n "$PHASE3_BATTERY_WATCH_PID" ]]; then
         kill "$PHASE3_BATTERY_WATCH_PID" 2>/dev/null || true
         PHASE3_BATTERY_WATCH_PID=""
     fi
 }
-trap cleanup_battery_watch EXIT
 
 if [[ "$HAS_BATTERY" == true ]]; then
     (
@@ -4236,8 +4291,10 @@ ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_AS
 ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
 ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
 
+# ASSISTANT_TMPDIR is declared in the Phase 3 composite_cleanup
+# block; this allocator sets it. composite_cleanup will rm -rf
+# the dir if we exit before the explicit cleanups below fire.
 ASSISTANT_TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$ASSISTANT_TMPDIR"' EXIT
 
 ASSISTANT_BINARY_INSTALLED=false
 
@@ -4258,7 +4315,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
         err "  url:      ${ASSISTANT_ARCHIVE_URL}"
         err "  Refusing to stage a binary that does not match the published checksum."
         rm -rf "$ASSISTANT_TMPDIR"
-        trap - EXIT
+        ASSISTANT_TMPDIR=""
         exit 1
     fi
 
@@ -4386,7 +4443,7 @@ else
 fi
 
 rm -rf "$ASSISTANT_TMPDIR"
-trap - EXIT
+ASSISTANT_TMPDIR=""
 
 # Stage the assistant-agent INSTALL_SNIPPET assets even when the
 # binary download failed. The snippet refuses to run without the
@@ -4567,14 +4624,17 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
             ENV_FILE="${CONFIG_DIR}/.env"
             if [[ -f "$ENV_FILE" ]]; then
                 if grep -q "^OSTLER_TAILSCALE_IP=" "$ENV_FILE"; then
-                    # In-place rewrite of the line. Trap ensures the
-                    # temp file is cleaned up even if sed or mv fails
-                    # partway through (disk full, interrupted signal).
-                    TMP_ENV=$(mktemp)
-                    trap 'rm -f "$TMP_ENV"' EXIT
-                    sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TMP_ENV"
-                    mv "$TMP_ENV" "$ENV_FILE"
-                    trap - EXIT
+                    # In-place rewrite of the line. Composite cleanup
+                    # (registered at top of Phase 3) rms the tmp file
+                    # if we exit before the mv completes -- e.g. disk
+                    # full or SIGINT mid-sed. Per-resource flag is
+                    # TAILSCALE_TMP_ENV; clear it after a successful
+                    # mv so composite_cleanup is a no-op for this
+                    # resource on normal exit.
+                    TAILSCALE_TMP_ENV=$(mktemp)
+                    sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TAILSCALE_TMP_ENV"
+                    mv "$TAILSCALE_TMP_ENV" "$ENV_FILE"
+                    TAILSCALE_TMP_ENV=""
                 else
                     echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
                 fi
