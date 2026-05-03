@@ -1042,6 +1042,7 @@ CHANNEL_EMAIL_IMAP_HOST=""
 CHANNEL_EMAIL_IMAP_PORT=993
 CHANNEL_EMAIL_SMTP_HOST=""
 CHANNEL_EMAIL_SMTP_PORT=587
+CHANNEL_EMAIL_IMAP_FOLDER=""
 
 case "$CHANNEL_CHOICE" in
     1) CHANNEL_IMESSAGE_ENABLED=true ;;
@@ -1237,7 +1238,46 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     done
     unset _email_confirm_input
 
-    ok "Email channel: ${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST}"
+    # Folder / label scoping. Connecting the assistant to the main
+    # inbox means it will see every email the user receives, not
+    # just messages addressed to it. The product rule (email_safety)
+    # is: dedicated label/folder, never the inbox. Default to
+    # "Ostler" so a user who blasts through the prompt still gets
+    # safe-by-default scoping.
+    echo ""
+    echo -e "  ${BOLD}Which folder should the assistant watch?${NC}"
+    echo "  Recommended: a dedicated label or folder you create just for"
+    echo "  the assistant (e.g. 'Ostler'). We will only read messages"
+    echo "  there, leaving your main inbox untouched."
+    echo ""
+    read -p "  Folder/label [Ostler]: " CHANNEL_EMAIL_IMAP_FOLDER
+    CHANNEL_EMAIL_IMAP_FOLDER="${CHANNEL_EMAIL_IMAP_FOLDER:-Ostler}"
+
+    # Strong INBOX warning. Accept the user's choice only if they
+    # type INBOX a second time; anything else (including empty)
+    # falls back to the safe default. Case-insensitive on the first
+    # entry because Gmail's folder names are case-insensitive in
+    # practice ("inbox" works); after the warning we require an
+    # exact uppercase INBOX so the confirmation is deliberate.
+    _imap_folder_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_FOLDER" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$_imap_folder_lower" == "inbox" ]]; then
+        echo ""
+        warn "INBOX means the assistant will read every email you receive."
+        warn "We strongly recommend a dedicated label/folder instead."
+        echo ""
+        read -p "  Type INBOX again to confirm, or press Enter to use 'Ostler': " _imap_folder_confirm
+        if [[ "$_imap_folder_confirm" == "INBOX" ]]; then
+            CHANNEL_EMAIL_IMAP_FOLDER="INBOX"
+            warn "Using INBOX. The assistant will read every incoming email."
+        else
+            CHANNEL_EMAIL_IMAP_FOLDER="Ostler"
+            ok "Using 'Ostler' folder/label instead."
+        fi
+        unset _imap_folder_confirm
+    fi
+    unset _imap_folder_lower
+
+    ok "Email channel: ${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST} (folder: ${CHANNEL_EMAIL_IMAP_FOLDER})"
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
@@ -2542,7 +2582,7 @@ TOMLPREAMBLE
         echo "enabled = true"
         echo "imap_host = \"$(_esc "$CHANNEL_EMAIL_IMAP_HOST")\""
         echo "imap_port = ${CHANNEL_EMAIL_IMAP_PORT}"
-        echo "imap_folder = \"INBOX\""
+        echo "imap_folder = \"$(_esc "$CHANNEL_EMAIL_IMAP_FOLDER")\""
         echo "smtp_host = \"$(_esc "$CHANNEL_EMAIL_SMTP_HOST")\""
         echo "smtp_port = ${CHANNEL_EMAIL_SMTP_PORT}"
         echo "smtp_tls = true"
