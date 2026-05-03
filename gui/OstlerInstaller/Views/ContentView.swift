@@ -16,28 +16,36 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 SidebarView()
                     .frame(width: 200)
-                    .background(.thinMaterial)
+                    .background(Color.ostlerChassisDeep)
 
-                Divider()
+                Rectangle()
+                    .fill(Color.ostlerHairlineFaint)
+                    .frame(width: 1)
 
                 VStack(spacing: 0) {
                     HintPanelView()
                     Spacer()
                     if showLogDrawer {
-                        Divider()
+                        Rectangle()
+                            .fill(Color.ostlerHairlineFaint)
+                            .frame(height: 1)
                         LogDrawerView()
                             .frame(height: 200)
                     }
-                    Divider()
+                    Rectangle()
+                        .fill(Color.ostlerHairlineFaint)
+                        .frame(height: 1)
                     FooterView(showLogDrawer: $showLogDrawer)
                         .frame(height: 60)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.ostlerChassis)
             }
 
             // FDA / sudo overlay sheets attach here
         }
         .frame(width: 880, height: 620)
+        .background(Color.ostlerChassis)
         .sheet(item: $coordinator.pendingPrompt) { prompt in
             PromptSheet(prompt: prompt)
                 .environmentObject(coordinator)
@@ -54,20 +62,23 @@ private struct FooterView: View {
     @Binding var showLogDrawer: Bool
 
     var body: some View {
-        HStack {
+        HStack(spacing: .ostlerSpace2) {
             Button("Cancel") {
                 coordinator.cancel()
                 NSApp.terminate(nil)
             }
+            .buttonStyle(.ostlerGhost)
             .keyboardShortcut(.cancelAction)
 
             Spacer()
 
             Toggle(isOn: $showLogDrawer) {
                 Label("Log", systemImage: "terminal")
+                    .font(.ostlerCaption)
             }
             .toggleStyle(.button)
             .controlSize(.small)
+            .tint(.ostlerInk)
             .keyboardShortcut("d", modifiers: [.command, .shift])
 
             if coordinator.finished == .ok {
@@ -75,18 +86,21 @@ private struct FooterView: View {
                     let url = URL(fileURLWithPath: ("~/Documents/Ostler" as NSString).expandingTildeInPath)
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
+                .buttonStyle(.ostlerGhost)
                 Button("Done") { NSApp.terminate(nil) }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.ostlerPrimary)
             } else if coordinator.finished == .fail {
                 Button("Quit") { NSApp.terminate(nil) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.ostlerPrimary)
             } else {
-                // No primary action mid-install – install.sh drives.
                 ProgressView()
                     .controlSize(.small)
+                    .tint(.ostlerOxblood)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, .ostlerSpace3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ostlerChassis)
     }
 }

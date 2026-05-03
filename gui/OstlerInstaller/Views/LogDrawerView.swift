@@ -11,40 +11,47 @@ struct LogDrawerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: .ostlerSpace2) {
                 Image(systemName: "terminal")
-                Text("Log")
-                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.ostlerChassis.opacity(0.85))
+                Text("LOG")
+                    .font(.ostlerStrap)
+                    .tracking(2.0)
+                    .foregroundStyle(Color.ostlerChassis.opacity(0.85))
                 Spacer()
                 Toggle("Verbose", isOn: $coordinator.devModeRawLog)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
+                    .tint(.ostlerOxbloodWarm)
+                    .foregroundStyle(Color.ostlerChassis.opacity(0.75))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.thinMaterial)
+            .padding(.horizontal, .ostlerSpace3)
+            .padding(.vertical, .ostlerSpace2)
+            .background(Color.ostlerInk)
 
-            Divider()
+            Rectangle()
+                .fill(Color.ostlerChassis.opacity(0.08))
+                .frame(height: 1)
 
             ScrollViewReader { reader in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(coordinator.logLines) { line in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: .ostlerSpace2) {
                                 Text(timeString(line.timestamp))
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.tertiary)
+                                    .font(.ostlerMonoSm)
+                                    .foregroundStyle(Color.ostlerChassis.opacity(0.45))
                                 Text(line.text)
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(.ostlerMono)
                                     .foregroundStyle(colour(for: line.level))
                                     .textSelection(.enabled)
                                 Spacer(minLength: 0)
                             }
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, .ostlerSpace3)
                             .id(line.id)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, .ostlerSpace1)
                 }
                 .onChange(of: coordinator.logLines.count) { _, _ in
                     if let last = coordinator.logLines.last {
@@ -55,7 +62,7 @@ struct LogDrawerView: View {
                 }
             }
         }
-        .background(Color(NSColor.textBackgroundColor))
+        .background(Color.ostlerInk)
     }
 
     private func timeString(_ d: Date) -> String {
@@ -66,9 +73,9 @@ struct LogDrawerView: View {
 
     private func colour(for level: String) -> Color {
         switch level {
-        case "warn": return .orange
-        case "error": return .red
-        default: return .primary
+        case "warn": return Color.ostlerOxbloodWarm.opacity(0.95)
+        case "error": return Color(red: 0xE6/255, green: 0x6A/255, blue: 0x6A/255)
+        default: return Color.ostlerChassis.opacity(0.92)
         }
     }
 }

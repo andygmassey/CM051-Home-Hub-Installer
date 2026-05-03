@@ -18,32 +18,37 @@ struct PromptSheet: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(prompt.title)
-                .font(.headline)
+                .font(.ostlerH2)
+                .tracking(-0.2)
+                .foregroundStyle(Color.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
             if let help = prompt.help {
                 Text(help)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             inputField
 
-            HStack {
+            HStack(spacing: .ostlerSpace2) {
                 Spacer()
                 Button("Cancel") {
                     coordinator.respond(to: prompt, with: prompt.defaultValue ?? "")
                 }
+                .buttonStyle(.ostlerGhost)
                 Button("Continue") {
                     coordinator.respond(to: prompt, with: currentAnswer())
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.ostlerPrimary)
             }
         }
-        .padding(24)
+        .padding(CGFloat.ostlerSpace4)
         .frame(width: 500)
+        .background(Color.ostlerChassis)
         .onAppear {
             // Seed defaults.
             textValue = prompt.defaultValue ?? ""
@@ -60,16 +65,23 @@ struct PromptSheet: View {
         case .text:
             TextField("", text: $textValue)
                 .textFieldStyle(.roundedBorder)
+                .font(.ostlerBodyLg)
+                .tint(.ostlerOxblood)
                 .focused($focused)
         case .secret:
             SecureField("", text: $secretValue)
                 .textFieldStyle(.roundedBorder)
+                .font(.ostlerBodyLg)
+                .tint(.ostlerOxblood)
                 .focused($focused)
         case .yesno:
             Toggle(isOn: $yesnoValue) {
                 Text(yesnoValue ? "Yes" : "No")
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInk)
             }
             .toggleStyle(.switch)
+            .tint(.ostlerOxblood)
         case .choice:
             Picker("", selection: $choiceValue) {
                 ForEach(prompt.choices, id: \.self) { c in
@@ -77,6 +89,7 @@ struct PromptSheet: View {
                 }
             }
             .pickerStyle(.segmented)
+            .tint(.ostlerOxblood)
         }
     }
 
