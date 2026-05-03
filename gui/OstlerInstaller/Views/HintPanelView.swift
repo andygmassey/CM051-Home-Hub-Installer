@@ -16,68 +16,87 @@ struct HintPanelView: View {
     var body: some View {
         let meta = StepCatalog.shared.meta(for: coordinator.currentStepId ?? "")
 
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: .ostlerSpace4) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(coordinator.phase)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: .ostlerSpace1) {
+                    Text(coordinator.phase.uppercased())
+                        .font(.ostlerStrap)
+                        .tracking(1.6)
+                        .foregroundStyle(Color.ostlerInkMuted)
                     Text(meta?.title ?? coordinator.currentStepTitle)
-                        .font(.title2.weight(.semibold))
+                        .font(.ostlerH1)
+                        .tracking(-0.4)
+                        .foregroundStyle(Color.ostlerInk)
                     if let subtitle = meta?.subtitle {
                         Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(.ostlerBodyLg)
+                            .foregroundStyle(Color.ostlerInkMuted)
                     }
                 }
                 Spacer()
                 if coordinator.currentStepPercent > 0 {
                     Text("\(coordinator.currentStepPercent)%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .font(.ostlerMono.monospacedDigit())
+                        .foregroundStyle(Color.ostlerInkMuted)
                 }
             }
 
             ProgressView(value: Double(coordinator.currentStepPercent),
                          total: 100)
                 .progressViewStyle(.linear)
+                .tint(.ostlerOxblood)
 
             if let why = meta?.why {
                 Text(why)
-                    .font(.body)
-                    .foregroundStyle(.primary)
+                    .font(.ostlerBodyLg)
+                    .foregroundStyle(Color.ostlerInk)
+                    .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let tip = longRunningTip(meta: meta) {
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: .ostlerSpace2) {
                     Image(systemName: "clock.badge.exclamationmark")
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(Color.ostlerOxbloodWarm)
                     Text(tip)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(8)
-                .background(.yellow.opacity(0.1))
-                .cornerRadius(8)
+                .padding(CGFloat.ostlerSpace3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.ostlerOxbloodSoft)
+                )
             }
 
             if let err = coordinator.error {
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: .ostlerSpace2) {
                     Image(systemName: "exclamationmark.octagon.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.ostlerOxblood)
                     Text(err)
-                        .font(.callout)
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(8)
-                .background(.red.opacity(0.1))
-                .cornerRadius(8)
+                .padding(CGFloat.ostlerSpace3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.ostlerOxbloodSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.ostlerOxblood.opacity(0.35), lineWidth: 1)
+                )
             }
 
             Spacer()
         }
-        .padding(24)
+        .padding(CGFloat.ostlerSpace4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.ostlerChassis)
         .onChange(of: coordinator.currentStepId) { _, _ in
             stepStartedAt = Date()
         }
