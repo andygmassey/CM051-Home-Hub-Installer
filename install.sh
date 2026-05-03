@@ -10,8 +10,9 @@
 #
 # What this does NOT do:
 #   - Send your personal data anywhere. Public-data queries (Wikidata
-#     enrichment, optional web search) and model/software downloads are
-#     described in the privacy policy.
+#     enrichment, local web search via the bundled Vane + SearXNG
+#     container) and model/software downloads are described in the
+#     privacy policy.
 #   - Install anything without telling you first.
 #   - Touch your existing Docker containers or Homebrew packages.
 
@@ -141,9 +142,10 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    time. Edit that file post-install to change."
     echo ""
     echo "Your personal data stays on your machine. Ostler makes only narrow"
-    echo "public-data queries (Wikidata for enrichment, optional web search via"
-    echo "SearXNG) and downloads model and software updates. See the privacy"
-    echo "policy at creativemachines.ai/ostler/legal-privacy for full detail."
+    echo "public-data queries (Wikidata for enrichment, local web search via"
+    echo "the bundled Vane + SearXNG container at http://localhost:3000) and"
+    echo "downloads model and software updates. See the privacy policy at"
+    echo "creativemachines.ai/ostler/legal-privacy for full detail."
     exit 0
 fi
 
@@ -2029,8 +2031,9 @@ echo "    - Import GDPR exports from ${EXPORTS_DIR}"
 echo "    - Import from your selected Mac sources (above)"
 echo ""
 echo "  Your personal data stays on this machine. Ostler makes only narrow"
-echo "  outbound queries for public-data enrichment and (optional) web search,"
-echo "  plus model/software updates. Full detail in the privacy policy."
+echo "  outbound queries for public-data enrichment and local web search"
+echo "  (Vane + SearXNG, bundled), plus model/software updates. Full detail"
+echo "  in the privacy policy."
 echo "  You can remove everything at any time with: ostler-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
@@ -2938,6 +2941,7 @@ PORT_CONFLICT=false
 _check_port 6333 || PORT_CONFLICT=true  # Qdrant
 _check_port 7878 || PORT_CONFLICT=true  # Oxigraph
 _check_port 6379 || PORT_CONFLICT=true  # Redis
+_check_port 3000 || PORT_CONFLICT=true  # Vane (local web search)
 
 if [[ "$PORT_CONFLICT" == true ]]; then
     warn "Some ports are in use. Docker containers may fail to start."
@@ -3047,11 +3051,50 @@ services:
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}
 
+  # Local AI web search (Vane). Replaces the cloud-search dependency
+  # that comparable assistants offload to Perplexity / Google. The
+  # full image bundles SearXNG (the actual search engine) so this is
+  # a single container, not a sidecar pair -- SearXNG runs on an
+  # internal port the Vane process talks to over loopback. Customer
+  # never sees it.
+  #
+  # Why Vane (rather than calling SearXNG directly): the front-end
+  # answers natural-language queries by issuing the SearXNG search,
+  # fetching the top results, and asking the local Ollama to
+  # synthesise an answer. SearXNG alone would hand back a list of
+  # links; Vane gives the assistant a usable summary.
+  #
+  # Pinned to v1.12.2 (full variant) so installs are deterministic
+  # and a future upstream change does not silently alter behaviour.
+  # Slim variant requires an external SearXNG, which would defeat
+  # the single-container productisation goal.
+  #
+  # Network shape:
+  #   - Listens on loopback at 127.0.0.1:3000 (matches the rest of
+  #     the stack -- nothing on the LAN reaches it without Tailscale).
+  #   - Talks to Ollama on the host via host.docker.internal:11434.
+  #     extra_hosts is the macOS / Colima-friendly way to surface
+  #     the host gateway into the container.
+  #   - vane_data volume holds the user's chat history + the
+  #     Vane-side config the customer can edit at the web UI
+  #     (model selection, etc.). Survives container restarts.
+  vane:
+    image: itzcrazykns1337/vane:v1.12.2
+    container_name: ostler-vane
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - vane_data:/home/vane/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   qdrant_data:
   oxigraph_data:
   redis_data:
   wiki-docs:
+  vane_data:
 DCEOF
 
 cd "$OSTLER_DIR"
@@ -3065,6 +3108,56 @@ cd "$OSTLER_DIR"
 # with its own error surface.
 docker compose up -d qdrant oxigraph redis
 ok "Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
+
+# ── 3.8b Local web search (Vane) ──────────────────────────────────
+#
+# Brings up the bundled local web-search container in its own phase
+# so a registry hiccup, an image-pull failure, or a port-3000
+# collision never breaks the data-services bring-up above. The
+# customer-facing comparison pages (privacy, why-local, vs-* family)
+# all promise "web search runs locally on your Mac"; this is the
+# implementation of that promise.
+#
+# First-pull cost: ~3.6 GB (full variant bundles SearXNG). On a
+# fresh install this is the second-largest download after the
+# Ollama conversation model -- the 60s timeout below covers the
+# image-already-pulled case; first-time pulls happen during the
+# `up -d` step's own progress output before we get here.
+#
+# Failure mode: warn-only. The customer keeps their working
+# wiki + assistant + graph; only the web-search tool surface
+# is unavailable until they re-run `docker compose up -d vane`.
+
+progress "Starting local web search (Vane)"
+
+VANE_OK=false
+if docker compose up -d vane 2>&1 | tail -3; then
+    # Vane boots SearXNG inside the container then starts Next.js;
+    # the HTTP server listens before SearXNG is fully warm. Poll
+    # localhost:3000 until we get a 200, capped at 60 seconds so
+    # the install never wedges on a misbehaving container.
+    VANE_DEADLINE=$(( $(date +%s) + 60 ))
+    while (( $(date +%s) < VANE_DEADLINE )); do
+        if curl -sf -o /dev/null -m 3 http://localhost:3000; then
+            VANE_OK=true
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$VANE_OK" == true ]]; then
+        ok "Vane running at http://localhost:3000 (talks to your local Ollama)"
+    else
+        warn "Vane container started but http://localhost:3000 did not respond within 60s."
+        warn "  Try: docker logs ostler-vane"
+        warn "       docker compose -f ${OSTLER_DIR}/docker-compose.yml restart vane"
+    fi
+else
+    warn "Vane (local web search) failed to start. Common causes:"
+    warn "  - Image pull failed (network, disk space, or registry timeout)"
+    warn "  - Port 3000 already in use by another service"
+    warn "  Manual retry: cd ${OSTLER_DIR} && docker compose up -d vane"
+    warn "  Web search is optional; the rest of Ostler works without it."
+fi
 
 # ── 3.9 AI models ─────────────────────────────────────────────────
 
@@ -3470,8 +3563,8 @@ echo "  Ostler Uninstaller"
 echo ""
 echo "  This will remove:"
 echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
-echo "      ostler-wiki-site, ostler-wiki-compiler)"
-echo "    - Docker volumes (your knowledge graph data)"
+echo "      ostler-wiki-site, ostler-wiki-compiler, ostler-vane)"
+echo "    - Docker volumes (your knowledge graph data + web-search history)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
 echo "    - Doctor, export watcher, hub power, email-ingest, wiki-recompile, and assistant launchd services"
 echo "    - Ostler commands from PATH"
@@ -4430,6 +4523,16 @@ else
     HEALTHY=false
 fi
 
+# Vane (local web search) is optional. Surface it in the health
+# check so the customer can see whether it is running, but do NOT
+# flip the install-wide HEALTHY flag if it is missing -- the
+# rest of Ostler works without it (Phase 3.8b is warn-only too).
+if curl -sf -o /dev/null -m 3 http://localhost:3000; then
+    ok "Vane healthy (local web search)"
+else
+    info "Vane not responding (optional; see Phase 3.8b warnings)"
+fi
+
 # ── ostler-assistant doctor probe (best-effort, non-fatal) ────────
 #
 # Surfaces the cron-delivery + imessage-tcc posture markers that
@@ -4668,6 +4771,11 @@ elif [[ -n "${CHANNEL_CHOICE:-}" && "$CHANNEL_CHOICE" == "4" ]]; then
     echo "     ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
 fi
 echo ""
+if [[ "$VANE_OK" == true ]]; then
+    echo -e "  ${BOLD}Local web search:${NC} http://localhost:3000"
+    echo "     (your assistant uses this; you can also chat with it directly)"
+    echo ""
+fi
 echo "  Developer dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
