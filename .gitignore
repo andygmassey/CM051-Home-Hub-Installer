@@ -68,6 +68,7 @@ scratch/
 # git either, but we DO commit it for now so a fresh checkout can
 # `xcodebuild ... build` without needing xcodegen.
 gui/build/
+gui/dist/
 gui/DerivedData/
 gui/**/xcuserdata/
 gui/**/*.xcworkspace/xcuserdata/

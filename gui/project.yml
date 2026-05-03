@@ -67,3 +67,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
         SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         ARCHS: "$(ARCHS_STANDARD)"
+
+schemes:
+  OstlerInstaller:
+    build:
+      targets:
+        OstlerInstaller: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
