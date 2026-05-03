@@ -127,6 +127,13 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    running install.sh directly without a tarball; without it"
     echo "    the Doctor LaunchAgent is skipped with a warn-only message."
     echo ""
+    echo "  PWG_SAFARI_EXT_VERSION / PWG_SAFARI_EXT_URL / PWG_SAFARI_EXT_REPO"
+    echo "    Safari Web Extension release tag + download URL + repo"
+    echo "    (see install.sh:Phase 3.17). Defaults track"
+    echo "    andygmassey/safari-history-extension safari-ext-v0.1.0."
+    echo "    Override to test a beta build or pre-release notarised .app"
+    echo "    before tagging the public release."
+    echo ""
     echo "  PWG_NOTICES_BASE_URL"
     echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
     echo "    LICENSES/ tree when neither the tarball nor the hub-power"
@@ -456,6 +463,16 @@ DOCTOR_REPO="${PWG_DOCTOR_REPO:-}"
 # canonical attribution files (no trailing slash):
 # PWG_NOTICES_BASE_URL="https://raw.githubusercontent.com/<org>/<repo>/main"
 NOTICES_BASE_URL="${PWG_NOTICES_BASE_URL:-}"
+
+# Safari Web Extension .app -- notarised, downloaded from a GitHub
+# Releases asset on the CM020 repo. Same shape as the assistant
+# binary download (Phase 3.14e) -- pinned version + override URL,
+# warn-only on download failure so the install completes either
+# way. Customer enables the extension in Safari Settings >
+# Extensions on first launch.
+SAFARI_EXT_VERSION="${PWG_SAFARI_EXT_VERSION:-safari-ext-v0.1.0}"
+SAFARI_EXT_REPO="${PWG_SAFARI_EXT_REPO:-andygmassey/safari-history-extension}"
+SAFARI_EXT_RELEASE_URL="${PWG_SAFARI_EXT_URL:-https://github.com/${SAFARI_EXT_REPO}/releases/download/${SAFARI_EXT_VERSION}/SafariHistoryExt.app.zip}"
 
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 1: PREREQUISITES (automatic — no user input)
@@ -4799,6 +4816,154 @@ else
     warn "    docker compose up -d wiki-site"
 fi
 
+# ── 3.17 Browser extensions (browsing-context capture) ──────────────
+#
+# The Chrome MV3 extension at extensions/chrome/ POSTs every page
+# the user visits to /api/safari/ingest on the local Hub gateway,
+# and the Safari Web Extension does the same via a notarised
+# macOS .app downloaded from the CM020 GitHub Releases. Both feed
+# the same backend endpoint -- pick one or both.
+#
+# Chrome path: bundle the unpacked source from
+# ${SCRIPT_DIR}/extensions/chrome/, walk the user through Chrome's
+# "Load unpacked" dev-mode sideload via the next-steps banner.
+# Safari path: download the signed/notarised .app from the
+# release URL (same shape as the assistant binary in Phase 3.14e),
+# install it under /Applications, walk the user through Safari
+# Settings > Extensions to enable it.
+#
+# Refusal does NOT abort the install; both extensions are opt-in.
+# Posture marker at ~/.ostler/posture/extensions.json records
+# what landed so Doctor can surface "extensions: installed" /
+# "extensions: declined" + the sideload instructions stay
+# discoverable in the next-steps banner.
+
+progress "Setting up browser extensions (browsing-context capture)" "browser_extensions"
+
+EXTENSIONS_DIR="${OSTLER_DIR}/extensions"
+CHROME_EXT_DIR="${EXTENSIONS_DIR}/chrome"
+SAFARI_EXT_DIR="${EXTENSIONS_DIR}/safari"
+SAFARI_APP_PATH="/Applications/SafariHistoryExt.app"
+EXTENSIONS_OFFERED=false
+CHROME_EXT_INSTALLED=false
+SAFARI_EXT_INSTALLED=false
+
+echo ""
+echo -e "  ${BOLD}Browser extensions${NC} (optional)"
+echo "  Capture every page you visit and feed it into your local knowledge"
+echo "  graph, so the assistant can recall 'that article you read last"
+echo "  Tuesday'. The extensions run locally; nothing leaves your Mac."
+echo ""
+echo "  Chrome:  bundles + sideloads via 'Load unpacked' (Developer Mode)"
+echo "  Safari:  downloads notarised .app, enable in Safari Settings"
+echo ""
+read -p "  Install the Safari + Chrome browser-history extensions? (Y/n): " EXT_CHOICE
+EXT_CHOICE=${EXT_CHOICE:-y}
+
+if [[ "$EXT_CHOICE" =~ ^[Yy] ]]; then
+    EXTENSIONS_OFFERED=true
+    mkdir -p "$CHROME_EXT_DIR" "$SAFARI_EXT_DIR"
+
+    # ── Chrome: bundled unpacked source ────────────────────────
+    # CM020/Chrome/ ships in the CM051 tarball under
+    # extensions/chrome/. On a dev install without the tarball
+    # the bundle probe fails and the user gets a clone hint.
+    if [[ -d "${SCRIPT_DIR}/extensions/chrome" && -f "${SCRIPT_DIR}/extensions/chrome/manifest.json" ]]; then
+        cp -R "${SCRIPT_DIR}/extensions/chrome/"* "$CHROME_EXT_DIR/"
+        CHROME_EXT_INSTALLED=true
+        ok "Chrome extension staged at ${CHROME_EXT_DIR}"
+    else
+        warn "Chrome extension source not bundled with installer."
+        info "  Clone https://github.com/${SAFARI_EXT_REPO} and copy its"
+        info "  Chrome/ subdir into ${CHROME_EXT_DIR}/ to install later."
+    fi
+
+    # ── Safari: download the notarised .app ────────────────────
+    # Same shape as the assistant binary at Phase 3.14e:
+    # curl -fSL with retry, refuse to install on download failure
+    # (warn-only; the rest of Ostler is unaffected). The .app
+    # carries its own Apple notarisation ticket so Gatekeeper
+    # accepts it on first launch without a right-click ceremony.
+    SAFARI_TMPDIR="$(mktemp -d)"
+    SAFARI_ZIP_NAME="SafariHistoryExt.app.zip"
+    info "Downloading Safari extension v${SAFARI_EXT_VERSION}..."
+    if curl -fSL --retry 2 --retry-delay 2 \
+            -o "${SAFARI_TMPDIR}/${SAFARI_ZIP_NAME}" \
+            "$SAFARI_EXT_RELEASE_URL" 2>"${SAFARI_TMPDIR}/curl.log"; then
+        if /usr/bin/ditto -x -k "${SAFARI_TMPDIR}/${SAFARI_ZIP_NAME}" "${SAFARI_TMPDIR}/" 2>/dev/null \
+           && [[ -d "${SAFARI_TMPDIR}/SafariHistoryExt.app" ]]; then
+            # Replace any previous install at /Applications so
+            # the Gatekeeper ticket on the new bundle takes effect
+            # and Safari Extensions doesn't see two copies.
+            rm -rf "$SAFARI_APP_PATH"
+            mv "${SAFARI_TMPDIR}/SafariHistoryExt.app" "$SAFARI_APP_PATH"
+            # Drop the quarantine xattr the .app picks up from
+            # curl-on-Sequoia. The notarisation ticket is what
+            # Gatekeeper trusts; the xattr just gates first-run
+            # UX. Same convention as the assistant binary.
+            xattr -d com.apple.quarantine "$SAFARI_APP_PATH" 2>/dev/null || true
+            SAFARI_EXT_INSTALLED=true
+            ok "Safari extension installed at ${SAFARI_APP_PATH}"
+        else
+            warn "Safari extension archive downloaded but did not extract cleanly."
+            warn "  Manual fix:"
+            info "    cd ${SAFARI_TMPDIR}"
+            info "    ditto -x -k ${SAFARI_ZIP_NAME} ."
+            info "    mv SafariHistoryExt.app /Applications/"
+        fi
+    else
+        warn "Could not download Safari extension v${SAFARI_EXT_VERSION}."
+        if [[ -s "${SAFARI_TMPDIR}/curl.log" ]]; then
+            warn "Curl said:"
+            sed -e 's/^/    /' "${SAFARI_TMPDIR}/curl.log" | head -5
+        fi
+        warn "Common causes: tag ${SAFARI_EXT_VERSION} not yet published, network"
+        warn "offline, or the release moved to a different repo. Override the"
+        warn "URL with PWG_SAFARI_EXT_URL=<url> and re-run, or stage manually:"
+        info "  curl -fL -o /tmp/safari-ext.zip ${SAFARI_EXT_RELEASE_URL}"
+        info "  ditto -x -k /tmp/safari-ext.zip /Applications/"
+    fi
+    rm -rf "$SAFARI_TMPDIR"
+
+    # Stage the placeholder README so the user has a doc pointer
+    # at ${SAFARI_EXT_DIR}/README.md regardless of whether the
+    # download succeeded -- it explains the manual-build path
+    # for users who want to track upstream HEAD.
+    if [[ -d "${SCRIPT_DIR}/extensions/safari" ]]; then
+        cp -R "${SCRIPT_DIR}/extensions/safari/"* "$SAFARI_EXT_DIR/"
+    fi
+
+    # ── Posture marker ──────────────────────────────────────────
+    mkdir -p "${OSTLER_DIR}/posture"
+    cat > "${OSTLER_DIR}/posture/extensions.json" <<EXTPOSTURE
+{
+    "offered": true,
+    "chrome_bundled": ${CHROME_EXT_INSTALLED},
+    "safari_installed": ${SAFARI_EXT_INSTALLED},
+    "chrome_path": "${CHROME_EXT_DIR}",
+    "safari_path": "${SAFARI_APP_PATH}",
+    "safari_release_url": "${SAFARI_EXT_RELEASE_URL}",
+    "recorded_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EXTPOSTURE
+    chmod 600 "${OSTLER_DIR}/posture/extensions.json"
+    ok "Extensions posture recorded"
+else
+    info "Skipping browser extensions. Re-run install.sh later if you change"
+    info "your mind, or add them by hand from https://github.com/${SAFARI_EXT_REPO}"
+    mkdir -p "${OSTLER_DIR}/posture"
+    cat > "${OSTLER_DIR}/posture/extensions.json" <<EXTPOSTUREDECLINED
+{
+    "offered": true,
+    "chrome_bundled": false,
+    "safari_installed": false,
+    "declined": true,
+    "recorded_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EXTPOSTUREDECLINED
+    chmod 600 "${OSTLER_DIR}/posture/extensions.json"
+fi
+
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 4: HEALTH CHECK + COMPLETION
 # ══════════════════════════════════════════════════════════════════════
@@ -5111,6 +5276,35 @@ if [[ "$VANE_OK" == true ]]; then
     echo "     (your assistant uses this; you can also chat with it directly)"
     echo ""
 fi
+
+if [[ "$EXTENSIONS_OFFERED" == true ]]; then
+    if [[ "$SAFARI_EXT_INSTALLED" == true ]]; then
+        echo -e "  ${BOLD}Enable the Safari browser-history extension:${NC}"
+        echo "     1. Open Safari (the .app at ${SAFARI_APP_PATH} ships the"
+        echo "        Web Extension; Safari sees it on first launch)"
+        echo "     2. Safari Settings > Extensions tab > tick 'Ostler Browser History'"
+        echo "     3. Click 'Edit Websites...' and choose 'Allow on Every Website'"
+        echo "     4. Open the extension popup and paste your hub API key"
+        echo "        (find it under ${CONFIG_DIR}/.env as PWG_API_KEY)"
+        echo ""
+    fi
+    if [[ "$CHROME_EXT_INSTALLED" == true ]]; then
+        echo -e "  ${BOLD}Sideload the Chrome browser-history extension:${NC}"
+        echo "     1. Open Chrome and go to chrome://extensions"
+        echo "     2. Toggle 'Developer mode' (top-right corner)"
+        echo "     3. Click 'Load unpacked' and select:"
+        echo "          ${CHROME_EXT_DIR}"
+        echo "     4. Click the extension icon and paste your hub API key"
+        echo "        (same key as Safari -- both feed the same backend)"
+        echo ""
+    fi
+    if [[ "$SAFARI_EXT_INSTALLED" != true && "$CHROME_EXT_INSTALLED" != true ]]; then
+        echo -e "  ${YELLOW}Browser extensions: install attempted, neither browser succeeded.${NC}"
+        echo "     See warnings above and re-run install.sh once resolved."
+        echo ""
+    fi
+fi
+
 echo "  Developer dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
