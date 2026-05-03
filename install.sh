@@ -792,6 +792,162 @@ else
     COUNTRY_CODE=${COUNTRY_CODE:-44}
 fi
 
+# ── 2.5 Detect region for the Article 9 / voice-consent gate ──────
+#
+# A8 (locked 2026-05-02): EU users see an Article 9 explicit-consent
+# screen before any ~/.ostler/ data is written. UK / US / RoW users
+# get the existing INSTALL/CANCEL flow. Region defaults to EU when
+# every signal is empty, per the brief at
+# /tmp/plan_legal_position_implementation_2026-05-02.md section 2:
+# the lawyer-friend prefers a "false positive on EU" to a
+# "false negative".
+#
+# This is a Bash mirror of ostler_security.region (which the Hub
+# venv hasn't installed yet at this point). Once the venv is up in
+# Phase 3 we re-write the same region into
+# ~/.ostler/posture/region.json via the shared Python module so
+# Doctor + the Rust gates can read a single source of truth.
+#
+# No IP geolocation. No phone-home lookup. Manual / contact-card /
+# phone-cc / locale only.
+_classify_region() {
+    # $1 = ISO-3166 alpha-2 country code (uppercase) or "" for unknown.
+    local iso="$1"
+    case "$iso" in
+        GB|UK) echo "uk" ;;
+        US) echo "us" ;;
+        AT|BE|BG|HR|CY|CZ|DK|EE|FI|FR|DE|GR|HU|IE|IT|LV|LT|LU|MT|NL|PL|PT|RO|SK|SI|ES|SE|IS|LI|NO|CH)
+            echo "eu" ;;
+        "") echo "eu" ;;  # default-EU defensive policy
+        *) echo "row" ;;
+    esac
+}
+
+_country_to_iso() {
+    # Best-effort country-name -> ISO-3166 alpha-2 mapping. Mirrors
+    # ostler_security.region.COUNTRY_NAME_TO_ISO. Returns "" for
+    # unknown so the caller can fall through to the next signal.
+    local lower
+    lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+    case "$lower" in
+        "united kingdom"|"uk"|"gb"|"great britain"|"england"|"scotland"|"wales"|"northern ireland")
+            echo "GB" ;;
+        "united states"|"usa"|"us"|"america"|"united states of america")
+            echo "US" ;;
+        "germany"|"de") echo "DE" ;;
+        "france"|"fr") echo "FR" ;;
+        "spain"|"es") echo "ES" ;;
+        "italy"|"it") echo "IT" ;;
+        "netherlands"|"nl"|"the netherlands"|"holland") echo "NL" ;;
+        "belgium"|"be") echo "BE" ;;
+        "austria"|"at") echo "AT" ;;
+        "ireland"|"ie"|"republic of ireland") echo "IE" ;;
+        "portugal"|"pt") echo "PT" ;;
+        "poland"|"pl") echo "PL" ;;
+        "sweden"|"se") echo "SE" ;;
+        "denmark"|"dk") echo "DK" ;;
+        "finland"|"fi") echo "FI" ;;
+        "greece"|"gr") echo "GR" ;;
+        "czechia"|"czech republic"|"cz") echo "CZ" ;;
+        "hungary"|"hu") echo "HU" ;;
+        "romania"|"ro") echo "RO" ;;
+        "bulgaria"|"bg") echo "BG" ;;
+        "croatia"|"hr") echo "HR" ;;
+        "slovakia"|"sk") echo "SK" ;;
+        "slovenia"|"si") echo "SI" ;;
+        "lithuania"|"lt") echo "LT" ;;
+        "latvia"|"lv") echo "LV" ;;
+        "estonia"|"ee") echo "EE" ;;
+        "luxembourg"|"lu") echo "LU" ;;
+        "cyprus"|"cy") echo "CY" ;;
+        "malta"|"mt") echo "MT" ;;
+        "iceland"|"is") echo "IS" ;;
+        "liechtenstein"|"li") echo "LI" ;;
+        "norway"|"no") echo "NO" ;;
+        "switzerland"|"ch") echo "CH" ;;
+        # 2-letter codes pass through (uppercased for the classifier).
+        ??)
+            echo "$lower" | tr '[:lower:]' '[:upper:]'
+            ;;
+        *) echo "" ;;
+    esac
+}
+
+OSTLER_REGION_ISO=""
+OSTLER_REGION_SOURCE=""
+
+# Manual override (env var) takes top priority for testers + CI.
+if [[ -n "${OSTLER_REGION_OVERRIDE:-}" ]]; then
+    OSTLER_REGION_ISO=$(_country_to_iso "$OSTLER_REGION_OVERRIDE")
+    OSTLER_REGION_SOURCE="manual"
+fi
+
+# Apple Contacts country wins over phone country code.
+if [[ -z "$OSTLER_REGION_ISO" && -n "${DETECTED_COUNTRY:-}" ]]; then
+    OSTLER_REGION_ISO=$(_country_to_iso "$DETECTED_COUNTRY")
+    [[ -n "$OSTLER_REGION_ISO" ]] && OSTLER_REGION_SOURCE="contacts"
+fi
+
+# Phone country code -> ISO via dialling-code reverse lookup.
+if [[ -z "$OSTLER_REGION_ISO" && -n "${COUNTRY_CODE:-}" ]]; then
+    case "$COUNTRY_CODE" in
+        44) OSTLER_REGION_ISO="GB" ;;
+        1)  OSTLER_REGION_ISO="US" ;;
+        49) OSTLER_REGION_ISO="DE" ;;
+        33) OSTLER_REGION_ISO="FR" ;;
+        34) OSTLER_REGION_ISO="ES" ;;
+        39) OSTLER_REGION_ISO="IT" ;;
+        31) OSTLER_REGION_ISO="NL" ;;
+        46) OSTLER_REGION_ISO="SE" ;;
+        41) OSTLER_REGION_ISO="CH" ;;
+        353) OSTLER_REGION_ISO="IE" ;;
+        61) OSTLER_REGION_ISO="AU" ;;
+        65) OSTLER_REGION_ISO="SG" ;;
+        852) OSTLER_REGION_ISO="HK" ;;
+        81) OSTLER_REGION_ISO="JP" ;;
+        86) OSTLER_REGION_ISO="CN" ;;
+        91) OSTLER_REGION_ISO="IN" ;;
+    esac
+    [[ -n "$OSTLER_REGION_ISO" ]] && OSTLER_REGION_SOURCE="phone"
+fi
+
+# Locale fallback (LC_ALL > LANG > nothing).
+if [[ -z "$OSTLER_REGION_ISO" ]]; then
+    _locale_raw="${LC_ALL:-${LANG:-}}"
+    if [[ "$_locale_raw" == *_* ]]; then
+        _locale_country="${_locale_raw#*_}"
+        _locale_country="${_locale_country:0:2}"
+        if [[ ${#_locale_country} -eq 2 ]]; then
+            OSTLER_REGION_ISO=$(echo "$_locale_country" | tr '[:lower:]' '[:upper:]')
+            OSTLER_REGION_SOURCE="locale"
+        fi
+    fi
+fi
+
+if [[ -z "$OSTLER_REGION_ISO" ]]; then
+    OSTLER_REGION_ISO="ZZ"
+    OSTLER_REGION_SOURCE="default_eu"
+fi
+
+OSTLER_REGION=$(_classify_region "$OSTLER_REGION_ISO")
+
+case "$OSTLER_REGION" in
+    eu)
+        info "Region: EU/EEA (${OSTLER_REGION_ISO}, source: ${OSTLER_REGION_SOURCE})"
+        info "      Ostler will show an extra consent screen before installing"
+        info "      (UK GDPR Article 9 - required for special-category data)."
+        ;;
+    uk)
+        info "Region: United Kingdom (source: ${OSTLER_REGION_SOURCE})"
+        ;;
+    us)
+        info "Region: United States (source: ${OSTLER_REGION_SOURCE})"
+        ;;
+    row)
+        info "Region: ${OSTLER_REGION_ISO} (source: ${OSTLER_REGION_SOURCE})"
+        ;;
+esac
+
 # ── 3. Confirm timezone ───────────────────────────────────────────
 
 DETECTED_TZ=$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || echo "")
@@ -866,6 +1022,7 @@ echo -e "    ${BOLD}1. iMessage${NC}      – simplest, uses your Mac's Messages
 echo -e "    ${BOLD}2. Email${NC}         – IMAP/SMTP via an app password"
 echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
 echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
+echo -e "    ${BOLD}5. + WhatsApp${NC}    – iMessage + email + WhatsApp (read-only)"
 echo ""
 read -p "  Channel choice [3]: " CHANNEL_CHOICE
 CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
@@ -873,6 +1030,8 @@ CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
 # Normalise into per-channel boolean flags for the config writer.
 CHANNEL_IMESSAGE_ENABLED=false
 CHANNEL_EMAIL_ENABLED=false
+CHANNEL_WHATSAPP_ENABLED=false
+CHANNEL_WHATSAPP_CONSENT_ACCEPTED=false
 CHANNEL_IMESSAGE_ALLOWED=""
 CHANNEL_EMAIL_USERNAME=""
 CHANNEL_EMAIL_PASSWORD=""
@@ -887,12 +1046,88 @@ case "$CHANNEL_CHOICE" in
     2) CHANNEL_EMAIL_ENABLED=true ;;
     3|"") CHANNEL_IMESSAGE_ENABLED=true; CHANNEL_EMAIL_ENABLED=true ;;
     4) info "Skipping channel setup. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive" ;;
+    5)
+        CHANNEL_IMESSAGE_ENABLED=true
+        CHANNEL_EMAIL_ENABLED=true
+        CHANNEL_WHATSAPP_ENABLED=true
+        ;;
     *)
         warn "Unrecognised choice '${CHANNEL_CHOICE}'; defaulting to iMessage + email."
         CHANNEL_IMESSAGE_ENABLED=true
         CHANNEL_EMAIL_ENABLED=true
         ;;
 esac
+
+# ── WhatsApp risk tickbox (A7 - locked 2026-05-02) ────────────────
+#
+# Per the implementation brief at
+# /tmp/plan_legal_position_implementation_2026-05-02.md section 1, the
+# tickbox MUST appear at the moment the user adds the WhatsApp
+# channel. Wording is verbatim from the section 4 plain-English text in
+# the legal-doc draft, mirrored in legal/consent_strings.py
+# (WHATSAPP_UNOFFICIAL_RISK_CONSENT). install.sh persists the
+# decision via consent_cli once the venv is up in Phase 3; for now
+# the answer is held in CHANNEL_WHATSAPP_CONSENT_ACCEPTED.
+#
+# Refusal does NOT abort the install. We simply leave WhatsApp
+# unconfigured and the bridge stays disabled. The user can change
+# their mind later via `ostler-assistant setup channels --interactive`
+# (which presents the same tickbox).
+if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
+    echo ""
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}WhatsApp connector – please read carefully${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+    echo ""
+    echo "  Ostler can read your WhatsApp messages locally on this Mac so"
+    echo "  you can search and reference them like any other part of your"
+    echo "  life. The messages stay on your Mac. Nothing is sent to us."
+    echo ""
+    echo -e "  ${BOLD}There is a risk you should understand before turning this on.${NC}"
+    echo ""
+    echo "  WhatsApp's own Terms of Service say their service can only be"
+    echo "  accessed using \"official\" WhatsApp software. Strictly speaking,"
+    echo "  the way Ostler reads your messages – by reading WhatsApp Web's"
+    echo "  storage on your Mac – is not what WhatsApp considers \"official.\""
+    echo ""
+    echo "  In practice, this kind of read access is widely used and we are"
+    echo "  not aware of any documented case of WhatsApp banning a user for"
+    echo "  it. But we cannot rule out the possibility that WhatsApp could:"
+    echo ""
+    echo "    - suspend your WhatsApp account, temporarily or permanently"
+    echo "    - block the device from connecting"
+    echo "    - require you to re-verify your number"
+    echo ""
+    echo "  If that happens, it happens to your WhatsApp account, not to"
+    echo "  Creative Machines. You – not us – are the person bound by"
+    echo "  WhatsApp's Terms of Service. We cannot get your account back"
+    echo "  for you, and we are not liable for any loss you suffer if"
+    echo "  WhatsApp takes action against your account."
+    echo ""
+    echo "  By continuing, you confirm that:"
+    echo "    1. You understand this risk."
+    echo "    2. You accept it on your own behalf."
+    echo "    3. You agree that Creative Machines is not responsible if"
+    echo "       WhatsApp suspends, restricts or terminates your WhatsApp"
+    echo "       account because of your use of the connector."
+    echo "    4. You can disable the connector at any time in Settings,"
+    echo "       and disabling it does not undo any action WhatsApp may"
+    echo "       have already taken."
+    echo ""
+    echo "  If you don't want to accept this risk, just leave it off – Ostler"
+    echo "  works without WhatsApp. You can turn it on later from Settings."
+    echo ""
+    read -p "  Enable WhatsApp connector and accept the risk above? (y/N): " WA_CONSENT
+    if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
+        CHANNEL_WHATSAPP_CONSENT_ACCEPTED=true
+        ok "WhatsApp connector will be enabled (consent recorded)"
+    else
+        # Refusal: keep the channel disabled but record the decision
+        # (so Doctor can show "user declined" rather than "missing").
+        CHANNEL_WHATSAPP_ENABLED=false
+        info "WhatsApp connector left off. You can enable it later via Settings."
+    fi
+fi
 
 # ── iMessage details ───────────────────────────────────────────────
 #
@@ -1129,6 +1364,16 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         # Mirror the source for diagnostic / read-the-file flows.
         mkdir -p "$SECURITY_DIR"
         cp -R "${SCRIPT_DIR}/ostler_security" "$SECURITY_DIR/"
+        # Also pip-install the sibling `legal` package (consent-string
+        # constants used by ostler_security.consent + the Rust gates).
+        # No runtime deps; safe to install best-effort. If it fails
+        # we still continue – the Article 9 / WhatsApp / voice gates
+        # raise via consent_cli with a clearer error than a bare
+        # ImportError.
+        if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
+            "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || \
+                warn "Could not install legal/ consent-strings package; continuing"
+        fi
         ok "Security module installed into venv"
     else
         # Hard-fail: deployed services (CM041 ical-server, CM041
@@ -1532,6 +1777,148 @@ if [[ "$HAS_APPLE_MAIL_GMAIL" == false && "$OSTLER_FDA_SOURCES" == *"apple_mail"
 fi
 
 # ── 10. Consent ───────────────────────────────────────────────────
+#
+# Two-branch flow per A8 (locked 2026-05-02):
+#   - EU/EEA: Article 9 explicit-consent screen, verbatim wording
+#     mirrored in legal/consent_strings.py (ARTICLE_9_EU_CONSENT).
+#     Decline cleanly aborts and leaves no ~/.ostler/ residue.
+#   - UK / US / RoW: legacy INSTALL/CANCEL block.
+# Decision is held in OSTLER_CONSENT_ARTICLE_9_DECISION until Phase 3
+# pip-installs ostler_security; we then persist via consent_cli.
+
+OSTLER_CONSENT_ARTICLE_9_DECISION=""
+OSTLER_CONSENT_VOICE_EU_DECISION=""
+
+if [[ "$OSTLER_REGION" == "eu" ]]; then
+    echo ""
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}One last thing – what Ostler will look at on your Mac${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+    echo ""
+    echo "  Ostler is a personal assistant, so it works by looking at the"
+    echo "  parts of your life you keep on this Mac. Some of that is"
+    echo "  sensitive. UK and EU privacy law requires us to ask you, in"
+    echo "  clear words, before we touch any of it."
+    echo ""
+    echo -e "  ${BOLD}Where the data lives.${NC} Everything Ostler reads stays on this"
+    echo "  Mac, in encrypted folders only you can unlock. We never get a"
+    echo "  copy. There is no \"cloud\" version of your data."
+    echo ""
+    echo -e "  ${BOLD}What's in scope.${NC} Depending on which connectors you turn on,"
+    echo "  Ostler may process the following kinds of information that the"
+    echo "  law treats as \"special category\" data:"
+    echo ""
+    echo "    - Health information mentioned in emails, messages, calendar"
+    echo "      entries or recorded conversations"
+    echo "    - Religious or philosophical beliefs"
+    echo "    - Sexual orientation"
+    echo "    - Trade union membership"
+    echo "    - Voice recordings, used only to label *who* is speaking on"
+    echo "      calls (speaker identification). We do not infer mood,"
+    echo "      emotion, sentiment, stress or deception from voice."
+    echo "    - Mentions of criminal offences – your own or other people's"
+    echo ""
+    echo "  We do not perform emotion recognition. If that ever changes we"
+    echo "  will ask you again, separately, on a new consent screen."
+    echo ""
+    echo "  All of this stays on your Mac. None of it is sent to Creative"
+    echo "  Machines or any third party, except in the specific cases listed"
+    echo "  in our Privacy Policy at ostler.ai/privacy."
+    echo ""
+    echo -e "  ${BOLD}You can change your mind any time.${NC} Turn individual connectors"
+    echo "  off in Settings, delete everything via \"Reset Ostler\", or"
+    echo "  fully uninstall via ~/Documents/Ostler/Uninstall Ostler.app."
+    echo ""
+    echo "  Withdrawing consent stops processing from that point forward. It"
+    echo "  does not undo work Ostler already did with your earlier consent."
+    echo ""
+    echo "  Your decision:"
+    echo ""
+    echo "    [Y] I consent to Ostler processing the categories of personal"
+    echo "        data above, locally on this Mac, for the purpose of"
+    echo "        running my personal assistant. (continues the install)"
+    echo ""
+    echo "    [N] I do not consent. (cancels and removes the installer;"
+    echo "        nothing is stored on this Mac)"
+    echo ""
+    while true; do
+        read -p "  Your decision (Y / N): " ART9
+        case "${ART9:-}" in
+            y|Y)
+                OSTLER_CONSENT_ARTICLE_9_DECISION="accepted"
+                break
+                ;;
+            n|N)
+                OSTLER_CONSENT_ARTICLE_9_DECISION="declined"
+                # Article 9 invariant (b): leaves no ~/.ostler/ residue.
+                # At this point in Phase 2, the only thing that may have
+                # touched ~/.ostler/ is the contacts export under
+                # ~/.ostler/imports/. Wipe the lot.
+                if [[ -d "$OSTLER_DIR" ]]; then
+                    rm -rf "$OSTLER_DIR" 2>/dev/null || true
+                fi
+                unset PASSPHRASE 2>/dev/null || true
+                echo ""
+                echo "  No problem. Nothing has been installed and nothing was"
+                echo "  written to your Mac."
+                echo ""
+                echo "  If you change your mind, re-run the installer."
+                exit 0
+                ;;
+            *)
+                echo "  Please answer Y or N."
+                ;;
+        esac
+    done
+
+    # ── 10b. EU voice consent gate ────────────────────────────────
+    #
+    # Speaker-ID only. v0.1 does NOT do emotion inference - the
+    # scope field on the consent record carries
+    # "speaker_identification_only" so a future emotion feature
+    # cannot quietly reuse this consent.
+    #
+    # Decline does NOT abort the install. It just keeps cm041 voice
+    # ingestion off. The Rust gate at cm041 startup honours the
+    # decision (refuses to start WhisperKit when EU + declined).
+    echo ""
+    echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${BOLD}Recognising voices on calls${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+    echo ""
+    echo "  Ostler can label transcripts with who is speaking – for"
+    echo "  example, \"Andy\", \"Alison\" – by storing a numeric"
+    echo "  fingerprint of each voice locally on this Mac. Under UK and"
+    echo "  EU privacy law this is biometric data, so we have to ask"
+    echo "  first."
+    echo ""
+    echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a recording you make."
+    echo -e "  ${BOLD}What we do not do.${NC} Detect mood, emotion, sentiment, stress"
+    echo "  or any other inferred psychological state from voice."
+    echo ""
+    echo "  The fingerprints stay on this Mac. We never receive them. You"
+    echo "  can turn this off any time in Settings -> Privacy -> Voice"
+    echo "  recognition; turning it off deletes any fingerprints already"
+    echo "  stored."
+    echo ""
+    while true; do
+        read -p "  Recognise voices on your call recordings? (Y/n): " VOICE
+        case "${VOICE:-y}" in
+            y|Y|"")
+                OSTLER_CONSENT_VOICE_EU_DECISION="accepted"
+                break
+                ;;
+            n|N)
+                OSTLER_CONSENT_VOICE_EU_DECISION="declined"
+                info "Voice recognition will stay off. You can enable later in Settings."
+                break
+                ;;
+            *) echo "  Please answer Y or N." ;;
+        esac
+    done
+fi
+
+# ── 10c. Final install confirmation (every region) ────────────────
 
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -2191,6 +2578,87 @@ if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]
 }
 EOF
     info "Wrote posture marker: ${POSTURE_DIR}/install.json"
+fi
+
+# ── 3.6b Persist consent + region (A7+A8) ────────────────────────
+#
+# Now that ostler_security + legal are pip-installed in the Hub
+# venv, hand off the consent decisions captured in Phase 2 to the
+# Python helper so:
+#   - the registry at ~/.ostler/posture/consent.json is written
+#     atomically, mode 0600, with the canonical SHA-256 of each
+#     wording string from legal/consent_strings.py
+#   - the region detection result lands at
+#     ~/.ostler/posture/region.json so Doctor + the Rust gates
+#     read a single source of truth.
+#
+# Best-effort: a failure here logs a warning but does NOT abort
+# the install. The downstream gates (whatsapp-bridge, cm041
+# voice) will refuse to start with a structured error, which is
+# the right safety posture (gate stays closed, not silently open).
+if [[ "$HAS_SECURITY_MODULE" == true ]]; then
+    info "Persisting consent records and region..."
+
+    # Region first.
+    "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" <<'PY' || \
+        warn "Could not persist region.json (continuing - Doctor will surface)"
+import sys
+from ostler_security.region import RegionResult, save_region
+from datetime import datetime, timezone
+region, iso, source = sys.argv[1], sys.argv[2], sys.argv[3]
+result = RegionResult(
+    region=region,
+    iso_country=iso,
+    source=source,
+    timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+)
+save_region(result)
+PY
+
+    # Article 9 (EU branch only).
+    if [[ -n "$OSTLER_CONSENT_ARTICLE_9_DECISION" ]]; then
+        USER_ID="${USER_ID:-andy}" \
+        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
+            --tickbox article_9_special_category_consent \
+            --decision "$OSTLER_CONSENT_ARTICLE_9_DECISION" \
+            --region "$OSTLER_REGION" \
+            --user-id "${USER_ID:-andy}" 2>/dev/null || \
+            warn "Could not persist Article 9 consent (continuing)"
+    fi
+
+    # WhatsApp tickbox.
+    if [[ "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
+        USER_ID="${USER_ID:-andy}" \
+        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
+            --tickbox whatsapp_unofficial_risk \
+            --decision accepted \
+            --region "$OSTLER_REGION" \
+            --user-id "${USER_ID:-andy}" 2>/dev/null || \
+            warn "Could not persist WhatsApp consent (continuing - bridge will refuse to start)"
+    elif [[ "${WA_CONSENT:-}" == "n" || "${WA_CONSENT:-}" == "N" ]]; then
+        # User explicitly declined the WhatsApp tickbox after
+        # selecting option 5. Record the decline so Doctor surfaces
+        # "user declined" rather than "missing".
+        USER_ID="${USER_ID:-andy}" \
+        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
+            --tickbox whatsapp_unofficial_risk \
+            --decision declined \
+            --region "$OSTLER_REGION" \
+            --user-id "${USER_ID:-andy}" 2>/dev/null || true
+    fi
+
+    # EU voice gate.
+    if [[ -n "$OSTLER_CONSENT_VOICE_EU_DECISION" ]]; then
+        USER_ID="${USER_ID:-andy}" \
+        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
+            --tickbox voice_speaker_id_eu \
+            --decision "$OSTLER_CONSENT_VOICE_EU_DECISION" \
+            --region "$OSTLER_REGION" \
+            --user-id "${USER_ID:-andy}" 2>/dev/null || \
+            warn "Could not persist EU voice consent (continuing - cm041 will refuse to start)"
+    fi
+
+    ok "Consent records and region persisted to ~/.ostler/posture/"
 fi
 
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
