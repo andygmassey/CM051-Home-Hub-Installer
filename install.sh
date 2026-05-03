@@ -37,7 +37,7 @@ done
 # When piped via `curl | bash`, stdin is the script not the terminal.
 # We need terminal input for passphrase etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
-if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 ]]; then
+if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
 fi
 
