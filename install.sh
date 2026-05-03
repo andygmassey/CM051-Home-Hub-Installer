@@ -2647,7 +2647,7 @@ umask 0077
 schema_version = 2
 TOMLPREAMBLE
 
-    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
     fi
@@ -2691,6 +2691,20 @@ TOMLPREAMBLE
         echo "allowed_senders = []"
     fi
 
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
+        # Web mode (wa-rs). Pair-code linking happens at runtime
+        # the first time the assistant binary boots; the user runs
+        # `ostler-assistant setup channels --interactive whatsapp`
+        # to enter the 8-digit code from the WhatsApp app. Keep
+        # the block minimal; everything else (allowed_numbers,
+        # dm_policy, etc.) the runtime fills with sensible defaults
+        # for personal mode and surfaces via the same setup wizard.
+        echo
+        echo "[channels.whatsapp]"
+        echo "enabled = true"
+        echo "mode = \"personal\""
+    fi
+
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
     # Vane running AND the assistant supports Vane (ostler-assistant
@@ -2711,7 +2725,7 @@ umask "$umask_orig"
 unset CHANNEL_EMAIL_PASSWORD
 
 ok "Assistant config saved to ${ASSISTANT_CONFIG} (mode 0600)"
-if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true ]]; then
+if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true && "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
     info "No channels configured. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
 fi
 
@@ -4898,7 +4912,7 @@ fi
 # wizard captured a config; "skip for now" gets the manual-setup
 # hint instead so the user never lands at a quiet assistant
 # without knowing what to do.
-if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo ""
     if [[ "${ASSISTANT_BINARY_INSTALLED:-false}" == true ]]; then
         echo -e "  ${GREEN}${BOLD}Your assistant ${ASSISTANT_NAME} is running.${NC}"
@@ -4913,7 +4927,25 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ]]
     if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         echo "     - Email to:     ${CHANNEL_EMAIL_USERNAME}"
     fi
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
+        # WhatsApp Web mode needs a pair-code link before it can
+        # talk to the user's account. The 8-digit code is generated
+        # from the WhatsApp mobile app (Settings > Linked Devices >
+        # Link a Device > Link with phone number instead) and pasted
+        # into the assistant's setup wizard.
+        echo "     - WhatsApp:     pending pair-code link (next step)"
+    fi
     echo "     (edit ${OSTLER_DIR}/assistant-config/config.toml to change)"
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
+        echo ""
+        echo -e "  ${BOLD}Link your WhatsApp account:${NC}"
+        echo "     1. On your phone: WhatsApp > Settings > Linked Devices >"
+        echo "        Link a Device > Link with phone number instead"
+        echo "     2. On this Mac, run:"
+        echo -e "        ${BOLD}${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive whatsapp${NC}"
+        echo "     3. Enter the 8-digit code shown by the assistant into"
+        echo "        the WhatsApp app on your phone."
+    fi
 elif [[ -n "${CHANNEL_CHOICE:-}" && "$CHANNEL_CHOICE" == "4" ]]; then
     echo ""
     echo "  No channels configured. Set one up later via:"
