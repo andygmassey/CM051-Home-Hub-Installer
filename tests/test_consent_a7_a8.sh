@@ -115,8 +115,12 @@ fi
 printf 'PASS: EU voice consent gate present\n'
 
 # 6. consent_cli hand-off in Phase 3.
+# Matches either the legacy in-line form (`--tickbox <id>`) or the
+# helper-refactored form (`_consent_cli_record <mode> <id>` -- the
+# id appears as a positional arg on its own indented line).
+# Audit ref /tmp/silent_fail_audit_2026-05-04.md HIGH-3.
 for tickbox in article_9_special_category_consent whatsapp_unofficial_risk voice_speaker_id_eu; do
-    if ! grep -q "tickbox $tickbox" "$INSTALL_SH"; then
+    if ! grep -qE "(tickbox $tickbox|^[[:space:]]+$tickbox[[:space:]]*\\\\?[[:space:]]*\$)" "$INSTALL_SH"; then
         printf 'FAIL: consent_cli hand-off missing tickbox %s\n' "$tickbox" >&2
         exit 1
     fi
