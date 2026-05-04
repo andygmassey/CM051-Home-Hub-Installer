@@ -7,7 +7,7 @@ This file provides guidance to Claude Code agents working in this repo.
 CM051 is the public-facing installer for the Lifeline Home Hub. Users run:
 
 ```bash
-curl -fsSL https://lifeline.dev/install.sh | bash
+curl -fsSL https://ostler.ai/install.sh | bash
 ```
 
 ...and end up with a working local-first Lifeline Hub on their Mac.

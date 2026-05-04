@@ -2860,7 +2860,11 @@ OSTLER_PIP="${OSTLER_VENV}/bin/pip"
 OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
 
 info "Installing security Python dependencies..."
-"$OSTLER_PIP" install --quiet "cryptography>=46.0.1,<47.0.0" 2>/dev/null || true
+# `cryptography` is dragged in transitively by the ostler_security
+# wheel install above (line 1497) which hard-fails properly. The
+# previous explicit pip install here used `2>/dev/null || true`
+# and silently masked any genuine cryptography install failure --
+# audit ref /tmp/silent_fail_audit_2026-05-04.md HIGH-2.
 
 export SQLCIPHER_CFLAGS="-I$(brew --prefix sqlcipher)/include"
 export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
@@ -2983,47 +2987,79 @@ result = RegionResult(
 save_region(result)
 PY
 
+    # Wraps `ostler_security.consent_cli record` with proper stderr
+    # handling. The previous in-line pattern used `2>/dev/null || warn`
+    # which swallowed the python traceback, leaving operators with
+    # "could not persist" but no diagnosable cause. Audit ref
+    # /tmp/silent_fail_audit_2026-05-04.md HIGH-3.
+    #
+    # Mode:
+    #   blocking - on failure, surface the captured stderr via warn so
+    #              the operator can diagnose why the gate stays closed.
+    #   declined - record an explicit decline; on failure, append to
+    #              ${OSTLER_DIR}/posture/consent-cli-failures.log so
+    #              Doctor surfaces it without bothering the user.
+    _consent_cli_record() {
+        local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
+        local stderr_file
+        stderr_file=$(mktemp)
+        if USER_ID="${USER_ID:-andy}" \
+           "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
+                --tickbox "$tickbox" \
+                --decision "$decision" \
+                --region "$OSTLER_REGION" \
+                --user-id "${USER_ID:-andy}" 2>"$stderr_file"; then
+            rm -f "$stderr_file"
+            return 0
+        fi
+        if [[ "$mode" == "blocking" ]]; then
+            warn "$fail_msg"
+            warn "  consent_cli stderr (first 400 chars):"
+            head -c 400 "$stderr_file" 2>/dev/null | sed 's/^/    /' | head -10 || true
+        else
+            local doctor_log="${OSTLER_DIR}/posture/consent-cli-failures.log"
+            mkdir -p "${OSTLER_DIR}/posture" 2>/dev/null || true
+            {
+                echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] tickbox=$tickbox decision=$decision"
+                head -c 400 "$stderr_file" 2>/dev/null
+                echo ""
+                echo "---"
+            } >> "$doctor_log" 2>/dev/null || true
+        fi
+        rm -f "$stderr_file"
+        return 0
+    }
+
     # Article 9 (EU branch only).
     if [[ -n "$OSTLER_CONSENT_ARTICLE_9_DECISION" ]]; then
-        USER_ID="${USER_ID:-andy}" \
-        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
-            --tickbox article_9_special_category_consent \
-            --decision "$OSTLER_CONSENT_ARTICLE_9_DECISION" \
-            --region "$OSTLER_REGION" \
-            --user-id "${USER_ID:-andy}" 2>/dev/null || \
-            warn "Could not persist Article 9 consent (continuing)"
+        _consent_cli_record blocking \
+            article_9_special_category_consent \
+            "$OSTLER_CONSENT_ARTICLE_9_DECISION" \
+            "Could not persist Article 9 consent (continuing)"
     fi
 
     # WhatsApp tickbox.
     if [[ "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
-        USER_ID="${USER_ID:-andy}" \
-        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
-            --tickbox whatsapp_unofficial_risk \
-            --decision accepted \
-            --region "$OSTLER_REGION" \
-            --user-id "${USER_ID:-andy}" 2>/dev/null || \
-            warn "Could not persist WhatsApp consent (continuing - bridge will refuse to start)"
+        _consent_cli_record blocking \
+            whatsapp_unofficial_risk \
+            accepted \
+            "Could not persist WhatsApp consent (continuing - bridge will refuse to start)"
     elif [[ "${WA_CONSENT:-}" == "n" || "${WA_CONSENT:-}" == "N" ]]; then
         # User explicitly declined the WhatsApp tickbox after
         # selecting option 5. Record the decline so Doctor surfaces
         # "user declined" rather than "missing".
-        USER_ID="${USER_ID:-andy}" \
-        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
-            --tickbox whatsapp_unofficial_risk \
-            --decision declined \
-            --region "$OSTLER_REGION" \
-            --user-id "${USER_ID:-andy}" 2>/dev/null || true
+        _consent_cli_record declined \
+            whatsapp_unofficial_risk \
+            declined \
+            "Could not persist WhatsApp decline record"
     fi
 
     # EU voice gate.
     if [[ -n "$OSTLER_CONSENT_VOICE_EU_DECISION" ]]; then
-        USER_ID="${USER_ID:-andy}" \
-        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
-            --tickbox voice_speaker_id_eu \
-            --decision "$OSTLER_CONSENT_VOICE_EU_DECISION" \
-            --region "$OSTLER_REGION" \
-            --user-id "${USER_ID:-andy}" 2>/dev/null || \
-            warn "Could not persist EU voice consent (continuing - cm041 will refuse to start)"
+        _consent_cli_record blocking \
+            voice_speaker_id_eu \
+            "$OSTLER_CONSENT_VOICE_EU_DECISION" \
+            "Could not persist EU voice consent (continuing - cm041 will refuse to start)"
     fi
 
     # Third-party-data acknowledgement (every region). Decline aborts
@@ -3032,13 +3068,10 @@ PY
     # that skipped the screen, in which case we omit the record and
     # Doctor's Consent tile will surface "missing" as a posture marker).
     if [[ -n "$OSTLER_CONSENT_THIRD_PARTY_DECISION" ]]; then
-        USER_ID="${USER_ID:-andy}" \
-        "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
-            --tickbox third_party_data_personal_records \
-            --decision "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
-            --region "$OSTLER_REGION" \
-            --user-id "${USER_ID:-andy}" 2>/dev/null || \
-            warn "Could not persist third-party-data acknowledgement (continuing)"
+        _consent_cli_record blocking \
+            third_party_data_personal_records \
+            "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
+            "Could not persist third-party-data acknowledgement (continuing)"
     fi
 
     ok "Consent records and region persisted to ~/.ostler/posture/"
@@ -3115,6 +3148,14 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     echo ""
 
     # Pass user's per-source consent (set in Phase 2) to the extractor.
+    # Capture exit code separately from the output: a wholesale
+    # extractor crash (import failure, segfault, raised exception)
+    # is captured in $FDA_OUTPUT but the previous code only matched
+    # `^\[ok\]/[skip]/[warn]` formatted lines, so a Python traceback
+    # was invisible and the user got the bland "no FDA sources
+    # available" message. Audit ref
+    # /tmp/silent_fail_audit_2026-05-04.md HIGH-1.
+    set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
                  "$OSTLER_PYTHON" -c "
@@ -3124,7 +3165,9 @@ from ostler_fda.extract_all import run_all
 from pathlib import Path
 summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
 print(json.dumps(summary, default=str))
-" 2>&1) || true
+" 2>&1)
+    FDA_EXIT=$?
+    set -e
 
     # Parse results for the summary
     FDA_OK=$(echo "$FDA_OUTPUT" | grep -c '^\[ok\]' || true)
@@ -3137,6 +3180,14 @@ print(json.dumps(summary, default=str))
 
     if [[ $FDA_OK -gt 0 ]]; then
         ok "Extracted from ${FDA_OK} source(s). Data saved to ${OSTLER_DIR}/imports/fda/"
+    elif [[ $FDA_EXIT -ne 0 ]]; then
+        # Extractor crashed wholesale (import failure, segfault,
+        # raised exception). Surface the tail of stderr+stdout so
+        # the operator can diagnose, instead of pretending success
+        # via the "no sources available" branch.
+        warn "FDA extractor exited non-zero ($FDA_EXIT). Last 20 lines of output:"
+        printf '%s\n' "$FDA_OUTPUT" | tail -n 20 | sed 's/^/    /'
+        warn "Continuing install. Re-run \`ostler-fda\` after diagnosing the error above."
     else
         info "No FDA sources available right now. You can grant Full Disk Access"
         info "later in System Settings > Privacy & Security > Full Disk Access"
@@ -4071,7 +4122,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <key>DOCTOR_PORT</key>
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
-        <string>support@creativemachines.ai</string>
+        <string>support@ostler.ai</string>
     </dict>
 </dict>
 </plist>
@@ -5146,8 +5197,8 @@ if [[ -f "${HOME}/.ostler/power.conf" ]]; then
 fi
 echo ""
 echo -e "  ${BOLD}Need help?${NC}"
-echo "    During beta, email support@creativemachines.ai."
-echo "    A dedicated support@creativemachines.ai address will be"
+echo "    During beta, email support@ostler.ai."
+echo "    A dedicated support@ostler.ai address will be"
 echo "    live by general launch."
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

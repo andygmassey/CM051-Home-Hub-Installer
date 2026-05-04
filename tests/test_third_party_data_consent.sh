@@ -112,12 +112,15 @@ printf 'PASS: decline path wipes $OSTLER_DIR and exits 0\n'
 
 # 5. Phase 3 consent_cli persistence: the tickbox id must match the
 #    Python source of truth (legal/consent_strings.py) and the
-#    decision env var must thread through correctly.
-if ! grep -q -- '--tickbox third_party_data_personal_records' "$INSTALL_SH"; then
+#    decision env var must thread through correctly. Matches either
+#    the legacy in-line `--tickbox X --decision "$Y"` form or the
+#    helper-refactored positional-arg form. Audit ref
+#    /tmp/silent_fail_audit_2026-05-04.md HIGH-3.
+if ! grep -qE -- '(--tickbox third_party_data_personal_records|^[[:space:]]+third_party_data_personal_records[[:space:]]*\\?[[:space:]]*$)' "$INSTALL_SH"; then
     printf 'FAIL: install.sh does not record the third-party tickbox via consent_cli\n' >&2
     exit 1
 fi
-if ! grep -q -- '--decision "$OSTLER_CONSENT_THIRD_PARTY_DECISION"' "$INSTALL_SH"; then
+if ! grep -qE -- '(--decision "\$OSTLER_CONSENT_THIRD_PARTY_DECISION"|"\$OSTLER_CONSENT_THIRD_PARTY_DECISION"[[:space:]]*\\?[[:space:]]*$)' "$INSTALL_SH"; then
     printf 'FAIL: install.sh consent_cli call does not use OSTLER_CONSENT_THIRD_PARTY_DECISION\n' >&2
     exit 1
 fi
