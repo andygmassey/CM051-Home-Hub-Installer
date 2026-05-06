@@ -294,15 +294,7 @@ USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 # ostler-ai/ostler-installer mirror (versioned, signed, free, standard
 # pattern). Cloudflare Pages serving a static tarball was considered
 # but loses versioning + signing; GitHub Release is the long-term home.
-# Interim installer-tarball mirror. The canonical home will be
-# https://github.com/ostler-ai/ostler-installer/releases/... once
-# the ostler-ai org clears GitHub's new-account hold (task #271);
-# until then we host the release artefact on the andygmassey
-# mirror so `curl -fsSL ostler.ai/install.sh | bash` works.
-# NOTE: the matching `install.tar.gz` release artefact still
-# needs publishing on this repo as a separate one-shot release
-# step (operator-side; this installer never publishes itself).
-DEFAULT_INSTALLER_TARBALL_URL="https://github.com/andygmassey/CM051-Home-Hub-Installer/releases/latest/download/install.tar.gz"
+DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
 INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
 if [[ -n "${OSTLER_BOOTSTRAP_SCRIPT_DIR:-}" ]]; then
