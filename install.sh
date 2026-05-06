@@ -2995,12 +2995,12 @@ PY
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
         local stderr_file
         stderr_file=$(mktemp)
-        if USER_ID="${USER_ID:-andy}" \
+        if USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
            "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
-                --user-id "${USER_ID:-andy}" 2>"$stderr_file"; then
+                --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
             rm -f "$stderr_file"
             return 0
         fi
