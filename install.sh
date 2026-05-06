@@ -24,6 +24,7 @@ CHECK_ONLY=false
 SHOW_HELP=false
 SHOW_LICENSES=false
 ALLOW_PLAINTEXT=0
+NO_EXTENSIONS=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -31,6 +32,7 @@ for arg in "$@"; do
         --help|-h) SHOW_HELP=true ;;
         --licenses|--licences) SHOW_LICENSES=true ;;
         --allow-plaintext) ALLOW_PLAINTEXT=1 ;;
+        --no-extensions) NO_EXTENSIONS=true ;;
     esac
 done
 
@@ -90,6 +92,10 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "                      database encryption. NOT FOR PRODUCTION USE."
     echo "                      Writes a posture marker at"
     echo "                      ~/.ostler/security-posture/install.json."
+    echo "  --no-extensions     Skip the browser-extensions install phase"
+    echo "                      (Safari .app copy + Chrome Web Store open)."
+    echo "                      The Hub still works; you just enable"
+    echo "                      browsing capture later by hand."
     echo ""
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
@@ -5082,6 +5088,76 @@ SWIFTEOF
 
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+fi
+
+# ── 3.17 Browser extensions (SHF-2 Option C) ──────────────────────
+#
+# Sideload-installs the Safari macOS .app shell for the Ostler
+# WebExtension and opens the Chrome Web Store listing in the user's
+# default browser. Both are nice-to-have rather than blockers: any
+# failure here logs a WARN and continues so the rest of the install
+# is unaffected.
+#
+# The Safari .app is bundled in install.tar.gz at
+# extensions/OstlerSafariExtension.app.zip (produced by CM020's
+# bin/build-safari-extension.sh and shipped Developer-ID-signed +
+# notarized + stapled). Skipping the bundle silently is the
+# expected pre-launch path while the build script is still being
+# wired into release.
+#
+# Skip rules:
+#   --no-extensions   skip both halves
+#   ostler.ai bot     OSTLER_GUI=1 path: still runs (the GUI shell
+#                     wraps install.sh and DOES want extensions)
+#
+# The Chrome Web Store URL comes from OSTLER_CHROME_WEBSTORE_URL.
+# Andy fills the real listing URL in once the Web Store review
+# clears (~72h post submission); until then the placeholder points
+# at the category root which is harmless if a customer lands there
+# pre-listing.
+
+if [[ "$NO_EXTENSIONS" == true ]]; then
+    info "Browser extensions skipped (--no-extensions)"
+else
+    EXTENSIONS_BUNDLE="${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip"
+    SAFARI_APP_INSTALL_PATH="/Applications/Ostler Safari Extension.app"
+
+    if [[ -f "$EXTENSIONS_BUNDLE" ]]; then
+        info "Installing Safari extension to /Applications"
+        # Idempotent: clear any prior install before unzip so re-runs
+        # don't merge old + new app contents into a Frankensteined
+        # bundle.
+        rm -rf "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
+        if /usr/bin/ditto -x -k "$EXTENSIONS_BUNDLE" /Applications/ 2>/dev/null \
+                && [[ -d "$SAFARI_APP_INSTALL_PATH" || -d "/Applications/SafariHistoryExt.app" ]]; then
+            # CM020 ships the .app under its Xcode product name
+            # (SafariHistoryExt.app); rename to the user-visible name
+            # if needed so Safari Settings displays "Ostler Safari Extension".
+            if [[ -d "/Applications/SafariHistoryExt.app" && ! -d "$SAFARI_APP_INSTALL_PATH" ]]; then
+                mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
+            fi
+            ok "Safari extension installed at ${SAFARI_APP_INSTALL_PATH}"
+            echo "     Enable it in Safari Settings → Extensions → Ostler"
+        else
+            warn "Safari extension copy failed; you can install it manually later"
+            warn "  Bundle: ${EXTENSIONS_BUNDLE}"
+        fi
+    else
+        info "Safari extension bundle not present in this installer build (skipping)"
+    fi
+
+    # Chrome Web Store: open the listing in the default browser. Fire
+    # and forget; failures are non-fatal (e.g. headless install).
+    CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-https://chrome.google.com/webstore/category/extensions}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        # Direct CLI install: actually open the URL.
+        info "Opening Chrome Web Store: ${CHROME_URL}"
+        open "$CHROME_URL" 2>/dev/null || warn "Could not open Chrome Web Store URL automatically: ${CHROME_URL}"
+    else
+        # GUI wrapper install: just print the URL so the wrapper can
+        # surface it in its own UI rather than spawning a browser.
+        echo "     Chrome extension: ${CHROME_URL}"
+    fi
 fi
 
 # ── Summary ────────────────────────────────────────────────────────
