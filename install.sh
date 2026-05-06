@@ -2728,6 +2728,40 @@ ok "Config saved to ${CONFIG_DIR}/.env"
 # encrypt-config` step once the binary is staged so the plaintext
 # window closes within the install flow.
 
+# ── Chat admin token seed (CM031 PR #43 / HR015 PR #63 sister) ────
+#
+# Pre-seed a ZeroClaw admin token so the unified Hub can mint
+# device-bearer tokens for the iOS chat tab via
+# POST /api/v1/auth/chat-token (HR015 doctor/agent/chat_token.py).
+#
+# The token gets written to TWO places, both mode 0600:
+#
+#   1. ${OSTLER_DIR}/secrets/zeroclaw_admin_token
+#      Read by the Doctor at request time. Default path matches
+#      HR015 chat_token.DEFAULT_ADMIN_TOKEN_FILE.
+#   2. The [gateway].paired_tokens array in the assistant config TOML
+#      (rendered just below). ZeroClaw loads it at boot and treats
+#      any HTTP request bearing this token as authenticated.
+#
+# Idempotent: re-running the installer reuses the existing token.
+# Regenerating would silently invalidate any iOS device that
+# bootstrapped against the old token, forcing a re-pair.
+SECRETS_DIR="${OSTLER_DIR}/secrets"
+CHAT_ADMIN_TOKEN_FILE="${SECRETS_DIR}/zeroclaw_admin_token"
+mkdir -p "$SECRETS_DIR"
+chmod 700 "$SECRETS_DIR"
+
+if [[ -s "$CHAT_ADMIN_TOKEN_FILE" ]]; then
+    CHAT_ADMIN_TOKEN=$(cat "$CHAT_ADMIN_TOKEN_FILE")
+else
+    CHAT_ADMIN_TOKEN=$(openssl rand -hex 32)
+    umask_admin_orig=$(umask)
+    umask 0077
+    printf '%s' "$CHAT_ADMIN_TOKEN" > "$CHAT_ADMIN_TOKEN_FILE"
+    umask "$umask_admin_orig"
+    chmod 600 "$CHAT_ADMIN_TOKEN_FILE"
+fi
+
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
@@ -2808,6 +2842,16 @@ TOMLPREAMBLE
         echo "mode = \"personal\""
     fi
 
+    # Pre-seed the chat admin token into ZeroClaw's gateway config
+    # so the Doctor's POST /api/v1/auth/chat-token endpoint
+    # (HR015 doctor/agent/chat_token.py) can call /api/pairing/initiate
+    # with admin auth. Without this, every iOS chat-tab bootstrap
+    # surfaces ChatEmptyState(.bootstrapFailed) with a 502 from
+    # ZeroClaw rejecting the admin token. See sister PR HR015 #63.
+    echo
+    echo "[gateway]"
+    echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
+
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
     # Vane running AND the assistant supports Vane (ostler-assistant
@@ -2826,6 +2870,10 @@ umask "$umask_orig"
 # the file is written. The TOML still has it on disk; this just
 # narrows the in-memory exposure for the rest of the install.
 unset CHANNEL_EMAIL_PASSWORD
+
+# Same treatment for the chat admin token. Both copies (TOML +
+# secrets file) are written and locked down by now.
+unset CHAT_ADMIN_TOKEN
 
 ok "Assistant config saved to ${ASSISTANT_CONFIG} (mode 0600)"
 if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true && "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
