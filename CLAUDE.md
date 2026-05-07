@@ -4,13 +4,13 @@ This file provides guidance to Claude Code agents working in this repo.
 
 ## Project purpose
 
-CM051 is the public-facing installer for the Lifeline Home Hub. Users run:
+CM051 is the public-facing installer for the Ostler Hub. Users run:
 
 ```bash
 curl -fsSL https://ostler.ai/install.sh | bash
 ```
 
-...and end up with a working local-first Lifeline Hub on their Mac.
+...and end up with a working local-first Ostler Hub on their Mac.
 
 ## Related repos (sibling projects)
 
@@ -56,7 +56,7 @@ See `PLAN.md` for the current workstream (channel configurator + OAuth for launc
 
 - Secrets never land in stdout, never in `set -x` output
 - User-provided passphrases / tokens are read with `read -s`
-- Installer logs are opt-in and written to `$HOME/Library/Logs/Lifeline/install-YYYYMMDD-HHMMSS.log`
+- Installer logs are opt-in and written to `$HOME/Library/Logs/Ostler/install-YYYYMMDD-HHMMSS.log`
 - No telemetry without explicit consent
 
 ## Writing style
