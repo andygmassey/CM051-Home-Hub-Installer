@@ -67,7 +67,7 @@ rm -rf ~/.ostler/hub-power
 
 **"My laptop is hot and the fan is on."** Either plugged in (expected, hub-power has nothing to do) or the user picked `aggressive` (explain the trade-off). Check `cat ~/.ostler/power.conf`.
 
-**"Lifeline stopped working after I unplugged."** Expected, the Docker stack is paused. It resumes within about 60 seconds of going back on AC. Check `~/.ostler/hub-power.log` for the tier transitions.
+**"Ostler stopped working after I unplugged."** Expected, the Docker stack is paused. It resumes within about 60 seconds of going back on AC. Check `~/.ostler/hub-power.log` for the tier transitions.
 
 **"I want it to always run no matter what."** Set `POWER_POLICY=aggressive`. Warn about battery.
 
