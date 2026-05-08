@@ -221,6 +221,24 @@ cp "${HR015_DIR}/${HR015_AGGREGATE_REQUIREMENTS_SRC}" "${INSTALL_DIR}/requiremen
 # -----------------------------------------------------------------------------
 
 if [[ "${DO_VERIFY}" -eq 1 ]]; then
+    # -------------------------------------------------------------------
+    # Assistant-binary version-pin coherence check
+    # -------------------------------------------------------------------
+    # The bundled install.sh has a default OSTLER_ASSISTANT_VERSION pin
+    # which dictates which ostler-assistant binary tarball customers
+    # download. If that pin drifts from the release version, customers
+    # silently get last-release's binary (caught 2026-05-08 right after
+    # v0.2.0 cut: install.sh was still pinned to 0.1.0, so a fresh
+    # `curl | bash` would have ignored the v0.2.0 signed binary and
+    # fetched the v0.1.0 unsigned one). Fail the build before tarball.
+    echo "==> Verifying assistant-version pin matches --version"
+    EXPECTED_PIN="${VERSION#v}"
+    BUNDLED_PIN="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "${INSTALL_DIR}/install.sh" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\}.*/\1/')"
+    if [[ "${BUNDLED_PIN}" != "${EXPECTED_PIN}" ]]; then
+        die "install.sh OSTLER_ASSISTANT_VERSION default is '${BUNDLED_PIN}' but --version is '${EXPECTED_PIN}'. Bump install.sh before cutting." 2
+    fi
+    ok "install.sh assistant-version pin matches --version (${EXPECTED_PIN})"
+
     echo "==> Verifying staged tree (forbidden-pattern grep)"
     HITS_FILE="$(mktemp)"
     PATTERN_RE="$(IFS='|'; echo "${FORBIDDEN_PATTERNS[*]}")"
