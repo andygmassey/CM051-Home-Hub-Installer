@@ -144,6 +144,9 @@ RSYNC_EXCLUDES=(
     'tests'
     '*.egg-info'
     'build'              # Python build output dir (e.g. ostler_security/build/)
+    '.build'             # Swift Package Manager compile cache (ostler_security/bin/src/.build/)
+                         # v0.2.0 dry-run shipped 259 .pcm / .swiftmodule files
+                         # before this exclude landed (28M -> ~3M after).
     '*_AUDIT.md'         # internal audit docs (e.g. DAY_ZERO_AUDIT.md)
     'TECH_DEBT_*.md'
     'SESSION_HANDOFF_*.md'
