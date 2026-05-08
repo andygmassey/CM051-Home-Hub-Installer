@@ -65,6 +65,54 @@ install/
 `release.sh --verify` runs these greps and refuses to seal the tarball if
 any match. Do not bypass.
 
+### Whitelisted exemptions
+
+A small set of files legitimately mention `lifeline` and CANNOT be swept
+without breaking installed users. Each exemption is documented in
+`release.sh` (the `FORBIDDEN_EXEMPTIONS` array) with a one-line "why":
+
+| File | Why exempt |
+|---|---|
+| `hub-power/bin/hub-power-state.sh` | Reads `$LIFELINE_DIR` as fallback for v0.1-era installs |
+| `ostler_security/migrate_recovery_key_aad.py` | Migration script reads existing AAD-encrypted blobs that contain the literal `lifeline-recovery-key-v2:` byte string |
+| `ostler_security/webauthn_client.py` | WebAuthn PRF salt is `lifeline/prf/v1` – historical name preserved as do-not-touch (changing it invalidates every paired user's encryption key) |
+| `ostler_security/SECURITY_MODEL.md` | Doc explicitly contrasts the rebrand (mentions the old name to make the point) |
+
+If you find yourself adding a new exemption, that's a strong signal you
+should be doing a source-side rebrand instead – exemptions are for
+load-bearing legacy crypto only.
+
+### Exclusions (paths NEVER staged into the bundle)
+
+`release.sh` excludes these from the rsync into the staging dir:
+
+- `__pycache__`, `.pytest_cache`, `*.egg-info` – Python build artefacts
+- `.DS_Store`, `.git*` – local cruft
+- `build`, `*_AUDIT.md`, `TECH_DEBT_*.md`, `SESSION_HANDOFF_*.md` –
+  internal-only docs and build outputs
+- `tests` – internal test files. v0.1.0 SHIPPED these to disk and they
+  contained internal naming (e.g. `test_payload_viewer.py` docstring
+  referencing unreleased competitive IP). Customer installs do not need
+  test files; if you ever do, reconsider why.
+- `.env` – gitignored from git, but rsync does not honour `.gitignore`.
+  v0.2.0 dry-run caught `contact_syncer/.env` containing a real CardDAV
+  app-specific password. Without this exclude every customer download
+  would have shipped the developer's iCloud credential. `.env.example`
+  is allowed (template, not a secret).
+
+### Credential scan (verify step, defence-in-depth)
+
+`release.sh --verify` runs a second pass after the forbidden-pattern
+grep. It greps the staged tree for known secret signatures:
+
+- Apple app-specific password format (`xxxx-xxxx-xxxx-xxxx`)
+- Any literal `.env` file that snuck through the rsync exclude
+- Anthropic / OpenAI / GitHub PAT prefixes (`sk-ant-…`, `sk-…`, `ghp_…`,
+  `github_pat_…`)
+
+If a hit fires, fix at source – never add an exemption. Adding an
+exemption is how secrets ship to customers.
+
 ## Cutting a new release – happy path
 
 ```bash

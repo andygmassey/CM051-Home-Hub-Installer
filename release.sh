@@ -95,10 +95,65 @@ FORBIDDEN_PATTERNS=(
     'lifeline\.dev'
 )
 
-# Patterns we tolerate IF in specific files (backwards-compat aliases).
-# Format: "pattern|filepath". File-path is relative to the staged tree.
+# Patterns we tolerate IF in specific files. Format: "pattern|filepath".
+# File-path is relative to the staged tree. Each exemption is justified
+# below – never add a new one without writing the why.
 FORBIDDEN_EXEMPTIONS=(
+    # Backwards-compat alias: existing installs use $LIFELINE_DIR; fallback
+    # is read once at boot and resolved to OSTLER_DIR. Cannot remove until
+    # we drop support for v0.1-era installs.
     'LIFELINE_DIR|hub-power/bin/hub-power-state.sh'
+    # Migration-only: this script reads users' existing AAD-encrypted
+    # blobs that have the literal byte-string "lifeline-recovery-key-v2:"
+    # baked in. Removing the reference would break decryption.
+    'lifeline|ostler_security/migrate_recovery_key_aad.py'
+    # Historical name preservation in WebAuthn PRF derivation. Comments
+    # explicitly mark this as do-not-touch – changing the salt would
+    # invalidate every paired user's encryption key.
+    'lifeline|ostler_security/webauthn_client.py'
+    # Security model documentation: contrasts the rebrand explicitly
+    # ("uses creativemachines/, not lifeline/"). Mentioning the old name
+    # is the whole point of the doc.
+    'lifeline|ostler_security/SECURITY_MODEL.md'
+    # Customer-facing README example showing how to query the legacy
+    # keychain service (for migration debugging).
+    'lifeline|ostler_security/README.md'
+    # Backwards-compat prefix list: tls_setup accepts ostler-/pwg-/lifeline-
+    # cert filenames so users with v0.1-era installs keep working.
+    'lifeline|ostler_security/tls_setup.py'
+    # The rebrand-flip script itself. Its entire purpose is to migrate
+    # constants from `lifeline`/`v2` to `ostler`/`v3`. Cannot remove the
+    # word without removing the script.
+    'lifeline|ostler_security/flip_constants.py'
+    # Migration script for keychain service rename. Reads existing
+    # entries under the old service name to copy them to the new one.
+    'lifeline|ostler_security/migrate_keychain_service.py'
+    # Deployment notes documenting the rebrand journey.
+    'lifeline|ostler_security/DEPLOYMENT_NOTES.md'
+)
+
+# rsync exclude patterns. Test files, pytest caches, and Python build
+# artefacts must NEVER reach a customer install – they bloat the bundle
+# and ship internal naming (e.g. test docstrings referencing internal IP).
+# v0.1.0 missed this.
+RSYNC_EXCLUDES=(
+    '__pycache__'
+    '.pytest_cache'
+    '.DS_Store'
+    '.git*'
+    'tests'
+    '*.egg-info'
+    'build'              # Python build output dir (e.g. ostler_security/build/)
+    '*_AUDIT.md'         # internal audit docs (e.g. DAY_ZERO_AUDIT.md)
+    'TECH_DEBT_*.md'
+    'SESSION_HANDOFF_*.md'
+    # Secrets – .env files are gitignored from git but rsync does not
+    # honour .gitignore. The .env.example template is allowed (different
+    # name); only the literal `.env` is excluded so a developer's real
+    # credentials never reach a customer install. v0.2.0 dry-run caught
+    # contact_syncer/.env containing a real CardDAV app-specific password
+    # – without this exclude the customer tarball would have shipped it.
+    '.env'
 )
 
 # -----------------------------------------------------------------------------
@@ -140,8 +195,9 @@ for src in "${CM051_SOURCES[@]}"; do
     SRC="${CM051_DIR}/${src}"
     [[ -e "${SRC}" ]] || die "missing CM051 source: ${SRC}" 3
     echo "   + ${src}"
-    rsync -a --exclude='__pycache__' --exclude='.DS_Store' --exclude='.git*' \
-        "${SRC}" "${INSTALL_DIR}/"
+    EXCLUDE_FLAGS=()
+    for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
+    rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/"
 done
 
 echo "==> Staging from HR015 (${HR015_DIR})"
@@ -149,8 +205,9 @@ for src in "${HR015_SOURCES[@]}"; do
     SRC="${HR015_DIR}/${src}"
     [[ -e "${SRC}" ]] || die "missing HR015 source: ${SRC}" 3
     echo "   + ${src}"
-    rsync -a --exclude='__pycache__' --exclude='.DS_Store' --exclude='.git*' \
-        "${SRC}" "${INSTALL_DIR}/"
+    EXCLUDE_FLAGS=()
+    for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
+    rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/"
 done
 
 echo "==> Aggregating requirements.txt from HR015/${HR015_AGGREGATE_REQUIREMENTS_SRC}"
@@ -185,6 +242,37 @@ if [[ "${DO_VERIFY}" -eq 1 ]]; then
     fi
     ok "no forbidden patterns in staged tree"
     rm -f "${HITS_FILE}" "${REAL_HITS_FILE}"
+
+    # -------------------------------------------------------------------
+    # Credential / secret scan. Defence-in-depth: rsync should already
+    # exclude .env, but if a developer's real credentials end up in some
+    # other shipped file (a hardcoded API key in source, a stray dotfile
+    # under a different name) we want the release to fail rather than
+    # ship the secret to every customer download.
+    #
+    # Patterns are intentionally conservative – only signals strong
+    # enough that a human reviewer would treat them as definite secrets.
+    # If this ever produces false positives, fix at source (don't add
+    # exemptions; that's how secrets ship).
+    # -------------------------------------------------------------------
+    echo "==> Verifying staged tree (credential / secret scan)"
+    SECRET_HITS="$(mktemp)"
+    # Apple app-specific password format: xxxx-xxxx-xxxx-xxxx (lowercase a-z).
+    # Always flagged – these only get generated for a human's iCloud account.
+    LC_ALL=C grep -RInE '\b[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}\b' "${INSTALL_DIR}" 2>/dev/null >> "${SECRET_HITS}" || true
+    # Any literal .env file that snuck through the rsync exclude.
+    find "${INSTALL_DIR}" -type f -name '.env' 2>/dev/null \
+        | sed 's|^|env-file:|' >> "${SECRET_HITS}" || true
+    # Common API-key prefixes (Anthropic, OpenAI, GitHub PATs).
+    LC_ALL=C grep -RInE '\b(sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{40,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b' "${INSTALL_DIR}" 2>/dev/null >> "${SECRET_HITS}" || true
+
+    if [[ -s "${SECRET_HITS}" ]]; then
+        echo -e "${RED}FAIL${NC}  Possible secrets found in staged tree:"
+        sed 's/^/      /' "${SECRET_HITS}"
+        die "Remove the secret at source – never ship customer-bound credentials." 2
+    fi
+    ok "no credential / secret signatures in staged tree"
+    rm -f "${SECRET_HITS}"
 fi
 
 # -----------------------------------------------------------------------------
