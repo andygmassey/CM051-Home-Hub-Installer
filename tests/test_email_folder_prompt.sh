@@ -11,8 +11,7 @@
 #   in [channels.email]. That meant the assistant would read
 #   every email the customer received -- not just messages
 #   addressed to the assistant. The product rule (email_safety)
-#   is: dedicated label/folder, never the main inbox. Andy's own
-#   instance uses a "Marvin" Gmail label.
+#   is: dedicated label/folder, never the main inbox.
 #
 #   This test pins the safe-by-default path:
 #     1. The user is prompted for a folder/label.

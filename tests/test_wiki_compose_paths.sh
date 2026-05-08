@@ -133,16 +133,14 @@ if ! grep -qE '^err\(\)' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: err() function defined alongside info / ok / warn"
 
-# ── DEFAULT_INSTALLER_TARBALL_URL points at andygmassey mirror (hardening #4) ──
-if grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/" "$INSTALL_SCRIPT"; then
-    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL still points at ostler-ai/ (org-blocked)" >&2
+# ── DEFAULT_INSTALLER_TARBALL_URL points at the canonical ostler-ai mirror ──
+# (Org-block on ostler-ai cleared 2026-05-08; canonical release URL is the
+#  ostler-ai/ostler-installer GitHub Releases tarball.)
+if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/ostler-installer/" "$INSTALL_SCRIPT"; then
+    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the ostler-ai/ostler-installer mirror" >&2
     exit 1
 fi
-if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/andygmassey/CM051-Home-Hub-Installer/" "$INSTALL_SCRIPT"; then
-    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the andygmassey mirror" >&2
-    exit 1
-fi
-echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at the andygmassey mirror"
+echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at the ostler-ai/ostler-installer mirror"
 
 echo ""
 echo "All wiki-compose / hardening tests passed."

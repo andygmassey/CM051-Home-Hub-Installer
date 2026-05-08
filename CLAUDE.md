@@ -17,7 +17,7 @@ curl -fsSL https://ostler.ai/install.sh | bash
 - **HR015 - Gaming PC** — parent infra repo, origin of this installer before it was split out. Still the authoritative home for security module, FDA extractors, website, and cross-project tooling.
 - **CM050 - Home Hub Update System** — the auto-update pipeline (Sparkle) that maintains the installed Hub over time.
 - **CM031 - PWG Companion** — iOS companion app.
-- **ZeroClaw** (on Mac Mini at `/Users/marvin/zeroclaw/`) — the Rust agent framework the installer deploys.
+- **ZeroClaw** — the Rust agent framework the installer deploys (Mac Mini, repo path varies by user).
 
 ## Read before committing
 

@@ -428,12 +428,12 @@ fi
 # defaults mean a cold curl-pipe-bash install never points at a
 # private dev repo; the clone path becomes opt-in via env var.
 #
-# These were previously hard-coded to andygmassey/* repos which are
-# private, so an unauthenticated cold install hit a clone failure
-# (handled non-fatally, but produced confusing log noise about repos
-# the user had no business knowing about). The migration to a
-# creativemachines-ai org public mirror is queued; until that lands,
-# overrides are how dev / beta installs source these.
+# These were previously hard-coded to private dev repos, so an
+# unauthenticated cold install hit a clone failure (handled non-
+# fatally, but produced confusing log noise about repos the user
+# had no business knowing about). The migration to a public mirror
+# under the ostler-ai / creativemachines-ai orgs is queued; until
+# that lands, overrides are how dev / beta installs source these.
 
 # Source repo for the import pipeline (CM041 People Graph). Override:
 # PWG_PIPELINE_REPO="https://github.com/your-org/pipeline.git" ./install.sh
@@ -3358,7 +3358,7 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
-  # Personal wiki (Andypedia) -- the human-readable browse layer over
+  # Personal wiki -- the human-readable browse layer over
   # the Oxigraph graph + Qdrant vectors. Compiled by wiki-compiler
   # below into the shared wiki-docs volume; served by MkDocs Material.
   # See CM044 (PWG Personal Wiki) for compiler internals.
@@ -4344,7 +4344,7 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
     fi
 fi
 
-# ── 3.14d Wiki recompile LaunchAgent (daily Andypedia rebuild) ───
+# ── 3.14d Wiki recompile LaunchAgent (daily wiki rebuild) ───────
 #
 # Daily LaunchAgent that re-runs the wiki-compiler against the
 # current Oxigraph + Qdrant state, so emails / conversations /
@@ -4842,7 +4842,7 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
     fi
 fi
 
-# ── 3.16 Wiki (Andypedia) -- first compile and serve ─────────────────
+# ── 3.16 Wiki -- first compile and serve ─────────────────────────────
 #
 # Resolves install UX BLOCKING #1: the customer's first encounter
 # with Ostler is a browsable, human-readable wiki at
