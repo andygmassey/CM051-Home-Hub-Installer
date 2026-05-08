@@ -73,8 +73,10 @@ targets:
           set -euo pipefail
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           mkdir -p "${DEST}"
-          cp -p "${SRCROOT}/../install.sh"             "${DEST}/install.sh"
-          cp -p "${SRCROOT}/../lib/progress_emitter.sh" "${DEST}/progress_emitter.sh"
+          # Copy WITHOUT -p so we don't preserve source xattrs
+          # (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).
+          cp "${SRCROOT}/../install.sh"             "${DEST}/install.sh"
+          cp "${SRCROOT}/../lib/progress_emitter.sh" "${DEST}/progress_emitter.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/progress_emitter.sh"
         inputFiles:
           - $(SRCROOT)/../install.sh
@@ -82,6 +84,20 @@ targets:
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/progress_emitter.sh
+      - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
+        script: |
+          set -euo pipefail
+          # Belt-and-braces: even if a previous build phase or a `cp -p`
+          # somewhere else left FinderInfo / provenance / macl xattrs on
+          # the staged bundle, strip them recursively before the final
+          # CodeSign step runs. codesign rejects bundles with any xattrs
+          # ("resource fork, Finder information, or similar detritus not
+          # allowed") and this is the canonical fix.
+          APP_BUNDLE="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
+          if [ -d "${APP_BUNDLE}" ]; then
+            /usr/bin/xattr -cr "${APP_BUNDLE}"
+          fi
+        # No inputFiles/outputFiles -- this must always run.
 
 schemes:
   OstlerInstaller:
