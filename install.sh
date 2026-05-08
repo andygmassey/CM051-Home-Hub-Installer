@@ -4025,8 +4025,6 @@ echo "  Stopping services..."
 cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.it-guy" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
@@ -4042,7 +4040,6 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/d
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.it-guy.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
