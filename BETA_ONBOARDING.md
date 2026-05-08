@@ -29,7 +29,7 @@ POWER_POLICY=normal    # or "aggressive" or "eco"
 |---|---|
 | `normal` (default) | Daily use. Pauses at 30% battery, critical at 15%. |
 | `aggressive` | Mac is plugged in but pmset reports flaky. Never throttles; will burn the battery if it really is on battery. |
-| `eco` | Long travel day, don't need Marvin alive. Pauses at 50%, critical at 20%. |
+| `eco` | Long travel day, don't need the assistant alive. Pauses at 50%, critical at 20%. |
 
 Changes take effect within 60 seconds. No restart needed, the watcher reloads the file every tick.
 
