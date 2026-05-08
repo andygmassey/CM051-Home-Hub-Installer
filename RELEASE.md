@@ -1,0 +1,172 @@
+# Cutting a CM051 release
+
+This is the **canonical** release recipe for `ostler-ai/ostler-installer`.
+If anything below disagrees with what's happening in the wild, this doc wins.
+If you change the recipe, update this doc in the same commit.
+
+> **Why this exists:** v0.1.0 was cut without documentation. v0.2.0 had to
+> reconstruct the recipe from the v0.1.0 artefact's contents during launch
+> crunch – slow, error-prone, and revealed a brand-leak (the
+> `lifeline-import.sh` rename hack that didn't sweep content).
+> See `memory/feedback_codify_walked_processes.md` for the rule.
+
+## What ships in a release
+
+A GitHub release at `ostler-ai/ostler-installer` attaches three artefacts:
+
+| Asset | What it is | Source |
+|---|---|---|
+| `install.tar.gz` | The installer payload bundle (this repo's `release.sh` builds it) | This repo + HR015 (cross-repo bundle – see "Source map" below) |
+| `ostler-assistant-aarch64-apple-darwin-vX.Y.Z.tar.gz` | The pre-built ZeroClaw assistant binary | `ostler-ai/ostler-assistant` repo (separate build, not in scope here) |
+| `ostler-assistant-aarch64-apple-darwin-vX.Y.Z.tar.gz.sha256` | Checksum for the above | Generated alongside the binary build |
+
+**This repo only owns `install.tar.gz`.** The assistant binary is built
+separately in `ostler-ai/ostler-assistant` and attached to the same
+release. If you're cutting a release and the assistant binary hasn't
+changed, reuse the previous tag's binary by downloading + re-attaching it
+(see "When the assistant binary is unchanged" below).
+
+## Source map for `install.tar.gz`
+
+The tarball stages everything under a single `install/` parent directory.
+Sources span TWO repos (CM051 + HR015):
+
+```
+install/
+├── install.sh              ← CM051: ./install.sh
+├── lib/                    ← CM051: ./lib/
+├── assistant-agent/        ← CM051: ./assistant-agent/
+├── wiki-recompile/         ← CM051: ./wiki-recompile/
+├── ostler-import.sh        ← HR015: ./ostler-import.sh   (was lifeline-import.sh; renamed at source 2026-05-08)
+├── ostler_security/        ← HR015: ./ostler_security/
+├── ostler_fda/             ← HR015: ./ostler_fda/
+├── hub-power/              ← HR015: ./hub-power/
+├── contact_syncer/         ← HR015: ./contact_syncer/    (canonical; CM041 has a divergent copy – DO NOT use)
+├── email-ingest/           ← HR015: ./email-ingest/
+├── doctor/                 ← HR015: ./doctor/
+├── legal/                  ← HR015: ./legal/
+├── LICENSES/               ← HR015: ./LICENSES/
+├── THIRD_PARTY_NOTICES.md  ← HR015: ./THIRD_PARTY_NOTICES.md
+└── requirements.txt        ← HR015: ./contact_syncer/requirements.txt  (copied to top-level)
+```
+
+**Forbidden patterns** in the staged content (sweep BEFORE tarballing):
+
+- `lifeline` (case-insensitive) – residual rebrand leak
+- `LIFELINE_DIR` – except where intentionally used as a backwards-compat
+  alias (today: `hub-power/bin/hub-power-state.sh` only)
+- `IT Guy`, `it-guy`, `/it-guy` – unreleased competitive IP, never ship to
+  customers (see `memory/feedback_it_guy_never_public.md`)
+- `Marvin` – assistant instance name, not a product noun
+  (see `memory/feedback_naming_assistant_not_marvin.md`)
+- `lifeline.dev` – defunct domain, never existed publicly
+  (see `memory/feedback_lifeline_dev_never_existed.md`)
+
+`release.sh --verify` runs these greps and refuses to seal the tarball if
+any match. Do not bypass.
+
+## Cutting a new release – happy path
+
+```bash
+# 1. Make sure both source repos are on clean main and up to date
+cd "$(dirname "$0")"
+git checkout main && git pull --ff-only
+( cd "../HR015 - Gaming PC" && git checkout main && git pull --ff-only )
+
+# 2. Stage + verify + tarball
+./release.sh --version v0.2.0 --hr015 "../HR015 - Gaming PC" --verify
+
+# Output: dist/install.tar.gz (and dist/install.tar.gz.sha256)
+
+# 3. Diff against the previous release tag (catches accidental drops)
+./release.sh --version v0.2.0 --hr015 "../HR015 - Gaming PC" \
+    --diff-against-tag v0.1.0
+
+# 4. When happy, cut the release
+gh release create v0.2.0 \
+    --repo ostler-ai/ostler-installer \
+    --target main \
+    --title "v0.2.0 – <short description>" \
+    --notes-file dist/RELEASE_NOTES_v0.2.0.md \
+    dist/install.tar.gz \
+    dist/install.tar.gz.sha256
+
+# 5. Attach the assistant binary
+#    Either: rebuild from ostler-ai/ostler-assistant + upload
+#    Or:   reuse v0.1.0's binary if unchanged (see below)
+gh release upload v0.2.0 \
+    --repo ostler-ai/ostler-installer \
+    "ostler-assistant-aarch64-apple-darwin-v0.2.0.tar.gz" \
+    "ostler-assistant-aarch64-apple-darwin-v0.2.0.tar.gz.sha256"
+
+# 6. Verify the live install.sh fetches the new release
+curl -sI https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz \
+    | head -10
+```
+
+## When the assistant binary is unchanged
+
+If `ostler-ai/ostler-assistant` has no commits since the previous release tag,
+download the previous binary, rename, re-checksum, attach:
+
+```bash
+PREV=v0.1.0
+NEW=v0.2.0
+mkdir -p dist
+gh release download "$PREV" \
+    --repo ostler-ai/ostler-installer \
+    --pattern "ostler-assistant-aarch64-apple-darwin-${PREV}.tar.gz" \
+    --dir dist
+mv "dist/ostler-assistant-aarch64-apple-darwin-${PREV}.tar.gz" \
+   "dist/ostler-assistant-aarch64-apple-darwin-${NEW}.tar.gz"
+shasum -a 256 "dist/ostler-assistant-aarch64-apple-darwin-${NEW}.tar.gz" \
+    > "dist/ostler-assistant-aarch64-apple-darwin-${NEW}.tar.gz.sha256"
+```
+
+Note that the *content* of the binary tar is identical – only the filename
+and checksum filename change. If install.sh pins to a specific binary
+version, this approach still works because install.sh reads from the
+release tag, not from the filename.
+
+## What to put in RELEASE_NOTES_vX.Y.Z.md
+
+- One-line summary
+- Bullet list of merged PRs since the previous tag (`git log --oneline TAG..HEAD`)
+- Any breaking changes (env-var renames, dependency bumps, etc.)
+- Any "known issues" the user should be aware of
+
+`release.sh --version vX.Y.Z --notes-skeleton > dist/RELEASE_NOTES_vX.Y.Z.md`
+generates a skeleton with the PR list pre-filled. You write the prose.
+
+## Quirks worth remembering
+
+1. **The `install.sh` script in this repo is symlinked-by-copy into the
+   tarball.** It's the same file. No mangling at packaging time.
+
+2. **`requirements.txt` at the top level of the bundle is a verbatim copy
+   of `HR015/contact_syncer/requirements.txt`.** If you change either,
+   keep them in lockstep until/unless we untangle.
+
+3. **`contact_syncer/` lives in BOTH HR015 and CM041.** The HR015 copy is
+   canonical for the installer bundle. CM041's copy has drifted (different
+   files). Resist the urge to merge them in the middle of a release cut –
+   that's a separate post-launch ticket.
+
+4. **`__pycache__/` and `.DS_Store` must be excluded from the tarball.**
+   `release.sh` excludes them; verify in the dry-run output.
+
+5. **The tarball is NOT signed or notarised.** macOS users pipe install.sh
+   through bash directly; Gatekeeper does not gate it. The installer GUI
+   (`OstlerInstaller.app`) IS notarised separately via `gui/Makefile`.
+
+## When the recipe changes
+
+Update this doc in the SAME commit. Then:
+
+- If `release.sh` needs new flags, add them
+- If new directories are bundled, update the source-map table above
+- If new forbidden patterns are added, update the verify step + the
+  feedback-memory list
+
+The half-life of an undocumented recipe is roughly two weeks – by then
+the next release is needed and somebody is reconstructing.
