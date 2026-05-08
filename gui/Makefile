@@ -95,6 +95,14 @@ release: check-tools check-identity
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"
+	$(STEP) "Stripping xattrs from source tree (codesign hygiene)"
+	# Sonoma+ silently attaches com.apple.provenance / com.apple.macl /
+	# com.apple.FinderInfo to recently-edited or downloaded files. These
+	# xattrs make it through the build into the staged .app and break
+	# CodeSign with "resource fork, Finder information, or similar
+	# detritus not allowed". Strip them from inputs before archive.
+	/usr/bin/xattr -cr "OstlerInstaller" "OstlerInstaller.xcodeproj" || true
+	/usr/bin/xattr -cr "../install.sh" "../lib/progress_emitter.sh" || true
 	xcodebuild \
 	    -project $(PROJECT) \
 	    -scheme $(SCHEME) \
@@ -111,6 +119,8 @@ release: check-tools check-identity
 	    -archivePath "$(ARCHIVE_PATH)" \
 	    -exportPath "$(DIST_DIR)" \
 	    -exportOptionsPlist "$(EXPORT_OPTS)"
+	$(STEP) "Stripping xattrs from exported .app (post-export hygiene)"
+	/usr/bin/xattr -cr "$(APP_PATH)" || true
 	$(STEP) "Verifying signature"
 	codesign --verify --deep --strict --verbose=2 "$(APP_PATH)"
 	@echo ""
