@@ -1131,6 +1131,7 @@ CHANNEL_IMESSAGE_ENABLED=false
 CHANNEL_EMAIL_ENABLED=false
 CHANNEL_WHATSAPP_ENABLED=false
 CHANNEL_WHATSAPP_CONSENT_ACCEPTED=false
+CHANNEL_WHATSAPP_RECIPIENT=""
 CHANNEL_IMESSAGE_ALLOWED=""
 CHANNEL_EMAIL_USERNAME=""
 CHANNEL_EMAIL_PASSWORD=""
@@ -1227,6 +1228,55 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         CHANNEL_WHATSAPP_ENABLED=false
         info "WhatsApp connector left off. You can enable it later via Settings."
     fi
+fi
+
+# ── WhatsApp recipient phone (for daily briefs) ───────────────────
+#
+# The assistant needs to know which phone number it should deliver
+# the morning brief (09:00) and evening wrap (18:00) to over WhatsApp.
+# We seed the captured number into:
+#
+#   1. [channels.whatsapp].allowed_numbers  – inbound allowlist
+#      (without it, dm_policy = "allowlist" denies every message
+#      including the customer's own).
+#   2. [[cron.jobs]].delivery.to            – outbound recipient
+#      for the morning brief + evening wrap jobs.
+#
+# E.164 format (leading +, country code, digits only). We don't
+# validate beyond emptiness; bad numbers surface as a delivery
+# error in Doctor on the first scheduled run.
+if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
+    echo ""
+    echo -e "  ${BOLD}Your WhatsApp phone number${NC}"
+    echo ""
+    echo "  Used for two things:"
+    echo "    1. The phone you'll send messages FROM when chatting with"
+    echo "       your assistant on WhatsApp."
+    echo "    2. Where the morning brief (09:00) and evening wrap (18:00)"
+    echo "       get delivered."
+    echo ""
+    echo "  Enter in E.164 format: leading +, country code, digits only."
+    echo "  Example: +447700900000"
+    echo ""
+    while [[ -z "$CHANNEL_WHATSAPP_RECIPIENT" ]]; do
+        CHANNEL_WHATSAPP_RECIPIENT="$(gui_read \
+            "Your WhatsApp phone number (E.164)" text "" \
+            "Leading +, country code, digits only. e.g. +447700900000" \
+            "" "whatsapp_recipient")"
+        # Trim whitespace.
+        CHANNEL_WHATSAPP_RECIPIENT="${CHANNEL_WHATSAPP_RECIPIENT# }"
+        CHANNEL_WHATSAPP_RECIPIENT="${CHANNEL_WHATSAPP_RECIPIENT% }"
+        if [[ -z "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+            warn "WhatsApp needs a phone number for brief delivery. Try again,"
+            warn "or re-run the installer and pick a different channel choice."
+            continue
+        fi
+        if [[ "${CHANNEL_WHATSAPP_RECIPIENT:0:1}" != "+" ]]; then
+            warn "Number must start with +. Try again."
+            CHANNEL_WHATSAPP_RECIPIENT=""
+            continue
+        fi
+    done
 fi
 
 # ── iMessage details ───────────────────────────────────────────────
@@ -2844,14 +2894,26 @@ TOMLPREAMBLE
         # Web mode (wa-rs). Pair-code linking happens at runtime
         # the first time the assistant binary boots; the user runs
         # `ostler-assistant setup channels --interactive whatsapp`
-        # to enter the 8-digit code from the WhatsApp app. Keep
-        # the block minimal; everything else (allowed_numbers,
-        # dm_policy, etc.) the runtime fills with sensible defaults
-        # for personal mode and surfaces via the same setup wizard.
+        # to enter the 8-digit code from the WhatsApp app.
+        #
+        # allowed_numbers seeds the inbound allowlist with the
+        # customer's own WhatsApp number captured during the wizard
+        # (CHANNEL_WHATSAPP_RECIPIENT). Without it, dm_policy
+        # defaults to "allowlist" and an empty allowlist denies
+        # every inbound message -- including the customer's own
+        # replies to their morning brief. See verify report at
+        # /tmp/DAILY_BRIEFS_OOTB_VERIFY_2026-05-09.md item 6.
         echo
         echo "[channels.whatsapp]"
         echo "enabled = true"
         echo "mode = \"personal\""
+        if [[ -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+            # Escape any embedded double quotes (paranoia: E.164
+            # validation rejects them already, but the TOML emit
+            # path stays safe regardless).
+            _wa_recipient_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
+            echo "allowed_numbers = [\"${_wa_recipient_esc}\"]"
+        fi
     fi
 
     # Pre-seed the chat admin token into ZeroClaw's gateway config
@@ -2874,6 +2936,45 @@ TOMLPREAMBLE
     echo "[tools.web_search]"
     echo "provider = \"vane\""
     echo "vane_url = \"http://localhost:3000\""
+
+    # ── Cron jobs: morning brief + evening wrap ─────────────────
+    #
+    # Schema: crates/zeroclaw-config/src/schema.rs:6144-6216
+    #   CronScheduleDecl::Cron { expr, tz }
+    #   DeliveryConfigDecl   { mode = "announce", channel = ..., to = ..., best_effort = false }
+    #
+    # Only emit when WhatsApp is the configured outbound channel
+    # AND we have a recipient phone. Without those, the cron job
+    # would either fail at every fire (no recipient) or silently
+    # do nothing (channel disabled). When we can't emit, the
+    # next-steps banner tells the customer how to add jobs by
+    # hand later (see Phase 5 banner edits below).
+    #
+    # tz is set from the wizard-captured USER_TZ so the brief
+    # lands at 09:00 customer-local rather than UTC. The schema's
+    # default scheduler is UTC if tz is absent.
+    #
+    # best_effort = false (NOT true): a delivery failure surfaces
+    # as a hard error in cron history rather than getting swallowed
+    # as a WARN. Andy's existing config used best_effort = true,
+    # which masked the very bug the TNM cron-delivery fix was
+    # written to solve. Per memory/feedback_no_silent_security_fallback.md
+    # new customers default-fail-loud so any regression surfaces
+    # in Doctor immediately.
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+        _wa_recipient_cron_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
+        _user_tz_esc="${USER_TZ//\"/\\\"}"
+        echo
+        echo "[[cron.jobs]]"
+        echo "name = \"morning-brief\""
+        echo "schedule = { type = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
+        echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
+        echo
+        echo "[[cron.jobs]]"
+        echo "name = \"evening-wrap\""
+        echo "schedule = { type = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
+        echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
+    fi
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
 umask "$umask_orig"
@@ -4039,6 +4140,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/d
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
@@ -4047,6 +4150,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -4648,14 +4752,28 @@ if [[ -d "${SCRIPT_DIR}/assistant-agent" && -f "${SCRIPT_DIR}/assistant-agent/IN
 fi
 
 if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    # Gate the WhatsApp keepalive LaunchAgent on the customer
+    # actually enabling the WhatsApp channel. Without the channel,
+    # the keepalive would just exit cleanly every fire (no
+    # configured WhatsApp arm to health-check), wasting CPU and
+    # log lines.
+    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
+        ASSISTANT_INSTALL_KEEPALIVE="true"
+    else
+        ASSISTANT_INSTALL_KEEPALIVE="false"
+    fi
     if OSTLER_INSTALL_ROOT="$OSTLER_ASSISTANT_DIR" \
        OSTLER_DIR="$OSTLER_DIR" \
        LOGS_DIR="$LOGS_DIR" \
        ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
+       INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
        bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"; then
         ok "Ostler assistant LaunchAgent loaded (label com.creativemachines.ostler.assistant)"
         info "Logs: ${LOGS_DIR}/ostler-assistant.log (and .err)"
         info "Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
+        if [[ "$ASSISTANT_INSTALL_KEEPALIVE" == "true" ]]; then
+            info "WhatsApp keepalive scheduled at 08:50 + 17:50 (label com.creativemachines.ostler.whatsapp-keepalive)"
+        fi
     else
         warn "Ostler assistant LaunchAgent install failed. See output above."
         warn "Wizard config stays in place; binary stays staged. Manual retry:"
