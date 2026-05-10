@@ -22,11 +22,22 @@
 #   LOGS_DIR                 log directory (default $OSTLER_DIR/logs)
 #   ASSISTANT_CONFIG_DIR     config dir produced by Phase D
 #                            (default $OSTLER_DIR/assistant-config)
+#   INSTALL_WHATSAPP_KEEPALIVE  "true" to also install the
+#                            whatsapp-keepalive LaunchAgent (kicks
+#                            `channel doctor` at 08:50 + 17:50 to
+#                            keep the WhatsApp Web socket warm
+#                            ahead of the morning brief and evening
+#                            wrap). Default unset => skip. Only
+#                            meaningful when the customer enabled
+#                            the WhatsApp channel during install.
 #
 # Side effects:
 #   - Renders com.creativemachines.ostler.assistant.plist into
 #     ~/Library/LaunchAgents/ with placeholders replaced.
 #   - Loads the LaunchAgent via launchctl bootstrap gui/$(id -u).
+#   - Optionally renders + loads
+#     com.creativemachines.ostler.whatsapp-keepalive.plist (gated
+#     on INSTALL_WHATSAPP_KEEPALIVE).
 #
 # Refuses to register the LaunchAgent if the binary is missing.
 # That is not a silent fallback: a misregistered agent that points
@@ -109,4 +120,50 @@ else
     rc=$?
     echo "ostler-assistant install: bootstrap returned $rc; check ${RENDERED_PLIST} and ${LOGS_DIR}/ostler-assistant.err" >&2
     exit "$rc"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Optional: WhatsApp keepalive LaunchAgent
+# ---------------------------------------------------------------------------
+#
+# Gated on INSTALL_WHATSAPP_KEEPALIVE=true. Without it, the morning
+# brief (09:00) and evening wrap (18:00) fire against a potentially
+# disconnected WhatsApp socket and the deliver_announcement either
+# stalls or surfaces as an unready-channel error. The keepalive
+# kicks `channel doctor` at 08:50 + 17:50 so the WhatsApp arm
+# reconnects (if needed) before the brief is due.
+#
+# Same render/bootstrap pattern as the assistant agent above.
+# Reuses the same OSTLER_BIN / OSTLER_HOME / OSTLER_LOGS /
+# OSTLER_ASSISTANT_CONFIG placeholders, so the substitution
+# surface is identical.
+
+if [ "${INSTALL_WHATSAPP_KEEPALIVE:-}" = "true" ]; then
+    KEEPALIVE_PLIST_SRC="$ASSISTANT_INSTALL_ROOT/launchd/com.creativemachines.ostler.whatsapp-keepalive.plist"
+    if [ ! -f "$KEEPALIVE_PLIST_SRC" ]; then
+        echo "ostler-assistant install: whatsapp-keepalive plist not found at $KEEPALIVE_PLIST_SRC" >&2
+        echo "                          Skipping keepalive registration; brief delivery will work but may" >&2
+        echo "                          drop messages if the WhatsApp socket idles out between fires." >&2
+    else
+        KEEPALIVE_RENDERED="$USER_LAUNCH_AGENTS/com.creativemachines.ostler.whatsapp-keepalive.plist"
+        sed \
+            -e "s/OSTLER_ASSISTANT_CONFIG/$esc_assistant_cfg/g" \
+            -e "s/OSTLER_LOGS/$esc_logs/g" \
+            -e "s/OSTLER_BIN/$esc_bin/g" \
+            -e "s/OSTLER_HOME/$esc_home/g" \
+            "$KEEPALIVE_PLIST_SRC" > "$KEEPALIVE_RENDERED"
+        chmod 0644 "$KEEPALIVE_RENDERED"
+
+        KEEPALIVE_LABEL="com.creativemachines.ostler.whatsapp-keepalive"
+        launchctl bootout "$DOMAIN/$KEEPALIVE_LABEL" 2>/dev/null || true
+        if launchctl bootstrap "$DOMAIN" "$KEEPALIVE_RENDERED"; then
+            echo "ostler-assistant install: whatsapp-keepalive bootstrapped ($KEEPALIVE_LABEL)"
+        else
+            rc=$?
+            echo "ostler-assistant install: keepalive bootstrap returned $rc; check ${KEEPALIVE_RENDERED} and ${LOGS_DIR}/whatsapp-keepalive.err" >&2
+            # Non-fatal: the assistant agent loaded; without keepalive
+            # the brief still tries to fire. Surface the error to the
+            # operator but don't fail the whole install.
+        fi
+    fi
 fi

@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler WhatsApp keepalive LaunchAgent.
+
+        WhatsApp Web (wa-rs) sockets drift to disconnected when
+        idle. Without periodic exercise, the socket can die between
+        the last incoming message and the next scheduled brief
+        (09:00 morning, 18:00 evening), so the brief's
+        deliver_announcement races against an unready channel and
+        gets silently dropped.
+
+        Strategy: kick a `channel doctor` run 10 minutes before
+        each scheduled brief so the WhatsApp socket is forced
+        through a health check (and reconnect if needed) before
+        the cron scheduler asks for delivery. 10 minutes is
+        comfortably more than the wa-rs reconnect ceiling
+        (observed at ~60s on Andy's machine) and well under the
+        cron tick interval, so there is plenty of slack for the
+        channel to be ready when the brief fires.
+
+        See defib /tmp/tnm_brief_zeroclaw_cron_diagnosis_2026-05-02.md
+        for the original silent-drop diagnosis. The TNM cron-delivery
+        fix on the assistant side is the matching upstream half;
+        this plist is the customer-machine half so OoTB customers
+        do not hit the same silent drops.
+
+        The installer renders the placeholders below at install time:
+          OSTLER_BIN              -> $OSTLER_DIR/bin
+          OSTLER_HOME             -> $HOME (used as working directory)
+          OSTLER_LOGS             -> $LOGS_DIR
+          OSTLER_ASSISTANT_CONFIG -> $OSTLER_DIR/assistant-config
+
+        ZEROCLAW_WORKSPACE points the binary at the same config
+        the daemon uses, so `channel doctor` exercises exactly the
+        WhatsApp credentials the brief will use later in the day.
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.whatsapp-keepalive</string>
+
+    <!--
+        `channel doctor` runs a health-check loop across every
+        configured channel and prints a healthy/unhealthy/timed-out
+        line per channel. The WhatsApp arm calls into wa-rs's
+        health_check, which exercises the socket and triggers an
+        automatic reconnect on a stale connection. Side effect we
+        want; reporting is just the log artefact.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>OSTLER_BIN/ostler-assistant</string>
+        <string>channel</string>
+        <string>doctor</string>
+    </array>
+
+    <!--
+        Use the same workspace dir as the assistant daemon so the
+        keepalive sees the live channel config, not a stale stub.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ZEROCLAW_WORKSPACE</key>
+        <string>OSTLER_ASSISTANT_CONFIG</string>
+    </dict>
+
+    <!--
+        Two scheduled fires per day:
+          - 08:50 local: 10 minutes before the morning brief (09:00).
+          - 17:50 local: 10 minutes before the evening wrap (18:00).
+
+        StartCalendarInterval honours the user's local timezone
+        (launchd reads the system zone). The cron jobs in
+        config.toml carry an explicit `tz` field; the keepalive
+        plist matches the system zone implicitly. Both align in
+        practice because the install captures USER_TZ from
+        /etc/localtime in Phase 1.3.
+
+        Two separate dicts (NOT one with multiple hour entries)
+        because launchd treats StartCalendarInterval values as
+        wildcards: a single dict with hour=8,minute=50 fires once,
+        a dict with both hours combined would fire on every match
+        of every field.
+    -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>8</integer>
+            <key>Minute</key>
+            <integer>50</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>17</integer>
+            <key>Minute</key>
+            <integer>50</integer>
+        </dict>
+    </array>
+
+    <!--
+        RunAtLoad: false. We do NOT want the keepalive firing on
+        every login or post-install reload; that would spam
+        WhatsApp Web with reconnects. Trigger only at the two
+        scheduled times.
+    -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!--
+        Working directory: HOME so any relative paths in the
+        binary resolve against the user's home rather than /.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. Keepalive output is one
+        line per channel ("✅ WhatsApp  healthy" etc.), so the log
+        accretes about 30 lines per week. Doctor surfaces the file
+        when troubleshooting brief delivery.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/whatsapp-keepalive.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/whatsapp-keepalive.err</string>
+
+    <!--
+        Background priority: keepalive is not latency-critical and
+        we don't want it competing with foreground work for I/O on
+        the user's daily-driver Mac. Matches the wiki-recompile
+        agent's pick.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
