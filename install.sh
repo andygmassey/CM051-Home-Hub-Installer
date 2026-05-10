@@ -323,27 +323,73 @@ else
     BOOTSTRAP_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-installer-XXXXXX")"
     trap 'rm -rf "${BOOTSTRAP_TMPDIR:-}"' EXIT INT TERM
 
-    echo "==> Bootstrapping installer tarball from ${INSTALLER_TARBALL_URL}"
+    # Pre-flight: github.com reachable from this Mac? A 5s probe saves
+    # 30s of pointless retries when the issue is network-side (Tailscale
+    # exit-node, corporate VPN, DNS, no internet) and surfaces it with a
+    # remediation message instead of a cryptic curl error.
     if ! curl --fail --silent --show-error --location \
-            --output "${BOOTSTRAP_TMPDIR}/install.tar.gz" \
-            "${INSTALLER_TARBALL_URL}" 2>"${BOOTSTRAP_TMPDIR}/curl.err"; then
+            --connect-timeout 5 --max-time 8 \
+            --output /dev/null https://github.com \
+            2>"${BOOTSTRAP_TMPDIR}/preflight.err"; then
         echo
-        echo "ERROR: Could not download the installer tarball."
+        echo "ERROR: Cannot reach github.com from this Mac."
+        echo
+        echo "  Detail: $(cat "${BOOTSTRAP_TMPDIR}/preflight.err" 2>/dev/null || echo unknown)"
+        echo
+        echo "Common causes:"
+        echo "  - Tailscale exit-node routing       (try: tailscale down, then re-run)"
+        echo "  - Corporate VPN blocking github.com (try: VPN off, then re-run)"
+        echo "  - DNS resolver issue                (try: dig +short github.com)"
+        echo "  - No internet"
+        echo
+        echo "Fix the network reach, then re-run the installer."
+        exit 1
+    fi
+
+    echo "==> Bootstrapping installer tarball from ${INSTALLER_TARBALL_URL}"
+
+    # Retry the tarball fetch up to 3 times with exponential backoff.
+    # Today's failure mode (Mac Studio, fresh setup, GitHub CDN flake)
+    # was 100% recoverable with a single retry. The single-shot version
+    # exited with a cryptic curl-56 from the bash side and burned a
+    # demo. Catch transient failures here.
+    fetch_ok=0
+    for attempt in 1 2 3; do
+        if curl --fail --silent --show-error --location \
+                --retry-connrefused --retry-all-errors \
+                --connect-timeout 10 --max-time 120 \
+                --output "${BOOTSTRAP_TMPDIR}/install.tar.gz" \
+                "${INSTALLER_TARBALL_URL}" \
+                2>"${BOOTSTRAP_TMPDIR}/curl.err"; then
+            fetch_ok=1
+            break
+        fi
+        if [[ $attempt -lt 3 ]]; then
+            backoff=$((attempt * 2))
+            echo "    Attempt ${attempt}/3 failed; retrying in ${backoff}s..."
+            sleep "${backoff}"
+        fi
+    done
+
+    if [[ $fetch_ok -eq 0 ]]; then
+        echo
+        echo "ERROR: Could not download the installer tarball after 3 attempts."
         echo
         echo "  URL:    ${INSTALLER_TARBALL_URL}"
         echo "  Reason: $(cat "${BOOTSTRAP_TMPDIR}/curl.err" 2>/dev/null || echo unknown)"
         echo
-        echo "The installer needs bundled assets (ostler_security, ostler_fda,"
-        echo "contact_syncer, hub-power, doctor, third-party notices) that this"
-        echo "single install.sh script does not contain. Fix one of:"
+        echo "Recovery (single line, paste in terminal):"
+        echo
+        echo "  curl -fL ${INSTALLER_TARBALL_URL} -o /tmp/install.tar.gz && OSTLER_INSTALLER_TARBALL_URL=file:///tmp/install.tar.gz bash <(curl -fsSL https://ostler.ai/install.sh)"
+        echo
+        echo "If that fetch also fails, the issue is GitHub reachability."
+        echo "Other options:"
         echo
         echo "  1. Wait until the installer tarball is published. We are tracking"
         echo "     this at https://ostler.ai/launch."
         echo
-        echo "  2. Override the tarball URL if you have one staged:"
-        echo "       curl -fsSL https://ostler.ai/install.sh | \\"
-        echo "         OSTLER_INSTALLER_TARBALL_URL=https://your-host/install.tar.gz \\"
-        echo "         bash"
+        echo "  2. Override the tarball URL with one staged elsewhere:"
+        echo "       curl -fsSL https://ostler.ai/install.sh | OSTLER_INSTALLER_TARBALL_URL=https://your-host/install.tar.gz bash"
         echo
         echo "  3. Clone the installer repo and run ./install.sh from your"
         echo "     checkout (dev mode), with PWG_PIPELINE_REPO + PWG_HUB_POWER_REPO"
