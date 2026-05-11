@@ -4698,8 +4698,11 @@ fi
 #      a bad download would put a tampered binary on the daily
 #      driver Mac, so this is an explicit hard fail).
 #   4. Extract to ${OSTLER_DIR}/bin/ostler-assistant.
-#   5. Clear the macOS quarantine xattr because v0.1 ships
-#      unsigned (Andy's Developer ID work is task #136).
+#   5. Clear the macOS quarantine xattr so the bundled binary
+#      runs immediately. Gatekeeper still verifies the
+#      notarisation ticket online on first execution; xattr
+#      removal just skips the double-click confirmation dialog
+#      that curl-installed binaries otherwise trigger.
 #   6. Source assistant-agent/INSTALL_SNIPPET.sh to register the
 #      LaunchAgent.
 #
@@ -4724,7 +4727,7 @@ fi
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.3.0})" "ostler_assistant"
 
 OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.3.0}"
-# Customer-facing distribution. v0.1.0 binary published to
+# Customer-facing distribution. Binary first published to
 # ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
 # was lifted by GitHub support (ticket #4347825).
 OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-installer}"
@@ -4732,7 +4735,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
 ASSISTANT_BINARY="${OSTLER_DIR}/bin/ostler-assistant"
 
-# Apple Silicon only at v0.1. The Phase B release workflow does
+# Apple Silicon only. The Phase B release workflow does
 # not produce an x86_64 build (customer Macs are arm64 by the
 # brief). Surface this clearly rather than letting curl 404 on
 # a non-existent Intel asset.
@@ -4740,7 +4743,7 @@ ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
 if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
     warn "ostler-assistant v${OSTLER_ASSISTANT_VERSION} is Apple Silicon only (detected: ${ARCH_DETECTED})."
     warn "Skipping binary install. The wizard-written config.toml stays in place."
-    info "Intel support is not on the v0.1 roadmap; raise a request if required."
+    info "Intel support is not on the roadmap; raise a request if required."
     ASSISTANT_BINARY_INSTALLED=false
 else
 
