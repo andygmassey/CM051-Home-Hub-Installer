@@ -2870,6 +2870,119 @@ else
     chmod 600 "$CHAT_ADMIN_TOKEN_FILE"
 fi
 
+# ── CM019 JWT_SECRET + PWG service-token seed (CM019 clean-house PR 2) ──
+#
+# Seeds the JWT signing secret read by the CM019 gateway / MCP /
+# ingest services at boot, plus a separate service-token for the
+# local Rust assistant + CLI tools.
+#
+# CM019 PR 3 (compose-side) changes docker-compose.apps.yml to
+# resolve ${JWT_SECRET:?required - run install.sh} against the env.
+# That PR is blocked on this one landing first: without a real
+# JWT_SECRET in ${OSTLER_DIR}/.env, the first compose-up fails
+# loudly. CM019 services (gateway, MCP, ingest) also hard-fail at
+# import time against the same banlist mirrored from
+# services/common/auth/jwt.py; shipping a placeholder defeats the
+# discipline.
+#
+# Two artefacts, both mode 0600 with umask-tightened creation:
+#
+#   1. ${OSTLER_DIR}/.env line "JWT_SECRET=<openssl rand -hex 32>"
+#      Read by docker-compose.apps.yml and any launchd-spawned
+#      service that env-sources this file.
+#   2. ${OSTLER_DIR}/secrets/service_token (file): the service
+#      bearer used by the local Rust assistant + CLI tools to
+#      call the CM019 services. Distinct from zeroclaw_admin_token
+#      (which is the ZeroClaw / iOS-pairing bearer above).
+#
+# Idempotent: re-running the installer reuses existing values
+# when they are real (>= 32 chars and not on the banlist). A
+# banlisted or short value is regenerated with a warn(); silently
+# keeping a banlisted secret would defeat the no-silent-fallback
+# discipline the services rely on.
+#
+# Banlist mirrors services/common/auth/jwt.py _JWT_DEFAULT_BANLIST
+# inline so a customer install does not depend on the personal-
+# world-graph source being present at install time.
+
+OSTLER_ENV_FILE="${OSTLER_DIR}/.env"
+SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+_jwt_secret_min_length=32
+
+_is_jwt_secret_banlisted() {
+    # Matches the banlist at services/common/auth/jwt.py:39-49.
+    case "$1" in
+        "changeme-in-production-min-32-chars" \
+            | "changeme" | "CHANGEME" | "secret" \
+            | "your-secret-here" | "your-secret-key" \
+            | "default-secret" | "test-secret" | "dev-secret")
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Read existing JWT_SECRET if any. Use grep / cut rather than
+# sourcing the file -- sourcing would execute arbitrary shell.
+_existing_jwt_secret=""
+if [[ -f "$OSTLER_ENV_FILE" ]]; then
+    _existing_jwt_secret=$(grep -E '^JWT_SECRET=' "$OSTLER_ENV_FILE" | head -1 | cut -d= -f2- || true)
+    _existing_jwt_secret="${_existing_jwt_secret#\"}"
+    _existing_jwt_secret="${_existing_jwt_secret%\"}"
+    _existing_jwt_secret="${_existing_jwt_secret#\'}"
+    _existing_jwt_secret="${_existing_jwt_secret%\'}"
+fi
+
+_need_new_jwt=false
+if [[ -z "$_existing_jwt_secret" ]]; then
+    _need_new_jwt=true
+elif _is_jwt_secret_banlisted "$_existing_jwt_secret"; then
+    warn "JWT_SECRET in ${OSTLER_ENV_FILE} is on the banlist; regenerating to keep CM019 services importable"
+    _need_new_jwt=true
+elif (( ${#_existing_jwt_secret} < _jwt_secret_min_length )); then
+    warn "JWT_SECRET in ${OSTLER_ENV_FILE} is too short (${#_existing_jwt_secret} < ${_jwt_secret_min_length} chars); regenerating"
+    _need_new_jwt=true
+fi
+
+if [[ "$_need_new_jwt" == true ]]; then
+    JWT_SECRET=$(openssl rand -hex 32)
+    umask_jwt_orig=$(umask)
+    umask 0077
+    touch "$OSTLER_ENV_FILE"
+    chmod 600 "$OSTLER_ENV_FILE"
+    # Filter any prior JWT_SECRET line then append the fresh one
+    # so existing unrelated keys in .env are preserved.
+    if grep -q '^JWT_SECRET=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+        sed -i.bak '/^JWT_SECRET=/d' "$OSTLER_ENV_FILE"
+        rm -f "${OSTLER_ENV_FILE}.bak"
+    fi
+    printf 'JWT_SECRET=%s\n' "$JWT_SECRET" >> "$OSTLER_ENV_FILE"
+    chmod 600 "$OSTLER_ENV_FILE"
+    umask "$umask_jwt_orig"
+    ok "Seeded fresh JWT_SECRET in ${OSTLER_ENV_FILE}"
+else
+    JWT_SECRET="$_existing_jwt_secret"
+    info "Reusing existing JWT_SECRET in ${OSTLER_ENV_FILE}"
+fi
+
+# Service token: separate file under secrets/. Reuse if present
+# (regenerating would invalidate any local CLI tool / assistant
+# instance that bootstrapped against the prior token).
+if [[ -s "$SERVICE_TOKEN_FILE" ]]; then
+    PWG_SERVICE_TOKEN=$(cat "$SERVICE_TOKEN_FILE")
+    info "Reusing existing PWG service token at ${SERVICE_TOKEN_FILE}"
+else
+    PWG_SERVICE_TOKEN=$(openssl rand -hex 32)
+    umask_svc_orig=$(umask)
+    umask 0077
+    printf '%s' "$PWG_SERVICE_TOKEN" > "$SERVICE_TOKEN_FILE"
+    umask "$umask_svc_orig"
+    chmod 600 "$SERVICE_TOKEN_FILE"
+    ok "Seeded PWG service token at ${SERVICE_TOKEN_FILE}"
+fi
+
+unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
+
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
