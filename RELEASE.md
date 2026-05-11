@@ -121,36 +121,108 @@ cd "$(dirname "$0")"
 git checkout main && git pull --ff-only
 ( cd "../HR015 - Gaming PC" && git checkout main && git pull --ff-only )
 
-# 2. Stage + verify + tarball
-./release.sh --version v0.2.0 --hr015 "../HR015 - Gaming PC" --verify
+# 2. Stage + verify + tarball (two-pass SHA injection happens automatically)
+./release.sh --version v0.3.0 --hr015 "../HR015 - Gaming PC" --verify
 
 # Output: dist/install.tar.gz (and dist/install.tar.gz.sha256)
+# release.sh prints the pass-1 SHA (pinned inside the tarball) AND the
+# final SHA (of dist/install.tar.gz). Read the output carefully.
 
-# 3. Diff against the previous release tag (catches accidental drops)
-./release.sh --version v0.2.0 --hr015 "../HR015 - Gaming PC" \
-    --diff-against-tag v0.1.0
+# 3. SHA injection step (REQUIRED -- see "SHA injection" section below)
+#    Copy the FINAL SHA printed by release.sh and patch standalone install.sh:
+FINAL_SHA="<paste final SHA from release.sh output>"
+sed -i '' "s/DEFAULT_INSTALLER_TARBALL_SHA256=\"REPLACE_AT_RELEASE_TIME\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${FINAL_SHA}\"/" install.sh
 
-# 4. When happy, cut the release
-gh release create v0.2.0 \
+# Verify:
+grep 'DEFAULT_INSTALLER_TARBALL_SHA256=' install.sh
+
+# 4. Commit the patched install.sh to main (with the rest of the release bump)
+git add install.sh
+git commit -m "chore: bump installer SHA for v0.3.0 release"
+git push origin main
+
+# 5. Diff against the previous release tag (catches accidental drops)
+./release.sh --version v0.3.0 --hr015 "../HR015 - Gaming PC" --diff-against-tag v0.2.0
+
+# 6. When happy, cut the release
+gh release create v0.3.0 \
     --repo ostler-ai/ostler-installer \
     --target main \
-    --title "v0.2.0 – <short description>" \
-    --notes-file dist/RELEASE_NOTES_v0.2.0.md \
+    --title "v0.3.0 – <short description>" \
+    --notes-file dist/RELEASE_NOTES_v0.3.0.md \
     dist/install.tar.gz \
     dist/install.tar.gz.sha256
 
-# 5. Attach the assistant binary
+# 7. Attach the assistant binary
 #    Either: rebuild from ostler-ai/ostler-assistant + upload
-#    Or:   reuse v0.1.0's binary if unchanged (see below)
-gh release upload v0.2.0 \
+#    Or:   reuse previous binary if unchanged (see below)
+gh release upload v0.3.0 \
     --repo ostler-ai/ostler-installer \
-    "ostler-assistant-aarch64-apple-darwin-v0.2.0.tar.gz" \
-    "ostler-assistant-aarch64-apple-darwin-v0.2.0.tar.gz.sha256"
+    "ostler-assistant-aarch64-apple-darwin-v0.3.0.tar.gz" \
+    "ostler-assistant-aarch64-apple-darwin-v0.3.0.tar.gz.sha256"
 
-# 6. Verify the live install.sh fetches the new release
-curl -sI https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz \
-    | head -10
+# 8. Verify the live install.sh fetches the new release
+curl -sI https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz | head -10
+
+# 9. Smoke-test the SHA guard (cache-bust required)
+curl -sL "https://ostler.ai/install.sh?cb=$(date +%s)" | grep 'DEFAULT_INSTALLER_TARBALL_SHA256'
+# Should print the FINAL SHA from step 3 (not REPLACE_AT_RELEASE_TIME).
 ```
+
+## SHA injection
+
+The `DEFAULT_INSTALLER_TARBALL_SHA256` constant in `install.sh` pins the
+SHA-256 of the release tarball. Customers who run `curl | bash` download the
+tarball and verify it against this constant before extracting. This is the
+supply-chain guard: an attacker must compromise BOTH the release tarball AND
+the `install.sh` served by Cloudflare/GitHub to bypass it.
+
+### Why a two-pass build is needed
+
+The constant lives inside `install.sh`, which is also bundled inside the
+tarball. If we naively pinned the tarball's SHA inside the bundled install.sh,
+the tarball would have to contain a file that references its own SHA -- a
+circular dependency.
+
+`release.sh` resolves this with a two-pass build:
+
+1. **Pass 1:** stage all files with the sentinel `REPLACE_AT_RELEASE_TIME`,
+   tar, compute SHA (S1).
+2. **Inject:** patch staged `install.sh`: replace sentinel with S1.
+3. **Pass 2:** re-tar. Final tarball T2 contains install.sh with S1 pinned.
+   T2 has SHA S2 (different from S1 because install.sh changed).
+
+The **standalone `install.sh`** (in this repo, served at ostler.ai/install.sh
+via GitHub raw) must be patched with **S2** before the release commits. This
+is step 3 in the happy path above. The `release.sh` output prints both values
+clearly:
+
+```
+   pass-1 SHA (pinned inside tarball's install.sh): <S1>
+   FINAL  SHA (dist/install.tar.gz.sha256):         <S2>
+```
+
+Patch the standalone install.sh with **FINAL SHA (S2)**.
+
+### What gets pinned where
+
+| Location | SHA pinned | Matches |
+|---|---|---|
+| Standalone `install.sh` on GitHub raw (this repo) | S2 (FINAL) | `dist/install.tar.gz` |
+| `install.sh` bundled inside `dist/install.tar.gz` | S1 (pass-1) | pass-1 tarball (no longer downloadable) |
+
+The inner pinned SHA (S1) is harmless: it is only ever reached if someone
+extracts the tarball and re-runs the inner install.sh via `curl|bash` from
+inside the extracted tree, which is not a supported use-case. The security
+property that matters is: the **outer** install.sh (what `curl | bash` fetches)
+verifies the tarball before extraction.
+
+### Release-gate CI
+
+Set `OSTLER_CHECK_RELEASE_SHA=1` when running
+`tests/test_bootstrap_prelude.sh` in release-gate CI. This makes the test
+fail if the standalone install.sh still contains the sentinel, catching a
+missed step-3 patch.
 
 ## When the assistant binary is unchanged
 

@@ -334,18 +334,70 @@ if [[ "${DO_DRY_RUN}" -eq 1 ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Tarball
+# Tarball (two-pass SHA injection)
+#
+# install.sh contains a DEFAULT_INSTALLER_TARBALL_SHA256 constant that pins
+# the SHA-256 of the release tarball. Customers who run install.sh via
+# curl|bash download the tarball and verify it against this constant before
+# extracting -- the supply-chain guard. The constant ships in the standalone
+# install.sh on GitHub (what curl fetches), so it must equal the SHA of the
+# tarball being published.
+#
+# Two-pass build solves the chicken-and-egg:
+#
+#   Pass 1: stage + tar with sentinel REPLACE_AT_RELEASE_TIME.
+#           Compute SHA-256 of that tarball (S1).
+#   Inject: replace sentinel in staged install.sh with S1.
+#   Pass 2: re-tar. Final tarball (T2) contains install.sh with S1 pinned.
+#
+# IMPORTANT: T2 has a different SHA (S2) from S1 because the inner
+# install.sh changed. The standalone install.sh on GitHub (the outer script
+# customers fetch first) must be patched with S2 before the release commits.
+# This step is NOT automated here; release.sh prints the required patch
+# command below. See RELEASE.md "SHA injection" step.
 # -----------------------------------------------------------------------------
 
 OUT="${DIST_DIR}/install.tar.gz"
-echo "==> Tarballing -> ${OUT}"
-( cd "${STAGE_DIR}" && tar -czf "${OUT}" install/ ) || die "tar failed" 4
+SENTINEL_VALUE="REPLACE_AT_RELEASE_TIME"
 
-# Checksum
+echo "==> Pass 1: tarballing with sentinel SHA -> ${OUT}"
+( cd "${STAGE_DIR}" && tar -czf "${OUT}" install/ ) || die "tar (pass 1) failed" 4
+
+PASS1_SHA="$(shasum -a 256 "${OUT}" | awk '{print $1}')"
+echo "    pass-1 SHA: ${PASS1_SHA}"
+
+# Verify the staged install.sh actually contains the sentinel before patching.
+if ! grep -q "DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\"" "${INSTALL_DIR}/install.sh"; then
+    die "Sentinel DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\" not found in staged install.sh -- cannot inject SHA. Is the bootstrap prelude block present?" 4
+fi
+
+echo "==> Injecting pass-1 SHA into staged install.sh"
+sed -i '' "s/DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${PASS1_SHA}\"/" "${INSTALL_DIR}/install.sh"
+
+if ! grep -q "DEFAULT_INSTALLER_TARBALL_SHA256=\"${PASS1_SHA}\"" "${INSTALL_DIR}/install.sh"; then
+    die "SHA injection verification failed -- staged install.sh does not contain the injected SHA." 4
+fi
+ok "SHA injected into staged install.sh"
+
+echo "==> Pass 2: re-tarballing with injected SHA -> ${OUT}"
+( cd "${STAGE_DIR}" && tar -czf "${OUT}" install/ ) || die "tar (pass 2) failed" 4
+
+# Checksum of the FINAL tarball (T2).
 ( cd "${DIST_DIR}" && shasum -a 256 install.tar.gz > install.tar.gz.sha256 )
 
+FINAL_SHA="$(awk '{print $1}' "${DIST_DIR}/install.tar.gz.sha256")"
 ok "Built ${OUT} ($(du -h "${OUT}" | cut -f1)) for ${VERSION}"
-echo "   $(cat "${DIST_DIR}/install.tar.gz.sha256")"
+echo ""
+echo "   pass-1 SHA (pinned inside tarball's install.sh): ${PASS1_SHA}"
+echo "   FINAL  SHA (dist/install.tar.gz.sha256):         ${FINAL_SHA}"
+echo ""
+warn "ACTION REQUIRED: patch the standalone install.sh before committing:"
+echo ""
+echo "  sed -i '' 's/DEFAULT_INSTALLER_TARBALL_SHA256=\"REPLACE_AT_RELEASE_TIME\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${FINAL_SHA}\"/' install.sh"
+echo ""
+echo "The standalone install.sh (GitHub raw, served to customers via ostler.ai/install.sh)"
+echo "must pin the FINAL SHA so the supply-chain guard matches the tarball being downloaded."
+echo "See RELEASE.md 'SHA injection' section for the full ceremony."
 
 # -----------------------------------------------------------------------------
 # Notes skeleton (optional)
