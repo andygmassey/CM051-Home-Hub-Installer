@@ -114,6 +114,18 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    it, and re-exec from inside."
     echo "    Default: https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
     echo ""
+    echo "  OSTLER_INSTALLER_TARBALL_SHA256"
+    echo "    Expected SHA-256 (hex) of the install tarball. The download"
+    echo "    is verified against this digest before extraction; a"
+    echo "    mismatch fails the install closed (no tar -xzf, no exec)."
+    echo "    Two-key trust model: an attacker would need to compromise"
+    echo "    BOTH the tarball at OSTLER_INSTALLER_TARBALL_URL AND this"
+    echo "    install.sh on Cloudflare to bypass it."
+    echo "    Empty string skips verification (dev-mode escape, not for"
+    echo "    production). Required when overriding TARBALL_URL to a"
+    echo "    self-staged tarball."
+    echo "    Default: pinned to the most recent ostler-installer release."
+    echo ""
     echo "  PWG_PIPELINE_REPO"
     echo "    Source repo for the import pipeline (CM041 People Graph)."
     echo "    Default: empty (productised tarball bundles the pipeline)."
@@ -310,6 +322,22 @@ USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
 INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
+# SHA-256 of the bootstrap tarball. Updated at release time alongside
+# the ostler-installer release artefact -- see the release ceremony
+# script (release.sh) and RELEASE.md. If you are setting
+# OSTLER_INSTALLER_TARBALL_URL to a self-staged tarball, also export
+# OSTLER_INSTALLER_TARBALL_SHA256 to its hex digest; an empty string
+# means "skip verification" and is reserved for dev-mode use only.
+# The sentinel REPLACE_AT_RELEASE_TIME also skips verification (with
+# a warning) so pre-release / unconfigured builds do not fail closed
+# in dev. release.sh patches this line on the repo-root install.sh
+# after building the tarball, so the next release commit pins the
+# FINAL SHA of the artefact customers will actually download. The
+# inner install.sh inside the tarball stays at the sentinel by
+# design (see RELEASE.md "What gets pinned where").
+DEFAULT_INSTALLER_TARBALL_SHA256="REPLACE_AT_RELEASE_TIME"
+INSTALLER_TARBALL_SHA256="${OSTLER_INSTALLER_TARBALL_SHA256:-${DEFAULT_INSTALLER_TARBALL_SHA256}}"
+
 if [[ -n "${OSTLER_BOOTSTRAP_SCRIPT_DIR:-}" ]]; then
     # Re-entry from a curl|bash bootstrap. The outer invocation
     # extracted a tarball and exec'd us with this env var pointing at
@@ -396,6 +424,37 @@ else
         echo "     set to source repos you have access to."
         echo
         exit 1
+    fi
+
+    # Verify SHA-256 of the downloaded tarball before extraction. This is
+    # the supply-chain guard: an attacker who replaces the GitHub release
+    # artefact must also compromise this install.sh (served via Cloudflare
+    # or the OS001 Pages _redirects 302) to match the embedded digest.
+    # Fail closed on mismatch. Skip (with WARNING) when the constant is
+    # the unconfigured sentinel or the operator has set an empty override
+    # (dev-mode escape for self-staged tarballs).
+    if [[ -n "${INSTALLER_TARBALL_SHA256}" && "${INSTALLER_TARBALL_SHA256}" != "REPLACE_AT_RELEASE_TIME" ]]; then
+        echo "==> Verifying tarball integrity"
+        actual_sha=$(shasum -a 256 "${BOOTSTRAP_TMPDIR}/install.tar.gz" | awk '{print $1}')
+        if [[ "${actual_sha}" != "${INSTALLER_TARBALL_SHA256}" ]]; then
+            echo
+            echo "ERROR: Tarball SHA-256 mismatch. Refusing to extract."
+            echo
+            echo "  Expected: ${INSTALLER_TARBALL_SHA256}"
+            echo "  Got:      ${actual_sha}"
+            echo "  URL:      ${INSTALLER_TARBALL_URL}"
+            echo
+            echo "This usually means one of:"
+            echo "  - You are running an old install.sh against a new release. Re-fetch:"
+            echo "      curl -fsSL https://ostler.ai/install.sh | bash"
+            echo "  - The tarball is corrupted. Retry the install in a few minutes."
+            echo "  - The tarball does not match what the publisher signed. Stop, do"
+            echo "    not extract, and report to security@creativemachines.ai."
+            echo
+            exit 1
+        fi
+    else
+        echo "==> WARNING: tarball SHA-256 verification skipped (dev mode or pre-release build)"
     fi
 
     if ! tar -xzf "${BOOTSTRAP_TMPDIR}/install.tar.gz" -C "${BOOTSTRAP_TMPDIR}"; then
