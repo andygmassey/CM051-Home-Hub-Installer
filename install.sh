@@ -4712,7 +4712,7 @@ fi
 # Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
 # are env-overridable so an enterprise fork or pre-release smoke
 # can point at a different release without editing install.sh.
-# Defaults track ostler-ai/ostler-assistant v0.1.
+# Defaults track ostler-ai/ostler-assistant v0.3.0.
 #
 # Open question: there is no zeroclaw subcommand for "encrypt the
 # plaintext password the wizard just wrote" -- the secrets store
@@ -4721,9 +4721,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.2.0})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.3.0})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.2.0}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.3.0}"
 # Customer-facing distribution. v0.1.0 binary published to
 # ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
 # was lifted by GitHub support (ticket #4347825).
