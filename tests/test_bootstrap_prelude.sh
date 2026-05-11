@@ -124,7 +124,7 @@ fi
 if [[ "${OSTLER_CHECK_RELEASE_SHA:-0}" == "1" ]]; then
     SENTINEL_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INSTALL_SCRIPT" || true)"
     if echo "$SENTINEL_LINE" | grep -q 'REPLACE_AT_RELEASE_TIME'; then
-        fail "DEFAULT_INSTALLER_TARBALL_SHA256 is still the sentinel REPLACE_AT_RELEASE_TIME -- release.sh two-pass build and standalone install.sh patch have not been applied"
+        fail "DEFAULT_INSTALLER_TARBALL_SHA256 is still the sentinel REPLACE_AT_RELEASE_TIME -- release.sh has not run or its install.sh patch step was missed"
     else
         PINNED_SHA="$(echo "$SENTINEL_LINE" | sed -E 's/.*"([0-9a-f]{64})".*/\1/')"
         if [[ ${#PINNED_SHA} -eq 64 ]]; then
@@ -135,6 +135,57 @@ if [[ "${OSTLER_CHECK_RELEASE_SHA:-0}" == "1" ]]; then
     fi
 else
     echo "SKIP: sentinel check skipped (set OSTLER_CHECK_RELEASE_SHA=1 in release-gate CI)"
+fi
+
+# ── 9. Built tarball: inner install.sh stays at sentinel (Finding 2 invariant)
+#
+# After release.sh runs, dist/install.tar.gz exists. The inner install.sh
+# inside that tarball must carry the sentinel value, not a 64-char hex digest.
+# If a power user extracts and runs the inner install.sh standalone with
+# BASH_SOURCE unset, the sentinel triggers the "skip with WARNING" path
+# rather than a stale-digest hard-fail. Skipped when no dist artefacts exist.
+DIST_TARBALL="${REPO_ROOT}/dist/install.tar.gz"
+if [[ -f "$DIST_TARBALL" ]]; then
+    EXTRACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cm051-tarball-check-XXXXXX")"
+    trap 'rm -rf "${EXTRACT_DIR}"' EXIT
+    if tar -xzf "$DIST_TARBALL" -C "$EXTRACT_DIR" 2>/dev/null; then
+        INNER_INSTALL_SH="$(find "$EXTRACT_DIR" -maxdepth 3 -name install.sh -type f -print -quit)"
+        if [[ -n "$INNER_INSTALL_SH" ]]; then
+            INNER_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INNER_INSTALL_SH" || true)"
+            if echo "$INNER_LINE" | grep -q 'REPLACE_AT_RELEASE_TIME'; then
+                pass "tarball-inner install.sh carries the sentinel (Finding 2 invariant holds)"
+            else
+                fail "tarball-inner install.sh does NOT carry the sentinel: ${INNER_LINE}"
+            fi
+        else
+            fail "tarball-inner install.sh not found after extraction"
+        fi
+    else
+        fail "could not extract ${DIST_TARBALL}"
+    fi
+else
+    echo "SKIP: tarball-inner sentinel check skipped (no ${DIST_TARBALL}; run release.sh first)"
+fi
+
+# ── 10. Built tarball SHA matches repo-root install.sh pin (end-to-end) ──────
+#
+# After release.sh runs, the repo-root install.sh is patched with the
+# tarball's SHA. The sidecar and the pinned value must agree. Skipped when
+# no dist artefacts exist OR when the repo-root install.sh is still at
+# sentinel (CI against a clean checkout that has not run release.sh).
+if [[ -f "$DIST_TARBALL" ]] && [[ -f "${REPO_ROOT}/dist/install.tar.gz.sha256" ]]; then
+    SIDECAR_SHA="$(awk '{print $1}' "${REPO_ROOT}/dist/install.tar.gz.sha256")"
+    OUTER_LINE="$(grep '^DEFAULT_INSTALLER_TARBALL_SHA256=' "$INSTALL_SCRIPT" || true)"
+    OUTER_SHA="$(echo "$OUTER_LINE" | sed -E 's/.*"([^"]+)".*/\1/')"
+    if [[ "$OUTER_SHA" == "REPLACE_AT_RELEASE_TIME" ]]; then
+        echo "SKIP: end-to-end SHA-match skipped (repo-root install.sh still at sentinel; release.sh has not patched it yet)"
+    elif [[ "$OUTER_SHA" == "$SIDECAR_SHA" ]]; then
+        pass "repo-root install.sh pin matches dist/install.tar.gz.sha256 (${OUTER_SHA:0:16}...)"
+    else
+        fail "repo-root install.sh pin (${OUTER_SHA:0:16}...) does NOT match dist/install.tar.gz.sha256 (${SIDECAR_SHA:0:16}...)"
+    fi
+else
+    echo "SKIP: end-to-end SHA-match skipped (no dist artefacts; run release.sh first)"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

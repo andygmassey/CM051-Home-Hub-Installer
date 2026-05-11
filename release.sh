@@ -334,7 +334,7 @@ if [[ "${DO_DRY_RUN}" -eq 1 ]]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Tarball (two-pass SHA injection)
+# Tarball (single-pass, inner install.sh locked to sentinel)
 #
 # install.sh contains a DEFAULT_INSTALLER_TARBALL_SHA256 constant that pins
 # the SHA-256 of the release tarball. Customers who run install.sh via
@@ -343,60 +343,76 @@ fi
 # install.sh on GitHub (what curl fetches), so it must equal the SHA of the
 # tarball being published.
 #
-# Two-pass build solves the chicken-and-egg:
+# Build approach:
 #
-#   Pass 1: stage + tar with sentinel REPLACE_AT_RELEASE_TIME.
-#           Compute SHA-256 of that tarball (S1).
-#   Inject: replace sentinel in staged install.sh with S1.
-#   Pass 2: re-tar. Final tarball (T2) contains install.sh with S1 pinned.
+#   1. Force the staged install.sh's SHA pin to the sentinel value, so the
+#      inner copy inside the tarball does not lie about which SHA the
+#      tarball it lives in should have. If a power user extracts the
+#      tarball and runs the inner install.sh standalone (curl-bash style
+#      with BASH_SOURCE unset), the sentinel triggers the documented
+#      "skip with WARNING" path rather than fail-closed against a stale
+#      digest.
 #
-# IMPORTANT: T2 has a different SHA (S2) from S1 because the inner
-# install.sh changed. The standalone install.sh on GitHub (the outer script
-# customers fetch first) must be patched with S2 before the release commits.
-# This step is NOT automated here; release.sh prints the required patch
-# command below. See RELEASE.md "SHA injection" step.
+#   2. Tar once. The resulting tarball's SHA is the FINAL SHA.
+#
+#   3. Patch the repo-root install.sh's SHA pin to the FINAL SHA. The
+#      repo-root install.sh is what customers fetch via curl|bash; its
+#      pin is what the supply-chain guard verifies against on first run.
+#
+# The two-pass design that preceded this was equivalent in outcome to a
+# single pass plus inner-sentinel: pass 1 + inject + pass 2 + revert +
+# pass 3 produced a tarball byte-identical to pass 1 with no injection,
+# because the staged tree ended at the same sentinel state. The
+# simplification removes a redundant tar + sed cycle without changing
+# what ships.
 # -----------------------------------------------------------------------------
 
 OUT="${DIST_DIR}/install.tar.gz"
 SENTINEL_VALUE="REPLACE_AT_RELEASE_TIME"
+OUTER_INSTALL_SH="${CM051_DIR}/install.sh"
 
-echo "==> Pass 1: tarballing with sentinel SHA -> ${OUT}"
-( cd "${STAGE_DIR}" && tar -czf "${OUT}" install/ ) || die "tar (pass 1) failed" 4
+# Verify the staged install.sh has the SHA-pin line. This catches the
+# "bootstrap prelude missing entirely" failure mode regardless of what
+# value the source repo currently pins.
+if ! grep -qE '^DEFAULT_INSTALLER_TARBALL_SHA256="[^"]*"' "${INSTALL_DIR}/install.sh"; then
+    die "DEFAULT_INSTALLER_TARBALL_SHA256= line not found in staged install.sh -- is the bootstrap prelude block present?" 4
+fi
 
-PASS1_SHA="$(shasum -a 256 "${OUT}" | awk '{print $1}')"
-echo "    pass-1 SHA: ${PASS1_SHA}"
+echo "==> Locking staged install.sh SHA pin to sentinel"
+sed -i '' -E "s/^DEFAULT_INSTALLER_TARBALL_SHA256=\"[^\"]*\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\"/" "${INSTALL_DIR}/install.sh"
 
-# Verify the staged install.sh actually contains the sentinel before patching.
 if ! grep -q "DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\"" "${INSTALL_DIR}/install.sh"; then
-    die "Sentinel DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\" not found in staged install.sh -- cannot inject SHA. Is the bootstrap prelude block present?" 4
+    die "Failed to lock staged install.sh to sentinel -- sed rewrite did not take effect" 4
 fi
+ok "Staged install.sh locked to sentinel"
 
-echo "==> Injecting pass-1 SHA into staged install.sh"
-sed -i '' "s/DEFAULT_INSTALLER_TARBALL_SHA256=\"${SENTINEL_VALUE}\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${PASS1_SHA}\"/" "${INSTALL_DIR}/install.sh"
+echo "==> Tarballing -> ${OUT}"
+( cd "${STAGE_DIR}" && tar -czf "${OUT}" install/ ) || die "tar failed" 4
 
-if ! grep -q "DEFAULT_INSTALLER_TARBALL_SHA256=\"${PASS1_SHA}\"" "${INSTALL_DIR}/install.sh"; then
-    die "SHA injection verification failed -- staged install.sh does not contain the injected SHA." 4
-fi
-ok "SHA injected into staged install.sh"
-
-echo "==> Pass 2: re-tarballing with injected SHA -> ${OUT}"
-( cd "${STAGE_DIR}" && tar -czf "${OUT}" install/ ) || die "tar (pass 2) failed" 4
-
-# Checksum of the FINAL tarball (T2).
 ( cd "${DIST_DIR}" && shasum -a 256 install.tar.gz > install.tar.gz.sha256 )
-
 FINAL_SHA="$(awk '{print $1}' "${DIST_DIR}/install.tar.gz.sha256")"
+
 ok "Built ${OUT} ($(du -h "${OUT}" | cut -f1)) for ${VERSION}"
+echo "   FINAL SHA: ${FINAL_SHA}"
+
+# Patch the repo-root install.sh with FINAL_SHA. This is the outer script
+# served to customers via curl|bash; the pin in it is what the supply-chain
+# guard checks the downloaded tarball against. We sed regardless of the
+# current value (sentinel, previous release SHA, or anything else) so the
+# release is deterministic across multiple cuts from the same checkout.
+echo "==> Patching repo-root install.sh with FINAL SHA"
+if ! grep -qE '^DEFAULT_INSTALLER_TARBALL_SHA256="[^"]*"' "${OUTER_INSTALL_SH}"; then
+    die "DEFAULT_INSTALLER_TARBALL_SHA256= line not found in ${OUTER_INSTALL_SH}" 4
+fi
+sed -i '' -E "s/^DEFAULT_INSTALLER_TARBALL_SHA256=\"[^\"]*\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${FINAL_SHA}\"/" "${OUTER_INSTALL_SH}"
+
+if ! grep -q "DEFAULT_INSTALLER_TARBALL_SHA256=\"${FINAL_SHA}\"" "${OUTER_INSTALL_SH}"; then
+    die "Repo-root install.sh patch verification failed -- sed rewrite did not take effect" 4
+fi
+ok "Repo-root install.sh patched with FINAL SHA"
 echo ""
-echo "   pass-1 SHA (pinned inside tarball's install.sh): ${PASS1_SHA}"
-echo "   FINAL  SHA (dist/install.tar.gz.sha256):         ${FINAL_SHA}"
-echo ""
-warn "ACTION REQUIRED: patch the standalone install.sh before committing:"
-echo ""
-echo "  sed -i '' 's/DEFAULT_INSTALLER_TARBALL_SHA256=\"REPLACE_AT_RELEASE_TIME\"/DEFAULT_INSTALLER_TARBALL_SHA256=\"${FINAL_SHA}\"/' install.sh"
-echo ""
-echo "The standalone install.sh (GitHub raw, served to customers via ostler.ai/install.sh)"
-echo "must pin the FINAL SHA so the supply-chain guard matches the tarball being downloaded."
+echo "Next: review the install.sh diff with 'git diff install.sh' (one line: the SHA pin),"
+echo "stage with 'git add install.sh', and commit alongside the release artefacts."
 echo "See RELEASE.md 'SHA injection' section for the full ceremony."
 
 # -----------------------------------------------------------------------------

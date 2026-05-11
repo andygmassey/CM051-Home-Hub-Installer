@@ -330,8 +330,11 @@ INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBA
 # means "skip verification" and is reserved for dev-mode use only.
 # The sentinel REPLACE_AT_RELEASE_TIME also skips verification (with
 # a warning) so pre-release / unconfigured builds do not fail closed
-# in dev. release.sh injects the real digest via a two-pass build:
-# first tar with sentinel, compute SHA, patch this line, re-tar.
+# in dev. release.sh patches this line on the repo-root install.sh
+# after building the tarball, so the next release commit pins the
+# FINAL SHA of the artefact customers will actually download. The
+# inner install.sh inside the tarball stays at the sentinel by
+# design (see RELEASE.md "What gets pinned where").
 DEFAULT_INSTALLER_TARBALL_SHA256="REPLACE_AT_RELEASE_TIME"
 INSTALLER_TARBALL_SHA256="${OSTLER_INSTALLER_TARBALL_SHA256:-${DEFAULT_INSTALLER_TARBALL_SHA256}}"
 
