@@ -190,9 +190,10 @@ if [[ -t 1 ]] && [[ "${TERM:-dumb}" != "dumb" ]]; then
     YELLOW='\033[1;33m'
     BLUE='\033[0;34m'
     BOLD='\033[1m'
+    DIM='\033[2m'
     NC='\033[0m'
 else
-    RED='' GREEN='' YELLOW='' BLUE='' BOLD='' NC=''
+    RED='' GREEN='' YELLOW='' BLUE='' BOLD='' DIM='' NC=''
 fi
 
 # Default no-op stubs for the GUI helpers so any info/warn/err call
@@ -1283,7 +1284,7 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}WhatsApp connector – please read carefully${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+    echo -e "  ${BOLD}WhatsApp connector – please read carefully${NC}"
     echo ""
     echo "  Ostler can read your WhatsApp messages locally on this Mac so"
     echo "  you can search and reference them like any other part of your"
@@ -1322,6 +1323,13 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo ""
     echo "  If you don't want to accept this risk, just leave it off – Ostler"
     echo "  works without WhatsApp. You can turn it on later from Settings."
+    echo ""
+    echo -e "  ${DIM}Legal note: Your relationship with WhatsApp (Meta Platforms"
+    echo -e "  Ireland Ltd) is contractual under their Terms of Service, to"
+    echo -e "  which you are the party. Creative Machines provides software"
+    echo -e "  that reads WhatsApp Web's storage on your Mac; we are not a"
+    echo -e "  party to your WhatsApp ToS and have no rights or duties under"
+    echo -e "  it. Compliance with WhatsApp's terms is your responsibility.${NC}"
     echo ""
     read -p "  Enable WhatsApp connector and accept the risk above? (y/N): " WA_CONSENT
     if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
@@ -2096,7 +2104,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}One last thing – what Ostler will look at on your Mac${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+    echo -e "  ${BOLD}One last thing – what Ostler will look at on your Mac${NC}"
     echo ""
     echo "  Ostler is a personal assistant, so it works by looking at the"
     echo "  parts of your life you keep on this Mac. Some of that is"
@@ -2144,6 +2152,15 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo "    [N] I do not consent. (cancels and removes the installer;"
     echo "        nothing is stored on this Mac)"
     echo ""
+    echo -e "  ${DIM}Legal note: You are the data controller for all"
+    echo -e "  special-category data Ostler processes on this Mac (UK GDPR"
+    echo -e "  Article 4(7)). Creative Machines never receives any of this"
+    echo -e "  data. Your explicit consent above (UK GDPR Article 9(2)(a))"
+    echo -e "  is the lawful basis for processing. For personal and household"
+    echo -e "  use, Article 2(2)(c) further limits scope. This consent is"
+    echo -e "  revocable at any time without affecting processing that has"
+    echo -e "  already taken place.${NC}"
+    echo ""
     while true; do
         read -p "  Your decision (Y / N): " ART9
         case "${ART9:-}" in
@@ -2187,7 +2204,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Recognising voices on calls${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+    echo -e "  ${BOLD}Recognising voices on calls${NC}"
     echo ""
     echo "  Ostler can label transcripts with who is speaking – for"
     echo "  example, \"Speaker A\", \"Speaker B\" – by storing a numeric"
@@ -2203,6 +2220,15 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo "  can turn this off any time in Settings -> Privacy -> Voice"
     echo "  recognition; turning it off deletes any fingerprints already"
     echo "  stored."
+    echo ""
+    echo -e "  ${DIM}Legal note: Voice fingerprints stored on this Mac are"
+    echo -e "  biometric data under UK GDPR Article 9(1). Your explicit"
+    echo -e "  consent above (Article 9(2)(a)) is the lawful basis for"
+    echo -e "  processing. You are the data controller (Article 4(7));"
+    echo -e "  Creative Machines never receives the fingerprints. For"
+    echo -e "  personal and household use, Article 2(2)(c) further limits"
+    echo -e "  scope. Withdrawing consent in Settings deletes stored"
+    echo -e "  fingerprints.${NC}"
     echo ""
     while true; do
         read -p "  Recognise voices on your call recordings? (Y/n): " VOICE
@@ -2231,7 +2257,7 @@ fi
 # personal-records keeper.
 #
 # Wording is verbatim from legal/consent_strings.py
-# (THIRD_PARTY_DATA_NOTICE) and flagged [DRAFT - pending legal review].
+# (THIRD_PARTY_DATA_NOTICE).
 # Decision is held in OSTLER_CONSENT_THIRD_PARTY_DECISION until
 # Phase 3 pip-installs ostler_security; we then persist via consent_cli
 # alongside Article 9 and the WhatsApp / voice tickboxes.
@@ -2244,7 +2270,7 @@ fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  ${BOLD}About the data on your Mac that's not just yours${NC}  ${YELLOW}[DRAFT - pending legal review]${NC}"
+echo -e "  ${BOLD}About the data on your Mac that's not just yours${NC}"
 echo ""
 echo "  Ostler reads parts of your life that contain information about"
 echo "  other people – emails they sent you, messages they wrote, faces"
@@ -2281,6 +2307,12 @@ echo ""
 echo "    [Y] I understand. Continue."
 echo "    [N] I do not consent. (cancels and removes the installer;"
 echo "        nothing is stored on this Mac)"
+echo ""
+echo -e "  ${DIM}Legal note: For records you keep on this Mac, you are"
+echo -e "  the data controller under UK and EU law (UK GDPR Article"
+echo -e "  4(7)). Creative Machines never receives this data and is not"
+echo -e "  the controller. Your processing for personal and household"
+echo -e "  purposes falls within UK/EU GDPR Article 2(2)(c).${NC}"
 echo ""
 while true; do
     read -p "  Your decision (Y / N): " THIRD_PARTY
