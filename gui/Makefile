@@ -2,13 +2,16 @@
 #
 # Targets:
 #   make debug     Debug build, opens .app from DerivedData
-#   make release   Release build (Developer ID signed) -> dist/
-#   make package   Builds DMG from Release .app -> dist/
+#   make release   Release build (Developer ID signed) -> $(DIST_DIR)/
+#   make package   Builds DMG from Release .app -> $(DIST_DIR)/
 #   make notarise  Submits DMG to notarytool, polls, staples on success
 #   make staple    Staples a previously-notarised DMG (re-runnable)
 #   make ship      release + package + notarise (notarise also staples)
-#   make clean     Wipe build/ and dist/
+#   make clean     Wipe $(BUILD_DIR) and $(DIST_DIR)
 #   make regen     Regenerate the .xcodeproj from project.yml (needs xcodegen)
+#
+# BUILD_DIR and DIST_DIR default to /tmp paths to avoid iCloud Drive xattr
+# races; see comment near the variable definitions below.
 #
 # Required env vars:
 #   NOTARY_PROFILE  keychain-profile alias for notarytool. Default: ostler-installer
@@ -34,11 +37,22 @@ NOTARY_PROFILE ?= ostler-installer
 
 # ---------------------------------------------------------------------------
 # Derived paths
+#
+# BUILD_DIR and DIST_DIR default to /tmp so they sit OUTSIDE the iCloud-synced
+# Projects tree. iCloud's FileProvider asynchronously tags freshly-built files
+# with com.apple.FinderInfo + com.apple.fileprovider.fpfs#P xattrs AFTER the
+# in-build "Strip xattrs" phase runs, which then causes codesign to reject the
+# bundle with "resource fork, Finder information, or similar detritus not
+# allowed". Building outside the iCloud-managed tree avoids the race entirely.
+# Override either var at make-time if you want the old in-tree behaviour, e.g.
+#     make BUILD_DIR=build DIST_DIR=dist ship
+# (the $(USER) suffix keeps multiple accounts on the same machine from
+# colliding in /tmp).
 # ---------------------------------------------------------------------------
-BUILD_DIR     := build
+BUILD_DIR     ?= /tmp/ostler-installer-build-$(USER)
 DERIVED_DATA  := $(BUILD_DIR)/DerivedData
 ARCHIVE_PATH  := $(BUILD_DIR)/$(APP_NAME).xcarchive
-DIST_DIR      := dist
+DIST_DIR      ?= /tmp/ostler-installer-dist-$(USER)
 
 VERSION       := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $(INFO_PLIST) 2>/dev/null || echo unknown)
 DMG_NAME      := $(APP_NAME)-$(VERSION).dmg
