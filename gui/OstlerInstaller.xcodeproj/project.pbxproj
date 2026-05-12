@@ -10,15 +10,20 @@
 		0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */; };
 		12ECCC78BC04865699AF3802 /* InstallerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */; };
 		2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A68D9D961170201BC0E5A7 /* StepCatalog.swift */; };
+		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
 		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
+		825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */; };
 		83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F096DE1EF195479F3854214B /* AuthorizationHelper.swift */; };
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
 		A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00506B02E761DF68EBB5ADCF /* PromptSheet.swift */; };
+		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
+		E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */; };
+		E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */; };
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
 		F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1249B5BB363F304334F02 /* ContentView.swift */; };
 		FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */; };
@@ -40,12 +45,16 @@
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerTheme.swift; sourceTree = "<group>"; };
+		49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifierTests.swift; sourceTree = "<group>"; };
 		5BD159481AED14E0F2873891 /* OstlerInstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OstlerInstaller.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OstlerInstaller.entitlements; sourceTree = "<group>"; };
 		648CD2F16A53E31F71B7BD82 /* HintCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HintCopy.json; sourceTree = "<group>"; };
+		6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryView.swift; sourceTree = "<group>"; };
 		7EC2E5CA6E396F6D43EF3FED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistenceTests.swift; sourceTree = "<group>"; };
 		8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OstlerInstallerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressProtocol.swift; sourceTree = "<group>"; };
+		A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifier.swift; sourceTree = "<group>"; };
 		AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerCoordinator.swift; sourceTree = "<group>"; };
 		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -54,6 +63,7 @@
 		E92A90F0ED1636988B7278FB /* HintPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintPanelView.swift; sourceTree = "<group>"; };
 		EF64A6B46A3BD66D6097C846 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		F096DE1EF195479F3854214B /* AuthorizationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizationHelper.swift; sourceTree = "<group>"; };
+		F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistence.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -63,6 +73,7 @@
 				E4C1249B5BB363F304334F02 /* ContentView.swift */,
 				E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */,
 				E92A90F0ED1636988B7278FB /* HintPanelView.swift */,
+				6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */,
 				0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */,
 				00506B02E761DF68EBB5ADCF /* PromptSheet.swift */,
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
@@ -98,6 +109,8 @@
 		89CF886C4785D87342DA0608 /* OstlerInstallerTests */ = {
 			isa = PBXGroup;
 			children = (
+				87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */,
+				49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */,
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 			);
 			path = OstlerInstallerTests;
@@ -124,6 +137,8 @@
 			isa = PBXGroup;
 			children = (
 				F096DE1EF195479F3854214B /* AuthorizationHelper.swift */,
+				F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */,
+				A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -299,6 +314,9 @@
 				E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */,
 				6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */,
 				12ECCC78BC04865699AF3802 /* InstallerCoordinator.swift in Sources */,
+				E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */,
+				D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */,
+				825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */,
 				A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */,
 				9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */,
 				0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */,
@@ -313,6 +331,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */,
+				E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */,
 				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

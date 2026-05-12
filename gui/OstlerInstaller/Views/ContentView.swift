@@ -12,6 +12,32 @@ struct ContentView: View {
     @State private var showLogDrawer: Bool = false
 
     var body: some View {
+        Group {
+            if coordinator.licenseVerified {
+                installLayout
+            } else {
+                LicenseEntryView()
+            }
+        }
+        .frame(width: 880, height: 620)
+        .background(Color.ostlerChassis)
+        .onChange(of: coordinator.licenseVerified) { _, verified in
+            // Once the licence flips true we kick off the install
+            // subprocess. `bootstrap()` is idempotent so a duplicate
+            // call from App.swift is harmless.
+            if verified { coordinator.bootstrap() }
+        }
+        .sheet(item: $coordinator.pendingPrompt) { prompt in
+            PromptSheet(prompt: prompt)
+                .environmentObject(coordinator)
+        }
+        .sheet(item: $coordinator.needsFDA) { fda in
+            FullDiskAccessSheet(probe: fda.probe, reason: fda.reason)
+                .environmentObject(coordinator)
+        }
+    }
+
+    private var installLayout: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 SidebarView()
@@ -41,18 +67,6 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.ostlerChassis)
             }
-
-            // FDA / sudo overlay sheets attach here
-        }
-        .frame(width: 880, height: 620)
-        .background(Color.ostlerChassis)
-        .sheet(item: $coordinator.pendingPrompt) { prompt in
-            PromptSheet(prompt: prompt)
-                .environmentObject(coordinator)
-        }
-        .sheet(item: $coordinator.needsFDA) { fda in
-            FullDiskAccessSheet(probe: fda.probe, reason: fda.reason)
-                .environmentObject(coordinator)
         }
     }
 }
