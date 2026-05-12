@@ -49,6 +49,32 @@ final class InstallerCoordinator: ObservableObject {
     private var stdoutBuffer = ""
     private var startedAt: Date? = nil
 
+    // ── No-output watchdog ───────────────────────────────────────
+    //
+    // Mac Studio retest 2026-05-12 PM HKT showed `~/.ostler/` was
+    // never created and install.sh + a child bash were both
+    // wedged for 8+ hours -- no stdout reached the GUI at all.
+    // The watchdog escalates the Log drawer with timestamped
+    // warnings at 15s / 30s / 60s + every 60s afterwards so a
+    // future hang is visibly different from "running normally
+    // but quiet" without requiring TNM to attach a debugger.
+    /// Time of the most recent stdout/stderr byte from the
+    /// subprocess. Initialised when `launchInstaller` runs.
+    private var lastSubprocessOutputAt: Date? = nil
+    /// True once we have logged the first-output milestone (so
+    /// the "first bytes received" line is emitted exactly once).
+    private var firstOutputLogged: Bool = false
+    /// Count of `gui_emit`-derived events apply()'d so far, by
+    /// type. Surfaced when the watchdog fires so we know whether
+    /// it is "no stdout at all" or "stdout flowing but no
+    /// markers" (which usually means a stdio buffering issue).
+    private var eventCounts: [String: Int] = [:]
+    /// Timer that fires the no-output checks.
+    private var watchdogTask: Task<Void, Never>? = nil
+    /// Tracks how many warning thresholds we have already
+    /// surfaced so we do not spam the log drawer on every tick.
+    private var watchdogStage: Int = 0
+
     struct CompletedStep: Identifiable, Equatable {
         let id: String
         let title: String
@@ -195,16 +221,48 @@ final class InstallerCoordinator: ObservableObject {
         let inputDevNull = Pipe()
         proc.standardInput = inputDevNull
 
-        var env = ProcessInfo.processInfo.environment
-        env["OSTLER_GUI"] = "1"
-        env["OSTLER_GUI_FD"] = "4"
-        env["OSTLER_BOOTSTRAP_SCRIPT_DIR"] = (scriptPath as NSString).deletingLastPathComponent
-        // Disable colours so the log drawer renders cleanly. install.sh
-        // already disables colours when stdout is not a tty, but the
-        // bash subshell may keep ansi for some sub-tools (mkdocs, pip).
-        env["TERM"] = "dumb"
-        env["NO_COLOR"] = "1"
+        // ── Subprocess env ───────────────────────────────────────
+        //
+        // install.sh line 43 has a TTY-redirect gate:
+        //   if [[ ... && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
+        //       exec < /dev/tty
+        //   fi
+        //
+        // A GUI subprocess has no controlling terminal, so the
+        // `exec < /dev/tty` redirect on a missing-OSTLER_GUI path
+        // wedges forever waiting for a tty that does not exist
+        // -- which is exactly the "Starting..." hang Andy hit on
+        // his Mac Studio fresh-install retest. The merge below is
+        // idempotent + explicit so the OSTLER_GUI=1 wiring is
+        // visible at code-review time and cannot drift.
+        //
+        // OSTLER_GUI_FD points install.sh's gui_read at the FIFO
+        // we set up above; OSTLER_BOOTSTRAP_SCRIPT_DIR short-
+        // circuits the tarball-bootstrap branch so install.sh
+        // uses the resources bundled in the .app instead.
+        let overrides: [String: String] = [
+            "OSTLER_GUI": "1",
+            "OSTLER_GUI_FD": "4",
+            "OSTLER_BOOTSTRAP_SCRIPT_DIR": (scriptPath as NSString).deletingLastPathComponent,
+            // Disable colours so the log drawer renders cleanly.
+            // install.sh already strips colours when stdout is
+            // not a tty, but the bash subshell can keep ansi for
+            // some sub-tools (mkdocs, pip).
+            "TERM": "dumb",
+            "NO_COLOR": "1",
+        ]
+        let env = ProcessInfo.processInfo.environment
+            .merging(overrides) { _, new in new }
         proc.environment = env
+        // Surface the gate-relevant env values up-front so a
+        // wedged install can be diagnosed from the Log drawer
+        // alone (no need to attach a debugger).
+        let envSnapshot = overrides
+            .keys
+            .sorted()
+            .map { "\($0)=\(overrides[$0] ?? "")" }
+            .joined(separator: " ")
+        appendLog(level: "info", msg: "Subprocess env overrides: \(envSnapshot)")
 
         proc.terminationHandler = { [weak self] _ in
             Task { @MainActor in self?.handleTermination() }
@@ -232,7 +290,71 @@ final class InstallerCoordinator: ObservableObject {
         try proc.run()
         process = proc
         startedAt = Date()
-        appendLog(level: "info", msg: "Installer launched (pid \(proc.processIdentifier))")
+        lastSubprocessOutputAt = Date()
+        firstOutputLogged = false
+        watchdogStage = 0
+        eventCounts = [:]
+        appendLog(
+            level: "info",
+            msg: "Installer launched: pid=\(proc.processIdentifier) script=\(scriptPath)"
+        )
+        startWatchdog()
+    }
+
+    // MARK: - No-output watchdog
+
+    private func startWatchdog() {
+        watchdogTask?.cancel()
+        watchdogTask = Task { @MainActor [weak self] in
+            // 5-second polling cadence keeps the warning latency
+            // tight without flooding the run loop. The escalation
+            // ladder caps at 60s of silence; after that we emit
+            // an "..."-style heartbeat once per minute.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self else { return }
+                if self.finished != nil { return }
+                self.tickWatchdog()
+            }
+        }
+    }
+
+    private func tickWatchdog() {
+        guard let last = lastSubprocessOutputAt else { return }
+        let elapsed = Date().timeIntervalSince(last)
+
+        // First-output milestone is logged separately in
+        // handleIncoming. Watchdog only surfaces silence.
+        let thresholds: [(seconds: Double, stage: Int, level: String)] = [
+            (15,  1, "warn"),
+            (30,  2, "warn"),
+            (60,  3, "error"),
+        ]
+        for t in thresholds where watchdogStage < t.stage && elapsed >= t.seconds {
+            let summary = eventCounts.isEmpty
+                ? "no stdout/stderr received at all"
+                : "stdout flowing but no progress markers parsed (counts: \(eventSummary()))"
+            appendLog(
+                level: t.level,
+                msg: "Watchdog: \(Int(elapsed))s since last subprocess output -- \(summary)"
+            )
+            watchdogStage = t.stage
+        }
+        // After the 60s threshold, heartbeat once per minute.
+        if watchdogStage >= 3 && elapsed >= Double(60 * (watchdogStage - 1)) {
+            appendLog(
+                level: "error",
+                msg: "Watchdog: subprocess still silent after \(Int(elapsed))s. PID=\(process?.processIdentifier ?? -1). Consider Cancel + retry."
+            )
+            watchdogStage += 1
+        }
+    }
+
+    private func eventSummary() -> String {
+        eventCounts
+            .sorted(by: { $0.key < $1.key })
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: ",")
     }
 
     private func resolveInstallScriptPath() -> String {
@@ -265,6 +387,23 @@ final class InstallerCoordinator: ObservableObject {
 
     private func handleIncoming(data: Data, fromStderr: Bool) {
         guard let chunk = String(data: data, encoding: .utf8) else { return }
+        // Watchdog bookkeeping. Doing this on every byte (even
+        // if utf8 decode fails -- we get here via Data already)
+        // is the cheapest path that guarantees we never miss
+        // input. firstOutputLogged is a one-shot.
+        lastSubprocessOutputAt = Date()
+        if !firstOutputLogged {
+            firstOutputLogged = true
+            let elapsed = startedAt.map { Date().timeIntervalSince($0) } ?? 0
+            let preview = chunk
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .prefix(120)
+            appendLog(
+                level: "info",
+                msg: "First subprocess output after \(String(format: "%.1f", elapsed))s "
+                    + "(\(fromStderr ? "stderr" : "stdout"), \(data.count)B): \(preview)"
+            )
+        }
         stdoutBuffer.append(chunk)
 
         while let nlIdx = stdoutBuffer.firstIndex(of: "\n") {
@@ -282,6 +421,26 @@ final class InstallerCoordinator: ObservableObject {
     }
 
     private func apply(event: InstallerEvent, fromStderr: Bool) {
+        // Track marker counts so the watchdog can distinguish
+        // "no stdout at all" from "stdout flowing but no
+        // markers parsed" (which usually means stdio buffering
+        // or a missing OSTLER_GUI gate).
+        let key: String
+        switch event {
+        case .stepBegin:  key = "stepBegin"
+        case .pct:        key = "pct"
+        case .log:        key = "log"
+        case .warn:       key = "warn"
+        case .prompt:     key = "prompt"
+        case .stepEnd:    key = "stepEnd"
+        case .phase:      key = "phase"
+        case .needsFDA:   key = "needsFDA"
+        case .needsSudo:  key = "needsSudo"
+        case .done:       key = "done"
+        case .unknown:    key = "unknown"
+        }
+        eventCounts[key, default: 0] += 1
+
         switch event {
         case .stepBegin(let id, let title, _, let idx, let total):
             currentStepId = id
@@ -343,6 +502,8 @@ final class InstallerCoordinator: ObservableObject {
             }
         }
         appendLog(level: "info", msg: "Subprocess terminated (exit \(exitCode))")
+        watchdogTask?.cancel()
+        watchdogTask = nil
         promptPipeWriteHandle?.closeFile()
         promptPipeWriteHandle = nil
         if let path = promptFifoPath {
