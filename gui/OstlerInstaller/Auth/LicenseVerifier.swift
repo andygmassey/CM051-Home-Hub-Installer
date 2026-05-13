@@ -28,23 +28,7 @@ import Foundation
 //
 // PRODUCTION public key bytes (32 bytes, Ed25519, raw representation)
 // matching the LICENSE_SIGNING_PRIVATE_KEY Worker secret in CM050.
-//
-// !!! ANDY -- BEFORE FIRST CUSTOMER SHIP !!!
-// Replace the placeholder bytes below with the production public
-// key exported from CM050/license-generator:
-//
-//     cd CM050/license-generator
-//     ostler-license export-pubkey -o public_key.pem
-//     # then convert the PEM body to raw 32-byte representation
-//     # (DER prefix `302a300506032b6570032100` then 32 bytes).
-//     # See `productionPublicKeyBytes(from:)` helper below for the
-//     # one-liner Swift convert if you'd rather copy the PEM in.
-//
-// The placeholder below is deliberately ALL-ZERO so any real
-// signed licence fails verification. Customer installs ABORT at
-// the licence step until the real key is in place -- this is
-// the safer failure mode than embedding a real test key by
-// accident.
+// Keypair ceremonied 2026-05-13.
 //
 // To override at build time for QA / staging:
 //     OSTLER_LICENSE_PUBKEY_OVERRIDE=<64-hex-char string>
@@ -53,9 +37,7 @@ import Foundation
 // `LicenseVerifier(publicKey: testKey)`.
 
 private let productionPublicKeyHex =
-    "0000000000000000000000000000000000000000000000000000000000000000"
-//   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//   Replace before shipping. See note above.
+    "ad31903baa3b2d84ec4bdbfbab860f10e69d5f31649ad5e2a369dbf3377b3dd3"
 
 // MARK: - License schema
 

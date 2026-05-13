@@ -217,15 +217,4 @@ final class LicenseVerifierTests: XCTestCase {
         }
     }
 
-    // MARK: - Production-key safety
-
-    func testProductionPlaceholderKeyDoesNotVerify() {
-        // The all-zero hex placeholder must NOT yield a working
-        // verifier. If a future Andy commits a real key, this test
-        // will start failing -- which is the desired signal (it
-        // means production is wired and the placeholder branch
-        // is no longer in play; delete or replace the test).
-        let v = LicenseVerifier()
-        XCTAssertNil(v, "Embedded production public key is the placeholder; refuse to issue a verifier so the gate cannot accidentally pass.")
-    }
 }
