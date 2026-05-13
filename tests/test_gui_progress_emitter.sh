@@ -21,9 +21,16 @@ if [[ ! -f "$LIB" ]]; then
     exit 1
 fi
 
+# All marker captures below use 2>&1 >/dev/null so STDERR (where
+# markers now flow) is captured into the substitution. Pre-2026-05-13
+# markers went to stdout; the routing changed to fix the install-hang
+# bug surfaced on Mac Studio (brief
+# TNM_BRIEF_INSTALLER_PROMPT_RENDERING_BUG_2026-05-13.md). The wire
+# format itself is unchanged.
+
 # ── Test 1: helpers no-op when OSTLER_GUI is unset ───────────────
 unset OSTLER_GUI 2>/dev/null || true
-out="$(bash -c "source '$LIB'; gui_emit STEP_BEGIN id=foo title=bar; gui_log info 'hello'; gui_warn 'oops'; gui_phase 1 'Phase one'; gui_done ok")"
+out="$(bash -c "source '$LIB'; gui_emit STEP_BEGIN id=foo title=bar; gui_log info 'hello'; gui_warn 'oops'; gui_phase 1 'Phase one'; gui_done ok" 2>&1)"
 if [[ -n "$out" ]]; then
     echo "FAIL [no-op]: helpers produced output when OSTLER_GUI is unset:" >&2
     echo "$out" >&2
@@ -32,7 +39,7 @@ fi
 echo "PASS: helpers no-op when OSTLER_GUI is unset"
 
 # ── Test 2: emit produces well-formed markers when OSTLER_GUI=1 ──
-out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_emit STEP_BEGIN 'id=fda_extract' 'title=Extract' 'phase=3' 'idx=7' 'total=11'")"
+out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_emit STEP_BEGIN 'id=fda_extract' 'title=Extract' 'phase=3' 'idx=7' 'total=11'" 2>&1 >/dev/null)"
 if ! grep -q $'^#OSTLER\tSTEP_BEGIN\tid=fda_extract\ttitle=Extract\tphase=3\tidx=7\ttotal=11$' <<<"$out"; then
     echo "FAIL [emit]: marker shape mismatch" >&2
     echo "  got: $out" >&2
@@ -41,7 +48,7 @@ fi
 echo "PASS: emit produces well-formed tab-separated markers"
 
 # ── Test 3: step bookkeeping emits BEGIN+END pair with elapsed ──
-out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_step_begin foo 'Title bar' 3 1 2; sleep 1; gui_step_end ok")"
+out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_step_begin foo 'Title bar' 3 1 2; sleep 1; gui_step_end ok" 2>&1 >/dev/null)"
 if ! grep -q $'^#OSTLER\tSTEP_BEGIN\tid=foo\ttitle=Title bar\tphase=3\tidx=1\ttotal=2$' <<<"$out"; then
     echo "FAIL [step]: STEP_BEGIN missing or malformed" >&2
     echo "  got: $out" >&2
@@ -74,6 +81,12 @@ echo "PASS: gui_read TTY fallback works"
 # ── Test 5: gui_read in GUI mode reads from OSTLER_GUI_FD ──────
 # We create a pipe, set OSTLER_GUI_FD to its read end, write the
 # answer to its write end, and call gui_read.
+#
+# Critical contract validated here: stdout contains ONLY the answer
+# (so command substitution callers don't pick up the marker), and
+# stderr contains the PROMPT marker (so the GUI parser sees it).
+# Pre-2026-05-13 markers went to stdout, which `$(gui_read ...)`
+# swallowed, causing the install-hang surfaced on Mac Studio.
 TMPDIR_T="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_T"' EXIT
 PIPE="${TMPDIR_T}/p"
@@ -89,28 +102,26 @@ mkfifo "$PIPE"
     printf 'GuiAnswer\n' >&7
     OSTLER_GUI=1 OSTLER_GUI_FD=7 bash -c "source '$LIB'; gui_read 'X' text '' '' '' 'tid'" > "${TMPDIR_T}/out" 2>"${TMPDIR_T}/err"
 )
-got="$(cat "${TMPDIR_T}/out")"
-if [[ "$got" != *"GuiAnswer"* ]]; then
-    echo "FAIL [gui-read]: expected 'GuiAnswer' in stdout, got '$got'" >&2
+got_stdout="$(cat "${TMPDIR_T}/out")"
+got_stderr="$(cat "${TMPDIR_T}/err")"
+# Stdout must be exactly the answer (no marker leak).
+if [[ "$got_stdout" != "GuiAnswer" ]]; then
+    echo "FAIL [gui-read]: stdout must be exactly 'GuiAnswer', got '$got_stdout'" >&2
+    echo "  (any marker on stdout would be swallowed by \$(gui_read ...))" >&2
     cat "${TMPDIR_T}/err" >&2 || true
     exit 1
 fi
-# stderr should also contain the PROMPT marker.
-if ! grep -q $'^#OSTLER\tPROMPT\t' "${TMPDIR_T}/out"; then
-    # In GUI mode, gui_read emits the marker on stdout too. But the
-    # final answer is the last printf; both interleave. Validate the
-    # marker is present *somewhere* in the captured output.
-    if ! grep -q $'#OSTLER\tPROMPT\t' "${TMPDIR_T}/out"; then
-        echo "FAIL [gui-read]: PROMPT marker missing from output" >&2
-        cat "${TMPDIR_T}/out" >&2
-        exit 1
-    fi
+# Stderr must contain the PROMPT marker.
+if ! grep -q $'#OSTLER\tPROMPT\t' <<<"$got_stderr"; then
+    echo "FAIL [gui-read]: PROMPT marker missing from stderr" >&2
+    echo "  stderr: $got_stderr" >&2
+    exit 1
 fi
-echo "PASS: gui_read reads from OSTLER_GUI_FD when GUI mode is active"
+echo "PASS: gui_read reads from OSTLER_GUI_FD; marker on stderr, answer on stdout"
 
 # ── Test 6: gui_emit strips tab/newline from values ─────────────
 out="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_emit LOG 'level=info' 'msg=line1
-line2	with	tabs'")"
+line2	with	tabs'" 2>&1 >/dev/null)"
 # Should not contain literal newline or tab in the msg= field (tabs
 # would break the marker shape; newlines would split the line).
 # Re-extract everything after the LOG marker:
@@ -154,6 +165,66 @@ if ! grep -qE '^[[:space:]]+gui_read\(\)' "${REPO_ROOT}/install.sh"; then
     exit 1
 fi
 echo "PASS: install.sh declares inline stubs for every GUI helper"
+
+# ── Test 9: regression -- gui_emit MUST write to stderr, NEVER ─
+# stdout, so command substitution callers never swallow markers.
+#
+# The 2026-05-13 PM install hang happened because gui_emit wrote to
+# stdout, and gui_read (called via `PERMS_OK="$(gui_read ...)"`) had
+# its PROMPT marker captured into the bash variable instead of
+# reaching the GUI parser. The GUI never rendered a sheet, never
+# wrote back to OSTLER_GUI_FD, and gui_read blocked on `read -u 4`
+# forever. Brief:
+# HR015/launch/TNM_BRIEF_INSTALLER_PROMPT_RENDERING_BUG_2026-05-13.md
+#
+# This test locks the fix: stdout must be empty, stderr must carry
+# the marker. Any future refactor that routes gui_emit through
+# stdout fails here loudly.
+captured_stdout="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_emit FOO bar=baz" 2>/dev/null)"
+if [[ -n "$captured_stdout" ]]; then
+    echo "FAIL [regression]: gui_emit leaked to stdout (would be swallowed by \$())" >&2
+    echo "  got on stdout: $captured_stdout" >&2
+    exit 1
+fi
+captured_stderr="$(OSTLER_GUI=1 bash -c "source '$LIB'; gui_emit FOO bar=baz" 2>&1 >/dev/null)"
+if ! grep -q $'^#OSTLER\tFOO\tbar=baz$' <<<"$captured_stderr"; then
+    echo "FAIL [regression]: gui_emit marker missing from stderr" >&2
+    echo "  got on stderr: $captured_stderr" >&2
+    exit 1
+fi
+echo "PASS: gui_emit markers route to stderr (regression: 2026-05-13 install hang)"
+
+# ── Test 10: regression -- gui_read inside \$() does NOT swallow ─
+# markers. Direct end-to-end coverage of the install-hang fix.
+TMPDIR_T2="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_T" "$TMPDIR_T2"' EXIT
+PIPE2="${TMPDIR_T2}/p"
+mkfifo "$PIPE2"
+(
+    set -e
+    exec 8<>"$PIPE2"
+    printf 'y\n' >&8
+    # The actual install.sh pattern: assign-via-command-sub.
+    OSTLER_GUI=1 OSTLER_GUI_FD=8 bash -c "
+        source '$LIB'
+        PERMS_OK=\"\$(gui_read 'Ready to continue? (Y/n)' yesno '' '' '' 'perms_ok')\"
+        printf 'PERMS_OK_VAR=%s\n' \"\$PERMS_OK\"
+    " > "${TMPDIR_T2}/out" 2>"${TMPDIR_T2}/err"
+)
+# PERMS_OK in the caller must be 'y' (the answer, no marker debris).
+if ! grep -q $'^PERMS_OK_VAR=y$' "${TMPDIR_T2}/out"; then
+    echo "FAIL [install.sh-pattern]: PERMS_OK contaminated by marker leak" >&2
+    echo "  stdout: $(cat ${TMPDIR_T2}/out)" >&2
+    echo "  stderr: $(cat ${TMPDIR_T2}/err)" >&2
+    exit 1
+fi
+# Marker must have reached stderr.
+if ! grep -q $'#OSTLER\tPROMPT\tid=perms_ok\t' "${TMPDIR_T2}/err"; then
+    echo "FAIL [install.sh-pattern]: PROMPT marker missing from stderr" >&2
+    echo "  stderr: $(cat ${TMPDIR_T2}/err)" >&2
+    exit 1
+fi
+echo "PASS: PERMS_OK=\$(gui_read ...) pattern does not swallow PROMPT markers"
 
 echo ""
 echo "All gui_progress_emitter tests passed."

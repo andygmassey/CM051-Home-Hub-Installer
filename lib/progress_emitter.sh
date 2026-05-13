@@ -46,20 +46,43 @@ gui_emit() {
     [[ "${OSTLER_GUI:-0}" != "1" ]] && return 0
     local event="$1"; shift
 
+    # ── Why stderr and not stdout ──
+    #
+    # Marker lines MUST go to stderr because gui_read (and any other
+    # helper that emits markers) is routinely wrapped in command
+    # substitution:
+    #
+    #     answer="$(gui_read 'Your name' text)"
+    #
+    # `$()` captures stdout. If gui_emit writes the PROMPT marker to
+    # stdout it gets swallowed into the bash variable and never
+    # reaches the Mac Hub installer GUI -- the GUI never knows to
+    # render a sheet, so the user is never asked, and gui_read blocks
+    # forever on `read -u "${OSTLER_GUI_FD}"`. That's the launch
+    # blocker Andy hit on Mac Studio 2026-05-13 PM (brief
+    # HR015/launch/TNM_BRIEF_INSTALLER_PROMPT_RENDERING_BUG_2026-05-13.md).
+    #
+    # Stderr is NOT captured by `$()`, so the marker always reaches
+    # the GUI. The Swift side parses both stdout and stderr through
+    # the same ProgressDecoder (InstallerCoordinator captures both
+    # pipes), so the routing is transparent. The same logic is why
+    # the TTY echo at line 167 below uses `>&2`.
+    #
     # Print on a fresh line so the GUI can anchor on \n#OSTLER\t.
     # Some upstream commands don't end with newline, so be defensive.
-    printf '\n#OSTLER\t%s' "$event"
-
-    local kv
-    for kv in "$@"; do
-        # Strip tabs and CR/LF from values, replace with single space.
-        # The GUI parser will reject malformed lines, so be tolerant.
-        kv="${kv//$'\t'/ }"
-        kv="${kv//$'\n'/ }"
-        kv="${kv//$'\r'/ }"
-        printf '\t%s' "$kv"
-    done
-    printf '\n'
+    {
+        printf '\n#OSTLER\t%s' "$event"
+        local kv
+        for kv in "$@"; do
+            # Strip tabs and CR/LF from values, replace with single space.
+            # The GUI parser will reject malformed lines, so be tolerant.
+            kv="${kv//$'\t'/ }"
+            kv="${kv//$'\n'/ }"
+            kv="${kv//$'\r'/ }"
+            printf '\t%s' "$kv"
+        done
+        printf '\n'
+    } >&2
 }
 
 # ── Step bookkeeping (optional convenience) ───────────────────────
