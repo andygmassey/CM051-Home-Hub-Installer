@@ -68,22 +68,32 @@ targets:
         SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         ARCHS: "$(ARCHS_STANDARD)"
     postBuildScripts:
-      - name: Bundle install.sh + progress_emitter.sh into Resources
+      - name: Bundle install.sh + lib/progress_emitter.sh into Resources
         script: |
           set -euo pipefail
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
-          mkdir -p "${DEST}"
+          mkdir -p "${DEST}/lib"
           # Copy WITHOUT -p so we don't preserve source xattrs
           # (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).
-          cp "${SRCROOT}/../install.sh"             "${DEST}/install.sh"
-          cp "${SRCROOT}/../lib/progress_emitter.sh" "${DEST}/progress_emitter.sh"
-          chmod 755 "${DEST}/install.sh" "${DEST}/progress_emitter.sh"
+          #
+          # progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh
+          # (NOT ${DEST}/progress_emitter.sh). install.sh's source
+          # resolution looks at "${SCRIPT_DIR}/lib/progress_emitter.sh"
+          # first -- when install.sh runs from inside the .app,
+          # SCRIPT_DIR is Contents/Resources so the lib/ subfolder is
+          # mandatory. Pre-2026-05-13 this was bundled flat at
+          # ${DEST}/progress_emitter.sh which caused the chicken-and-egg
+          # fallback hang Andy hit on Mac Studio. Fix tracked in
+          # HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.
+          cp "${SRCROOT}/../install.sh"               "${DEST}/install.sh"
+          cp "${SRCROOT}/../lib/progress_emitter.sh"  "${DEST}/lib/progress_emitter.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh"
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
-          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/progress_emitter.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail

@@ -493,23 +493,60 @@ fi
 # the curl|bash TTY path stays byte-for-byte identical to today.
 #
 # Search order:
-#   1. ${SCRIPT_DIR}/lib/progress_emitter.sh    (tarball / dev / curl|bash bootstrap)
-#   2. ${HOME}/.ostler/lib/progress_emitter.sh  (post-install re-run)
-# Falls back to inline no-op stubs if neither path exists, so an
-# install missing the lib file degrades cleanly to TTY behaviour.
-if [[ -f "${SCRIPT_DIR}/lib/progress_emitter.sh" ]]; then
-    # shellcheck source=lib/progress_emitter.sh
-    source "${SCRIPT_DIR}/lib/progress_emitter.sh"
+#   1. ${OSTLER_PROGRESS_EMITTER}                (explicit env override -- tests / staging)
+#   2. ${SCRIPT_DIR}/lib/progress_emitter.sh     (tarball / dev / curl|bash bootstrap / .app bundle)
+#   3. ${HOME}/.ostler/lib/progress_emitter.sh   (post-install re-run)
+#
+# Pre-2026-05-13: when none of those resolved, this fell through to a
+# silent no-op fallback. That swallowed the bug Andy hit on Mac Studio:
+# the CM051 .app bundled progress_emitter.sh at
+# Contents/Resources/progress_emitter.sh (no lib/ subfolder), so the
+# first test missed it on first run, the second missed it because
+# ~/.ostler/ doesn't exist yet on a fresh install, fallback engaged,
+# every gui_* call became `:` and the installer hung at "Step 0 of 11"
+# forever because no progress markers reached the GUI parser.
+#
+# Fix shape per HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md:
+#   - GUI install (OSTLER_GUI=1) with a missing emitter is a bug,
+#     not a graceful degradation. Hard-fail with a re-download
+#     instruction so the customer never sits on a silent hang.
+#   - TTY install (OSTLER_GUI unset) still wants graceful no-ops
+#     because every gui_* call is sprinkled into the script without
+#     guards; the no-op'd emitter is the existing contract.
+_ostler_emitter_candidate=""
+if [[ -n "${OSTLER_PROGRESS_EMITTER:-}" && -f "${OSTLER_PROGRESS_EMITTER}" ]]; then
+    _ostler_emitter_candidate="${OSTLER_PROGRESS_EMITTER}"
+elif [[ -f "${SCRIPT_DIR}/lib/progress_emitter.sh" ]]; then
+    _ostler_emitter_candidate="${SCRIPT_DIR}/lib/progress_emitter.sh"
 elif [[ -f "${HOME}/.ostler/lib/progress_emitter.sh" ]]; then
+    _ostler_emitter_candidate="${HOME}/.ostler/lib/progress_emitter.sh"
+fi
+
+if [[ -n "${_ostler_emitter_candidate}" ]]; then
     # shellcheck source=lib/progress_emitter.sh
-    source "${HOME}/.ostler/lib/progress_emitter.sh"
+    source "${_ostler_emitter_candidate}"
+elif [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    # GUI install with no emitter on disk -- install bundle is
+    # corrupt or built incorrectly. Surface loudly so the customer
+    # re-downloads instead of watching the GUI hang silently.
+    echo "FATAL: progress_emitter.sh not found in any expected location." >&2
+    echo "  Expected one of:" >&2
+    echo "    \$OSTLER_PROGRESS_EMITTER (env override)" >&2
+    echo "    ${SCRIPT_DIR}/lib/progress_emitter.sh (bundled .app)" >&2
+    echo "    ${HOME}/.ostler/lib/progress_emitter.sh (post-install)" >&2
+    echo "  Your install bundle appears corrupt. Please re-download" >&2
+    echo "  from https://ostler.ai/install and try again." >&2
+    exit 1
 else
+    # TTY install (no OSTLER_GUI). The gui_* helpers are sprinkled
+    # unguarded through install.sh; provide silent no-ops + a minimal
+    # `gui_read` so terminal-only operators can still answer prompts.
     gui_emit()        { :; }
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
     gui_read()        {
-        # Minimal fallback if lib is missing. Mirrors the TTY half of
-        # the full helper so install.sh keeps working.
+        # Mirrors the TTY half of the full helper so install.sh keeps
+        # working when sourced direct from a terminal.
         local title="$1" kind="${2:-text}" default_value="${3:-}"
         local user_prompt="  ${title}"
         [[ -n "$default_value" ]] && user_prompt="${user_prompt} [${default_value}]"
@@ -532,6 +569,7 @@ else
     gui_needs_sudo()  { :; }
     gui_needs_fda()   { :; }
 fi
+unset _ostler_emitter_candidate
 
 # ── External resources (overridable via env vars) ──────────────────
 #
