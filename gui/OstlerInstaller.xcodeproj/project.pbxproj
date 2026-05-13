@@ -12,6 +12,7 @@
 		2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A68D9D961170201BC0E5A7 /* StepCatalog.swift */; };
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
+		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
 		83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F096DE1EF195479F3854214B /* AuthorizationHelper.swift */; };
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
@@ -20,10 +21,22 @@
 		D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00506B02E761DF68EBB5ADCF /* PromptSheet.swift */; };
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
 		F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1249B5BB363F304334F02 /* ContentView.swift */; };
+		FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		E4B114C98440942ED6E43582 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BFE252117648CBD7A2B7131F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 26396ABC7C59F0222CB05FE6;
+			remoteInfo = OstlerInstaller;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		00506B02E761DF68EBB5ADCF /* PromptSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSheet.swift; sourceTree = "<group>"; };
+		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerTheme.swift; sourceTree = "<group>"; };
@@ -31,8 +44,10 @@
 		5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OstlerInstaller.entitlements; sourceTree = "<group>"; };
 		648CD2F16A53E31F71B7BD82 /* HintCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HintCopy.json; sourceTree = "<group>"; };
 		7EC2E5CA6E396F6D43EF3FED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OstlerInstallerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressProtocol.swift; sourceTree = "<group>"; };
 		AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerCoordinator.swift; sourceTree = "<group>"; };
+		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessSheet.swift; sourceTree = "<group>"; };
 		E4C1249B5BB363F304334F02 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -63,12 +78,29 @@
 			path = Theme;
 			sourceTree = "<group>";
 		};
+		70F3A6F3FB38114D1EC93F45 /* Bootstrap */ = {
+			isa = PBXGroup;
+			children = (
+				BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */,
+			);
+			path = Bootstrap;
+			sourceTree = "<group>";
+		};
 		7FC686951F990D23E8C912BF /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				5BD159481AED14E0F2873891 /* OstlerInstaller.app */,
+				8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		89CF886C4785D87342DA0608 /* OstlerInstallerTests */ = {
+			isa = PBXGroup;
+			children = (
+				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
+			);
+			path = OstlerInstallerTests;
 			sourceTree = "<group>";
 		};
 		B589DDE9F721ED2F0990EB0E /* Steps */ = {
@@ -83,6 +115,7 @@
 			isa = PBXGroup;
 			children = (
 				F506F64F7264AEB88C7031EC /* OstlerInstaller */,
+				89CF886C4785D87342DA0608 /* OstlerInstallerTests */,
 				7FC686951F990D23E8C912BF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -104,6 +137,7 @@
 				5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */,
 				8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */,
 				F449E7484435D5081F7CC53C /* Auth */,
+				70F3A6F3FB38114D1EC93F45 /* Bootstrap */,
 				FE9676D0B0AB2FB88EC5C6C6 /* Resources */,
 				B589DDE9F721ED2F0990EB0E /* Steps */,
 				4E9E0E7313014F0F4DB5C011 /* Theme */,
@@ -123,6 +157,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		0CAFCBCDD4B741A744827019 /* OstlerInstallerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7EF033C85923020A3AF7362B /* Build configuration list for PBXNativeTarget "OstlerInstallerTests" */;
+			buildPhases = (
+				593D5D57244AD79B82D0C30B /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4271D582E6FE03802199824F /* PBXTargetDependency */,
+			);
+			name = OstlerInstallerTests;
+			packageProductDependencies = (
+			);
+			productName = OstlerInstallerTests;
+			productReference = 8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		26396ABC7C59F0222CB05FE6 /* OstlerInstaller */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = ED6DB04F95A5252A16CE07C2 /* Build configuration list for PBXNativeTarget "OstlerInstaller" */;
@@ -152,6 +204,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					0CAFCBCDD4B741A744827019 = {
+						DevelopmentTeam = V95N2B8X7A;
+						ProvisioningStyle = Manual;
+					};
 					26396ABC7C59F0222CB05FE6 = {
 						DevelopmentTeam = V95N2B8X7A;
 						ProvisioningStyle = Manual;
@@ -173,6 +229,7 @@
 			projectRoot = "";
 			targets = (
 				26396ABC7C59F0222CB05FE6 /* OstlerInstaller */,
+				0CAFCBCDD4B741A744827019 /* OstlerInstallerTests */,
 			);
 		};
 /* End PBXProject section */
@@ -246,14 +303,50 @@
 				9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */,
 				0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */,
 				D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */,
+				FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */,
 				8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */,
 				2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		593D5D57244AD79B82D0C30B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		4271D582E6FE03802199824F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 26396ABC7C59F0222CB05FE6 /* OstlerInstaller */;
+			targetProxy = E4B114C98440942ED6E43582 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		2F6D49C38C765E8C14DB6803 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.ostler.installer.tests;
+				PRODUCT_NAME = OstlerInstallerTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OstlerInstaller.app/Contents/MacOS/OstlerInstaller";
+			};
+			name = Release;
+		};
 		445D28EE613AB0B2DFBF4FB0 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -291,6 +384,25 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Release;
+		};
+		6852673F12C39FEFE135B1E5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.ostler.installer.tests;
+				PRODUCT_NAME = OstlerInstallerTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OstlerInstaller.app/Contents/MacOS/OstlerInstaller";
+			};
+			name = Debug;
 		};
 		75B3465B17430E9CC335A191 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -432,6 +544,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		7EF033C85923020A3AF7362B /* Build configuration list for PBXNativeTarget "OstlerInstallerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6852673F12C39FEFE135B1E5 /* Debug */,
+				2F6D49C38C765E8C14DB6803 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		83F8F40CF92AC5C4B89FB32F /* Build configuration list for PBXProject "OstlerInstaller" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
