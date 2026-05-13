@@ -1,0 +1,77 @@
+# Canonical operator-PII inventory – EXAMPLE FILE.
+#
+# Copy this to `$HOME/.ostler-operator-pii.toml` and fill in the
+# operator-specific values. The real inventory file lives at $HOME
+# (NOT in any repo) so that the same scanner binary can be shared
+# across every repo's pre-commit hook + CI step without committing
+# operator PII to git.
+#
+# The scanner is `bin/operator-pii-scan.sh`. It reads the inventory
+# at $HOME/.ostler-operator-pii.toml and greps every file under the
+# target path against every value, computing common format variants
+# automatically (phone numbers with/without spaces / hyphens /
+# country codes).
+#
+# Add new variants as they are discovered. The scanner will pick
+# them up automatically next run; no code change required.
+
+[phone]
+# Operator phone digits. The scanner builds format variants
+# automatically (spaces, hyphens, with/without country code) so
+# listing the raw digit sequence is enough.
+hk_mobile_digits = ""    # 8 digits, no spaces or country code (placeholder example: "55551234")
+uk_mobile_digits = ""    # 12 digits including 44 prefix (placeholder example: "447700900000", the OFCOM drama range)
+
+[email]
+# Personal-email domains (substring match in any email address).
+domains = [
+    # "example.com",
+]
+
+[home_dir]
+# Usernames whose home dir paths (`/Users/<u>/...`, `~<u>/...`)
+# should never appear in customer-shipping code.
+usernames = [
+    # "alex",
+]
+
+[brands_to_strip]
+# Brand / employer references that must not appear in
+# customer-shipping code, docs, or tests. Operator's
+# previous-employer names + any other strings that would identify
+# the operator personally.
+names = [
+    # "ExampleCorp",
+]
+
+[family_names]
+# Family-member first names + activities (e.g. specific martial
+# arts schools, sports clubs) that must not appear as data
+# fixtures or LLM-prompt few-shot examples in customer-shipping
+# code.
+names = [
+    # "Sam",
+]
+
+[allow_paths]
+# Glob patterns the scanner skips. Add to this list for
+# legitimate fixture / mocks / archive dirs that hold PII by
+# design, plus any operator-personal project dirs that are not
+# customer-shipping.
+skip = [
+    ".git/**",
+    ".venv/**",
+    "venv/**",
+    "node_modules/**",
+    "target/**",
+    "__pycache__/**",
+    ".pytest_cache/**",
+    ".archive/**",
+    "_archive/**",
+    "dist/**",
+    "build/**",
+    "site/**",
+    ".claude/**",
+    ".next/**",
+    "coverage/**",
+]
