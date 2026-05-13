@@ -145,6 +145,15 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    running install.sh directly without a tarball; without it"
     echo "    the Doctor LaunchAgent is skipped with a warn-only message."
     echo ""
+    echo "  PWG_KNOWLEDGE_REPO"
+    echo "    Source repo for the Knowledge service (CM024 Evernote ingest)."
+    echo "    Default: empty (Knowledge service skipped warn-only; the"
+    echo "    Doctor 'Import Evernote' surface, when the feature flag is"
+    echo "    eventually flipped on, will surface 'service unavailable')."
+    echo "    Set to a clone URL pointing at a tagged release SHA of the"
+    echo "    evernote-knowledge repo to install ostler-knowledge into"
+    echo "    a dedicated venv at ~/.ostler/services/knowledge/."
+    echo ""
     echo "  PWG_NOTICES_BASE_URL"
     echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
     echo "    LICENSES/ tree when neither the tarball nor the hub-power"
@@ -558,6 +567,16 @@ HUB_POWER_REPO="${PWG_HUB_POWER_REPO:-}"
 # Ostler runs without Doctor). Override:
 # PWG_DOCTOR_REPO="https://github.com/your-org/hr015.git" ./install.sh
 DOCTOR_REPO="${PWG_DOCTOR_REPO:-}"
+
+# Knowledge service (CM024 Evernote ingest). Pure on-demand Python CLI
+# (ostler-knowledge), installed into a dedicated venv under
+# ~/.ostler/services/knowledge/. No daemon -- just a binary on PATH.
+# The Doctor "Import Evernote" surface (HR015 brief 3, launch-scope) is
+# feature-flagged and OFF by default at v1; the CLI install path here
+# is NOT flag-gated -- we always install, the flag only controls UI.
+# Override:
+# PWG_KNOWLEDGE_REPO="https://github.com/your-org/repo.git" ./install.sh
+KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 
 # Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
 # LICENSES/ tree. Same productisation rule: bundled tarball is the
@@ -4408,13 +4427,35 @@ sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing Keychain entry..."
 security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
 
-echo "  Removing Ostler directory (hub power policy preserved)..."
-# Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power policy.
-# Everything else under ~/.ostler goes.
+echo "  Removing /usr/local/bin/ostler-knowledge symlink..."
+sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
+
+echo "  Removing Ostler directory (hub power + knowledge staging preserved)..."
+# Preserve ~/.ostler/power.conf so a reinstall reuses the user's hub power
+# policy. Also preserve ~/.ostler/data/knowledge-staging/ so a reinstall does
+# not throw away the imported Evernote markdown + image trees (operator data
+# that can take 20+ minutes to regenerate). Everything else under ~/.ostler
+# goes.
+KNOWLEDGE_STAGING_DIR="${HOME}/.ostler/data/knowledge-staging"
+KNOWLEDGE_STAGING_BAK=""
+if [[ -d "$KNOWLEDGE_STAGING_DIR" ]]; then
+    KNOWLEDGE_STAGING_BAK="$(mktemp -d -t ostler-knowledge-staging-XXXXXX)"
+    if ! mv "$KNOWLEDGE_STAGING_DIR" "${KNOWLEDGE_STAGING_BAK}/staging" 2>/dev/null; then
+        KNOWLEDGE_STAGING_BAK=""
+    fi
+fi
+
 if [[ -d "${HOME}/.ostler" ]]; then
     find "${HOME}/.ostler" -mindepth 1 -maxdepth 1 ! -name 'power.conf' -exec rm -rf {} + 2>/dev/null || true
     # If power.conf wasn't there, the directory is now empty - drop it too.
     rmdir "${HOME}/.ostler" 2>/dev/null || true
+fi
+
+if [[ -n "$KNOWLEDGE_STAGING_BAK" ]] && [[ -d "${KNOWLEDGE_STAGING_BAK}/staging" ]]; then
+    mkdir -p "$(dirname "$KNOWLEDGE_STAGING_DIR")"
+    mv "${KNOWLEDGE_STAGING_BAK}/staging" "$KNOWLEDGE_STAGING_DIR"
+    rmdir "$KNOWLEDGE_STAGING_BAK" 2>/dev/null || true
+    echo "  Knowledge staging preserved at ${KNOWLEDGE_STAGING_DIR}."
 fi
 
 # ── Apply the keep-content decision made earlier ───────────────
@@ -4535,6 +4576,104 @@ DOCEOF
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
     ok "Ostler Doctor running at http://localhost:8089/doctor"
+fi
+
+# ── 3.13b Knowledge service (CM024 Evernote ingest) ─────────────
+#
+# Installs the ostler-knowledge CLI under ~/.ostler/services/knowledge/.
+# CM024 is a Python click app with a console_scripts entry for
+# ostler-knowledge; pip-installing the repo into a dedicated venv
+# creates the binary at .venv/bin/ostler-knowledge. We symlink that
+# into /usr/local/bin/ostler-knowledge so the customer can invoke it
+# directly without activating the venv.
+#
+# Customer data staging dir at ~/.ostler/data/knowledge-staging/ is
+# created at install time AND preserved by the uninstaller (it holds
+# imported note markdown + per-note image trees; can take 20+ minutes
+# to regenerate on a real-sized Evernote export).
+#
+# Feature flag note (HR015 brief 3.x launch-scope): the CM024 install
+# path always runs; only the Doctor "Import Evernote" UI surface is
+# flag-gated. Knowledge is installed regardless of features.evernote_import.
+
+progress "Setting up Knowledge service (CM024)" "knowledge_setup"
+
+KNOWLEDGE_DIR="${OSTLER_DIR}/services/knowledge"
+KNOWLEDGE_VENV="${KNOWLEDGE_DIR}/.venv"
+KNOWLEDGE_BIN="${KNOWLEDGE_VENV}/bin/ostler-knowledge"
+KNOWLEDGE_SYMLINK="/usr/local/bin/ostler-knowledge"
+KNOWLEDGE_STAGING_DIR="${OSTLER_DIR}/data/knowledge-staging"
+
+mkdir -p "$(dirname "$KNOWLEDGE_DIR")" "$KNOWLEDGE_STAGING_DIR"
+
+if [[ -z "$KNOWLEDGE_REPO" ]]; then
+    info "Knowledge service not installed: PWG_KNOWLEDGE_REPO empty."
+    info "Beta testers with access can set PWG_KNOWLEDGE_REPO=<url> and re-run."
+    info "Import-Evernote UI in Doctor will surface a 'service unavailable'"
+    info "message when the feature flag is later flipped on."
+else
+    info "Installing Knowledge service from $KNOWLEDGE_REPO..."
+
+    KNOWLEDGE_CLONE_LOG="$(mktemp -t ostler-knowledge-clone.XXXXXX.log)"
+    if [[ -d "$KNOWLEDGE_DIR/.git" ]]; then
+        info "  Existing checkout at $KNOWLEDGE_DIR; updating..."
+        if git -C "$KNOWLEDGE_DIR" fetch --quiet origin 2>"$KNOWLEDGE_CLONE_LOG" \
+            && git -C "$KNOWLEDGE_DIR" reset --hard --quiet origin/main 2>>"$KNOWLEDGE_CLONE_LOG"; then
+            rm -f "$KNOWLEDGE_CLONE_LOG"
+        else
+            warn "  Update failed; continuing with existing checkout."
+            if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
+                sed -e 's/^/    /' "$KNOWLEDGE_CLONE_LOG" | head -5
+            fi
+            rm -f "$KNOWLEDGE_CLONE_LOG"
+        fi
+    elif git clone --quiet --depth 1 "$KNOWLEDGE_REPO" "$KNOWLEDGE_DIR" 2>"$KNOWLEDGE_CLONE_LOG"; then
+        info "  Cloned to $KNOWLEDGE_DIR."
+        rm -f "$KNOWLEDGE_CLONE_LOG"
+    else
+        warn "Knowledge service install failed (clone)."
+        if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
+            warn "Git said:"
+            sed -e 's/^/    /' "$KNOWLEDGE_CLONE_LOG" | head -5
+        fi
+        info "  git clone ${KNOWLEDGE_REPO} ${KNOWLEDGE_DIR}"
+        info "  Override the source repo with PWG_KNOWLEDGE_REPO=<url> ./install.sh"
+        rm -f "$KNOWLEDGE_CLONE_LOG"
+    fi
+
+    if [[ -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
+        info "  Creating Python venv at $KNOWLEDGE_VENV..."
+        python3 -m venv "$KNOWLEDGE_VENV"
+
+        info "  Installing ostler-knowledge into venv..."
+        "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
+            info "  ostler-knowledge installed in venv."
+        else
+            warn "  pip install failed; ostler-knowledge will not be available."
+            if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
+            fi
+        fi
+
+        if [[ -x "$KNOWLEDGE_BIN" ]]; then
+            info "  Symlinking $KNOWLEDGE_BIN -> $KNOWLEDGE_SYMLINK"
+            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+
+            # Health check via the symlink (verifies PATH-side wiring + venv binding).
+            if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
+                ok "Knowledge service ready: $VERSION_OUT"
+            else
+                warn "  Health check failed: ostler-knowledge --version did not produce output."
+            fi
+        else
+            warn "  Console script not created at $KNOWLEDGE_BIN; pyproject.toml may be missing the [project.scripts] entry."
+        fi
+    elif [[ -d "$KNOWLEDGE_DIR" ]]; then
+        warn "Knowledge repo cloned but pyproject.toml missing; venv setup skipped."
+        warn "Block 3.1 of the CM024 productisation stack adds pyproject.toml --"
+        warn "ensure the pinned PWG_KNOWLEDGE_REPO tag includes it."
+    fi
 fi
 
 # ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────
