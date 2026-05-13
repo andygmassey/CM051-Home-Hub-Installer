@@ -1,0 +1,97 @@
+name: operator-pii-scan
+
+# Runs the cross-repo operator-PII scanner against the PR diff. Fails the
+# build on any hit so the class-of-leak surfaced 2026-05-13 (operator real
+# PII in customer-shipping repos) cannot recur silently.
+#
+# Inventory source (hybrid):
+#   1. If the OPERATOR_PII_INVENTORY GitHub secret is set, its contents are
+#      written to $HOME/.ostler-operator-pii.toml verbatim (preferred -- the
+#      full operator inventory, with phone digits + email domains).
+#   2. Otherwise, .github/operator-pii-inventory.toml is used (committed
+#      template; safe to leave phone/email empty; brands/family/paths
+#      remain effective).
+#
+# Scanner: bundled at .github/scripts/operator-pii-scan.sh by
+# bin/install-pii-guards.sh. Re-run the installer to refresh it after
+# scanner updates in HR015.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch (with merge-base history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep
+
+      - name: Materialise PII inventory
+        env:
+          OPERATOR_PII_INVENTORY: ${{ secrets.OPERATOR_PII_INVENTORY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${OPERATOR_PII_INVENTORY:-}" ]; then
+              printf '%s' "$OPERATOR_PII_INVENTORY" > "$HOME/.ostler-operator-pii.toml"
+              echo "Inventory source: OPERATOR_PII_INVENTORY secret (full)"
+          elif [ -f .github/operator-pii-inventory.toml ]; then
+              cp .github/operator-pii-inventory.toml "$HOME/.ostler-operator-pii.toml"
+              echo "Inventory source: committed .github/operator-pii-inventory.toml"
+              echo "  (phone/email checks effective only if secret is set)"
+          else
+              echo "::error::No PII inventory available (no OPERATOR_PII_INVENTORY secret, no .github/operator-pii-inventory.toml)"
+              echo "Run bin/install-pii-guards.sh from the HR015 - Gaming PC repo to provision it." >&2
+              exit 1
+          fi
+
+      - name: Build PR-diff staging dir
+        id: stage
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          STAGE_DIR="$(mktemp -d -t operator-pii-XXXXXX)"
+          COUNT=0
+          while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              [ -f "$f" ] || continue
+              dest="$STAGE_DIR/$f"
+              mkdir -p "$(dirname "$dest")"
+              cp "$f" "$dest"
+              COUNT=$((COUNT + 1))
+          done < <(git diff --name-only --diff-filter=ACMR "$BASE_SHA"...HEAD)
+          echo "stage_dir=$STAGE_DIR" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Staged $COUNT changed file(s) for scan."
+
+      - name: Skip scan (no changed files)
+        if: ${{ steps.stage.outputs.count == '0' }}
+        run: echo "No tracked files changed in this PR; scan skipped."
+
+      - name: Run operator-pii-scan
+        if: ${{ steps.stage.outputs.count != '0' }}
+        run: |
+          set -euo pipefail
+          SCANNER=".github/scripts/operator-pii-scan.sh"
+          if [ ! -x "$SCANNER" ]; then
+              echo "::error::Scanner not found at $SCANNER."
+              echo "Run bin/install-pii-guards.sh from the HR015 - Gaming PC repo to provision it."
+              exit 1
+          fi
+          # Scanner exits 0 = clean, 1 = hits, 2 = inventory issue, 3 = rg missing.
+          if ! "$SCANNER" "${{ steps.stage.outputs.stage_dir }}"; then
+              status=$?
+              echo "::error::operator-pii-scan failed (exit $status). See output above." >&2
+              exit "$status"
+          fi
+          echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned)"
