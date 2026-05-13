@@ -21,6 +21,20 @@
                ReferencedContainer = "container:OstlerInstaller.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "0CAFCBCDD4B741A744827019"
+               BuildableName = "OstlerInstallerTests.xctest"
+               BlueprintName = "OstlerInstallerTests"
+               ReferencedContainer = "container:OstlerInstaller.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -39,6 +53,17 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "0CAFCBCDD4B741A744827019"
+               BuildableName = "OstlerInstallerTests.xctest"
+               BlueprintName = "OstlerInstallerTests"
+               ReferencedContainer = "container:OstlerInstaller.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

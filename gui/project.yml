@@ -99,15 +99,38 @@ targets:
           fi
         # No inputFiles/outputFiles -- this must always run.
 
+  # Unit test target. Hosts SelfRelocatorTests.swift (and any future
+  # XCTest suites under OstlerInstallerTests/). Loaded as a bundle
+  # injected into the main app, the conventional macOS unit-test
+  # arrangement so @testable import sees the app's internal types.
+  OstlerInstallerTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: OstlerInstallerTests
+    dependencies:
+      - target: OstlerInstaller
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer.tests
+        PRODUCT_NAME: OstlerInstallerTests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"
+        GENERATE_INFOPLIST_FILE: "YES"
+
 schemes:
   OstlerInstaller:
     build:
       targets:
         OstlerInstaller: all
+        OstlerInstallerTests: [test]
     run:
       config: Debug
     test:
       config: Debug
+      targets:
+        - OstlerInstallerTests
     profile:
       config: Release
     analyze:

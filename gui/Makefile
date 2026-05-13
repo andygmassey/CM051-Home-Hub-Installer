@@ -63,7 +63,7 @@ DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple ship clean regen \
-        check-tools check-identity print-version
+        check-tools check-identity check-create-dmg print-version dmg-bg
 
 all: debug
 
@@ -84,6 +84,14 @@ check-identity:
 	    security find-identity -p codesigning -v >&2 || true; \
 	    exit 1; \
 	fi
+
+check-create-dmg:
+	@command -v create-dmg >/dev/null || { \
+	    echo "" >&2; \
+	    echo "ERROR: create-dmg not installed." >&2; \
+	    echo "Install via: brew install create-dmg" >&2; \
+	    exit 1; \
+	}
 
 print-version:
 	@echo "version: $(VERSION)"
@@ -143,24 +151,60 @@ release: check-tools check-identity
 
 # ---------------------------------------------------------------------------
 # DMG package – Developer ID signed
+#
+# Uses create-dmg (https://github.com/create-dmg/create-dmg) for the
+# drag-to-Applications window layout: fixed window size, custom
+# background image, icon positions, /Applications symlink. Replaces
+# the bare hdiutil call shipped before 2026-05-13 -- per the DMG UX
+# brief, the v0.2.1 customer DMG looked like a folder listing rather
+# than a consumer Mac app installer.
+#
+# Background image lives at gui/assets/dmg-background.png (committed).
+# Regenerate with 'make dmg-bg' if the placeholder needs refreshing.
+# Icon positions here MUST match the icon centres baked into
+# scripts/generate_dmg_background.py so the arrow lines up.
 # ---------------------------------------------------------------------------
-package: check-tools check-identity
+package: check-tools check-identity check-create-dmg
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
 	fi
+	@if [ ! -f "assets/dmg-background.png" ]; then \
+	    echo "ERROR: assets/dmg-background.png missing. Run 'make dmg-bg' first." >&2; \
+	    exit 1; \
+	fi
 	$(STEP) "Building DMG → $(DMG_PATH)"
 	rm -f "$(DMG_PATH)"
-	hdiutil create \
-	    -volname "Ostler Installer $(VERSION)" \
-	    -srcfolder "$(APP_PATH)" \
-	    -ov -format UDZO \
-	    "$(DMG_PATH)"
+	create-dmg \
+	    --volname "Ostler Installer $(VERSION)" \
+	    --window-pos 200 120 \
+	    --window-size 660 400 \
+	    --background "assets/dmg-background.png" \
+	    --icon-size 128 \
+	    --icon "$(APP_NAME).app" 165 200 \
+	    --hide-extension "$(APP_NAME).app" \
+	    --app-drop-link 495 200 \
+	    --no-internet-enable \
+	    "$(DMG_PATH)" \
+	    "$(APP_PATH)"
 	$(STEP) "Signing DMG with $(CODESIGN_ID)"
 	codesign --sign "$(CODESIGN_ID)" --timestamp --force "$(DMG_PATH)"
 	codesign --verify --verbose=2 "$(DMG_PATH)"
 	@echo ""
 	@echo "DMG: $(DMG_PATH)"
+
+# Regenerate the DMG background placeholder PNG. The asset is
+# committed at gui/assets/dmg-background.png so the build itself
+# never depends on Python being available at release time; this
+# target exists so the script or asset can be refreshed by hand.
+dmg-bg:
+	@command -v python3 >/dev/null || { echo "ERROR: python3 not found." >&2; exit 1; }
+	@python3 -c "from PIL import Image" 2>/dev/null || { \
+	    echo "ERROR: Pillow not installed. Run: python3 -m pip install Pillow" >&2; \
+	    exit 1; \
+	}
+	$(STEP) "Generating DMG background → assets/dmg-background.png"
+	python3 scripts/generate_dmg_background.py
 
 # ---------------------------------------------------------------------------
 # Notarisation – submits, waits, then staples

@@ -20,6 +20,16 @@ struct OstlerInstallerApp: App {
                     minHeight: 620, idealHeight: 620, maxHeight: 620
                 )
                 .onAppear {
+                    // First-launch self-relocator. If we're running
+                    // from inside a mounted DMG or anywhere else
+                    // outside /Applications, prompt the user to move
+                    // the .app to /Applications and relaunch. Runs
+                    // BEFORE coordinator.bootstrap() so the modal is
+                    // the very first thing the customer sees -- the
+                    // licence-gate / first-run wizard happens in the
+                    // /Applications copy, not the about-to-be-deleted
+                    // DMG copy.
+                    SelfRelocator.checkAndRelocate()
                     coordinator.bootstrap()
                 }
         }
