@@ -86,7 +86,7 @@ Why split this way: the config schemas already live in ZeroClaw's Rust. Duplicat
 
 ## References
 
-- Parent repo: `~/Documents/Projects/HR015 - Gaming PC`
-- ZeroClaw source: `ssh macmini ~/zeroclaw/` (on Mac Mini at 192.168.1.72)
-- ZeroClaw channel schemas: `~/zeroclaw/src/config/schema.rs` on Mac Mini
-- Pre-commit hook: symlinked from `../HR015 - Gaming PC/.githooks/pre-commit`
+- Parent repo: the HR015 Gaming PC meta-repository (development hub)
+- ZeroClaw source: the assistant-agent source repository (Hub-local)
+- ZeroClaw channel schemas: see the ZeroClaw repo's `src/config/schema.rs`
+- Pre-commit hook: symlinked from the parent repo's `.githooks/pre-commit`
