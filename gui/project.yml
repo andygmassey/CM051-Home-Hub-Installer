@@ -109,10 +109,11 @@ targets:
           fi
         # No inputFiles/outputFiles -- this must always run.
 
-  # Unit test target. Hosts SelfRelocatorTests.swift (and any future
-  # XCTest suites under OstlerInstallerTests/). Loaded as a bundle
-  # injected into the main app, the conventional macOS unit-test
-  # arrangement so @testable import sees the app's internal types.
+  # Unit test target. Hosts SelfRelocatorTests.swift, LicenseVerifierTests.swift,
+  # LicensePersistenceTests.swift (and any future XCTest suites under
+  # OstlerInstallerTests/). Loaded as a bundle injected into the main
+  # app, the conventional macOS unit-test arrangement so @testable
+  # import sees the app's internal types.
   OstlerInstallerTests:
     type: bundle.unit-test
     platform: macOS

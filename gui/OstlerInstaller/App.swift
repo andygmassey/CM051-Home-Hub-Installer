@@ -24,13 +24,21 @@ struct OstlerInstallerApp: App {
                     // from inside a mounted DMG or anywhere else
                     // outside /Applications, prompt the user to move
                     // the .app to /Applications and relaunch. Runs
-                    // BEFORE coordinator.bootstrap() so the modal is
+                    // BEFORE the licence-verify gate so the modal is
                     // the very first thing the customer sees -- the
                     // licence-gate / first-run wizard happens in the
                     // /Applications copy, not the about-to-be-deleted
-                    // DMG copy.
+                    // DMG copy. (DMG brief explicitly requires this
+                    // ordering; see CM051 PR #71.)
                     SelfRelocator.checkAndRelocate()
-                    coordinator.bootstrap()
+
+                    // Re-verify any persisted licence next. If it
+                    // verifies, ContentView's `.onChange` calls
+                    // `coordinator.bootstrap()` automatically. If it
+                    // does not (no file, signature drift, expiry),
+                    // the view falls through to LicenseEntryView
+                    // and bootstrap stays gated.
+                    coordinator.verifyExistingLicenseOnLaunch()
                 }
         }
         .windowResizability(.contentSize)

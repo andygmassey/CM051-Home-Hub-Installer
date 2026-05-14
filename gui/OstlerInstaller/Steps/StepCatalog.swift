@@ -79,12 +79,15 @@ final class StepCatalog {
         byId[id]
     }
 
-    /// The canonical order of step ids, matching the `progress`
-    /// callsites in install.sh. Used to render the sidebar before
-    /// the first marker arrives + to derive the overall progress
-    /// fraction. Out-of-band ids (renamed steps, future additions)
-    /// will appear in the sidebar dynamically as they emit.
+    /// The canonical order of step ids. The first id
+    /// (`license_entry`) is a GUI-only step that runs before
+    /// install.sh launches -- it is the licence-file drag/paste
+    /// gate. Every id after it matches a `progress` callsite in
+    /// install.sh. Used to render the sidebar before the first
+    /// marker arrives + to derive the overall progress fraction.
+    /// Out-of-band ids will appear in the sidebar dynamically.
     static let canonicalOrder: [String] = [
+        "license_entry",
         "prereq_check",
         "setup_questions",
         "homebrew_install",

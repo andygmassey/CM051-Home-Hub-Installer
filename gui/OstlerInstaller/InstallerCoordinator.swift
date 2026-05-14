@@ -37,6 +37,20 @@ final class InstallerCoordinator: ObservableObject {
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
 
+    // ── Licence gating ────────────────────────────────────────────
+    /// Flips true once `verifyLicense` accepts a customer-supplied
+    /// licence (or once an existing on-disk licence verifies at
+    /// app launch). `bootstrap()` is a no-op until this flips true,
+    /// so the installer subprocess never launches without a
+    /// signature-verified licence.
+    @Published var licenseVerified: Bool = false
+    /// The verified claims, for display + future audit hooks.
+    @Published var verifiedLicense: LicenseClaims? = nil
+    /// Lazy so the verifier doesn't try to parse the embedded
+    /// public key until we actually need it; that way the unit-
+    /// test target's injected verifier short-circuits init.
+    private lazy var licenseVerifier: LicenseVerifier? = LicenseVerifier()
+
     // ── Process plumbing ─────────────────────────────────────────
     private var process: Process? = nil
     private var stdoutPipe: Pipe? = nil
@@ -106,15 +120,64 @@ final class InstallerCoordinator: ObservableObject {
 
     // ── Lifecycle ────────────────────────────────────────────────
 
-    /// Called once when the main window appears.
+    /// Called once when the main window appears. Refuses to launch
+    /// install.sh until `licenseVerified` is true (set either by
+    /// the on-disk re-verification in `verifyExistingLicenseOnLaunch`
+    /// or by a successful drag/paste in `LicenseEntryView`).
     func bootstrap() {
         guard process == nil else { return }
+        guard licenseVerified else {
+            appendLog(level: "info", msg: "Bootstrap deferred -- waiting for licence")
+            return
+        }
         appendLog(level: "info", msg: "Bootstrapping installer subprocess")
         do {
             try launchInstaller()
         } catch {
             self.error = "Failed to launch installer: \(error.localizedDescription)"
         }
+    }
+
+    /// Called from the app's `onAppear`. Tries to re-verify any
+    /// existing licence on disk; on success, flips the gate
+    /// straight through so returning customers do not re-enter.
+    /// Failure (including absence) is silent -- the view falls
+    /// through to `LicenseEntryView`.
+    func verifyExistingLicenseOnLaunch() {
+        guard !licenseVerified else { return }
+        guard let data = LicensePersistence.readExisting() else { return }
+        _ = verifyLicense(data: data, source: "on-disk")
+    }
+
+    /// Verifies a licence document and -- on success -- flips
+    /// the gate and persists the bytes to disk. Returns the raw
+    /// result so the view can render an inline error.
+    @discardableResult
+    func verifyLicense(data: Data, source: String) -> LicenseVerificationResult {
+        guard let verifier = licenseVerifier else {
+            appendLog(level: "error", msg: "Licence verifier unavailable -- production public key not embedded")
+            return .malformed(reason: "verifier not initialised (production public key missing or invalid)")
+        }
+        let result = verifier.verify(licenseData: data)
+        switch result {
+        case .valid(let claims):
+            appendLog(level: "info", msg: "Licence accepted (\(source), licence_id=\(claims.licenseId))")
+            do {
+                try LicensePersistence.write(licenseData: data)
+                appendLog(level: "info", msg: "Licence persisted to \(LicensePersistence.defaultLicensePath.path)")
+            } catch {
+                appendLog(level: "warn", msg: "Licence verified but persistence failed: \(error.localizedDescription)")
+            }
+            verifiedLicense = claims
+            licenseVerified = true
+        case .invalidSignature:
+            appendLog(level: "warn", msg: "Licence signature check failed (\(source))")
+        case .expired(let expiresAt):
+            appendLog(level: "warn", msg: "Licence expired \(expiresAt) (\(source))")
+        case .malformed(let reason):
+            appendLog(level: "warn", msg: "Licence malformed (\(source)): \(reason)")
+        }
+        return result
     }
 
     func cancel() {
