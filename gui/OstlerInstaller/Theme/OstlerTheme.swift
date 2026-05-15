@@ -99,23 +99,51 @@ extension Optional where Wrapped == CGFloat {
 
 // MARK: - Type scale
 //
-// Display family approximates Outfit via SF Pro Rounded. Body is system
-// default (SF Pro Text), monospaced is system mono (SF Mono).
+// Brand fonts:
+//   Display - Outfit (registered via Info.plist ATSApplicationFontsPath = "Fonts")
+//   Body    - IBM Plex Sans (registered via Info.plist ATSApplicationFontsPath)
+//   Mono    - JetBrains Mono (registered via Info.plist ATSApplicationFontsPath)
+//
+// If a custom face fails to register at launch (font file missing, name
+// drift in a future Apple release), SwiftUI's `.custom` falls back to the
+// system font for the `relativeTo:` text style, so views never render
+// unreadable. The `relativeTo:` argument also lets Dynamic Type scale the
+// custom face the same way it scales the system face.
 //
 // `tracking` is in points (SwiftUI), the .css uses em. Values converted
 // at the relevant font size.
 
 extension Font {
-    static let ostlerDisplay = Font.system(size: 32, weight: .bold,     design: .rounded)
-    static let ostlerH1      = Font.system(size: 24, weight: .semibold, design: .rounded)
-    static let ostlerH2      = Font.system(size: 18, weight: .semibold, design: .rounded)
-    static let ostlerH3      = Font.system(size: 14, weight: .semibold, design: .rounded)
-    static let ostlerBody    = Font.system(size: 13, weight: .regular)
-    static let ostlerBodyLg  = Font.system(size: 14, weight: .regular)
-    static let ostlerCaption = Font.system(size: 11, weight: .medium)
-    static let ostlerStrap   = Font.system(size: 10, weight: .semibold, design: .rounded)
-    static let ostlerMono    = Font.system(size: 11, design: .monospaced)
-    static let ostlerMonoSm  = Font.system(size: 10, design: .monospaced)
+
+    /// PostScript names of the bundled brand fonts.
+    /// IBM Plex Sans uses PostScript names that truncate per Apple's 31-char
+    /// PS-name limit: Regular drops the -Regular suffix, Medium is `Medm`,
+    /// SemiBold is `SmBld`. Don't "fix" these to the long forms -- the
+    /// truncated names are the source-of-truth in the TTFs.
+    enum OstlerFontName {
+        static let displayRegular = "Outfit-Regular"
+        static let displayMedium  = "Outfit-Medium"
+        static let displaySemi    = "Outfit-SemiBold"
+        static let displayBold    = "Outfit-Bold"
+
+        static let bodyRegular    = "IBMPlexSans"
+        static let bodyMedium     = "IBMPlexSans-Medm"
+        static let bodySemi       = "IBMPlexSans-SmBld"
+
+        static let monoRegular    = "JetBrainsMono-Regular"
+        static let monoMedium     = "JetBrainsMono-Medium"
+    }
+
+    static let ostlerDisplay = Font.custom(OstlerFontName.displayBold, size: 32, relativeTo: .largeTitle)
+    static let ostlerH1      = Font.custom(OstlerFontName.displaySemi, size: 24, relativeTo: .title)
+    static let ostlerH2      = Font.custom(OstlerFontName.displaySemi, size: 18, relativeTo: .title2)
+    static let ostlerH3      = Font.custom(OstlerFontName.displaySemi, size: 14, relativeTo: .title3)
+    static let ostlerBody    = Font.custom(OstlerFontName.bodyRegular, size: 13, relativeTo: .body)
+    static let ostlerBodyLg  = Font.custom(OstlerFontName.bodyRegular, size: 14, relativeTo: .body)
+    static let ostlerCaption = Font.custom(OstlerFontName.bodyMedium,  size: 11, relativeTo: .caption)
+    static let ostlerStrap   = Font.custom(OstlerFontName.displaySemi, size: 10, relativeTo: .caption2)
+    static let ostlerMono    = Font.custom(OstlerFontName.monoRegular, size: 11, relativeTo: .footnote)
+    static let ostlerMonoSm  = Font.custom(OstlerFontName.monoRegular, size: 10, relativeTo: .footnote)
 }
 
 // `View.font(_:)` takes `Font?`. Same dot-syntax constraint as CGFloat?.
@@ -198,7 +226,7 @@ struct OstlerSectionHead: View {
 struct OstlerPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .font(.custom(Font.OstlerFontName.displaySemi, size: 14, relativeTo: .body))
             .foregroundStyle(Color.white)
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
@@ -217,7 +245,7 @@ struct OstlerPrimaryButtonStyle: ButtonStyle {
 struct OstlerGhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .medium, design: .rounded))
+            .font(.custom(Font.OstlerFontName.displayMedium, size: 14, relativeTo: .body))
             .foregroundStyle(configuration.isPressed
                              ? Color.ostlerChassis
                              : Color.ostlerInk)

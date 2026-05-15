@@ -15,7 +15,7 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "5"
     MARKETING_VERSION: "0.2.1"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
@@ -45,7 +45,7 @@ targets:
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
         CFBundleShortVersionString: "0.2.1"
-        CFBundleVersion: "3"
+        CFBundleVersion: "5"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -53,6 +53,7 @@ targets:
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
         NSAppleEventsUsageDescription: "Ostler needs to ask for your administrator password to install Hub services."
+        ATSApplicationFontsPath: Fonts
     entitlements:
       path: OstlerInstaller/OstlerInstaller.entitlements
       properties:

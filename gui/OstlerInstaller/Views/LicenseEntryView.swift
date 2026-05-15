@@ -92,7 +92,7 @@ struct LicenseEntryView: View {
                 .font(.ostlerCaption)
                 .foregroundColor(.ostlerInkMuted)
             TextEditor(text: $pasteText)
-                .font(.system(.body, design: .monospaced))
+                .font(.custom(Font.OstlerFontName.monoRegular, size: 13, relativeTo: .body))
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .frame(height: 110)
