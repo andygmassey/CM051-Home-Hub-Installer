@@ -217,4 +217,73 @@ final class LicenseVerifierTests: XCTestCase {
         }
     }
 
+    // MARK: - Cross-implementation byte-identity
+    //
+    // The previous tests sign and verify with the same Swift
+    // `canonicalJSON`, so any divergence from the Worker
+    // (TypeScript) / license-generator (Python) implementations
+    // is invisible -- both sides agree on the wrong bytes, the
+    // round-trip passes, customer-minted licences fail in the
+    // field. This test pins the canonical bytes Swift MUST
+    // produce, against a reference string that matches
+    //   json.dumps(body, sort_keys=True, separators=(",", ":"),
+    //              ensure_ascii=False)
+    // i.e. what both reference implementations produce. If Swift
+    // diverges, this test fails before a customer ever sees a
+    // signature-check failure.
+    //
+    // Regression history: the version=1 / max_hardware_fingerprints=
+    // bridging bug shipped in v0.2.1 (every minted licence failed)
+    // because Foundation bridges NSNumber to Bool when the value is
+    // 0 or 1, so `value as? Bool` matched first and the canonical
+    // emitted `"version":true`. CFBooleanGetTypeID() identity check
+    // is the fix, this test pins it.
+
+    func testCanonicalJSONMatchesReferenceBytes() {
+        let body: [String: Any] = [
+            "version": 1,
+            "license_id": "8c7e3f9a-1234-4abc-9def-0123456789ab",
+            "issued_to_email": "alice@example.com",
+            "purchased_at": "2026-05-15T04:34:12Z",
+            "update_window_expires_at": "2027-05-15T04:34:12Z",
+            "max_hardware_fingerprints": 3,
+            "stripe_payment_id": "pi_TEST_canonical_reference",
+            "signature_algorithm": "Ed25519",
+        ]
+
+        // Byte-for-byte what Python's
+        //   json.dumps(body, sort_keys=True, separators=(",", ":"),
+        //              ensure_ascii=False).encode("utf-8")
+        // produces. The TypeScript Worker matches this (verified in
+        // CM050/tests/license.test.ts round-trip).
+        let expected = #"{"issued_to_email":"alice@example.com","license_id":"8c7e3f9a-1234-4abc-9def-0123456789ab","max_hardware_fingerprints":3,"purchased_at":"2026-05-15T04:34:12Z","signature_algorithm":"Ed25519","stripe_payment_id":"pi_TEST_canonical_reference","update_window_expires_at":"2027-05-15T04:34:12Z","version":1}"#
+
+        guard let actual = LicenseVerifier.canonicalJSON(body) else {
+            XCTFail("canonicalJSON returned nil for valid body")
+            return
+        }
+        guard let actualStr = String(data: actual, encoding: .utf8) else {
+            XCTFail("canonical output was not valid UTF-8")
+            return
+        }
+        XCTAssertEqual(actualStr, expected, "canonical bytes diverged from Python/Worker reference")
+    }
+
+    func testCanonicalJSONPreservesIntegerOneAndZero() {
+        // The Bool/NSNumber bridging gotcha specifically affects
+        // 0 and 1, since those are the only Int values that round-
+        // trip cleanly to Bool. Pin both directions.
+        let withOne: [String: Any] = ["version": 1, "max_hardware_fingerprints": 0]
+        let withZero: [String: Any] = ["version": 0, "max_hardware_fingerprints": 1]
+
+        XCTAssertEqual(
+            String(data: LicenseVerifier.canonicalJSON(withOne)!, encoding: .utf8),
+            #"{"max_hardware_fingerprints":0,"version":1}"#
+        )
+        XCTAssertEqual(
+            String(data: LicenseVerifier.canonicalJSON(withZero)!, encoding: .utf8),
+            #"{"max_hardware_fingerprints":1,"version":0}"#
+        )
+    }
+
 }
