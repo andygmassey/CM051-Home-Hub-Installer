@@ -6,7 +6,8 @@
 #   make package   Builds DMG from Release .app -> $(DIST_DIR)/
 #   make notarise  Submits DMG to notarytool, polls, staples on success
 #   make staple    Staples a previously-notarised DMG (re-runnable)
-#   make ship      release + package + notarise (notarise also staples)
+#   make archive   Copies the shipped DMG to $(ARCHIVE_DIR) with a date-stamped name
+#   make ship      release + package + notarise + archive (notarise also staples)
 #   make clean     Wipe $(BUILD_DIR) and $(DIST_DIR)
 #   make regen     Regenerate the .xcodeproj from project.yml (needs xcodegen)
 #
@@ -18,6 +19,16 @@
 #                   Set up once via:
 #                     xcrun notarytool store-credentials <alias> \
 #                         --apple-id <apple-id> --team-id V95N2B8X7A
+#
+# Optional env vars:
+#   ARCHIVE_DIR     where `make archive` (and chained `make ship`) keeps a
+#                   local copy of each notarised DMG, named
+#                   $(APP_NAME)-$(VERSION)-YYYY-MM-DD.dmg. Default:
+#                   $(HOME)/.ostler-release-artefacts. Symlink that path to
+#                   your preferred location if you want a different home.
+#                   Hosting on /tmp (the build dir) won't survive a reboot;
+#                   the archive step exists so each shipped DMG has a
+#                   persistent local copy alongside the GitHub-release upload.
 
 SHELL        := /bin/bash
 .SHELLFLAGS  := -euo pipefail -c
@@ -34,6 +45,7 @@ CODESIGN_ID   := Developer ID Application: Creative Machines Limited ($(TEAM_ID)
 EXPORT_OPTS   := ExportOptions.plist
 
 NOTARY_PROFILE ?= ostler-installer
+ARCHIVE_DIR    ?= $(HOME)/.ostler-release-artefacts
 
 # ---------------------------------------------------------------------------
 # Derived paths
@@ -62,7 +74,7 @@ DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 
 STEP          := @printf '\n[STEP] %s\n'
 
-.PHONY: all debug release package notarise staple ship clean regen \
+.PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg print-version dmg-bg
 
 all: debug
@@ -238,11 +250,29 @@ staple: check-tools
 	@echo "Notarised + stapled: $(DMG_PATH)"
 
 # ---------------------------------------------------------------------------
-# One-shot: build → DMG → notarise → staple
+# Archive: keep a local persistent copy of the shipped DMG.
+# Runs after notarise + staple so the archived bytes have the notary ticket
+# embedded. Date-stamped filename so successive ships don't overwrite each
+# other. Idempotent on the same day (cp -f).
 # ---------------------------------------------------------------------------
-ship: release package notarise
+archive:
+	@if [ ! -f "$(DMG_PATH)" ]; then \
+	    echo "ERROR: $(DMG_PATH) not found. Run \`make ship\` first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Archiving $(DMG_NAME) → $(ARCHIVE_DIR)/"
+	@mkdir -p "$(ARCHIVE_DIR)"
+	@ARCHIVE_NAME="$(APP_NAME)-$(VERSION)-$$(date +%Y-%m-%d).dmg" && \
+	    cp -f "$(DMG_PATH)" "$(ARCHIVE_DIR)/$$ARCHIVE_NAME" && \
+	    echo "Archived: $(ARCHIVE_DIR)/$$ARCHIVE_NAME"
+
+# ---------------------------------------------------------------------------
+# One-shot: build → DMG → notarise → staple → archive
+# ---------------------------------------------------------------------------
+ship: release package notarise archive
 	@echo ""
-	@echo "Shipped: $(DMG_PATH)"
+	@echo "Shipped:  $(DMG_PATH)"
+	@echo "Archived: $(ARCHIVE_DIR)/"
 
 # ---------------------------------------------------------------------------
 # Housekeeping
