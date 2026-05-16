@@ -78,6 +78,18 @@ final class InstallerCoordinator: ObservableObject {
         self.registrationClient = client
     }
 
+    #if DEBUG
+    /// Test seam. Routes a synthetic stdout line through the same
+    /// ProgressDecoder + apply path the production readability
+    /// handler uses, so unit tests can drive sidebar / phase / step
+    /// state transitions without standing up a real subprocess.
+    /// Marked DEBUG so it cannot accidentally ship to customers.
+    func simulateLineForTests(_ line: String) {
+        let event = ProgressDecoder.decode(line: line)
+        apply(event: event, fromStderr: false)
+    }
+    #endif
+
     // ── Process plumbing ─────────────────────────────────────────
     private var process: Process? = nil
     private var stdoutPipe: Pipe? = nil
@@ -167,6 +179,12 @@ final class InstallerCoordinator: ObservableObject {
             OstlerLog.lifecycle.info("bootstrap deferred: registrationGate=\(String(describing: self.registrationGate), privacy: .public)")
             return
         }
+        // Sidebar tick for the GUI-only `license_entry` step. The
+        // step has no install.sh-side STEP_BEGIN/END counterpart, so
+        // the sidebar must mark it complete itself when we leave the
+        // licence gate. Idempotent -- duplicate completions for the
+        // same id are deduped by markStepCompletedIfMissing.
+        markStepCompletedIfMissing(id: "license_entry", status: .ok)
         appendLog(level: "info", msg: "Bootstrapping installer subprocess")
         OstlerLog.lifecycle.info("bootstrap: launching installer subprocess")
         do {
@@ -326,6 +344,60 @@ final class InstallerCoordinator: ObservableObject {
             registrationGate = .ready
             bootstrap()
         }
+    }
+
+    /// Drives the sidebar tick state from PHASE events.
+    ///
+    /// install.sh emits coarse PHASE markers via its `step()` helper
+    /// (Checking prerequisites, Setup..., Installing, ...) AND fine
+    /// STEP_BEGIN/STEP_END markers via its `progress()` helper for the
+    /// individual install lines. The fine markers update
+    /// `currentStepId` + append to `completedSteps` directly. The
+    /// coarse markers do NOT -- the early phases (`prereq_check`,
+    /// `setup_questions`) never get a STEP_BEGIN, so pre-#347 the
+    /// sidebar stayed unticked through Check-Mac + the 12-popup
+    /// onboarding.
+    ///
+    /// This helper bridges the gap. When a PHASE arrives whose id is
+    /// present in StepCatalog.canonicalOrder, every earlier entry in
+    /// the canonical order is back-filled as completed (status=ok),
+    /// and the active row moves to the phase id.
+    ///
+    /// PHASE ids that are NOT in canonicalOrder (e.g. `install`,
+    /// `finish` which are wrappers rather than steps) leave the
+    /// sidebar alone -- the subsequent STEP_BEGIN markers will
+    /// drive the tick state from there.
+    private func advanceSidebarFromPhase(id: String) {
+        guard StepCatalog.canonicalOrder.contains(id) else { return }
+        backfillCanonicalEntriesBefore(id: id)
+        currentStepId = id
+    }
+
+    /// Mark every canonical-order entry before `id` as completed (if
+    /// not already). Shared by `.phase` and `.stepBegin` so a sidebar
+    /// row never gets stranded as "active forever" when the phase or
+    /// step chain jumps past it without an explicit STEP_END.
+    private func backfillCanonicalEntriesBefore(id: String) {
+        let order = StepCatalog.canonicalOrder
+        guard let index = order.firstIndex(of: id), index > 0 else { return }
+        for earlierId in order.prefix(index) {
+            markStepCompletedIfMissing(id: earlierId, status: .ok)
+        }
+    }
+
+    /// Append a `CompletedStep` for `id` if one is not already
+    /// present. Idempotent so phases that are seen multiple times
+    /// (e.g. a re-run from a checkpoint) do not produce duplicate
+    /// sidebar entries.
+    private func markStepCompletedIfMissing(id: String, status: StepStatus) {
+        guard !completedSteps.contains(where: { $0.id == id }) else { return }
+        let title = StepCatalog.shared.meta(for: id)?.title ?? id
+        completedSteps.append(CompletedStep(
+            id: id,
+            title: title,
+            status: status,
+            elapsed: 0
+        ))
     }
 
     private func persistFingerprintCache(fingerprint: String) {
@@ -679,6 +751,13 @@ final class InstallerCoordinator: ObservableObject {
 
         switch event {
         case .stepBegin(let id, let title, _, let idx, let total):
+            // Back-fill any earlier canonical-order entries that
+            // never received their own marker. This covers the
+            // PHASE -> STEP_BEGIN transition where the phase id
+            // (e.g. `setup_questions`) was a coarse marker without a
+            // STEP_BEGIN counterpart; the first STEP_BEGIN ticks
+            // the phase row complete.
+            backfillCanonicalEntriesBefore(id: id)
             currentStepId = id
             currentStepTitle = title
             currentStepPercent = 0
@@ -716,6 +795,7 @@ final class InstallerCoordinator: ObservableObject {
             phaseId = id
             appendLog(level: "info", msg: "Phase: \(title)")
             OstlerLog.subprocess.info("event PHASE id=\(id, privacy: .public) title=\(title, privacy: .public)")
+            advanceSidebarFromPhase(id: id)
         case .needsFDA(let probe, let reason):
             needsFDA = NeedsFDA(probe: probe, reason: reason)
             appendLog(level: "warn", msg: "Needs FDA: \(reason)")
