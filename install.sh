@@ -4261,6 +4261,50 @@ launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
     launchctl load "$SCAN_PLIST" 2>/dev/null || true
 ok "Export watcher installed (scans Downloads every 4 hours)"
 
+# ── Deferred device-registration retry ─────────────────────────────
+#
+# The GUI installer POSTs each Mac's hardware fingerprint to
+# CM050's appcast.ostler.ai/register-device during the licence
+# step so the three-device cap is honoured. When that call fails
+# at install time (Wi-Fi blip, Worker briefly down) the GUI
+# fails open and queues the request at
+# ~/.ostler/state/pending_registration.json. This launchd agent
+# retries the POST hourly until the queue clears. See
+# CM050/appcast-server/docs/REGISTER_DEVICE.md for the contract.
+if [[ -f "${SCRIPT_DIR}/scripts/deferred-register-device.sh" ]]; then
+    mkdir -p "${OSTLER_DIR}/bin"
+    cp "${SCRIPT_DIR}/scripts/deferred-register-device.sh" \
+        "${OSTLER_DIR}/bin/deferred-register-device"
+    chmod 755 "${OSTLER_DIR}/bin/deferred-register-device"
+
+    REGISTER_PLIST="${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
+    cat > "$REGISTER_PLIST" <<DRDPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.deferred-register-device</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/deferred-register-device</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/deferred-register-device.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/deferred-register-device.err</string>
+</dict>
+</plist>
+DRDPEOF
+    launchctl bootstrap "gui/$(id -u)" "$REGISTER_PLIST" 2>/dev/null || \
+        launchctl load "$REGISTER_PLIST" 2>/dev/null || true
+    ok "Deferred device-registration retry installed (runs hourly until queue clears)"
+fi
+
 # Detect user's shell and add to appropriate RC file
 USER_SHELL=$(basename "${SHELL:-/bin/zsh}")
 case "$USER_SHELL" in
@@ -4437,6 +4481,8 @@ launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.deferred-register-device" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
@@ -4452,6 +4498,7 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"

@@ -46,10 +46,37 @@ final class InstallerCoordinator: ObservableObject {
     @Published var licenseVerified: Bool = false
     /// The verified claims, for display + future audit hooks.
     @Published var verifiedLicense: LicenseClaims? = nil
+    /// Second-stage gate. Once the licence verifies, we still need to
+    /// register this Mac's fingerprint with the CM050 Worker so the
+    /// three-device cap is honoured. While the gate is `.registering`
+    /// the install layout shows a "Checking your licence" hint; on
+    /// `.limitReached` / `.fatal` ContentView replaces the install
+    /// layout with a hard-stop view. `bootstrap()` only fires once
+    /// the gate reaches `.ready`. `.ready` covers both "Worker said
+    /// ok" and "network failure, queued for deferred retry" -- the
+    /// latter is the deliberate fail-open behaviour from the brief.
+    @Published var registrationGate: RegistrationGate = .idle
     /// Lazy so the verifier doesn't try to parse the embedded
     /// public key until we actually need it; that way the unit-
     /// test target's injected verifier short-circuits init.
     private lazy var licenseVerifier: LicenseVerifier? = LicenseVerifier()
+    /// Lazy so tests can swap it via `setRegistrationClient(_:)`
+    /// before the first verify call.
+    private var registrationClient: DeviceRegistrationClient =
+        DeviceRegistrationClient()
+
+    enum RegistrationGate: Equatable {
+        case idle
+        case registering
+        case ready
+        case limitReached(maxFingerprints: Int, registeredCount: Int)
+        case fatal(reason: String)
+    }
+
+    /// Test hook: inject a client with a mock transport.
+    func setRegistrationClient(_ client: DeviceRegistrationClient) {
+        self.registrationClient = client
+    }
 
     // ── Process plumbing ─────────────────────────────────────────
     private var process: Process? = nil
@@ -130,6 +157,11 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: "info", msg: "Bootstrap deferred -- waiting for licence")
             return
         }
+        guard registrationGate == .ready else {
+            appendLog(level: "info",
+                      msg: "Bootstrap deferred -- waiting for device registration gate")
+            return
+        }
         appendLog(level: "info", msg: "Bootstrapping installer subprocess")
         do {
             try launchInstaller()
@@ -170,6 +202,12 @@ final class InstallerCoordinator: ObservableObject {
             }
             verifiedLicense = claims
             licenseVerified = true
+            // Kick off the second-stage gate. We do not block the
+            // view-thread on it -- the LicenseEntryView dismisses
+            // synchronously on .valid; the install layout shows the
+            // "Checking your licence" state while we POST.
+            registrationGate = .registering
+            Task { await self.runDeviceRegistration(claims: claims) }
         case .invalidSignature:
             appendLog(level: "warn", msg: "Licence signature check failed (\(source))")
         case .expired(let expiresAt):
@@ -178,6 +216,107 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: "warn", msg: "Licence malformed (\(source)): \(reason)")
         }
         return result
+    }
+
+    /// Second-stage gate: derive a hardware fingerprint, register it
+    /// with the CM050 Worker, and either open the install gate or
+    /// surface the limit-reached / revoked / fatal state to the user.
+    ///
+    /// The brief mandates a fail-open policy on network failure: if
+    /// the Worker is briefly unreachable, the install proceeds and
+    /// the Hub-side scheduler (deferred-register-device.sh) closes
+    /// the loop later. A hard refusal at install time when the
+    /// Worker is down would be worse for the customer than the
+    /// licence-sharing it prevents.
+    private func runDeviceRegistration(claims: LicenseClaims) async {
+        guard let fingerprint = HardwareFingerprint.compute() else {
+            appendLog(
+                level: "error",
+                msg: "Hardware fingerprint could not be derived -- IOPlatformUUID/serial unavailable. Aborting install."
+            )
+            registrationGate = .fatal(
+                reason: "This Mac could not be uniquely identified. Please email hello@ostler.ai for help."
+            )
+            return
+        }
+        appendLog(
+            level: "info",
+            msg: "Registering device fingerprint with appcast.ostler.ai"
+        )
+
+        let result = await registrationClient.register(
+            licenseId: claims.licenseId,
+            fingerprint: fingerprint
+        )
+
+        switch result {
+        case .ok(let max, let count):
+            appendLog(
+                level: "info",
+                msg: "Device registered (\(count)/\(max == -1 ? "?" : String(max)) Macs)"
+            )
+            persistFingerprintCache(fingerprint: fingerprint)
+            FingerprintState.clearPending()
+            registrationGate = .ready
+            bootstrap()
+        case .limitReached(let max, let count):
+            appendLog(
+                level: "warn",
+                msg: "Device limit reached (\(count)/\(max == 0 ? "?" : String(max)) Macs). Refusing install."
+            )
+            registrationGate = .limitReached(
+                maxFingerprints: max,
+                registeredCount: count
+            )
+        case .licenceNotFound:
+            appendLog(level: "error", msg: "Worker reports licence not found.")
+            registrationGate = .fatal(
+                reason: "Your licence is not recognised by our server. Please email hello@ostler.ai."
+            )
+        case .revoked:
+            appendLog(level: "error", msg: "Worker reports licence revoked / refunded.")
+            registrationGate = .fatal(
+                reason: "Your licence is no longer valid. Please email hello@ostler.ai."
+            )
+        case .badRequest(let reason):
+            appendLog(level: "error", msg: "Worker rejected the registration: \(reason)")
+            registrationGate = .fatal(
+                reason: "Your licence file was rejected by our server (\(reason)). Please email hello@ostler.ai."
+            )
+        case .networkFailure(let message):
+            appendLog(
+                level: "warn",
+                msg: "Device registration deferred (network: \(message)). Proceeding with install -- Hub will retry."
+            )
+            do {
+                try FingerprintState.writePending(
+                    licenseId: claims.licenseId,
+                    fingerprint: fingerprint
+                )
+            } catch {
+                // We logged + we'll proceed anyway; a missing queue
+                // file means the deferred retry will not fire but
+                // the install is not blocked. Customer can later
+                // be re-registered manually if they hit the cap.
+                appendLog(
+                    level: "warn",
+                    msg: "Could not write pending-registration queue: \(error.localizedDescription)"
+                )
+            }
+            registrationGate = .ready
+            bootstrap()
+        }
+    }
+
+    private func persistFingerprintCache(fingerprint: String) {
+        do {
+            try FingerprintState.writeCachedFingerprint(fingerprint)
+        } catch {
+            appendLog(
+                level: "warn",
+                msg: "Could not write fingerprint cache: \(error.localizedDescription)"
+            )
+        }
     }
 
     func cancel() {

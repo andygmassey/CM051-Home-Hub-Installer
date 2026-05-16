@@ -64,6 +64,7 @@ die()  { echo -e "${RED}FAIL${NC}  $*" >&2; exit "${2:-1}"; }
 CM051_SOURCES=(
     "install.sh"
     "lib"
+    "scripts"
     "assistant-agent"
     "wiki-recompile"
 )
