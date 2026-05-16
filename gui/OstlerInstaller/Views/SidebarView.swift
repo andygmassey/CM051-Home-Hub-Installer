@@ -17,7 +17,7 @@ struct SidebarView: View {
             // strap voice (uppercase, tracked) over a smaller strap.
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
                 Text("OSTLER")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .font(.custom(Font.OstlerFontName.displaySemi, size: 18, relativeTo: .title))
                     .tracking(2.4)
                     .foregroundStyle(Color.ostlerInk)
                 Text("Installer")
@@ -73,7 +73,8 @@ private struct SidebarRow: View {
             statusIcon
                 .frame(width: 18, height: 18)
             Text(meta.title)
-                .font(.system(size: 12, weight: isActive ? .semibold : .regular, design: .rounded))
+                .font(.custom(isActive ? Font.OstlerFontName.bodySemi : Font.OstlerFontName.bodyRegular,
+                              size: 12, relativeTo: .body))
                 .foregroundStyle(textColor)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)

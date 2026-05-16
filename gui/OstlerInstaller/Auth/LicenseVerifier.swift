@@ -203,15 +203,15 @@ final class LicenseVerifier {
     private static func canonicalValue(_ value: Any?) -> String? {
         guard let value = value else { return "null" }
         if let s = value as? String { return jsonEncodeString(s) }
-        if let b = value as? Bool {
-            // NB: in Foundation Bool also satisfies `value as? Int`,
-            // so check Bool before Int.
-            return b ? "true" : "false"
-        }
         if let n = value as? NSNumber {
-            // `NSNumber` is the Foundation bridge for both Int and
-            // Bool. We've already handled Bool. Anything left must
-            // be a non-negative integer per the schema.
+            // Foundation bridges Bool to NSNumber. `as? Bool` will succeed
+            // for ANY NSNumber whose underlying value is 0 or 1, which
+            // silently turns the integer 1 into `true` -- breaking every
+            // licence (where `version: 1`). Identity-check via CFBoolean
+            // to distinguish actual booleans from integer 0/1.
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                return n.boolValue ? "true" : "false"
+            }
             if CFNumberIsFloatType(n) { return nil }
             let intVal = n.int64Value
             if intVal < 0 { return nil }
