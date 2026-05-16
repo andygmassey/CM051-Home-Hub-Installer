@@ -14,18 +14,17 @@ struct ContentView: View {
     var body: some View {
         Group {
             if coordinator.licenseVerified {
-                installLayout
+                gatedContent
             } else {
                 LicenseEntryView()
             }
         }
         .frame(width: 880, height: 620)
         .background(Color.ostlerChassis)
-        .onChange(of: coordinator.licenseVerified) { _, verified in
-            // Once the licence flips true we kick off the install
-            // subprocess. `bootstrap()` is idempotent so a duplicate
-            // call from App.swift is harmless.
-            if verified { coordinator.bootstrap() }
+        .onChange(of: coordinator.registrationGate) { _, gate in
+            // Bootstrap is idempotent + already guards on `.ready`;
+            // a second call from `runDeviceRegistration` is harmless.
+            if gate == .ready { coordinator.bootstrap() }
         }
         .sheet(item: $coordinator.pendingPrompt) { prompt in
             PromptSheet(prompt: prompt)
@@ -34,6 +33,31 @@ struct ContentView: View {
         .sheet(item: $coordinator.needsFDA) { fda in
             FullDiskAccessSheet(probe: fda.probe, reason: fda.reason)
                 .environmentObject(coordinator)
+        }
+    }
+
+    /// Branches on the second-stage registration gate. The first-stage
+    /// (cryptographic) gate is already cleared at this point, so the
+    /// `LicenseEntryView` is behind us.
+    @ViewBuilder
+    private var gatedContent: some View {
+        switch coordinator.registrationGate {
+        case .limitReached(let max, let count):
+            DeviceLimitReachedView(
+                licenseId: coordinator.verifiedLicense?.licenseId ?? "",
+                maxFingerprints: max,
+                registeredCount: count
+            )
+        case .fatal(let reason):
+            DeviceRegistrationErrorView(reason: reason)
+        case .idle, .registering:
+            // The install layout itself is fine to render -- bootstrap()
+            // is gated separately, so the subprocess does not launch
+            // until the gate is .ready. The footer ProgressView keeps
+            // spinning, which is the natural UX for "we're checking".
+            installLayout
+        case .ready:
+            installLayout
         }
     }
 
@@ -68,6 +92,45 @@ struct ContentView: View {
                 .background(Color.ostlerChassis)
             }
         }
+    }
+}
+
+/// Shown when the Worker rejected the registration with a terminal
+/// (non-cap) reason: licence not found, revoked, or malformed. The
+/// install is refused; the user is pointed at hello@ostler.ai.
+private struct DeviceRegistrationErrorView: View {
+    let reason: String
+
+    var body: some View {
+        VStack(spacing: 24) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundColor(.ostlerOxblood)
+                Text("We could not register this Mac")
+                    .font(.ostlerH1)
+                    .foregroundColor(.ostlerInk)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(reason)
+                .font(.ostlerBody)
+                .foregroundColor(.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack {
+                Spacer()
+                Button("Quit installer") { NSApp.terminate(nil) }
+                    .buttonStyle(.ostlerPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ostlerChassis)
     }
 }
 
