@@ -35,6 +35,12 @@ enum InstallerEvent: Equatable {
     case needsFDA(probe: String, reason: String)
     case needsSudo(reason: String)
     case done(status: StepStatus)
+    /// Non-marker stdout/stderr line from the subprocess. Surfaced in
+    /// the Log drawer only when `devModeRawLog` is on; otherwise these
+    /// are filtered out so the customer-facing drawer stays curated.
+    /// Pre-#348 these came back as `.log(.info, raw)` and were always
+    /// shown, which drowned the LOG markers in tool chatter.
+    case rawLine(msg: String)
     case unknown(raw: String)
 }
 
@@ -56,8 +62,10 @@ struct ProgressDecoder {
     static func decode(line raw: String) -> InstallerEvent {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard line.hasPrefix(marker) else {
-            // Not a marker – return as plain log so the drawer can show it.
-            return .log(level: "info", msg: raw)
+            // Not a marker -- raw subprocess stdout/stderr. The
+            // coordinator decides whether to surface this based on
+            // the Verbose toggle (`devModeRawLog`).
+            return .rawLine(msg: raw)
         }
 
         // Tab-split. First field is `#OSTLER`, second is event, rest
@@ -137,14 +145,15 @@ enum ProgressDecoderSelfTest {
             ("#OSTLER\tPCT\tstep=foo\tpct=50",           "pct"),
             ("#OSTLER\tLOG\tlevel=info\tmsg=hi",          "log"),
             ("#OSTLER\tDONE\tstatus=ok",                  "done"),
-            ("plain log line",                             "log"),
+            ("plain log line",                             "rawLine"),
             ("#OSTLER\tBOGUS\tx=y",                       "unknown"),
         ]
         for (raw, want) in cases {
             let got = ProgressDecoder.decode(line: raw)
             switch (got, want) {
             case (.stepBegin, "stepBegin"), (.pct, "pct"),
-                 (.log, "log"), (.done, "done"), (.unknown, "unknown"):
+                 (.log, "log"), (.done, "done"),
+                 (.rawLine, "rawLine"), (.unknown, "unknown"):
                 continue
             default:
                 assertionFailure("decode mismatch: \(raw) -> \(got), wanted \(want)")
