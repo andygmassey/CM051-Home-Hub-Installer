@@ -152,21 +152,28 @@ final class InstallerCoordinator: ObservableObject {
     /// the on-disk re-verification in `verifyExistingLicenseOnLaunch`
     /// or by a successful drag/paste in `LicenseEntryView`).
     func bootstrap() {
-        guard process == nil else { return }
+        guard process == nil else {
+            OstlerLog.lifecycle.debug("bootstrap: subprocess already running (pid=\(self.process?.processIdentifier ?? -1, privacy: .public))")
+            return
+        }
         guard licenseVerified else {
             appendLog(level: "info", msg: "Bootstrap deferred -- waiting for licence")
+            OstlerLog.lifecycle.info("bootstrap deferred: licenseVerified=false")
             return
         }
         guard registrationGate == .ready else {
             appendLog(level: "info",
                       msg: "Bootstrap deferred -- waiting for device registration gate")
+            OstlerLog.lifecycle.info("bootstrap deferred: registrationGate=\(String(describing: self.registrationGate), privacy: .public)")
             return
         }
         appendLog(level: "info", msg: "Bootstrapping installer subprocess")
+        OstlerLog.lifecycle.info("bootstrap: launching installer subprocess")
         do {
             try launchInstaller()
         } catch {
             self.error = "Failed to launch installer: \(error.localizedDescription)"
+            OstlerLog.lifecycle.error("bootstrap: launch failed -- \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -194,11 +201,13 @@ final class InstallerCoordinator: ObservableObject {
         switch result {
         case .valid(let claims):
             appendLog(level: "info", msg: "Licence accepted (\(source), licence_id=\(claims.licenseId))")
+            OstlerLog.lifecycle.info("verifyLicense: valid source=\(source, privacy: .public) license=\(claims.licenseId, privacy: .public)")
             do {
                 try LicensePersistence.write(licenseData: data)
                 appendLog(level: "info", msg: "Licence persisted to \(LicensePersistence.defaultLicensePath.path)")
             } catch {
                 appendLog(level: "warn", msg: "Licence verified but persistence failed: \(error.localizedDescription)")
+                OstlerLog.lifecycle.error("verifyLicense: persistence failed -- \(error.localizedDescription, privacy: .public)")
             }
             verifiedLicense = claims
             licenseVerified = true
@@ -210,10 +219,13 @@ final class InstallerCoordinator: ObservableObject {
             Task { await self.runDeviceRegistration(claims: claims) }
         case .invalidSignature:
             appendLog(level: "warn", msg: "Licence signature check failed (\(source))")
+            OstlerLog.lifecycle.warning("verifyLicense: invalidSignature source=\(source, privacy: .public)")
         case .expired(let expiresAt):
             appendLog(level: "warn", msg: "Licence expired \(expiresAt) (\(source))")
+            OstlerLog.lifecycle.warning("verifyLicense: expired source=\(source, privacy: .public) expiresAt=\(expiresAt, privacy: .public)")
         case .malformed(let reason):
             appendLog(level: "warn", msg: "Licence malformed (\(source)): \(reason)")
+            OstlerLog.lifecycle.warning("verifyLicense: malformed source=\(source, privacy: .public) reason=\(reason, privacy: .public)")
         }
         return result
     }
@@ -234,6 +246,7 @@ final class InstallerCoordinator: ObservableObject {
                 level: "error",
                 msg: "Hardware fingerprint could not be derived -- IOPlatformUUID/serial unavailable. Aborting install."
             )
+            OstlerLog.fingerprint.error("compute returned nil -- IOPlatformUUID/serial unavailable")
             registrationGate = .fatal(
                 reason: "This Mac could not be uniquely identified. Please email hello@ostler.ai for help."
             )
@@ -243,6 +256,10 @@ final class InstallerCoordinator: ObservableObject {
             level: "info",
             msg: "Registering device fingerprint with appcast.ostler.ai"
         )
+        // Prefix only -- the hex itself is private; logging it wholesale
+        // would defeat the point of the SHA. Length is enough to
+        // confirm the encoder produced what we expected.
+        OstlerLog.fingerprint.info("register POST license=\(claims.licenseId, privacy: .public) fingerprint=sha256:<64hex>")
 
         let result = await registrationClient.register(
             licenseId: claims.licenseId,
@@ -255,6 +272,7 @@ final class InstallerCoordinator: ObservableObject {
                 level: "info",
                 msg: "Device registered (\(count)/\(max == -1 ? "?" : String(max)) Macs)"
             )
+            OstlerLog.fingerprint.info("result=ok max=\(max, privacy: .public) count=\(count, privacy: .public)")
             persistFingerprintCache(fingerprint: fingerprint)
             FingerprintState.clearPending()
             registrationGate = .ready
@@ -264,22 +282,26 @@ final class InstallerCoordinator: ObservableObject {
                 level: "warn",
                 msg: "Device limit reached (\(count)/\(max == 0 ? "?" : String(max)) Macs). Refusing install."
             )
+            OstlerLog.fingerprint.warning("result=limitReached max=\(max, privacy: .public) count=\(count, privacy: .public)")
             registrationGate = .limitReached(
                 maxFingerprints: max,
                 registeredCount: count
             )
         case .licenceNotFound:
             appendLog(level: "error", msg: "Worker reports licence not found.")
+            OstlerLog.fingerprint.error("result=licenceNotFound")
             registrationGate = .fatal(
                 reason: "Your licence is not recognised by our server. Please email hello@ostler.ai."
             )
         case .revoked:
             appendLog(level: "error", msg: "Worker reports licence revoked / refunded.")
+            OstlerLog.fingerprint.error("result=revoked")
             registrationGate = .fatal(
                 reason: "Your licence is no longer valid. Please email hello@ostler.ai."
             )
         case .badRequest(let reason):
             appendLog(level: "error", msg: "Worker rejected the registration: \(reason)")
+            OstlerLog.fingerprint.error("result=badRequest reason=\(reason, privacy: .public)")
             registrationGate = .fatal(
                 reason: "Your licence file was rejected by our server (\(reason)). Please email hello@ostler.ai."
             )
@@ -288,20 +310,18 @@ final class InstallerCoordinator: ObservableObject {
                 level: "warn",
                 msg: "Device registration deferred (network: \(message)). Proceeding with install -- Hub will retry."
             )
+            OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- queuing for deferred retry")
             do {
                 try FingerprintState.writePending(
                     licenseId: claims.licenseId,
                     fingerprint: fingerprint
                 )
             } catch {
-                // We logged + we'll proceed anyway; a missing queue
-                // file means the deferred retry will not fire but
-                // the install is not blocked. Customer can later
-                // be re-registered manually if they hit the cap.
                 appendLog(
                     level: "warn",
                     msg: "Could not write pending-registration queue: \(error.localizedDescription)"
                 )
+                OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
             }
             registrationGate = .ready
             bootstrap()
@@ -330,6 +350,7 @@ final class InstallerCoordinator: ObservableObject {
     func respond(to prompt: PendingPrompt, with answer: String) {
         guard let handle = promptPipeWriteHandle else {
             appendLog(level: "error", msg: "No prompt pipe available; answer dropped")
+            OstlerLog.subprocess.error("respond: prompt pipe absent -- dropping answer for \(prompt.id, privacy: .public)")
             return
         }
         // Strip embedded newlines so we don't desync the read on the
@@ -339,6 +360,16 @@ final class InstallerCoordinator: ObservableObject {
         let line = sanitised + "\n"
         handle.write(Data(line.utf8))
         appendLog(level: "info", msg: "Sent answer for \(prompt.id) (\(prompt.kind.rawValue))")
+        // Secrets never reach the log -- byte-length only. For non-secret
+        // prompts we log the answer at .debug so `log show --debug` can
+        // reconstruct the full session; .info stays clean.
+        let answerBytes = sanitised.utf8.count
+        if prompt.kind == .secret {
+            OstlerLog.subprocess.info("respond: id=\(prompt.id, privacy: .public) kind=secret bytes=\(answerBytes)")
+        } else {
+            OstlerLog.subprocess.info("respond: id=\(prompt.id, privacy: .public) kind=\(prompt.kind.rawValue, privacy: .public) bytes=\(answerBytes)")
+            OstlerLog.subprocess.debug("respond:   answer=\(sanitised, privacy: .public)")
+        }
         pendingPrompt = nil
     }
 
@@ -500,6 +531,7 @@ final class InstallerCoordinator: ObservableObject {
             level: "info",
             msg: "Installer launched: pid=\(proc.processIdentifier) script=\(scriptPath)"
         )
+        OstlerLog.lifecycle.info("launchInstaller: pid=\(proc.processIdentifier, privacy: .public) script=\(scriptPath, privacy: .public) fifo=\(fifoPath, privacy: .public)")
         startWatchdog()
     }
 
@@ -540,6 +572,7 @@ final class InstallerCoordinator: ObservableObject {
                 level: t.level,
                 msg: "Watchdog: \(Int(elapsed))s since last subprocess output -- \(summary)"
             )
+            OstlerLog.subprocess.warning("watchdog: stage=\(t.stage, privacy: .public) elapsed=\(Int(elapsed), privacy: .public)s pid=\(self.process?.processIdentifier ?? -1, privacy: .public) summary=\(summary, privacy: .public)")
             watchdogStage = t.stage
         }
         // After the 60s threshold, heartbeat once per minute.
@@ -548,6 +581,7 @@ final class InstallerCoordinator: ObservableObject {
                 level: "error",
                 msg: "Watchdog: subprocess still silent after \(Int(elapsed))s. PID=\(process?.processIdentifier ?? -1). Consider Cancel + retry."
             )
+            OstlerLog.subprocess.error("watchdog: heartbeat elapsed=\(Int(elapsed), privacy: .public)s pid=\(self.process?.processIdentifier ?? -1, privacy: .public)")
             watchdogStage += 1
         }
     }
@@ -651,6 +685,7 @@ final class InstallerCoordinator: ObservableObject {
             currentStepIdx = idx ?? currentStepIdx
             totalSteps = total ?? totalSteps
             appendLog(level: "info", msg: "→ \(title) [\(id)]")
+            OstlerLog.subprocess.info("event STEP_BEGIN id=\(id, privacy: .public) idx=\(idx ?? -1, privacy: .public)/\(total ?? -1, privacy: .public) title=\(title, privacy: .public)")
         case .pct(_, let pct):
             currentStepPercent = pct
         case .log(let level, let msg):
@@ -659,11 +694,13 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: level, msg: msg)
         case .warn(_, let msg):
             appendLog(level: "warn", msg: msg)
+            OstlerLog.subprocess.warning("event WARN msg=\(msg, privacy: .public)")
         case .prompt(let id, let kind, let title, let defaultValue, let help, let choices):
             pendingPrompt = PendingPrompt(
                 id: id, kind: kind, title: title,
                 defaultValue: defaultValue, help: help, choices: choices
             )
+            OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public)")
         case .stepEnd(let id, let status, let elapsed):
             completedSteps.append(CompletedStep(
                 id: id,
@@ -673,15 +710,19 @@ final class InstallerCoordinator: ObservableObject {
             ))
             appendLog(level: status == .ok ? "info" : "warn",
                       msg: "← \(id) (\(status.rawValue), \(elapsed)s)")
+            OstlerLog.subprocess.info("event STEP_END id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)s")
         case .phase(let id, let title):
             phase = title
             phaseId = id
             appendLog(level: "info", msg: "Phase: \(title)")
+            OstlerLog.subprocess.info("event PHASE id=\(id, privacy: .public) title=\(title, privacy: .public)")
         case .needsFDA(let probe, let reason):
             needsFDA = NeedsFDA(probe: probe, reason: reason)
             appendLog(level: "warn", msg: "Needs FDA: \(reason)")
+            OstlerLog.subprocess.warning("event NEEDS_FDA probe=\(probe, privacy: .public) reason=\(reason, privacy: .public)")
         case .needsSudo(let reason):
             needsSudo = reason
+            OstlerLog.subprocess.info("event NEEDS_SUDO reason=\(reason, privacy: .public)")
             // Forward to the AuthorizationHelper so the user gets the
             // native prompt rather than a hidden bash sudo prompt.
             Task { await AuthorizationHelper.shared.requestAdminAuthorization(reason: reason) }
@@ -689,8 +730,10 @@ final class InstallerCoordinator: ObservableObject {
             finished = status
             appendLog(level: status == .ok ? "info" : "error",
                       msg: "Install finished: \(status.rawValue)")
+            OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public)")
         case .unknown(let raw):
             appendLog(level: "warn", msg: "Unrecognised marker: \(raw)")
+            OstlerLog.subprocess.warning("event UNKNOWN raw=\(raw, privacy: .public)")
         }
     }
 
@@ -704,6 +747,7 @@ final class InstallerCoordinator: ObservableObject {
             }
         }
         appendLog(level: "info", msg: "Subprocess terminated (exit \(exitCode))")
+        OstlerLog.lifecycle.info("subprocess terminated exit=\(exitCode, privacy: .public) finished=\(String(describing: self.finished), privacy: .public)")
         watchdogTask?.cancel()
         watchdogTask = nil
         promptPipeWriteHandle?.closeFile()

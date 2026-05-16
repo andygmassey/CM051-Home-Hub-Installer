@@ -28,6 +28,7 @@
 		825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */; };
 		83288FDC0ACD0A451D7984C8 /* JetBrainsMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A7BB29D9449120BC392EE586 /* JetBrainsMono-Medium.ttf */; };
 		83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F096DE1EF195479F3854214B /* AuthorizationHelper.swift */; };
+		85A41D89844382060889D680 /* OstlerLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */; };
 		868BCD8B2726182CE4DF212B /* IBMPlexSans-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 64CD3CA6555E4C9E1165A157 /* IBMPlexSans-SemiBold.ttf */; };
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */; };
@@ -94,6 +95,7 @@
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		D32D456A934ED46ACD089EF7 /* FingerprintState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintState.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerLog.swift; sourceTree = "<group>"; };
 		E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessSheet.swift; sourceTree = "<group>"; };
 		E4C1249B5BB363F304334F02 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E92A90F0ED1636988B7278FB /* HintPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintPanelView.swift; sourceTree = "<group>"; };
@@ -214,6 +216,7 @@
 				7EC2E5CA6E396F6D43EF3FED /* Info.plist */,
 				AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */,
 				5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */,
+				E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */,
 				8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */,
 				F449E7484435D5081F7CC53C /* Auth */,
 				70F3A6F3FB38114D1EC93F45 /* Bootstrap */,
@@ -417,6 +420,7 @@
 				D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */,
 				825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */,
 				A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */,
+				85A41D89844382060889D680 /* OstlerLog.swift in Sources */,
 				9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */,
 				0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */,
 				D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */,
