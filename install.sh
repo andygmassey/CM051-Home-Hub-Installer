@@ -1388,7 +1388,10 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo -e "  party to your WhatsApp ToS and have no rights or duties under"
     echo -e "  it. Compliance with WhatsApp's terms is your responsibility.${NC}"
     echo ""
-    read -p "  Enable WhatsApp connector and accept the risk above? (y/N): " WA_CONSENT
+    # gui_read so the GUI installer renders a sheet. A bare `read -p`
+    # blocks forever in OSTLER_GUI=1 mode because stdin is /dev/null
+    # (caught 2026-05-16 Mac Studio install hang).
+    WA_CONSENT="$(gui_read "Enable WhatsApp connector and accept the risk above? (y/N)" yesno "n" "WhatsApp Web access is a third-party integration -- you accept the consent above by enabling it." "" "whatsapp_consent")"
     if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
         CHANNEL_WHATSAPP_CONSENT_ACCEPTED=true
         ok "WhatsApp connector will be enabled (consent recorded)"
@@ -1567,7 +1570,10 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     echo "  the assistant (e.g. 'Ostler'). We will only read messages"
     echo "  there, leaving your main inbox untouched."
     echo ""
-    read -p "  Folder/label [Ostler]: " CHANNEL_EMAIL_IMAP_FOLDER
+    # gui_read so the GUI installer renders a sheet. This was the
+    # specific bare-read that hung Andy's Mac Studio at PU12+1
+    # (post-Confirm Password). See 2026-05-16 Studio install audit.
+    CHANNEL_EMAIL_IMAP_FOLDER="$(gui_read "Which folder should the assistant watch?" text "Ostler" "Recommended: a dedicated label or folder (e.g. Ostler). We will only read messages there, leaving your main inbox untouched." "" "email_imap_folder")"
     CHANNEL_EMAIL_IMAP_FOLDER="${CHANNEL_EMAIL_IMAP_FOLDER:-Ostler}"
 
     # Strong INBOX warning. Accept the user's choice only if they
@@ -1582,7 +1588,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         warn "INBOX means the assistant will read every email you receive."
         warn "We strongly recommend a dedicated label/folder instead."
         echo ""
-        read -p "  Type INBOX again to confirm, or press Enter to use 'Ostler': " _imap_folder_confirm
+        _imap_folder_confirm="$(gui_read "Type INBOX again to confirm, or press Enter to use 'Ostler'" text "" "INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead." "" "email_inbox_confirm")"
         if [[ "$_imap_folder_confirm" == "INBOX" ]]; then
             CHANNEL_EMAIL_IMAP_FOLDER="INBOX"
             warn "Using INBOX. The assistant will read every incoming email."
@@ -2219,7 +2225,9 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo -e "  already taken place.${NC}"
     echo ""
     while true; do
-        read -p "  Your decision (Y / N): " ART9
+        # gui_read so the GUI installer renders a sheet (bare `read -p`
+        # hangs OSTLER_GUI=1 because stdin is /dev/null).
+        ART9="$(gui_read "Your decision (Y / N)" yesno "" "Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing." "" "consent_article_9")"
         case "${ART9:-}" in
             y|Y)
                 OSTLER_CONSENT_ARTICLE_9_DECISION="accepted"
@@ -2288,7 +2296,9 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo -e "  fingerprints.${NC}"
     echo ""
     while true; do
-        read -p "  Recognise voices on your call recordings? (Y/n): " VOICE
+        # gui_read so the GUI installer renders a sheet (bare `read -p`
+        # hangs OSTLER_GUI=1 because stdin is /dev/null).
+        VOICE="$(gui_read "Recognise voices on your call recordings? (Y/n)" yesno "Y" "Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints." "" "consent_voice_eu")"
         case "${VOICE:-y}" in
             y|Y|"")
                 OSTLER_CONSENT_VOICE_EU_DECISION="accepted"
@@ -2372,7 +2382,9 @@ echo -e "  the controller. Your processing for personal and household"
 echo -e "  purposes falls within UK/EU GDPR Article 2(2)(c).${NC}"
 echo ""
 while true; do
-    read -p "  Your decision (Y / N): " THIRD_PARTY
+    # gui_read so the GUI installer renders a sheet (bare `read -p`
+    # hangs OSTLER_GUI=1 because stdin is /dev/null).
+    THIRD_PARTY="$(gui_read "Your decision (Y / N)" yesno "" "Third-party data consent. Creative Machines never receives this data and is not the controller." "" "consent_third_party")"
     case "${THIRD_PARTY:-}" in
         y|Y)
             OSTLER_CONSENT_THIRD_PARTY_DECISION="accepted"
