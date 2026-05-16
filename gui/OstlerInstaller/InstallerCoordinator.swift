@@ -673,6 +673,7 @@ final class InstallerCoordinator: ObservableObject {
         case .needsFDA:   key = "needsFDA"
         case .needsSudo:  key = "needsSudo"
         case .done:       key = "done"
+        case .rawLine:    key = "rawLine"
         case .unknown:    key = "unknown"
         }
         eventCounts[key, default: 0] += 1
@@ -689,8 +690,9 @@ final class InstallerCoordinator: ObservableObject {
         case .pct(_, let pct):
             currentStepPercent = pct
         case .log(let level, let msg):
-            // Don't double-log raw markers when devModeRawLog is off.
-            if !devModeRawLog && msg.hasPrefix("#OSTLER\t") { return }
+            // Structured LOG markers always surface -- these are the
+            // curated install.sh -> GUI messages. The Verbose toggle
+            // only gates rawLine events below.
             appendLog(level: level, msg: msg)
         case .warn(_, let msg):
             appendLog(level: "warn", msg: msg)
@@ -731,6 +733,18 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: status == .ok ? "info" : "error",
                       msg: "Install finished: \(status.rawValue)")
             OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public)")
+        case .rawLine(let msg):
+            // Raw subprocess stdout/stderr that did NOT carry an
+            // #OSTLER marker. Only surface in the drawer when the
+            // Verbose toggle is on -- pre-#348 these always showed
+            // and drowned the curated LOG markers in tool chatter.
+            // The os_log telemetry from #345 still receives every
+            // line via the subprocess category, so `log show` keeps
+            // the full stream regardless of toggle.
+            if devModeRawLog {
+                appendLog(level: "info", msg: msg)
+            }
+            OstlerLog.subprocess.debug("rawLine: \(msg, privacy: .public)")
         case .unknown(let raw):
             appendLog(level: "warn", msg: "Unrecognised marker: \(raw)")
             OstlerLog.subprocess.warning("event UNKNOWN raw=\(raw, privacy: .public)")
