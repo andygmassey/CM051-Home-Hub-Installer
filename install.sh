@@ -1304,6 +1304,12 @@ CHANNEL_EMAIL_IMAP_PORT=993
 CHANNEL_EMAIL_SMTP_HOST=""
 CHANNEL_EMAIL_SMTP_PORT=587
 CHANNEL_EMAIL_IMAP_FOLDER=""
+# Multi-source flags (HR015 task #209 / TNM 2026-05-16). Apple Mail
+# via FDA is the recommended path; custom IMAP+SMTP is reserved for
+# genuinely self-hosted mailboxes. Defaults match the post-PU9 yes/no
+# pair below: Apple Mail on, custom IMAP off, settled by the prompts.
+CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
+CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 
 case "$CHANNEL_CHOICE" in
     1) CHANNEL_IMESSAGE_ENABLED=true ;;
@@ -1478,85 +1484,118 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     done
 fi
 
-# ── Email details ──────────────────────────────────────────────────
+# ── Email sources ──────────────────────────────────────────────────
 #
-# Provider presets pre-fill the IMAP/SMTP host + port + TLS for
-# the common cases. "Custom" prompts for everything. Gmail and
-# iCloud both require an app password (NOT the user's main
-# account password) -- the prompts reflect this.
+# Source order, agreed in HR015 task #209 / TNM 2026-05-16 update:
+#
+#   1. Apple Mail FDA (recommended for almost everyone).
+#      Reads any account configured in Apple Mail (iCloud, Gmail,
+#      Outlook, etc.) using Full Disk Access. No passwords stored
+#      anywhere; the email-ingest LaunchAgent (HR015) drains the
+#      local mbox folder hourly.
+#   2. Google OAuth -- deferred to v1.5 (not in this build).
+#   3. Custom IMAP+SMTP password.
+#      Reserved for genuinely self-hosted mailboxes. We refuse to
+#      accept cloud-provider hosts (Gmail / iCloud / Outlook) here:
+#      the customer is nudged back to Apple Mail. We will never ask
+#      for a customer's account password for a cloud provider.
+#
+# PU9 now allows MULTIPLE sources: a customer can tick Apple Mail
+# AND a custom IMAP server. PU11/PU12 (password + confirm) only
+# fire if Custom IMAP is enabled.
 if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     echo ""
-    echo -e "  ${BOLD}Email provider${NC}"
+    echo -e "  ${BOLD}Where should Ostler read mail from?${NC}"
     echo ""
-    echo "    1. Gmail (requires app password)"
-    echo "    2. iCloud (requires app-specific password)"
-    echo "    3. Outlook / Office 365"
-    echo "    4. Other / custom IMAP+SMTP"
+    echo "    Apple Mail is the recommended source for almost everyone."
+    echo "    Sign in to iCloud, Gmail, or Outlook inside Apple Mail and"
+    echo "    Ostler reads them all via Full Disk Access -- no passwords"
+    echo "    stored anywhere."
     echo ""
-    EMAIL_PROVIDER="$(gui_read "Provider" choice "1" "1=Gmail, 2=iCloud, 3=Outlook, 4=Other custom IMAP+SMTP" "1,2,3,4" "email_provider")"
-    EMAIL_PROVIDER=${EMAIL_PROVIDER:-1}
 
-    case "$EMAIL_PROVIDER" in
-        1)
-            CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com"
-            CHANNEL_EMAIL_IMAP_PORT=993
-            CHANNEL_EMAIL_SMTP_HOST="smtp.gmail.com"
-            CHANNEL_EMAIL_SMTP_PORT=587
-            echo ""
-            echo "  Gmail requires an APP PASSWORD (not your main Google password)."
-            echo "  Generate one at: https://myaccount.google.com/apppasswords"
-            ;;
-        2)
-            CHANNEL_EMAIL_IMAP_HOST="imap.mail.me.com"
-            CHANNEL_EMAIL_IMAP_PORT=993
-            CHANNEL_EMAIL_SMTP_HOST="smtp.mail.me.com"
-            CHANNEL_EMAIL_SMTP_PORT=587
-            echo ""
-            echo "  iCloud requires an APP-SPECIFIC PASSWORD."
-            echo "  Generate one at: https://appleid.apple.com (Sign-In and Security)"
-            ;;
-        3)
-            CHANNEL_EMAIL_IMAP_HOST="outlook.office365.com"
-            CHANNEL_EMAIL_IMAP_PORT=993
-            CHANNEL_EMAIL_SMTP_HOST="smtp.office365.com"
-            CHANNEL_EMAIL_SMTP_PORT=587
-            ;;
-        4)
-            echo ""
-            CHANNEL_EMAIL_IMAP_HOST="$(gui_read "IMAP host" text "" "" "" "imap_host")"
-            imap_port_in="$(gui_read "IMAP port" text "993" "" "" "imap_port")"
-            CHANNEL_EMAIL_IMAP_PORT=${imap_port_in:-993}
-            CHANNEL_EMAIL_SMTP_HOST="$(gui_read "SMTP host" text "" "" "" "smtp_host")"
-            smtp_port_in="$(gui_read "SMTP port" text "587" "" "" "smtp_port")"
-            CHANNEL_EMAIL_SMTP_PORT=${smtp_port_in:-587}
-            ;;
-        *)
-            warn "Unrecognised provider '${EMAIL_PROVIDER}'; using Gmail defaults."
-            CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com"
-            CHANNEL_EMAIL_IMAP_PORT=993
-            CHANNEL_EMAIL_SMTP_HOST="smtp.gmail.com"
-            CHANNEL_EMAIL_SMTP_PORT=587
-            ;;
+    CHANNEL_EMAIL_APPLE_MAIL_INPUT="$(gui_read "Read mail via Apple Mail? (Y/n)" yesno "Y" "Reads any account you have added to Apple Mail (iCloud, Gmail, Outlook, etc.) using Full Disk Access. No passwords stored. Recommended for almost everyone." "" "email_apple_mail")"
+    case "${CHANNEL_EMAIL_APPLE_MAIL_INPUT:-Y}" in
+        n|N|no|NO|No) CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false ;;
+        *)            CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true ;;
     esac
 
-    echo ""
-    CHANNEL_EMAIL_USERNAME="$(gui_read "Email address (also used as IMAP/SMTP username)" text "" "" "" "email_username")"
-    CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
+    CHANNEL_EMAIL_CUSTOM_IMAP_INPUT="$(gui_read "Also configure a custom IMAP+SMTP server? (y/N)" yesno "N" "For self-hosted mailboxes only. Skip this if your accounts are with Gmail, iCloud, or Outlook -- those work better via Apple Mail above." "" "email_custom_imap")"
+    case "${CHANNEL_EMAIL_CUSTOM_IMAP_INPUT:-N}" in
+        y|Y|yes|YES|Yes) CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=true ;;
+        *)               CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false ;;
+    esac
+    unset CHANNEL_EMAIL_APPLE_MAIL_INPUT CHANNEL_EMAIL_CUSTOM_IMAP_INPUT
 
-    # Hidden password input (kind=secret); confirm with re-entry so a
-    # typo doesn't silently lock the assistant out of email.
-    while true; do
+    # Fail-safe default. If the customer said no to both we still need
+    # the email channel to do something; default to Apple Mail rather
+    # than silently disabling the channel after a Y at the prior step.
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" != true \
+       && "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" != true ]]; then
+        warn "Neither Apple Mail nor Custom IMAP selected -- defaulting to Apple Mail."
+        CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true
+    fi
+
+    if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
         echo ""
-        CHANNEL_EMAIL_PASSWORD="$(gui_read "Password (hidden)" secret "" "App-specific password from your provider, NOT your main account password." "" "email_password")"
-        echo ""
-        _email_confirm_input="$(gui_read "Confirm Password" secret "" "" "" "email_password_confirm")"
-        echo ""
-        if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
+        # Cloud-provider block list. The whole point of this branch
+        # is that we DO NOT want to handle Gmail / iCloud / Outlook
+        # passwords ourselves -- those go through Apple Mail. If the
+        # customer types one of these hosts we nudge them back.
+        while true; do
+            CHANNEL_EMAIL_IMAP_HOST="$(gui_read "IMAP host" text "" "Self-hosted or custom IMAP server only. Use Apple Mail (above) for Gmail / iCloud / Outlook." "" "imap_host")"
+            _imap_host_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_HOST" | tr '[:upper:]' '[:lower:]')"
+            case "$_imap_host_lower" in
+                imap.gmail.com|imap-mail.outlook.com|outlook.office365.com|imap.mail.me.com)
+                    warn "${CHANNEL_EMAIL_IMAP_HOST} is a cloud-provider host."
+                    warn "Use Apple Mail (recommended above) for that account -- Ostler never stores cloud passwords."
+                    warn "Re-running -- type a self-hosted host, or press Ctrl-C and re-launch picking Apple Mail."
+                    continue
+                    ;;
+                "")
+                    warn "IMAP host is empty -- try again."
+                    continue
+                    ;;
+            esac
+            unset _imap_host_lower
             break
-        fi
-        warn "Passwords did not match (or were empty). Try again."
-    done
-    unset _email_confirm_input
+        done
+        imap_port_in="$(gui_read "IMAP port" text "993" "" "" "imap_port")"
+        CHANNEL_EMAIL_IMAP_PORT=${imap_port_in:-993}
+        CHANNEL_EMAIL_SMTP_HOST="$(gui_read "SMTP host" text "" "" "" "smtp_host")"
+        smtp_port_in="$(gui_read "SMTP port" text "587" "" "" "smtp_port")"
+        CHANNEL_EMAIL_SMTP_PORT=${smtp_port_in:-587}
+
+        echo ""
+        CHANNEL_EMAIL_USERNAME="$(gui_read "Email address (also used as IMAP/SMTP username)" text "" "" "" "email_username")"
+        CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
+
+        # Hidden password input (kind=secret); confirm with re-entry
+        # so a typo doesn't silently lock the assistant out of email.
+        # This loop fires ONLY for custom IMAP -- we never ask a
+        # customer for a cloud-provider password.
+        while true; do
+            echo ""
+            CHANNEL_EMAIL_PASSWORD="$(gui_read "Password (hidden)" secret "" "Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ -- never sent to Creative Machines." "" "email_password")"
+            echo ""
+            _email_confirm_input="$(gui_read "Confirm Password" secret "" "" "" "email_password_confirm")"
+            echo ""
+            if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
+                break
+            fi
+            warn "Passwords did not match (or were empty). Try again."
+        done
+        unset _email_confirm_input
+    else
+        # Apple-Mail-only path. No IMAP credentials are collected;
+        # HR015's email-ingest LaunchAgent reads from Apple Mail's
+        # local mbox via Full Disk Access. We leave the IMAP / SMTP
+        # / username / password vars empty so the channels.toml
+        # writer renders them as empty strings, and the email-ingest
+        # side keys off `apple_mail = true` instead.
+        CHANNEL_EMAIL_USERNAME=""
+        CHANNEL_EMAIL_FROM=""
+        CHANNEL_EMAIL_PASSWORD=""
+    fi
 
     # Folder / label scoping. Connecting the assistant to the main
     # inbox means it will see every email the user receives, not
@@ -1600,7 +1639,19 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     fi
     unset _imap_folder_lower
 
-    ok "Email channel: ${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST} (folder: ${CHANNEL_EMAIL_IMAP_FOLDER})"
+    # Build a human-friendly summary that reflects whichever paths
+    # are enabled. Apple Mail FDA has no host / username; custom
+    # IMAP carries the existing username + host info.
+    _email_summary_parts=()
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
+        _email_summary_parts+=("Apple Mail (FDA)")
+    fi
+    if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
+        _email_summary_parts+=("${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST}")
+    fi
+    IFS=' + ' read -r _email_summary_joined <<< "${_email_summary_parts[*]}"
+    ok "Email channel: ${_email_summary_joined} (folder: ${CHANNEL_EMAIL_IMAP_FOLDER})"
+    unset _email_summary_parts _email_summary_joined
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
@@ -3197,9 +3248,29 @@ TOMLPREAMBLE
         echo
         echo "[channels.email]"
         echo "enabled = true"
+        # Source flags. `apple_mail = true` tells the email-ingest
+        # LaunchAgent (HR015) to drain from Apple Mail's local mbox
+        # via Full Disk Access. `custom_imap = true` tells it to
+        # also poll the IMAP host below. Both may be true.
+        if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
+            echo "apple_mail = true"
+        else
+            echo "apple_mail = false"
+        fi
+        if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
+            echo "custom_imap = true"
+        else
+            echo "custom_imap = false"
+        fi
+        # Folder/label is the scoping rule for both paths -- read
+        # only messages in the named folder/label across whichever
+        # source(s) are enabled.
+        echo "imap_folder = \"$(_esc "$CHANNEL_EMAIL_IMAP_FOLDER")\""
+        # IMAP / SMTP fields. Always emitted to keep the TOML keys
+        # stable for the parser; populated only when custom_imap is
+        # on, empty strings otherwise.
         echo "imap_host = \"$(_esc "$CHANNEL_EMAIL_IMAP_HOST")\""
         echo "imap_port = ${CHANNEL_EMAIL_IMAP_PORT}"
-        echo "imap_folder = \"$(_esc "$CHANNEL_EMAIL_IMAP_FOLDER")\""
         echo "smtp_host = \"$(_esc "$CHANNEL_EMAIL_SMTP_HOST")\""
         echo "smtp_port = ${CHANNEL_EMAIL_SMTP_PORT}"
         echo "smtp_tls = true"
