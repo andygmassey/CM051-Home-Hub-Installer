@@ -15,7 +15,7 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "5"
+    CURRENT_PROJECT_VERSION: "6"
     MARKETING_VERSION: "0.2.1"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
@@ -38,6 +38,10 @@ targets:
           - "Resources/Illustrations/*"
     resources:
       - path: OstlerInstaller/Resources
+        excludes:
+          - "Fonts/**"
+      - path: OstlerInstaller/Resources/Fonts
+        type: folder
     info:
       path: OstlerInstaller/Info.plist
       properties:
@@ -45,7 +49,7 @@ targets:
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
         CFBundleShortVersionString: "0.2.1"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -69,6 +73,28 @@ targets:
         SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         ARCHS: "$(ARCHS_STANDARD)"
     postBuildScripts:
+      - name: Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath
+        script: |
+          set -euo pipefail
+          # Info.plist sets ATSApplicationFontsPath = "Fonts", which tells
+          # macOS to look at Contents/Resources/Fonts/ for app-specific fonts
+          # to register at launch. xcodegen's default group-based resources
+          # copy flattens the source Fonts/ subdir, so without this step the
+          # TTFs land flat at Contents/Resources/*.ttf and macOS never finds
+          # them. Every Font.custom(...) call then silently falls back to
+          # system. Caught by TNM 2026-05-16 review of PR #77 (Check 6).
+          # Fix: post-build, ensure Fonts/ subdir exists and move any flat
+          # brand TTFs (Outfit, IBMPlexSans, JetBrainsMono) + OFL.txt into it.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/Fonts"
+          for f in Outfit-Regular.ttf Outfit-Medium.ttf Outfit-SemiBold.ttf Outfit-Bold.ttf \
+                   IBMPlexSans-Regular.ttf IBMPlexSans-Medium.ttf IBMPlexSans-SemiBold.ttf \
+                   JetBrainsMono-Regular.ttf JetBrainsMono-Medium.ttf \
+                   OFL.txt; do
+              if [ -f "${DEST}/${f}" ]; then
+                  mv -f "${DEST}/${f}" "${DEST}/Fonts/${f}"
+              fi
+          done
       - name: Bundle install.sh + lib/progress_emitter.sh into Resources
         script: |
           set -euo pipefail

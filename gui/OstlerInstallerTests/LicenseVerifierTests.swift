@@ -269,6 +269,24 @@ final class LicenseVerifierTests: XCTestCase {
         XCTAssertEqual(actualStr, expected, "canonical bytes diverged from Python/Worker reference")
     }
 
+    func testCanonicalJSONFromDeserializedJSONHandlesIntOne() throws {
+        // The actual regression-protector. The two adjacent literal-Int
+        // tests use Swift's native `Int(1)`, which doesn't bridge to Bool
+        // via `as? Bool` -- so they would pass with the bridging bug in
+        // place too. The bug only fires on values that come out of
+        // JSONSerialization (NSNumber-typed), where `NSNumber(int: 1)
+        // as? Bool` returns `Optional(true)`. This test exercises that
+        // path.
+        let raw = #"{"version":1,"max_hardware_fingerprints":0}"#.data(using: .utf8)!
+        let body = try JSONSerialization.jsonObject(with: raw) as! [String: Any]
+        let canonical = LicenseVerifier.canonicalJSON(body)!
+        XCTAssertEqual(
+            String(data: canonical, encoding: .utf8),
+            #"{"max_hardware_fingerprints":0,"version":1}"#,
+            "canonical bytes diverged from reference; NSNumber/Bool bridging bug may have regressed"
+        )
+    }
+
     func testCanonicalJSONPreservesIntegerOneAndZero() {
         // The Bool/NSNumber bridging gotcha specifically affects
         // 0 and 1, since those are the only Int values that round-
