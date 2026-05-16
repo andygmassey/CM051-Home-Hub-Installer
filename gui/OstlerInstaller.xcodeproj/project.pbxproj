@@ -37,6 +37,7 @@
 		A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */; };
 		A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
+		D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */; };
 		D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00506B02E761DF68EBB5ADCF /* PromptSheet.swift */; };
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
 		E03DD536A682B3269BAB3727 /* Outfit-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */; };
@@ -71,6 +72,7 @@
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
 		40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Medium.ttf"; sourceTree = "<group>"; };
+		411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerFormatTests.swift; sourceTree = "<group>"; };
 		49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifierTests.swift; sourceTree = "<group>"; };
 		578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistration.swift; sourceTree = "<group>"; };
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 				FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */,
 				87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */,
 				49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */,
+				411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */,
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 			);
 			path = OstlerInstallerTests;
@@ -440,6 +443,7 @@
 				A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */,
 				518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */,
 				E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */,
+				D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */,
 				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
