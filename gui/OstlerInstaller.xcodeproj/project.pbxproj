@@ -22,6 +22,7 @@
 		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
 		66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */; };
+		673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */; };
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
@@ -31,16 +32,17 @@
 		83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F096DE1EF195479F3854214B /* AuthorizationHelper.swift */; };
 		85A41D89844382060889D680 /* OstlerLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */; };
 		868BCD8B2726182CE4DF212B /* IBMPlexSans-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 64CD3CA6555E4C9E1165A157 /* IBMPlexSans-SemiBold.ttf */; };
+		8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */; };
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
 		9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */; };
+		A24306F6E5743370D87800DF /* OnboardingQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */; };
 		A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */; };
 		A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
 		D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */; };
-		D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00506B02E761DF68EBB5ADCF /* PromptSheet.swift */; };
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
 		E03DD536A682B3269BAB3727 /* Outfit-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */; };
 		E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */; };
@@ -63,9 +65,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		00506B02E761DF68EBB5ADCF /* PromptSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSheet.swift; sourceTree = "<group>"; };
 		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
+		091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionViewSnapshotTests.swift; sourceTree = "<group>"; };
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLimitReachedView.swift; sourceTree = "<group>"; };
@@ -101,10 +103,12 @@
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		D32D456A934ED46ACD089EF7 /* FingerprintState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintState.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionView.swift; sourceTree = "<group>"; };
 		E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerLog.swift; sourceTree = "<group>"; };
 		E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessSheet.swift; sourceTree = "<group>"; };
 		E4C1249B5BB363F304334F02 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E92A90F0ED1636988B7278FB /* HintPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintPanelView.swift; sourceTree = "<group>"; };
+		EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionXOfYTests.swift; sourceTree = "<group>"; };
 		EF64A6B46A3BD66D6097C846 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		F096DE1EF195479F3854214B /* AuthorizationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizationHelper.swift; sourceTree = "<group>"; };
 		F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistence.swift; sourceTree = "<group>"; };
@@ -139,7 +143,7 @@
 				E92A90F0ED1636988B7278FB /* HintPanelView.swift */,
 				6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */,
 				0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */,
-				00506B02E761DF68EBB5ADCF /* PromptSheet.swift */,
+				DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */,
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
 			);
 			path = Views;
@@ -180,6 +184,8 @@
 				87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */,
 				49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */,
 				411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */,
+				091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */,
+				EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */,
 				88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */,
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 				58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */,
@@ -429,10 +435,10 @@
 				D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */,
 				825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */,
 				A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */,
+				A24306F6E5743370D87800DF /* OnboardingQuestionView.swift in Sources */,
 				85A41D89844382060889D680 /* OstlerLog.swift in Sources */,
 				9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */,
 				0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */,
-				D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */,
 				FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */,
 				8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */,
 				2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */,
@@ -450,6 +456,8 @@
 				518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */,
 				E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */,
 				D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */,
+				8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */,
+				673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */,
 				2D47AB35E1FB087DE3838834 /* ProgressDecoderTests.swift in Sources */,
 				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
 				ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */,
