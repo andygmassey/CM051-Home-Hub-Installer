@@ -111,6 +111,10 @@ struct LicenseEntryView: View {
             Spacer()
             Button("Verify Licence") {
                 errorMessage = nil
+                if looksLikeShortLicenceId(pasteText) {
+                    errorMessage = LicenseEntryView.shortIdGuidanceMessage
+                    return
+                }
                 guard let data = pasteText.data(using: .utf8), !pasteText.isEmpty else {
                     errorMessage = "Paste the licence JSON above first, or drop the file onto the box."
                     return
@@ -215,4 +219,32 @@ struct LicenseEntryView: View {
             errorMessage = "Could not read this licence: \(reason)"
         }
     }
+
+    // MARK: - Short-Licence-ID heuristic
+
+    // Friendly message shown when the customer pastes their short Licence
+    // ID (first 8 chars of the licence_id UUID, surfaced inline in the
+    // welcome email) into the JSON-paste field. Without this the verifier
+    // would emit a meaningless JSON-parse error.
+    static let shortIdGuidanceMessage =
+        "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai."
+}
+
+// Detects pastes that match the short-Licence-ID shape rather than the
+// full licence JSON. Conservative: only triggers on short hex-like
+// strings (4-16 chars, hex + dash, no `{` or `"`). Real JSON will
+// always contain `{` or be longer than 16 chars, so passes through
+// untouched. Empty pastes return false so the existing empty-paste
+// guard keeps its own error message.
+//
+// Lives at module scope rather than as a private member so the
+// OstlerInstallerTests target can exercise it directly via
+// `@testable import OstlerInstaller`.
+func looksLikeShortLicenceId(_ text: String) -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+    guard trimmed.count <= 16 else { return false }
+    guard !trimmed.contains("{"), !trimmed.contains("\"") else { return false }
+    let hexCharSet = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+    return trimmed.unicodeScalars.allSatisfy { hexCharSet.contains($0) }
 }
