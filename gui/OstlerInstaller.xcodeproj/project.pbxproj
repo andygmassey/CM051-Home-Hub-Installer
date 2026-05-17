@@ -39,6 +39,7 @@
 		A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
+		D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */; };
 		D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */; };
 		D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00506B02E761DF68EBB5ADCF /* PromptSheet.swift */; };
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
@@ -99,6 +100,7 @@
 		AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerCoordinator.swift; sourceTree = "<group>"; };
 		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
+		BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryShortIdHeuristicTests.swift; sourceTree = "<group>"; };
 		D32D456A934ED46ACD089EF7 /* FingerprintState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintState.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerLog.swift; sourceTree = "<group>"; };
@@ -177,6 +179,7 @@
 				3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */,
 				59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */,
 				FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */,
+				BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */,
 				87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */,
 				49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */,
 				411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */,
@@ -447,6 +450,7 @@
 				41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */,
 				E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */,
 				A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */,
+				D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */,
 				518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */,
 				E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */,
 				D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */,
