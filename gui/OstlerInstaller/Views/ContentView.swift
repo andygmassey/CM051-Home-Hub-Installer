@@ -26,10 +26,10 @@ struct ContentView: View {
             // a second call from `runDeviceRegistration` is harmless.
             if gate == .ready { coordinator.bootstrap() }
         }
-        .sheet(item: $coordinator.pendingPrompt) { prompt in
-            PromptSheet(prompt: prompt)
-                .environmentObject(coordinator)
-        }
+        // PROMPT events are rendered inline in `installLayout` via
+        // `OnboardingQuestionView` (#353). FDA approval is still a
+        // sheet for now -- it sits outside the question flow and
+        // pre-dates the in-window decision.
         .sheet(item: $coordinator.needsFDA) { fda in
             FullDiskAccessSheet(probe: fda.probe, reason: fda.reason)
                 .environmentObject(coordinator)
@@ -73,7 +73,17 @@ struct ContentView: View {
                     .frame(width: 1)
 
                 VStack(spacing: 0) {
-                    HintPanelView()
+                    // Onboarding takes over the main content area
+                    // whenever there's a live PROMPT or the customer
+                    // is reviewing a previous answer via Back. The
+                    // sidebar Steps + footer remain visible so the
+                    // customer never loses their progress anchor.
+                    if coordinator.pendingPrompt != nil ||
+                       coordinator.backReviewIndex != nil {
+                        OnboardingQuestionView()
+                    } else {
+                        HintPanelView()
+                    }
                     Spacer()
                     if showLogDrawer {
                         Rectangle()
