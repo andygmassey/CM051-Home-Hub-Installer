@@ -5016,6 +5016,92 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
     fi
 fi
 
+# ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
+#
+# Writes the install-time half of ~/.ostler/state/pipeline_signals.json
+# so the Doctor agent can decide whether to surface the "no local
+# Mail content yet" banner.
+#
+# The Doctor empty-Mail banner (HR015 #109) fires only when ALL of:
+#   - mail_has_fetched is false
+#   - install_completed_ts is set
+#   - more than 24 hours have elapsed since install_completed_ts
+#
+# The fourth key, first_ingest_complete_ts, is written by the
+# email-ingest tick on the first non-empty ingest (#260 follow-up).
+# We preserve it across reinstalls so the tick does not need to
+# re-detect first ingest.
+#
+# Apple Mail data lives under ~/Library/Mail/V<N>/ which is FDA-
+# protected. If FDA has not been granted yet, the find calls below
+# silently return empty and the sidecar records mail_has_fetched=false;
+# Doctor's broader FDA diagnostic surfaces the underlying cause.
+
+MAIL_ACCOUNTS_FOUND=0
+MAIL_HAS_FETCHED="false"
+APPLE_MAIL_VERSION_DIR=""
+
+# Mail.app stores per-version data under ~/Library/Mail/V<N>/.
+# Pick the highest version number (most recent macOS / Mail.app).
+if [[ -d "${HOME}/Library/Mail" ]]; then
+    APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
+fi
+
+if [[ -n "$APPLE_MAIL_VERSION_DIR" && -d "$APPLE_MAIL_VERSION_DIR" ]]; then
+    # Account count is informational only. We accept rough over-counting
+    # (CalDAV calendars sometimes appear under MailAccounts, drafts-only
+    # accounts) per the 2026-05-17 findings; the load-bearing signal for
+    # the banner is mail_has_fetched, not the count.
+    ACCOUNTS_PLIST="${APPLE_MAIL_VERSION_DIR}/MailData/Accounts.plist"
+    if [[ -f "$ACCOUNTS_PLIST" ]]; then
+        # <key>AccountName</key> appears once per account dict. Tolerant
+        # of false positives by design.
+        MAIL_ACCOUNTS_FOUND=$(grep -c '<key>AccountName</key>' "$ACCOUNTS_PLIST" 2>/dev/null || echo 0)
+    fi
+
+    # "Has Mail.app ever pulled a message?" -- any non-empty
+    # InboxCache.plist under the version dir is sufficient.
+    if find "$APPLE_MAIL_VERSION_DIR" -name 'InboxCache.plist' -size +0c -print 2>/dev/null | head -1 | grep -q .; then
+        MAIL_HAS_FETCHED="true"
+    fi
+fi
+
+# Sidecar -- atomic write, 0600 perms. Preserves first_ingest_complete_ts
+# if a prior tick has populated it (reinstall case). The JSON-merge
+# logic lives in lib/write_pipeline_signals.py so it can be unit-tested.
+PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
+PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
+mkdir -p "$PIPELINE_SIGNALS_DIR"
+
+# Resolve the writer script with the same fallback chain as
+# progress_emitter.sh above (bundled / dev / post-install re-run).
+_pipeline_writer=""
+if [[ -n "${OSTLER_PIPELINE_SIGNALS_WRITER:-}" && -f "${OSTLER_PIPELINE_SIGNALS_WRITER}" ]]; then
+    _pipeline_writer="${OSTLER_PIPELINE_SIGNALS_WRITER}"
+elif [[ -f "${SCRIPT_DIR}/lib/write_pipeline_signals.py" ]]; then
+    _pipeline_writer="${SCRIPT_DIR}/lib/write_pipeline_signals.py"
+elif [[ -f "${HOME}/.ostler/lib/write_pipeline_signals.py" ]]; then
+    _pipeline_writer="${HOME}/.ostler/lib/write_pipeline_signals.py"
+fi
+
+if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
+        --output "$PIPELINE_SIGNALS_FILE" \
+        --accounts "$MAIL_ACCOUNTS_FOUND" \
+        --has-fetched "$MAIL_HAS_FETCHED"; then
+    info "Apple Mail accounts visible: ${MAIL_ACCOUNTS_FOUND} (informational)"
+    if [[ "$MAIL_HAS_FETCHED" == "true" ]]; then
+        info "Apple Mail has cached messages. Ingest will pick them up on the next hourly tick."
+    else
+        info "Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
+    fi
+    gui_emit MAIL_ACCOUNTS_FOUND "count=${MAIL_ACCOUNTS_FOUND}" "has_fetched=${MAIL_HAS_FETCHED}"
+else
+    warn "Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
+fi
+
+unset MAIL_ACCOUNTS_FOUND MAIL_HAS_FETCHED APPLE_MAIL_VERSION_DIR ACCOUNTS_PLIST
+unset PIPELINE_SIGNALS_DIR PIPELINE_SIGNALS_FILE _pipeline_writer
+
 # ── 3.14d Wiki recompile LaunchAgent (daily wiki rebuild) ───────
 #
 # Daily LaunchAgent that re-runs the wiki-compiler against the

@@ -23,6 +23,13 @@
 #   PHASE       id=<n>   title=<...>
 #   NEEDS_FDA   probe=<path>  reason=<...>
 #   NEEDS_SUDO  reason=<...>
+#   MAIL_ACCOUNTS_FOUND  count=<n>  has_fetched=true|false
+#               Install-time Apple Mail probe result (#259). Lets the
+#               installer GUI surface an optional empty-mailbox sheet
+#               on the success screen. Doctor reads the same data
+#               from ~/.ostler/state/pipeline_signals.json directly,
+#               so this marker is informational only; installs
+#               without GUI handling silently ignore it.
 #   DONE        status=ok|fail
 #
 # Usage in install.sh:
