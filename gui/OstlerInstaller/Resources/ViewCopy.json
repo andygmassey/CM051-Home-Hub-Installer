@@ -61,11 +61,21 @@
     "verbose_toggle": "Verbose"
   },
 
-  "prompt_sheet": {
-    "cancel_button": "Cancel",
+  "onboarding_question": {
+    "header_with_total": "Question {current} of {total}",
+    "header_without_total": "Question {current}",
+    "header_review_suffix": "  (review)",
     "continue_button": "Continue",
+    "back_button": "Back",
+    "return_button": "Return to current question",
+    "back_tooltip_empty": "No previous answers yet.",
+    "back_tooltip_default": "Review previous answers. Editing is disabled in this version; cancel and re-run the installer to revise.",
     "yes_label": "Yes",
-    "no_label": "No"
+    "no_label": "No",
+    "secret_review_placeholder": "(hidden)",
+    "error_empty_text": "Please enter a value to continue.",
+    "error_empty_choice": "Please pick one of the options.",
+    "error_invalid_choice": "Pick one of: {options}"
   },
 
   "sidebar": {

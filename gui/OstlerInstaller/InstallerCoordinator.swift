@@ -37,6 +37,35 @@ final class InstallerCoordinator: ObservableObject {
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
 
+    // ── Onboarding question rendering (in-window, #353) ──────────
+    //
+    // The Studio retry on 2026-05-16 surfaced that 12+ sheet-style
+    // popups during onboarding feel endless to the customer. Route B
+    // (per the brief) keeps install.sh's FIFO protocol unchanged and
+    // changes only how the GUI renders incoming PROMPT markers: a new
+    // `OnboardingQuestionView` is rendered in the main content area
+    // instead of `.sheet(item:)`. The view reads from `pendingPrompt`
+    // (live) or `answerHistory[backReviewIndex]` (read-only review).
+    //
+    // X is a monotonic counter incremented on each PROMPT event so
+    // the customer sees "Question 5 of 17" rather than guessing how
+    // many taps remain. Y is computed when the `channel_choice`
+    // prompt is answered (because the channel selection picks 1 of 4
+    // expected path lengths) and may be revised when later branches
+    // are committed (e.g. opting into a custom IMAP server adds
+    // another ~7 prompts). Until Y is known the header degrades to
+    // "Question X".
+    @Published var currentQuestionIndex: Int = 0
+    @Published var totalQuestionCount: Int? = nil
+    @Published var answerHistory: [AnsweredQuestion] = []
+    /// When set, the OnboardingQuestionView renders the matching
+    /// history entry in read-only review mode rather than the live
+    /// `pendingPrompt`. v7.1 keeps Back semantics conservative: the
+    /// customer can look at what they typed before, but cannot edit
+    /// it (the answer is already on the FIFO and bash has consumed
+    /// it). Edit-and-resend is Route A, deferred.
+    @Published var backReviewIndex: Int? = nil
+
     // ── Licence gating ────────────────────────────────────────────
     /// Flips true once `verifyLicense` accepts a customer-supplied
     /// licence (or once an existing on-disk licence verifies at
@@ -87,6 +116,27 @@ final class InstallerCoordinator: ObservableObject {
     func simulateLineForTests(_ line: String) {
         let event = ProgressDecoder.decode(line: line)
         apply(event: event, fromStderr: false)
+    }
+
+    /// Test seam. Simulates the answer-side of a prompt commit
+    /// without requiring the real promptPipeWriteHandle to be open
+    /// -- exercises the answer-history append + total-question
+    /// recompute path that `respond(to:with:)` shares. The FIFO
+    /// write is intentionally skipped (no subprocess to receive it).
+    func applyAnswerForTests(promptId: String, answer: String) {
+        guard let prompt = pendingPrompt, prompt.id == promptId else {
+            assertionFailure("applyAnswerForTests: pendingPrompt missing or id mismatch")
+            return
+        }
+        let stored: String = prompt.kind == .secret ? "(hidden)" : answer
+        answerHistory.append(AnsweredQuestion(
+            index: currentQuestionIndex,
+            prompt: prompt,
+            answer: stored
+        ))
+        recomputeTotalQuestionCount(committedPromptId: prompt.id, answer: answer)
+        pendingPrompt = nil
+        backReviewIndex = nil
     }
     #endif
 
@@ -149,6 +199,20 @@ final class InstallerCoordinator: ObservableObject {
         let defaultValue: String?
         let help: String?
         let choices: [String]
+    }
+
+    /// One committed answer in the onboarding flow. Captured when
+    /// `respond(to:with:)` writes to the FIFO so Back can re-show
+    /// the prompt + answer for review.
+    struct AnsweredQuestion: Identifiable, Equatable {
+        /// The X value at the time of commit (1-based).
+        let index: Int
+        let prompt: PendingPrompt
+        /// Stored answer. Secret prompts persist a placeholder marker
+        /// rather than plaintext so the review state can render
+        /// safely without leaking the secret.
+        let answer: String
+        var id: String { "\(index)_\(prompt.id)" }
     }
 
     struct NeedsFDA: Identifiable, Equatable {
@@ -442,7 +506,86 @@ final class InstallerCoordinator: ObservableObject {
             OstlerLog.subprocess.info("respond: id=\(prompt.id, privacy: .public) kind=\(prompt.kind.rawValue, privacy: .public) bytes=\(answerBytes)")
             OstlerLog.subprocess.debug("respond:   answer=\(sanitised, privacy: .public)")
         }
+        // Record this answer so Back can re-show it for review.
+        // Secrets are never persisted in plaintext -- store a marker
+        // so the review state can render "(hidden)" without leaking.
+        let storedAnswer: String = prompt.kind == .secret
+            ? "(hidden)"
+            : sanitised
+        answerHistory.append(AnsweredQuestion(
+            index: currentQuestionIndex,
+            prompt: prompt,
+            answer: storedAnswer
+        ))
+        // Compute / refine Y as branch decisions reveal themselves.
+        recomputeTotalQuestionCount(committedPromptId: prompt.id, answer: sanitised)
         pendingPrompt = nil
+        backReviewIndex = nil
+    }
+
+    /// Estimates the total number of onboarding prompts the customer
+    /// will see. Called after each prompt commits because some
+    /// answers reveal new branches (e.g. opting into a custom IMAP
+    /// server adds ~7 follow-up prompts). v7.1 ships approximate
+    /// numbers -- the header gracefully degrades to "Question X" if
+    /// X ever exceeds the current Y estimate, so over-shooting is
+    /// the worst-case (the customer sees the suffix vanish, no
+    /// false-precision is shown). Route A (v2) replaces this with
+    /// install.sh emitting an explicit total alongside each PROMPT.
+    fileprivate func recomputeTotalQuestionCount(committedPromptId id: String, answer: String) {
+        switch id {
+        case "channel_choice":
+            // install.sh choices: 1=iMessage only, 2=email only,
+            // 3=both, 4=skip. The baseline path (pre channels +
+            // post-channels system prompts) is ~12 prompts. Channel
+            // sub-flows add the per-channel question counts below.
+            let trimmed = answer.trimmingCharacters(in: .whitespaces)
+            let baseline = 12
+            let channelAddend: Int
+            switch trimmed {
+            case "1": channelAddend = 1   // iMessage allowed contacts only
+            case "2": channelAddend = 3   // Apple Mail (Y/n) + IMAP (Y/n) + folder
+            case "3": channelAddend = 4   // iMessage allowlist + email triplet
+            case "4": channelAddend = 0   // skip all channels
+            default:  channelAddend = 2
+            }
+            totalQuestionCount = baseline + channelAddend
+        case "email_custom_imap":
+            // A "Y" on the custom IMAP question commits the customer
+            // to host / port / smtp-host / smtp-port / username /
+            // password / password-confirm -- about 7 extra prompts.
+            // "N" / blank means we already counted the lightweight
+            // path; leave the total alone.
+            if answer.lowercased().hasPrefix("y"), let existing = totalQuestionCount {
+                totalQuestionCount = existing + 7
+            }
+        default:
+            break
+        }
+    }
+
+    /// Step backwards into the answer history to review what the
+    /// customer typed previously. v7.1 ships review-only Back: the
+    /// previous answer is read-only because bash has already
+    /// consumed it off the FIFO and a re-submit would land against
+    /// the next pending read. Route A (full edit-and-resend) is the
+    /// next iteration.
+    func enterBackReview() {
+        guard !answerHistory.isEmpty else { return }
+        let target = (backReviewIndex ?? answerHistory.count) - 1
+        backReviewIndex = max(0, target)
+    }
+
+    /// Step forward inside review mode (towards the live prompt). If
+    /// we are already at the most-recent entry, exit review entirely.
+    func exitBackReview() {
+        guard let idx = backReviewIndex else { return }
+        let next = idx + 1
+        if next >= answerHistory.count {
+            backReviewIndex = nil
+        } else {
+            backReviewIndex = next
+        }
     }
 
     // ── Process launch ───────────────────────────────────────────
@@ -781,7 +924,16 @@ final class InstallerCoordinator: ObservableObject {
                 id: id, kind: kind, title: title,
                 defaultValue: defaultValue, help: help, choices: choices
             )
-            OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public)")
+            // X advances on every PROMPT event so the in-window
+            // header shows monotonic progress. A user clicking Back
+            // for review does not roll X back (the review state is
+            // tracked separately by `backReviewIndex`).
+            currentQuestionIndex += 1
+            // If the customer is in a Back review when a new prompt
+            // arrives, drop them back into the live view -- the
+            // previous prompt is now stale.
+            backReviewIndex = nil
+            OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public) x=\(self.currentQuestionIndex, privacy: .public) y=\(self.totalQuestionCount ?? -1, privacy: .public)")
         case .stepEnd(let id, let status, let elapsed):
             completedSteps.append(CompletedStep(
                 id: id,
