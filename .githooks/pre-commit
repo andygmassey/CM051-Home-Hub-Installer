@@ -12,4 +12,14 @@ if [ -x "$ROOT/.githooks/check-rule-09-strings.sh" ]; then
     "$ROOT/.githooks/check-rule-09-strings.sh" pre-commit || exit $?
 fi
 
+# Hardcoded-assistant-name guard -- the customer chooses the assistant's
+# name at install time. Customer-rendered surfaces must NOT contain the
+# literal word "Marvin". Locked 2026-05-19 after the THIRD scrub attempt.
+# Complementary to Rule 0.9: Rule 0.9 catches inline literals; this hook
+# catches the brand-noun specifically, including inside catalogue values.
+# Per-line bypass: append `assistant-name-exempt`.
+if [ -x "$ROOT/.githooks/check-assistant-name-hardcoded.sh" ]; then
+    "$ROOT/.githooks/check-assistant-name-hardcoded.sh" pre-commit || exit $?
+fi
+
 "$ROOT/.githooks/pre-commit-operator-pii" || exit $?
