@@ -42,10 +42,10 @@ struct LicenseEntryView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your licence")
+            Text(ViewCopy.shared.string(for: "license_entry.heading"))
                 .font(.ostlerH1)
                 .foregroundColor(.ostlerInk)
-            Text("Ostler needs a licence file before it can install. The licence arrived in your welcome email from hello@ostler.ai. Save the attached file (it looks like `ostler-licence.json`), then drag it here -- or paste the JSON contents below.")
+            Text(ViewCopy.shared.string(for: "license_entry.intro"))
                 .font(.ostlerBody)
                 .foregroundColor(.ostlerInkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -75,10 +75,11 @@ struct LicenseEntryView: View {
             Image(systemName: "doc.badge.arrow.up")
                 .font(.system(size: 28, weight: .regular))
                 .foregroundColor(.ostlerInkMuted)
-            Text(isTargeted ? "Drop to verify" : "Drag your licence file here")
+            Text(ViewCopy.shared.string(for: isTargeted ? "license_entry.dropzone_active"
+                                                        : "license_entry.dropzone_idle"))
                 .font(.ostlerBodyLg)
                 .foregroundColor(.ostlerInk)
-            Text("Looks for ostler-licence.json (or similar)")
+            Text(ViewCopy.shared.string(for: "license_entry.dropzone_hint"))
                 .font(.ostlerCaption)
                 .foregroundColor(.ostlerInkMuted)
         }
@@ -88,7 +89,7 @@ struct LicenseEntryView: View {
 
     private var pasteRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Or paste the licence text")
+            Text(ViewCopy.shared.string(for: "license_entry.paste_label"))
                 .font(.ostlerCaption)
                 .foregroundColor(.ostlerInkMuted)
             TextEditor(text: $pasteText)
@@ -109,14 +110,14 @@ struct LicenseEntryView: View {
     private var verifyButton: some View {
         HStack {
             Spacer()
-            Button("Verify Licence") {
+            Button(ViewCopy.shared.string(for: "license_entry.verify_button")) {
                 errorMessage = nil
                 if looksLikeShortLicenceId(pasteText) {
                     errorMessage = LicenseEntryView.shortIdGuidanceMessage
                     return
                 }
                 guard let data = pasteText.data(using: .utf8), !pasteText.isEmpty else {
-                    errorMessage = "Paste the licence JSON above first, or drop the file onto the box."
+                    errorMessage = ViewCopy.shared.string(for: "license_entry.paste_empty_error")
                     return
                 }
                 verify(data: data, source: "paste")
@@ -137,7 +138,7 @@ struct LicenseEntryView: View {
                 Text(message)
                     .font(.ostlerBody)
                     .foregroundColor(.ostlerInk)
-                Text("Need help? Email hello@ostler.ai")
+                Text(ViewCopy.shared.string(for: "license_entry.error_help_caption"))
                     .font(.ostlerCaption)
                     .foregroundColor(.ostlerInkMuted)
             }
@@ -154,7 +155,7 @@ struct LicenseEntryView: View {
     // MARK: - Footer hint
 
     private var footerHint: some View {
-        Text("Your licence stays on this Mac. It is verified locally with a key built into this installer -- no network call is made during this step.")
+        Text(ViewCopy.shared.string(for: "license_entry.footer_hint"))
             .font(.ostlerCaption)
             .foregroundColor(.ostlerInkMuted)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,7 +199,10 @@ struct LicenseEntryView: View {
 
     private func loadFromURL(_ url: URL) {
         guard let data = try? Data(contentsOf: url) else {
-            errorMessage = "Could not read the licence file at \(url.lastPathComponent)."
+            errorMessage = ViewCopy.shared.string(
+                for: "license_entry.read_file_error",
+                fills: ["filename": url.lastPathComponent]
+            )
             return
         }
         verify(data: data, source: "drop-file")
@@ -212,11 +216,17 @@ struct LicenseEntryView: View {
         case .valid:
             errorMessage = nil
         case .invalidSignature:
-            errorMessage = "Signature check failed. This file is not a licence we signed, or it was edited after delivery."
+            errorMessage = ViewCopy.shared.string(for: "license_entry.signature_invalid_error")
         case .expired(let expiresAt):
-            errorMessage = "Your licence expired on \(expiresAt). Email hello@ostler.ai to renew."
+            errorMessage = ViewCopy.shared.string(
+                for: "license_entry.expired_error",
+                fills: ["expires_at": "\(expiresAt)"]
+            )
         case .malformed(let reason):
-            errorMessage = "Could not read this licence: \(reason)"
+            errorMessage = ViewCopy.shared.string(
+                for: "license_entry.malformed_error",
+                fills: ["reason": reason]
+            )
         }
     }
 
@@ -226,8 +236,14 @@ struct LicenseEntryView: View {
     // ID (first 8 chars of the licence_id UUID, surfaced inline in the
     // welcome email) into the JSON-paste field. Without this the verifier
     // would emit a meaningless JSON-parse error.
-    static let shortIdGuidanceMessage =
-        "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai."
+    //
+    // The English source lives in Resources/ViewCopy.json under the key
+    // `license_entry.short_id_guidance`. This static var stays as the
+    // call-site stable name so existing tests (and any future callers)
+    // do not have to know about the catalogue lookup.
+    static var shortIdGuidanceMessage: String {
+        ViewCopy.shared.string(for: "license_entry.short_id_guidance")
+    }
 }
 
 // Detects pastes that match the short-Licence-ID shape rather than the

@@ -1,0 +1,75 @@
+{
+  "_meta": {
+    "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes -- use ASCII '--' or en-dash with spaces."
+  },
+
+  "device_registration_error": {
+    "heading": "We could not register this Mac",
+    "quit_button": "Quit installer"
+  },
+
+  "footer": {
+    "cancel_button": "Cancel",
+    "reveal_in_finder_button": "Reveal in Finder",
+    "done_button": "Done",
+    "quit_button": "Quit"
+  },
+
+  "license_entry": {
+    "heading": "Your licence",
+    "intro": "Ostler needs a licence file before it can install. The licence arrived in your welcome email from hello@ostler.ai. Save the attached file (it looks like `ostler-licence.json`), then drag it here -- or paste the JSON contents below.",
+    "dropzone_active": "Drop to verify",
+    "dropzone_idle": "Drag your licence file here",
+    "dropzone_hint": "Looks for ostler-licence.json (or similar)",
+    "paste_label": "Or paste the licence text",
+    "verify_button": "Verify Licence",
+    "paste_empty_error": "Paste the licence JSON above first, or drop the file onto the box.",
+    "error_help_caption": "Need help? Email hello@ostler.ai",
+    "footer_hint": "Your licence stays on this Mac. It is verified locally with a key built into this installer -- no network call is made during this step.",
+    "read_file_error": "Could not read the licence file at {filename}.",
+    "signature_invalid_error": "Signature check failed. This file is not a licence we signed, or it was edited after delivery.",
+    "expired_error": "Your licence expired on {expires_at}. Email hello@ostler.ai to renew.",
+    "malformed_error": "Could not read this licence: {reason}",
+    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai."
+  },
+
+  "device_limit": {
+    "heading": "This licence is on {count} Macs",
+    "explanation": "Each Ostler licence is valid on up to {max} Macs. This one is already at the limit, so we cannot register this Mac without freeing up a slot first.",
+    "what_you_can_do_caption": "What you can do",
+    "bullet_email_us": "Email us at hello@ostler.ai and we will free a slot for you. Quote your licence id below.",
+    "bullet_buy_another": "Or purchase an additional licence at ostler.ai if this is a new Mac you want to keep alongside your other ones.",
+    "quit_button": "Quit installer",
+    "email_button": "Email hello@ostler.ai",
+    "license_id_caption": "Licence id",
+    "fallback_count": "the maximum number of",
+    "fallback_max": "the licensed number of",
+    "mailto_subject": "Free up a slot for licence {license_id}",
+    "mailto_body": "Hi Ostler team,\n\nI have hit the device limit on my licence and would like to free up a slot so I can install on this Mac.\n\nLicence id: {license_id}\n\nThanks."
+  },
+
+  "fda_sheet": {
+    "heading": "Full Disk Access required",
+    "reason_default": "Ostler reads Safari, iMessage, Notes, Mail, Calendar, Photos and Reminders from local macOS databases.",
+    "instructions": "Open System Settings, find Full Disk Access in the Privacy & Security section, and tick OstlerInstaller. Then come back here and tap Continue.",
+    "open_settings_button": "Open System Settings",
+    "continue_button": "I've granted it, continue"
+  },
+
+  "log_drawer": {
+    "header_label": "LOG",
+    "verbose_toggle": "Verbose"
+  },
+
+  "prompt_sheet": {
+    "cancel_button": "Cancel",
+    "continue_button": "Continue",
+    "yes_label": "Yes",
+    "no_label": "No"
+  },
+
+  "sidebar": {
+    "subtitle": "Installer",
+    "step_counter": "Step {current} of {total}"
+  }
+}

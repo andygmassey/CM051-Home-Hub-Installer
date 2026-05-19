@@ -26,7 +26,7 @@ struct LogDrawerView: View {
             HStack(spacing: .ostlerSpace2) {
                 Image(systemName: "terminal")
                     .foregroundStyle(Color.ostlerChassis.opacity(0.85))
-                Text("LOG")
+                Text(ViewCopy.shared.string(for: "log_drawer.header_label"))
                     .font(.ostlerStrap)
                     .tracking(2.0)
                     .foregroundStyle(Color.ostlerChassis.opacity(0.85))
@@ -45,7 +45,8 @@ struct LogDrawerView: View {
                 .help("Copy the whole log buffer to the clipboard")
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
-                Toggle("Verbose", isOn: $coordinator.devModeRawLog)
+                Toggle(ViewCopy.shared.string(for: "log_drawer.verbose_toggle"),
+                       isOn: $coordinator.devModeRawLog)
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .tint(.ostlerOxbloodWarm)
