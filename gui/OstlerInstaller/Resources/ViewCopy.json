@@ -8,6 +8,14 @@
     "quit_button": "Quit installer"
   },
 
+  "admin_access_required": {
+    "heading": "Administrator access required",
+    "prompt_reason": "Ostler needs administrator access to install Homebrew and disable sleep during the install.",
+    "retry_message": "Administrator access required. Click Retry.",
+    "retry_button": "Retry",
+    "quit_button": "Quit installer"
+  },
+
   "footer": {
     "cancel_button": "Cancel",
     "reveal_in_finder_button": "Reveal in Finder",
