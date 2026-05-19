@@ -4602,7 +4602,9 @@ echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler, ostler-vane)"
 echo "    - Docker volumes (your knowledge graph data + web-search history)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
-echo "    - Doctor, export watcher, hub power, email-ingest, wiki-recompile, and assistant launchd services"
+echo "    - Doctor, export watcher, hub power, email-ingest, wiki-recompile,"
+echo "      assistant, and RemoteCapture launchd services"
+echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -4702,6 +4704,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/nu
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
@@ -4712,6 +4716,20 @@ rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.pli
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
+
+# ── Ostler RemoteCapture .app + container ──────────────────────
+# Remove the menubar app from /Applications and the per-user
+# Application Support directory. Transcripts written under
+# ~/Documents/Ostler/Transcripts/ are user-facing content and are
+# handled by the keep-content decision higher up.
+if [[ -d "/Applications/Ostler RemoteCapture.app" ]]; then
+    echo "  Removing /Applications/Ostler RemoteCapture.app..."
+    rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
+        sudo rm -rf "/Applications/Ostler RemoteCapture.app" 2>/dev/null || \
+        echo "  (warning: could not remove /Applications/Ostler RemoteCapture.app; remove manually)"
+fi
+rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -5552,6 +5570,244 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
 fi
 
 fi  # end Apple Silicon guard
+
+# ── 3.14f Ostler RemoteCapture .app bundle + LaunchAgent ─────────
+#
+# Stages the customer-facing Ostler RemoteCapture menubar app
+# (CM042 source, packaged by ostler-ai/ostler-remote-capture's
+# Phase C release workflow) into /Applications and registers a
+# user-level LaunchAgent so it starts on login and stays alive
+# across crashes.
+#
+# RemoteCapture is the call / meeting transcription companion: a
+# MenuBarExtra (LSUIElement) that records system audio + microphone
+# via ScreenCaptureKit + CATap, transcribes locally with WhisperKit,
+# and lands transcripts under ~/Documents/Ostler/Transcripts/. The
+# Info.plist sets LSUIElement, so the app shows in the menu bar
+# only, no Dock icon.
+#
+# Pieces:
+#   1. Pre-prompt the customer that macOS will request Screen
+#      Recording + Microphone permission on first launch (TCC).
+#      Post-CATap migration there is no purple recording indicator,
+#      so the customer needs to know what is about to happen.
+#   2. Resolve the release URL and SHA-256 sidecar URL.
+#   3. Download both into a temp dir.
+#   4. Verify SHA-256 (abort the phase on mismatch -- silent
+#      acceptance of a bad download would put a tampered .app onto
+#      the customer's daily-driver Mac).
+#   5. Extract the tarball into /Applications. The release tarball
+#      contains a single `Ostler RemoteCapture.app/` directory at
+#      the root (see ostler-ai/ostler-remote-capture
+#      .github/workflows/release.yml).
+#   6. codesign --verify --deep --strict + spctl --assess --type
+#      execute the .app. Both must pass. If either fails, hard fail
+#      the phase: an unverified app bundle bypassing Gatekeeper is
+#      not something we silently install on a customer machine.
+#   7. Clear com.apple.quarantine on the .app so launchctl can spawn
+#      it on login without a Gatekeeper double-click confirmation.
+#      Gated on the verify step passing, per Phase C lines 5404+.
+#   8. Render + bootstrap the LaunchAgent at
+#      ~/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist.
+#
+# Productisation: OSTLER_REMOTECAPTURE_VERSION + OSTLER_REMOTECAPTURE_REPO
+# are env-overridable so a beta cut or fork can point at a different
+# release without editing install.sh. Default tracks
+# ostler-ai/ostler-remote-capture v1.0.0 (placeholder; Andy bumps
+# this when the first real release tag is cut).
+#
+# Failure mode: if any of download / verify / extract / sign-verify
+# fails, warn-and-skip the LaunchAgent install. The customer gets a
+# working Ostler install minus the RemoteCapture app; they can
+# re-run the installer once the upstream release is fixed.
+
+progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
+
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-1.0.0}"
+OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-remote-capture}"
+REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
+REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
+REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
+REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
+REMOTECAPTURE_APP_SUPPORT_DIR="${HOME}/Library/Application Support/Ostler RemoteCapture"
+
+# Apple Silicon only. The Phase C release workflow only builds an
+# arm64 slice (WhisperKit + ScreenCaptureKit perform best on Apple
+# Silicon; customer Macs are arm64 by the brief). Surface the
+# detection clearly rather than letting curl 404 on a non-existent
+# Intel asset.
+REMOTECAPTURE_ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
+if [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
+    warn "$(printf "$MSG_WARN_CM042_APPLE_SILICON_ONLY" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_ARCH_DETECTED}")"
+    info "$MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING"
+    REMOTECAPTURE_INSTALLED=false
+else
+
+# Customer-facing TCC pre-prompt. RemoteCapture requests Screen
+# Recording + Microphone on first launch via ScreenCaptureKit +
+# AVCaptureDevice. Post-CATap migration there is no purple
+# recording indicator in the menu bar while audio is captured, so
+# the customer needs to know what to expect before they click
+# Allow on the system prompts. Rule 0.9: all customer-rendered
+# strings are catalogued in install.sh.strings.en-GB.sh.
+info "$MSG_INFO_CM042_TCC_PRE_PROMPT"
+echo ""
+info "$(printf "$MSG_INFO_INSTALLING_CM042" "${OSTLER_REMOTECAPTURE_VERSION}")"
+
+REMOTECAPTURE_ARCHIVE_NAME="RemoteCapture-${OSTLER_REMOTECAPTURE_VERSION}-arm64.tar.gz"
+REMOTECAPTURE_ARCHIVE_URL="https://github.com/${OSTLER_REMOTECAPTURE_REPO}/releases/download/v${OSTLER_REMOTECAPTURE_VERSION}/${REMOTECAPTURE_ARCHIVE_NAME}"
+REMOTECAPTURE_CHECKSUM_URL="${REMOTECAPTURE_ARCHIVE_URL}.sha256"
+
+REMOTECAPTURE_TMPDIR="$(mktemp -d)"
+REMOTECAPTURE_INSTALLED=false
+
+if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" "$REMOTECAPTURE_ARCHIVE_URL" 2>"${REMOTECAPTURE_TMPDIR}/curl.log" \
+   && curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256" "$REMOTECAPTURE_CHECKSUM_URL" 2>>"${REMOTECAPTURE_TMPDIR}/curl.log"; then
+
+    # Verify SHA-256. Phase C writes the sidecar as
+    # `<hex>  <filename>` (shasum default). Recompute against the
+    # local download and compare hex prefixes. A mismatch is a
+    # hard fail for the phase: we will not stage a tampered or
+    # partial .app onto /Applications.
+    REMOTECAPTURE_EXPECTED_SHA="$(awk '{print $1}' "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256")"
+    REMOTECAPTURE_ACTUAL_SHA="$(shasum -a 256 "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" | awk '{print $1}')"
+    if [[ -z "$REMOTECAPTURE_EXPECTED_SHA" || "$REMOTECAPTURE_EXPECTED_SHA" != "$REMOTECAPTURE_ACTUAL_SHA" ]]; then
+        err "$MSG_ERR_CM042_SHA_256_MISMATCH"
+        err "$(printf "$MSG_ERR_EXPECTED" "${REMOTECAPTURE_EXPECTED_SHA:-<empty sidecar>}")"
+        err "$(printf "$MSG_ERR_ACTUAL" "${REMOTECAPTURE_ACTUAL_SHA}")"
+        err "$(printf "$MSG_ERR_URL" "${REMOTECAPTURE_ARCHIVE_URL}")"
+        err "$MSG_ERR_CM042_REFUSING_STAGE_BUNDLE"
+        rm -rf "$REMOTECAPTURE_TMPDIR"
+        REMOTECAPTURE_TMPDIR=""
+        fail "$MSG_FAIL_CM042_SIGNATURE_FAILED"
+    fi
+
+    # Extract into /Applications. The tarball contains
+    # `Ostler RemoteCapture.app/` at the root of the archive. Use
+    # sudo only if /Applications is not writable by the current
+    # user (the GUI installer typically runs as the user, who has
+    # write access to /Applications on a stock macOS install; we
+    # fall back to sudo for the rare corporate-imaged box where
+    # /Applications is admin-owned).
+    if [[ -d "$REMOTECAPTURE_APP_PATH" ]]; then
+        # Pre-existing install (re-run, or a beta cut). Remove
+        # before extract so a tarball with a shorter file list does
+        # not leave stale Resources behind.
+        rm -rf "$REMOTECAPTURE_APP_PATH" 2>/dev/null || sudo rm -rf "$REMOTECAPTURE_APP_PATH" 2>/dev/null || true
+    fi
+
+    if tar xzf "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" -C /Applications 2>"${REMOTECAPTURE_TMPDIR}/tar.log" \
+       || sudo tar xzf "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" -C /Applications 2>>"${REMOTECAPTURE_TMPDIR}/tar.log"; then
+
+        if [[ ! -d "$REMOTECAPTURE_APP_PATH" ]]; then
+            err "$(printf "$MSG_ERR_CM042_BUNDLE_NOT_FOUND_POST_EXTRACT" "${REMOTECAPTURE_APP_PATH}")"
+            if [[ -s "${REMOTECAPTURE_TMPDIR}/tar.log" ]]; then
+                sed -e 's/^/    /' "${REMOTECAPTURE_TMPDIR}/tar.log" | head -5
+            fi
+            rm -rf "$REMOTECAPTURE_TMPDIR"
+            REMOTECAPTURE_TMPDIR=""
+            fail "$MSG_FAIL_CM042_SIGNATURE_FAILED"
+        fi
+
+        # Signature + notarisation verification. Both must pass
+        # before we clear quarantine or load the LaunchAgent.
+        # codesign --verify --deep --strict checks every nested
+        # bundle / framework / resource against the embedded
+        # signature. spctl --assess --type execute checks the
+        # Gatekeeper policy (Developer ID + notarisation ticket).
+        # A bundle that fails either is not something we will
+        # silently stage onto the customer's daily driver Mac.
+        REMOTECAPTURE_CODESIGN_LOG="${REMOTECAPTURE_TMPDIR}/codesign.log"
+        REMOTECAPTURE_SPCTL_LOG="${REMOTECAPTURE_TMPDIR}/spctl.log"
+        if codesign --verify --deep --strict "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_CODESIGN_LOG" \
+           && spctl --assess --type execute "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_SPCTL_LOG"; then
+
+            # Both checks passed. Clear quarantine so launchctl
+            # can spawn the .app on login without the Gatekeeper
+            # confirmation dialog that curl-installed bundles
+            # otherwise trigger. Mirror Phase C's gating: only
+            # strip xattr when the verify chain passed.
+            xattr -dr com.apple.quarantine "$REMOTECAPTURE_APP_PATH" 2>/dev/null || true
+            ok "$(printf "$MSG_OK_CM042_INSTALLED" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_APP_PATH}")"
+            REMOTECAPTURE_INSTALLED=true
+        else
+            err "$MSG_ERR_CM042_VERIFY_FAILED"
+            if [[ -s "$REMOTECAPTURE_CODESIGN_LOG" ]]; then
+                err "$MSG_ERR_CM042_CODESIGN_OUTPUT"
+                sed -e 's/^/    /' "$REMOTECAPTURE_CODESIGN_LOG" | head -5
+            fi
+            if [[ -s "$REMOTECAPTURE_SPCTL_LOG" ]]; then
+                err "$MSG_ERR_CM042_SPCTL_OUTPUT"
+                sed -e 's/^/    /' "$REMOTECAPTURE_SPCTL_LOG" | head -5
+            fi
+            # Leave the .app in place so the customer / support
+            # can inspect, but do not strip quarantine and do not
+            # load the LaunchAgent.
+            rm -rf "$REMOTECAPTURE_TMPDIR"
+            REMOTECAPTURE_TMPDIR=""
+            fail "$MSG_FAIL_CM042_SIGNATURE_FAILED"
+        fi
+    else
+        warn "$MSG_WARN_CM042_EXTRACT_FAILED"
+        if [[ -s "${REMOTECAPTURE_TMPDIR}/tar.log" ]]; then
+            sed -e 's/^/    /' "${REMOTECAPTURE_TMPDIR}/tar.log" | head -5
+        fi
+    fi
+else
+    warn "$(printf "$MSG_WARN_CM042_DOWNLOAD_FAILED" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_ARCHIVE_URL}")"
+    if [[ -s "${REMOTECAPTURE_TMPDIR}/curl.log" ]]; then
+        warn "$MSG_WARN_CURL_SAID"
+        sed -e 's/^/    /' "${REMOTECAPTURE_TMPDIR}/curl.log" | head -5
+    fi
+    warn "$MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS"
+fi
+
+rm -rf "$REMOTECAPTURE_TMPDIR"
+REMOTECAPTURE_TMPDIR=""
+
+# LaunchAgent: auto-start on login, KeepAlive across crashes. The
+# .app is a MenuBarExtra (LSUIElement) so the customer sees the
+# menu-bar icon appear on login. ProcessType=Interactive + Aqua
+# session is implicit for a user LaunchAgent under gui/<uid>.
+if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    cat > "$REMOTECAPTURE_LAUNCHAGENT_PLIST" <<RCAPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${REMOTECAPTURE_LAUNCHAGENT_LABEL}</string>
+    <key>Program</key>
+    <string>${REMOTECAPTURE_BINARY_INSIDE_APP}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/ostler-remotecapture.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/ostler-remotecapture.err</string>
+</dict>
+</plist>
+RCAPEOF
+    chmod 0644 "$REMOTECAPTURE_LAUNCHAGENT_PLIST"
+
+    # bootout-then-bootstrap so re-runs of the installer reload
+    # the plist cleanly. bootout of a non-loaded label is a no-op.
+    launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null \
+       || launchctl load "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null; then
+        ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
+        info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
+    else
+        warn "$MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED"
+    fi
+fi
+
+fi  # end RemoteCapture Apple Silicon guard
 
 # ── 3.14b Third-party attribution catalogue ─────────────────────
 #
