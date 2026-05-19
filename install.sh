@@ -4036,7 +4036,7 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # wiki + assistant + graph; only the web-search tool surface
 # is unavailable until they re-run `docker compose up -d vane`.
 
-progress "Starting local web search (Vane)"
+progress "Starting local web search (Vane)" "vane_install"
 
 VANE_OK=false
 if docker compose up -d vane 2>&1 | tail -3; then

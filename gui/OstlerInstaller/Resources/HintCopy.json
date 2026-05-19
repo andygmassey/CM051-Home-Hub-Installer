@@ -91,6 +91,17 @@
     "illustration": null,
     "needs_fda": false
   },
+  "vane_install": {
+    "id": "vane_install",
+    "title": "Starting local web search",
+    "subtitle": "Vane container (bundles SearXNG)",
+    "why": "Vane is the local web-search front end. It runs in a container on your Mac and talks to your local Ollama – web searches never leave your machine. If the container fails to start, the rest of Ostler keeps working; you can retry web search later.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 120,
+    "long_running_copy": "First-time pull is ~3.6 GB (SearXNG bundled in). Subsequent starts are seconds.",
+    "illustration": null,
+    "needs_fda": false
+  },
   "ai_models": {
     "id": "ai_models",
     "title": "Downloading AI models",
@@ -130,6 +141,16 @@
     "why": "Doctor is the local-only health dashboard. If something stops working, Doctor tells you what and why. No telemetry, no cloud – diagnostics stay on your Mac.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "knowledge_setup": {
+    "id": "knowledge_setup",
+    "title": "Setting up the Knowledge service",
+    "subtitle": "Evernote ingest (CM024)",
+    "why": "Installs the ostler-knowledge CLI under ~/.ostler/services/knowledge/. Lets you import an Evernote export into your local graph later from the Doctor dashboard. Your notes and images stay on your Mac.",
+    "duration_estimate_s": 30,
+    "long_running_threshold_s": 120,
     "illustration": null,
     "needs_fda": false
   },

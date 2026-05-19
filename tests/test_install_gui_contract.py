@@ -75,19 +75,15 @@ KNOWN_GUI_ONLY_CANONICAL_IDS: frozenset[str] = frozenset({
 # DO NOT add new entries here without filing the matching follow-on
 # bug -- the whole point of this test is that new drift must be
 # fixed, not accumulated.
-KNOWN_BACKFILL_DRIFT_STEP_IDS: frozenset[str] = frozenset({
-    # FIXME(backfill): install.sh:4010 emits STEP_BEGIN via
-    # `progress "Starting local web search (Vane)"` with no explicit
-    # id, so the slugified title leaks through.  Either pass a stable
-    # id (e.g. "vane_install") or register the current id in
-    # canonicalOrder.  Filed in this PR's backfill-findings section.
-    "starting_local_web_search_vane",
-    # FIXME(backfill): install.sh:4778 emits STEP_BEGIN with id
-    # `knowledge_setup` (explicit), but canonicalOrder does not list
-    # it.  Add it to canonicalOrder so the sidebar pre-renders the
-    # row.  Filed in this PR's backfill-findings section.
-    "knowledge_setup",
-})
+#
+# As of 2026-05-19 both original entries are closed (fix/contract-
+# test-backfill-drift-2026-05-19): the Vane progress callsite was
+# given the explicit id `vane_install` and both `vane_install` +
+# `knowledge_setup` were registered in StepCatalog.canonicalOrder
+# (with HintCopy.json metadata).  The constant is kept as an empty
+# frozenset so the lookup site below stays static-typed and so a
+# future drift episode has an obvious place to land.
+KNOWN_BACKFILL_DRIFT_STEP_IDS: frozenset[str] = frozenset()
 
 
 def _run_extractor(rel_path: str) -> dict:
