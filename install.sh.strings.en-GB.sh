@@ -526,10 +526,10 @@ MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"
 MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP="Recommended: a dedicated label or folder (e.g. Ostler). We will only read messages there, leaving your main inbox untouched."
 
-MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Enter to use 'Ostler'"
+MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Continue to use 'Ostler'"
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
-MSG_PROMPT_EXPORTS_ACK_TITLE="Press Enter to continue"
+MSG_PROMPT_EXPORTS_ACK_TITLE="Press Continue to proceed"
 MSG_PROMPT_EXPORTS_ACK_HELP="Continue when ready."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault? (y/N)"
@@ -543,7 +543,7 @@ MSG_PROMPT_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install? (Y/n)"
 MSG_PROMPT_IMPORT_CONFIRM_HELP="Found GDPR exports will be imported into your knowledge graph during install."
 
-MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Have exports elsewhere? Enter path (or press Enter to skip)"
+MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Have exports elsewhere? Enter path (or press Continue to skip)"
 MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Path to a directory containing GDPR exports (LinkedIn, Facebook, etc.)"
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout? (Y/n)"
