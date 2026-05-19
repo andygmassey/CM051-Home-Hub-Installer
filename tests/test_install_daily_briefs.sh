@@ -144,6 +144,28 @@ if ! grep -q 'job_type = \\"agent\\"' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: install.sh sets job_type = \"agent\" on brief jobs"
 
+# [providers] block. Agent jobs need a fallback provider, otherwise
+# the agent runtime errors with "no provider configured" at fire
+# time. Emitted unconditionally because Ollama is installed
+# unconditionally during install (Phase 1.5b).
+if ! grep -qE '"\[providers\]"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [providers-header]: install.sh does not emit a [providers] section in the assistant-config block" >&2
+    exit 1
+fi
+echo "PASS: install.sh emits [providers] section"
+
+if ! grep -q 'fallback = \\"ollama\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [providers-fallback]: install.sh does not set providers.fallback = \"ollama\"" >&2
+    exit 1
+fi
+echo "PASS: install.sh sets providers.fallback = \"ollama\""
+
+if ! grep -qE '"\[providers\.models\.ollama\]"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [providers-ollama-entry]: install.sh does not emit [providers.models.ollama]" >&2
+    exit 1
+fi
+echo "PASS: install.sh emits [providers.models.ollama] entry"
+
 # best_effort = false (NOT true). The whole point of switching is
 # fail-loud delivery so regressions surface.
 if grep -E 'cron\.jobs.*best_effort = true|best_effort = true.*morning|best_effort = true.*evening' "$INSTALL_SCRIPT" >/dev/null; then
@@ -371,6 +393,33 @@ if ! echo "$OUTPUT" | grep -q 'best_effort = false'; then
 fi
 echo "PASS: emitter writes best_effort = false on cron jobs"
 
+# [providers] block lands in the rendered TOML with the canonical
+# Ollama fallback. Without this, agent-type cron jobs fail at fire
+# time with "no provider configured".
+if ! echo "$OUTPUT" | grep -q '^\[providers\]$'; then
+    echo "FAIL [emitter-providers-header]: emitter did not write [providers] section" >&2
+    echo "Output was:" >&2
+    echo "$OUTPUT" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -q '^fallback = "ollama"$'; then
+    echo "FAIL [emitter-providers-fallback]: emitter did not write fallback = \"ollama\"" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -q '^\[providers\.models\.ollama\]$'; then
+    echo "FAIL [emitter-providers-ollama]: emitter did not write [providers.models.ollama] entry" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -q '^base_url = "http://localhost:11434"$'; then
+    echo "FAIL [emitter-providers-base-url]: emitter did not write Ollama base_url" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -qE '^model = "[^"]+"$'; then
+    echo "FAIL [emitter-providers-model]: emitter did not write a non-empty Ollama model" >&2
+    exit 1
+fi
+echo "PASS: emitter writes Ollama provider fallback block"
+
 # Negative case 1: WhatsApp disabled => no cron jobs at all.
 OUTPUT_OFF="$(
     CHANNEL_IMESSAGE_ENABLED=true \
@@ -435,6 +484,24 @@ try:
     data = tomllib.loads(os.environ["TOML_BODY"])
 except tomllib.TOMLDecodeError as exc:
     print(f"FAIL [toml-parse]: emitter output is not valid TOML: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+providers = data.get("providers", {})
+fallback = providers.get("fallback")
+if fallback != "ollama":
+    print(f"FAIL [toml-providers-fallback]: expected providers.fallback = 'ollama', got {fallback!r}", file=sys.stderr)
+    sys.exit(1)
+models = providers.get("models", {})
+ollama_entry = models.get("ollama")
+if not isinstance(ollama_entry, dict):
+    print("FAIL [toml-providers-ollama-entry]: providers.models.ollama missing or not a table", file=sys.stderr)
+    sys.exit(1)
+if ollama_entry.get("base_url") != "http://localhost:11434":
+    print(f"FAIL [toml-providers-ollama-base-url]: expected base_url = 'http://localhost:11434', got {ollama_entry.get('base_url')!r}", file=sys.stderr)
+    sys.exit(1)
+model_value = ollama_entry.get("model")
+if not isinstance(model_value, str) or not model_value.strip():
+    print("FAIL [toml-providers-ollama-model]: providers.models.ollama.model missing or empty", file=sys.stderr)
     sys.exit(1)
 
 cron = data.get("cron", {})

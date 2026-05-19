@@ -3265,6 +3265,44 @@ umask 0077
 schema_version = 2
 TOMLPREAMBLE
 
+    # ── Providers: Ollama fallback ──────────────────────────────
+    #
+    # Customer's LLM provider profile. Without this, the agent
+    # runtime's fallback_provider() returns None and any agent-type
+    # cron job (the morning brief + evening wrap emitted further
+    # down, plus any future agent-driven surface) fails at fire
+    # time with "no provider configured".
+    #
+    # Schema reference: crates/zeroclaw-config/src/providers.rs
+    #   ProvidersConfig.fallback resolves to
+    #   ProvidersConfig.models[<key>]. The HashMap key "ollama"
+    #   is what the provider-factory matches in
+    #   crates/zeroclaw-providers/src/lib.rs::create_provider;
+    #   the optional name field inside the entry is a display
+    #   override and is not needed here.
+    #
+    # base_url + model are the load-bearing fields. base_url is
+    # the Ollama server URL the installer wired up in Phase 1.5b
+    # (brew install ollama + open -a Ollama). The model is the
+    # tier-aware default the installer chose at AI_MODEL
+    # selection time (high RAM = qwen3.6:35b-a3b, mid =
+    # qwen3.5:9b, low = gemma4:e2b). The customer can edit
+    # either field post-install in the assistant config TOML.
+    #
+    # timeout_secs is set generously because the local Ollama
+    # can take several seconds to warm up on first call after
+    # launchd boot.
+    _ai_model_default="${AI_MODEL:-qwen3.5:9b}"
+    _ai_model_esc="${_ai_model_default//\"/\\\"}"
+    echo
+    echo "[providers]"
+    echo "fallback = \"ollama\""
+    echo
+    echo "[providers.models.ollama]"
+    echo "base_url = \"http://localhost:11434\""
+    echo "model = \"${_ai_model_esc}\""
+    echo "timeout_secs = 300"
+
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
