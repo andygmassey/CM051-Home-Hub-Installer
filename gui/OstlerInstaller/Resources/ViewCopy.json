@@ -10,7 +10,7 @@
 
   "admin_access_required": {
     "heading": "Administrator access required",
-    "prompt_reason": "Ostler needs administrator access to install Homebrew and disable sleep during the install.",
+    "prompt_reason": "Ostler needs administrator access to install required software and keep your Mac awake during setup.",
     "retry_message": "Administrator access required. Click Retry.",
     "retry_button": "Retry",
     "quit_button": "Quit installer"
