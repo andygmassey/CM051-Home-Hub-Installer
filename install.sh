@@ -259,7 +259,7 @@ ollama_pull_with_retry() {
             return 0
         fi
         if (( attempt < 3 )); then
-            warn "ollama pull ${model} failed (attempt ${attempt}/3). Retrying in ${backoff}s..."
+            warn "$(printf "$MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING" "${model}" "${attempt}" "${backoff}")"
             sleep "$backoff"
             backoff=$((backoff * 2))
         fi
@@ -273,9 +273,12 @@ ollama_pull_with_retry() {
 # three times so it cannot be missed in CI logs or terminal scrollback.
 # This flag is dev/CI only. Production installs MUST run encrypted.
 if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
-    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
-    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
+    # This block fires BEFORE the curl|bash bootstrap extracts the
+    # strings catalogue, so it cannot reference MSG_* vars. Dev/CI
+    # only flag -- not customer-facing.
+    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
+    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
+    warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
 fi
 
 # ── Paths ──────────────────────────────────────────────────────────
@@ -485,6 +488,32 @@ else
     exec bash "${BOOTSTRAP_SCRIPT}" "$@"
 fi
 
+# ── Strings catalogue (Rule 0.9) ──────────────────────────────────
+#
+# Every customer-facing info/warn/step/ok/err/fail message lives in
+# install.sh.strings.<lang>.sh as a MSG_* variable assignment. v1.0
+# ships en-GB only; copy the file, translate the right-hand sides,
+# and run with OSTLER_LANG=<lang> to localise. Loaded after the
+# curl|bash bootstrap re-exec (above) so SCRIPT_DIR points at the
+# extracted tarball where the catalogue ships, not at the empty
+# stdin process of the first pipe.
+OSTLER_LANG="${OSTLER_LANG:-en-GB}"
+_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
+if [[ ! -f "$_STRINGS_FILE" ]]; then
+    # Fall back to en-GB if the requested language file is missing,
+    # so a stale OSTLER_LANG env var does not brick the installer.
+    _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
+fi
+if [[ -f "$_STRINGS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$_STRINGS_FILE"
+else
+    printf 'install.sh: strings catalogue not found at %s\n' "$_STRINGS_FILE" >&2
+    printf 'install.sh: this is a packaging bug; please report it.\n' >&2
+    exit 1
+fi
+unset _STRINGS_FILE
+
 # ── GUI progress emitter (sourced) ─────────────────────────────────
 #
 # Loads helpers `gui_emit`, `gui_step_begin`, `gui_step_end`,
@@ -626,7 +655,7 @@ KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 NOTICES_BASE_URL="${PWG_NOTICES_BASE_URL:-}"
 
 # ══════════════════════════════════════════════════════════════════════
-#  PHASE 1: PREREQUISITES (automatic — no user input)
+#  PHASE 1: PREREQUISITES (automatic -- no user input)
 # ══════════════════════════════════════════════════════════════════════
 
 INSTALL_START=$(date +%s)
@@ -649,7 +678,7 @@ echo "  This installer will ask you a few questions, then set up"
 echo "  everything automatically. You can walk away after the questions."
 echo ""
 
-step "Checking prerequisites" "prereq_check"
+step "$MSG_STEP_CHECKING_PREREQUISITES" "prereq_check"
 
 # ── Licence / activation check ─────────────────────────────────────
 # TODO (post-App Store): Verify Home Hub purchase via StoreKit receipt.
@@ -671,68 +700,68 @@ step "Checking prerequisites" "prereq_check"
 
 # macOS check
 if [[ "$(uname)" != "Darwin" ]]; then
-    fail "This installer is for macOS only. Linux support coming soon."
+    fail "$MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT"
 fi
 MACOS_VERSION=$(sw_vers -productVersion)
 MACOS_MAJOR=$(echo "$MACOS_VERSION" | cut -d. -f1)
-ok "macOS ${MACOS_VERSION} detected"
+ok "$(printf "$MSG_OK_MACOS_DETECTED" "${MACOS_VERSION}")"
 
-# Minimum macOS 13 (Ventura) — needed for modern Docker, Ollama, and security features
+# Minimum macOS 13 (Ventura) -- needed for modern Docker, Ollama, and security features
 if [[ $MACOS_MAJOR -lt 13 ]]; then
-    warn "macOS ${MACOS_VERSION} is outdated. We recommend macOS 13 (Ventura) or later."
-    warn "Some features may not work correctly on older versions."
+    warn "$(printf "$MSG_WARN_MACOS_OUTDATED_WE_RECOMMEND_MACOS_13" "${MACOS_VERSION}")"
+    warn "$MSG_WARN_SOME_FEATURES_MAY_NOT_WORK_CORRECTLY"
 fi
 
-# Git / Xcode command line tools — needed for cloning the pipeline
+# Git / Xcode command line tools -- needed for cloning the pipeline
 if ! command -v git &>/dev/null; then
-    info "Git not found. Installing Xcode Command Line Tools..."
-    echo "  macOS will show a dialog — click 'Install' and wait."
+    info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
+    echo "  macOS will show a dialog -- click 'Install' and wait."
     xcode-select --install 2>/dev/null || true
     # Wait for xcode-select to finish, with a timeout so the installer
     # doesn't hang forever if the user dismisses the install dialog.
     XCODE_WAIT=0
-    XCODE_TIMEOUT=600  # 10 minutes — generous; CLI install is ~150 MB
+    XCODE_TIMEOUT=600  # 10 minutes -- generous; CLI install is ~150 MB
     until command -v git &>/dev/null; do
         if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
-            fail "Xcode Command Line Tools install did not complete in 10 minutes. Run 'xcode-select --install' manually, accept the dialog, then re-run this installer."
+            fail "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
         fi
         sleep 5
         XCODE_WAIT=$((XCODE_WAIT + 5))
     done
-    ok "Git available"
+    ok "$MSG_OK_GIT_AVAILABLE"
 else
-    ok "Git available"
+    ok "$MSG_OK_GIT_AVAILABLE"
 fi
 
 # Apple Silicon check
 ARCH=$(uname -m)
 if [[ "$ARCH" == "arm64" ]]; then
-    ok "Apple Silicon detected"
+    ok "$MSG_OK_APPLE_SILICON_DETECTED"
 else
-    warn "Intel Mac detected — performance will be limited. Apple Silicon recommended."
+    warn "$MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED"
 fi
 
 # RAM check
 RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
 if [[ $RAM_GB -lt 16 ]]; then
-    fail "At least 16 GB RAM required. You have ${RAM_GB} GB. 24 GB recommended."
+    fail "$(printf "$MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED" "${RAM_GB}")"
 elif [[ $RAM_GB -lt 24 ]]; then
-    warn "${RAM_GB} GB RAM detected. Works but limits AI model size. 24 GB+ recommended."
+    warn "$(printf "$MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS" "${RAM_GB}")"
 else
-    ok "${RAM_GB} GB RAM detected"
+    ok "$(printf "$MSG_OK_GB_RAM_DETECTED" "${RAM_GB}")"
 fi
 
-# Disk space check — need ~35 GB: Docker images (~1 GB), AI model (5-10 GB),
+# Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (5-10 GB),
 # embedding model (300 MB), import pipeline + venv (~500 MB), databases (grows
 # with data), and headroom for GDPR exports.
 FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
 if [[ $FREE_GB -lt 35 ]]; then
-    warn "Only ${FREE_GB} GB free. We recommend at least 35 GB (Docker images + AI model + data)."
+    warn "$(printf "$MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST" "${FREE_GB}")"
     if [[ $FREE_GB -lt 15 ]]; then
-        fail "Not enough disk space (${FREE_GB} GB). Free up space and try again."
+        fail "$(printf "$MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE" "${FREE_GB}")"
     fi
 else
-    ok "${FREE_GB} GB free disk space"
+    ok "$(printf "$MSG_OK_GB_FREE_DISK_SPACE" "${FREE_GB}")"
 fi
 
 # Power source check. On a MacBook, Phase 3 takes 10-15 minutes of
@@ -749,29 +778,29 @@ fi
 if [[ "$HAS_BATTERY" == true ]]; then
     POWER_SOURCE=$(pmset -g batt 2>/dev/null | grep -oE "'(AC Power|Battery Power)'" | head -1 | tr -d "'")
     if [[ "$POWER_SOURCE" == "AC Power" ]]; then
-        ok "Power source: AC (good for the 10-15 minute install)"
+        ok "$MSG_OK_POWER_SOURCE_AC_GOOD_10_15"
     else
-        warn "Power source: ${POWER_SOURCE:-Battery Power}"
-        warn "Phase 3 takes 10-15 minutes of Docker + Ollama downloads."
-        warn "On battery, the hub power LaunchAgent (step 3.14) may pause"
-        warn "Docker / Ollama mid-install and hang the readiness probes."
-        warn "Plug into AC power for the full install."
+        warn "$(printf "$MSG_WARN_POWER_SOURCE" "${POWER_SOURCE:-Battery Power}")"
+        warn "$MSG_WARN_PHASE_3_TAKES_10_15_MINUTES"
+        warn "$MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP"
+        warn "$MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS"
+        warn "$MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL"
     fi
 else
-    ok "Power source: AC (desktop Mac, no battery)"
+    ok "$MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO"
 fi
 
-# Check Docker availability (don't install yet — just check)
+# Check Docker availability (don't install yet -- just check)
 HAS_DOCKER=false
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     HAS_DOCKER=true
-    ok "Docker running"
+    ok "$MSG_OK_DOCKER_RUNNING"
 elif command -v colima &>/dev/null; then
-    info "Colima installed but not running. Will start it."
+    info "$MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL"
 elif command -v docker &>/dev/null; then
-    warn "Docker installed but not running. Will need to start it."
+    warn "$MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL"
 else
-    info "Docker not installed. Will install Colima + Docker CLI + docker-compose plugin (lightweight, no Docker Desktop required)."
+    info "$MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA"
 fi
 
 # Check if --check mode
@@ -789,7 +818,7 @@ fi
 SKIP_PHASE2=false
 FV_ENABLED=false
 if [[ -f "${CONFIG_DIR}/.env" ]]; then
-    ok "Previous installation detected. Loading config..."
+    ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
     # Source existing config
     set -a; source "${CONFIG_DIR}/.env"; set +a
     USER_NAME="${USER_NAME:-}"
@@ -822,7 +851,7 @@ fi
 
 if [[ "$SKIP_PHASE2" == false ]]; then
 
-step "Setup (answer a few questions, then walk away)" "setup_questions"
+step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 
 echo ""
 echo -e "  ${BOLD}What Ostler needs from your Mac${NC}"
@@ -841,7 +870,7 @@ echo ""
 echo -e "  ${BOLD}One tip before you continue:${NC}"
 echo ""
 echo "  If you use Gmail, iCloud Mail, Outlook, or any other email via"
-echo "  webmail only — add those accounts to Mac Mail first:"
+echo "  webmail only -- add those accounts to Mac Mail first:"
 echo "    System Settings > Internet Accounts > add account > tick Mail"
 echo ""
 echo "  Apple handles the authentication; messages land in your local Mail"
@@ -875,11 +904,11 @@ DETECTED_COUNTRY=""
 DETECTED_EMAIL=""
 DETECTED_PHONE=""
 
-info "Reading your contact card to pre-fill your details..."
+info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
 echo "  macOS may ask permission to access Contacts."
 echo "  This reads your name, country, and phone number to save you typing."
 echo "  It also exports your contacts for the knowledge graph."
-echo "  (Your data stays on this machine — nothing is sent anywhere.)"
+echo "  (Your data stays on this machine -- nothing is sent anywhere.)"
 echo ""
 
 # Capture stderr separately so we can detect a Contacts permission denial
@@ -912,9 +941,9 @@ tell application "Contacts"
 end tell' 2>"$CARD_STDERR" || true)
 
 if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
-    warn "macOS Contacts permission was declined or not yet granted."
-    warn "You can re-grant it in System Settings > Privacy & Security > Contacts."
-    warn "Continuing without contact-card auto-fill – Ostler will ask you instead."
+    warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
+    warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
 rm -f "$CARD_STDERR"
 
@@ -924,9 +953,9 @@ if [[ -n "$CARD_DATA" ]]; then
     DETECTED_COUNTRY=$(echo "$CARD_DATA" | cut -d'|' -f3)
     DETECTED_EMAIL=$(echo "$CARD_DATA" | cut -d'|' -f4)
     DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
-    ok "Found: ${DETECTED_NAME}"
+    ok "$(printf "$MSG_OK_FOUND" "${DETECTED_NAME}")"
 
-    # Back up contacts FIRST — before we do anything with them.
+    # Back up contacts FIRST -- before we do anything with them.
     # This is a safety net in case anything goes wrong during import.
     CONTACTS_BACKUP="${OSTLER_DIR}/backups/contacts-backup-$(date +%Y%m%d-%H%M%S).vcf"
     CONTACTS_EXPORT="${OSTLER_DIR}/imports/icloud-contacts.vcf"
@@ -947,15 +976,15 @@ tell application \"Contacts\"
     write vcfData to fRef
     close access fRef
 end tell" 2>/dev/null && \
-        ok "Backed up ${CONTACT_COUNT} contacts to ${CONTACTS_BACKUP}"
+        ok "$(printf "$MSG_OK_BACKED_UP_CONTACTS" "${CONTACT_COUNT}" "${CONTACTS_BACKUP}")"
 
         # Export working copy for import
         cp "$CONTACTS_BACKUP" "$CONTACTS_EXPORT" 2>/dev/null && \
-        ok "Exported ${CONTACT_COUNT} contacts (will import automatically)" || \
-        info "Could not export contacts. You can import manually later."
+        ok "$(printf "$MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY" "${CONTACT_COUNT}")" || \
+        info "$MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN"
     fi
 else
-    info "Could not read contact card. No problem — we will ask instead."
+    info "$MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO"
 fi
 
 # ── Map country name to dialling code ──────────────────────────────
@@ -1196,18 +1225,18 @@ OSTLER_REGION=$(_classify_region "$OSTLER_REGION_ISO")
 
 case "$OSTLER_REGION" in
     eu)
-        info "Region: EU/EEA (${OSTLER_REGION_ISO}, source: ${OSTLER_REGION_SOURCE})"
-        info "      Ostler will show an extra consent screen before installing"
-        info "      (UK GDPR Article 9 - required for special-category data)."
+        info "$(printf "$MSG_INFO_REGION_EU_EEA_SOURCE" "${OSTLER_REGION_ISO}" "${OSTLER_REGION_SOURCE}")"
+        info "$MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN"
+        info "$MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL"
         ;;
     uk)
-        info "Region: United Kingdom (source: ${OSTLER_REGION_SOURCE})"
+        info "$(printf "$MSG_INFO_REGION_UNITED_KINGDOM_SOURCE" "${OSTLER_REGION_SOURCE}")"
         ;;
     us)
-        info "Region: United States (source: ${OSTLER_REGION_SOURCE})"
+        info "$(printf "$MSG_INFO_REGION_UNITED_STATES_SOURCE" "${OSTLER_REGION_SOURCE}")"
         ;;
     row)
-        info "Region: ${OSTLER_REGION_ISO} (source: ${OSTLER_REGION_SOURCE})"
+        info "$(printf "$MSG_INFO_REGION_SOURCE" "${OSTLER_REGION_ISO}" "${OSTLER_REGION_SOURCE}")"
         ;;
 esac
 
@@ -1246,11 +1275,11 @@ echo ""
 
 ASSISTANT_NAME="$(gui_read "Assistant name" text "" "Pick from the suggestions or type your own. This is the name your assistant will respond to." "" "assistant_name")"
 while [[ -z "$ASSISTANT_NAME" ]]; do
-    warn "Your assistant needs a name. Pick from the suggestions above or type your own."
+    warn "$MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM"
     ASSISTANT_NAME="$(gui_read "Assistant name" text "" "Pick from the suggestions or type your own." "" "assistant_name")"
 done
 
-ok "Your assistant is called ${ASSISTANT_NAME}"
+ok "$(printf "$MSG_OK_YOUR_ASSISTANT_CALLED" "${ASSISTANT_NAME}")"
 
 # ── 4a. Channels (how to talk to your assistant) ──────────────────
 #
@@ -1322,7 +1351,7 @@ case "$CHANNEL_CHOICE" in
         CHANNEL_WHATSAPP_ENABLED=true
         ;;
     *)
-        warn "Unrecognised choice '${CHANNEL_CHOICE}'; defaulting to iMessage + email."
+        warn "$(printf "$MSG_WARN_UNRECOGNISED_CHOICE_DEFAULTING_IMESSAGE_EMAIL" "${CHANNEL_CHOICE}")"
         CHANNEL_IMESSAGE_ENABLED=true
         CHANNEL_EMAIL_ENABLED=true
         ;;
@@ -1400,12 +1429,12 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     WA_CONSENT="$(gui_read "Enable WhatsApp connector and accept the risk above? (y/N)" yesno "n" "WhatsApp Web access is a third-party integration -- you accept the consent above by enabling it." "" "whatsapp_consent")"
     if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
         CHANNEL_WHATSAPP_CONSENT_ACCEPTED=true
-        ok "WhatsApp connector will be enabled (consent recorded)"
+        ok "$MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED"
     else
         # Refusal: keep the channel disabled but record the decision
         # (so Doctor can show "user declined" rather than "missing").
         CHANNEL_WHATSAPP_ENABLED=false
-        info "WhatsApp connector left off. You can enable it later via Settings."
+        info "$MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN"
     fi
 fi
 
@@ -1446,12 +1475,12 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         CHANNEL_WHATSAPP_RECIPIENT="${CHANNEL_WHATSAPP_RECIPIENT# }"
         CHANNEL_WHATSAPP_RECIPIENT="${CHANNEL_WHATSAPP_RECIPIENT% }"
         if [[ -z "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
-            warn "WhatsApp needs a phone number for brief delivery. Try again,"
-            warn "or re-run the installer and pick a different channel choice."
+            warn "$MSG_WARN_WHATSAPP_NEEDS_PHONE_NUMBER_BRIEF_DELIVERY"
+            warn "$MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT"
             continue
         fi
         if [[ "${CHANNEL_WHATSAPP_RECIPIENT:0:1}" != "+" ]]; then
-            warn "Number must start with +. Try again."
+            warn "$MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN"
             CHANNEL_WHATSAPP_RECIPIENT=""
             continue
         fi
@@ -1489,8 +1518,8 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     while [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; do
         CHANNEL_IMESSAGE_ALLOWED="$(gui_read "Allowed contacts" text "" "Allowlist of phone numbers and Apple ID emails (comma-separated). ${ASSISTANT_NAME} only replies to listed contacts; messages from anyone else are ignored. At least one entry required. e.g. +447700900000, you@example.com" "" "imessage_allowed")"
         if [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
-            warn "iMessage needs at least one allowed contact. Try again or"
-            warn "re-run the installer with iMessage unticked to skip it."
+            warn "$MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT"
+            warn "$MSG_WARN_RE_RUN_INSTALLER_WITH_IMESSAGE_UNTICKED"
         fi
     done
 fi
@@ -1542,7 +1571,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     # than silently disabling the channel after a Y at the prior step.
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" != true \
        && "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" != true ]]; then
-        warn "Neither Apple Mail nor Custom IMAP selected -- defaulting to Apple Mail."
+        warn "$MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP"
         CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true
     fi
 
@@ -1557,13 +1586,13 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             _imap_host_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_HOST" | tr '[:upper:]' '[:lower:]')"
             case "$_imap_host_lower" in
                 imap.gmail.com|imap-mail.outlook.com|outlook.office365.com|imap.mail.me.com)
-                    warn "${CHANNEL_EMAIL_IMAP_HOST} is a cloud-provider host."
-                    warn "Use Apple Mail (recommended above) for that account -- Ostler never stores cloud passwords."
-                    warn "Re-running -- type a self-hosted host, or press Ctrl-C and re-launch picking Apple Mail."
+                    warn "$(printf "$MSG_WARN_IS_CLOUD_PROVIDER_HOST" "${CHANNEL_EMAIL_IMAP_HOST}")"
+                    warn "$MSG_WARN_USE_APPLE_MAIL_RECOMMENDED_ABOVE_THAT"
+                    warn "$MSG_WARN_RE_RUNNING_TYPE_SELF_HOSTED_HOST"
                     continue
                     ;;
                 "")
-                    warn "IMAP host is empty -- try again."
+                    warn "$MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN"
                     continue
                     ;;
             esac
@@ -1593,7 +1622,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
                 break
             fi
-            warn "Passwords did not match (or were empty). Try again."
+            warn "$MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY"
         done
         unset _email_confirm_input
     else
@@ -1635,16 +1664,16 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     _imap_folder_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_FOLDER" | tr '[:upper:]' '[:lower:]')"
     if [[ "$_imap_folder_lower" == "inbox" ]]; then
         echo ""
-        warn "INBOX means the assistant will read every email you receive."
-        warn "We strongly recommend a dedicated label/folder instead."
+        warn "$MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY"
+        warn "$MSG_WARN_WE_STRONGLY_RECOMMEND_DEDICATED_LABEL_FOLDER"
         echo ""
         _imap_folder_confirm="$(gui_read "Type INBOX again to confirm, or press Enter to use 'Ostler'" text "" "INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead." "" "email_inbox_confirm")"
         if [[ "$_imap_folder_confirm" == "INBOX" ]]; then
             CHANNEL_EMAIL_IMAP_FOLDER="INBOX"
-            warn "Using INBOX. The assistant will read every incoming email."
+            warn "$MSG_WARN_USING_INBOX_ASSISTANT_WILL_READ_EVERY"
         else
             CHANNEL_EMAIL_IMAP_FOLDER="Ostler"
-            ok "Using 'Ostler' folder/label instead."
+            ok "$MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD"
         fi
         unset _imap_folder_confirm
     fi
@@ -1661,18 +1690,18 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         _email_summary_parts+=("${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST}")
     fi
     IFS=' + ' read -r _email_summary_joined <<< "${_email_summary_parts[*]}"
-    ok "Email channel: ${_email_summary_joined} (folder: ${CHANNEL_EMAIL_IMAP_FOLDER})"
+    ok "$(printf "$MSG_OK_EMAIL_CHANNEL_FOLDER" "${_email_summary_joined}" "${CHANNEL_EMAIL_IMAP_FOLDER}")"
     unset _email_summary_parts _email_summary_joined
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
-    ok "iMessage channel: ${CHANNEL_IMESSAGE_ALLOWED}"
+    ok "$(printf "$MSG_OK_IMESSAGE_CHANNEL" "${CHANNEL_IMESSAGE_ALLOWED}")"
 fi
 
 # ── 5. Data sources ───────────────────────────────────────────────
 #
 # Show which platforms we support, give them clickable links to
-# request exports. Keep it SHORT — people don't read walls of text.
+# request exports. Keep it SHORT -- people don't read walls of text.
 
 # Clickable links. OSC 8 works in iTerm2 but NOT in default Terminal.app
 # (shows invisible text). Fall back to showing the URL plainly.
@@ -1691,7 +1720,7 @@ echo ""
 echo -e "  ${BOLD}Your data sources${NC}"
 echo ""
 echo "  Ostler imports from 20 platforms. Request your data exports"
-echo "  now — they take 1-3 days to arrive by email. You can do this"
+echo "  now -- they take 1-3 days to arrive by email. You can do this"
 echo "  on your phone while the installer runs."
 echo ""
 echo -e "  ${GREEN}iCloud Contacts: already exported (${CONTACT_COUNT:-0} contacts)${NC}"
@@ -1719,7 +1748,7 @@ FV_ENABLED=false
 if echo "$FV_STATUS" | grep -q "FileVault is On"; then
     FV_ENABLED=true
 else
-    warn "FileVault is NOT enabled."
+    warn "$MSG_WARN_FILEVAULT_NOT_ENABLED"
     echo ""
     echo "  FileVault encrypts your entire disk. Without it, anyone"
     echo "  with physical access to your Mac can read your data."
@@ -1757,7 +1786,7 @@ mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
 # is itself idempotent; the sentinel exists only to express
 # "we have already announced this layout to this install".
 if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
-    info "Creating user-facing content tree at ${USER_FACING_ROOT}/"
+    info "$(printf "$MSG_INFO_CREATING_USER_FACING_CONTENT_TREE" "${USER_FACING_ROOT}")"
     mkdir -p "$USER_FACING_ROOT"
     for sub in "${USER_TREE_SUBDIRS[@]}"; do
         mkdir -p "${USER_FACING_ROOT}/${sub}"
@@ -1766,9 +1795,9 @@ if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
         echo "Ostler user-facing tree created on $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         echo "Subdirs: ${USER_TREE_SUBDIRS[*]}"
     } > "$USER_TREE_SENTINEL"
-    ok "User-facing tree ready"
+    ok "$MSG_OK_USER_FACING_TREE_READY"
 else
-    info "User-facing tree already announced (sentinel present); skipping"
+    info "$MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL"
 fi
 
 HAS_SECURITY_MODULE=false
@@ -1799,9 +1828,9 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         # ImportError.
         if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
             "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || \
-                warn "Could not install legal/ consent-strings package; continuing"
+                warn "$MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS"
         fi
-        ok "Security module installed into venv"
+        ok "$MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV"
     else
         # Hard-fail: deployed services (CM041 ical-server, CM041
         # whatsapp-bridge, CM048 ingest) refuse to start at import
@@ -1810,25 +1839,25 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         # that will not boot. Surface the failure now.
         # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-            warn "Could not install ostler_security into the Hub venv."
-            warn "Encryption + passphrase validation will not work."
-            warn "Continuing because --allow-plaintext was passed."
+            warn "$MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO"
+            warn "$MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK"
+            warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
             if [[ -s /tmp/ostler-pip-install.log ]]; then
-                warn "pip said:"
+                warn "$MSG_WARN_PIP_SAID"
                 sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
             fi
             rm -f /tmp/ostler-pip-install.log
         else
             echo ""
-            warn "Could not install ostler_security into the Hub venv."
-            warn "Encryption + passphrase validation will not work, and"
-            warn "the deployed services refuse to start without them."
+            warn "$MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO"
+            warn "$MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2"
+            warn "$MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT"
             if [[ -s /tmp/ostler-pip-install.log ]]; then
-                warn "pip said:"
+                warn "$MSG_WARN_PIP_SAID"
                 sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
             fi
             rm -f /tmp/ostler-pip-install.log
-            fail "ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
+            fail "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
         fi
     fi
 fi
@@ -1848,7 +1877,7 @@ RECOVERY_KEY=""
 
 # Check if security is already configured (re-run detection)
 if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
-    ok "Security already configured (passphrase set up previously)"
+    ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PASSPHRASE_SET_UP"
     HAS_SECURITY_MODULE=false  # skip passphrase setup
 elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
@@ -1899,17 +1928,17 @@ if not ok:
         echo ""
 
         if [[ "$PASSPHRASE" != "$PASSPHRASE_CONFIRM" ]]; then
-            warn "Passphrases don't match. Try again."
+            warn "$MSG_WARN_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
             continue
         fi
 
         unset PASSPHRASE_CONFIRM
-        ok "Passphrase accepted"
+        ok "$MSG_OK_PASSPHRASE_ACCEPTED"
         break
     done
 else
-    warn "Security module not found. Passphrase setup will be skipped."
-    warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
+    warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
+    warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
 fi
 
 # ── 8. AI model (automatic) ────────────────────────────────────────
@@ -1928,11 +1957,11 @@ else
     AI_MODEL_SIZE="~5 GB"
 fi
 
-ok "AI model: ${AI_MODEL} (${AI_MODEL_SIZE}) — selected for your ${RAM_GB} GB RAM"
+ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 PULL_MODEL="y"
 
 # ── 9. GDPR data exports (auto-detect) ────────────────────────────
-# Skip on re-run — user already consented, exports already known.
+# Skip on re-run -- user already consented, exports already known.
 
 if [[ "$SKIP_PHASE2" == false ]]; then
 
@@ -1940,7 +1969,7 @@ EXPORTS_DIR=""
 DETECTED_EXPORTS=()
 
 # Scan common locations for recognisable GDPR export files
-info "Scanning for GDPR data exports..."
+info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
@@ -1997,7 +2026,7 @@ done
 
 if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
-    ok "Found ${#DETECTED_EXPORTS[@]} GDPR export(s):"
+    ok "$(printf "$MSG_OK_FOUND_GDPR_EXPORT_S" "${#DETECTED_EXPORTS[@]}")"
     for exp in "${DETECTED_EXPORTS[@]}"; do
         echo "     - ${exp}"
     done
@@ -2008,8 +2037,8 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     fi
 else
     echo ""
-    info "No GDPR exports found in Downloads, Desktop, or Documents."
-    echo "  That is fine — you can import later. Request your data from:"
+    info "$MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP"
+    echo "  That is fine -- you can import later. Request your data from:"
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
     echo ""
@@ -2018,9 +2047,9 @@ else
         MANUAL_PATH="${MANUAL_PATH/#\~/$HOME}"
         if [[ -d "$MANUAL_PATH" ]]; then
             EXPORTS_DIR="$MANUAL_PATH"
-            ok "Found exports at ${EXPORTS_DIR}"
+            ok "$(printf "$MSG_OK_FOUND_EXPORTS" "${EXPORTS_DIR}")"
         else
-            warn "Directory not found: ${MANUAL_PATH} — skipping import."
+            warn "$(printf "$MSG_WARN_DIRECTORY_NOT_FOUND_SKIPPING_IMPORT" "${MANUAL_PATH}")"
         fi
     fi
 fi
@@ -2044,10 +2073,10 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     echo ""
     if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
         MBOX_SIZE_MB=$(( $(stat -f%z "${TAKEOUT_MBOX_PATH}" 2>/dev/null || echo 0) / 1048576 ))
-        info "Found Gmail mbox at ${TAKEOUT_MBOX_PATH} (${MBOX_SIZE_MB} MB)"
+        info "$(printf "$MSG_INFO_FOUND_GMAIL_MBOX_MB" "${TAKEOUT_MBOX_PATH}" "${MBOX_SIZE_MB}")"
     elif [[ -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
         ZIP_SIZE_MB=$(( $(stat -f%z "${TAKEOUT_ZIP_PATH}" 2>/dev/null || echo 0) / 1048576 ))
-        info "Found Google Takeout zip at ${TAKEOUT_ZIP_PATH} (${ZIP_SIZE_MB} MB)"
+        info "$(printf "$MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB" "${TAKEOUT_ZIP_PATH}" "${ZIP_SIZE_MB}")"
     fi
     echo ""
     echo "  Ostler can read your full Gmail content from a Takeout export"
@@ -2062,7 +2091,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
             # Extract the mbox out of the zip into ~/.ostler/imports/takeout/
             TAKEOUT_EXTRACT_DIR="${OSTLER_DIR}/imports/takeout"
             mkdir -p "${TAKEOUT_EXTRACT_DIR}"
-            info "Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
+            info "$MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP"
             EXTRACTED_MBOX=$(python3 -c "
 import sys, zipfile
 from pathlib import Path
@@ -2082,9 +2111,9 @@ except Exception as e:
 " 2>/dev/null)
             if [[ -n "$EXTRACTED_MBOX" && -f "$EXTRACTED_MBOX" ]]; then
                 OSTLER_TAKEOUT_PATH="$EXTRACTED_MBOX"
-                ok "Extracted to ${EXTRACTED_MBOX}"
+                ok "$(printf "$MSG_OK_EXTRACTED" "${EXTRACTED_MBOX}")"
             else
-                warn "Could not extract Gmail mbox from the Takeout zip — skipping."
+                warn "$MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM"
             fi
         fi
     fi
@@ -2104,7 +2133,7 @@ echo -e "  ${BOLD}Which Mac sources should Ostler learn from?${NC}"
 echo ""
 echo "  Each source can be turned on or off. You can change these"
 echo "  any time later. Sensitive ones (face recognition) are off"
-echo "  by default — tick deliberately if you want them."
+echo "  by default -- tick deliberately if you want them."
 echo ""
 
 # Detect Apple Mail Gmail-attached accounts to give the user a
@@ -2140,11 +2169,11 @@ EVERYTHING="${RECOMMENDED},imessage,apple_mail,photos_metadata"
 case "$PRESET" in
     1)
         OSTLER_FDA_SOURCES="$RECOMMENDED"
-        ok "Recommended sources selected"
+        ok "$MSG_OK_RECOMMENDED_SOURCES_SELECTED"
         ;;
     2)
         OSTLER_FDA_SOURCES="$EVERYTHING"
-        ok "All sources selected (face recognition still off)"
+        ok "$MSG_OK_ALL_SOURCES_SELECTED_FACE_RECOGNITION_STILL"
         ;;
     3)
         # Per-source loop. Each line: prompt with default, default set
@@ -2169,7 +2198,7 @@ case "$PRESET" in
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         echo ""
-        echo "  Personal correspondence (default off — third-party content):"
+        echo "  Personal correspondence (default off -- third-party content):"
         _ask_source "imessage"         "iMessage                " N
         if [[ "$HAS_APPLE_MAIL_GMAIL" == true ]]; then
             _ask_source "apple_mail" "Apple Mail (incl. Gmail)" N
@@ -2178,7 +2207,7 @@ case "$PRESET" in
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)" N
         echo ""
-        echo "  Special-category data (default off — explicit consent required):"
+        echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
         # Build comma-separated list
         IFS=','
@@ -2186,7 +2215,7 @@ case "$PRESET" in
         unset IFS
         ;;
     *)
-        warn "Unrecognised choice. Using Recommended."
+        warn "$MSG_WARN_UNRECOGNISED_CHOICE_USING_RECOMMENDED"
         OSTLER_FDA_SOURCES="$RECOMMENDED"
         ;;
 esac
@@ -2206,9 +2235,9 @@ echo ""
 echo "  Enabled sources: ${OSTLER_FDA_SOURCES//,/, }"
 
 if [[ "$HAS_APPLE_MAIL_GMAIL" == false && "$OSTLER_FDA_SOURCES" == *"apple_mail"* ]]; then
-    info "Tip: to include your Gmail, add it to Mac Mail first"
-    info "(System Settings > Internet Accounts). Ostler reads from Mail's"
-    info "local store – Google never sees that Ostler exists."
+    info "$MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT"
+    info "$MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS"
+    info "$MSG_INFO_LOCAL_STORE_GOOGLE_NEVER_SEES_THAT"
 fi
 
 # ── 10. Consent ───────────────────────────────────────────────────
@@ -2368,7 +2397,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 ;;
             n|N)
                 OSTLER_CONSENT_VOICE_EU_DECISION="declined"
-                info "Voice recognition will stay off. You can enable later in Settings."
+                info "$MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU"
                 break
                 ;;
             *) echo "  Please answer Y or N." ;;
@@ -2526,7 +2555,7 @@ done
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 
 # ══════════════════════════════════════════════════════════════════════
-#  PHASE 3: INSTALL EVERYTHING (unattended — user can walk away)
+#  PHASE 3: INSTALL EVERYTHING (unattended -- user can walk away)
 # ══════════════════════════════════════════════════════════════════════
 
 echo ""
@@ -2542,7 +2571,7 @@ echo -e "  ${YELLOW}One-time password prompt: macOS needs your Mac password to d
 echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing).${NC}"
 echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
 echo ""
-sudo -v || fail "Need sudo access to disable sleep + install Homebrew. Re-run when ready."
+sudo -v || fail "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
 
 # ── Composite cleanup ─────────────────────────────────────────────
 #
@@ -2604,7 +2633,7 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away — this takes about 10-15 minutes.${NC}"
+    echo -e "  ${GREEN}  You can walk away -- this takes about 10-15 minutes.${NC}"
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -2725,17 +2754,17 @@ fi
 SLEEP_SETTING=$(pmset -g | grep '^ sleep' | awk '{print $2}' 2>/dev/null || echo "")
 if [[ "$SLEEP_SETTING" != "0" ]]; then
     if [[ "$HAS_BATTERY" == true ]]; then
-        info "MacBook Hub detected: setting never-sleep on AC only (hub-power handles battery transitions)"
+        info "$MSG_INFO_MACBOOK_HUB_DETECTED_SETTING_NEVER_SLEEP"
         sudo pmset -c sleep 0 2>/dev/null && \
         sudo pmset -a womp 1 2>/dev/null && \
-        ok "Sleep disabled on AC, battery sleep preserved, wake-on-network enabled" || \
-        warn "Could not change sleep settings. Enable 'Prevent automatic sleeping when plugged in' in System Settings > Energy."
+        ok "$MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED" || \
+        warn "$MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE"
     else
-        info "Desktop Hub (no battery) detected: disabling sleep system-wide"
+        info "$MSG_INFO_DESKTOP_HUB_NO_BATTERY_DETECTED_DISABLING"
         sudo pmset -a sleep 0 2>/dev/null && \
         sudo pmset -a womp 1 2>/dev/null && \
-        ok "Sleep disabled, wake-on-network enabled" || \
-        warn "Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
+        ok "$MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED" || \
+        warn "$MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2"
     fi
 fi
 
@@ -2795,20 +2824,20 @@ if [[ "$HAS_BATTERY" == true ]]; then
         done
     ) &
     PHASE3_BATTERY_WATCH_PID=$!
-    info "Phase 3 battery watcher armed (PID $PHASE3_BATTERY_WATCH_PID)"
+    info "$(printf "$MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID" "$PHASE3_BATTERY_WATCH_PID")"
 fi
 
 progress "Checking Homebrew and system tools" "homebrew_install"
 
 if command -v brew &>/dev/null; then
-    ok "Homebrew installed"
+    ok "$MSG_OK_HOMEBREW_INSTALLED"
 else
-    info "Installing Homebrew..."
+    info "$MSG_INFO_INSTALLING_HOMEBREW"
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     if [[ "$ARCH" == "arm64" ]]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
     fi
-    ok "Homebrew installed"
+    ok "$MSG_OK_HOMEBREW_INSTALLED"
 fi
 
 # ── 3.2 Docker ─────────────────────────────────────────────────────
@@ -2816,19 +2845,19 @@ fi
 progress "Starting Docker" "docker_install"
 
 if [[ "$HAS_DOCKER" == true ]]; then
-    ok "Docker running"
+    ok "$MSG_OK_DOCKER_RUNNING"
 else
     # Prefer Colima over Docker Desktop. Colima is headless (no EULA, no
     # account signup, no system extension dialogs) and works perfectly for
     # running containers on macOS. Docker Desktop is a fallback.
     if ! command -v docker &>/dev/null; then
-        info "Installing Colima + Docker CLI..."
+        info "$MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI"
         brew install colima docker docker-compose
         # Re-eval Homebrew PATH so newly installed commands are found
         if [[ -x /opt/homebrew/bin/brew ]]; then
             eval "$(/opt/homebrew/bin/brew shellenv)"
         fi
-        ok "Colima and Docker CLI installed"
+        ok "$MSG_OK_COLIMA_DOCKER_CLI_INSTALLED"
     fi
 
     # Check if Colima or Docker Desktop can provide a runtime
@@ -2839,24 +2868,24 @@ else
     fi
 
     if command -v colima &>/dev/null; then
-        # Colima uses its own Docker socket — tell Docker CLI where to find it
+        # Colima uses its own Docker socket -- tell Docker CLI where to find it
         export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
 
         if ! docker info &>/dev/null 2>&1; then
-            info "Starting Colima (lightweight Docker runtime)..."
+            info "$MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME"
             # Allocate enough resources for 3 containers
             colima start --cpu 2 --memory 4 --disk 30 2>/dev/null || {
-                warn "Colima failed to start. Trying Docker Desktop as fallback..."
+                warn "$MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP"
                 if [[ -d "/Applications/Docker.app" ]]; then
                     open -a Docker 2>/dev/null || true
                 else
-                    fail "Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
+                    fail "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD"
                 fi
             }
         fi
     elif [[ -d "/Applications/Docker.app" ]]; then
         # Docker Desktop is installed but not running
-        info "Starting Docker Desktop..."
+        info "$MSG_INFO_STARTING_DOCKER_DESKTOP"
         echo ""
         echo "  If this is Docker's first run, it may show several dialogs:"
         echo "    - Accept the licence agreement"
@@ -2866,7 +2895,7 @@ else
         echo ""
         open -a Docker 2>/dev/null || true
     else
-        fail "Docker not available. Re-run the installer to install Colima."
+        fail "$MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER"
     fi
 
     # Wait for Docker to be ready (Colima or Desktop)
@@ -2874,7 +2903,7 @@ else
     DOCKER_TIMEOUT=300
     while ! docker info &>/dev/null 2>&1; do
         if [[ $DOCKER_WAIT -ge $DOCKER_TIMEOUT ]]; then
-            warn "Docker did not start within ${DOCKER_TIMEOUT} seconds."
+            warn "$(printf "$MSG_WARN_DOCKER_DID_NOT_START_WITHIN_SECONDS" "${DOCKER_TIMEOUT}")"
             echo ""
             echo "  If using Docker Desktop, complete any setup dialogs and re-run."
             echo "  If using Colima, try: colima start"
@@ -2885,7 +2914,7 @@ else
         printf "  Waiting for Docker... (%ds)\r" $DOCKER_WAIT
     done
     echo ""
-    ok "Docker running (took ${DOCKER_WAIT}s)"
+    ok "$(printf "$MSG_OK_DOCKER_RUNNING_TOOK_S" "${DOCKER_WAIT}")"
 
     # Set up Colima auto-start on boot (if using Colima)
     if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
@@ -2921,7 +2950,7 @@ else
 COLEOF
             launchctl bootstrap "gui/$(id -u)" "$COLIMA_PLIST" 2>/dev/null || \
                 launchctl load "$COLIMA_PLIST" 2>/dev/null || true
-            ok "Colima will start automatically on boot"
+            ok "$MSG_OK_COLIMA_WILL_START_AUTOMATICALLY_BOOT"
         fi
     fi
 fi
@@ -2931,33 +2960,33 @@ fi
 progress "Setting up Ollama (local AI engine)" "ollama_install"
 
 if command -v ollama &>/dev/null; then
-    ok "Ollama installed"
+    ok "$MSG_OK_OLLAMA_INSTALLED"
 else
     # Install the cask (GUI app) not the formula (CLI only).
     # The cask auto-starts Ollama on boot via launchd.
     # The formula requires manual `ollama serve` after every reboot.
-    info "Installing Ollama..."
+    info "$MSG_INFO_INSTALLING_OLLAMA"
     if brew install --cask ollama 2>/dev/null; then
-        ok "Ollama installed (desktop app)"
+        ok "$MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP"
     else
         # Fallback to CLI formula if cask fails
         brew install ollama
-        ok "Ollama installed (CLI only -- may need manual start after reboot)"
+        ok "$MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED"
     fi
 fi
 
 if curl -s http://localhost:11434/api/tags &>/dev/null; then
-    ok "Ollama running"
+    ok "$MSG_OK_OLLAMA_RUNNING"
 else
-    info "Starting Ollama..."
+    info "$MSG_INFO_STARTING_OLLAMA"
     # Try launching the app first (persists across reboots).
-    # -gj: start in background, hidden — it's a daemon, no UI needed.
+    # -gj: start in background, hidden -- it's a daemon, no UI needed.
     open -gj -a Ollama 2>/dev/null || ollama serve &>/dev/null &
     # Wait up to 30 seconds for Ollama to be ready
     OLLAMA_WAIT=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
-            warn "Could not start Ollama automatically."
+            warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             echo "  macOS may have asked you to approve Ollama."
             echo "  Open Ollama from Applications, approve any dialogs, then re-run."
             exit 1
@@ -2965,7 +2994,7 @@ else
         sleep 2
         OLLAMA_WAIT=$((OLLAMA_WAIT + 2))
     done
-    ok "Ollama running"
+    ok "$MSG_OK_OLLAMA_RUNNING"
 fi
 
 # ── 3.4 Python check ──────────────────────────────────────────────
@@ -2976,13 +3005,13 @@ if command -v python3 &>/dev/null; then
     PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
     PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
     if [[ $PY_MAJOR -ge 3 && $PY_MINOR -ge 10 ]]; then
-        ok "Python ${PY_VERSION}"
+        ok "$(printf "$MSG_OK_PYTHON" "${PY_VERSION}")"
     else
-        warn "Python ${PY_VERSION} is too old (need 3.10+). Installing Python 3.12..."
+        warn "$(printf "$MSG_WARN_PYTHON_TOO_OLD_NEED_3_10" "${PY_VERSION}")"
         NEED_PYTHON=true
     fi
 else
-    warn "Python 3 not found. Installing Python 3.12..."
+    warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
     NEED_PYTHON=true
 fi
 
@@ -2992,7 +3021,7 @@ if [[ "$NEED_PYTHON" == true ]]; then
     # Make it the default python3 for this session
     export PATH="/opt/homebrew/opt/python@3.12/bin:$PATH"
     PY_VERSION=$(python3 --version | cut -d' ' -f2)
-    ok "Python ${PY_VERSION} installed"
+    ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${PY_VERSION}")"
 fi
 
 # ── 3.5 Write config ──────────────────────────────────────────────
@@ -3034,7 +3063,7 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
 ENVEOF
 
-ok "Config saved to ${CONFIG_DIR}/.env"
+ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
 
 # ── 3.5b Assistant config (channels TOML) ──────────────────────────
 #
@@ -3159,10 +3188,10 @@ _need_new_jwt=false
 if [[ -z "$_existing_jwt_secret" ]]; then
     _need_new_jwt=true
 elif _is_jwt_secret_banlisted "$_existing_jwt_secret"; then
-    warn "JWT_SECRET in ${OSTLER_ENV_FILE} is on the banlist; regenerating to keep CM019 services importable"
+    warn "$(printf "$MSG_WARN_JWT_SECRET_BANLIST_REGENERATING_KEEP_CM019" "${OSTLER_ENV_FILE}")"
     _need_new_jwt=true
 elif (( ${#_existing_jwt_secret} < _jwt_secret_min_length )); then
-    warn "JWT_SECRET in ${OSTLER_ENV_FILE} is too short (${#_existing_jwt_secret} < ${_jwt_secret_min_length} chars); regenerating"
+    warn "$(printf "$MSG_WARN_JWT_SECRET_TOO_SHORT_CHARS_REGENERATING" "${OSTLER_ENV_FILE}" "${#_existing_jwt_secret}" "${_jwt_secret_min_length}")"
     _need_new_jwt=true
 fi
 
@@ -3181,10 +3210,10 @@ if [[ "$_need_new_jwt" == true ]]; then
     printf 'JWT_SECRET=%s\n' "$JWT_SECRET" >> "$OSTLER_ENV_FILE"
     chmod 600 "$OSTLER_ENV_FILE"
     umask "$umask_jwt_orig"
-    ok "Seeded fresh JWT_SECRET in ${OSTLER_ENV_FILE}"
+    ok "$(printf "$MSG_OK_SEEDED_FRESH_JWT_SECRET" "${OSTLER_ENV_FILE}")"
 else
     JWT_SECRET="$_existing_jwt_secret"
-    info "Reusing existing JWT_SECRET in ${OSTLER_ENV_FILE}"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_JWT_SECRET" "${OSTLER_ENV_FILE}")"
 fi
 
 # Service token: separate file under secrets/. Reuse if present
@@ -3192,7 +3221,7 @@ fi
 # instance that bootstrapped against the prior token).
 if [[ -s "$SERVICE_TOKEN_FILE" ]]; then
     PWG_SERVICE_TOKEN=$(cat "$SERVICE_TOKEN_FILE")
-    info "Reusing existing PWG service token at ${SERVICE_TOKEN_FILE}"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
 else
     PWG_SERVICE_TOKEN=$(openssl rand -hex 32)
     umask_svc_orig=$(umask)
@@ -3200,7 +3229,7 @@ else
     printf '%s' "$PWG_SERVICE_TOKEN" > "$SERVICE_TOKEN_FILE"
     umask "$umask_svc_orig"
     chmod 600 "$SERVICE_TOKEN_FILE"
-    ok "Seeded PWG service token at ${SERVICE_TOKEN_FILE}"
+    ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
 fi
 
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
@@ -3389,9 +3418,9 @@ unset CHANNEL_EMAIL_PASSWORD
 # secrets file) are written and locked down by now.
 unset CHAT_ADMIN_TOKEN
 
-ok "Assistant config saved to ${ASSISTANT_CONFIG} (mode 0600)"
+ok "$(printf "$MSG_OK_ASSISTANT_CONFIG_SAVED_MODE_0600" "${ASSISTANT_CONFIG}")"
 if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true && "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
-    info "No channels configured. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
+    info "$(printf "$MSG_INFO_NO_CHANNELS_CONFIGURED_RUN_LATER_BIN" "${OSTLER_DIR}")"
 fi
 
 # ── 3.6 Security setup ────────────────────────────────────────────
@@ -3400,7 +3429,7 @@ progress "Encrypting your databases" "encrypt_db"
 
 # Install SQLCipher
 if ! brew list sqlcipher &>/dev/null 2>&1; then
-    info "Installing SQLCipher..."
+    info "$MSG_INFO_INSTALLING_SQLCIPHER"
     brew install sqlcipher
 fi
 
@@ -3413,7 +3442,7 @@ fi
 OSTLER_PIP="${OSTLER_VENV}/bin/pip"
 OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
 
-info "Installing security Python dependencies..."
+info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
 # `cryptography` is dragged in transitively by the ostler_security
 # wheel install above (line 1497) which hard-fails properly. The
 # previous explicit pip install here used `2>/dev/null || true`
@@ -3425,13 +3454,13 @@ export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
 "$OSTLER_PIP" install --quiet "pysqlcipher3>=1.2.0,<2.0.0" 2>/dev/null || {
     # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-        warn "pysqlcipher3 install failed. Databases will not be encrypted."
-        warn "You may need to install manually: ${OSTLER_PIP} install pysqlcipher3"
-        warn "Continuing because --allow-plaintext was passed."
+        warn "$MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT"
+        warn "$(printf "$MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL" "${OSTLER_PIP}")"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
-        warn "pysqlcipher3 install failed."
-        warn "You may need to install manually: ${OSTLER_PIP} install pysqlcipher3"
-        fail "pysqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
+        warn "$MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED"
+        warn "$(printf "$MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL" "${OSTLER_PIP}")"
+        fail "$MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN"
     fi
 }
 
@@ -3457,17 +3486,17 @@ except Exception as e:
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-            warn "Security setup failed. Continuing without database encryption."
-            warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
-            warn "Continuing because --allow-plaintext was passed."
+            warn "$MSG_WARN_SECURITY_SETUP_FAILED_CONTINUING_WITHOUT_DATABASE"
+            warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
+            warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
         else
-            warn "Security setup failed. Output:"
+            warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
             echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -10
-            fail "Passphrase setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
+            fail "$MSG_FAIL_PASSPHRASE_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_KEY=" | cut -d= -f2-)
-        ok "Databases encrypted. Passphrase required at each startup."
+        ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
     fi
 elif [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     # Re-run: security already configured in a previous install.
@@ -3480,11 +3509,11 @@ else
     # services that will not boot.
     unset PASSPHRASE 2>/dev/null || true
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-        warn "No passphrase set; databases will not be encrypted."
-        warn "You can run the security setup later: python3 -m ostler_security.setup_wizard"
-        warn "Continuing because --allow-plaintext was passed."
+        warn "$MSG_WARN_NO_PASSPHRASE_SET_DATABASES_WILL_NOT"
+        warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
-        fail "No passphrase set and no existing security configuration. Re-run with --allow-plaintext for dev/CI, or re-run the installer and complete the passphrase prompt."
+        fail "$MSG_FAIL_NO_PASSPHRASE_SET_NO_EXISTING_SECURITY"
     fi
 fi
 
@@ -3503,7 +3532,7 @@ if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]
   "timestamp": "${POSTURE_TS}"
 }
 EOF
-    info "Wrote posture marker: ${POSTURE_DIR}/install.json"
+    info "$(printf "$MSG_INFO_WROTE_POSTURE_MARKER_INSTALL_JSON" "${POSTURE_DIR}")"
 fi
 
 # ── 3.6b Persist consent + region (A7+A8) ────────────────────────
@@ -3523,11 +3552,11 @@ fi
 # voice) will refuse to start with a structured error, which is
 # the right safety posture (gate stays closed, not silently open).
 if [[ "$HAS_SECURITY_MODULE" == true ]]; then
-    info "Persisting consent records and region..."
+    info "$MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION"
 
     # Region first.
     "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" <<'PY' || \
-        warn "Could not persist region.json (continuing - Doctor will surface)"
+        warn "$MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING"
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -3568,7 +3597,7 @@ PY
         fi
         if [[ "$mode" == "blocking" ]]; then
             warn "$fail_msg"
-            warn "  consent_cli stderr (first 400 chars):"
+            warn "$MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS"
             head -c 400 "$stderr_file" 2>/dev/null | sed 's/^/    /' | head -10 || true
         else
             local doctor_log="${OSTLER_DIR}/posture/consent-cli-failures.log"
@@ -3628,7 +3657,7 @@ PY
             "Could not persist third-party-data acknowledgement (continuing)"
     fi
 
-    ok "Consent records and region persisted to ~/.ostler/posture/"
+    ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
 
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
@@ -3640,7 +3669,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # missing. Calendar, Reminders, Notes, and Mail each create their data
     # store on first launch; if it already exists (re-run, or user has
     # used the app before), opening the app is unnecessary and intrusive.
-    # -gj flags: open in background, hidden — no window steal on first run.
+    # -gj flags: open in background, hidden -- no window steal on first run.
     APPS_TO_OPEN=()
     [[ ! -d "$HOME/Library/Calendars" ]] && APPS_TO_OPEN+=("Calendar")
     [[ ! -d "$HOME/Library/Group Containers/group.com.apple.reminders" ]] && APPS_TO_OPEN+=("Reminders")
@@ -3648,7 +3677,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     [[ ! -d "$HOME/Library/Mail" ]] && APPS_TO_OPEN+=("Mail")
 
     if [[ ${#APPS_TO_OPEN[@]} -gt 0 ]]; then
-        info "Triggering iCloud sync for ${APPS_TO_OPEN[*]} (silent, first-run only)..."
+        info "$(printf "$MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN" "${APPS_TO_OPEN[*]}")"
         for app in "${APPS_TO_OPEN[@]}"; do
             open -gj -a "$app" 2>/dev/null || true
         done
@@ -3658,14 +3687,14 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         for app in "${APPS_TO_OPEN[@]}"; do
             osascript -e "tell application \"$app\" to quit" 2>/dev/null || true
         done
-        ok "Apps launched to trigger iCloud sync"
+        ok "$MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC"
     else
-        ok "App databases already present (skipping pre-launch)"
+        ok "$MSG_OK_APP_DATABASES_ALREADY_PRESENT_SKIPPING_PRE"
     fi
     echo ""
 
-    info "Reading Safari, iMessage, Notes, Calendar, Photos, Reminders, Mail..."
-    info "This reads macOS databases directly — no export needed."
+    info "$MSG_INFO_READING_SAFARI_IMESSAGE_NOTES_CALENDAR_PHOTOS"
+    info "$MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO"
     echo ""
     # macOS does NOT prompt for Full Disk Access from a terminal-launched
     # script – it silently denies. Probe by trying to read a file that
@@ -3684,8 +3713,8 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         fi
     done
     if [[ "$FDA_GRANTED" == false ]]; then
-        warn "Full Disk Access not granted to Terminal."
-        warn "macOS will NOT prompt for it from a script – you must grant it manually."
+        warn "$MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL"
+        warn "$MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM"
         echo ""
         echo "  To grant Full Disk Access:"
         echo "    1. Open System Settings > Privacy & Security > Full Disk Access"
@@ -3697,7 +3726,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         echo "  (no iMessage / Mail history; just contacts / calendars / GDPR exports)."
         echo ""
     else
-        info "Full Disk Access detected – full extraction available."
+        info "$MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION"
     fi
     echo ""
 
@@ -3733,19 +3762,19 @@ print(json.dumps(summary, default=str))
     done
 
     if [[ $FDA_OK -gt 0 ]]; then
-        ok "Extracted from ${FDA_OK} source(s). Data saved to ${OSTLER_DIR}/imports/fda/"
+        ok "$(printf "$MSG_OK_EXTRACTED_FROM_SOURCE_S_DATA_SAVED" "${FDA_OK}" "${OSTLER_DIR}")"
     elif [[ $FDA_EXIT -ne 0 ]]; then
         # Extractor crashed wholesale (import failure, segfault,
         # raised exception). Surface the tail of stderr+stdout so
         # the operator can diagnose, instead of pretending success
         # via the "no sources available" branch.
-        warn "FDA extractor exited non-zero ($FDA_EXIT). Last 20 lines of output:"
+        warn "$(printf "$MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST" "$FDA_EXIT")"
         printf '%s\n' "$FDA_OUTPUT" | tail -n 20 | sed 's/^/    /'
-        warn "Continuing install. Re-run \`ostler-fda\` after diagnosing the error above."
+        warn "$MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA"
     else
-        info "No FDA sources available right now. You can grant Full Disk Access"
-        info "later in System Settings > Privacy & Security > Full Disk Access"
-        info "and re-run: ostler-fda"
+        info "$MSG_INFO_NO_FDA_SOURCES_AVAILABLE_RIGHT_NOW"
+        info "$MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL"
+        info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
 
     # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
@@ -3794,11 +3823,11 @@ print(json.dumps(summary, default=str))
 FDARPEOF
         launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
             launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
-        ok "FDA re-run scheduled for ~12 hours from now (catches slow iCloud syncs)"
+        ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
     fi
 else
-    info "FDA extraction module not bundled. Skipping instant data extraction."
-    info "You can add it later for instant onboarding from Safari, iMessage, etc."
+    info "$MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING"
+    info "$MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT"
 fi
 
 # ── 3.8 Docker services ───────────────────────────────────────────
@@ -3810,7 +3839,7 @@ _check_port() {
     if lsof -i ":$1" -sTCP:LISTEN &>/dev/null; then
         local PID=$(lsof -t -i ":$1" -sTCP:LISTEN 2>/dev/null | head -1)
         local PROC=$(ps -p "$PID" -o comm= 2>/dev/null || echo "unknown")
-        warn "Port $1 is already in use by ${PROC} (PID ${PID})"
+        warn "$(printf "$MSG_WARN_PORT_1_ALREADY_USE_PID" "${PROC}" "${PID}")"
         return 1
     fi
     return 0
@@ -3823,8 +3852,8 @@ _check_port 6379 || PORT_CONFLICT=true  # Redis
 _check_port 3000 || PORT_CONFLICT=true  # Vane (local web search)
 
 if [[ "$PORT_CONFLICT" == true ]]; then
-    warn "Some ports are in use. Docker containers may fail to start."
-    warn "Stop the conflicting services or change the ports in docker-compose.yml"
+    warn "$MSG_WARN_SOME_PORTS_ARE_USE_DOCKER_CONTAINERS"
+    warn "$MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER"
 fi
 
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
@@ -3986,7 +4015,7 @@ cd "$OSTLER_DIR"
 # layer comes up first; the wiki layer fails on its own phase
 # with its own error surface.
 docker compose up -d qdrant oxigraph redis
-ok "Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
+ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
 # ── 3.8b Local web search (Vane) ──────────────────────────────────
 #
@@ -4024,18 +4053,18 @@ if docker compose up -d vane 2>&1 | tail -3; then
         sleep 2
     done
     if [[ "$VANE_OK" == true ]]; then
-        ok "Vane running at http://localhost:3000 (talks to your local Ollama)"
+        ok "$MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS"
     else
-        warn "Vane container started but http://localhost:3000 did not respond within 60s."
-        warn "  Try: docker logs ostler-vane"
-        warn "       docker compose -f ${OSTLER_DIR}/docker-compose.yml restart vane"
+        warn "$MSG_WARN_VANE_CONTAINER_STARTED_BUT_HTTP_LOCALHOST"
+        warn "$MSG_WARN_TRY_DOCKER_LOGS_OSTLER_VANE"
+        warn "$(printf "$MSG_WARN_DOCKER_COMPOSE_F_DOCKER_COMPOSE_YML" "${OSTLER_DIR}")"
     fi
 else
-    warn "Vane (local web search) failed to start. Common causes:"
-    warn "  - Image pull failed (network, disk space, or registry timeout)"
-    warn "  - Port 3000 already in use by another service"
-    warn "  Manual retry: cd ${OSTLER_DIR} && docker compose up -d vane"
-    warn "  Web search is optional; the rest of Ostler works without it."
+    warn "$MSG_WARN_VANE_LOCAL_WEB_SEARCH_FAILED_START"
+    warn "$MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE"
+    warn "$MSG_WARN_PORT_3000_ALREADY_USE_ANOTHER_SERVICE"
+    warn "$(printf "$MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP" "${OSTLER_DIR}")"
+    warn "$MSG_WARN_WEB_SEARCH_OPTIONAL_REST_OSTLER_WORKS"
 fi
 
 # ── 3.9 AI models ─────────────────────────────────────────────────
@@ -4043,18 +4072,18 @@ fi
 progress "Downloading AI models (this is the big one)" "ai_models"
 
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
-    ok "nomic-embed-text already available"
+    ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
 else
-    info "Pulling nomic-embed-text (274 MB)..."
+    info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
     if ! ollama_pull_with_retry nomic-embed-text; then
-        fail "Could not pull nomic-embed-text after 3 attempts. Check your network and re-run the installer."
+        fail "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT"
     fi
-    ok "Embedding model ready"
+    ok "$MSG_OK_EMBEDDING_MODEL_READY"
 fi
 
 if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
     if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
-        ok "${AI_MODEL} already available"
+        ok "$(printf "$MSG_OK_ALREADY_AVAILABLE" "${AI_MODEL}")"
     else
         # Show the licence summary before the pull so the user knows
         # what they are accepting. Default Ostler models (Qwen family)
@@ -4062,24 +4091,24 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         # under Google's restrictive Gemma Terms of Use.
         case "$AI_MODEL" in
             qwen*)
-                info "Licence: ${AI_MODEL} is Apache 2.0. Full text: ${OSTLER_DIR}/LICENSES/Apache-2.0.txt"
+                info "$(printf "$MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT" "${AI_MODEL}" "${OSTLER_DIR}")"
                 ;;
             gemma*)
-                warn "Licence: ${AI_MODEL} ships under Google's Gemma Terms of Use, not Apache 2.0."
-                warn "         Read https://ai.google.dev/gemma/terms before commercial use."
+                warn "$(printf "$MSG_WARN_LICENCE_SHIPS_UNDER_GOOGLE_S_GEMMA" "${AI_MODEL}")"
+                warn "$MSG_WARN_READ_HTTPS_AI_GOOGLE_DEV_GEMMA"
                 ;;
             *)
-                info "Licence: ${AI_MODEL} – check upstream terms before commercial use."
+                info "$(printf "$MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL" "${AI_MODEL}")"
                 ;;
         esac
-        info "Pulling ${AI_MODEL} (${AI_MODEL_SIZE})... this may take a few minutes."
+        info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
         if ! ollama_pull_with_retry "$AI_MODEL"; then
-            fail "Could not pull ${AI_MODEL} after 3 attempts. Check your network and re-run the installer."
+            fail "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")"
         fi
-        ok "${AI_MODEL} ready"
+        ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
     fi
 else
-    info "Skipped conversation model. Pull later: ollama pull ${AI_MODEL}"
+    info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${AI_MODEL}")"
 fi
 
 # ── 3.10 Import pipeline ──────────────────────────────────────────
@@ -4096,12 +4125,12 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     mkdir -p "$PIPELINE_DIR"
     cp -R "${SCRIPT_DIR}/contact_syncer" "$PIPELINE_DIR/"
     [[ -f "${SCRIPT_DIR}/requirements.txt" ]] && cp "${SCRIPT_DIR}/requirements.txt" "$PIPELINE_DIR/"
-    ok "Import pipeline bundled with installer"
+    ok "$MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER"
     HAS_PIPELINE=true
 elif [[ -d "$PIPELINE_DIR/contact_syncer" ]]; then
     # Already installed from a previous run
-    info "Updating existing pipeline..."
-    cd "$PIPELINE_DIR" && git pull --quiet 2>/dev/null || warn "Could not update pipeline (offline?)"
+    info "$MSG_INFO_UPDATING_EXISTING_PIPELINE"
+    cd "$PIPELINE_DIR" && git pull --quiet 2>/dev/null || warn "$MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE"
     HAS_PIPELINE=true
 elif [[ -z "$PIPELINE_REPO" ]]; then
     # Productised install path: no tarball-bundled pipeline and no
@@ -4109,30 +4138,30 @@ elif [[ -z "$PIPELINE_REPO" ]]; then
     # installer tarball at release; if a user gets here without one,
     # GDPR import is simply unavailable (their Mac-side data extracted
     # above is unaffected).
-    info "Import pipeline not bundled with installer."
-    info "Mac-side data (iMessage, Safari, etc.) was extracted above."
-    info "GDPR-export import will be available when the pipeline ships."
-    info "Beta testers with access can set PWG_PIPELINE_REPO=<url> and re-run."
+    info "$MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER"
+    info "$MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC"
+    info "$MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN"
+    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET"
 else
-    info "Cloning import pipeline..."
+    info "$MSG_INFO_CLONING_IMPORT_PIPELINE"
     PIPELINE_CLONE_LOG="$(mktemp -t ostler-pipeline-clone.XXXXXX.log)"
     if git clone --quiet "$PIPELINE_REPO" "$PIPELINE_DIR" 2>"$PIPELINE_CLONE_LOG"; then
         HAS_PIPELINE=true
         rm -f "$PIPELINE_CLONE_LOG"
     else
-        warn "Import pipeline not available (private repo - beta testers only)."
+        warn "$MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO"
         # Surface the underlying git error so credential / network /
         # repo-not-found failures are distinguishable. Trim noise.
         if [[ -s "$PIPELINE_CLONE_LOG" ]]; then
-            warn "Git said:"
+            warn "$MSG_WARN_GIT_SAID"
             sed -e 's/^/    /' "$PIPELINE_CLONE_LOG" | head -5
         fi
-        info "This is expected for now. GDPR import will be available in a future update."
-        info "Your Mac data (iMessage, Safari, etc.) was already extracted above."
-        info "Repo URL: ${PIPELINE_REPO}"
-        info "To install later once you have access:"
-        info "  git clone ${PIPELINE_REPO} ${PIPELINE_DIR}"
-        info "  Override the source repo with PWG_PIPELINE_REPO=<url> ./install.sh"
+        info "$MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL"
+        info "$MSG_INFO_YOUR_MAC_DATA_IMESSAGE_SAFARI_ETC"
+        info "$(printf "$MSG_INFO_REPO_URL" "${PIPELINE_REPO}")"
+        info "$MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE"
+        info "$(printf "$MSG_INFO_GIT_CLONE" "${PIPELINE_REPO}" "${PIPELINE_DIR}")"
+        info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE"
         rm -f "$PIPELINE_CLONE_LOG"
     fi
 fi
@@ -4154,7 +4183,7 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         fi
         .venv/bin/pip install --quiet -r "$PIPELINE_REQS"
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
-        ok "Import pipeline ready"
+        ok "$MSG_OK_IMPORT_PIPELINE_READY"
     fi
 fi
 
@@ -4162,7 +4191,7 @@ fi
 
 if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]]; then
     progress "Importing your data (building your knowledge graph)" "import_data"
-    info "This may take 5-15 minutes depending on how much data you have..."
+    info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
     cd "$PIPELINE_DIR"
     if .venv/bin/python -m contact_syncer.import_all \
         --exports-dir "$EXPORTS_DIR" \
@@ -4170,14 +4199,14 @@ if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]
         --verbose 2>&1 | while IFS= read -r line; do
             echo "  $line"
         done; then
-        ok "GDPR import complete"
+        ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
     else
-        warn "GDPR import had errors. You can re-run with:"
-        warn "  ostler-import ${EXPORTS_DIR} --user-name \"${USER_NAME}\" --verbose"
+        warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
+        warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${EXPORTS_DIR}" "${USER_NAME}")"
     fi
 elif [[ -n "$EXPORTS_DIR" ]]; then
-    info "GDPR exports detected but import pipeline not yet available."
-    info "Your exports are safe. Import them later with: ostler-import ${EXPORTS_DIR}"
+    info "$MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE"
+    info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
 fi
 
 # ── 3.12 ostler-import command ──────────────────────────────────
@@ -4262,7 +4291,7 @@ run_all(Path('${OSTLER_DIR}/imports/fda'))
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
-# Create an export watcher script — scans Downloads for new GDPR exports
+# Create an export watcher script -- scans Downloads for new GDPR exports
 cat > "${OSTLER_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
 #!/usr/bin/env bash
 # Scans ~/Downloads for recognised GDPR export files.
@@ -4353,7 +4382,7 @@ cat > "$SCAN_PLIST" <<SPEOF
 SPEOF
 launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
     launchctl load "$SCAN_PLIST" 2>/dev/null || true
-ok "Export watcher installed (scans Downloads every 4 hours)"
+ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
 # ── Deferred device-registration retry ─────────────────────────────
 #
@@ -4396,7 +4425,7 @@ if [[ -f "${SCRIPT_DIR}/scripts/deferred-register-device.sh" ]]; then
 DRDPEOF
     launchctl bootstrap "gui/$(id -u)" "$REGISTER_PLIST" 2>/dev/null || \
         launchctl load "$REGISTER_PLIST" 2>/dev/null || true
-    ok "Deferred device-registration retry installed (runs hourly until queue clears)"
+    ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
 fi
 
 # Detect user's shell and add to appropriate RC file
@@ -4655,7 +4684,7 @@ echo ""
 UNINSTALLEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-uninstall"
 
-ok "ostler-import, ostler-fda, and ostler-uninstall commands installed"
+ok "$MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL"
 
 # ── 3.13 Ostler Doctor ──────────────────────────────────────────
 
@@ -4669,19 +4698,19 @@ mkdir -p "$DOCTOR_DIR"
 # hub-power / email-ingest / wiki-recompile.
 if [[ -d "${SCRIPT_DIR}/doctor/agent" ]]; then
     cp -R "${SCRIPT_DIR}/doctor/agent/"* "$DOCTOR_DIR/"
-    ok "Doctor agent files bundled with installer"
+    ok "$MSG_OK_DOCTOR_AGENT_FILES_BUNDLED_WITH_INSTALLER"
 elif [[ -f "${DOCTOR_DIR}/status_collector.py" ]]; then
-    info "Reusing existing Doctor agent install at ${DOCTOR_DIR}"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL" "${DOCTOR_DIR}")"
 elif [[ -z "$DOCTOR_REPO" ]]; then
     # Productised install path: no tarball-bundled scripts and no
     # PWG_DOCTOR_REPO override. Doctor is optional (the rest of
     # Ostler works without it); warn so the operator notices, but
     # do not fail the install.
-    info "Doctor agent files not bundled with installer."
-    info "Set PWG_DOCTOR_REPO=<url> and re-run to install."
-    info "(The rest of Ostler runs without the Doctor dashboard.)"
+    info "$MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH"
+    info "$MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE"
+    info "$MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR"
 else
-    info "Cloning Doctor agent..."
+    info "$MSG_INFO_CLONING_DOCTOR_AGENT"
     DOCTOR_TMP="$(mktemp -d)"
     DOCTOR_CLONE_LOG="$(mktemp -t ostler-doctor-clone.XXXXXX.log)"
     if git clone --quiet --depth 1 "$DOCTOR_REPO" "$DOCTOR_TMP" 2>"$DOCTOR_CLONE_LOG" \
@@ -4689,23 +4718,23 @@ else
         cp -R "$DOCTOR_TMP/doctor/agent/"* "$DOCTOR_DIR/"
         rm -rf "$DOCTOR_TMP"
         rm -f "$DOCTOR_CLONE_LOG"
-        ok "Doctor agent cloned from ${DOCTOR_REPO}"
+        ok "$(printf "$MSG_OK_DOCTOR_AGENT_CLONED_FROM" "${DOCTOR_REPO}")"
     else
         rm -rf "$DOCTOR_TMP"
-        warn "Could not obtain Doctor agent (bundled / cloned both failed)."
+        warn "$MSG_WARN_COULD_NOT_OBTAIN_DOCTOR_AGENT_BUNDLED"
         # Surface the underlying git error so credential / network /
         # repo-not-found failures are distinguishable.
         if [[ -s "$DOCTOR_CLONE_LOG" ]]; then
-            warn "Git said:"
+            warn "$MSG_WARN_GIT_SAID"
             sed -e 's/^/    /' "$DOCTOR_CLONE_LOG" | head -5
         fi
         rm -f "$DOCTOR_CLONE_LOG"
-        warn "Skipping Doctor LaunchAgent install."
-        info "Repo URL: ${DOCTOR_REPO}"
-        info "To install later once you have access:"
-        info "  git clone ${DOCTOR_REPO} /tmp/doctor-src"
-        info "  cp -R /tmp/doctor-src/doctor/agent/* ${DOCTOR_DIR}/"
-        info "  Override the source repo with PWG_DOCTOR_REPO=<url> ./install.sh"
+        warn "$MSG_WARN_SKIPPING_DOCTOR_LAUNCHAGENT_INSTALL"
+        info "$(printf "$MSG_INFO_REPO_URL_2" "${DOCTOR_REPO}")"
+        info "$MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE"
+        info "$(printf "$MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC" "${DOCTOR_REPO}")"
+        info "$(printf "$MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR" "${DOCTOR_DIR}")"
+        info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR"
     fi
 fi
 
@@ -4714,7 +4743,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         python3 -m venv "${DOCTOR_DIR}/.venv"
     fi
     "${DOCTOR_DIR}/.venv/bin/pip" install --quiet -r "${DOCTOR_DIR}/requirements.txt"
-    ok "Doctor dependencies installed"
+    ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
     mkdir -p "${HOME}/Library/LaunchAgents"
     DOCTOR_PLIST="${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
@@ -4754,7 +4783,7 @@ DOCEOF
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
-    ok "Ostler Doctor running at http://localhost:8089/doctor"
+    ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
 fi
 
 # ── 3.13b Knowledge service (CM024 Evernote ingest) ─────────────
@@ -4786,72 +4815,72 @@ KNOWLEDGE_STAGING_DIR="${OSTLER_DIR}/data/knowledge-staging"
 mkdir -p "$(dirname "$KNOWLEDGE_DIR")" "$KNOWLEDGE_STAGING_DIR"
 
 if [[ -z "$KNOWLEDGE_REPO" ]]; then
-    info "Knowledge service not installed: PWG_KNOWLEDGE_REPO empty."
-    info "Beta testers with access can set PWG_KNOWLEDGE_REPO=<url> and re-run."
-    info "Import-Evernote UI in Doctor will surface a 'service unavailable'"
-    info "message when the feature flag is later flipped on."
+    info "$MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE"
+    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2"
+    info "$MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE"
+    info "$MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED"
 else
-    info "Installing Knowledge service from $KNOWLEDGE_REPO..."
+    info "$(printf "$MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM" "$KNOWLEDGE_REPO")"
 
     KNOWLEDGE_CLONE_LOG="$(mktemp -t ostler-knowledge-clone.XXXXXX.log)"
     if [[ -d "$KNOWLEDGE_DIR/.git" ]]; then
-        info "  Existing checkout at $KNOWLEDGE_DIR; updating..."
+        info "$(printf "$MSG_INFO_EXISTING_CHECKOUT_UPDATING" "$KNOWLEDGE_DIR")"
         if git -C "$KNOWLEDGE_DIR" fetch --quiet origin 2>"$KNOWLEDGE_CLONE_LOG" \
             && git -C "$KNOWLEDGE_DIR" reset --hard --quiet origin/main 2>>"$KNOWLEDGE_CLONE_LOG"; then
             rm -f "$KNOWLEDGE_CLONE_LOG"
         else
-            warn "  Update failed; continuing with existing checkout."
+            warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
             if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
                 sed -e 's/^/    /' "$KNOWLEDGE_CLONE_LOG" | head -5
             fi
             rm -f "$KNOWLEDGE_CLONE_LOG"
         fi
     elif git clone --quiet --depth 1 "$KNOWLEDGE_REPO" "$KNOWLEDGE_DIR" 2>"$KNOWLEDGE_CLONE_LOG"; then
-        info "  Cloned to $KNOWLEDGE_DIR."
+        info "$(printf "$MSG_INFO_CLONED" "$KNOWLEDGE_DIR")"
         rm -f "$KNOWLEDGE_CLONE_LOG"
     else
-        warn "Knowledge service install failed (clone)."
+        warn "$MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE"
         if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
-            warn "Git said:"
+            warn "$MSG_WARN_GIT_SAID"
             sed -e 's/^/    /' "$KNOWLEDGE_CLONE_LOG" | head -5
         fi
-        info "  git clone ${KNOWLEDGE_REPO} ${KNOWLEDGE_DIR}"
-        info "  Override the source repo with PWG_KNOWLEDGE_REPO=<url> ./install.sh"
+        info "$(printf "$MSG_INFO_GIT_CLONE_2" "${KNOWLEDGE_REPO}" "${KNOWLEDGE_DIR}")"
+        info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE"
         rm -f "$KNOWLEDGE_CLONE_LOG"
     fi
 
     if [[ -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
-        info "  Creating Python venv at $KNOWLEDGE_VENV..."
+        info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
         python3 -m venv "$KNOWLEDGE_VENV"
 
-        info "  Installing ostler-knowledge into venv..."
+        info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
         "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
-            info "  ostler-knowledge installed in venv."
+            info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
         else
-            warn "  pip install failed; ostler-knowledge will not be available."
+            warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL"
             if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
                 sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
             fi
         fi
 
         if [[ -x "$KNOWLEDGE_BIN" ]]; then
-            info "  Symlinking $KNOWLEDGE_BIN -> $KNOWLEDGE_SYMLINK"
+            info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
             sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
 
             # Health check via the symlink (verifies PATH-side wiring + venv binding).
             if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
-                ok "Knowledge service ready: $VERSION_OUT"
+                ok "$(printf "$MSG_OK_KNOWLEDGE_SERVICE_READY" "$VERSION_OUT")"
             else
-                warn "  Health check failed: ostler-knowledge --version did not produce output."
+                warn "$MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION"
             fi
         else
-            warn "  Console script not created at $KNOWLEDGE_BIN; pyproject.toml may be missing the [project.scripts] entry."
+            warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$KNOWLEDGE_BIN")"
         fi
     elif [[ -d "$KNOWLEDGE_DIR" ]]; then
-        warn "Knowledge repo cloned but pyproject.toml missing; venv setup skipped."
-        warn "Block 3.1 of the CM024 productisation stack adds pyproject.toml --"
-        warn "ensure the pinned PWG_KNOWLEDGE_REPO tag includes it."
+        warn "$MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML"
+        warn "$MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK"
+        warn "$MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG"
     fi
 fi
 
@@ -4879,20 +4908,20 @@ if [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPE
     HUB_POWER_SOURCE="bundled"
     mkdir -p "$HUB_POWER_DIR"
     cp -R "${SCRIPT_DIR}/hub-power/"* "$HUB_POWER_DIR/"
-    ok "Hub power scripts bundled with installer"
+    ok "$MSG_OK_HUB_POWER_SCRIPTS_BUNDLED_WITH_INSTALLER"
 elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
     HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
     HUB_POWER_SOURCE="existing"
-    info "Reusing existing hub-power install at ${HUB_POWER_DIR}"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL" "${HUB_POWER_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
     # Productised install path: no tarball-bundled scripts and no
     # PWG_HUB_POWER_REPO override. Mac Mini / Studio deployments do
     # not need this LaunchAgent (always-on AC); only MacBook hubs do.
-    info "Hub power scripts not bundled with installer."
-    info "Mac Mini / Studio deployments are unaffected (always-on AC)."
-    info "MacBook hubs: set PWG_HUB_POWER_REPO=<url> and re-run."
+    info "$MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH"
+    info "$MSG_INFO_MAC_MINI_STUDIO_DEPLOYMENTS_ARE_UNAFFECTED"
+    info "$MSG_INFO_MACBOOK_HUBS_SET_PWG_HUB_POWER"
 else
-    info "Cloning hub-power scripts..."
+    info "$MSG_INFO_CLONING_HUB_POWER_SCRIPTS"
     HUB_POWER_TMP="$(mktemp -d)"
     HUB_POWER_CLONE_LOG="$(mktemp -t ostler-hub-power-clone.XXXXXX.log)"
     if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$HUB_POWER_TMP" 2>"$HUB_POWER_CLONE_LOG" \
@@ -4903,35 +4932,35 @@ else
         rm -f "$HUB_POWER_CLONE_LOG"
         HUB_POWER_SNIPPET="${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
         HUB_POWER_SOURCE="cloned"
-        ok "Hub power scripts cloned from ${HUB_POWER_REPO}"
+        ok "$(printf "$MSG_OK_HUB_POWER_SCRIPTS_CLONED_FROM" "${HUB_POWER_REPO}")"
     else
         rm -rf "$HUB_POWER_TMP"
-        warn "Could not obtain hub-power scripts (bundled / cloned both failed)."
+        warn "$MSG_WARN_COULD_NOT_OBTAIN_HUB_POWER_SCRIPTS"
         # Surface the underlying git error so credential / network /
         # repo-not-found failures are distinguishable.
         if [[ -s "$HUB_POWER_CLONE_LOG" ]]; then
-            warn "Git said:"
+            warn "$MSG_WARN_GIT_SAID"
             sed -e 's/^/    /' "$HUB_POWER_CLONE_LOG" | head -5
         fi
         rm -f "$HUB_POWER_CLONE_LOG"
-        warn "Skipping LaunchAgent install. Mac Mini deployments are unaffected."
-        warn "MacBook deployments need this for battery / sleep handling."
-        info "Repo URL: ${HUB_POWER_REPO}"
-        info "To install later once you have access:"
-        info "  git clone ${HUB_POWER_REPO} /tmp/hub-power-src"
-        info "  mkdir -p ${HUB_POWER_DIR} && cp -R /tmp/hub-power-src/hub-power/* ${HUB_POWER_DIR}/"
-        info "  OSTLER_INSTALL_ROOT=${HUB_POWER_DIR} bash ${HUB_POWER_DIR}/INSTALL_SNIPPET.sh"
-        info "  Override the source repo with PWG_HUB_POWER_REPO=<url> ./install.sh"
+        warn "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_MAC_MINI_DEPLOYMENTS"
+        warn "$MSG_WARN_MACBOOK_DEPLOYMENTS_NEED_THIS_BATTERY_SLEEP"
+        info "$(printf "$MSG_INFO_REPO_URL_3" "${HUB_POWER_REPO}")"
+        info "$MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE"
+        info "$(printf "$MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC" "${HUB_POWER_REPO}")"
+        info "$(printf "$MSG_INFO_MKDIR_P_CP_R_TMP_HUB" "${HUB_POWER_DIR}" "${HUB_POWER_DIR}")"
+        info "$(printf "$MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET" "${HUB_POWER_DIR}" "${HUB_POWER_DIR}")"
+        info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB"
     fi
 fi
 
 if [[ -n "$HUB_POWER_SNIPPET" && -f "$HUB_POWER_SNIPPET" ]]; then
     if OSTLER_INSTALL_ROOT="$HUB_POWER_DIR" bash "$HUB_POWER_SNIPPET"; then
-        ok "Hub power LaunchAgent loaded (label com.creativemachines.ostler.hub-power)"
-        info "Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
+        ok "$MSG_OK_HUB_POWER_LAUNCHAGENT_LOADED_LABEL_COM"
+        info "$MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF"
     else
-        warn "Hub power LaunchAgent install failed. See output above."
-        warn "Mac Mini deployments are unaffected; MacBook users should retry."
+        warn "$MSG_WARN_HUB_POWER_LAUNCHAGENT_INSTALL_FAILED_SEE"
+        warn "$MSG_WARN_MAC_MINI_DEPLOYMENTS_ARE_UNAFFECTED_MACBOOK"
     fi
 fi
 
@@ -4958,16 +4987,16 @@ if [[ -d "${SCRIPT_DIR}/email-ingest" && -f "${SCRIPT_DIR}/email-ingest/INSTALL_
     EMAIL_INGEST_SOURCE="bundled"
     mkdir -p "$EMAIL_INGEST_DIR"
     cp -R "${SCRIPT_DIR}/email-ingest/"* "$EMAIL_INGEST_DIR/"
-    ok "Email-ingest scripts bundled with installer"
+    ok "$MSG_OK_EMAIL_INGEST_SCRIPTS_BUNDLED_WITH_INSTALLER"
 elif [[ -f "${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh" ]]; then
     EMAIL_INGEST_SNIPPET="${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh"
     EMAIL_INGEST_SOURCE="existing"
-    info "Reusing existing email-ingest install at ${EMAIL_INGEST_DIR}"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL" "${EMAIL_INGEST_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    info "Email-ingest scripts not bundled with installer."
-    info "Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
+    info "$MSG_INFO_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_WITH"
+    info "$MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015"
 else
-    info "Cloning email-ingest scripts..."
+    info "$MSG_INFO_CLONING_EMAIL_INGEST_SCRIPTS"
     EMAIL_INGEST_TMP="$(mktemp -d)"
     EMAIL_INGEST_CLONE_LOG="$(mktemp -t ostler-email-ingest-clone.XXXXXX.log)"
     if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$EMAIL_INGEST_TMP" 2>"$EMAIL_INGEST_CLONE_LOG" \
@@ -4978,24 +5007,24 @@ else
         rm -f "$EMAIL_INGEST_CLONE_LOG"
         EMAIL_INGEST_SNIPPET="${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh"
         EMAIL_INGEST_SOURCE="cloned"
-        ok "Email-ingest scripts cloned from ${HUB_POWER_REPO}"
+        ok "$(printf "$MSG_OK_EMAIL_INGEST_SCRIPTS_CLONED_FROM" "${HUB_POWER_REPO}")"
     else
         rm -rf "$EMAIL_INGEST_TMP"
-        warn "Could not obtain email-ingest scripts (bundled / cloned both failed)."
+        warn "$MSG_WARN_COULD_NOT_OBTAIN_EMAIL_INGEST_SCRIPTS"
         # Surface the underlying git error so credential / network /
         # repo-not-found failures are distinguishable.
         if [[ -s "$EMAIL_INGEST_CLONE_LOG" ]]; then
-            warn "Git said:"
+            warn "$MSG_WARN_GIT_SAID"
             sed -e 's/^/    /' "$EMAIL_INGEST_CLONE_LOG" | head -5
         fi
         rm -f "$EMAIL_INGEST_CLONE_LOG"
-        warn "Skipping email-ingest LaunchAgent install."
-        info "Repo URL: ${HUB_POWER_REPO}"
-        info "To install later once you have access:"
-        info "  git clone ${HUB_POWER_REPO} /tmp/hub-src"
-        info "  mkdir -p ${EMAIL_INGEST_DIR} && cp -R /tmp/hub-src/email-ingest/* ${EMAIL_INGEST_DIR}/"
-        info "  OSTLER_INSTALL_ROOT=${EMAIL_INGEST_DIR} OSTLER_DIR=${OSTLER_DIR} LOGS_DIR=${LOGS_DIR} \\"
-        info "    bash ${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh"
+        warn "$MSG_WARN_SKIPPING_EMAIL_INGEST_LAUNCHAGENT_INSTALL"
+        info "$(printf "$MSG_INFO_REPO_URL_3" "${HUB_POWER_REPO}")"
+        info "$MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE"
+        info "$(printf "$MSG_INFO_GIT_CLONE_TMP_HUB_SRC" "${HUB_POWER_REPO}")"
+        info "$(printf "$MSG_INFO_MKDIR_P_CP_R_TMP_HUB_2" "${EMAIL_INGEST_DIR}" "${EMAIL_INGEST_DIR}")"
+        info "$(printf "$MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS" "${EMAIL_INGEST_DIR}" "${OSTLER_DIR}" "${LOGS_DIR}")"
+        info "$(printf "$MSG_INFO_BASH_INSTALL_SNIPPET_SH" "${EMAIL_INGEST_DIR}")"
     fi
 fi
 
@@ -5004,15 +5033,15 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
        OSTLER_DIR="$OSTLER_DIR" \
        LOGS_DIR="$LOGS_DIR" \
        bash "$EMAIL_INGEST_SNIPPET"; then
-        ok "Email-ingest LaunchAgent loaded (label com.creativemachines.ostler.email-ingest)"
-        info "Hourly tick. First run clamped to last 90 days."
-        info "Manual run: bash ${OSTLER_DIR}/bin/email-ingest-tick.sh"
-        info "Logs: ${LOGS_DIR}/email-ingest.log (and .err)"
+        ok "$MSG_OK_EMAIL_INGEST_LAUNCHAGENT_LOADED_LABEL_COM"
+        info "$MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST"
+        info "$(printf "$MSG_INFO_MANUAL_RUN_BASH_BIN_EMAIL_INGEST" "${OSTLER_DIR}")"
+        info "$(printf "$MSG_INFO_LOGS_EMAIL_INGEST_LOG_ERR" "${LOGS_DIR}")"
     else
-        warn "Email-ingest LaunchAgent install failed. See output above."
-        warn "Mail data is still ingestible manually:"
-        warn "  python3 -m ostler_fda.apple_mail_mbox --emit-mbox /tmp/manual.mbox.txt"
-        warn "  pwg-email-ingest mbox /tmp/manual.mbox.txt"
+        warn "$MSG_WARN_EMAIL_INGEST_LAUNCHAGENT_INSTALL_FAILED_SEE"
+        warn "$MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY"
+        warn "$MSG_WARN_PYTHON3_M_OSTLER_FDA_APPLE_MAIL"
+        warn "$MSG_WARN_PWG_EMAIL_INGEST_MBOX_TMP_MANUAL"
     fi
 fi
 
@@ -5088,15 +5117,15 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
         --has-fetched "$MAIL_HAS_FETCHED"; then
-    info "Apple Mail accounts visible: ${MAIL_ACCOUNTS_FOUND} (informational)"
+    info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
     if [[ "$MAIL_HAS_FETCHED" == "true" ]]; then
-        info "Apple Mail has cached messages. Ingest will pick them up on the next hourly tick."
+        info "$MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST"
     else
-        info "Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
+        info "$MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD"
     fi
     gui_emit MAIL_ACCOUNTS_FOUND "count=${MAIL_ACCOUNTS_FOUND}" "has_fetched=${MAIL_HAS_FETCHED}"
 else
-    warn "Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
+    warn "$MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON"
 fi
 
 unset MAIL_ACCOUNTS_FOUND MAIL_HAS_FETCHED APPLE_MAIL_VERSION_DIR ACCOUNTS_PLIST
@@ -5126,16 +5155,16 @@ if [[ -d "${SCRIPT_DIR}/wiki-recompile" && -f "${SCRIPT_DIR}/wiki-recompile/INST
     WIKI_RECOMPILE_SOURCE="bundled"
     mkdir -p "$WIKI_RECOMPILE_DIR"
     cp -R "${SCRIPT_DIR}/wiki-recompile/"* "$WIKI_RECOMPILE_DIR/"
-    ok "Wiki-recompile scripts bundled with installer"
+    ok "$MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER"
 elif [[ -f "${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh" ]]; then
     WIKI_RECOMPILE_SNIPPET="${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh"
     WIKI_RECOMPILE_SOURCE="existing"
-    info "Reusing existing wiki-recompile install at ${WIKI_RECOMPILE_DIR}"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_WIKI_RECOMPILE_INSTALL" "${WIKI_RECOMPILE_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    info "Wiki-recompile scripts not bundled with installer."
-    info "Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
+    info "$MSG_INFO_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED_WITH"
+    info "$MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015"
 else
-    info "Cloning wiki-recompile scripts..."
+    info "$MSG_INFO_CLONING_WIKI_RECOMPILE_SCRIPTS"
     WIKI_RECOMPILE_TMP="$(mktemp -d)"
     WIKI_RECOMPILE_CLONE_LOG="$(mktemp -t ostler-wiki-recompile-clone.XXXXXX.log)"
     if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$WIKI_RECOMPILE_TMP" 2>"$WIKI_RECOMPILE_CLONE_LOG" \
@@ -5146,19 +5175,19 @@ else
         rm -f "$WIKI_RECOMPILE_CLONE_LOG"
         WIKI_RECOMPILE_SNIPPET="${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh"
         WIKI_RECOMPILE_SOURCE="cloned"
-        ok "Wiki-recompile scripts cloned from ${HUB_POWER_REPO}"
+        ok "$(printf "$MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM" "${HUB_POWER_REPO}")"
     else
         rm -rf "$WIKI_RECOMPILE_TMP"
-        warn "Could not obtain wiki-recompile scripts (bundled / cloned both failed)."
+        warn "$MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS"
         if [[ -s "$WIKI_RECOMPILE_CLONE_LOG" ]]; then
-            warn "Git said:"
+            warn "$MSG_WARN_GIT_SAID"
             sed -e 's/^/    /' "$WIKI_RECOMPILE_CLONE_LOG" | head -5
         fi
         rm -f "$WIKI_RECOMPILE_CLONE_LOG"
-        warn "Skipping wiki-recompile LaunchAgent install."
-        info "Wiki will not auto-update; you can re-run the first-compile manually:"
-        info "  cd ${OSTLER_DIR}"
-        info "  docker compose --profile compile run --rm wiki-compiler"
+        warn "$MSG_WARN_SKIPPING_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL"
+        info "$MSG_INFO_WIKI_WILL_NOT_AUTO_UPDATE_YOU"
+        info "$(printf "$MSG_INFO_CD" "${OSTLER_DIR}")"
+        info "$MSG_INFO_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM"
     fi
 fi
 
@@ -5167,14 +5196,14 @@ if [[ -n "$WIKI_RECOMPILE_SNIPPET" && -f "$WIKI_RECOMPILE_SNIPPET" ]]; then
        OSTLER_DIR="$OSTLER_DIR" \
        LOGS_DIR="$LOGS_DIR" \
        bash "$WIKI_RECOMPILE_SNIPPET"; then
-        ok "Wiki-recompile LaunchAgent loaded (label com.creativemachines.ostler.wiki-recompile)"
-        info "Daily tick. Manual run: bash ${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
-        info "Logs: ${LOGS_DIR}/wiki-recompile.log (and .err)"
+        ok "$MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM"
+        info "$(printf "$MSG_INFO_DAILY_TICK_MANUAL_RUN_BASH_BIN" "${OSTLER_DIR}")"
+        info "$(printf "$MSG_INFO_LOGS_WIKI_RECOMPILE_LOG_ERR" "${LOGS_DIR}")"
     else
-        warn "Wiki-recompile LaunchAgent install failed. See output above."
-        warn "Wiki will not auto-update; manual rebuild stays available:"
-        warn "  cd ${OSTLER_DIR}"
-        warn "  docker compose --profile compile run --rm wiki-compiler"
+        warn "$MSG_WARN_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL_FAILED_SEE"
+        warn "$MSG_WARN_WIKI_WILL_NOT_AUTO_UPDATE_MANUAL"
+        warn "$(printf "$MSG_WARN_CD" "${OSTLER_DIR}")"
+        warn "$MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM"
     fi
 fi
 
@@ -5236,9 +5265,9 @@ ASSISTANT_BINARY="${OSTLER_DIR}/bin/ostler-assistant"
 # a non-existent Intel asset.
 ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
 if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
-    warn "ostler-assistant v${OSTLER_ASSISTANT_VERSION} is Apple Silicon only (detected: ${ARCH_DETECTED})."
-    warn "Skipping binary install. The wizard-written config.toml stays in place."
-    info "Intel support is not on the roadmap; raise a request if required."
+    warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY" "${OSTLER_ASSISTANT_VERSION}" "${ARCH_DETECTED}")"
+    warn "$MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG"
+    info "$MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST"
     ASSISTANT_BINARY_INSTALLED=false
 else
 
@@ -5264,11 +5293,11 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
     EXPECTED_SHA="$(awk '{print $1}' "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256")"
     ACTUAL_SHA="$(shasum -a 256 "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" | awk '{print $1}')"
     if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
-        err "ostler-assistant tarball SHA-256 mismatch."
-        err "  expected: ${EXPECTED_SHA:-<empty sidecar>}"
-        err "  actual:   ${ACTUAL_SHA}"
-        err "  url:      ${ASSISTANT_ARCHIVE_URL}"
-        err "  Refusing to stage a binary that does not match the published checksum."
+        err "$MSG_ERR_OSTLER_ASSISTANT_TARBALL_SHA_256_MISMATCH"
+        err "$(printf "$MSG_ERR_EXPECTED" "${EXPECTED_SHA:-<empty sidecar>}")"
+        err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
+        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+        err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
         rm -rf "$ASSISTANT_TMPDIR"
         ASSISTANT_TMPDIR=""
         exit 1
@@ -5332,8 +5361,8 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
                 # trusted; the quarantine xattr resolves cleanly
                 # on first run via Apple's online ticket lookup,
                 # so we leave it in place rather than stripping.
-                ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY} (signed)"
-                info "Apple notarisation will be verified by Gatekeeper on first launch."
+                ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+                info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
                 ;;
             unsigned)
                 # Unsigned binary (today's default, or a forked
@@ -5347,9 +5376,9 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
                 # without buying anything beyond what FileVault
                 # and the SHA verify above already cover.
                 xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
-                ok "ostler-assistant v${OSTLER_ASSISTANT_VERSION} staged at ${ASSISTANT_BINARY} (unsigned)"
-                info "Quarantine xattr cleared. Once the Developer-ID build is"
-                info "available the installer will skip this step automatically."
+                ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+                info "$MSG_INFO_QUARANTINE_XATTR_CLEARED_ONCE_DEVELOPER_ID"
+                info "$MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP"
                 ;;
             corrupt)
                 # Refuse to install. The SHA-256 sidecar already
@@ -5360,12 +5389,12 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
                 # quarantine, don't load the LaunchAgent, leave
                 # the binary in place for the operator to
                 # inspect.
-                err "ostler-assistant binary at ${ASSISTANT_BINARY} is not a Mach-O executable."
-                err "  file --brief reported: ${binary_file_type}"
-                err "  codesign -dv reported:"
+                err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
+                err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${binary_file_type}")"
+                err "$MSG_ERR_CODESIGN_DV_REPORTED"
                 err "$(printf '%s\n' "$codesign_dv_output" | sed -e 's/^/    /' | head -5)"
-                err "Refusing to strip quarantine or load the LaunchAgent."
-                err "Re-run the installer once the upstream tarball is fixed."
+                err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
+                err "$MSG_ERR_RE_RUN_INSTALLER_ONCE_UPSTREAM_TARBALL"
                 # ASSISTANT_BINARY_INSTALLED stays false (its
                 # initial value), so the LaunchAgent step
                 # downstream is skipped without further action.
@@ -5376,25 +5405,25 @@ if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_
             if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
                 ASSISTANT_BINARY_INSTALLED=true
             else
-                warn "ostler-assistant extracted but --version check failed."
-                warn "Skipping LaunchAgent install. Try: ${ASSISTANT_BINARY} --version"
+                warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
+                warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
             fi
         fi
     else
-        warn "Could not extract ostler-assistant tarball; skipping LaunchAgent."
+        warn "$MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL"
     fi
 else
-    warn "Could not download ostler-assistant v${OSTLER_ASSISTANT_VERSION} from ${ASSISTANT_ARCHIVE_URL}"
+    warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
     if [[ -s "$ASSISTANT_TMPDIR/curl.log" ]]; then
-        warn "Curl said:"
+        warn "$MSG_WARN_CURL_SAID"
         sed -e 's/^/    /' "$ASSISTANT_TMPDIR/curl.log" | head -5
     fi
-    warn "Common causes: tag v${OSTLER_ASSISTANT_VERSION} not yet published, network offline,"
-    warn "or running ahead of Phase B's release pipeline. Re-run the installer once the"
-    warn "release lands, or stage the binary manually:"
-    info "  curl -fL -o /tmp/ostler.tgz ${ASSISTANT_ARCHIVE_URL}"
-    info "  tar xzf /tmp/ostler.tgz -C ${OSTLER_DIR}/bin"
-    info "  bash ${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"
+    warn "$(printf "$MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET" "${OSTLER_ASSISTANT_VERSION}")"
+    warn "$MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S"
+    warn "$MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY"
+    info "$(printf "$MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ" "${ASSISTANT_ARCHIVE_URL}")"
+    info "$(printf "$MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C" "${OSTLER_DIR}")"
+    info "$(printf "$MSG_INFO_BASH_INSTALL_SNIPPET_SH_2" "${OSTLER_ASSISTANT_DIR}")"
 fi
 
 rm -rf "$ASSISTANT_TMPDIR"
@@ -5425,16 +5454,16 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
        ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
        INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
        bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"; then
-        ok "Ostler assistant LaunchAgent loaded (label com.creativemachines.ostler.assistant)"
-        info "Logs: ${LOGS_DIR}/ostler-assistant.log (and .err)"
-        info "Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
+        ok "$MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM"
+        info "$(printf "$MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR" "${LOGS_DIR}")"
+        info "$MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI"
         if [[ "$ASSISTANT_INSTALL_KEEPALIVE" == "true" ]]; then
-            info "WhatsApp keepalive scheduled at 08:50 + 17:50 (label com.creativemachines.ostler.whatsapp-keepalive)"
+            info "$MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17"
         fi
     else
-        warn "Ostler assistant LaunchAgent install failed. See output above."
-        warn "Wizard config stays in place; binary stays staged. Manual retry:"
-        warn "  bash ${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"
+        warn "$MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE"
+        warn "$MSG_WARN_WIZARD_CONFIG_STAYS_PLACE_BINARY_STAYS"
+        warn "$(printf "$MSG_WARN_BASH_INSTALL_SNIPPET_SH" "${OSTLER_ASSISTANT_DIR}")"
     fi
 fi
 
@@ -5472,11 +5501,11 @@ elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
 fi
 
 if [[ -n "$NOTICES_SOURCE" && -s "$NOTICES_DEST" ]]; then
-    ok "Third-party attributions installed (source: ${NOTICES_SOURCE})"
-    info "View any time with: bash install.sh --licenses"
+    ok "$(printf "$MSG_OK_THIRD_PARTY_ATTRIBUTIONS_INSTALLED_SOURCE" "${NOTICES_SOURCE}")"
+    info "$MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL"
 else
-    warn "Could not install THIRD_PARTY_NOTICES.md (non-fatal)."
-    warn "Read the public version at https://ostler.ai/licenses.html"
+    warn "$MSG_WARN_COULD_NOT_INSTALL_THIRD_PARTY_NOTICES"
+    warn "$MSG_WARN_READ_PUBLIC_VERSION_HTTPS_OSTLER_AI"
 fi
 
 # Companion: install the LICENSES/ directory containing canonical licence
@@ -5511,9 +5540,9 @@ elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
 fi
 
 if [[ -n "$LICENSES_SOURCE" ]]; then
-    ok "Licence texts installed at ${LICENSES_DEST}/ (source: ${LICENSES_SOURCE})"
+    ok "$(printf "$MSG_OK_LICENCE_TEXTS_INSTALLED_SOURCE" "${LICENSES_DEST}" "${LICENSES_SOURCE}")"
 else
-    warn "Could not install LICENSES/ directory (non-fatal)."
+    warn "$MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON"
 fi
 
 # ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
@@ -5533,7 +5562,7 @@ echo ""
 echo -e "  ${BOLD}Tailscale (recommended for iOS / Watch companion)${NC}"
 echo ""
 echo "  Tailscale gives this Mac a stable private IP your phone can"
-echo "  reach from anywhere — encrypted, no public exposure, free for"
+echo "  reach from anywhere -- encrypted, no public exposure, free for"
 echo "  personal use. Without it, the iOS companion only works on"
 echo "  your home Wi-Fi."
 echo ""
@@ -5541,15 +5570,15 @@ TAILSCALE_CONFIRM="$(gui_read "Install Tailscale now? (Y/n)" yesno "Y" "Tailscal
 
 if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
-        info "Installing Tailscale..."
+        info "$MSG_INFO_INSTALLING_TAILSCALE"
         brew install --cask tailscale 2>/dev/null && \
-            ok "Tailscale installed" || \
-            warn "Tailscale install failed — you can install it later from tailscale.com"
+            ok "$MSG_OK_TAILSCALE_INSTALLED" || \
+            warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
     else
-        ok "Tailscale already installed"
+        ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
     fi
 
-    # Open the Tailscale app — first launch prompts for sign-in. Subsequent
+    # Open the Tailscale app -- first launch prompts for sign-in. Subsequent
     # launches noop. Wait for it to come up.
     if [[ -d "/Applications/Tailscale.app" ]]; then
         open -gj -a Tailscale 2>/dev/null || true
@@ -5574,8 +5603,8 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
         # with possible 2FA), and returning easily eats 2-3 minutes.
         # 60s is too short and was the most-tripped Phase-3 timeout in
         # the install audit (~2026-05-01).
-        info "Waiting for you to sign in to Tailscale (up to 3 minutes)..."
-        info "If a Tailscale window appears, sign in with Apple / Google / Microsoft."
+        info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
+        info "$MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH"
         TS_WAIT=0
         while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
             OSTLER_TAILSCALE_IP=$("$TS_CLI" ip --4 2>/dev/null | head -1 || true)
@@ -5586,7 +5615,7 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
         done
 
         if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
-            ok "Tailscale IP: ${OSTLER_TAILSCALE_IP}"
+            ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
             echo "  Use this address in the Ostler iOS companion app:"
             echo "    http://${OSTLER_TAILSCALE_IP}:8089"
             # Persist to .env (replace existing line if present, append otherwise)
@@ -5609,11 +5638,11 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
                 fi
             fi
         else
-            warn "Tailscale didn't sign in within 60 seconds. You can come back to this later."
-            warn "Run 'tailscale ip --4' once signed in, then add the address to the iOS app."
+            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_60"
+            warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
         fi
     else
-        warn "Could not find the Tailscale CLI. You can configure it manually later."
+        warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
     fi
 fi
 
@@ -5658,20 +5687,20 @@ cd "$OSTLER_DIR"
 if docker compose --profile compile run --rm wiki-compiler 2>&1 | tail -10; then
     if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
-        ok "Wiki running at http://localhost:8044"
+        ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
     else
-        warn "Wiki compiled but wiki-site container failed to start."
-        warn "  Try: docker compose -f ${OSTLER_DIR}/docker-compose.yml up -d wiki-site"
+        warn "$MSG_WARN_WIKI_COMPILED_BUT_WIKI_SITE_CONTAINER"
+        warn "$(printf "$MSG_WARN_TRY_DOCKER_COMPOSE_F_DOCKER_COMPOSE" "${OSTLER_DIR}")"
     fi
 else
-    warn "Wiki first-compile failed. Common causes:"
-    warn "  - ostler-wiki-compiler image not yet pullable (registry not wired)"
-    warn "  - Oxigraph not yet healthy at this phase (check logs above)"
-    warn "  - Insufficient disk for the wiki output volume"
-    warn "  Manual retry once the cause is resolved:"
-    warn "    cd ${OSTLER_DIR}"
-    warn "    docker compose --profile compile run --rm wiki-compiler"
-    warn "    docker compose up -d wiki-site"
+    warn "$MSG_WARN_WIKI_FIRST_COMPILE_FAILED_COMMON_CAUSES"
+    warn "$MSG_WARN_OSTLER_WIKI_COMPILER_IMAGE_NOT_YET"
+    warn "$MSG_WARN_OXIGRAPH_NOT_YET_HEALTHY_THIS_PHASE"
+    warn "$MSG_WARN_INSUFFICIENT_DISK_WIKI_OUTPUT_VOLUME"
+    warn "$MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED"
+    warn "$(printf "$MSG_WARN_CD_2" "${OSTLER_DIR}")"
+    warn "$MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM_2"
+    warn "$MSG_WARN_DOCKER_COMPOSE_UP_D_WIKI_SITE"
 fi
 
 # ══════════════════════════════════════════════════════════════════════
@@ -5683,35 +5712,35 @@ fi
 # 3.14 is now responsible for battery awareness from here on.
 cleanup_battery_watch
 
-step "Running health check" "health_check"
+step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 
 HEALTHY=true
 
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
-    ok "Qdrant healthy"
+    ok "$MSG_OK_QDRANT_HEALTHY"
 else
-    warn "Qdrant not responding"
+    warn "$MSG_WARN_QDRANT_NOT_RESPONDING"
     HEALTHY=false
 fi
 
 if curl -sf http://localhost:7878/ &>/dev/null; then
-    ok "Oxigraph healthy"
+    ok "$MSG_OK_OXIGRAPH_HEALTHY"
 else
-    warn "Oxigraph not responding"
+    warn "$MSG_WARN_OXIGRAPH_NOT_RESPONDING"
     HEALTHY=false
 fi
 
 if docker exec ostler-redis redis-cli ping 2>/dev/null | grep -q PONG; then
-    ok "Redis healthy"
+    ok "$MSG_OK_REDIS_HEALTHY"
 else
-    warn "Redis not responding"
+    warn "$MSG_WARN_REDIS_NOT_RESPONDING"
     HEALTHY=false
 fi
 
 if curl -sf http://localhost:11434/api/tags &>/dev/null; then
-    ok "Ollama healthy"
+    ok "$MSG_OK_OLLAMA_HEALTHY"
 else
-    warn "Ollama not responding"
+    warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"
     HEALTHY=false
 fi
 
@@ -5720,9 +5749,9 @@ fi
 # flip the install-wide HEALTHY flag if it is missing -- the
 # rest of Ostler works without it (Phase 3.8b is warn-only too).
 if curl -sf -o /dev/null -m 3 http://localhost:3000; then
-    ok "Vane healthy (local web search)"
+    ok "$MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH"
 else
-    info "Vane not responding (optional; see Phase 3.8b warnings)"
+    info "$MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE"
 fi
 
 # ── 3.18 iMessage TCC posture probe (install-time snapshot) ──────
@@ -5756,7 +5785,7 @@ fi
 # point probing a permission the customer has not consented to.
 
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
-    info "Probing iMessage Automation permission (read-only)..."
+    info "$MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY"
 
     IMESSAGE_POSTURE_DIR="${OSTLER_DIR}/imessage-posture"
     IMESSAGE_POSTURE_FILE="${IMESSAGE_POSTURE_DIR}/state.md"
@@ -5821,7 +5850,7 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
                 echo "iMessage delivery should work; if a brief later fails,"
                 echo "run \`ostler-assistant doctor\` to see runtime status."
             } >> "$IMESSAGE_POSTURE_FILE"
-            ok "iMessage Automation permission: granted"
+            ok "$MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED"
             ;;
         tcc-denied)
             {
@@ -5833,9 +5862,9 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
                 echo "enable the Messages tick. Re-run install.sh --repair to"
                 echo "refresh this marker."
             } >> "$IMESSAGE_POSTURE_FILE"
-            warn "iMessage Automation permission: not granted (-1743)."
-            warn "  Conversations sent to iMessage will silently fail until"
-            warn "  this is resolved. See next-steps banner for remediation."
+            warn "$MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743"
+            warn "$MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL"
+            warn "$MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER"
             ;;
         check-failed)
             {
@@ -5852,8 +5881,8 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
                 echo "\`ostler-assistant doctor\` to see runtime status once"
                 echo "the daemon is up."
             } >> "$IMESSAGE_POSTURE_FILE"
-            warn "iMessage Automation permission: probe inconclusive."
-            warn "  See ${IMESSAGE_POSTURE_FILE} for the stderr fragment."
+            warn "$MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE"
+            warn "$(printf "$MSG_WARN_SEE_STDERR_FRAGMENT" "${IMESSAGE_POSTURE_FILE}")"
             ;;
     esac
 
@@ -5877,9 +5906,9 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
         DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
 
     if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
-        info "ostler-assistant doctor: deferred (daemon may still be"
-        info "  starting; run \`ostler-assistant doctor\` after first"
-        info "  launch to verify cron-delivery + imessage-tcc posture)."
+        info "$MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY"
+        info "$MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER"
+        info "$MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC"
     else
         # Count error markers in the human-readable output. The
         # doctor module emits ❌ for Severity::Error and prefixes
@@ -5887,22 +5916,22 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
         # surface the count so the operator knows to re-run.
         DOCTOR_ERRORS=$(printf '%s\n' "$DOCTOR_OUTPUT" | grep -c '❌' 2>/dev/null || echo 0)
         if [[ "$DOCTOR_ERRORS" -gt 0 ]]; then
-            warn "ostler-assistant doctor reported ${DOCTOR_ERRORS} error(s)."
-            warn "  Run \`${ASSISTANT_BINARY} doctor\` after first launch"
-            warn "  to inspect. cron-delivery / imessage-tcc are common"
-            warn "  early markers (channels still connecting + Apple"
-            warn "  Events permission for Messages.app)."
+            warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S" "${DOCTOR_ERRORS}")"
+            warn "$(printf "$MSG_WARN_RUN_DOCTOR_AFTER_FIRST_LAUNCH" "${ASSISTANT_BINARY}")"
+            warn "$MSG_WARN_TO_INSPECT_CRON_DELIVERY_IMESSAGE_TCC"
+            warn "$MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE"
+            warn "$MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP"
             # Intentionally leaving the install HEALTHY flag
             # untouched: the daemon is still in startup grace at
             # install time; the markers may flip to OK on their own
             # once channels finish booting. Operator re-runs the
             # doctor command after first launch to verify.
         else
-            ok "ostler-assistant doctor: no errors detected"
+            ok "$MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED"
         fi
     fi
 else
-    info "ostler-assistant binary not installed; skipping doctor probe"
+    info "$MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING"
 fi
 
 # ── Show recovery key (saved from Phase 2/3) ──────────────────────
@@ -5966,7 +5995,7 @@ SWIFTEOF
                KC_PASSWORD="${RECOVERY_KEY}" \
                "$SWIFT_BIN" "$KC_HELPER" 2>/dev/null; then
                 SAVED_TO_KEYCHAIN_VIA="swift"
-                ok "Recovery key saved to Keychain (search 'Ostler' in Passwords app)"
+                ok "$MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER"
                 SAVED_TO_KEYCHAIN=true
             fi
             rm -f "$KC_HELPER"
@@ -5982,10 +6011,10 @@ SWIFTEOF
                 -w "${RECOVERY_KEY}" \
                 -T "" \
                 -U 2>/dev/null; then
-                ok "Recovery key saved to Keychain (search 'Ostler' in Passwords app)"
+                ok "$MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER"
                 SAVED_TO_KEYCHAIN=true
             else
-                warn "Could not save to Keychain. Please write it down."
+                warn "$MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE"
             fi
         fi
     fi
@@ -6030,13 +6059,13 @@ fi
 # pre-listing.
 
 if [[ "$NO_EXTENSIONS" == true ]]; then
-    info "Browser extensions skipped (--no-extensions)"
+    info "$MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS"
 else
     EXTENSIONS_BUNDLE="${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip"
     SAFARI_APP_INSTALL_PATH="/Applications/Ostler Safari Extension.app"
 
     if [[ -f "$EXTENSIONS_BUNDLE" ]]; then
-        info "Installing Safari extension to /Applications"
+        info "$MSG_INFO_INSTALLING_SAFARI_EXTENSION_APPLICATIONS"
         # Idempotent: clear any prior install before unzip so re-runs
         # don't merge old + new app contents into a Frankensteined
         # bundle.
@@ -6049,14 +6078,14 @@ else
             if [[ -d "/Applications/SafariHistoryExt.app" && ! -d "$SAFARI_APP_INSTALL_PATH" ]]; then
                 mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
             fi
-            ok "Safari extension installed at ${SAFARI_APP_INSTALL_PATH}"
+            ok "$(printf "$MSG_OK_SAFARI_EXTENSION_INSTALLED" "${SAFARI_APP_INSTALL_PATH}")"
             echo "     Enable it in Safari Settings → Extensions → Ostler"
         else
-            warn "Safari extension copy failed; you can install it manually later"
-            warn "  Bundle: ${EXTENSIONS_BUNDLE}"
+            warn "$MSG_WARN_SAFARI_EXTENSION_COPY_FAILED_YOU_CAN"
+            warn "$(printf "$MSG_WARN_BUNDLE" "${EXTENSIONS_BUNDLE}")"
         fi
     else
-        info "Safari extension bundle not present in this installer build (skipping)"
+        info "$MSG_INFO_SAFARI_EXTENSION_BUNDLE_NOT_PRESENT_THIS"
     fi
 
     # Chrome Web Store: open the listing in the default browser. Fire
@@ -6064,8 +6093,8 @@ else
     CHROME_URL="${OSTLER_CHROME_WEBSTORE_URL:-https://chrome.google.com/webstore/category/extensions}"
     if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
         # Direct CLI install: actually open the URL.
-        info "Opening Chrome Web Store: ${CHROME_URL}"
-        open "$CHROME_URL" 2>/dev/null || warn "Could not open Chrome Web Store URL automatically: ${CHROME_URL}"
+        info "$(printf "$MSG_INFO_OPENING_CHROME_WEB_STORE" "${CHROME_URL}")"
+        open "$CHROME_URL" 2>/dev/null || warn "$(printf "$MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE" "${CHROME_URL}")"
     else
         # GUI wrapper install: just print the URL so the wrapper can
         # surface it in its own UI rather than spawning a browser.
