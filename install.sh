@@ -221,16 +221,25 @@ gui_active()      { return 1; }
 gui_needs_sudo()  { :; }
 gui_needs_fda()   { :; }
 
-info()  { echo -e "${BLUE}[info]${NC}  $*"; gui_log info "$*"; }
-ok()    { echo -e "${GREEN}[ok]${NC}    $*"; gui_log info "$*"; }
-warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
+# When OSTLER_GUI=1 the structured gui_log / gui_warn markers already
+# carry the message to the GUI Log drawer; the additional TTY echo
+# then collides with formatBuffer's own `[INFO ]`/`[WARN ]` prefix
+# (the rawLine path in Verbose mode picks the `[info]`/`[warn]`
+# bracket text up and renders it pasted in next to the proper level
+# marker, producing the noisy `[INFO ] [info]  ...` pattern Andy saw
+# as `[INFO[]` in his Mac Studio install log on 2026-05-19). Suppress
+# the TTY echo when the GUI is driving so only the structured marker
+# surfaces.
+info()  { gui_active || echo -e "${BLUE}[info]${NC}  $*"; gui_log info "$*"; }
+ok()    { gui_active || echo -e "${GREEN}[ok]${NC}    $*"; gui_log info "$*"; }
+warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # Used by hard-fail paths that need to surface a security or
 # integrity message. Goes to stderr so it never gets swallowed by
 # tee /dev/null on the calling side; keeps red [ERROR] colour to
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
-err()   { printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
-fail()  { echo -e "${RED}[fail]${NC}  $*"; gui_log error "$*"; gui_done fail; exit 1; }
+err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
+fail()  { gui_active || echo -e "${RED}[fail]${NC}  $*"; gui_log error "$*"; gui_done fail; exit 1; }
 
 # step() opens a top-level section ("==> Title"). When OSTLER_GUI=1,
 # also emits a PHASE marker so the GUI sidebar can swap to the next
