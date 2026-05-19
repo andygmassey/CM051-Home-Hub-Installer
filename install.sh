@@ -6360,10 +6360,7 @@ if [[ -f "${HOME}/.ostler/power.conf" ]]; then
     echo "                      (POWER_POLICY=normal | aggressive | eco)"
 fi
 echo ""
-echo -e "  ${BOLD}Need help?${NC}"
-echo "    During beta, email support@ostler.ai."
-echo "    A dedicated support@ostler.ai address will be"
-echo "    live by general launch."
+echo "  $MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI"
 echo ""
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
@@ -6376,3 +6373,15 @@ if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end ok
 fi
 gui_done ok
+
+# ── First-run auto-open ────────────────────────────────────────────
+# Open the customer-facing wiki in the default browser. Best-effort --
+# don't fail the install if this fails. Under GUI mode the installer
+# Swift app will offer its own "Open Wiki" affordance on the success
+# screen, so we skip here to avoid a double-open race.
+if [[ "${OSTLER_GUI:-}" == "1" ]]; then
+    # GUI installer will offer its own "Open Wiki" affordance; skip here.
+    :
+else
+    open "http://localhost:8044" 2>/dev/null || true
+fi
