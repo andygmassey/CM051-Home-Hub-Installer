@@ -3,4 +3,13 @@
 # Add other pre-commit checks above the operator-pii block.
 set -e
 
-"$(git rev-parse --show-toplevel)/.githooks/pre-commit-operator-pii" || exit $?
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Rule 0.9 -- customer-facing strings must come from the per-repo catalogue,
+# not inline literals. Locked 2026-05-19. The script is a no-op in repos
+# without a recognised catalogue marker, so it's safe to install everywhere.
+if [ -x "$ROOT/.githooks/check-rule-09-strings.sh" ]; then
+    "$ROOT/.githooks/check-rule-09-strings.sh" pre-commit || exit $?
+fi
+
+"$ROOT/.githooks/pre-commit-operator-pii" || exit $?
