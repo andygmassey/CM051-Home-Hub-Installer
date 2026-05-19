@@ -36,6 +36,15 @@ final class InstallerCoordinator: ObservableObject {
     @Published var finished: StepStatus? = nil
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
+    /// True when the very first `bootstrap()` attempt asked the user
+    /// for admin access via the native macOS AppleScript dialog and
+    /// the user clicked Cancel (or the osascript call otherwise
+    /// returned non-zero). Surfaces a full-screen retry view in
+    /// `ContentView` -- the install subprocess is NOT launched until
+    /// this clears. Mac Studio retest 2026-05-19 PM HKT: without
+    /// the pre-launch grant install.sh's `sudo -v` at line 2574
+    /// exits non-zero on a fresh Mac with no warm sudo timestamp.
+    @Published var needsAdminRetry: Bool = false
 
     // ── Onboarding question rendering (in-window, #353) ──────────
     //
@@ -227,7 +236,23 @@ final class InstallerCoordinator: ObservableObject {
     /// install.sh until `licenseVerified` is true (set either by
     /// the on-disk re-verification in `verifyExistingLicenseOnLaunch`
     /// or by a successful drag/paste in `LicenseEntryView`).
+    ///
+    /// Public surface is sync (SwiftUI `onAppear`/`onChange` calls
+    /// it without `await`); the body hops to an async task so it
+    /// can await `AuthorizationHelper` for the pre-launch sudo grant.
+    /// See `bootstrapAsync()` for the actual sequencing.
     func bootstrap() {
+        Task { @MainActor in await self.bootstrapAsync() }
+    }
+
+    /// The real bootstrap body. Seeds the macOS sudo timestamp via
+    /// `AuthorizationHelper` BEFORE launching install.sh -- install.sh
+    /// line 2574 runs a bare `sudo -v` that, under OSTLER_GUI=1 with
+    /// stdin redirected to a pipe, would otherwise exit non-zero on
+    /// a fresh Mac with no warm timestamp and fire `fail` immediately.
+    /// On user-cancel we surface the retry UI via `needsAdminRetry`
+    /// and DO NOT launch the subprocess.
+    private func bootstrapAsync() async {
         guard process == nil else {
             OstlerLog.lifecycle.debug("bootstrap: subprocess already running (pid=\(self.process?.processIdentifier ?? -1, privacy: .public))")
             return
@@ -249,15 +274,88 @@ final class InstallerCoordinator: ObservableObject {
         // licence gate. Idempotent -- duplicate completions for the
         // same id are deduped by markStepCompletedIfMissing.
         markStepCompletedIfMissing(id: "license_entry", status: .ok)
+
+        // ── Pre-launch admin grant ───────────────────────────────
+        // Drive the macOS-native admin password dialog via the
+        // AuthorizationHelper actor. The osascript `do shell script
+        // ... with administrator privileges` seeds the sudo
+        // timestamp, so install.sh's `sudo -v` at line 2574 finds
+        // it warm and proceeds silently. install.sh's keepalive
+        // at line 2627 then refreshes the timestamp every 60s for
+        // the rest of the install.
+        let reason = ViewCopy.shared.string(for: "admin_access_required.prompt_reason")
+        appendLog(level: "info", msg: "Requesting administrator access via macOS native dialog")
+        OstlerLog.lifecycle.info("bootstrap: requesting admin authorisation before subprocess launch")
+        let granted = await adminAuthorizationProvider(reason)
+        if !granted {
+            needsAdminRetry = true
+            error = ViewCopy.shared.string(for: "admin_access_required.retry_message")
+            appendLog(level: "warn", msg: "Administrator access not granted -- holding install at retry gate")
+            OstlerLog.lifecycle.warning("bootstrap: admin authorisation declined or failed -- not launching subprocess")
+            return
+        }
+        // Clear any retry state left over from a prior cancel.
+        needsAdminRetry = false
+        if error == ViewCopy.shared.string(for: "admin_access_required.retry_message") {
+            error = nil
+        }
+
         appendLog(level: "info", msg: "Bootstrapping installer subprocess")
         OstlerLog.lifecycle.info("bootstrap: launching installer subprocess")
         do {
-            try launchInstaller()
+            if let override = launchInstallerOverride {
+                try override()
+            } else {
+                try launchInstaller()
+            }
         } catch {
             self.error = "Failed to launch installer: \(error.localizedDescription)"
             OstlerLog.lifecycle.error("bootstrap: launch failed -- \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    /// Triggered by the Retry button on the admin-access-required
+    /// screen. Clears the retry latch and re-runs `bootstrap()`,
+    /// which will re-invoke `AuthorizationHelper` and re-prompt the
+    /// user. The helper's internal 240s grant-cache avoids a
+    /// duplicate dialog if a previous attempt actually succeeded
+    /// and the customer hit Retry by mistake.
+    func retryAdminAuthorization() {
+        needsAdminRetry = false
+        error = nil
+        bootstrap()
+    }
+
+    /// Provider closure for the pre-launch admin authorisation.
+    /// Defaults to the production `AuthorizationHelper.shared`
+    /// actor; tests inject a stub via `setAdminAuthorizationProvider(_:)`.
+    /// The closure receives the prompt reason and returns `true`
+    /// on success, `false` on user-cancel or osascript failure.
+    private var adminAuthorizationProvider: (String) async -> Bool = { reason in
+        await AuthorizationHelper.shared.requestAdminAuthorization(reason: reason)
+    }
+
+    #if DEBUG
+    /// Test seam. Replaces the admin-authorisation provider with a
+    /// stub so unit tests can drive both the happy path and the
+    /// user-cancel path without standing up the macOS osascript
+    /// dialog. Marked DEBUG so it cannot accidentally ship.
+    func setAdminAuthorizationProvider(_ provider: @escaping (String) async -> Bool) {
+        self.adminAuthorizationProvider = provider
+    }
+
+    /// Test seam. Overrides the launch step so unit tests can verify
+    /// that `bootstrapAsync()` proceeds to attempt the subprocess
+    /// launch on the happy path, without actually spawning install.sh.
+    /// Replaces the production `launchInstaller()` call inside the
+    /// async bootstrap body when set.
+    func setLaunchInstallerOverride(_ override: @escaping () throws -> Void) {
+        self.launchInstallerOverride = override
+    }
+    private var launchInstallerOverride: (() throws -> Void)? = nil
+    #else
+    private let launchInstallerOverride: (() throws -> Void)? = nil
+    #endif
 
     /// Called from the app's `onAppear`. Tries to re-verify any
     /// existing licence on disk; on success, flips the gate

@@ -36,6 +36,15 @@ struct ContentView: View {
         }
     }
 
+    /// Full-screen blocker shown when the pre-launch admin-grant
+    /// AppleScript dialog was cancelled (or otherwise failed). The
+    /// install subprocess has NOT been launched at this point;
+    /// Retry re-invokes `AuthorizationHelper` cleanly.
+    @ViewBuilder
+    private var adminRetryGate: some View {
+        AdminAccessRequiredView()
+    }
+
     /// Branches on the second-stage registration gate. The first-stage
     /// (cryptographic) gate is already cleared at this point, so the
     /// `LicenseEntryView` is behind us.
@@ -57,7 +66,13 @@ struct ContentView: View {
             // spinning, which is the natural UX for "we're checking".
             installLayout
         case .ready:
-            installLayout
+            // Pre-launch admin-grant cancelled? Hold here with a
+            // Retry surface; the install subprocess is not running.
+            if coordinator.needsAdminRetry {
+                adminRetryGate
+            } else {
+                installLayout
+            }
         }
     }
 
@@ -102,6 +117,53 @@ struct ContentView: View {
                 .background(Color.ostlerChassis)
             }
         }
+    }
+}
+
+/// Shown when the pre-launch admin-grant AppleScript dialog was
+/// cancelled (or osascript returned non-zero). The install
+/// subprocess has NOT been launched. Retry re-invokes the helper;
+/// Quit terminates the installer cleanly.
+private struct AdminAccessRequiredView: View {
+    @EnvironmentObject private var coordinator: InstallerCoordinator
+
+    var body: some View {
+        VStack(spacing: 24) {
+            HStack(spacing: 12) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundColor(.ostlerOxblood)
+                Text(ViewCopy.shared.string(for: "admin_access_required.heading"))
+                    .font(.ostlerH1)
+                    .foregroundColor(.ostlerInk)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(ViewCopy.shared.string(for: "admin_access_required.prompt_reason"))
+                .font(.ostlerBody)
+                .foregroundColor(.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 12) {
+                Spacer()
+                Button(ViewCopy.shared.string(for: "admin_access_required.quit_button")) {
+                    NSApp.terminate(nil)
+                }
+                .buttonStyle(.ostlerGhost)
+
+                Button(ViewCopy.shared.string(for: "admin_access_required.retry_button")) {
+                    coordinator.retryAdminAuthorization()
+                }
+                .buttonStyle(.ostlerPrimary)
+                .keyboardShortcut(.defaultAction)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ostlerChassis)
     }
 }
 
