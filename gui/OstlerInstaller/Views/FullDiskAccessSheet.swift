@@ -16,12 +16,12 @@ struct FullDiskAccessSheet: View {
                     .font(.system(size: 32))
                     .foregroundStyle(Color.ostlerOxblood)
                 VStack(alignment: .leading, spacing: .ostlerSpace1) {
-                    Text("Full Disk Access required")
+                    Text(ViewCopy.shared.string(for: "fda_sheet.heading"))
                         .font(.ostlerH2)
                         .tracking(-0.2)
                         .foregroundStyle(Color.ostlerInk)
                     Text(reason.isEmpty
-                         ? "Ostler reads Safari, iMessage, Notes, Mail, Calendar, Photos and Reminders from local macOS databases."
+                         ? ViewCopy.shared.string(for: "fda_sheet.reason_default")
                          : reason)
                         .font(.ostlerBody)
                         .foregroundStyle(Color.ostlerInkMuted)
@@ -29,7 +29,7 @@ struct FullDiskAccessSheet: View {
                 }
             }
 
-            Text("Open System Settings, find Full Disk Access in the Privacy & Security section, and tick OstlerInstaller. Then come back here and tap Continue.")
+            Text(ViewCopy.shared.string(for: "fda_sheet.instructions"))
                 .font(.ostlerBody)
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
@@ -52,12 +52,12 @@ struct FullDiskAccessSheet: View {
             }
 
             HStack(spacing: .ostlerSpace2) {
-                Button("Open System Settings") {
+                Button(ViewCopy.shared.string(for: "fda_sheet.open_settings_button")) {
                     AuthorizationHelper.shared.openFullDiskAccessPane()
                 }
                 .buttonStyle(.ostlerGhost)
                 Spacer()
-                Button("I've granted it, continue") {
+                Button(ViewCopy.shared.string(for: "fda_sheet.continue_button")) {
                     coordinator.needsFDA = nil
                 }
                 .keyboardShortcut(.defaultAction)

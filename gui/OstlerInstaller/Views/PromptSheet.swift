@@ -35,11 +35,11 @@ struct PromptSheet: View {
 
             HStack(spacing: .ostlerSpace2) {
                 Spacer()
-                Button("Cancel") {
+                Button(ViewCopy.shared.string(for: "prompt_sheet.cancel_button")) {
                     coordinator.respond(to: prompt, with: prompt.defaultValue ?? "")
                 }
                 .buttonStyle(.ostlerGhost)
-                Button("Continue") {
+                Button(ViewCopy.shared.string(for: "prompt_sheet.continue_button")) {
                     coordinator.respond(to: prompt, with: currentAnswer())
                 }
                 .keyboardShortcut(.defaultAction)
@@ -76,7 +76,8 @@ struct PromptSheet: View {
                 .focused($focused)
         case .yesno:
             Toggle(isOn: $yesnoValue) {
-                Text(yesnoValue ? "Yes" : "No")
+                Text(ViewCopy.shared.string(for: yesnoValue ? "prompt_sheet.yes_label"
+                                                            : "prompt_sheet.no_label"))
                     .font(.ostlerBody)
                     .foregroundStyle(Color.ostlerInk)
             }

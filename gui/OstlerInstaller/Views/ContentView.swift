@@ -107,7 +107,7 @@ private struct DeviceRegistrationErrorView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 28, weight: .regular))
                     .foregroundColor(.ostlerOxblood)
-                Text("We could not register this Mac")
+                Text(ViewCopy.shared.string(for: "device_registration_error.heading"))
                     .font(.ostlerH1)
                     .foregroundColor(.ostlerInk)
             }
@@ -121,7 +121,9 @@ private struct DeviceRegistrationErrorView: View {
 
             HStack {
                 Spacer()
-                Button("Quit installer") { NSApp.terminate(nil) }
+                Button(ViewCopy.shared.string(for: "device_registration_error.quit_button")) {
+                    NSApp.terminate(nil)
+                }
                     .buttonStyle(.ostlerPrimary)
                     .keyboardShortcut(.defaultAction)
             }
@@ -140,7 +142,7 @@ private struct FooterView: View {
 
     var body: some View {
         HStack(spacing: .ostlerSpace2) {
-            Button("Cancel") {
+            Button(ViewCopy.shared.string(for: "footer.cancel_button")) {
                 coordinator.cancel()
                 NSApp.terminate(nil)
             }
@@ -159,16 +161,16 @@ private struct FooterView: View {
             .keyboardShortcut("d", modifiers: [.command, .shift])
 
             if coordinator.finished == .ok {
-                Button("Reveal in Finder") {
+                Button(ViewCopy.shared.string(for: "footer.reveal_in_finder_button")) {
                     let url = URL(fileURLWithPath: ("~/Documents/Ostler" as NSString).expandingTildeInPath)
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
                 .buttonStyle(.ostlerGhost)
-                Button("Done") { NSApp.terminate(nil) }
+                Button(ViewCopy.shared.string(for: "footer.done_button")) { NSApp.terminate(nil) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.ostlerPrimary)
             } else if coordinator.finished == .fail {
-                Button("Quit") { NSApp.terminate(nil) }
+                Button(ViewCopy.shared.string(for: "footer.quit_button")) { NSApp.terminate(nil) }
                     .buttonStyle(.ostlerPrimary)
             } else {
                 ProgressView()

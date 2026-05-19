@@ -20,7 +20,7 @@ struct SidebarView: View {
                     .font(.custom(Font.OstlerFontName.displaySemi, size: 18, relativeTo: .title))
                     .tracking(2.4)
                     .foregroundStyle(Color.ostlerInk)
-                Text("Installer")
+                Text(ViewCopy.shared.string(for: "sidebar.subtitle"))
                     .font(.ostlerCaption)
                     .foregroundStyle(Color.ostlerInkMuted)
             }
@@ -48,7 +48,13 @@ struct SidebarView: View {
                         .foregroundStyle(finished == .ok ? Color.ostlerForest : Color.ostlerOxblood)
                         .font(.ostlerCaption)
                 } else {
-                    Text("Step \(coordinator.currentStepIdx) of \(coordinator.totalSteps)")
+                    Text(ViewCopy.shared.string(
+                        for: "sidebar.step_counter",
+                        fills: [
+                            "current": "\(coordinator.currentStepIdx)",
+                            "total": "\(coordinator.totalSteps)",
+                        ]
+                    ))
                         .font(.ostlerStrap)
                         .tracking(1.2)
                         .foregroundStyle(Color.ostlerInkSubdued)

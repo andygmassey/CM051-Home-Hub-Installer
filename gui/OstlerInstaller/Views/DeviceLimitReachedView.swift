@@ -46,11 +46,17 @@ struct DeviceLimitReachedView: View {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 28, weight: .regular))
                     .foregroundColor(.ostlerOxblood)
-                Text("This licence is on \(displayCount) Macs")
+                Text(ViewCopy.shared.string(
+                    for: "device_limit.heading",
+                    fills: ["count": displayCount]
+                ))
                     .font(.ostlerH1)
                     .foregroundColor(.ostlerInk)
             }
-            Text("Each Ostler licence is valid on up to \(displayMax) Macs. This one is already at the limit, so we cannot register this Mac without freeing up a slot first.")
+            Text(ViewCopy.shared.string(
+                for: "device_limit.explanation",
+                fills: ["max": displayMax]
+            ))
                 .font(.ostlerBody)
                 .foregroundColor(.ostlerInkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -60,15 +66,15 @@ struct DeviceLimitReachedView: View {
 
     private var explanation: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("What you can do")
+            Text(ViewCopy.shared.string(for: "device_limit.what_you_can_do_caption"))
                 .font(.ostlerCaption)
                 .foregroundColor(.ostlerInkMuted)
 
             bullet(
-                "Email us at hello@ostler.ai and we will free a slot for you. Quote your licence id below."
+                ViewCopy.shared.string(for: "device_limit.bullet_email_us")
             )
             bullet(
-                "Or purchase an additional licence at ostler.ai if this is a new Mac you want to keep alongside your other ones."
+                ViewCopy.shared.string(for: "device_limit.bullet_buy_another")
             )
         }
         .padding(16)
@@ -83,13 +89,13 @@ struct DeviceLimitReachedView: View {
     private var actions: some View {
         HStack(spacing: 12) {
             Spacer()
-            Button("Quit installer") {
+            Button(ViewCopy.shared.string(for: "device_limit.quit_button")) {
                 NSApp.terminate(nil)
             }
             .buttonStyle(.ostlerGhost)
             .keyboardShortcut(.cancelAction)
 
-            Button("Email hello@ostler.ai") {
+            Button(ViewCopy.shared.string(for: "device_limit.email_button")) {
                 openSupportMailto()
             }
             .buttonStyle(.ostlerPrimary)
@@ -99,7 +105,7 @@ struct DeviceLimitReachedView: View {
 
     private var footerHint: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Licence id")
+            Text(ViewCopy.shared.string(for: "device_limit.license_id_caption"))
                 .font(.ostlerCaption)
                 .foregroundColor(.ostlerInkMuted)
             Text(licenseId)
@@ -128,11 +134,13 @@ struct DeviceLimitReachedView: View {
         // Worker returns -1 when we could not parse a body; render as
         // "the maximum number of" so the customer is not confronted
         // with nonsensical numbers.
-        registeredCount > 0 ? String(registeredCount) : "the maximum number of"
+        registeredCount > 0 ? String(registeredCount)
+                            : ViewCopy.shared.string(for: "device_limit.fallback_count")
     }
 
     private var displayMax: String {
-        maxFingerprints > 0 ? String(maxFingerprints) : "the licensed number of"
+        maxFingerprints > 0 ? String(maxFingerprints)
+                            : ViewCopy.shared.string(for: "device_limit.fallback_max")
     }
 
     private func openSupportMailto() {
@@ -140,18 +148,19 @@ struct DeviceLimitReachedView: View {
         components.scheme = "mailto"
         components.path = "hello@ostler.ai"
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "Free up a slot for licence \(licenseId)"),
+            URLQueryItem(
+                name: "subject",
+                value: ViewCopy.shared.string(
+                    for: "device_limit.mailto_subject",
+                    fills: ["license_id": licenseId]
+                )
+            ),
             URLQueryItem(
                 name: "body",
-                value: """
-                Hi Ostler team,
-
-                I have hit the device limit on my licence and would like to free up a slot so I can install on this Mac.
-
-                Licence id: \(licenseId)
-
-                Thanks.
-                """
+                value: ViewCopy.shared.string(
+                    for: "device_limit.mailto_body",
+                    fills: ["license_id": licenseId]
+                )
             ),
         ]
         if let url = components.url {
