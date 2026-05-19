@@ -3265,6 +3265,44 @@ umask 0077
 schema_version = 2
 TOMLPREAMBLE
 
+    # ── Providers: Ollama fallback ──────────────────────────────
+    #
+    # Customer's LLM provider profile. Without this, the agent
+    # runtime's fallback_provider() returns None and any agent-type
+    # cron job (the morning brief + evening wrap emitted further
+    # down, plus any future agent-driven surface) fails at fire
+    # time with "no provider configured".
+    #
+    # Schema reference: crates/zeroclaw-config/src/providers.rs
+    #   ProvidersConfig.fallback resolves to
+    #   ProvidersConfig.models[<key>]. The HashMap key "ollama"
+    #   is what the provider-factory matches in
+    #   crates/zeroclaw-providers/src/lib.rs::create_provider;
+    #   the optional name field inside the entry is a display
+    #   override and is not needed here.
+    #
+    # base_url + model are the load-bearing fields. base_url is
+    # the Ollama server URL the installer wired up in Phase 1.5b
+    # (brew install ollama + open -a Ollama). The model is the
+    # tier-aware default the installer chose at AI_MODEL
+    # selection time (high RAM = qwen3.6:35b-a3b, mid =
+    # qwen3.5:9b, low = gemma4:e2b). The customer can edit
+    # either field post-install in the assistant config TOML.
+    #
+    # timeout_secs is set generously because the local Ollama
+    # can take several seconds to warm up on first call after
+    # launchd boot.
+    _ai_model_default="${AI_MODEL:-qwen3.5:9b}"
+    _ai_model_esc="${_ai_model_default//\"/\\\"}"
+    echo
+    echo "[providers]"
+    echo "fallback = \"ollama\""
+    echo
+    echo "[providers.models.ollama]"
+    echo "base_url = \"http://localhost:11434\""
+    echo "model = \"${_ai_model_esc}\""
+    echo "timeout_secs = 300"
+
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
@@ -3378,9 +3416,29 @@ TOMLPREAMBLE
 
     # ── Cron jobs: morning brief + evening wrap ─────────────────
     #
-    # Schema: crates/zeroclaw-config/src/schema.rs:6144-6216
-    #   CronScheduleDecl::Cron { expr, tz }
-    #   DeliveryConfigDecl   { mode = "announce", channel = ..., to = ..., best_effort = false }
+    # Schema: crates/zeroclaw-config/src/schema.rs::CronJobDecl,
+    #         CronScheduleDecl, DeliveryConfigDecl.
+    #
+    #   CronJobDecl   { id (required), name?, job_type = "shell"|"agent",
+    #                   schedule, command? (shell), prompt? (agent),
+    #                   delivery? }
+    #   CronScheduleDecl is #[serde(tag = "kind", rename_all = "lowercase")]
+    #     so the Cron variant is keyed `kind = "cron"`, NOT `type`.
+    #   DeliveryConfigDecl { mode = "announce", channel, to, best_effort }
+    #
+    # Field discipline notes:
+    #
+    #   - `id` is REQUIRED on CronJobDecl. The daemon refuses to
+    #     deserialise a job without it (no #[serde(default)] on the
+    #     field). Earlier emits used only `name = "morning-brief"`
+    #     and quietly stopped the whole cron section from loading.
+    #   - `kind = "cron"` matches the schema tag. `type = "cron"`
+    #     would land on the unknown-variant error path.
+    #   - `job_type = "agent"` + `prompt` is the right shape for a
+    #     daily brief: the runtime hands the prompt to the configured
+    #     LLM provider, captures stdout, and announce-delivers it
+    #     via the channel orchestrator. `shell` would need a CLI
+    #     subcommand that does not yet exist on the binary.
     #
     # Only emit when WhatsApp is the configured outbound channel
     # AND we have a recipient phone. Without those, the cron job
@@ -3400,18 +3458,35 @@ TOMLPREAMBLE
     # written to solve. Per memory/feedback_no_silent_security_fallback.md
     # new customers default-fail-loud so any regression surfaces
     # in Doctor immediately.
+    #
+    # Prompt copy is plain prose, British English, deliberately
+    # short. The agent runtime prepends a memory-recall context
+    # block (zeroclaw-runtime/src/cron/scheduler.rs::run_agent_job),
+    # so we do not have to spell out "look at yesterday's data"
+    # twice. Customers can edit the prompt after install by hand
+    # in ${OSTLER_DIR}/assistant-config/config.toml.
     if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
         _wa_recipient_cron_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
+        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery over WhatsApp. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery over WhatsApp. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
+        _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
+        _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
         echo
         echo "[[cron.jobs]]"
-        echo "name = \"morning-brief\""
-        echo "schedule = { type = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
+        echo "id = \"morning-brief\""
+        echo "name = \"Morning brief\""
+        echo "job_type = \"agent\""
+        echo "schedule = { kind = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
+        echo "prompt = \"${_morning_prompt_esc}\""
         echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
         echo
         echo "[[cron.jobs]]"
-        echo "name = \"evening-wrap\""
-        echo "schedule = { type = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
+        echo "id = \"evening-wrap\""
+        echo "name = \"Evening wrap\""
+        echo "job_type = \"agent\""
+        echo "schedule = { kind = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
+        echo "prompt = \"${_evening_prompt_esc}\""
         echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
     fi
 } > "$ASSISTANT_CONFIG"

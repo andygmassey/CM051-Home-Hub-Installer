@@ -107,17 +107,64 @@ if ! grep -q '0 18 \* \* \*' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: install.sh emits evening wrap cron expression (0 18 * * *)"
 
-if ! grep -q 'name = \\"morning-brief\\"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [morning-brief-name]: install.sh does not emit name = \"morning-brief\"" >&2
+if ! grep -q 'id = \\"morning-brief\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [morning-brief-id]: install.sh does not emit id = \"morning-brief\"" >&2
+    echo "       CronJobDecl::id is required by the daemon's serde derive." >&2
     exit 1
 fi
-echo "PASS: install.sh names morning-brief job"
+echo "PASS: install.sh ids morning-brief job"
 
-if ! grep -q 'name = \\"evening-wrap\\"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [evening-wrap-name]: install.sh does not emit name = \"evening-wrap\"" >&2
+if ! grep -q 'id = \\"evening-wrap\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [evening-wrap-id]: install.sh does not emit id = \"evening-wrap\"" >&2
+    echo "       CronJobDecl::id is required by the daemon's serde derive." >&2
     exit 1
 fi
-echo "PASS: install.sh names evening-wrap job"
+echo "PASS: install.sh ids evening-wrap job"
+
+# Schedule discriminator must be `kind`, not `type`. The daemon's
+# CronScheduleDecl carries #[serde(tag = "kind", rename_all = "lowercase")]
+# so `type = "cron"` lands on the unknown-variant error path and the
+# whole cron section silently fails to load.
+if ! grep -q 'kind = \\"cron\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [schedule-kind]: install.sh does not emit kind = \"cron\" on cron jobs" >&2
+    echo "       (the schema uses serde tag = \"kind\", not \"type\")" >&2
+    exit 1
+fi
+if grep -q 'schedule = { type = \\"cron\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [schedule-type-drift]: install.sh still emits the legacy type = \"cron\" form" >&2
+    exit 1
+fi
+echo "PASS: install.sh uses kind = \"cron\" (matches schema tag)"
+
+# Brief jobs are agent-prompt driven, not shell-command. The runtime
+# has no `brief generate` shell subcommand on the published binary.
+if ! grep -q 'job_type = \\"agent\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [job-type]: install.sh does not emit job_type = \"agent\" on cron jobs" >&2
+    exit 1
+fi
+echo "PASS: install.sh sets job_type = \"agent\" on brief jobs"
+
+# [providers] block. Agent jobs need a fallback provider, otherwise
+# the agent runtime errors with "no provider configured" at fire
+# time. Emitted unconditionally because Ollama is installed
+# unconditionally during install (Phase 1.5b).
+if ! grep -qE '"\[providers\]"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [providers-header]: install.sh does not emit a [providers] section in the assistant-config block" >&2
+    exit 1
+fi
+echo "PASS: install.sh emits [providers] section"
+
+if ! grep -q 'fallback = \\"ollama\\"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [providers-fallback]: install.sh does not set providers.fallback = \"ollama\"" >&2
+    exit 1
+fi
+echo "PASS: install.sh sets providers.fallback = \"ollama\""
+
+if ! grep -qE '"\[providers\.models\.ollama\]"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [providers-ollama-entry]: install.sh does not emit [providers.models.ollama]" >&2
+    exit 1
+fi
+echo "PASS: install.sh emits [providers.models.ollama] entry"
 
 # best_effort = false (NOT true). The whole point of switching is
 # fail-loud delivery so regressions surface.
@@ -286,19 +333,45 @@ fi
 echo "PASS: emitter writes allowed_numbers = [\"$TEST_PHONE\"]"
 
 # Cron jobs land with the captured TZ + recipient.
-if ! echo "$OUTPUT" | grep -q 'name = "morning-brief"'; then
-    echo "FAIL [emitter-morning-name]: emitter did not write morning-brief job" >&2
+if ! echo "$OUTPUT" | grep -q 'id = "morning-brief"'; then
+    echo "FAIL [emitter-morning-id]: emitter did not write id = \"morning-brief\"" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
     exit 1
 fi
-echo "PASS: emitter writes morning-brief job"
+echo "PASS: emitter writes morning-brief job id"
 
-if ! echo "$OUTPUT" | grep -q 'name = "evening-wrap"'; then
-    echo "FAIL [emitter-evening-name]: emitter did not write evening-wrap job" >&2
+if ! echo "$OUTPUT" | grep -q 'id = "evening-wrap"'; then
+    echo "FAIL [emitter-evening-id]: emitter did not write id = \"evening-wrap\"" >&2
     exit 1
 fi
-echo "PASS: emitter writes evening-wrap job"
+echo "PASS: emitter writes evening-wrap job id"
+
+# Schema discriminator must be kind (not type) on the schedule
+# variant, otherwise the daemon's serde rejects the job at load.
+if ! echo "$OUTPUT" | grep -q 'kind = "cron"'; then
+    echo "FAIL [emitter-schedule-kind]: emitter did not write kind = \"cron\"" >&2
+    echo "Output was:" >&2
+    echo "$OUTPUT" >&2
+    exit 1
+fi
+if echo "$OUTPUT" | grep -q 'schedule = { type = "cron"'; then
+    echo "FAIL [emitter-schedule-type-drift]: emitter wrote legacy type = \"cron\"" >&2
+    exit 1
+fi
+echo "PASS: emitter writes kind = \"cron\" (matches schema tag)"
+
+if ! echo "$OUTPUT" | grep -q 'job_type = "agent"'; then
+    echo "FAIL [emitter-job-type]: emitter did not write job_type = \"agent\"" >&2
+    exit 1
+fi
+echo "PASS: emitter writes job_type = \"agent\" on brief jobs"
+
+if ! echo "$OUTPUT" | grep -qE '^prompt = "[^"]+"'; then
+    echo "FAIL [emitter-prompt]: emitter did not write a non-empty prompt field" >&2
+    exit 1
+fi
+echo "PASS: emitter writes a non-empty prompt on brief jobs"
 
 if ! echo "$OUTPUT" | grep -q "tz = \"$TEST_TZ\""; then
     echo "FAIL [emitter-tz]: emitter did not thread USER_TZ ($TEST_TZ) into cron jobs" >&2
@@ -319,6 +392,33 @@ if ! echo "$OUTPUT" | grep -q 'best_effort = false'; then
     exit 1
 fi
 echo "PASS: emitter writes best_effort = false on cron jobs"
+
+# [providers] block lands in the rendered TOML with the canonical
+# Ollama fallback. Without this, agent-type cron jobs fail at fire
+# time with "no provider configured".
+if ! echo "$OUTPUT" | grep -q '^\[providers\]$'; then
+    echo "FAIL [emitter-providers-header]: emitter did not write [providers] section" >&2
+    echo "Output was:" >&2
+    echo "$OUTPUT" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -q '^fallback = "ollama"$'; then
+    echo "FAIL [emitter-providers-fallback]: emitter did not write fallback = \"ollama\"" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -q '^\[providers\.models\.ollama\]$'; then
+    echo "FAIL [emitter-providers-ollama]: emitter did not write [providers.models.ollama] entry" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -q '^base_url = "http://localhost:11434"$'; then
+    echo "FAIL [emitter-providers-base-url]: emitter did not write Ollama base_url" >&2
+    exit 1
+fi
+if ! echo "$OUTPUT" | grep -qE '^model = "[^"]+"$'; then
+    echo "FAIL [emitter-providers-model]: emitter did not write a non-empty Ollama model" >&2
+    exit 1
+fi
+echo "PASS: emitter writes Ollama provider fallback block"
 
 # Negative case 1: WhatsApp disabled => no cron jobs at all.
 OUTPUT_OFF="$(
@@ -364,6 +464,114 @@ if echo "$OUTPUT_NO_PHONE" | grep -q '\[\[cron\.jobs\]\]'; then
     exit 1
 fi
 echo "PASS: emitter suppresses cron jobs when no recipient captured"
+
+# ────────────────────────────────────────────────────────────────
+# Structural deserialise check -- catches schema-shape drift that
+# string-grep cannot. Pipes the WhatsApp-enabled emitter output
+# through Python's tomllib (3.11+) and asserts the daemon-required
+# field set on each [[cron.jobs]] entry. Without this, an emit
+# change that silently breaks the CronJobDecl shape (missing id,
+# wrong discriminator tag, missing job_type, no command/prompt)
+# can still pass every string assertion above.
+# ────────────────────────────────────────────────────────────────
+
+if python3 -c 'import tomllib' >/dev/null 2>&1; then
+    TOML_CHECK_OUT="$(
+        TOML_BODY="$OUTPUT" python3 - <<'PYEOF'
+import os, sys, tomllib
+
+try:
+    data = tomllib.loads(os.environ["TOML_BODY"])
+except tomllib.TOMLDecodeError as exc:
+    print(f"FAIL [toml-parse]: emitter output is not valid TOML: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+providers = data.get("providers", {})
+fallback = providers.get("fallback")
+if fallback != "ollama":
+    print(f"FAIL [toml-providers-fallback]: expected providers.fallback = 'ollama', got {fallback!r}", file=sys.stderr)
+    sys.exit(1)
+models = providers.get("models", {})
+ollama_entry = models.get("ollama")
+if not isinstance(ollama_entry, dict):
+    print("FAIL [toml-providers-ollama-entry]: providers.models.ollama missing or not a table", file=sys.stderr)
+    sys.exit(1)
+if ollama_entry.get("base_url") != "http://localhost:11434":
+    print(f"FAIL [toml-providers-ollama-base-url]: expected base_url = 'http://localhost:11434', got {ollama_entry.get('base_url')!r}", file=sys.stderr)
+    sys.exit(1)
+model_value = ollama_entry.get("model")
+if not isinstance(model_value, str) or not model_value.strip():
+    print("FAIL [toml-providers-ollama-model]: providers.models.ollama.model missing or empty", file=sys.stderr)
+    sys.exit(1)
+
+cron = data.get("cron", {})
+jobs = cron.get("jobs", [])
+if len(jobs) != 2:
+    print(f"FAIL [toml-job-count]: expected 2 cron jobs, got {len(jobs)}", file=sys.stderr)
+    sys.exit(1)
+
+ids = [j.get("id") for j in jobs]
+if sorted(ids) != ["evening-wrap", "morning-brief"]:
+    print(f"FAIL [toml-job-ids]: expected ids morning-brief + evening-wrap, got {ids}", file=sys.stderr)
+    sys.exit(1)
+
+for job in jobs:
+    job_id = job.get("id") or "<missing>"
+    if "id" not in job:
+        print(f"FAIL [toml-missing-id]: a cron job is missing the required id field", file=sys.stderr)
+        sys.exit(1)
+    if job.get("job_type") != "agent":
+        print(f"FAIL [toml-job-type] {job_id}: expected job_type = 'agent', got {job.get('job_type')!r}", file=sys.stderr)
+        sys.exit(1)
+    prompt = job.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        print(f"FAIL [toml-prompt] {job_id}: prompt field missing or empty", file=sys.stderr)
+        sys.exit(1)
+    schedule = job.get("schedule")
+    if not isinstance(schedule, dict):
+        print(f"FAIL [toml-schedule] {job_id}: schedule is not an inline table", file=sys.stderr)
+        sys.exit(1)
+    if schedule.get("kind") != "cron":
+        print(f"FAIL [toml-schedule-kind] {job_id}: expected schedule.kind = 'cron', got {schedule.get('kind')!r}", file=sys.stderr)
+        sys.exit(1)
+    if "type" in schedule:
+        print(f"FAIL [toml-schedule-type-drift] {job_id}: schedule still carries legacy 'type' key", file=sys.stderr)
+        sys.exit(1)
+    if not schedule.get("expr"):
+        print(f"FAIL [toml-schedule-expr] {job_id}: schedule.expr missing", file=sys.stderr)
+        sys.exit(1)
+    if not schedule.get("tz"):
+        print(f"FAIL [toml-schedule-tz] {job_id}: schedule.tz missing", file=sys.stderr)
+        sys.exit(1)
+    delivery = job.get("delivery")
+    if not isinstance(delivery, dict):
+        print(f"FAIL [toml-delivery] {job_id}: delivery is not an inline table", file=sys.stderr)
+        sys.exit(1)
+    if delivery.get("mode") != "announce":
+        print(f"FAIL [toml-delivery-mode] {job_id}: expected delivery.mode = 'announce'", file=sys.stderr)
+        sys.exit(1)
+    if delivery.get("channel") != "whatsapp":
+        print(f"FAIL [toml-delivery-channel] {job_id}: expected delivery.channel = 'whatsapp'", file=sys.stderr)
+        sys.exit(1)
+    if not delivery.get("to"):
+        print(f"FAIL [toml-delivery-to] {job_id}: delivery.to missing", file=sys.stderr)
+        sys.exit(1)
+    if delivery.get("best_effort") is not False:
+        print(f"FAIL [toml-delivery-best-effort] {job_id}: expected delivery.best_effort = false", file=sys.stderr)
+        sys.exit(1)
+
+print("PASS: tomllib structural deserialise + per-job field discipline")
+PYEOF
+    )"
+    TOML_CHECK_RC=$?
+    if [[ $TOML_CHECK_RC -ne 0 ]]; then
+        echo "$TOML_CHECK_OUT" >&2
+        exit 1
+    fi
+    echo "$TOML_CHECK_OUT"
+else
+    echo "INFO: python3 tomllib unavailable (needs Python 3.11+); skipping structural deserialise check"
+fi
 
 echo ""
 echo "ALL DAILY-BRIEFS OoTB TESTS PASSED"
