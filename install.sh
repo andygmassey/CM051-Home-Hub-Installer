@@ -843,7 +843,7 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
     echo "  Assistant:  ${ASSISTANT_NAME}"
     echo "  Timezone:   ${USER_TZ}"
     echo ""
-    REUSE="$(gui_read "Continue with these settings? (Y/n)" yesno "" "" "" "reuse_settings")"
+    REUSE="$(gui_read "$MSG_PROMPT_REUSE_SETTINGS_TITLE" yesno "" "" "" "reuse_settings")"
     if [[ "${REUSE:-y}" == "n" || "${REUSE:-y}" == "N" ]]; then
         SKIP_PHASE2=false
     fi
@@ -885,7 +885,7 @@ echo "  Your personal data stays on this machine. Ostler makes a few"
 echo "  narrow public-data queries (described in the privacy policy) plus"
 echo "  model and software downloads. These are standard Apple prompts."
 echo ""
-PERMS_OK="$(gui_read "Ready to continue? (Y/n)" yesno "" "macOS will prompt for Contacts and Files & Folders access. Optional Full Disk Access can be granted later." "" "perms_ok")"
+PERMS_OK="$(gui_read "$MSG_PROMPT_PERMS_OK_TITLE" yesno "" "$MSG_PROMPT_PERMS_OK_HELP" "" "perms_ok")"
 if [[ "${PERMS_OK:-y}" == "n" || "${PERMS_OK:-y}" == "N" ]]; then
     echo ""
     echo "  No problem. Review what Ostler needs at:"
@@ -1054,15 +1054,15 @@ fi
 echo -e "  ${BOLD}Your details${NC}"
 echo ""
 if [[ -n "$DETECTED_NAME" ]]; then
-    USER_NAME="$(gui_read "Full name (as it appears in your contacts)" text "${DETECTED_NAME}" "" "" "user_name")"
+    USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_DETECTED_TITLE" text "${DETECTED_NAME}" "" "" "user_name")"
     USER_NAME=${USER_NAME:-$DETECTED_NAME}
 else
-    USER_NAME="$(gui_read "Full name (e.g. Tom Harrison)" text "" "" "" "user_name")"
+    USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_FALLBACK_TITLE" text "" "" "" "user_name")"
 fi
 
 DETECTED_FIRST_LOWER=$(echo "${DETECTED_FIRST:-}" | tr '[:upper:]' '[:lower:]')
 DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]' | cut -d' ' -f1)}
-USER_ID="$(gui_read "What should your assistant call you?" text "${DEFAULT_ID}" "" "" "user_id")"
+USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "" "" "user_id")"
 USER_ID=${USER_ID:-$DEFAULT_ID}
 
 # ── 2. Confirm country code ───────────────────────────────────────
@@ -1070,9 +1070,9 @@ USER_ID=${USER_ID:-$DEFAULT_ID}
 echo ""
 if [[ -n "$DETECTED_CODE" ]]; then
     echo "  Country code detected from your contact card: +${DETECTED_CODE}"
-    CC_CONFIRM="$(gui_read "Use +${DETECTED_CODE}? (Y/n)" yesno "" "" "" "country_code_confirm")"
+    CC_CONFIRM="$(gui_read "$(printf "$MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE" "$DETECTED_CODE")" yesno "" "" "" "country_code_confirm")"
     if [[ "${CC_CONFIRM:-y}" == "n" || "${CC_CONFIRM:-y}" == "N" ]]; then
-        COUNTRY_CODE="$(gui_read "Enter country code (e.g. 44 for UK, 1 for US)" text "" "" "" "country_code")"
+        COUNTRY_CODE="$(gui_read "$MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE" text "" "" "" "country_code")"
     else
         COUNTRY_CODE="$DETECTED_CODE"
     fi
@@ -1080,7 +1080,7 @@ else
     echo "  Your country code is used to normalise phone numbers during"
     echo "  contact import (e.g. 44 for UK, 1 for US, 852 for HK)."
     echo ""
-    COUNTRY_CODE="$(gui_read "Default country code" text "44" "Used to normalise phone numbers during contact import." "" "country_code")"
+    COUNTRY_CODE="$(gui_read "$MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE" text "44" "$MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP" "" "country_code")"
     COUNTRY_CODE=${COUNTRY_CODE:-44}
 fi
 
@@ -1246,14 +1246,14 @@ DETECTED_TZ=$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || ec
 if [[ -n "$DETECTED_TZ" ]]; then
     echo ""
     echo "  Detected timezone: ${DETECTED_TZ}"
-    TZ_CONFIRM="$(gui_read "Use this timezone? (Y/n)" yesno "" "Detected timezone: ${DETECTED_TZ}" "" "tz_confirm")"
+    TZ_CONFIRM="$(gui_read "$MSG_PROMPT_TZ_CONFIRM_TITLE" yesno "" "$(printf "$MSG_PROMPT_TZ_CONFIRM_HELP" "$DETECTED_TZ")" "" "tz_confirm")"
     if [[ "${TZ_CONFIRM:-y}" == "n" || "${TZ_CONFIRM:-y}" == "N" ]]; then
-        USER_TZ="$(gui_read "Enter timezone (e.g. Europe/London, Asia/Hong_Kong)" text "" "" "" "user_tz")"
+        USER_TZ="$(gui_read "$MSG_PROMPT_USER_TZ_TITLE" text "" "" "" "user_tz")"
     else
         USER_TZ="$DETECTED_TZ"
     fi
 else
-    USER_TZ="$(gui_read "Enter timezone (e.g. Europe/London, Asia/Hong_Kong)" text "UTC" "" "" "user_tz")"
+    USER_TZ="$(gui_read "$MSG_PROMPT_USER_TZ_TITLE" text "UTC" "" "" "user_tz")"
     USER_TZ=${USER_TZ:-UTC}
 fi
 
@@ -1273,10 +1273,10 @@ echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
 echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
 echo ""
 
-ASSISTANT_NAME="$(gui_read "Assistant name" text "" "Pick from the suggestions or type your own. This is the name your assistant will respond to." "" "assistant_name")"
+ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "$MSG_PROMPT_ASSISTANT_NAME_HELP_FULL" "" "assistant_name")"
 while [[ -z "$ASSISTANT_NAME" ]]; do
     warn "$MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM"
-    ASSISTANT_NAME="$(gui_read "Assistant name" text "" "Pick from the suggestions or type your own." "" "assistant_name")"
+    ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "$MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT" "" "assistant_name")"
 done
 
 ok "$(printf "$MSG_OK_YOUR_ASSISTANT_CALLED" "${ASSISTANT_NAME}")"
@@ -1315,7 +1315,7 @@ echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
 echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
 echo -e "    ${BOLD}5. + WhatsApp${NC}    – iMessage + email + WhatsApp (read-only)"
 echo ""
-CHANNEL_CHOICE="$(gui_read "Channel choice" choice "3" "1=iMessage only, 2=email only, 3=both, 4=skip" "1,2,3,4" "channel_choice")"
+CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "3" "$MSG_PROMPT_CHANNEL_CHOICE_HELP" "1,2,3,4" "channel_choice")"
 CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
 
 # Normalise into per-channel boolean flags for the config writer.
@@ -1426,7 +1426,7 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     # gui_read so the GUI installer renders a sheet. A bare `read -p`
     # blocks forever in OSTLER_GUI=1 mode because stdin is /dev/null
     # (caught 2026-05-16 Mac Studio install hang).
-    WA_CONSENT="$(gui_read "Enable WhatsApp connector and accept the risk above? (y/N)" yesno "n" "WhatsApp Web access is a third-party integration -- you accept the consent above by enabling it." "" "whatsapp_consent")"
+    WA_CONSENT="$(gui_read "$MSG_PROMPT_WHATSAPP_CONSENT_TITLE" yesno "n" "$MSG_PROMPT_WHATSAPP_CONSENT_HELP" "" "whatsapp_consent")"
     if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
         CHANNEL_WHATSAPP_CONSENT_ACCEPTED=true
         ok "$MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED"
@@ -1468,8 +1468,8 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo ""
     while [[ -z "$CHANNEL_WHATSAPP_RECIPIENT" ]]; do
         CHANNEL_WHATSAPP_RECIPIENT="$(gui_read \
-            "Your WhatsApp phone number (E.164)" text "" \
-            "Leading +, country code, digits only. e.g. +447700900000" \
+            "$MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE" text "" \
+            "$MSG_PROMPT_WHATSAPP_RECIPIENT_HELP" \
             "" "whatsapp_recipient")"
         # Trim whitespace.
         CHANNEL_WHATSAPP_RECIPIENT="${CHANNEL_WHATSAPP_RECIPIENT# }"
@@ -1516,7 +1516,7 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     echo "  and re-run the installer with iMessage unticked."
     echo ""
     while [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; do
-        CHANNEL_IMESSAGE_ALLOWED="$(gui_read "Allowed contacts" text "" "Allowlist of phone numbers and Apple ID emails (comma-separated). ${ASSISTANT_NAME} only replies to listed contacts; messages from anyone else are ignored. At least one entry required. e.g. +447700900000, you@example.com" "" "imessage_allowed")"
+        CHANNEL_IMESSAGE_ALLOWED="$(gui_read "$MSG_PROMPT_IMESSAGE_ALLOWED_TITLE" text "" "$(printf "$MSG_PROMPT_IMESSAGE_ALLOWED_HELP" "$ASSISTANT_NAME")" "" "imessage_allowed")"
         if [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
             warn "$MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT"
             warn "$MSG_WARN_RE_RUN_INSTALLER_WITH_IMESSAGE_UNTICKED"
@@ -1553,13 +1553,13 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     echo "    stored anywhere."
     echo ""
 
-    CHANNEL_EMAIL_APPLE_MAIL_INPUT="$(gui_read "Read mail via Apple Mail? (Y/n)" yesno "Y" "Reads any account you have added to Apple Mail (iCloud, Gmail, Outlook, etc.) using Full Disk Access. No passwords stored. Recommended for almost everyone." "" "email_apple_mail")"
+    CHANNEL_EMAIL_APPLE_MAIL_INPUT="$(gui_read "$MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE" yesno "Y" "$MSG_PROMPT_EMAIL_APPLE_MAIL_HELP" "" "email_apple_mail")"
     case "${CHANNEL_EMAIL_APPLE_MAIL_INPUT:-Y}" in
         n|N|no|NO|No) CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false ;;
         *)            CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true ;;
     esac
 
-    CHANNEL_EMAIL_CUSTOM_IMAP_INPUT="$(gui_read "Also configure a custom IMAP+SMTP server? (y/N)" yesno "N" "For self-hosted mailboxes only. Skip this if your accounts are with Gmail, iCloud, or Outlook -- those work better via Apple Mail above." "" "email_custom_imap")"
+    CHANNEL_EMAIL_CUSTOM_IMAP_INPUT="$(gui_read "$MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE" yesno "N" "$MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP" "" "email_custom_imap")"
     case "${CHANNEL_EMAIL_CUSTOM_IMAP_INPUT:-N}" in
         y|Y|yes|YES|Yes) CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=true ;;
         *)               CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false ;;
@@ -1582,7 +1582,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # passwords ourselves -- those go through Apple Mail. If the
         # customer types one of these hosts we nudge them back.
         while true; do
-            CHANNEL_EMAIL_IMAP_HOST="$(gui_read "IMAP host" text "" "Self-hosted or custom IMAP server only. Use Apple Mail (above) for Gmail / iCloud / Outlook." "" "imap_host")"
+            CHANNEL_EMAIL_IMAP_HOST="$(gui_read "$MSG_PROMPT_IMAP_HOST_TITLE" text "" "$MSG_PROMPT_IMAP_HOST_HELP" "" "imap_host")"
             _imap_host_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_HOST" | tr '[:upper:]' '[:lower:]')"
             case "$_imap_host_lower" in
                 imap.gmail.com|imap-mail.outlook.com|outlook.office365.com|imap.mail.me.com)
@@ -1599,14 +1599,14 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             unset _imap_host_lower
             break
         done
-        imap_port_in="$(gui_read "IMAP port" text "993" "" "" "imap_port")"
+        imap_port_in="$(gui_read "$MSG_PROMPT_IMAP_PORT_TITLE" text "993" "" "" "imap_port")"
         CHANNEL_EMAIL_IMAP_PORT=${imap_port_in:-993}
-        CHANNEL_EMAIL_SMTP_HOST="$(gui_read "SMTP host" text "" "" "" "smtp_host")"
-        smtp_port_in="$(gui_read "SMTP port" text "587" "" "" "smtp_port")"
+        CHANNEL_EMAIL_SMTP_HOST="$(gui_read "$MSG_PROMPT_SMTP_HOST_TITLE" text "" "" "" "smtp_host")"
+        smtp_port_in="$(gui_read "$MSG_PROMPT_SMTP_PORT_TITLE" text "587" "" "" "smtp_port")"
         CHANNEL_EMAIL_SMTP_PORT=${smtp_port_in:-587}
 
         echo ""
-        CHANNEL_EMAIL_USERNAME="$(gui_read "Email address (also used as IMAP/SMTP username)" text "" "" "" "email_username")"
+        CHANNEL_EMAIL_USERNAME="$(gui_read "$MSG_PROMPT_EMAIL_USERNAME_TITLE" text "" "" "" "email_username")"
         CHANNEL_EMAIL_FROM="$CHANNEL_EMAIL_USERNAME"
 
         # Hidden password input (kind=secret); confirm with re-entry
@@ -1615,9 +1615,9 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # customer for a cloud-provider password.
         while true; do
             echo ""
-            CHANNEL_EMAIL_PASSWORD="$(gui_read "Password (hidden)" secret "" "Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ -- never sent to Creative Machines." "" "email_password")"
+            CHANNEL_EMAIL_PASSWORD="$(gui_read "$MSG_PROMPT_EMAIL_PASSWORD_TITLE" secret "" "$MSG_PROMPT_EMAIL_PASSWORD_HELP" "" "email_password")"
             echo ""
-            _email_confirm_input="$(gui_read "Confirm Password" secret "" "" "" "email_password_confirm")"
+            _email_confirm_input="$(gui_read "$MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE" secret "" "" "" "email_password_confirm")"
             echo ""
             if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
                 break
@@ -1652,7 +1652,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     # gui_read so the GUI installer renders a sheet. This was the
     # specific bare-read that hung Andy's Mac Studio at PU12+1
     # (post-Confirm Password). See 2026-05-16 Studio install audit.
-    CHANNEL_EMAIL_IMAP_FOLDER="$(gui_read "Which folder should the assistant watch?" text "Ostler" "Recommended: a dedicated label or folder (e.g. Ostler). We will only read messages there, leaving your main inbox untouched." "" "email_imap_folder")"
+    CHANNEL_EMAIL_IMAP_FOLDER="$(gui_read "$MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE" text "Ostler" "$MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP" "" "email_imap_folder")"
     CHANNEL_EMAIL_IMAP_FOLDER="${CHANNEL_EMAIL_IMAP_FOLDER:-Ostler}"
 
     # Strong INBOX warning. Accept the user's choice only if they
@@ -1667,7 +1667,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         warn "$MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY"
         warn "$MSG_WARN_WE_STRONGLY_RECOMMEND_DEDICATED_LABEL_FOLDER"
         echo ""
-        _imap_folder_confirm="$(gui_read "Type INBOX again to confirm, or press Enter to use 'Ostler'" text "" "INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead." "" "email_inbox_confirm")"
+        _imap_folder_confirm="$(gui_read "$MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE" text "" "$MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP" "" "email_inbox_confirm")"
         if [[ "$_imap_folder_confirm" == "INBOX" ]]; then
             CHANNEL_EMAIL_IMAP_FOLDER="INBOX"
             warn "$MSG_WARN_USING_INBOX_ASSISTANT_WILL_READ_EVERY"
@@ -1739,7 +1739,7 @@ echo "  Downloads folder. Ostler will find them automatically."
 echo ""
 echo "  Skip any you do not use. You can always import more later."
 echo ""
-_="$(gui_read "Press Enter to continue" text "" "Continue when ready." "" "exports_ack")"
+_="$(gui_read "$MSG_PROMPT_EXPORTS_ACK_TITLE" text "" "$MSG_PROMPT_EXPORTS_ACK_HELP" "" "exports_ack")"
 
 # ── 6. FileVault check (silent if enabled) ─────────────────────────
 
@@ -1755,7 +1755,7 @@ else
     echo ""
     echo "  Enable it: System Settings > Privacy & Security > FileVault"
     echo ""
-    FV_CONTINUE="$(gui_read "Continue without FileVault? (y/N)" yesno "n" "FileVault is strongly recommended. Without it, physical access to your Mac means access to your data." "" "filevault_skip")"
+    FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "n" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
     if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
         echo "  Enable FileVault first, then re-run this installer."
         exit 1
@@ -1904,7 +1904,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
 
     while true; do
-        PASSPHRASE="$(gui_read "Enter passphrase" secret "" "Used to encrypt your databases. Cannot be recovered. We recommend storing it in your password manager before continuing." "" "passphrase")"
+        PASSPHRASE="$(gui_read "$MSG_PROMPT_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_PASSPHRASE_HELP" "" "passphrase")"
         echo ""
 
         # Validate using the Python module (use venv Python for cryptography)
@@ -1924,7 +1924,7 @@ if not ok:
             continue
         fi
 
-        PASSPHRASE_CONFIRM="$(gui_read "Confirm passphrase" secret "" "Re-enter the same passphrase to confirm." "" "passphrase_confirm")"
+        PASSPHRASE_CONFIRM="$(gui_read "$MSG_PROMPT_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_PASSPHRASE_CONFIRM_HELP" "" "passphrase_confirm")"
         echo ""
 
         if [[ "$PASSPHRASE" != "$PASSPHRASE_CONFIRM" ]]; then
@@ -2031,7 +2031,7 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
         echo "     - ${exp}"
     done
     echo ""
-    IMPORT_CONFIRM="$(gui_read "Import these during install? (Y/n)" yesno "" "Found GDPR exports will be imported into your knowledge graph during install." "" "import_confirm")"
+    IMPORT_CONFIRM="$(gui_read "$MSG_PROMPT_IMPORT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_IMPORT_CONFIRM_HELP" "" "import_confirm")"
     if [[ "${IMPORT_CONFIRM:-y}" == "n" || "${IMPORT_CONFIRM:-y}" == "N" ]]; then
         EXPORTS_DIR=""
     fi
@@ -2042,7 +2042,7 @@ else
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
     echo ""
-    MANUAL_PATH="$(gui_read "Have exports elsewhere? Enter path (or press Enter to skip)" text "" "Path to a directory containing GDPR exports (LinkedIn, Facebook, etc.)" "" "manual_exports_path")"
+    MANUAL_PATH="$(gui_read "$MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE" text "" "$MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP" "" "manual_exports_path")"
     if [[ -n "$MANUAL_PATH" ]]; then
         MANUAL_PATH="${MANUAL_PATH/#\~/$HOME}"
         if [[ -d "$MANUAL_PATH" ]]; then
@@ -2083,7 +2083,7 @@ if [[ -n "${TAKEOUT_MBOX_PATH:-}" || -n "${TAKEOUT_ZIP_PATH:-}" ]]; then
     echo "  WITHOUT connecting to Google's API. Your Gmail messages stay on"
     echo "  this machine; Google never sees that Ostler exists."
     echo ""
-    TAKEOUT_CONFIRM="$(gui_read "Import Gmail messages from this Takeout? (Y/n)" yesno "" "Reads Gmail content from the Takeout file directly. Google never sees Ostler." "" "takeout_confirm")"
+    TAKEOUT_CONFIRM="$(gui_read "$MSG_PROMPT_TAKEOUT_CONFIRM_TITLE" yesno "" "$MSG_PROMPT_TAKEOUT_CONFIRM_HELP" "" "takeout_confirm")"
     if [[ "${TAKEOUT_CONFIRM:-y}" != "n" && "${TAKEOUT_CONFIRM:-y}" != "N" ]]; then
         if [[ -n "${TAKEOUT_MBOX_PATH:-}" ]]; then
             OSTLER_TAKEOUT_PATH="${TAKEOUT_MBOX_PATH}"
@@ -2159,7 +2159,7 @@ cat <<MENU
 
 MENU
 
-PRESET="$(gui_read "Choose 1, 2, or 3" choice "1" "1=Recommended, 2=Everything, 3=Customise" "1,2,3" "fda_preset")"
+PRESET="$(gui_read "$MSG_PROMPT_FDA_PRESET_TITLE" choice "1" "$MSG_PROMPT_FDA_PRESET_HELP" "1,2,3" "fda_preset")"
 PRESET=${PRESET:-1}
 
 # Default sets
@@ -2184,7 +2184,7 @@ case "$PRESET" in
             local default="$3"
             local prompt_default
             if [[ "$default" == "Y" ]]; then prompt_default="Y/n"; else prompt_default="y/N"; fi
-            ans="$(gui_read "$2" yesno "$default" "Toggle this data source on or off." "" "src_$1")"
+            ans="$(gui_read "$2" yesno "$default" "$MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP" "" "src_$1")"
             ans="${ans:-$default}"
             if [[ "$ans" == "y" || "$ans" == "Y" ]]; then
                 ENABLED+=("$1")
@@ -2318,7 +2318,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
-        ART9="$(gui_read "Your decision (Y / N)" yesno "" "Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing." "" "consent_article_9")"
+        ART9="$(gui_read "$MSG_PROMPT_CONSENT_ARTICLE_9_TITLE" yesno "" "$MSG_PROMPT_CONSENT_ARTICLE_9_HELP" "" "consent_article_9")"
         case "${ART9:-}" in
             y|Y)
                 OSTLER_CONSENT_ARTICLE_9_DECISION="accepted"
@@ -2389,7 +2389,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
-        VOICE="$(gui_read "Recognise voices on your call recordings? (Y/n)" yesno "Y" "Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints." "" "consent_voice_eu")"
+        VOICE="$(gui_read "$MSG_PROMPT_CONSENT_VOICE_EU_TITLE" yesno "Y" "$MSG_PROMPT_CONSENT_VOICE_EU_HELP" "" "consent_voice_eu")"
         case "${VOICE:-y}" in
             y|Y|"")
                 OSTLER_CONSENT_VOICE_EU_DECISION="accepted"
@@ -2475,7 +2475,7 @@ echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
-    THIRD_PARTY="$(gui_read "Your decision (Y / N)" yesno "" "Third-party data consent. Creative Machines never receives this data and is not the controller." "" "consent_third_party")"
+    THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "" "$MSG_PROMPT_CONSENT_THIRD_PARTY_HELP" "" "consent_third_party")"
     case "${THIRD_PARTY:-}" in
         y|Y)
             OSTLER_CONSENT_THIRD_PARTY_DECISION="accepted"
@@ -2536,7 +2536,7 @@ echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
 while true; do
-    CONSENT="$(gui_read "Type INSTALL to proceed (or CANCEL to quit)" text "" "Confirms you accept the terms and the install can begin." "" "consent_install")"
+    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" text "" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "" "consent_install")"
     if [[ "$CONSENT" == "INSTALL" ]]; then
         break
     elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
@@ -4036,7 +4036,7 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # wiki + assistant + graph; only the web-search tool surface
 # is unavailable until they re-run `docker compose up -d vane`.
 
-progress "Starting local web search (Vane)"
+progress "Starting local web search (Vane)" "vane_install"
 
 VANE_OK=false
 if docker compose up -d vane 2>&1 | tail -3; then
@@ -5566,7 +5566,7 @@ echo "  reach from anywhere -- encrypted, no public exposure, free for"
 echo "  personal use. Without it, the iOS companion only works on"
 echo "  your home Wi-Fi."
 echo ""
-TAILSCALE_CONFIRM="$(gui_read "Install Tailscale now? (Y/n)" yesno "Y" "Tailscale lets you reach the assistant securely from your phone or other Macs." "" "tailscale_confirm")"
+TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" yesno "Y" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "" "tailscale_confirm")"
 
 if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
@@ -5950,7 +5950,7 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     echo "  We can save this to your macOS Keychain (Passwords app)"
     echo "  so you do not have to write it down."
     echo ""
-    SAVE_KEYCHAIN="$(gui_read "Save recovery key to Keychain? (Y/n)" yesno "Y" "Stores your encryption recovery key in the macOS Keychain for safekeeping." "" "save_keychain")"
+    SAVE_KEYCHAIN="$(gui_read "$MSG_PROMPT_SAVE_KEYCHAIN_TITLE" yesno "Y" "$MSG_PROMPT_SAVE_KEYCHAIN_HELP" "" "save_keychain")"
     if [[ "${SAVE_KEYCHAIN:-y}" != "n" && "${SAVE_KEYCHAIN:-y}" != "N" ]]; then
         # Prefer an explicit Security.framework call so we can pin the
         # accessibility class to kSecAttrAccessibleWhenUnlockedThisDeviceOnly
