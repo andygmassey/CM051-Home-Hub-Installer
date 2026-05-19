@@ -63,6 +63,7 @@ die()  { echo -e "${RED}FAIL${NC}  $*" >&2; exit "${2:-1}"; }
 # Files / dirs sourced from CM051 (this repo). Format: src_relpath
 CM051_SOURCES=(
     "install.sh"
+    "install.sh.strings.en-GB.sh"
     "lib"
     "scripts"
     "assistant-agent"
