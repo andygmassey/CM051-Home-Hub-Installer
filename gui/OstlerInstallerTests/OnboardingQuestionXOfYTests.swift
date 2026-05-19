@@ -1,0 +1,223 @@
+// OnboardingQuestionXOfYTests.swift
+//
+// Pins the InstallerCoordinator state-machine contract that drives
+// the in-window OnboardingQuestionView (#353):
+//
+//   - X (currentQuestionIndex) strictly increases on each PROMPT
+//     event and never rewinds on Back review.
+//   - Y (totalQuestionCount) stays nil until channel_choice commits
+//     and grows when email_custom_imap commits "y".
+//   - answerHistory captures every committed prompt for Back review.
+//   - Secret answers are never persisted in plaintext.
+//   - A new PROMPT arrival drops a stale backReviewIndex.
+//
+// Drives the coordinator via its `simulateLineForTests` + new
+// `applyAnswerForTests` test seams so we never need a real
+// subprocess, fifo, or filesystem to exercise the model.
+
+import XCTest
+@testable import OstlerInstaller
+
+@MainActor
+final class OnboardingQuestionXOfYTests: XCTestCase {
+
+    private func makeCoordinator() -> InstallerCoordinator {
+        InstallerCoordinator()
+    }
+
+    /// Emits a synthetic PROMPT marker so the coordinator sees a new
+    /// pendingPrompt + advances X. Mirrors the protocol install.sh
+    /// emits over stdout.
+    private func emitPrompt(
+        _ coord: InstallerCoordinator,
+        id: String,
+        kind: String = "text",
+        title: String = "Prompt"
+    ) {
+        coord.simulateLineForTests(
+            "#OSTLER\tPROMPT\tid=\(id)\tkind=\(kind)\ttitle=\(title)"
+        )
+    }
+
+    // MARK: - X increments
+
+    func testXAdvancesMonotonicallyOnEachPromptEvent() {
+        let coord = makeCoordinator()
+        XCTAssertEqual(coord.currentQuestionIndex, 0)
+
+        emitPrompt(coord, id: "user_name")
+        XCTAssertEqual(coord.currentQuestionIndex, 1)
+
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        XCTAssertEqual(coord.currentQuestionIndex, 2)
+
+        coord.applyAnswerForTests(promptId: "assistant_name", answer: "Marvin")
+        emitPrompt(coord, id: "reuse_settings", kind: "yesno")
+        XCTAssertEqual(coord.currentQuestionIndex, 3)
+    }
+
+    // MARK: - Y stays nil until channel_choice
+
+    func testYStaysNilBeforeChannelChoiceCommits() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        coord.applyAnswerForTests(promptId: "assistant_name", answer: "Marvin")
+
+        XCTAssertNil(coord.totalQuestionCount)
+    }
+
+    func testChannelChoiceSkipExpectsFewerPromptsThanBoth() {
+        let coordSkip = makeCoordinator()
+        emitPrompt(coordSkip, id: "channel_choice", kind: "choice")
+        coordSkip.applyAnswerForTests(promptId: "channel_choice", answer: "4")
+
+        let coordBoth = makeCoordinator()
+        emitPrompt(coordBoth, id: "channel_choice", kind: "choice")
+        coordBoth.applyAnswerForTests(promptId: "channel_choice", answer: "3")
+
+        XCTAssertNotNil(coordSkip.totalQuestionCount)
+        XCTAssertNotNil(coordBoth.totalQuestionCount)
+        XCTAssertLessThan(
+            coordSkip.totalQuestionCount!,
+            coordBoth.totalQuestionCount!,
+            "Skip-all-channels should expect fewer prompts than both-channels."
+        )
+    }
+
+    func testCustomImapBranchExpandsTotalWhenCommitted() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "channel_choice", kind: "choice")
+        coord.applyAnswerForTests(promptId: "channel_choice", answer: "2")
+        let baseline = coord.totalQuestionCount
+
+        emitPrompt(coord, id: "email_custom_imap", kind: "yesno")
+        coord.applyAnswerForTests(promptId: "email_custom_imap", answer: "y")
+
+        XCTAssertNotNil(baseline)
+        XCTAssertNotNil(coord.totalQuestionCount)
+        XCTAssertGreaterThan(
+            coord.totalQuestionCount!,
+            baseline!,
+            "Custom IMAP=y should add follow-up prompts to the total."
+        )
+    }
+
+    func testCustomImapBranchLeavesTotalAloneWhenDeclined() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "channel_choice", kind: "choice")
+        coord.applyAnswerForTests(promptId: "channel_choice", answer: "2")
+        let baseline = coord.totalQuestionCount
+
+        emitPrompt(coord, id: "email_custom_imap", kind: "yesno")
+        coord.applyAnswerForTests(promptId: "email_custom_imap", answer: "n")
+
+        XCTAssertEqual(coord.totalQuestionCount, baseline)
+    }
+
+    // MARK: - Back review
+
+    func testEnterBackReviewDoesNotRewindX() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        let xBefore = coord.currentQuestionIndex
+
+        coord.enterBackReview()
+        XCTAssertEqual(coord.backReviewIndex, 0)
+        XCTAssertEqual(
+            coord.currentQuestionIndex,
+            xBefore,
+            "Back review must not rewind the X counter."
+        )
+    }
+
+    func testEnterBackReviewNoOpWhenHistoryEmpty() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.enterBackReview()
+        XCTAssertNil(coord.backReviewIndex)
+    }
+
+    func testNewPromptArrivalDropsStaleReviewState() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        coord.applyAnswerForTests(promptId: "assistant_name", answer: "Marvin")
+
+        coord.enterBackReview()
+        XCTAssertNotNil(coord.backReviewIndex)
+
+        emitPrompt(coord, id: "reuse_settings", kind: "yesno")
+        XCTAssertNil(
+            coord.backReviewIndex,
+            "New PROMPT must drop the customer back to the live view."
+        )
+    }
+
+    // MARK: - Secret-answer redaction
+
+    func testSecretAnswersAreNeverStoredInPlaintextHistory() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "passphrase", kind: "secret")
+        coord.applyAnswerForTests(promptId: "passphrase", answer: "synth-secret-correct-horse-battery-staple")
+
+        XCTAssertEqual(coord.answerHistory.count, 1)
+        let stored = coord.answerHistory[0].answer
+        XCTAssertNotEqual(stored, "synth-secret-correct-horse-battery-staple")
+        XCTAssertEqual(stored, "(hidden)")
+    }
+
+    func testAnswerHistoryRecordsIndexAndPrompt() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        coord.applyAnswerForTests(promptId: "assistant_name", answer: "Marvin")
+
+        XCTAssertEqual(coord.answerHistory.count, 2)
+        XCTAssertEqual(coord.answerHistory[0].index, 1)
+        XCTAssertEqual(coord.answerHistory[0].prompt.id, "user_name")
+        XCTAssertEqual(coord.answerHistory[0].answer, "Alice")
+        XCTAssertEqual(coord.answerHistory[1].index, 2)
+        XCTAssertEqual(coord.answerHistory[1].prompt.id, "assistant_name")
+        XCTAssertEqual(coord.answerHistory[1].answer, "Marvin")
+    }
+
+    func testEnterBackReviewWalksBackThroughHistory() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        coord.applyAnswerForTests(promptId: "assistant_name", answer: "Marvin")
+        emitPrompt(coord, id: "reuse_settings", kind: "yesno")
+
+        coord.enterBackReview()
+        XCTAssertEqual(coord.backReviewIndex, 1) // most-recent answered = assistant_name
+
+        coord.enterBackReview()
+        XCTAssertEqual(coord.backReviewIndex, 0) // user_name
+
+        coord.enterBackReview()
+        XCTAssertEqual(coord.backReviewIndex, 0, "Cannot walk back past the oldest entry.")
+    }
+
+    func testExitBackReviewReturnsToLiveAtMostRecent() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+
+        coord.enterBackReview()
+        XCTAssertEqual(coord.backReviewIndex, 0)
+        coord.exitBackReview()
+        XCTAssertNil(
+            coord.backReviewIndex,
+            "Exiting past the most-recent history entry must drop review mode."
+        )
+    }
+}
