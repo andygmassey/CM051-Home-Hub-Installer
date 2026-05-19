@@ -1,0 +1,64 @@
+name: install-gui-contract
+
+# Cross-component contract test for the install.sh <-> Swift GUI
+# protocol.  Six v0.1->v0.4 PRs (#79, #81, #82, #83, #84, #87) each
+# closed a missed handler between the bash emitter and the Swift
+# decoder.  This workflow turns the pattern into a CI gate: any new
+# protocol drift (unknown PROMPT kind, STEP_BEGIN id without a
+# canonicalOrder entry, emission kind without a decoder arm) fails
+# the build before a customer-shipping DMG inherits it.
+#
+# Companion files:
+#   scripts/extract_install_protocol.py
+#   gui/scripts/extract_gui_renderers.py
+#   tests/test_install_gui_contract.py
+#   tests/test_install_gui_contract_negatives.py
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'lib/progress_emitter.sh'
+      - 'gui/OstlerInstaller/**'
+      - 'scripts/extract_install_protocol.py'
+      - 'gui/scripts/extract_gui_renderers.py'
+      - 'tests/test_install_gui_contract.py'
+      - 'tests/test_install_gui_contract_negatives.py'
+      - '.github/workflows/install-gui-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate emissions manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/extract_install_protocol.py --out /tmp/emissions.json
+          python3 -c "import json, sys; m=json.load(open('/tmp/emissions.json')); print(f'Emissions: {len(m[\"emissions\"])}')"
+
+      - name: Validate handlers manifest
+        run: |
+          set -euo pipefail
+          python3 gui/scripts/extract_gui_renderers.py --out /tmp/handlers.json
+          python3 -c "import json, sys; m=json.load(open('/tmp/handlers.json')); print(f'Handlers: {len(m[\"handlers\"])}, prompt_kinds: {m[\"prompt_kinds\"]}')"
+
+      - name: Run contract test (positive path)
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests.test_install_gui_contract -v
+
+      - name: Run contract test (negative-path self-tests)
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests.test_install_gui_contract_negatives -v
