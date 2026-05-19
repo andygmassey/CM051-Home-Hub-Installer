@@ -1,0 +1,56 @@
+name: rule-09-strings-check
+
+# Rule 0.9 lint guard. Runs the check-rule-09-strings.sh script against
+# the PR diff (or the push diff against main). Fails the build if any
+# newly-added line introduces an inline customer-facing literal instead
+# of a catalogue lookup.
+#
+# Locked 2026-05-19 in HR015 memory/feedback_customer_strings_extractable_from_day_one.md
+# + PRODUCTISATION_CHECKLIST.md.
+#
+# Same script, same exit codes, same bypass mechanism (`i18n-exempt`
+# substring on the same line as the literal) as the pre-commit hook
+# at .githooks/check-rule-09-strings.sh.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rule-09:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with merge-base history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve BASE_SHA
+        id: base
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_BASE_SHA:-}" ]; then
+              echo "sha=$PR_BASE_SHA" >> "$GITHUB_OUTPUT"
+              echo "Comparing against PR base: $PR_BASE_SHA"
+          else
+              # Push event on main. Use the previous commit on main as base.
+              BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+              echo "sha=$BASE" >> "$GITHUB_OUTPUT"
+              echo "Comparing against previous commit: $BASE"
+          fi
+
+      - name: Run Rule 0.9 check
+        run: |
+          set -euo pipefail
+          SCRIPT=".githooks/check-rule-09-strings.sh"
+          if [ ! -x "$SCRIPT" ]; then
+              echo "::error::$SCRIPT missing or not executable. Re-run .githooks/install.sh."
+              exit 1
+          fi
+          "$SCRIPT" ci "${{ steps.base.outputs.sha }}"
