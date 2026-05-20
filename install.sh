@@ -2560,16 +2560,36 @@ echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-# Batch the sudo prompts at the end of Phase 2 so the unattended Phase 3
-# is genuinely unattended. macOS sudo timestamp lasts ~5 minutes; both
-# Phase-3.0 (pmset) and Homebrew's own sudo calls land well within that
-# window so the user is not interrupted mid-install. This was the audit's
-# top "walk away" complaint (~2026-05-01).
-echo -e "  ${YELLOW}One-time password prompt: macOS needs your Mac password to disable${NC}"
-echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing).${NC}"
-echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
-echo ""
-sudo -v || fail "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
+# Sudo pre-flight gate.
+#
+# CLI path (no OSTLER_GUI): batch one sudo prompt at the end of Phase 2
+# so the unattended Phase 3 is genuinely unattended. macOS sudo timestamp
+# lasts ~5 minutes; the Phase-3.0 pmset calls + Homebrew's own sudo calls
+# land well within that window. This was the cold-install audit's top
+# "walk away" complaint (~2026-05-01).
+#
+# GUI path (OSTLER_GUI=1): zero sudo prompts during install.sh execution
+# (Option B, 2026-05-21 Studio retest #5 follow-on). The parent .app:
+#
+#   1. Pre-creates /opt/homebrew + /usr/local/bin owned by the user so
+#      Homebrew's own install does not escalate and our /usr/local/bin
+#      ostler-knowledge symlink (~line 4972) writes user-side.
+#   2. Spawns its own `caffeinate -dimsu` daemon for sleep prevention
+#      in place of the `sudo pmset` calls in section 3.0.
+#
+# With both pre-handled, install.sh under OSTLER_GUI=1 needs no sudo
+# at all. Skipping the pre-flight here also skips the prompt that
+# never worked on the GUI's pty anyway (the read-from-tty would block
+# invisibly behind the Log drawer; Studio retest #5 23:43:43).
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    info "GUI mode -- skipping sudo pre-flight (parent .app has pre-handled root operations)"
+else
+    echo -e "  ${YELLOW}One-time password prompt: macOS needs your Mac password to disable${NC}"
+    echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing).${NC}"
+    echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
+    echo ""
+    sudo -v || fail "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
+fi
 
 # ── Composite cleanup ─────────────────────────────────────────────
 #
@@ -2621,9 +2641,15 @@ composite_cleanup() {
 trap composite_cleanup EXIT
 
 # Refresh the sudo timestamp every 60s while this script runs, so a long
-# Phase 3 (e.g. slow ollama pull) does not silently expire it.
-( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
-SUDO_KEEPALIVE_PID=$!
+# Phase 3 (e.g. slow ollama pull) does not silently expire it. Under
+# OSTLER_GUI=1 (Option B) install.sh has no downstream sudo callers, so
+# the keepalive is a no-op anyway -- skip the spawn to avoid a stray
+# `sudo -n true` once a minute on the customer's machine for the full
+# install window.
+if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+    ( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
+    SUDO_KEEPALIVE_PID=$!
+fi
 
 echo ""
 echo -e "  ${GREEN}${BOLD}  All questions answered. Installing now.${NC}"
@@ -2733,36 +2759,48 @@ progress() {
 
 # ── 3.0 Prevent sleep ─────────────────────────────────────────────
 # A personal knowledge system needs to be always-on for background
-# tasks (export watcher, FDA re-runs, AI assistant). Disable sleep
-# so the Mac stays awake even when the display is off.
-# This requires admin privileges (sudo) which the user already has
-# from the Homebrew install step.
+# tasks (export watcher, FDA re-runs, AI assistant). Keep the Mac
+# awake for the duration of the install.
 #
-# Battery-aware: on a MacBook Hub we only set never-sleep when on AC.
-# On battery we preserve default sleep so the hub-power LaunchAgent
-# (step 3.14) can manage the sleep -> wake transition and bring
-# services back cleanly. Mac Mini / Studio installs keep the
-# original always-on behaviour.
+# Under OSTLER_GUI=1 (Option B, 2026-05-21) the parent .app has
+# already spawned `caffeinate -dimsu` (see CaffeinateManager.swift)
+# which holds an IOPMAssertion for the install window. No system-wide
+# pmset edit, no sudo prompt -- the per-process assertion lives only
+# as long as the .app and releases cleanly on any termination path.
+#
+# Under CLI install (no OSTLER_GUI): keep the legacy `sudo pmset`
+# path. The user already authenticated at the Phase-2-end batched
+# pre-flight, so this lands within the same sudo cache window.
+#
+# Battery-aware (CLI only): on a MacBook Hub we only set never-sleep
+# when on AC. On battery we preserve default sleep so the hub-power
+# LaunchAgent (step 3.14) can manage the sleep -> wake transition
+# and bring services back cleanly. Mac Mini / Studio installs keep
+# the original always-on behaviour.
 
 HAS_BATTERY=false
 if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
     HAS_BATTERY=true
 fi
 
-SLEEP_SETTING=$(pmset -g | grep '^ sleep' | awk '{print $2}' 2>/dev/null || echo "")
-if [[ "$SLEEP_SETTING" != "0" ]]; then
-    if [[ "$HAS_BATTERY" == true ]]; then
-        info "$MSG_INFO_MACBOOK_HUB_DETECTED_SETTING_NEVER_SLEEP"
-        sudo pmset -c sleep 0 2>/dev/null && \
-        sudo pmset -a womp 1 2>/dev/null && \
-        ok "$MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED" || \
-        warn "$MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE"
-    else
-        info "$MSG_INFO_DESKTOP_HUB_NO_BATTERY_DETECTED_DISABLING"
-        sudo pmset -a sleep 0 2>/dev/null && \
-        sudo pmset -a womp 1 2>/dev/null && \
-        ok "$MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED" || \
-        warn "$MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2"
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    info "Sleep prevention via parent .app caffeinate -- skipping pmset"
+else
+    SLEEP_SETTING=$(pmset -g | grep '^ sleep' | awk '{print $2}' 2>/dev/null || echo "")
+    if [[ "$SLEEP_SETTING" != "0" ]]; then
+        if [[ "$HAS_BATTERY" == true ]]; then
+            info "$MSG_INFO_MACBOOK_HUB_DETECTED_SETTING_NEVER_SLEEP"
+            sudo pmset -c sleep 0 2>/dev/null && \
+            sudo pmset -a womp 1 2>/dev/null && \
+            ok "$MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED" || \
+            warn "$MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE"
+        else
+            info "$MSG_INFO_DESKTOP_HUB_NO_BATTERY_DETECTED_DISABLING"
+            sudo pmset -a sleep 0 2>/dev/null && \
+            sudo pmset -a womp 1 2>/dev/null && \
+            ok "$MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED" || \
+            warn "$MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2"
+        fi
     fi
 fi
 
@@ -2831,7 +2869,16 @@ if command -v brew &>/dev/null; then
     ok "$MSG_OK_HOMEBREW_INSTALLED"
 else
     info "$MSG_INFO_INSTALLING_HOMEBREW"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # Under OSTLER_GUI=1 the parent .app has pre-created /opt/homebrew
+    # owned by the user, AND NONINTERACTIVE=1 tells Homebrew's official
+    # installer to skip its own sudo dialog + tty-only prompts (it
+    # would otherwise re-prompt for password even when the prefix is
+    # already user-owned, then fail because the GUI has no tty).
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    else
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
     if [[ "$ARCH" == "arm64" ]]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
     fi
@@ -4969,7 +5016,16 @@ else
 
         if [[ -x "$KNOWLEDGE_BIN" ]]; then
             info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
-            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+            # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
+            # been chowned to the user by the parent .app's
+            # AuthorizationHelper, so a plain `ln -sf` writes
+            # user-side with no further sudo prompt.
+            if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+                ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK" \
+                    || sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+            else
+                sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+            fi
 
             # Health check via the symlink (verifies PATH-side wiring + venv binding).
             if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
