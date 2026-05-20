@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes -- use ASCII '--' or en-dash with spaces."
+    "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. ZERO em-dashes and ZERO ASCII '--' in customer-rendered strings (use a comma, full stop, or rephrase). En-dashes with spaces around them are allowed in display-only contexts (logs, version strings)."
   },
 
   "device_registration_error": {
@@ -35,7 +35,7 @@
 
   "license_entry": {
     "heading": "Your licence",
-    "intro": "Ostler needs a licence file before it can install. The licence arrived in your welcome email from hello@ostler.ai. Save the attached file (it looks like `ostler-licence.json`), then drag it here -- or paste the JSON contents below.",
+    "intro": "Ostler needs a licence file before it can install. The licence arrived in your welcome email from hello@ostler.ai. Save the attached file (it looks like `ostler-licence.json`), then drag it here, or paste the JSON contents below.",
     "dropzone_active": "Drop to verify",
     "dropzone_idle": "Drag your licence file here",
     "dropzone_hint": "Looks for ostler-licence.json (or similar)",
@@ -43,7 +43,7 @@
     "verify_button": "Verify Licence",
     "paste_empty_error": "Paste the licence JSON above first, or drop the file onto the box.",
     "error_help_caption": "Need help? Email hello@ostler.ai",
-    "footer_hint": "Your licence stays on this Mac. It is verified locally with a key built into this installer -- no network call is made during this step.",
+    "footer_hint": "Your licence stays on this Mac. It is verified locally with a key built into this installer. No network call is made during this step.",
     "read_file_error": "Could not read the licence file at {filename}.",
     "signature_invalid_error": "Signature check failed. This file is not a licence we signed, or it was edited after delivery.",
     "expired_error": "Your licence expired on {expires_at}. Email hello@ostler.ai to renew.",
@@ -86,35 +86,55 @@
     "back_button": "Back",
     "return_button": "Return to current question",
     "back_tooltip_empty": "No previous answers yet.",
-    "back_tooltip_default": "Review previous answers. Editing is disabled in this version; cancel and re-run the installer to revise.",
+    "back_tooltip_default": "Review previous answers. Editing is disabled in this version.",
     "yes_label": "Yes",
     "no_label": "No",
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",
     "error_invalid_choice": "Pick one of: {options}",
-    "assistant_name_helper": "Pick anything -- they will respond to it. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "assistant_name_helper": "Pick anything, they will respond to it. Some Ostler operators have gone with Samantha, Friday, Joshua, or Marvin.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
     "fda_preset_recommended": "Recommended",
-    "fda_preset_recommended_subtitle": "Most people start here",
+    "fda_preset_recommended_subtitle": "Most people start here. Includes Contacts, Calendar, Apple Mail, Messages, Safari history and bookmarks, Notes, Reminders, and your Documents folder. Sensitive sources like Photos face recognition stay off.",
     "fda_preset_everything": "Everything",
-    "fda_preset_everything_subtitle": "Every data source Ostler supports -- for power users",
+    "fda_preset_everything_subtitle": "Every data source Ostler supports. Adds Photos library (including face recognition), Mail attachments, Voice Memos, Apple Music listening history, Health app data, and Screen Time activity. Best for power users who want maximum personalisation.",
     "fda_preset_customise": "Customise",
-    "fda_preset_customise_subtitle": "Pick exactly which sources",
+    "fda_preset_customise_subtitle": "Pick each source individually. You can choose exactly which apps Ostler reads from, and turn anything on or off later in the Doctor section of the app.",
     "folder_picker_choose_button": "Choose Folder...",
     "folder_picker_choose_panel_prompt": "Choose folder",
     "folder_picker_skip_button": "Skip this step",
-    "folder_picker_no_selection_placeholder": "(no folder selected -- will skip)",
+    "folder_picker_no_selection_placeholder": "(no folder selected, will skip)",
     "consent_install_primary": "Install Ostler",
     "consent_install_cancel": "Cancel",
     "consent_install_terms_link_label": "terms",
     "consent_install_terms_url": "https://ostler.ai/terms",
-    "consent_install_body_prefix": "Ready to install. By clicking Install Ostler, you confirm you accept the ",
+    "consent_install_body_prefix": "By clicking Install Ostler, you confirm you accept the ",
     "consent_install_body_suffix": ".",
-    "preinstall_status_caption": "STATUS"
+    "preinstall_status_caption": "STATUS",
+    "channel_choice_label_email": "Email",
+    "channel_choice_label_imessage": "iMessage",
+    "channel_choice_label_whatsapp": "WhatsApp",
+    "channel_choice_label_email_imessage": "Email + iMessage",
+    "channel_choice_label_email_whatsapp": "Email + WhatsApp",
+    "channel_choice_label_imessage_whatsapp": "iMessage + WhatsApp",
+    "channel_choice_label_all_three": "All three (Email + iMessage + WhatsApp)"
   },
 
   "assistant_name_suggestions": {
-    "comma_separated": "Marvin, Samantha, Joshua, HAL, JARVIS, Friday, Alfred, Mycroft, Wadsworth, Beatrix, Penelope, Watson, Reginald, Atlas, Ada", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
+    "comma_separated": "Marvin, Samantha, Joshua, Friday, Alfred, Wadsworth, Beatrix, Penelope, Watson, Reginald, Atlas, Ada", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
+  },
+
+  "contact_card_lookup": {
+    "status_line": "Please wait a moment, reading your contacts to pre-fill your details..."
+  },
+
+  "gdpr_scan": {
+    "status_line": "Scanning for GDPR data exports..."
+  },
+
+  "preinstall_wrapup": {
+    "heading": "All set",
+    "body": "You can leave the installer running on its own from here. Go and make a cup of tea."
   },
 
   "sidebar": {
