@@ -26,7 +26,14 @@ final class InstallerCoordinator: ObservableObject {
     @Published var currentStepId: String? = nil
     @Published var currentStepTitle: String = "Starting..."
     @Published var currentStepPercent: Int = 0
-    @Published var totalSteps: Int = 11
+    /// Defaults to the canonical-order length so the sidebar
+    /// "Step X of N" reads the same N as the count of dots
+    /// rendered above. Pre-fix (#347) the default was a flat 11
+    /// while the sidebar rendered every canonical-order entry
+    /// (24), so the customer saw "Step 0 of 11" against 24 dots.
+    /// install.sh STEP_BEGIN markers can still revise the total at
+    /// runtime via the trailing `total` slot.
+    @Published var totalSteps: Int = StepCatalog.canonicalOrder.count
     @Published var currentStepIdx: Int = 0
     @Published var completedSteps: [CompletedStep] = []
     @Published var logLines: [LogLine] = []
@@ -77,6 +84,14 @@ final class InstallerCoordinator: ObservableObject {
     /// render it as a visible status banner during quiet windows.
     @Published var preInstallStatus: String? = nil
 
+    /// When non-nil, the next PROMPT event will NOT clear
+    /// `preInstallStatus` until this instant has passed. Used by the
+    /// GDPR-scan flash so the "Scanning for GDPR data exports..."
+    /// banner survives the immediately-following manual_exports_path
+    /// PROMPT for ~2 seconds. Cleared once expired.
+    /// F12 (Studio retest #5 2026-05-21).
+    private var preInstallStatusKeepUntil: Date? = nil
+
     // ── Onboarding question rendering (in-window, #353) ──────────
     //
     // The Studio retry on 2026-05-16 surfaced that 12+ sheet-style
@@ -105,6 +120,18 @@ final class InstallerCoordinator: ObservableObject {
     /// it (the answer is already on the FIFO and bash has consumed
     /// it). Edit-and-resend is Route A, deferred.
     @Published var backReviewIndex: Int? = nil
+
+    /// F16 (Studio retest #5 2026-05-21): set to true on
+    /// `respond(to: consent_install, with: "INSTALL")` and cleared
+    /// on the first install-phase PHASE / STEP_BEGIN marker that
+    /// follows. While true, ContentView renders
+    /// `PreInstallWrapupView` instead of the HintPanelView in the
+    /// gap between the last question and the first install line
+    /// landing on the wire. Pre-fix the GUI snapped back to the
+    /// "A few questions" splash for ~1 second before the first
+    /// install line landed, which read as a regression to the
+    /// customer.
+    @Published var awaitingFirstInstallLine: Bool = false
 
     // ── Licence gating ────────────────────────────────────────────
     /// Flips true once `verifyLicense` accepts a customer-supplied
@@ -145,6 +172,22 @@ final class InstallerCoordinator: ObservableObject {
     /// Test hook: inject a client with a mock transport.
     func setRegistrationClient(_ client: DeviceRegistrationClient) {
         self.registrationClient = client
+    }
+
+    /// Sidebar "Step X of N" computed against ticked-off rows
+    /// rather than the raw STEP_BEGIN idx. Pre-fix (#347 round 2,
+    /// Studio retest #5 2026-05-21) `currentStepIdx` only began
+    /// counting when the first STEP_BEGIN landed, so the sidebar
+    /// hung at "Step 0" for the whole licence-entry + questions
+    /// phase even though the sidebar dots were ticking through
+    /// `license_entry`, `prereq_check`, `setup_questions`. Using
+    /// `completedSteps.count + 1` keeps the visible number in
+    /// lock-step with the tick state. Capped to `totalSteps` so
+    /// the tail-end of a long install doesn't render an off-by-
+    /// one.
+    var visibleStepNumber: Int {
+        let completed = completedSteps.count
+        return min(completed + 1, totalSteps)
     }
 
     #if DEBUG
@@ -706,6 +749,16 @@ final class InstallerCoordinator: ObservableObject {
         recomputeTotalQuestionCount(committedPromptId: prompt.id, answer: sanitised)
         pendingPrompt = nil
         backReviewIndex = nil
+        // F16 (Studio retest #5 2026-05-21): on the customer's
+        // consent_install commit, park the GUI on the wrap-up
+        // screen ("All set, go and make a cup of tea") until the
+        // first install-phase event lands. Without this latch
+        // ContentView falls back to HintPanelView for the ~1s gap,
+        // which reads as "are we starting over?". Cleared on the
+        // next .phase or .stepBegin in `apply(event:)`.
+        if prompt.id == "consent_install" && sanitised == "INSTALL" {
+            awaitingFirstInstallLine = true
+        }
     }
 
     /// Estimates the total number of onboarding prompts the customer
@@ -1092,6 +1145,10 @@ final class InstallerCoordinator: ObservableObject {
             currentStepPercent = 0
             currentStepIdx = idx ?? currentStepIdx
             totalSteps = total ?? totalSteps
+            // F16: the first install-side marker after consent_install
+            // clears the wrap-up parking flag so ContentView can swap
+            // back to HintPanelView for the install progress narrative.
+            awaitingFirstInstallLine = false
             appendLog(level: "info", msg: "→ \(title) [\(id)]")
             OstlerLog.subprocess.info("event STEP_BEGIN id=\(id, privacy: .public) idx=\(idx ?? -1, privacy: .public)/\(total ?? -1, privacy: .public) title=\(title, privacy: .public)")
         case .pct(_, let pct):
@@ -1110,6 +1167,27 @@ final class InstallerCoordinator: ObservableObject {
             // banner picks them up).
             if level == "info" {
                 preInstallStatus = msg
+                // F12 (Studio retest #5 2026-05-21): if this is the
+                // GDPR-scan flash, hold the banner for ~2s so it
+                // survives the manual_exports_path PROMPT that
+                // arrives immediately afterwards. Otherwise the
+                // scan-status line vanishes before the customer can
+                // read it (Andy's complaint: "felt like the
+                // installer flashed something then jumped to the
+                // next question").
+                if msg.contains("Scanning for GDPR data exports") {
+                    let until = Date().addingTimeInterval(2.0)
+                    preInstallStatusKeepUntil = until
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 2_100_000_000)
+                        guard let self else { return }
+                        if let keep = self.preInstallStatusKeepUntil,
+                           keep == until {
+                            self.preInstallStatus = nil
+                            self.preInstallStatusKeepUntil = nil
+                        }
+                    }
+                }
             }
         case .warn(_, let msg):
             appendLog(level: "warn", msg: msg)
@@ -1130,8 +1208,18 @@ final class InstallerCoordinator: ObservableObject {
             backReviewIndex = nil
             // Clear the F4 status banner; we are about to render a
             // prompt and the stale "Reading your contacts..." copy
-            // would just clutter the screen.
-            preInstallStatus = nil
+            // would just clutter the screen. F12 exception (Studio
+            // retest #5 2026-05-21): if `preInstallStatusKeepUntil`
+            // is in the future the banner is being held deliberately
+            // for the GDPR-scan flash + needs to survive this PROMPT
+            // arrival; only clear once the deadline has passed.
+            if let keep = preInstallStatusKeepUntil,
+               keep > Date() {
+                // Keep the banner; the scheduled Task will clear it.
+            } else {
+                preInstallStatus = nil
+                preInstallStatusKeepUntil = nil
+            }
             OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public) x=\(self.currentQuestionIndex, privacy: .public) y=\(self.totalQuestionCount ?? -1, privacy: .public)")
         case .stepEnd(let id, let status, let elapsed):
             completedSteps.append(CompletedStep(
@@ -1146,6 +1234,11 @@ final class InstallerCoordinator: ObservableObject {
         case .phase(let id, let title):
             phase = title
             phaseId = id
+            // F16: a real install-side phase event means the wrap-up
+            // parking flag can come off; the install narrative is
+            // back on the wire and HintPanelView will pick up the
+            // per-step copy from here on.
+            awaitingFirstInstallLine = false
             appendLog(level: "info", msg: "Phase: \(title)")
             OstlerLog.subprocess.info("event PHASE id=\(id, privacy: .public) title=\(title, privacy: .public)")
             advanceSidebarFromPhase(id: id)

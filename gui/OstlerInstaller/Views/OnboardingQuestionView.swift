@@ -79,6 +79,20 @@ struct OnboardingQuestionView: View {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             header(q)
 
+            // F12 (Studio retest #5 2026-05-21): when install.sh
+            // emits a transient status line (contact-card pre-fill,
+            // GDPR-scan, ...) the coordinator mirrors it onto
+            // `preInstallStatus`. Render the banner inline at the
+            // top of the question so the customer sees what the
+            // installer is doing right now without opening the log
+            // drawer. Drops out as soon as the next prompt arrives
+            // (coordinator clears it in `apply(.prompt:)`).
+            if let status = coordinator.preInstallStatus,
+               !status.isEmpty,
+               !q.isReview {
+                preInstallStatusBanner(status: status)
+            }
+
             Text(q.prompt.title)
                 .font(.ostlerH1)
                 .tracking(-0.4)
@@ -88,10 +102,15 @@ struct OnboardingQuestionView: View {
             // consent_install carries a hyperlinked terms link in
             // place of plain help copy; render via a dedicated
             // helper. Everything else gets the standard
-            // Text(help).
+            // Text(help). assistant_name suppresses the generic
+            // help block because its inline helper copy below
+            // covers the same ground and would otherwise render
+            // twice (F5 Studio retest #5 2026-05-21).
             if q.prompt.id == "consent_install" {
                 consentInstallBody()
-            } else if let help = q.prompt.help, !help.isEmpty {
+            } else if let help = q.prompt.help,
+                      !help.isEmpty,
+                      q.prompt.id != "assistant_name" {
                 Text(help)
                     .font(.ostlerBodyLg)
                     .foregroundStyle(Color.ostlerInkMuted)
@@ -101,7 +120,9 @@ struct OnboardingQuestionView: View {
 
             // F6.1 (assistant_name): inline helper copy explaining
             // the suggestions, mirroring Andy's brand-warmth note.
-            if q.prompt.id == "assistant_name" && !q.isReview {
+            // Renders for both live and review modes so the review
+            // entry is not stripped of its context.
+            if q.prompt.id == "assistant_name" {
                 Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
                     .font(.ostlerBody)
                     .foregroundStyle(Color.ostlerInkMuted)
@@ -239,10 +260,16 @@ struct OnboardingQuestionView: View {
             // control with all three options visible at once.
             // Andy: "'Choose 1, 2, or 3' and then sub text:
             // '1=Recommended, 2=Everything, 3=Customise'... I mean
-            // WTAF?!"  Other choice prompts continue to render as
-            // a menu picker (default macOS native control).
+            // WTAF?!"  channel_choice (F6 Studio retest #5) gets
+            // a labelled-choice picker so the customer reads
+            // "Email + iMessage" instead of the bare semantic key.
+            // Other choice prompts continue to render as a menu
+            // picker (default macOS native control) with raw
+            // option values.
             if q.prompt.id == "fda_preset" {
                 fdaPresetSegmented(q)
+            } else if q.prompt.id == "channel_choice" {
+                channelChoicePicker(q)
             } else {
                 Picker("", selection: q.isReview
                        ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
@@ -335,6 +362,66 @@ struct OnboardingQuestionView: View {
         }
         .buttonStyle(.plain)
         .disabled(isReview)
+    }
+
+    /// F6 (Studio retest #5 2026-05-21): channel_choice gets a
+    /// labelled-choice menu picker. The choices array carries
+    /// semantic keys (email, imessage, whatsapp, email_imessage,
+    /// email_whatsapp, imessage_whatsapp, all_three) and the
+    /// human-readable label for each lives in
+    /// `onboarding_question.channel_choice_label_<key>`. Pre-fix
+    /// the picker rendered the bare "3" against the customer.
+    private func channelChoicePicker(_ q: DisplayedQuestion) -> some View {
+        Picker("", selection: q.isReview
+               ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
+               : $choiceValue) {
+            ForEach(q.prompt.choices, id: \.self) { choice in
+                Text(channelChoiceLabel(for: choice))
+                    .tag(choice)
+            }
+        }
+        .pickerStyle(.menu)
+        .disabled(q.isReview)
+    }
+
+    /// Look up the human-readable label for a `channel_choice`
+    /// option. Falls back to the raw key if the catalogue lookup
+    /// returns the dotted key itself (ViewCopy's missing-key
+    /// sentinel) so a TTY-only legacy numeric value reviewed via
+    /// Back still renders as the raw "1" / "3" rather than the
+    /// catalogue-internal key.
+    private func channelChoiceLabel(for choice: String) -> String {
+        let key = "onboarding_question.channel_choice_label_\(choice)"
+        let label = ViewCopy.shared.string(for: key)
+        return label == key ? choice : label
+    }
+
+    /// F12 (Studio retest #5 2026-05-21): transient status banner
+    /// rendered above the question header when the install.sh
+    /// subprocess is mid-action (contact-card pre-fill, GDPR
+    /// scan). Drops out as soon as the next PROMPT arrives.
+    private func preInstallStatusBanner(status: String) -> some View {
+        HStack(alignment: .center, spacing: .ostlerSpace2) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.ostlerOxblood)
+            Text(status)
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .padding(.horizontal, .ostlerSpace3)
+        .padding(.vertical, .ostlerSpace2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.ostlerInkBlueSoft)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.ostlerInkBlue.opacity(0.25), lineWidth: 1)
+        )
     }
 
     /// F6.5 folder picker control. Shows the currently-chosen path

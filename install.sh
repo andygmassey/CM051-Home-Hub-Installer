@@ -1085,7 +1085,7 @@ USER_ID=${USER_ID:-$DEFAULT_ID}
 echo ""
 if [[ -n "$DETECTED_CODE" ]]; then
     echo "  Country code detected from your contact card: +${DETECTED_CODE}"
-    CC_CONFIRM="$(gui_read "$(printf "$MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE" "$DETECTED_CODE")" yesno "" "" "" "country_code_confirm")"
+    CC_CONFIRM="$(gui_read "$(printf "$MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE" "$DETECTED_CODE")" yesno "" "$MSG_PROMPT_COUNTRY_CODE_CONFIRM_HELP" "" "country_code_confirm")"
     if [[ "${CC_CONFIRM:-y}" == "n" || "${CC_CONFIRM:-y}" == "N" ]]; then
         COUNTRY_CODE="$(gui_read "$MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE" text "" "" "" "country_code")"
     else
@@ -1330,8 +1330,8 @@ echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
 echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
 echo -e "    ${BOLD}5. + WhatsApp${NC}    – iMessage + email + WhatsApp (read-only)"
 echo ""
-CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "3" "$MSG_PROMPT_CHANNEL_CHOICE_HELP" "1,2,3,4" "channel_choice")"
-CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
+CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "all_three" "$MSG_PROMPT_CHANNEL_CHOICE_HELP" "email,imessage,whatsapp,email_imessage,email_whatsapp,imessage_whatsapp,all_three" "channel_choice")"
+CHANNEL_CHOICE=${CHANNEL_CHOICE:-all_three}
 
 # Normalise into per-channel boolean flags for the config writer.
 CHANNEL_IMESSAGE_ENABLED=false
@@ -1355,10 +1355,41 @@ CHANNEL_EMAIL_IMAP_FOLDER=""
 CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
 CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 
+# Semantic keys (GUI labelled-choice picker) and legacy numeric
+# keys (TTY operators still typing 1/2/3/4/5 at the prompt) both
+# resolve to per-channel boolean flags below. The semantic keys are
+# the canonical path; the numeric branch is kept compatibility-only.
 case "$CHANNEL_CHOICE" in
+    email)
+        CHANNEL_EMAIL_ENABLED=true
+        ;;
+    imessage)
+        CHANNEL_IMESSAGE_ENABLED=true
+        ;;
+    whatsapp)
+        CHANNEL_WHATSAPP_ENABLED=true
+        ;;
+    email_imessage)
+        CHANNEL_EMAIL_ENABLED=true
+        CHANNEL_IMESSAGE_ENABLED=true
+        ;;
+    email_whatsapp)
+        CHANNEL_EMAIL_ENABLED=true
+        CHANNEL_WHATSAPP_ENABLED=true
+        ;;
+    imessage_whatsapp)
+        CHANNEL_IMESSAGE_ENABLED=true
+        CHANNEL_WHATSAPP_ENABLED=true
+        ;;
+    all_three|"")
+        CHANNEL_EMAIL_ENABLED=true
+        CHANNEL_IMESSAGE_ENABLED=true
+        CHANNEL_WHATSAPP_ENABLED=true
+        ;;
+    # Legacy numeric values (TTY operators).
     1) CHANNEL_IMESSAGE_ENABLED=true ;;
     2) CHANNEL_EMAIL_ENABLED=true ;;
-    3|"") CHANNEL_IMESSAGE_ENABLED=true; CHANNEL_EMAIL_ENABLED=true ;;
+    3) CHANNEL_IMESSAGE_ENABLED=true; CHANNEL_EMAIL_ENABLED=true ;;
     4) info "Skipping channel setup. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive" ;;
     5)
         CHANNEL_IMESSAGE_ENABLED=true
@@ -1537,6 +1568,26 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
             warn "$MSG_WARN_RE_RUN_INSTALLER_WITH_IMESSAGE_UNTICKED"
         fi
     done
+    # Normalise the customer's comma-separated answer: split on
+    # comma, trim leading/trailing whitespace from each entry,
+    # drop empty entries, and re-join with a canonical ", "
+    # separator. Accepts both "+44, you@x" and "+44,you@x" forms
+    # so the customer is not punished for forgetting (or adding)
+    # a space, which Andy hit on Studio retest #5.
+    _normalise_csv_allowed() {
+        local raw="$1"
+        local entry
+        local out=""
+        local IFS=','
+        for entry in $raw; do
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            [[ -z "$entry" ]] && continue
+            out="${out:+$out, }$entry"
+        done
+        printf '%s' "$out"
+    }
+    CHANNEL_IMESSAGE_ALLOWED="$(_normalise_csv_allowed "$CHANNEL_IMESSAGE_ALLOWED")"
 fi
 
 # ── Email sources ──────────────────────────────────────────────────
