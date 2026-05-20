@@ -450,7 +450,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\"\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is exported by gui/Makefile's release target\n# before invoking xcodebuild; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\nif [ -n \"${OSTLER_APP_PATH:-}\" ] && [ -d \"${OSTLER_APP_PATH}\" ]; then\n  echo \"Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/\"\n  cp -R \"${OSTLER_APP_PATH}\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -634,7 +634,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -649,7 +649,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -699,7 +699,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -720,7 +720,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 1.0.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -36,6 +36,11 @@ SHELL        := /bin/bash
 # ---------------------------------------------------------------------------
 # Project parameters (rarely change)
 # ---------------------------------------------------------------------------
+# Export OSTLER_APP_PATH so xcodebuild's bundle phase (in
+# gui/project.yml) sees it as an env var and copies Ostler.app into
+# OstlerInstaller.app/Contents/Resources/ at archive time.
+export OSTLER_APP_PATH
+
 PROJECT       := OstlerInstaller.xcodeproj
 SCHEME        := OstlerInstaller
 APP_NAME      := OstlerInstaller
@@ -237,49 +242,33 @@ package: check-tools check-identity check-create-dmg
 	fi
 	# Stage the DMG payload in a dedicated subdir so create-dmg's
 	# "give it a directory" form picks up exactly the apps we want
-	# in the DMG window (not the dist/ leftovers like prior DMG
-	# builds or .xcarchive output).
+	# in the DMG window. Single-app layout: OstlerInstaller.app +
+	# /Applications drop-link only. Ostler.app (Hub desktop) is
+	# bundled INSIDE OstlerInstaller.app/Contents/Resources/ by
+	# gui/project.yml's bundle phase, so install.sh's source-
+	# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds it at
+	# customer-install time -- no need to surface Ostler.app as a
+	# second draggable icon in the DMG window (was the v0.2.1 two-
+	# app layout that confused customers per Andy's 2026-05-20
+	# Studio retest #3 review).
 	@DMG_STAGE="$(BUILD_DIR)/dmg-payload"; \
 	rm -rf "$$DMG_STAGE"; \
 	mkdir -p "$$DMG_STAGE"; \
 	cp -R "$(APP_PATH)" "$$DMG_STAGE/"; \
-	if [ -d "$(OSTLER_APP_PATH)" ]; then \
-	    echo "Staging Ostler.app from $(OSTLER_APP_PATH) into DMG payload"; \
-	    cp -R "$(OSTLER_APP_PATH)" "$$DMG_STAGE/Ostler.app"; \
-	else \
-	    echo "WARNING: OSTLER_APP_PATH=$(OSTLER_APP_PATH) not found; DMG will ship without Ostler.app." >&2; \
-	fi; \
 	echo "[STEP] Building DMG -> $(DMG_PATH)"; \
 	rm -f "$(DMG_PATH)"; \
-	if [ -d "$$DMG_STAGE/Ostler.app" ]; then \
-	    create-dmg \
-	        --volname "Ostler Installer $(VERSION)" \
-	        --window-pos 200 120 \
-	        --window-size 820 400 \
-	        --background "assets/dmg-background.png" \
-	        --icon-size 128 \
-	        --icon "Ostler.app" 140 200 \
-	        --icon "$(APP_NAME).app" 340 200 \
-	        --hide-extension "Ostler.app" \
-	        --hide-extension "$(APP_NAME).app" \
-	        --app-drop-link 660 200 \
-	        --no-internet-enable \
-	        "$(DMG_PATH)" \
-	        "$$DMG_STAGE"; \
-	else \
-	    create-dmg \
-	        --volname "Ostler Installer $(VERSION)" \
-	        --window-pos 200 120 \
-	        --window-size 660 400 \
-	        --background "assets/dmg-background.png" \
-	        --icon-size 128 \
-	        --icon "$(APP_NAME).app" 165 200 \
-	        --hide-extension "$(APP_NAME).app" \
-	        --app-drop-link 495 200 \
-	        --no-internet-enable \
-	        "$(DMG_PATH)" \
-	        "$$DMG_STAGE"; \
-	fi
+	create-dmg \
+	    --volname "Install Ostler" \
+	    --window-pos 200 120 \
+	    --window-size 660 400 \
+	    --background "assets/dmg-background.png" \
+	    --icon-size 128 \
+	    --icon "$(APP_NAME).app" 165 200 \
+	    --hide-extension "$(APP_NAME).app" \
+	    --app-drop-link 495 200 \
+	    --no-internet-enable \
+	    "$(DMG_PATH)" \
+	    "$$DMG_STAGE"
 	$(STEP) "Signing DMG with $(CODESIGN_ID)"
 	codesign --sign "$(CODESIGN_ID)" --timestamp --force "$(DMG_PATH)"
 	codesign --verify --verbose=2 "$(DMG_PATH)"
@@ -350,7 +339,7 @@ archive:
 # ---------------------------------------------------------------------------
 # One-shot: build → DMG → notarise → staple → archive
 # ---------------------------------------------------------------------------
-ship: release sparkle-embed package notarise archive
+ship: sparkle-embed release package notarise archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
