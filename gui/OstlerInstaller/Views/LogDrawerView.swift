@@ -1,8 +1,10 @@
 // LogDrawerView.swift
 //
-// Collapsible bottom panel that streams every #OSTLER LOG line plus
-// raw stdout/stderr (in dev mode, cmd-shift-D toggle).
-// Auto-scrolls to the bottom.
+// Collapsible bottom panel that streams every #OSTLER LOG line.
+// Auto-scrolls to the bottom. Raw stdout/stderr from install.sh
+// sub-tools (ollama / docker / pip) is captured via os_log under
+// subsystem `ai.ostler.installer`, category `subprocess` -- visible
+// to engineers via `log show` but not surfaced in this drawer.
 //
 // Text selection: every log row carries .textSelection(.enabled) on
 // the row's whole HStack so the customer can drag-select across the
@@ -45,12 +47,21 @@ struct LogDrawerView: View {
                 .help("Copy the whole log buffer to the clipboard")
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
-                Toggle(ViewCopy.shared.string(for: "log_drawer.verbose_toggle"),
-                       isOn: $coordinator.devModeRawLog)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .tint(.ostlerOxbloodWarm)
-                    .foregroundStyle(Color.ostlerChassis.opacity(0.75))
+                // F7 (Studio retest #2 2026-05-20): the Verbose toggle
+                // used to live next to Copy log but did nothing
+                // useful for the customer -- it gated the raw-line
+                // firehose (`devModeRawLog`) which is dev-only
+                // signal that drowns the curated LOG markers in
+                // ollama / docker / pip chatter. Andy: "best to
+                // remove if we're not going to implement anything
+                // for it, as it doesn't sit that well visually
+                // next to the Copy function". `devModeRawLog`
+                // stays in the coordinator as default-false; the
+                // `os_log` subprocess category (LogDrawerView.swift
+                // pre-#348 + InstallerCoordinator `OstlerLog.subprocess`
+                // calls) keeps the full stream available via
+                // `log show --predicate 'subsystem == "ai.ostler.installer"'`
+                // for engineers debugging a customer install.
             }
             .padding(.horizontal, .ostlerSpace3)
             .padding(.vertical, .ostlerSpace2)

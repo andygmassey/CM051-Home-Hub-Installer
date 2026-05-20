@@ -65,9 +65,39 @@ final class AdminAuthorizationGateTests: XCTestCase {
         XCTFail("Timed out waiting for condition", file: file, line: line)
     }
 
-    // MARK: - Happy path
+    // MARK: - Phase 1: park at acknowledgement gate
 
-    func testAdminGrantedProceedsToLaunch() async {
+    func testBootstrapParksAtAcknowledgementGate() async {
+        // F3 (Studio retest #2 2026-05-20): bootstrap() must park
+        // at `needsAdminAcknowledgement = true` rather than firing
+        // the dialog immediately. The provider must NOT be invoked
+        // until the customer presses the Continue button.
+        let coord = makeReadyCoordinator()
+
+        var providerCalled = false
+        var launchCalled = false
+
+        coord.setAdminAuthorizationProvider { _ in
+            providerCalled = true
+            return true
+        }
+        coord.setLaunchInstallerOverride { launchCalled = true }
+
+        coord.bootstrap()
+        await waitFor { coord.needsAdminAcknowledgement }
+
+        XCTAssertTrue(coord.needsAdminAcknowledgement,
+                      "bootstrap must park at the acknowledgement gate")
+        XCTAssertFalse(providerCalled,
+                       "admin provider MUST NOT fire until the customer acknowledges")
+        XCTAssertFalse(launchCalled,
+                       "launch step MUST NOT fire until the customer acknowledges")
+        XCTAssertFalse(coord.needsAdminRetry)
+    }
+
+    // MARK: - Happy path: ack -> grant -> launch
+
+    func testAcknowledgementProceedsToLaunch() async {
         let coord = makeReadyCoordinator()
 
         var providerCalled = false
@@ -87,6 +117,8 @@ final class AdminAuthorizationGateTests: XCTestCase {
         }
 
         coord.bootstrap()
+        await waitFor { coord.needsAdminAcknowledgement }
+        coord.userAcknowledgedAdminRequest()
         await waitFor { launchCalled }
 
         XCTAssertTrue(providerCalled,
@@ -97,6 +129,8 @@ final class AdminAuthorizationGateTests: XCTestCase {
                       "launch step must run once admin grant succeeds")
         XCTAssertFalse(coord.needsAdminRetry,
                        "needsAdminRetry must stay false on happy path")
+        XCTAssertFalse(coord.needsAdminAcknowledgement,
+                       "acknowledgement gate must clear after the customer proceeds")
         XCTAssertNil(coord.error,
                      "error surface must stay clear on happy path")
     }
@@ -118,10 +152,12 @@ final class AdminAuthorizationGateTests: XCTestCase {
         }
 
         coord.bootstrap()
+        await waitFor { coord.needsAdminAcknowledgement }
+        coord.userAcknowledgedAdminRequest()
         await waitFor { coord.needsAdminRetry }
 
         XCTAssertTrue(providerCalled,
-                      "admin authorisation provider must be invoked before launch")
+                      "admin authorisation provider must be invoked once the customer acknowledges")
         XCTAssertFalse(launchCalled,
                        "launch step must NOT run when admin grant is declined")
         XCTAssertTrue(coord.needsAdminRetry,
@@ -153,6 +189,8 @@ final class AdminAuthorizationGateTests: XCTestCase {
         }
 
         coord.bootstrap()
+        await waitFor { coord.needsAdminAcknowledgement }
+        coord.userAcknowledgedAdminRequest()
         await waitFor { coord.needsAdminRetry }
         XCTAssertEqual(providerCalls, 1)
         XCTAssertFalse(launchCalled)
@@ -168,5 +206,44 @@ final class AdminAuthorizationGateTests: XCTestCase {
                        "needsAdminRetry must clear after a successful retry")
         XCTAssertNil(coord.error,
                      "error surface must clear after a successful retry")
+    }
+
+    // MARK: - Duplicate-fire guard (F2)
+
+    func testDoubleBootstrapDoesNotDoubleFireProvider() async {
+        // F2: pre-fix the Studio retest #2 log showed two
+        // "Requesting administrator access via macOS native dialog"
+        // entries in the same second. Drive bootstrap() twice
+        // rapidly and assert the provider only fires once across
+        // the ack + launch flow.
+        let coord = makeReadyCoordinator()
+
+        var providerCalls = 0
+        var launchCalls = 0
+        coord.setAdminAuthorizationProvider { _ in
+            providerCalls += 1
+            // Sleep briefly so a second concurrent caller has time
+            // to land its guard check before we resolve.
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            return true
+        }
+        coord.setLaunchInstallerOverride { launchCalls += 1 }
+
+        coord.bootstrap()
+        coord.bootstrap()
+        await waitFor { coord.needsAdminAcknowledgement }
+        // Now fire the ack twice in flight -- the second call must
+        // short-circuit on `requestingAdmin`.
+        coord.userAcknowledgedAdminRequest()
+        coord.userAcknowledgedAdminRequest()
+        await waitFor { launchCalls >= 1 }
+        // Give any pending Task a beat to land its mutations
+        // before asserting we don't see a duplicate.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(providerCalls, 1,
+                       "admin provider must fire exactly once even under double-call")
+        XCTAssertEqual(launchCalls, 1,
+                       "launch step must fire exactly once even under double-call")
     }
 }

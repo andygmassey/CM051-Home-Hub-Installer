@@ -184,6 +184,16 @@ gui_read() {
     # Match the historical behaviour of `read -p` exactly. For
     # secrets, use `read -s` (no echo). Display the prompt on stderr
     # so command substitution doesn't eat it.
+    #
+    # 2026-05-20: two new kinds carry GUI-specific controls and
+    # degrade in the TTY fallback to plain prompts:
+    #   - acknowledge: a button-only confirmation in the GUI; in
+    #     TTY we echo the prompt + return the default. Caller code
+    #     ignores the returned value (it's just an "I have read this"
+    #     primitive) OR uses it as a yes/no equivalent (consent_install).
+    #   - folder:      a folder picker in the GUI; in TTY we read a
+    #     path string with the default value pre-filled, identical
+    #     to a `text` prompt with a default.
     local user_prompt="  ${title}"
     [[ -n "$default_value" ]] && user_prompt="${user_prompt} [${default_value}]"
     user_prompt="${user_prompt}: "
@@ -195,6 +205,16 @@ gui_read() {
         # the user types.
         read -r -s -p "$user_prompt" answer || true
         printf '\n' >&2
+    elif [[ "$kind" == "acknowledge" ]]; then
+        # Button-only in the GUI; in TTY we just echo the title +
+        # wait for Enter. Default value is returned as the answer
+        # (typically "INSTALL" for consent_install, empty for
+        # informational acknowledgements).
+        printf '  %s [Enter to continue]: ' "$title" >&2
+        read -r answer || true
+        if [[ -z "$answer" && -n "$default_value" ]]; then
+            answer="$default_value"
+        fi
     else
         read -r -p "$user_prompt" answer || true
     fi

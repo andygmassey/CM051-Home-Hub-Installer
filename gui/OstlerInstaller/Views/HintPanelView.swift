@@ -92,6 +92,39 @@ struct HintPanelView: View {
                 )
             }
 
+            // F4 (Studio retest #2 2026-05-20): surface the most-
+            // recent subprocess info message during quiet windows
+            // (e.g. the 20s contact-card pre-fill + export pause
+            // between perms_ok and user_name). Pre-fix the LOG
+            // markers landed in the LogDrawer (hidden by default)
+            // and the main content area stayed silent, so Andy
+            // thought the installer had hung.
+            if let status = coordinator.preInstallStatus,
+               !status.isEmpty,
+               coordinator.finished == nil,
+               coordinator.error == nil {
+                HStack(alignment: .center, spacing: .ostlerSpace2) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.ostlerOxblood)
+                    Text(status)
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                }
+                .padding(CGFloat.ostlerSpace3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.ostlerInkBlueSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.ostlerInkBlue.opacity(0.25), lineWidth: 1)
+                )
+            }
+
             Spacer()
         }
         .padding(CGFloat.ostlerSpace4)

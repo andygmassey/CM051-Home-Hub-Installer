@@ -383,7 +383,7 @@ MSG_WARN_PHASE_3_TAKES_10_15_MINUTES="Phase 3 takes 10-15 minutes of Docker + Ol
 MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL="  pip install failed; ostler-knowledge will not be available."
 MSG_WARN_PIP_SAID="pip said:"
 MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL="Plug into AC power for the full install."
-MSG_WARN_PORT_1_ALREADY_USE_PID="Port $1 is already in use by %s (PID %s)"
+MSG_WARN_PORT_1_ALREADY_USE_PID="Port %s is already in use by %s (PID %s)"
 MSG_WARN_PORT_3000_ALREADY_USE_ANOTHER_SERVICE="  - Port 3000 already in use by another service"
 MSG_WARN_POWER_SOURCE="Power source: %s"
 MSG_WARN_PWG_EMAIL_INGEST_MBOX_TMP_MANUAL="  pwg-email-ingest mbox /tmp/manual.mbox.txt"
@@ -507,12 +507,12 @@ MSG_PROMPT_TZ_CONFIRM_TITLE="Use this timezone? (Y/n)"
 MSG_PROMPT_TZ_CONFIRM_HELP="Detected timezone: %s"
 MSG_PROMPT_USER_TZ_TITLE="Enter timezone (e.g. Europe/London, Asia/Hong_Kong)"
 
-MSG_PROMPT_ASSISTANT_NAME_TITLE="Assistant name"
-MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="Pick from the suggestions or type your own. This is the name your assistant will respond to."
-MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Pick from the suggestions or type your own."
+MSG_PROMPT_ASSISTANT_NAME_TITLE="What would you like to call your assistant?"
+MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="Pick anything -- they will respond to it. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin." # assistant-name-exempt: F6.1 suggestion-pool exemplar
+MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Pick anything -- they will respond to it."
 
-MSG_PROMPT_CHANNEL_CHOICE_TITLE="Channel choice"
-MSG_PROMPT_CHANNEL_CHOICE_HELP="1=iMessage only, 2=email only, 3=both, 4=skip"
+MSG_PROMPT_CHANNEL_CHOICE_TITLE="How will your assistant reach you?"
+MSG_PROMPT_CHANNEL_CHOICE_HELP="Pick the messaging channels you would like your assistant to use. You can change this later in Doctor."
 
 MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk above? (y/N)"
 MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration -- you accept the consent above by enabling it."
@@ -548,8 +548,8 @@ MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP="Recommended: a dedicated label or folder (e.g
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Continue to use 'Ostler'"
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
-MSG_PROMPT_EXPORTS_ACK_TITLE="Press Continue to proceed"
-MSG_PROMPT_EXPORTS_ACK_HELP="Continue when ready."
+MSG_PROMPT_EXPORTS_ACK_TITLE="Request your data exports now"
+MSG_PROMPT_EXPORTS_ACK_HELP="You can do this on your phone while the installer runs. Exports usually take 1-3 days to arrive by email -- when they do, drop them in your Downloads folder and Ostler will find them automatically."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault? (y/N)"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is strongly recommended. Without it, physical access to your Mac means access to your data."
@@ -562,14 +562,17 @@ MSG_PROMPT_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install? (Y/n)"
 MSG_PROMPT_IMPORT_CONFIRM_HELP="Found GDPR exports will be imported into your knowledge graph during install."
 
-MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Have exports elsewhere? Enter path (or press Continue to skip)"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Path to a directory containing GDPR exports (LinkedIn, Facebook, etc.)"
+MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives -- your full history with friends, family, places, opinions -- right from the start. The more Ostler knows day one, the more useful it is on day one. (You can also add this later -- no rush.)  Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder. Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout? (Y/n)"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file directly. Google never sees Ostler."
 
-MSG_PROMPT_FDA_PRESET_TITLE="Choose 1, 2, or 3"
-MSG_PROMPT_FDA_PRESET_HELP="1=Recommended, 2=Everything, 3=Customise"
+MSG_PROMPT_FDA_PRESET_TITLE="Which Mac sources should Ostler learn from?"
+MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset -- tick deliberately if you want them."
+MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended (most people start here)"
+MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything (every data source Ostler supports -- for power users)"
+MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise (pick exactly which sources)"
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
 
@@ -579,11 +582,13 @@ MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR).
 MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings? (Y/n)"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="Your decision (Y / N)"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Third-party data consent. Creative Machines never receives this data and is not the controller."
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing -- how third-party data works"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Ostler will read data from sources you connect (email, contacts, messages, social archives). This data stays on this Mac. Creative Machines, the company that makes Ostler, never receives any of it -- we cannot, even if asked. Some of your data was created by other people (the emails they sent you, the messages they wrote). You are the one deciding to use it on your Mac. By continuing, you are saying you are comfortable with that."
 
-MSG_PROMPT_CONSENT_INSTALL_TITLE="Type INSTALL to proceed (or CANCEL to quit)"
-MSG_PROMPT_CONSENT_INSTALL_HELP="Confirms you accept the terms and the install can begin."
+MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install"
+MSG_PROMPT_CONSENT_INSTALL_HELP="By choosing Install Ostler, you confirm you accept the terms at ostler.ai/terms."
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
 
 MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Install Tailscale now? (Y/n)"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale lets you reach the assistant securely from your phone or other Macs."

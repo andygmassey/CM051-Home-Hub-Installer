@@ -23,6 +23,7 @@
 		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
 		66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */; };
+		673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */; };
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
@@ -32,19 +33,20 @@
 		83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = F096DE1EF195479F3854214B /* AuthorizationHelper.swift */; };
 		85A41D89844382060889D680 /* OstlerLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */; };
 		868BCD8B2726182CE4DF212B /* IBMPlexSans-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 64CD3CA6555E4C9E1165A157 /* IBMPlexSans-SemiBold.ttf */; };
+		8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */; };
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
 		98C877552A588390D0F9D15B /* ViewCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 143B97F50F4AF5CC13BFCECB /* ViewCopy.json */; };
 		9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */; };
 		9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA415C1B21A151B849E39CE1 /* ViewCopy.swift */; };
+		A24306F6E5743370D87800DF /* OnboardingQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */; };
 		A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */; };
 		A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
 		D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */; };
 		D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */; };
-		D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00506B02E761DF68EBB5ADCF /* PromptSheet.swift */; };
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
 		E03DD536A682B3269BAB3727 /* Outfit-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */; };
 		E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */; };
@@ -67,9 +69,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		00506B02E761DF68EBB5ADCF /* PromptSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptSheet.swift; sourceTree = "<group>"; };
 		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
+		091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionViewSnapshotTests.swift; sourceTree = "<group>"; };
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
@@ -109,10 +111,12 @@
 		BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryShortIdHeuristicTests.swift; sourceTree = "<group>"; };
 		D32D456A934ED46ACD089EF7 /* FingerprintState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintState.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionView.swift; sourceTree = "<group>"; };
 		E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerLog.swift; sourceTree = "<group>"; };
 		E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessSheet.swift; sourceTree = "<group>"; };
 		E4C1249B5BB363F304334F02 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E92A90F0ED1636988B7278FB /* HintPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintPanelView.swift; sourceTree = "<group>"; };
+		EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionXOfYTests.swift; sourceTree = "<group>"; };
 		EF64A6B46A3BD66D6097C846 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		F096DE1EF195479F3854214B /* AuthorizationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizationHelper.swift; sourceTree = "<group>"; };
 		F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistence.swift; sourceTree = "<group>"; };
@@ -147,7 +151,7 @@
 				E92A90F0ED1636988B7278FB /* HintPanelView.swift */,
 				6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */,
 				0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */,
-				00506B02E761DF68EBB5ADCF /* PromptSheet.swift */,
+				DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */,
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
 			);
 			path = Views;
@@ -190,6 +194,8 @@
 				87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */,
 				49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */,
 				411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */,
+				091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */,
+				EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */,
 				88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */,
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 				58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */,
@@ -286,7 +292,7 @@
 				573FCA21A33278A6BA0D6D15 /* Sources */,
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
-				A8193577FDE4AF33468287AF /* Bundle install.sh + lib/progress_emitter.sh into Resources */,
+				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -381,28 +387,6 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
 		};
-		A8193577FDE4AF33468287AF /* Bundle install.sh + lib/progress_emitter.sh into Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/../install.sh",
-				"$(SRCROOT)/../lib/progress_emitter.sh",
-			);
-			name = "Bundle install.sh + lib/progress_emitter.sh into Resources";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\ncp \"${SRCROOT}/../install.sh\"               \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"  \"${DEST}/lib/progress_emitter.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\n";
-		};
 		B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -420,6 +404,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Info.plist sets ATSApplicationFontsPath = \"Fonts\", which tells\n# macOS to look at Contents/Resources/Fonts/ for app-specific fonts\n# to register at launch. xcodegen's default group-based resources\n# copy flattens the source Fonts/ subdir, so without this step the\n# TTFs land flat at Contents/Resources/*.ttf and macOS never finds\n# them. Every Font.custom(...) call then silently falls back to\n# system. Caught by TNM 2026-05-16 review of PR #77 (Check 6).\n# Fix: post-build, ensure Fonts/ subdir exists and move any flat\n# brand TTFs (Outfit, IBMPlexSans, JetBrainsMono) + OFL.txt into it.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/Fonts\"\nfor f in Outfit-Regular.ttf Outfit-Medium.ttf Outfit-SemiBold.ttf Outfit-Bold.ttf \\\n         IBMPlexSans-Regular.ttf IBMPlexSans-Medium.ttf IBMPlexSans-SemiBold.ttf \\\n         JetBrainsMono-Regular.ttf JetBrainsMono-Medium.ttf \\\n         OFL.txt; do\n    if [ -f \"${DEST}/${f}\" ]; then\n        mv -f \"${DEST}/${f}\" \"${DEST}/Fonts/${f}\"\n    fi\ndone\n";
+		};
+		E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../install.sh",
+				"$(SRCROOT)/../lib/progress_emitter.sh",
+				"$(SRCROOT)/../install.sh.strings.en-GB.sh",
+			);
+			name = "Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -442,10 +450,10 @@
 				D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */,
 				825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */,
 				A3CA9AD2EA0BD7D8E503F6F7 /* LogDrawerView.swift in Sources */,
+				A24306F6E5743370D87800DF /* OnboardingQuestionView.swift in Sources */,
 				85A41D89844382060889D680 /* OstlerLog.swift in Sources */,
 				9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */,
 				0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */,
-				D68284689B91D6DC85B61C7E /* PromptSheet.swift in Sources */,
 				FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */,
 				8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */,
 				2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */,
@@ -466,6 +474,8 @@
 				518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */,
 				E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */,
 				D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */,
+				8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */,
+				673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */,
 				2D47AB35E1FB087DE3838834 /* ProgressDecoderTests.swift in Sources */,
 				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
 				ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */,

@@ -584,7 +584,9 @@ else
     gui_step_end()    { :; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
-        # working when sourced direct from a terminal.
+        # working when sourced direct from a terminal. Handles the
+        # acknowledge + folder kinds added 2026-05-20 (GUI-only
+        # controls degrade to a plain Enter / path prompt in TTY).
         local title="$1" kind="${2:-text}" default_value="${3:-}"
         local user_prompt="  ${title}"
         [[ -n "$default_value" ]] && user_prompt="${user_prompt} [${default_value}]"
@@ -593,6 +595,10 @@ else
         if [[ "$kind" == "secret" ]]; then
             read -r -s -p "$user_prompt" answer || true
             printf '\n' >&2
+        elif [[ "$kind" == "acknowledge" ]]; then
+            printf '  %s [Enter to continue]: ' "$title" >&2
+            read -r answer || true
+            [[ -z "$answer" && -n "$default_value" ]] && answer="$default_value"
         else
             read -r -p "$user_prompt" answer || true
         fi
@@ -1647,46 +1653,16 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
-    # inbox means it will see every email the user receives, not
+    # inbox means it would see every email the user receives, not
     # just messages addressed to it. The product rule (email_safety)
-    # is: dedicated label/folder, never the inbox. Default to
-    # "Ostler" so a user who blasts through the prompt still gets
-    # safe-by-default scoping.
-    echo ""
-    echo -e "  ${BOLD}Which folder should the assistant watch?${NC}"
-    echo "  Recommended: a dedicated label or folder you create just for"
-    echo "  the assistant (e.g. 'Ostler'). We will only read messages"
-    echo "  there, leaving your main inbox untouched."
-    echo ""
-    # gui_read so the GUI installer renders a sheet. This was the
-    # specific bare-read that hung Andy's Mac Studio at PU12+1
-    # (post-Confirm Password). See 2026-05-16 Studio install audit.
-    CHANNEL_EMAIL_IMAP_FOLDER="$(gui_read "$MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE" text "Ostler" "$MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP" "" "email_imap_folder")"
-    CHANNEL_EMAIL_IMAP_FOLDER="${CHANNEL_EMAIL_IMAP_FOLDER:-Ostler}"
-
-    # Strong INBOX warning. Accept the user's choice only if they
-    # type INBOX a second time; anything else (including empty)
-    # falls back to the safe default. Case-insensitive on the first
-    # entry because Gmail's folder names are case-insensitive in
-    # practice ("inbox" works); after the warning we require an
-    # exact uppercase INBOX so the confirmation is deliberate.
-    _imap_folder_lower="$(printf '%s' "$CHANNEL_EMAIL_IMAP_FOLDER" | tr '[:upper:]' '[:lower:]')"
-    if [[ "$_imap_folder_lower" == "inbox" ]]; then
-        echo ""
-        warn "$MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY"
-        warn "$MSG_WARN_WE_STRONGLY_RECOMMEND_DEDICATED_LABEL_FOLDER"
-        echo ""
-        _imap_folder_confirm="$(gui_read "$MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE" text "" "$MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP" "" "email_inbox_confirm")"
-        if [[ "$_imap_folder_confirm" == "INBOX" ]]; then
-            CHANNEL_EMAIL_IMAP_FOLDER="INBOX"
-            warn "$MSG_WARN_USING_INBOX_ASSISTANT_WILL_READ_EVERY"
-        else
-            CHANNEL_EMAIL_IMAP_FOLDER="Ostler"
-            ok "$MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD"
-        fi
-        unset _imap_folder_confirm
-    fi
-    unset _imap_folder_lower
+    # is: dedicated label/folder, never the inbox.
+    #
+    # v1.0 (2026-05-20 Studio retest #2 follow-up): Andy's call --
+    # 99.5% of operators want the dedicated 'Ostler' label by default,
+    # so we hardcode it and surface customisation as a post-install
+    # Doctor knob rather than an install-time question. Removing this
+    # prompt drops the customer-visible question count by one.
+    CHANNEL_EMAIL_IMAP_FOLDER="Ostler"
 
     # Build a human-friendly summary that reflects whichever paths
     # are enabled. Apple Mail FDA has no host / username; custom
@@ -1748,7 +1724,7 @@ echo "  Downloads folder. Ostler will find them automatically."
 echo ""
 echo "  Skip any you do not use. You can always import more later."
 echo ""
-_="$(gui_read "$MSG_PROMPT_EXPORTS_ACK_TITLE" text "" "$MSG_PROMPT_EXPORTS_ACK_HELP" "" "exports_ack")"
+_="$(gui_read "$MSG_PROMPT_EXPORTS_ACK_TITLE" acknowledge "" "$MSG_PROMPT_EXPORTS_ACK_HELP" "" "exports_ack")"
 
 # ── 6. FileVault check (silent if enabled) ─────────────────────────
 
@@ -2051,7 +2027,7 @@ else
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
     echo ""
-    MANUAL_PATH="$(gui_read "$MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE" text "" "$MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP" "" "manual_exports_path")"
+    MANUAL_PATH="$(gui_read "$MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE" folder "${HOME}/Downloads" "$MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP" "" "manual_exports_path")"
     if [[ -n "$MANUAL_PATH" ]]; then
         MANUAL_PATH="${MANUAL_PATH/#\~/$HOME}"
         if [[ -d "$MANUAL_PATH" ]]; then
@@ -2168,23 +2144,29 @@ cat <<MENU
 
 MENU
 
-PRESET="$(gui_read "$MSG_PROMPT_FDA_PRESET_TITLE" choice "1" "$MSG_PROMPT_FDA_PRESET_HELP" "1,2,3" "fda_preset")"
-PRESET=${PRESET:-1}
+# 2026-05-20: choice keys are semantic (recommended/everything/customise)
+# rather than numeric (1/2/3). The OnboardingQuestionView keys off the
+# prompt id `fda_preset` and renders a segmented radio control with the
+# MSG_PROMPT_FDA_PRESET_CHOICE_* labels. Legacy numeric values are
+# still accepted for the TTY fallback path so an `OSTLER_GUI` unset run
+# from the terminal works the same as before.
+PRESET="$(gui_read "$MSG_PROMPT_FDA_PRESET_TITLE" choice "recommended" "$MSG_PROMPT_FDA_PRESET_HELP" "recommended,everything,customise" "fda_preset")"
+PRESET=${PRESET:-recommended}
 
 # Default sets
 RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders"
 EVERYTHING="${RECOMMENDED},imessage,apple_mail,photos_metadata"
 
 case "$PRESET" in
-    1)
+    1|recommended)
         OSTLER_FDA_SOURCES="$RECOMMENDED"
         ok "$MSG_OK_RECOMMENDED_SOURCES_SELECTED"
         ;;
-    2)
+    2|everything)
         OSTLER_FDA_SOURCES="$EVERYTHING"
         ok "$MSG_OK_ALL_SOURCES_SELECTED_FACE_RECOGNITION_STILL"
         ;;
-    3)
+    3|customise)
         # Per-source loop. Each line: prompt with default, default set
         # by the second argument. Anything other than 'n'/'N' keeps default.
         ENABLED=()
@@ -2544,8 +2526,15 @@ echo "    3. You have set a passphrase you will remember"
 echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
+# 2026-05-20 Studio retest #2: install consent now uses the
+# acknowledge kind (button-only). The GUI renders an Install / Cancel
+# button pair with a hyperlinked terms link in the body copy; pressing
+# Cancel writes "CANCEL" into the FIFO, pressing Install writes
+# "INSTALL". Customer never has to type a confirmation word. TTY
+# fallback (no OSTLER_GUI) still accepts the typed answers for
+# operators driving install.sh from a terminal.
 while true; do
-    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" text "" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "" "consent_install")"
+    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" acknowledge "INSTALL" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
     if [[ "$CONSENT" == "INSTALL" ]]; then
         break
     elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
