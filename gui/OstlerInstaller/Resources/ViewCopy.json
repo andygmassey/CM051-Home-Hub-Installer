@@ -134,7 +134,8 @@
 
   "preinstall_wrapup": {
     "heading": "All set",
-    "body": "You can leave the installer running on its own from here. Go and make a cup of tea."
+    "body": "You can leave the installer running on its own from here. Go and make a cup of tea.",
+    "starting_caption": "Starting install"
   },
 
   "sidebar": {

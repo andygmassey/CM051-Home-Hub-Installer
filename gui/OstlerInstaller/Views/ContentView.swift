@@ -112,12 +112,20 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     // Onboarding takes over the main content area
                     // whenever there is a live PROMPT or the customer
-                    // is reviewing a previous answer via Back. The
-                    // sidebar Steps + footer remain visible so the
-                    // customer never loses their progress anchor.
+                    // is reviewing a previous answer via Back. After
+                    // consent_install submits, `awaitingFirstInstallLine`
+                    // parks us on the wrap-up screen until the first
+                    // install-phase event lands (F16, Studio retest #5
+                    // 2026-05-21) -- pre-fix this gap fell back to the
+                    // HintPanelView "A few questions" splash which read
+                    // as a regression. The sidebar Steps + footer
+                    // remain visible so the customer never loses their
+                    // progress anchor.
                     if coordinator.pendingPrompt != nil ||
                        coordinator.backReviewIndex != nil {
                         OnboardingQuestionView()
+                    } else if coordinator.awaitingFirstInstallLine {
+                        PreInstallWrapupView()
                     } else {
                         HintPanelView()
                     }
@@ -369,6 +377,45 @@ private struct FooterView: View {
         }
         .padding(.horizontal, .ostlerSpace3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ostlerChassis)
+    }
+}
+
+/// F16 (Studio retest #5 2026-05-21): bridge view rendered between
+/// consent_install submit and the first install-phase event. Without
+/// this, ContentView falls back to HintPanelView for the ~1s gap
+/// while install.sh wraps up its question loop and rolls into the
+/// first install step, which renders as a regression to the customer
+/// ("we just answered all the questions, why is the splash showing
+/// again?"). Cleared automatically as soon as a PHASE or STEP_BEGIN
+/// marker arrives.
+private struct PreInstallWrapupView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(ViewCopy.shared.string(for: "preinstall_wrapup.heading"))
+                .font(.ostlerH1)
+                .tracking(-0.4)
+                .foregroundStyle(Color.ostlerInk)
+            Text(ViewCopy.shared.string(for: "preinstall_wrapup.body"))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: .ostlerSpace2) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.ostlerOxblood)
+                Text(ViewCopy.shared.string(for: "preinstall_wrapup.starting_caption"))
+                    .font(.ostlerCaption)
+                    .tracking(1.2)
+                    .foregroundStyle(Color.ostlerInkMuted)
+            }
+            .padding(.top, .ostlerSpace2)
+            Spacer()
+        }
+        .padding(.horizontal, .ostlerSpace4)
+        .padding(.vertical, .ostlerSpace3)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.ostlerChassis)
     }
 }

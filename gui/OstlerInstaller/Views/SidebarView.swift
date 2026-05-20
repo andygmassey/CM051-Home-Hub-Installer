@@ -51,14 +51,14 @@ struct SidebarView: View {
                     Text(ViewCopy.shared.string(
                         for: "sidebar.step_counter",
                         fills: [
-                            "current": "\(coordinator.currentStepIdx)",
+                            "current": "\(coordinator.visibleStepNumber)",
                             "total": "\(coordinator.totalSteps)",
                         ]
                     ))
                         .font(.ostlerStrap)
                         .tracking(1.2)
                         .foregroundStyle(Color.ostlerInkSubdued)
-                    ProgressView(value: Double(coordinator.currentStepIdx),
+                    ProgressView(value: Double(coordinator.visibleStepNumber),
                                  total: Double(max(coordinator.totalSteps, 1)))
                         .progressViewStyle(.linear)
                         .tint(.ostlerOxblood)
