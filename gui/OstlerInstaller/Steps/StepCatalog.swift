@@ -107,6 +107,7 @@ final class StepCatalog {
         "email_ingest",
         "wiki_recompile_agent",
         "ostler_assistant",
+        "ostler_hub_app",
         "ostler_remotecapture",
         "wiki_compile",
         "health_check",
