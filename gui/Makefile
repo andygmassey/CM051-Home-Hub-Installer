@@ -47,6 +47,17 @@ EXPORT_OPTS   := ExportOptions.plist
 NOTARY_PROFILE ?= ostler-installer
 ARCHIVE_DIR    ?= $(HOME)/.ostler-release-artefacts
 
+# OSTLER_APP_PATH points at a pre-built Ostler.app (Tauri Hub desktop) that
+# `make package` will drop into the DMG window beside the installer. Default
+# resolves to the standard Tauri bundle path for Andy's local checkout of
+# ostler-ai/ostler-assistant. Override at make time or in CI to point at the
+# notarised bundle produced by a release workflow:
+#     make OSTLER_APP_PATH=/path/to/Ostler.app ship
+# Leaving it pointing at a missing path is non-fatal: the DMG cuts without
+# Ostler.app and `make package` prints a warning. Customers who install from
+# that DMG see install.sh's "Ostler.app not found" warning at run time.
+OSTLER_APP_PATH ?= $(HOME)/Documents/Projects/ostler-assistant/target/release/bundle/macos/Ostler.app
+
 # ---------------------------------------------------------------------------
 # Derived paths
 #
@@ -185,20 +196,51 @@ package: check-tools check-identity check-create-dmg
 	    echo "ERROR: assets/dmg-background.png missing. Run 'make dmg-bg' first." >&2; \
 	    exit 1; \
 	fi
-	$(STEP) "Building DMG → $(DMG_PATH)"
-	rm -f "$(DMG_PATH)"
-	create-dmg \
-	    --volname "Ostler Installer $(VERSION)" \
-	    --window-pos 200 120 \
-	    --window-size 660 400 \
-	    --background "assets/dmg-background.png" \
-	    --icon-size 128 \
-	    --icon "$(APP_NAME).app" 165 200 \
-	    --hide-extension "$(APP_NAME).app" \
-	    --app-drop-link 495 200 \
-	    --no-internet-enable \
-	    "$(DMG_PATH)" \
-	    "$(APP_PATH)"
+	# Stage the DMG payload in a dedicated subdir so create-dmg's
+	# "give it a directory" form picks up exactly the apps we want
+	# in the DMG window (not the dist/ leftovers like prior DMG
+	# builds or .xcarchive output).
+	@DMG_STAGE="$(BUILD_DIR)/dmg-payload"; \
+	rm -rf "$$DMG_STAGE"; \
+	mkdir -p "$$DMG_STAGE"; \
+	cp -R "$(APP_PATH)" "$$DMG_STAGE/"; \
+	if [ -d "$(OSTLER_APP_PATH)" ]; then \
+	    echo "Staging Ostler.app from $(OSTLER_APP_PATH) into DMG payload"; \
+	    cp -R "$(OSTLER_APP_PATH)" "$$DMG_STAGE/Ostler.app"; \
+	else \
+	    echo "WARNING: OSTLER_APP_PATH=$(OSTLER_APP_PATH) not found; DMG will ship without Ostler.app." >&2; \
+	fi; \
+	echo "[STEP] Building DMG -> $(DMG_PATH)"; \
+	rm -f "$(DMG_PATH)"; \
+	if [ -d "$$DMG_STAGE/Ostler.app" ]; then \
+	    create-dmg \
+	        --volname "Ostler Installer $(VERSION)" \
+	        --window-pos 200 120 \
+	        --window-size 820 400 \
+	        --background "assets/dmg-background.png" \
+	        --icon-size 128 \
+	        --icon "Ostler.app" 140 200 \
+	        --icon "$(APP_NAME).app" 340 200 \
+	        --hide-extension "Ostler.app" \
+	        --hide-extension "$(APP_NAME).app" \
+	        --app-drop-link 660 200 \
+	        --no-internet-enable \
+	        "$(DMG_PATH)" \
+	        "$$DMG_STAGE"; \
+	else \
+	    create-dmg \
+	        --volname "Ostler Installer $(VERSION)" \
+	        --window-pos 200 120 \
+	        --window-size 660 400 \
+	        --background "assets/dmg-background.png" \
+	        --icon-size 128 \
+	        --icon "$(APP_NAME).app" 165 200 \
+	        --hide-extension "$(APP_NAME).app" \
+	        --app-drop-link 495 200 \
+	        --no-internet-enable \
+	        "$(DMG_PATH)" \
+	        "$$DMG_STAGE"; \
+	fi
 	$(STEP) "Signing DMG with $(CODESIGN_ID)"
 	codesign --sign "$(CODESIGN_ID)" --timestamp --force "$(DMG_PATH)"
 	codesign --verify --verbose=2 "$(DMG_PATH)"

@@ -4605,6 +4605,7 @@ echo "    - Ostler directory (~/.ostler, except power.conf)"
 echo "    - Doctor, export watcher, hub power, email-ingest, wiki-recompile,"
 echo "      assistant, and RemoteCapture launchd services"
 echo "    - /Applications/Ostler RemoteCapture.app"
+echo "    - /Applications/Ostler.app"
 echo "    - Ostler commands from PATH"
 echo ""
 echo "  This will NOT remove:"
@@ -4730,6 +4731,17 @@ if [[ -d "/Applications/Ostler RemoteCapture.app" ]]; then
         echo "  (warning: could not remove /Applications/Ostler RemoteCapture.app; remove manually)"
 fi
 rm -rf "${HOME}/Library/Application Support/Ostler RemoteCapture" 2>/dev/null || true
+
+# ── Ostler.app (Tauri Hub desktop) ─────────────────────────────
+# Remove the customer-facing Hub desktop bundle from /Applications.
+# No Application Support dir to clean: the GUI persists state via
+# the gateway, not a per-user data directory.
+if [[ -d "/Applications/Ostler.app" ]]; then
+    echo "  Removing /Applications/Ostler.app..."
+    rm -rf "/Applications/Ostler.app" 2>/dev/null || \
+        sudo rm -rf "/Applications/Ostler.app" 2>/dev/null || \
+        echo "  (warning: could not remove /Applications/Ostler.app; remove manually)"
+fi
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
@@ -5808,6 +5820,99 @@ RCAPEOF
 fi
 
 fi  # end RemoteCapture Apple Silicon guard
+
+# ── 3.14g Ostler.app (Tauri Hub desktop) ────────────────────────
+#
+# Stages the customer-facing Ostler.app menu-bar / window companion
+# (ostler-ai/ostler-assistant apps/tauri build, packaged by the
+# Tauri bundler) into /Applications. Unlike RemoteCapture, this is
+# not a daemon: it is the GUI surface the customer opens to chat
+# with the assistant, view the wiki, and pair iOS devices. No
+# LaunchAgent: the customer launches it from the Dock when they
+# want it.
+#
+# Source preference (mirrors the THIRD_PARTY_NOTICES staging
+# pattern at line 5826+):
+#   1. /Applications/Ostler.app already present (customer dragged
+#      it from the DMG window before running this installer).
+#   2. ${SCRIPT_DIR}/Ostler.app (bundled inside the installer
+#      tarball / inside the OstlerInstaller.app Resources for the
+#      DMG path).
+#   3. ${SCRIPT_DIR}/../Ostler.app (sibling of install.sh when
+#      mounted from the DMG and the installer was launched without
+#      copying assets out first).
+#
+# A future v1.0.1 PR can add a GitHub-release download path that
+# mirrors the CM042 RemoteCapture network-fetch fallback, gated on
+# a published ostler-assistant release tag. For v1.0 we keep the
+# install path offline-friendly so a customer who curl|bashes the
+# script gets a useful warning rather than a broken download
+# (Ostler.app needs to ship inside the signed DMG to clear
+# Gatekeeper first-launch).
+
+progress "Setting up Ostler.app (Hub desktop companion)" "ostler_hub_app"
+
+HUB_APP_DEST="/Applications/Ostler.app"
+HUB_APP_SOURCE=""
+HUB_APP_INSTALLED=false
+
+if [[ -d "$HUB_APP_DEST" ]]; then
+    HUB_APP_SOURCE="$HUB_APP_DEST"
+elif [[ -d "${SCRIPT_DIR}/Ostler.app" ]]; then
+    HUB_APP_SOURCE="${SCRIPT_DIR}/Ostler.app"
+elif [[ -d "${SCRIPT_DIR}/../Ostler.app" ]]; then
+    HUB_APP_SOURCE="${SCRIPT_DIR}/../Ostler.app"
+fi
+
+if [[ -n "$HUB_APP_SOURCE" ]]; then
+    # Stage into /Applications when the source is not already there.
+    # Pre-existing install: remove first so a slimmer bundle does
+    # not leave stale Resources behind. Sudo fallback for the rare
+    # corporate-imaged Mac where /Applications is admin-owned.
+    if [[ "$HUB_APP_SOURCE" != "$HUB_APP_DEST" ]]; then
+        info "$(printf "$MSG_INFO_HUB_APP_STAGING" "${HUB_APP_SOURCE}")"
+        if [[ -d "$HUB_APP_DEST" ]]; then
+            rm -rf "$HUB_APP_DEST" 2>/dev/null || sudo rm -rf "$HUB_APP_DEST" 2>/dev/null || true
+        fi
+        if ! cp -R "$HUB_APP_SOURCE" "$HUB_APP_DEST" 2>/dev/null; then
+            sudo cp -R "$HUB_APP_SOURCE" "$HUB_APP_DEST" 2>/dev/null || true
+        fi
+    fi
+
+    if [[ -d "$HUB_APP_DEST" ]]; then
+        info "$(printf "$MSG_INFO_HUB_APP_VERIFYING" "${HUB_APP_DEST}")"
+
+        # Signature + Gatekeeper verification, same posture as the
+        # RemoteCapture phase. Both gates must pass before we strip
+        # the quarantine xattr: an unverified bundle bypassing
+        # Gatekeeper is not something we silently stage onto the
+        # customer's daily-driver Mac.
+        HUB_APP_CODESIGN_LOG="$(mktemp -t ostler-hub-app-codesign.XXXXXX)"
+        HUB_APP_SPCTL_LOG="$(mktemp -t ostler-hub-app-spctl.XXXXXX)"
+        if codesign --verify --deep --strict "$HUB_APP_DEST" 2>"$HUB_APP_CODESIGN_LOG" \
+           && spctl --assess --type execute "$HUB_APP_DEST" 2>"$HUB_APP_SPCTL_LOG"; then
+            xattr -dr com.apple.quarantine "$HUB_APP_DEST" 2>/dev/null || true
+            if [[ "$HUB_APP_SOURCE" == "$HUB_APP_DEST" ]]; then
+                ok "$(printf "$MSG_OK_HUB_APP_PRESENT" "${HUB_APP_DEST}")"
+            else
+                ok "$(printf "$MSG_OK_HUB_APP_STAGED" "${HUB_APP_DEST}")"
+            fi
+            HUB_APP_INSTALLED=true
+        else
+            warn "$MSG_WARN_HUB_APP_VERIFY_FAILED"
+            if [[ -s "$HUB_APP_CODESIGN_LOG" ]]; then
+                sed -e 's/^/    /' "$HUB_APP_CODESIGN_LOG" | head -5
+            fi
+            if [[ -s "$HUB_APP_SPCTL_LOG" ]]; then
+                sed -e 's/^/    /' "$HUB_APP_SPCTL_LOG" | head -5
+            fi
+        fi
+        rm -f "$HUB_APP_CODESIGN_LOG" "$HUB_APP_SPCTL_LOG"
+    fi
+else
+    warn "$MSG_WARN_HUB_APP_NOT_FOUND"
+    info "$MSG_INFO_HUB_APP_DRAG_HINT"
+fi
 
 # ── 3.14b Third-party attribution catalogue ─────────────────────
 #
