@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
-"""Generate the OstlerInstaller DMG background image.
+"""Generate the Ostler installer DMG background image.
 
-Writes a 660x400 PNG to ``gui/assets/dmg-background.png`` with the
-brand-cream chassis colour, a centred arrow between the icon
-positions, and a "Drag Ostler Installer to Applications" caption.
+Writes an 820x400 PNG to ``gui/assets/dmg-background.png`` with the
+brand-cream chassis colour, a single arrow from the OstlerInstaller
+icon to the /Applications drop-link, a "Drag Ostler Installer to
+Applications" caption, and an informational label under the
+Ostler.app icon explaining that it is installed automatically by
+the installer (so the customer is not confused about why a second
+app sits in the DMG window).
 
 The image is the *background* layer of the DMG window. ``create-dmg``
-positions the .app icon at (165, 200) and the /Applications symlink
-at (495, 200) on top of this background, so the arrow + caption sit
-in the visible gaps:
+positions three icons on top of this background:
 
-    +----------------------------------------------------------------+
-    |                                                                |
-    |   [icon]          --------->          [Applications]           |
-    |                                                                |
-    |       Drag Ostler Installer to Applications                    |
-    |                                                                |
-    +----------------------------------------------------------------+
+  - Ostler.app at         (140, 200)
+  - OstlerInstaller.app at (340, 200)
+  - /Applications at      (660, 200)
 
-v1 launch goal is "not broken", not "polished" -- per the brief at
-``HR015/launch/TNM_BRIEF_DMG_INSTALLER_UX_2026-05-13.md``. Post-launch,
-a designer-polished version with brand illustration can replace
-``gui/assets/dmg-background.png`` without touching this script.
+The arrow + caption sit in the visible gaps between OstlerInstaller
+and /Applications. Ostler.app gets a "(installed automatically)"
+label below it; there is no arrow drawn from Ostler.app because
+the customer does not need to drag it -- install.sh stages it
+into /Applications during the install run (see install.sh section
+3.14g).
+
+    +-------------------------------------------------------------------+
+    |                                                                   |
+    |   [Ostler.app]      [OstlerInstaller]  ----->   [Applications]    |
+    |                                                                   |
+    |   installed         Drag Ostler Installer to Applications         |
+    |   automatically                                                   |
+    +-------------------------------------------------------------------+
+
+For the single-app DMG fallback (no Ostler.app bundled), pass
+``--single-app`` to fall back to the 660x400 layout used pre-v1.0.
 
 Run from anywhere:
 
@@ -31,6 +42,7 @@ Requires Pillow (``pip install Pillow``).
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Tuple
 
@@ -38,30 +50,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 # Brand tokens (mirrors OS001 assets/ostler.css --chassis / --ink).
-# Kept in this script rather than read from CSS because the script
-# has to run in any Python venv without parsing CSS.
 BG: Tuple[int, int, int] = (248, 248, 244)   # --chassis
 INK: Tuple[int, int, int] = (20, 18, 14)     # --ink
 INK_MUTED: Tuple[int, int, int] = (90, 88, 80)
+INK_QUIET: Tuple[int, int, int] = (140, 138, 130)
 
-WIDTH = 660
-HEIGHT = 400
-
-# Icon centres (must match the --icon X Y args in gui/Makefile's
-# create-dmg invocation).
-APP_ICON_CENTER = (165, 200)
-APPLICATIONS_CENTER = (495, 200)
 ICON_SIZE = 128  # matches --icon-size 128 in the Makefile
 
 
 def _load_font(size: int) -> ImageFont.ImageFont:
-    """Resolve a sans font available on the typical Mac build host.
-
-    We try the SF Pro system font first (matches macOS chrome), then
-    fall back to Helvetica, then to PIL's bundled default. The
-    fallback chain means the script still produces *something* on
-    a non-Mac CI host where SF Pro is absent.
-    """
+    """Resolve a sans font available on the typical Mac build host."""
     candidates = (
         "/System/Library/Fonts/SFNS.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
@@ -75,56 +73,123 @@ def _load_font(size: int) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def _draw_arrow(draw: ImageDraw.ImageDraw) -> None:
-    """Draw a horizontal arrow between the two icon positions."""
-    # Leave generous padding around each icon so the arrow sits in
-    # the gap rather than overlapping the icon glyphs Finder draws
-    # on top.
+def _draw_arrow(
+    draw: ImageDraw.ImageDraw,
+    start_center: Tuple[int, int],
+    end_center: Tuple[int, int],
+) -> None:
+    """Draw a horizontal arrow between two icon centres."""
     icon_half = ICON_SIZE // 2
-    start_x = APP_ICON_CENTER[0] + icon_half + 18
-    end_x = APPLICATIONS_CENTER[0] - icon_half - 18
-    y = APP_ICON_CENTER[1]
+    start_x = start_center[0] + icon_half + 18
+    end_x = end_center[0] - icon_half - 18
+    y = start_center[1]
 
-    line_thickness = 3
-    draw.line([(start_x, y), (end_x, y)], fill=INK, width=line_thickness)
+    draw.line([(start_x, y), (end_x, y)], fill=INK, width=3)
 
-    # Arrowhead. Filled triangle.
-    head_size = 14
+    # Arrowhead filled triangle.
+    head = 14
     draw.polygon(
-        [
-            (end_x, y),
-            (end_x - head_size, y - head_size + 1),
-            (end_x - head_size, y + head_size - 1),
-        ],
+        [(end_x, y), (end_x - head, y - head + 1), (end_x - head, y + head - 1)],
         fill=INK,
     )
 
 
-def _draw_caption(draw: ImageDraw.ImageDraw) -> None:
-    """Draw the instructional caption below the icon row."""
-    text = "Drag Ostler Installer to Applications"
-    font = _load_font(20)
+def _draw_centred_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x_centre: int,
+    y_top: int,
+    *,
+    font: ImageFont.ImageFont,
+    fill: Tuple[int, int, int],
+) -> None:
     bbox = draw.textbbox((0, 0), text, font=font)
     text_w = bbox[2] - bbox[0]
-    # Place below the icons. ICON center is y=200, icon spans down
-    # to ~264 with size 128, so y=305 sits clear of the icon glyphs.
-    y = APP_ICON_CENTER[1] + (ICON_SIZE // 2) + 36
-    draw.text(
-        ((WIDTH - text_w) // 2, y),
-        text, font=font, fill=INK_MUTED,
+    draw.text((x_centre - text_w // 2, y_top), text, font=font, fill=fill)
+
+
+def generate_two_app(out_path: Path) -> None:
+    width, height = 820, 400
+    ostler = (140, 200)
+    installer = (340, 200)
+    applications = (660, 200)
+
+    img = Image.new("RGB", (width, height), BG)
+    draw = ImageDraw.Draw(img)
+
+    # Single arrow: OstlerInstaller -> Applications.
+    _draw_arrow(draw, installer, applications)
+
+    # Caption row under the icons.
+    caption_font = _load_font(20)
+    info_font = _load_font(14)
+
+    caption_y = installer[1] + (ICON_SIZE // 2) + 36
+
+    # Primary caption sits centred between OstlerInstaller and
+    # Applications icons, matching the arrow above it.
+    caption_centre = (installer[0] + applications[0]) // 2
+    _draw_centred_text(
+        draw,
+        "Drag Ostler Installer to Applications",
+        caption_centre,
+        caption_y,
+        font=caption_font,
+        fill=INK_MUTED,
     )
 
+    # Informational label under Ostler.app, two short lines so it
+    # fits in the icon-column width without crowding the icon glyph.
+    _draw_centred_text(
+        draw,
+        "Installed automatically",
+        ostler[0],
+        caption_y,
+        font=info_font,
+        fill=INK_QUIET,
+    )
+    _draw_centred_text(
+        draw,
+        "by the installer",
+        ostler[0],
+        caption_y + 20,
+        font=info_font,
+        fill=INK_QUIET,
+    )
 
-def generate(out_path: Path) -> None:
-    img = Image.new("RGB", (WIDTH, HEIGHT), BG)
-    draw = ImageDraw.Draw(img)
-    _draw_arrow(draw)
-    _draw_caption(draw)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     img.save(out_path, "PNG", optimize=True)
-    print(f"wrote {out_path}")
+    print(f"wrote {out_path} ({width}x{height}, two-app layout)")
+
+
+def generate_single_app(out_path: Path) -> None:
+    width, height = 660, 400
+    installer = (165, 200)
+    applications = (495, 200)
+
+    img = Image.new("RGB", (width, height), BG)
+    draw = ImageDraw.Draw(img)
+    _draw_arrow(draw, installer, applications)
+
+    caption_font = _load_font(20)
+    caption_y = installer[1] + (ICON_SIZE // 2) + 36
+    _draw_centred_text(
+        draw,
+        "Drag Ostler Installer to Applications",
+        width // 2,
+        caption_y,
+        font=caption_font,
+        fill=INK_MUTED,
+    )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_path, "PNG", optimize=True)
+    print(f"wrote {out_path} ({width}x{height}, single-app layout)")
 
 
 if __name__ == "__main__":
     out = Path(__file__).resolve().parent.parent / "assets" / "dmg-background.png"
-    generate(out)
+    if "--single-app" in sys.argv:
+        generate_single_app(out)
+    else:
+        generate_two_app(out)
