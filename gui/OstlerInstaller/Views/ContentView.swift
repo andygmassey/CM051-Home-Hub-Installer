@@ -146,15 +146,57 @@ struct ContentView: View {
 /// left footer status line as the primary failure signal. Surfaces:
 ///   - one-line cause from `coordinator.error` (falls back to a
 ///     generic "Install failed" if no error is set)
-///   - "Copy log" button (mirrors the LogDrawerView Copy log button
-///     so the customer can grab the full buffer for hello@ostler.ai)
+///   - "Email support" button (primary) -- opens a mailto: to
+///     support@ostler.ai with the redacted log pre-filled (task #351
+///     follow-on, 2026-05-21). The PII redactor (see Support/
+///     PIIRedactor.swift) strips emails, phones, names, /Users/<u>/
+///     and IP addresses before the log lands in the customer's email
+///     compose window. Keeps technical content (function names,
+///     /Applications + /tmp paths, error codes, hex digests) intact.
+///   - "Copy redacted log" button -- same redacted buffer but copies
+///     to the pasteboard for customers who prefer not to open Mail.
+///   - "Copy log (raw)" button -- escape hatch for unredacted log.
+///     Gated behind a confirmation modal that names the personal
+///     data classes the buffer can contain. Most customers should
+///     never reach this path.
 ///   - "Try again" button -- terminates the app so the customer
 ///     can re-launch. We deliberately do NOT attempt an in-place
 ///     restart because the failed install may have left
 ///     ~/.ostler/ in a state that needs a fresh process to clean up.
 private struct InstallFailedBannerView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
-    @State private var copied = false
+    @State private var rawCopied = false
+    @State private var redactedCopied = false
+    @State private var emailOpening = false
+    @State private var showRawCopyConfirm = false
+
+    /// Build the redactor on demand: each render reads the latest
+    /// answerHistory in case the customer's name only became known
+    /// late in onboarding. Cheap to construct (no I/O).
+    private func makeRedactor() -> PIIRedactor {
+        // Pull any caller-supplied display names out of the onboarding
+        // answer history. We accept several prompt-id shapes because
+        // the install.sh strings catalogue has shifted between
+        // `user_name`, `display_name`, and `your_name` over the
+        // last fortnight; whichever one carries the name on this
+        // build, we'll catch it.
+        let nameKeys: Set<String> = [
+            "user_name", "your_name", "display_name", "name",
+            "operator_name", "operator", "full_name",
+        ]
+        let names = coordinator.answerHistory
+            .filter { nameKeys.contains($0.prompt.id) }
+            .map { $0.answer }
+        return PIIRedactor(names: names)
+    }
+
+    private var rawBuffer: String {
+        LogDrawerView.formatBuffer(coordinator.logLines)
+    }
+
+    private var redactedBuffer: String {
+        makeRedactor().redact(rawBuffer)
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: CGFloat.ostlerSpace3) {
@@ -172,30 +214,107 @@ private struct InstallFailedBannerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: CGFloat.ostlerSpace3)
-            Button(copied
-                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_log_button_copied")
-                   : ViewCopy.shared.string(for: "install_failed_banner.copy_log_button")) {
-                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(buffer, forType: .string)
-                copied = true
+
+            // Primary: Email support with the redacted log.
+            Button(emailOpening
+                   ? ViewCopy.shared.string(for: "install_failed_banner.email_support_button_busy")
+                   : ViewCopy.shared.string(for: "install_failed_banner.email_support_button")) {
+                openMailto()
+            }
+            .buttonStyle(.ostlerPrimary)
+            .disabled(emailOpening)
+            .keyboardShortcut(.defaultAction)
+
+            // Secondary: copy the redacted log to the pasteboard.
+            Button(redactedCopied
+                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_button_copied")
+                   : ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_button")) {
+                copyToPasteboard(redactedBuffer)
+                redactedCopied = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    copied = false
+                    redactedCopied = false
                 }
             }
             .buttonStyle(.ostlerGhost)
             .foregroundStyle(Color.white)
+
+            // Tertiary: copy the RAW log, behind a confirmation modal.
+            Button(rawCopied
+                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_log_button_copied")
+                   : ViewCopy.shared.string(for: "install_failed_banner.copy_log_button")) {
+                showRawCopyConfirm = true
+            }
+            .buttonStyle(.ostlerGhost)
+            .foregroundStyle(Color.white)
+
             Button(ViewCopy.shared.string(for: "install_failed_banner.try_again_button")) {
                 NSApp.terminate(nil)
             }
-            .buttonStyle(.ostlerPrimary)
-            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.ostlerGhost)
+            .foregroundStyle(Color.white)
         }
         .padding(.horizontal, CGFloat.ostlerSpace3)
         .padding(.vertical, CGFloat.ostlerSpace2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.ostlerOxblood)
+        .alert(
+            ViewCopy.shared.string(for: "install_failed_banner.raw_copy_confirm_title"),
+            isPresented: $showRawCopyConfirm
+        ) {
+            Button(
+                ViewCopy.shared.string(for: "install_failed_banner.raw_copy_confirm_cancel"),
+                role: .cancel
+            ) {
+                // Default cancel.
+            }
+            Button(
+                ViewCopy.shared.string(for: "install_failed_banner.raw_copy_confirm_proceed"),
+                role: .destructive
+            ) {
+                copyToPasteboard(rawBuffer)
+                rawCopied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    rawCopied = false
+                }
+            }
+        } message: {
+            Text(ViewCopy.shared.string(for: "install_failed_banner.raw_copy_confirm_body"))
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func copyToPasteboard(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+    }
+
+    private func openMailto() {
+        emailOpening = true
+        defer {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                emailOpening = false
+            }
+        }
+
+        let to = ViewCopy.shared.string(for: "install_failed_banner.mailto_to")
+        let summary = (coordinator.error?.split(separator: "\n").first.map(String.init))
+            ?? ViewCopy.shared.string(for: "install_failed_banner.mailto_subject_fallback_summary")
+        let subjectTemplate = ViewCopy.shared.string(for: "install_failed_banner.mailto_subject")
+        let subject = subjectTemplate.replacingOccurrences(of: "{summary}", with: summary)
+        let preamble = ViewCopy.shared.string(for: "install_failed_banner.mailto_body_preamble")
+        let body = preamble + redactedBuffer
+
+        // Percent-encode for the mailto URL. `.urlQueryAllowed` covers
+        // the common shape; we then strip the few stragglers (`&`, `=`)
+        // that would otherwise terminate the query.
+        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject
+        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? body
+        let urlString = "mailto:\(to)?subject=\(encodedSubject)&body=\(encodedBody)"
+
+        guard let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 

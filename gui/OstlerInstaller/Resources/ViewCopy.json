@@ -20,10 +20,22 @@
 
   "install_failed_banner": {
     "heading": "Install failed",
-    "subtitle_default": "Something went wrong during install. Use Copy log to grab the details for hello@ostler.ai, then Try again.",
-    "copy_log_button": "Copy log",
+    "subtitle_default": "Something went wrong during install. Email support@ostler.ai with the redacted log, or use Copy log to grab the raw details.",
+    "email_support_button": "Email support",
+    "email_support_button_busy": "Opening email...",
+    "copy_log_button": "Copy log (raw)",
     "copy_log_button_copied": "Copied",
-    "try_again_button": "Try again"
+    "copy_redacted_button": "Copy redacted log",
+    "copy_redacted_button_copied": "Copied",
+    "try_again_button": "Try again",
+    "mailto_to": "support@ostler.ai",
+    "mailto_subject": "Ostler Installer failed, {summary}",
+    "mailto_subject_fallback_summary": "diagnostic log attached",
+    "mailto_body_preamble": "Hi Ostler team,\n\nThe Ostler installer failed during install. The redacted log below shows what happened. We will reply within one working day.\n\n",
+    "raw_copy_confirm_title": "Copy raw log?",
+    "raw_copy_confirm_body": "This log contains your name, email and contact information. Are you sure you want to copy the raw log to your clipboard? Most users should use the Email support button instead, which redacts sensitive details automatically.",
+    "raw_copy_confirm_proceed": "Copy raw log",
+    "raw_copy_confirm_cancel": "Cancel"
   },
 
   "footer": {
@@ -48,7 +60,17 @@
     "signature_invalid_error": "Signature check failed. This file is not a licence we signed, or it was edited after delivery.",
     "expired_error": "Your licence expired on {expires_at}. Email hello@ostler.ai to renew.",
     "malformed_error": "Could not read this licence: {reason}",
-    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai."
+    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai.",
+    "id_label": "Or paste your Stripe session id (cs_...) or licence URL",
+    "id_placeholder": "cs_test_... or https://appcast.ostler.ai/api/license/cs_...",
+    "fetch_button": "Fetch",
+    "fetch_button_busy": "Fetching...",
+    "id_unrecognised": "That does not look like a Stripe session id, licence URL, or licence id. Drag your ostler-licence.json onto the box above instead.",
+    "fetch_not_ready": "Your licence is not ready yet. Wait a minute and try again, or use the licence file from your welcome email.",
+    "fetch_revoked": "This licence is no longer valid. Please contact hello@ostler.ai.",
+    "fetch_signed_json_missing": "We could not retrieve your licence body. Please use the ostler-licence.json file from your welcome email, or contact hello@ostler.ai.",
+    "fetch_http_error": "Could not fetch your licence (server returned {status}). Please use the ostler-licence.json file from your welcome email, or try again later.",
+    "fetch_transport_error": "Could not reach appcast.ostler.ai ({reason}). Check your network connection, or use the ostler-licence.json file from your welcome email."
   },
 
   "device_limit": {
