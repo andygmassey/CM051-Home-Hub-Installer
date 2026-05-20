@@ -48,14 +48,16 @@ NOTARY_PROFILE ?= ostler-installer
 ARCHIVE_DIR    ?= $(HOME)/.ostler-release-artefacts
 
 # OSTLER_APP_PATH points at a pre-built Ostler.app (Tauri Hub desktop) that
-# `make package` will drop into the DMG window beside the installer. Default
-# resolves to the standard Tauri bundle path for Andy's local checkout of
-# ostler-ai/ostler-assistant. Override at make time or in CI to point at the
-# notarised bundle produced by a release workflow:
+# `make package` will drop into the DMG window beside the installer, and
+# `make sparkle-embed` uses to locate the bundle that gets
+# Sparkle.framework + SU* keys stamped in. Default resolves to the
+# standard Tauri bundle path for Andy's local checkout of
+# ostler-ai/ostler-assistant. Override at make time or in CI to point at
+# the notarised bundle produced by a release workflow:
 #     make OSTLER_APP_PATH=/path/to/Ostler.app ship
 # Leaving it pointing at a missing path is non-fatal: the DMG cuts without
-# Ostler.app and `make package` prints a warning. Customers who install from
-# that DMG see install.sh's "Ostler.app not found" warning at run time.
+# Ostler.app and `make package` prints a warning. Customers who install
+# from that DMG see install.sh's "Ostler.app not found" warning at run time.
 OSTLER_APP_PATH ?= $(HOME)/Documents/Projects/ostler-assistant/target/release/bundle/macos/Ostler.app
 
 # ---------------------------------------------------------------------------
@@ -86,7 +88,8 @@ DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
-        check-tools check-identity check-create-dmg print-version dmg-bg
+        check-tools check-identity check-create-dmg print-version dmg-bg \
+        sparkle-embed
 
 all: debug
 
@@ -171,6 +174,42 @@ release: check-tools check-identity
 	@echo ""
 	@echo "Release .app: $(APP_PATH)"
 	@echo "Version:      $(VERSION)"
+
+# ---------------------------------------------------------------------------
+# Sparkle embed (Ostler.app only)
+#
+# Post-processes a pre-built Ostler.app to embed Sparkle.framework
+# and the SU* Info.plist keys (feed URL + EdDSA public key + auto
+# check policy). Designed to run after `cargo tauri build` but
+# before `make package`, so the DMG payload picks up the
+# Sparkle-embedded variant. Invoked automatically by `make ship`
+# when OSTLER_APP_PATH points at a real bundle. Safe to run by
+# hand against any bundle, idempotent on re-run.
+#
+# OSTLER_APP_PATH must point at a Tauri-built Ostler.app at the
+# top-level Cargo bundle output (e.g.,
+# ~/Documents/Projects/ostler-assistant/target/release/bundle/macos/
+# Ostler.app). The script verifies the bundle is present before
+# any modification.
+#
+# Override Sparkle source / Info.plist values via the script's
+# environment variables: SPARKLE_VERSION, SPARKLE_SHA256,
+# SU_FEED_URL, SU_PUBLIC_ED_KEY, SU_ENABLE_AUTO_CHECKS,
+# SU_AUTOMATICALLY_UPDATE, CODESIGN_ID. Defaults match the v1.0
+# launch posture (appcast.ostler.ai, hub_signing_public_2026-05-16,
+# automatic-check ON, auto-install OFF).
+# ---------------------------------------------------------------------------
+sparkle-embed:
+	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
+	    echo "WARNING: OSTLER_APP_PATH=$(OSTLER_APP_PATH) not found; skipping Sparkle embed." >&2; \
+	else \
+	    $(STEP_INLINE) "Embedding Sparkle into $(OSTLER_APP_PATH)"; \
+	    "$(CURDIR)/scripts/embed-sparkle.sh" "$(OSTLER_APP_PATH)"; \
+	fi
+
+# Inline form of $(STEP) usable inside a shell conditional. $(STEP) is
+# @-prefixed which breaks the `if ...; then \` pipeline above on macOS bash.
+STEP_INLINE := printf '\n[STEP] %s\n'
 
 # ---------------------------------------------------------------------------
 # DMG package – Developer ID signed
@@ -311,7 +350,7 @@ archive:
 # ---------------------------------------------------------------------------
 # One-shot: build → DMG → notarise → staple → archive
 # ---------------------------------------------------------------------------
-ship: release package notarise archive
+ship: release sparkle-embed package notarise archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
