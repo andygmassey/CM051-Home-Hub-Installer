@@ -46,6 +46,22 @@ enum InstallerEvent: Equatable {
 
 enum PromptKind: String, Equatable {
     case text, secret, yesno, choice
+    /// Button-only confirmation -- the customer presses Continue to
+    /// acknowledge a screen, no typed input. install.sh used to use
+    /// `gui_read text` with an empty default for these (e.g.
+    /// exports_ack); Studio retest #2 (2026-05-20) flagged that the
+    /// resulting "type Continue then press Continue" UX is
+    /// confusing, so the v1.0 fix adds this kind and the
+    /// OnboardingQuestionView renders it as a single primary button.
+    /// install.sh helpers: `gui_acknowledge` in lib/progress_emitter.sh.
+    case acknowledge
+    /// Folder-picker control -- defaults to a path supplied via the
+    /// `default` field, with a "Choose Folder..." button surfacing
+    /// NSOpenPanel + a "Skip this step" button for opt-out flows
+    /// (manual_exports_path). Replaces the textfield-or-blank UX
+    /// that produced the "Please enter a value to continue" error
+    /// when the customer pressed Continue with an empty field.
+    case folder
 }
 
 enum StepStatus: String, Equatable {

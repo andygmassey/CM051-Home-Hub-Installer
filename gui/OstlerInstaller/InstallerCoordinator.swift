@@ -46,6 +46,37 @@ final class InstallerCoordinator: ObservableObject {
     /// exits non-zero on a fresh Mac with no warm sudo timestamp.
     @Published var needsAdminRetry: Bool = false
 
+    /// True between bootstrap's initial gate-pass and the moment the
+    /// customer presses "Continue and enter your password". Set by
+    /// `bootstrapAsync()` after the licence + registration gates
+    /// clear, cleared by `userAcknowledgedAdminRequest()`. While
+    /// true, ContentView renders `AdminAccessRequiredView` with the
+    /// explanation copy + a single primary button; the macOS
+    /// admin dialog does NOT fire until the customer clicks the
+    /// button. Studio retest #2 (2026-05-20) found that firing the
+    /// dialog on first appear surprised customers who hadn't yet
+    /// read the surrounding explanation.
+    @Published var needsAdminAcknowledgement: Bool = false
+
+    /// True while the macOS admin authorisation osascript dialog is
+    /// in flight. Drives the button's disabled state + suppresses
+    /// the duplicate-fire that Studio retest #2 (2026-05-20) flagged
+    /// (two `Requesting administrator access via macOS native dialog`
+    /// log lines in the same second pre-fix). Both
+    /// `bootstrapAsync()` and `retryAdminAuthorization()` short-
+    /// circuit when this is true.
+    @Published var requestingAdmin: Bool = false
+
+    /// Most-recent install-side status line surfaced as ephemeral
+    /// copy on the main content area. Mac Studio retest #2 (2026-05-20)
+    /// flagged a 20-second invisible pause after Q1 while install.sh
+    /// read the contact card + exported contacts; the log lines were
+    /// landing in the LogDrawer (hidden by default) so the customer
+    /// thought the installer had hung. This field mirrors the most
+    /// recent `info`-level subprocess message so the main view can
+    /// render it as a visible status banner during quiet windows.
+    @Published var preInstallStatus: String? = nil
+
     // ── Onboarding question rendering (in-window, #353) ──────────
     //
     // The Studio retry on 2026-05-16 surfaced that 12+ sheet-style
@@ -245,16 +276,31 @@ final class InstallerCoordinator: ObservableObject {
         Task { @MainActor in await self.bootstrapAsync() }
     }
 
-    /// The real bootstrap body. Seeds the macOS sudo timestamp via
-    /// `AuthorizationHelper` BEFORE launching install.sh -- install.sh
-    /// line 2574 runs a bare `sudo -v` that, under OSTLER_GUI=1 with
-    /// stdin redirected to a pipe, would otherwise exit non-zero on
-    /// a fresh Mac with no warm timestamp and fire `fail` immediately.
-    /// On user-cancel we surface the retry UI via `needsAdminRetry`
-    /// and DO NOT launch the subprocess.
+    /// The real bootstrap body. Two-phase per F3 (Studio retest #2
+    /// 2026-05-20): phase 1 confirms the licence + registration
+    /// gates and parks at `needsAdminAcknowledgement = true` so the
+    /// AdminAccessRequiredView can render its explanation copy and
+    /// wait for the customer to press Continue. Phase 2 (see
+    /// `userAcknowledgedAdminRequest()`) actually fires the osascript
+    /// dialog + launches the subprocess.
+    ///
+    /// Two reentrancy guards:
+    ///   - `requestingAdmin` short-circuits a second call while the
+    ///     dialog or launch is in flight (the duplicate-fire Studio
+    ///     retest #2 caught).
+    ///   - `needsAdminAcknowledgement` short-circuits a second call
+    ///     while we are parked waiting for the customer.
     private func bootstrapAsync() async {
         guard process == nil else {
             OstlerLog.lifecycle.debug("bootstrap: subprocess already running (pid=\(self.process?.processIdentifier ?? -1, privacy: .public))")
+            return
+        }
+        guard !requestingAdmin else {
+            OstlerLog.lifecycle.debug("bootstrap: admin authorisation already in flight -- short-circuit")
+            return
+        }
+        guard !needsAdminAcknowledgement else {
+            OstlerLog.lifecycle.debug("bootstrap: already parked waiting for user acknowledgement -- short-circuit")
             return
         }
         guard licenseVerified else {
@@ -275,23 +321,58 @@ final class InstallerCoordinator: ObservableObject {
         // same id are deduped by markStepCompletedIfMissing.
         markStepCompletedIfMissing(id: "license_entry", status: .ok)
 
-        // ── Pre-launch admin grant ───────────────────────────────
-        // Drive the macOS-native admin password dialog via the
-        // AuthorizationHelper actor. The osascript `do shell script
-        // ... with administrator privileges` seeds the sudo
-        // timestamp, so install.sh's `sudo -v` at line 2574 finds
-        // it warm and proceeds silently. install.sh's keepalive
-        // at line 2627 then refreshes the timestamp every 60s for
-        // the rest of the install.
+        // ── Phase 1: park for user acknowledgement ───────────────
+        // ContentView renders AdminAccessRequiredView when
+        // `needsAdminAcknowledgement` is true; the customer reads
+        // the explanation copy and clicks the primary button to
+        // proceed. That click calls userAcknowledgedAdminRequest()
+        // which runs the real osascript + launch sequence (phase 2).
+        needsAdminAcknowledgement = true
+        OstlerLog.lifecycle.info("bootstrap: parked at admin-acknowledgement gate")
+    }
+
+    /// Phase 2 of the bootstrap. Fired by the AdminAccessRequiredView
+    /// primary button. Drives the osascript admin dialog -- on
+    /// success seeds the sudo timestamp + launches install.sh; on
+    /// cancel surfaces the retry UI.
+    func userAcknowledgedAdminRequest() {
+        Task { @MainActor in await self.requestAdminAndLaunch() }
+    }
+
+    private func requestAdminAndLaunch() async {
+        // Single-fire guard. F2 root cause: `bootstrap()` was called
+        // from BOTH the registrationGate `.onChange` AND the direct
+        // call inside `runDeviceRegistration` on the .ok path. Both
+        // got a Task hop on the main actor, and by the time either
+        // body awaited the AuthorizationHelper, the `process == nil`
+        // guard still let the second one through. Two osascript
+        // dialogs stacked on screen. The user-acknowledgement gate
+        // (`needsAdminAcknowledgement`) already prevents that today
+        // because only one button-press can land, but we keep the
+        // `requestingAdmin` latch as belt-and-braces against any
+        // future re-entry path (e.g. a Retry tap landing on top of
+        // an in-flight dialog).
+        guard !requestingAdmin else {
+            OstlerLog.lifecycle.debug("requestAdminAndLaunch: already in flight -- ignoring re-entry")
+            return
+        }
+        guard process == nil else {
+            OstlerLog.lifecycle.debug("requestAdminAndLaunch: subprocess already running -- ignoring")
+            return
+        }
+        requestingAdmin = true
+        needsAdminAcknowledgement = false
+        defer { requestingAdmin = false }
+
         let reason = ViewCopy.shared.string(for: "admin_access_required.prompt_reason")
         appendLog(level: "info", msg: "Requesting administrator access via macOS native dialog")
-        OstlerLog.lifecycle.info("bootstrap: requesting admin authorisation before subprocess launch")
+        OstlerLog.lifecycle.info("requestAdminAndLaunch: requesting admin authorisation before subprocess launch")
         let granted = await adminAuthorizationProvider(reason)
         if !granted {
             needsAdminRetry = true
             error = ViewCopy.shared.string(for: "admin_access_required.retry_message")
             appendLog(level: "warn", msg: "Administrator access not granted -- holding install at retry gate")
-            OstlerLog.lifecycle.warning("bootstrap: admin authorisation declined or failed -- not launching subprocess")
+            OstlerLog.lifecycle.warning("requestAdminAndLaunch: admin authorisation declined or failed -- not launching subprocess")
             return
         }
         // Clear any retry state left over from a prior cancel.
@@ -301,7 +382,7 @@ final class InstallerCoordinator: ObservableObject {
         }
 
         appendLog(level: "info", msg: "Bootstrapping installer subprocess")
-        OstlerLog.lifecycle.info("bootstrap: launching installer subprocess")
+        OstlerLog.lifecycle.info("requestAdminAndLaunch: launching installer subprocess")
         do {
             if let override = launchInstallerOverride {
                 try override()
@@ -310,20 +391,26 @@ final class InstallerCoordinator: ObservableObject {
             }
         } catch {
             self.error = "Failed to launch installer: \(error.localizedDescription)"
-            OstlerLog.lifecycle.error("bootstrap: launch failed -- \(error.localizedDescription, privacy: .public)")
+            OstlerLog.lifecycle.error("requestAdminAndLaunch: launch failed -- \(error.localizedDescription, privacy: .public)")
         }
     }
 
     /// Triggered by the Retry button on the admin-access-required
-    /// screen. Clears the retry latch and re-runs `bootstrap()`,
-    /// which will re-invoke `AuthorizationHelper` and re-prompt the
-    /// user. The helper's internal 240s grant-cache avoids a
-    /// duplicate dialog if a previous attempt actually succeeded
-    /// and the customer hit Retry by mistake.
+    /// screen. Clears the retry latch and re-runs the admin
+    /// authorisation directly, which will re-invoke
+    /// `AuthorizationHelper` and re-prompt the user. The helper's
+    /// internal 240s grant-cache avoids a duplicate dialog if a
+    /// previous attempt actually succeeded and the customer hit
+    /// Retry by mistake.
+    ///
+    /// 2026-05-20: Retry goes straight to `requestAdminAndLaunch()`
+    /// (phase 2) rather than back through `bootstrap()` (phase 1).
+    /// The customer has already seen the explanation copy; making
+    /// them tap Continue again would feel like a loop.
     func retryAdminAuthorization() {
         needsAdminRetry = false
         error = nil
-        bootstrap()
+        userAcknowledgedAdminRequest()
     }
 
     /// Provider closure for the pre-launch admin authorisation.
@@ -1014,6 +1101,16 @@ final class InstallerCoordinator: ObservableObject {
             // curated install.sh -> GUI messages. The Verbose toggle
             // only gates rawLine events below.
             appendLog(level: level, msg: msg)
+            // F4 (Studio retest #2 2026-05-20): mirror the most-recent
+            // info-level message onto `preInstallStatus` so the main
+            // content area can render it as a visible status banner
+            // during the 20-second contact-card pre-fill + export
+            // window. We only mirror info/ok-style messages so warn
+            // and error stay in the LogDrawer (where the failed
+            // banner picks them up).
+            if level == "info" {
+                preInstallStatus = msg
+            }
         case .warn(_, let msg):
             appendLog(level: "warn", msg: msg)
             OstlerLog.subprocess.warning("event WARN msg=\(msg, privacy: .public)")
@@ -1031,6 +1128,10 @@ final class InstallerCoordinator: ObservableObject {
             // arrives, drop them back into the live view -- the
             // previous prompt is now stale.
             backReviewIndex = nil
+            // Clear the F4 status banner; we are about to render a
+            // prompt and the stale "Reading your contacts..." copy
+            // would just clutter the screen.
+            preInstallStatus = nil
             OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public) x=\(self.currentQuestionIndex, privacy: .public) y=\(self.totalQuestionCount ?? -1, privacy: .public)")
         case .stepEnd(let id, let status, let elapsed):
             completedSteps.append(CompletedStep(

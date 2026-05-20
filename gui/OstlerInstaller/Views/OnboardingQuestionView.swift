@@ -22,6 +22,7 @@
 // catalogue-file drop, not a code lift.
 
 import SwiftUI
+import AppKit
 
 struct OnboardingQuestionView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
@@ -31,6 +32,9 @@ struct OnboardingQuestionView: View {
     @State private var secretValue: String = ""
     @State private var yesnoValue: Bool = true
     @State private var choiceValue: String = ""
+    /// `folder` kind: holds the path the customer has picked (or
+    /// the default `~/Downloads`). Empty string means "skip".
+    @State private var folderValue: String = ""
     @State private var validationError: String? = nil
     @FocusState private var focused: Bool
 
@@ -81,9 +85,25 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let help = q.prompt.help, !help.isEmpty {
+            // consent_install carries a hyperlinked terms link in
+            // place of plain help copy; render via a dedicated
+            // helper. Everything else gets the standard
+            // Text(help).
+            if q.prompt.id == "consent_install" {
+                consentInstallBody()
+            } else if let help = q.prompt.help, !help.isEmpty {
                 Text(help)
                     .font(.ostlerBodyLg)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // F6.1 (assistant_name): inline helper copy explaining
+            // the suggestions, mirroring Andy's brand-warmth note.
+            if q.prompt.id == "assistant_name" && !q.isReview {
+                Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
+                    .font(.ostlerBody)
                     .foregroundStyle(Color.ostlerInkMuted)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -108,6 +128,39 @@ struct OnboardingQuestionView: View {
         .onAppear { seed(from: q) }
         .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
         .onChange(of: q.isReview) { _, _ in seed(from: q) }
+    }
+
+    /// F6.8 consent_install body: "Ready to install. By clicking
+    /// Install Ostler, you confirm you accept the [terms]." The
+    /// `terms` token is rendered as a hyperlink to ostler.ai/terms
+    /// via SwiftUI's AttributedString support; tapping opens the
+    /// default browser through `NSWorkspace.shared.open(_:)`.
+    private func consentInstallBody() -> some View {
+        let prefix = ViewCopy.shared.string(for: "onboarding_question.consent_install_body_prefix")
+        let linkLabel = ViewCopy.shared.string(for: "onboarding_question.consent_install_terms_link_label")
+        let suffix = ViewCopy.shared.string(for: "onboarding_question.consent_install_body_suffix")
+        let urlString = ViewCopy.shared.string(for: "onboarding_question.consent_install_terms_url")
+
+        // AttributedString lets us embed a tappable link inline.
+        // SwiftUI renders .link attributes as default-styled
+        // clickable runs; we add an explicit foreground to keep the
+        // Oxblood accent and an underline to make the affordance
+        // visible against the muted body copy.
+        var s = AttributedString(prefix)
+        var link = AttributedString(linkLabel)
+        if let url = URL(string: urlString) {
+            link.link = url
+        }
+        link.foregroundColor = .ostlerOxblood
+        link.underlineStyle = .single
+        s += link
+        s += AttributedString(suffix)
+
+        return Text(s)
+            .font(.ostlerBodyLg)
+            .foregroundStyle(Color.ostlerInk)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// "Question 5 of 17" style header. Drops the "of Y" suffix until
@@ -182,15 +235,169 @@ struct OnboardingQuestionView: View {
                 Spacer()
             }
         case .choice:
-            Picker("", selection: q.isReview
-                   ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
-                   : $choiceValue) {
-                ForEach(q.prompt.choices, id: \.self) { choice in
-                    Text(choice).tag(choice)
+            // F6.6: fda_preset gets a proper segmented / radio
+            // control with all three options visible at once.
+            // Andy: "'Choose 1, 2, or 3' and then sub text:
+            // '1=Recommended, 2=Everything, 3=Customise'... I mean
+            // WTAF?!"  Other choice prompts continue to render as
+            // a menu picker (default macOS native control).
+            if q.prompt.id == "fda_preset" {
+                fdaPresetSegmented(q)
+            } else {
+                Picker("", selection: q.isReview
+                       ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
+                       : $choiceValue) {
+                    ForEach(q.prompt.choices, id: \.self) { choice in
+                        Text(choice).tag(choice)
+                    }
                 }
+                .pickerStyle(.menu)
+                .disabled(q.isReview)
             }
-            .pickerStyle(.menu)
-            .disabled(q.isReview)
+        case .acknowledge:
+            // Button-only -- no input control. The Continue button
+            // in `buttonRow` is the only interaction. We render
+            // nothing here; the prompt title + help carry the
+            // entire message.
+            EmptyView()
+        case .folder:
+            folderPicker(q)
+        }
+    }
+
+    /// F6.6 fda_preset segmented control. Renders three radio-style
+    /// rows, each with a heading + subtitle, so the customer sees
+    /// what they're choosing without scrolling or guessing.
+    private func fdaPresetSegmented(_ q: DisplayedQuestion) -> some View {
+        let selection = q.isReview ? (q.priorAnswer ?? "") : choiceValue
+        return VStack(alignment: .leading, spacing: .ostlerSpace2) {
+            fdaPresetRow(
+                value: "recommended",
+                titleKey: "onboarding_question.fda_preset_recommended",
+                subtitleKey: "onboarding_question.fda_preset_recommended_subtitle",
+                selection: selection,
+                isReview: q.isReview
+            )
+            fdaPresetRow(
+                value: "everything",
+                titleKey: "onboarding_question.fda_preset_everything",
+                subtitleKey: "onboarding_question.fda_preset_everything_subtitle",
+                selection: selection,
+                isReview: q.isReview
+            )
+            fdaPresetRow(
+                value: "customise",
+                titleKey: "onboarding_question.fda_preset_customise",
+                subtitleKey: "onboarding_question.fda_preset_customise_subtitle",
+                selection: selection,
+                isReview: q.isReview
+            )
+        }
+    }
+
+    private func fdaPresetRow(value: String,
+                              titleKey: String,
+                              subtitleKey: String,
+                              selection: String,
+                              isReview: Bool) -> some View {
+        let selected = selection == value
+        return Button {
+            if !isReview {
+                choiceValue = value
+            }
+        } label: {
+            HStack(alignment: .top, spacing: .ostlerSpace2) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(selected ? Color.ostlerOxblood : Color.ostlerInkMuted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ViewCopy.shared.string(for: titleKey))
+                        .font(.ostlerH3)
+                        .foregroundStyle(Color.ostlerInk)
+                    Text(ViewCopy.shared.string(for: subtitleKey))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            .padding(.vertical, .ostlerSpace2)
+            .padding(.horizontal, .ostlerSpace3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? Color.ostlerOxbloodSoft : Color.ostlerPanel)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(selected ? Color.ostlerOxblood.opacity(0.55) : Color.ostlerHairlineSoft, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isReview)
+    }
+
+    /// F6.5 folder picker control. Shows the currently-chosen path
+    /// (default `~/Downloads`), a "Choose Folder..." button that
+    /// pops NSOpenPanel, and a separate "Skip this step" button.
+    /// `folderValue` stays as the resolved path; Skip clears it to
+    /// empty string before submitting (install.sh treats empty as
+    /// "skip the import").
+    @ViewBuilder
+    private func folderPicker(_ q: DisplayedQuestion) -> some View {
+        let displayed = q.isReview
+            ? (q.priorAnswer ?? "")
+            : folderValue
+        VStack(alignment: .leading, spacing: .ostlerSpace2) {
+            HStack(alignment: .center, spacing: .ostlerSpace2) {
+                Image(systemName: "folder")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(Color.ostlerInkMuted)
+                Text(displayed.isEmpty
+                     ? ViewCopy.shared.string(for: "onboarding_question.folder_picker_no_selection_placeholder")
+                     : displayed)
+                    .font(.ostlerMonoSm)
+                    .foregroundStyle(Color.ostlerInk)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button(ViewCopy.shared.string(
+                    for: "onboarding_question.folder_picker_choose_button"
+                )) {
+                    chooseFolder(q)
+                }
+                .buttonStyle(.ostlerGhost)
+                .disabled(q.isReview)
+            }
+            .padding(.horizontal, .ostlerSpace2)
+            .padding(.vertical, .ostlerSpace2)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.ostlerPanel)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.ostlerHairlineSoft, lineWidth: 1)
+            )
+        }
+    }
+
+    /// Pops NSOpenPanel scoped to directories, defaulting to the
+    /// current `folderValue` (or `~/Downloads` if none).
+    private func chooseFolder(_ q: DisplayedQuestion) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = ViewCopy.shared.string(
+            for: "onboarding_question.folder_picker_choose_panel_prompt"
+        )
+        let initial = folderValue.isEmpty
+            ? ("~/Downloads" as NSString).expandingTildeInPath
+            : folderValue
+        panel.directoryURL = URL(fileURLWithPath: initial)
+        if panel.runModal() == .OK, let url = panel.url {
+            folderValue = url.path
         }
     }
 
@@ -211,6 +418,37 @@ struct OnboardingQuestionView: View {
                 }
                 .buttonStyle(.ostlerPrimary)
                 .keyboardShortcut(.defaultAction)
+            } else if q.prompt.id == "consent_install" {
+                // F6.8: Install Ostler / Cancel pair. Install posts
+                // "INSTALL" back over the FIFO, Cancel posts "CANCEL"
+                // (install.sh's loop branches on these values).
+                Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel")) {
+                    coordinator.respond(to: q.prompt, with: "CANCEL")
+                }
+                .buttonStyle(.ostlerGhost)
+
+                Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_primary")) {
+                    coordinator.respond(to: q.prompt, with: "INSTALL")
+                }
+                .buttonStyle(.ostlerPrimary)
+                .keyboardShortcut(.defaultAction)
+            } else if q.prompt.kind == .folder {
+                // F6.5: folder picker carries a Skip button alongside
+                // the standard Continue. Skip submits an empty path
+                // -- install.sh interprets that as "skip the import".
+                Button(ViewCopy.shared.string(
+                    for: "onboarding_question.folder_picker_skip_button"
+                )) {
+                    coordinator.respond(to: q.prompt, with: "")
+                }
+                .buttonStyle(.ostlerGhost)
+
+                Button(ViewCopy.shared.string(for: "onboarding_question.continue_button")) {
+                    submit(q)
+                }
+                .buttonStyle(.ostlerPrimary)
+                .keyboardShortcut(.defaultAction)
+                .disabled(folderValue.isEmpty)
             } else {
                 Button(ViewCopy.shared.string(for: "onboarding_question.continue_button")) {
                     submit(q)
@@ -252,14 +490,23 @@ struct OnboardingQuestionView: View {
         secretValue = ""
         yesnoValue = true
         choiceValue = ""
+        folderValue = ""
     }
 
     private func currentAnswer(_ q: DisplayedQuestion) -> String {
         switch q.prompt.kind {
-        case .text:   return textValue
-        case .secret: return secretValue
-        case .yesno:  return yesnoValue ? "y" : "n"
-        case .choice: return choiceValue
+        case .text:        return textValue
+        case .secret:      return secretValue
+        case .yesno:       return yesnoValue ? "y" : "n"
+        case .choice:      return choiceValue
+        case .acknowledge:
+            // Acknowledgement carries the default value back to
+            // install.sh as the "answer". Most install.sh callers
+            // ignore the return; the consent_install path branches
+            // on it (INSTALL vs CANCEL), but consent_install uses
+            // its own button row above, not the default Continue.
+            return q.prompt.defaultValue ?? ""
+        case .folder:      return folderValue
         }
     }
 
@@ -287,7 +534,11 @@ struct OnboardingQuestionView: View {
                     fills: ["options": options]
                 )
             }
-        case .yesno, .secret:
+        case .yesno, .secret, .acknowledge, .folder:
+            // acknowledge: never empty (default carries the answer).
+            // folder: Skip submits "" deliberately; Continue is
+            //         disabled when folderValue is empty so validate
+            //         is only reached with a real path.
             break
         }
         return nil
@@ -308,14 +559,46 @@ struct OnboardingQuestionView: View {
         lastSeededPromptId = q.prompt.id
         let def = q.prompt.defaultValue ?? ""
         switch q.prompt.kind {
-        case .text:   textValue = def
-        case .secret: secretValue = ""
-        case .yesno:  yesnoValue = yesValue(def)
-        case .choice: choiceValue = def.isEmpty
+        case .text:
+            // F6.1: assistant_name pre-fills a randomly-chosen
+            // suggestion from the ViewCopy pool, so the field
+            // starts with brand-warm prompt-bait rather than blank.
+            if q.prompt.id == "assistant_name" {
+                textValue = randomAssistantSuggestion(fallback: def)
+            } else {
+                textValue = def
+            }
+        case .secret:      secretValue = ""
+        case .yesno:       yesnoValue = yesValue(def)
+        case .choice:      choiceValue = def.isEmpty
             ? (q.prompt.choices.first ?? "")
             : def
+        case .acknowledge: break // no input state to seed
+        case .folder:
+            // Default is supplied by install.sh as the customer's
+            // ~/Downloads path. Tilde-expand defensively (gui_read
+            // already expands but defence-in-depth is cheap).
+            let expanded = (def as NSString).expandingTildeInPath
+            folderValue = expanded
         }
         focused = true
+    }
+
+    /// F6.1: pull one suggestion at random from the ViewCopy
+    /// `assistant_name_suggestions.comma_separated` catalogue value.
+    /// Falls back to `Marvin` if the catalogue is missing.
+    private func randomAssistantSuggestion(fallback: String) -> String {
+        let csv = ViewCopy.shared.string(
+            for: "assistant_name_suggestions.comma_separated"
+        )
+        let pool = csv
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if let pick = pool.randomElement() {
+            return pick
+        }
+        return fallback.isEmpty ? "Marvin" : fallback
     }
 
     private func yesLabel(_ q: DisplayedQuestion) -> String {

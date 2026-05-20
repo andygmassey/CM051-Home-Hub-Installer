@@ -112,8 +112,11 @@ def _extract_prompt_kinds(src: str, rel: str) -> list[str]:
         return []
     body = m.group(1)
     # Each `case` line lists one or more comma-separated case names.
+    # Char class excludes \n so a `case x, y, z` line does not greedily
+    # swallow the next `case ...` declaration when blank lines (from
+    # stripped doc comments) sit between them.
     kinds: list[str] = []
-    for case_m in re.finditer(r"case\s+([A-Za-z0-9_,\s]+)", body):
+    for case_m in re.finditer(r"case\s+([A-Za-z0-9_, \t]+)", body):
         for name in case_m.group(1).split(","):
             name = name.strip()
             if name:

@@ -42,7 +42,16 @@ struct ContentView: View {
     /// Retry re-invokes `AuthorizationHelper` cleanly.
     @ViewBuilder
     private var adminRetryGate: some View {
-        AdminAccessRequiredView()
+        AdminAccessRequiredView(mode: .retry)
+    }
+
+    /// Pre-flight view shown after the licence + registration gates
+    /// pass, but BEFORE the macOS admin password dialog fires. F3
+    /// (Studio retest #2 2026-05-20): the customer reads the
+    /// explanation copy and clicks Continue to trigger the dialog.
+    @ViewBuilder
+    private var adminPreAckGate: some View {
+        AdminAccessRequiredView(mode: .preAcknowledgement)
     }
 
     /// Branches on the second-stage registration gate. The first-stage
@@ -70,6 +79,10 @@ struct ContentView: View {
             // Retry surface; the install subprocess is not running.
             if coordinator.needsAdminRetry {
                 adminRetryGate
+            } else if coordinator.needsAdminAcknowledgement {
+                // F3: park at the explanation screen until the
+                // customer clicks Continue. Dialog fires on tap.
+                adminPreAckGate
             } else {
                 installLayout
             }
@@ -78,6 +91,15 @@ struct ContentView: View {
 
     private var installLayout: some View {
         VStack(spacing: 0) {
+            // F5 (Studio retest #2 2026-05-20): when the install
+            // fails, render a full-width red banner across the top
+            // of the window. Pre-fix the failure indicator was a
+            // bottom-left status line in the footer; Andy walked
+            // past it without noticing. This banner is prominent +
+            // carries the failure copy + Copy log + Try again.
+            if coordinator.finished == .fail {
+                InstallFailedBannerView()
+            }
             HStack(spacing: 0) {
                 SidebarView()
                     .frame(width: 200)
@@ -120,12 +142,86 @@ struct ContentView: View {
     }
 }
 
-/// Shown when the pre-launch admin-grant AppleScript dialog was
-/// cancelled (or osascript returned non-zero). The install
-/// subprocess has NOT been launched. Retry re-invokes the helper;
-/// Quit terminates the installer cleanly.
+/// F5: prominent top-of-window failure banner. Replaces the bottom-
+/// left footer status line as the primary failure signal. Surfaces:
+///   - one-line cause from `coordinator.error` (falls back to a
+///     generic "Install failed" if no error is set)
+///   - "Copy log" button (mirrors the LogDrawerView Copy log button
+///     so the customer can grab the full buffer for hello@ostler.ai)
+///   - "Try again" button -- terminates the app so the customer
+///     can re-launch. We deliberately do NOT attempt an in-place
+///     restart because the failed install may have left
+///     ~/.ostler/ in a state that needs a fresh process to clean up.
+private struct InstallFailedBannerView: View {
+    @EnvironmentObject private var coordinator: InstallerCoordinator
+    @State private var copied = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: CGFloat.ostlerSpace3) {
+            Image(systemName: "exclamationmark.octagon.fill")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(Color.white)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ViewCopy.shared.string(for: "install_failed_banner.heading"))
+                    .font(.ostlerH2)
+                    .foregroundStyle(Color.white)
+                Text(coordinator.error
+                     ?? ViewCopy.shared.string(for: "install_failed_banner.subtitle_default"))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.white.opacity(0.92))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: CGFloat.ostlerSpace3)
+            Button(copied
+                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_log_button_copied")
+                   : ViewCopy.shared.string(for: "install_failed_banner.copy_log_button")) {
+                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(buffer, forType: .string)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    copied = false
+                }
+            }
+            .buttonStyle(.ostlerGhost)
+            .foregroundStyle(Color.white)
+            Button(ViewCopy.shared.string(for: "install_failed_banner.try_again_button")) {
+                NSApp.terminate(nil)
+            }
+            .buttonStyle(.ostlerPrimary)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, CGFloat.ostlerSpace3)
+        .padding(.vertical, CGFloat.ostlerSpace2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.ostlerOxblood)
+    }
+}
+
+/// Pre-launch admin-grant screen. Two modes:
+///
+///   - `.preAcknowledgement`: the very first time we ask. Renders
+///     explanation copy + a single primary "Continue and enter your
+///     password" button. F3 (Studio retest #2 2026-05-20): the
+///     macOS password dialog must fire on user click, not on view
+///     appear, so the customer has time to read why we need admin.
+///
+///   - `.retry`: the customer previously clicked Cancel (or
+///     osascript returned non-zero). Same explanation copy + a
+///     Retry button alongside a Quit installer button.
+///
+/// Either way, the install subprocess has NOT been launched at this
+/// point; the button taps drive `coordinator.userAcknowledgedAdminRequest()`
+/// (or `retryAdminAuthorization`) which actually fires the dialog.
 private struct AdminAccessRequiredView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
+    let mode: Mode
+
+    enum Mode {
+        case preAcknowledgement
+        case retry
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -145,18 +241,39 @@ private struct AdminAccessRequiredView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            if mode == .preAcknowledgement {
+                // Friendly reassurance for the first-time prompt.
+                // Lifted from the brief: "your password stays on
+                // this Mac, never sent anywhere".
+                Text(ViewCopy.shared.string(for: "admin_access_required.reassurance"))
+                    .font(.ostlerBody)
+                    .foregroundColor(.ostlerInkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack(spacing: 12) {
                 Spacer()
-                Button(ViewCopy.shared.string(for: "admin_access_required.quit_button")) {
-                    NSApp.terminate(nil)
+                if mode == .retry {
+                    Button(ViewCopy.shared.string(for: "admin_access_required.quit_button")) {
+                        NSApp.terminate(nil)
+                    }
+                    .buttonStyle(.ostlerGhost)
                 }
-                .buttonStyle(.ostlerGhost)
 
-                Button(ViewCopy.shared.string(for: "admin_access_required.retry_button")) {
-                    coordinator.retryAdminAuthorization()
+                let buttonKey = mode == .retry
+                    ? "admin_access_required.retry_button"
+                    : "admin_access_required.continue_button"
+                Button(ViewCopy.shared.string(for: buttonKey)) {
+                    if mode == .retry {
+                        coordinator.retryAdminAuthorization()
+                    } else {
+                        coordinator.userAcknowledgedAdminRequest()
+                    }
                 }
                 .buttonStyle(.ostlerPrimary)
                 .keyboardShortcut(.defaultAction)
+                .disabled(coordinator.requestingAdmin)
             }
             Spacer()
         }

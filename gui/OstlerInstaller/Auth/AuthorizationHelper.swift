@@ -2,14 +2,30 @@
 //
 // Wrapper around osascript's `do shell script ... with administrator
 // privileges` for the FIRST sudo grant. install.sh's existing
-// keepalive loop (line 1553) refreshes the timestamp every 60s so we
-// only need to seed it once.
+// keepalive loop refreshes the timestamp every 60s so we only need
+// to seed it once.
 //
-// Why osascript and not AuthorizationServices? AuthorizationServices
-// gives a tighter sheet but requires the helper to either be set-uid
-// or use SMJobBless (which is itself a notarisation pit and was
-// deprecated for SMAppService). For Phase 1 the goal is a working
-// admin grant with the smallest signing/entitlements surface.
+// 2026-05-20 (Studio retest #2 failure at 15:30:42): PR #95 wired
+// AuthorizationHelper into `bootstrap()` and ran `/usr/bin/sudo -v`
+// inside the privileged shell. Root cause we missed: when AppleScript
+// elevates via `with administrator privileges`, the inner command
+// runs AS ROOT, not as the original user. `sudo -v` then writes its
+// timestamp under `/var/db/sudo/ts/root/`, not the invoking user's
+// directory. Two minutes later install.sh's bare `sudo -v` at line
+// 2583 runs AS THE USER, finds a cold cache, and trips
+// `fail $MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL`.
+//
+// The fix is to write the user's timestamp file directly while we
+// have root. sudo accepts an empty/touched timestamp file as warm
+// (sudo(8): "An empty file is interpreted as an updated timestamp
+// equal to the file's mtime"), so a single `touch` of
+// `/var/db/sudo/ts/$ORIGINAL_USER` does the job. We also keep the
+// `sudo -v` call so root's cache is warm for any helper sub-process
+// install.sh might spawn under root (belt-and-braces).
+//
+// $ORIGINAL_USER is read from `stat -f %Su /dev/console` -- the user
+// who owns the active GUI session is the user who launched the .app
+// from Finder, by definition.
 //
 // On a sandboxed app this would fail outright; we ship unsandboxed
 // with hardened runtime (see project.yml entitlements).
@@ -23,9 +39,11 @@ actor AuthorizationHelper {
     private var grantedAt: Date? = nil
     private var inFlight: Bool = false
 
-    /// Triggers the macOS admin prompt by running a no-op `sudo -v`
-    /// inside an AppleScript shell. install.sh's keepalive loop
-    /// then refreshes the sudo timestamp every 60s.
+    /// Triggers the macOS admin prompt via AppleScript + uses the
+    /// resulting root shell to seed the original user's sudo
+    /// timestamp file. install.sh's bare `sudo -v` at line 2583
+    /// then finds it warm and proceeds silently; the keepalive loop
+    /// refreshes it every 60s for the rest of the install.
     ///
     /// Returns true if the user granted, false if cancelled or if
     /// a recent grant is still warm.
@@ -48,8 +66,42 @@ actor AuthorizationHelper {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
 
+        // Inner shell, single-quoted so AppleScript passes it through
+        // verbatim. Runs as root via `with administrator privileges`.
+        //
+        //   1. /usr/bin/sudo -v
+        //        Belt: refreshes root's own timestamp. Cheap insurance
+        //        for any helper invoked under the privileged shell.
+        //
+        //   2. ORIG_USER=$(stat -f %Su /dev/console)
+        //        The user who owns the active GUI session. On a
+        //        single-user macOS install (the only Ostler-supported
+        //        topology) this is the user who launched the .app.
+        //
+        //   3. mkdir -p /var/db/sudo/ts && chmod 700 /var/db/sudo/ts
+        //        Defensive: directory exists by default on macOS but
+        //        not on a freshly imaged Mac before any sudo run.
+        //
+        //   4. touch /var/db/sudo/ts/$ORIG_USER
+        //      chmod 600 /var/db/sudo/ts/$ORIG_USER
+        //      chown root:wheel /var/db/sudo/ts/$ORIG_USER
+        //        sudo(8) accepts a fresh-mtime file in this directory
+        //        as a warm timestamp. No binary format required. The
+        //        chmod / chown bring permissions into line with sudo's
+        //        own writes so a later real sudo run does not refuse
+        //        the file as "tampered" (sudo checks 0600 + root:wheel
+        //        on each access).
+        let innerShell =
+            "/usr/bin/sudo -v ; " +
+            "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
+            "/bin/mkdir -p /var/db/sudo/ts ; " +
+            "/bin/chmod 700 /var/db/sudo/ts ; " +
+            "/usr/bin/touch \"/var/db/sudo/ts/$ORIG_USER\" ; " +
+            "/bin/chmod 600 \"/var/db/sudo/ts/$ORIG_USER\" ; " +
+            "/usr/sbin/chown root:wheel \"/var/db/sudo/ts/$ORIG_USER\""
+
         let script = """
-        do shell script "/usr/bin/sudo -v" with prompt "\(escapedPrompt)" with administrator privileges
+        do shell script "\(innerShell)" with prompt "\(escapedPrompt)" with administrator privileges
         """
 
         let result: Bool = await withCheckedContinuation { continuation in

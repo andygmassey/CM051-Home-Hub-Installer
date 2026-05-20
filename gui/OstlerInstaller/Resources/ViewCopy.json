@@ -11,9 +11,19 @@
   "admin_access_required": {
     "heading": "Administrator access required",
     "prompt_reason": "Ostler needs administrator access to install required software and keep your Mac awake during setup.",
+    "reassurance": "Your password stays on this Mac, never sent anywhere. macOS will ask for it on the next screen.",
     "retry_message": "Administrator access required. Click Retry.",
+    "continue_button": "Continue and enter your password",
     "retry_button": "Retry",
     "quit_button": "Quit installer"
+  },
+
+  "install_failed_banner": {
+    "heading": "Install failed",
+    "subtitle_default": "Something went wrong during install. Use Copy log to grab the details for hello@ostler.ai, then Try again.",
+    "copy_log_button": "Copy log",
+    "copy_log_button_copied": "Copied",
+    "try_again_button": "Try again"
   },
 
   "footer": {
@@ -65,8 +75,7 @@
   },
 
   "log_drawer": {
-    "header_label": "LOG",
-    "verbose_toggle": "Verbose"
+    "header_label": "LOG"
   },
 
   "onboarding_question": {
@@ -83,7 +92,29 @@
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",
-    "error_invalid_choice": "Pick one of: {options}"
+    "error_invalid_choice": "Pick one of: {options}",
+    "assistant_name_helper": "Pick anything -- they will respond to it. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "fda_preset_recommended": "Recommended",
+    "fda_preset_recommended_subtitle": "Most people start here",
+    "fda_preset_everything": "Everything",
+    "fda_preset_everything_subtitle": "Every data source Ostler supports -- for power users",
+    "fda_preset_customise": "Customise",
+    "fda_preset_customise_subtitle": "Pick exactly which sources",
+    "folder_picker_choose_button": "Choose Folder...",
+    "folder_picker_choose_panel_prompt": "Choose folder",
+    "folder_picker_skip_button": "Skip this step",
+    "folder_picker_no_selection_placeholder": "(no folder selected -- will skip)",
+    "consent_install_primary": "Install Ostler",
+    "consent_install_cancel": "Cancel",
+    "consent_install_terms_link_label": "terms",
+    "consent_install_terms_url": "https://ostler.ai/terms",
+    "consent_install_body_prefix": "Ready to install. By clicking Install Ostler, you confirm you accept the ",
+    "consent_install_body_suffix": ".",
+    "preinstall_status_caption": "STATUS"
+  },
+
+  "assistant_name_suggestions": {
+    "comma_separated": "Marvin, Samantha, Joshua, HAL, JARVIS, Friday, Alfred, Mycroft, Wadsworth, Beatrix, Penelope, Watson, Reginald, Atlas, Ada", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
   },
 
   "sidebar": {
