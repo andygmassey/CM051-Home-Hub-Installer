@@ -12,7 +12,7 @@ curl -fsSL https://ostler.ai/install.sh | bash
 |---|---|
 | macOS 13 (Ventura) or later | Modern Docker, Ollama, security features |
 | Apple Silicon (M1+) | Performance for on-device AI |
-| 16 GB RAM minimum, 24 GB recommended | AI model size limits |
+| 16 GB RAM minimum, 24 GB recommended | 16 GB runs the compact assistant; 24 GB unlocks the standard 9B model; 32 GB+ runs the full model |
 | 35 GB free disk | Docker images, AI model, embedding model, databases |
 | **Plugged into AC power** | Phase 3 takes 10-25 minutes of continuous Docker pulls + Ollama model downloads (longer on slower broadband). On a MacBook the hub power LaunchAgent (step 3.14) pauses Docker and Ollama on battery, which makes the installer's readiness probes time out. Stay on AC for the full install. |
 
