@@ -14,7 +14,7 @@ curl -fsSL https://ostler.ai/install.sh | bash
 | Apple Silicon (M1+) | Performance for on-device AI |
 | 16 GB RAM minimum, 24 GB recommended | AI model size limits |
 | 35 GB free disk | Docker images, AI model, embedding model, databases |
-| **Plugged into AC power** | Phase 3 takes 10-15 minutes of continuous Docker pulls + Ollama model downloads. On a MacBook the hub power LaunchAgent (step 3.14) pauses Docker and Ollama on battery, which makes the installer's readiness probes time out. Stay on AC for the full install. |
+| **Plugged into AC power** | Phase 3 takes 10-25 minutes of continuous Docker pulls + Ollama model downloads (longer on slower broadband). On a MacBook the hub power LaunchAgent (step 3.14) pauses Docker and Ollama on battery, which makes the installer's readiness probes time out. Stay on AC for the full install. |
 
 Run `bash install.sh --check` to verify prerequisites without installing anything. The check warns if you're on battery.
 
@@ -26,15 +26,17 @@ The watcher is killed at the start of Phase 4 (so health-check output is not int
 
 ---
 
-## Status (2026-04-24)
+## Status
+
+**Last refreshed: 2026-05-20** (T-2 to v1.0 launch).
 
 - `install.sh` moved out of HR015 into its own project to give it a dedicated UX-iteration runway pre-launch and clear public auditability
-- 2,268 lines of bash, structured into 4 phases:
+- ~6,600 lines of bash, structured into 4 phases:
   1. Check prerequisites (macOS version, Apple Silicon, RAM, disk)
   2. Collect all user input upfront (~2 min)
-  3. Unattended install (~10-15 min)
+  3. Unattended install (~10-25 min depending on broadband speed for Docker pulls + Ollama model downloads)
   4. Health check + next steps
-- Launch target: mid-late May 2026 alongside the product
+- **Launching 2026-05-22** alongside the iOS Companion
 
 ## Active work (see PLAN.md)
 
