@@ -1,0 +1,7 @@
+vobject>=0.9.6
+httpx>=0.27,<1.0
+phonenumbers>=8.13.0
+# qdrant-client: 1.x is API-stable. Pin to the major; allow patches and
+# minors so security fixes pull through without manual intervention.
+# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (52 / 52).
+qdrant-client>=1.15,<2.0

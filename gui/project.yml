@@ -324,6 +324,51 @@ targets:
           - $(SRCROOT)/../vendor/cm048_pipeline
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline
+      - name: Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources
+        script: |
+          set -euo pipefail
+          # The CM041 PWG People Graph repo ships two productised assets:
+          #   - contact_syncer/  Python package, runs the GDPR import
+          #                      pipeline. install.sh §3.10 looks for it
+          #                      at "${SCRIPT_DIR}/contact_syncer" (i.e.
+          #                      Contents/Resources/contact_syncer/ when
+          #                      install.sh runs from inside the .app),
+          #                      copies it to ${OSTLER_DIR}/import-pipeline/,
+          #                      and invokes
+          #                      .venv/bin/python -m contact_syncer.import_all.
+          #   - assistant_api/   ical-server.py (the local API on :8089)
+          #                      + its companion docs. Installed by a
+          #                      later install.sh phase that wires it
+          #                      as a launchd agent.
+          #
+          # CRITICAL bundle layout: both subdirs MUST live at the
+          # Resources root (NOT under a vendor/cm041/ wrapper) because
+          # install.sh's path checks (lines 4196 onward + 4245) hard-code
+          # the unwrapped paths. Don't introduce a vendor/cm041/ subdir
+          # at install-time; copy the CONTENTS of vendor/cm041/ directly.
+          #
+          # `cp -R` without -p so source xattrs (com.apple.provenance,
+          # com.apple.macl on Sonoma+) don't propagate into the .app
+          # bundle. The subsequent "Strip xattrs" phase is a belt-and-
+          # braces second pass over the whole bundle.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          VENDOR_ROOT="${SRCROOT}/../vendor/cm041"
+          if [ ! -d "${VENDOR_ROOT}/contact_syncer" ] || [ ! -d "${VENDOR_ROOT}/assistant_api" ]; then
+            echo "error: vendor/cm041/ missing contact_syncer/ or assistant_api/." >&2
+            echo "       Expected: ${VENDOR_ROOT}/contact_syncer + ${VENDOR_ROOT}/assistant_api" >&2
+            echo "       Re-sync from the CM041 PWG People Graph repo." >&2
+            exit 1
+          fi
+          # Remove any stale prior copy. Build phases run incrementally
+          # so without this step a vendor-syncer rename or delete would
+          # leave the old tree in place.
+          rm -rf "${DEST}/contact_syncer" "${DEST}/assistant_api"
+          cp -R "${VENDOR_ROOT}/contact_syncer" "${DEST}/contact_syncer"
+          cp -R "${VENDOR_ROOT}/assistant_api"  "${DEST}/assistant_api"
+          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/assistant_api"
+          # ical-server.py is executable on the operator instance via
+          # `python ical-server.py`, not chmod +x, so we don't toggle
+          # the mode here. requirements.txt + .env.example land 644.
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
