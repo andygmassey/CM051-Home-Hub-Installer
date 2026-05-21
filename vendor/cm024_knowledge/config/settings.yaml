@@ -1,0 +1,67 @@
+# CM024 - Evernote Knowledge Backend Configuration
+
+storage:
+  qdrant:
+    host: localhost
+    port: 6333
+    collection: evernote_knowledge
+
+  sqlite:
+    path: ./data/metadata.db
+
+  markdown:
+    path: ./data/obsidian-vault/evernote
+
+embedding:
+  # Options: ollama, openai
+  provider: ollama
+  # Ollama host (TrueNAS server)
+  ollama_host: http://truenas.local:11434
+  # For ollama: nomic-embed-text, all-minilm, mxbai-embed-large
+  # For openai: text-embedding-3-small, text-embedding-3-large
+  # NOTE: Collection has 114K vectors at 384-dim, must use matching model
+  model: all-minilm
+  dimensions: 384  # 384 for all-minilm, 768 for nomic
+
+classification:
+  provider: ollama
+  model: qwen2.5:7b-instruct
+  # Default compartment level if classification fails
+  default_level: 2  # personal
+
+chunking:
+  strategy: semantic  # or fixed
+  max_tokens: 512
+  overlap_tokens: 50
+  # Minimum chunk size to avoid tiny fragments
+  min_tokens: 50
+
+ingestion:
+  # Skip notes smaller than this
+  min_content_length: 50
+  # Batch size for embedding API calls
+  batch_size: 32
+  # Rate limiting for API calls (requests per minute)
+  rate_limit: 60
+
+privacy:
+  # Compartment level definitions (matches CM019)
+  levels:
+    0: public         # Shareable with anyone
+    1: friends        # Close contacts only
+    2: personal       # Self only (default)
+    3: sensitive      # Extra protection
+    4: secret         # Maximum protection
+
+  # Heuristic rules applied before LLM classification
+  heuristics:
+    - pattern: "password|credential|secret"
+      level: 4
+      scope: title_or_content
+    - pattern: "health|medical|doctor|diagnosis"
+      level: 3
+      scope: title_or_tags
+    - pattern: "http://|https://"
+      level: 0
+      scope: source_url
+      condition: no_personal_content

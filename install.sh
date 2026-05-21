@@ -4898,6 +4898,17 @@ fi
 # into /usr/local/bin/ostler-knowledge so the customer can invoke it
 # directly without activating the venv.
 #
+# Source resolution (matches the hub-power / doctor / email-ingest
+# pattern):
+#   1. Bundled vendor copy at ${SCRIPT_DIR}/cm024_knowledge/ (productised
+#      install -- the postBuildScript in gui/project.yml lands the
+#      vendored upstream source there). Preferred path, no network.
+#   2. PWG_KNOWLEDGE_REPO env override -- git clone --depth 1. For dev /
+#      private-beta runs against a non-vendored install.sh.
+#   3. Neither: warn-only skip. Doctor "Import Evernote" UI (feature-
+#      flagged OFF at v1.0; flipped on for v1.1) will surface a "service
+#      unavailable" message when the flag is later turned on.
+#
 # Customer data staging dir at ~/.ostler/data/knowledge-staging/ is
 # created at install time AND preserved by the uninstaller (it holds
 # imported note markdown + per-note image trees; can take 20+ minutes
@@ -4917,12 +4928,25 @@ KNOWLEDGE_STAGING_DIR="${OSTLER_DIR}/data/knowledge-staging"
 
 mkdir -p "$(dirname "$KNOWLEDGE_DIR")" "$KNOWLEDGE_STAGING_DIR"
 
-if [[ -z "$KNOWLEDGE_REPO" ]]; then
-    info "$MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE"
-    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2"
-    info "$MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE"
-    info "$MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED"
-else
+KNOWLEDGE_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/cm024_knowledge" && -f "${SCRIPT_DIR}/cm024_knowledge/pyproject.toml" ]]; then
+    # Productised install path: vendor/cm024_knowledge/ was copied
+    # into Contents/Resources/cm024_knowledge/ by the .app build, or
+    # is sitting alongside install.sh in the developer tarball
+    # layout. Copy the source into KNOWLEDGE_DIR so pip-install sees
+    # a stable on-disk tree (the customer's home directory rather
+    # than the .app's read-only Resources).
+    info "$MSG_INFO_KNOWLEDGE_SERVICE_BUNDLED_WITH_INSTALLER"
+    # Wipe and re-copy on every install so a re-run does not stack
+    # stale source files from an older vendored release.
+    rm -rf "$KNOWLEDGE_DIR"
+    mkdir -p "$KNOWLEDGE_DIR"
+    # Copy contents (the trailing /. preserves the dir contents, not
+    # the dir itself). Drop xattrs by not using -p.
+    cp -R "${SCRIPT_DIR}/cm024_knowledge/." "$KNOWLEDGE_DIR/"
+    KNOWLEDGE_SOURCE="bundled"
+elif [[ -n "$KNOWLEDGE_REPO" ]]; then
     info "$(printf "$MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM" "$KNOWLEDGE_REPO")"
 
     KNOWLEDGE_CLONE_LOG="$(mktemp -t ostler-knowledge-clone.XXXXXX.log)"
@@ -4931,16 +4955,19 @@ else
         if git -C "$KNOWLEDGE_DIR" fetch --quiet origin 2>"$KNOWLEDGE_CLONE_LOG" \
             && git -C "$KNOWLEDGE_DIR" reset --hard --quiet origin/main 2>>"$KNOWLEDGE_CLONE_LOG"; then
             rm -f "$KNOWLEDGE_CLONE_LOG"
+            KNOWLEDGE_SOURCE="cloned"
         else
             warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
             if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
                 sed -e 's/^/    /' "$KNOWLEDGE_CLONE_LOG" | head -5
             fi
             rm -f "$KNOWLEDGE_CLONE_LOG"
+            KNOWLEDGE_SOURCE="cloned"
         fi
     elif git clone --quiet --depth 1 "$KNOWLEDGE_REPO" "$KNOWLEDGE_DIR" 2>"$KNOWLEDGE_CLONE_LOG"; then
         info "$(printf "$MSG_INFO_CLONED" "$KNOWLEDGE_DIR")"
         rm -f "$KNOWLEDGE_CLONE_LOG"
+        KNOWLEDGE_SOURCE="cloned"
     else
         warn "$MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE"
         if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
@@ -4951,40 +4978,45 @@ else
         info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE"
         rm -f "$KNOWLEDGE_CLONE_LOG"
     fi
+else
+    info "$MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE"
+    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2"
+    info "$MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE"
+    info "$MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED"
+fi
 
-    if [[ -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
-        info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
-        python3 -m venv "$KNOWLEDGE_VENV"
+if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
+    info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
+    python3 -m venv "$KNOWLEDGE_VENV"
 
-        info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
-        "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
-            info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
-        else
-            warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL"
-            if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
-                sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
-            fi
+    info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
+    "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
+        info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
+    else
+        warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL"
+        if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
         fi
-
-        if [[ -x "$KNOWLEDGE_BIN" ]]; then
-            info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
-            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-
-            # Health check via the symlink (verifies PATH-side wiring + venv binding).
-            if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
-                ok "$(printf "$MSG_OK_KNOWLEDGE_SERVICE_READY" "$VERSION_OUT")"
-            else
-                warn "$MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION"
-            fi
-        else
-            warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$KNOWLEDGE_BIN")"
-        fi
-    elif [[ -d "$KNOWLEDGE_DIR" ]]; then
-        warn "$MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML"
-        warn "$MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK"
-        warn "$MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG"
     fi
+
+    if [[ -x "$KNOWLEDGE_BIN" ]]; then
+        info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
+        sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+
+        # Health check via the symlink (verifies PATH-side wiring + venv binding).
+        if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
+            ok "$(printf "$MSG_OK_KNOWLEDGE_SERVICE_READY" "$VERSION_OUT")"
+        else
+            warn "$MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION"
+        fi
+    else
+        warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$KNOWLEDGE_BIN")"
+    fi
+elif [[ -n "$KNOWLEDGE_SOURCE" && -d "$KNOWLEDGE_DIR" ]]; then
+    warn "$MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML"
+    warn "$MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK"
+    warn "$MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG"
 fi
 
 # ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────

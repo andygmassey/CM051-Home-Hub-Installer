@@ -293,6 +293,7 @@
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
+				ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -428,6 +429,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\"\n";
+		};
+		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm024_knowledge/pyproject.toml",
+				"$(SRCROOT)/../vendor/cm024_knowledge/requirements.txt",
+				"$(SRCROOT)/../vendor/cm024_knowledge/src/cli.py",
+			);
+			name = "Bundle cm024_knowledge Python package into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm024_knowledge/pyproject.toml",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm024_knowledge/src/cli.py",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# Vendor the CM024 Knowledge service (ostler-knowledge CLI)\n# into the signed .app so install.sh Phase 3.13b can pip-\n# install it into the customer venv without a network clone.\n# Pre-2026-05-21 the Knowledge service path was clone-only\n# (PWG_KNOWLEDGE_REPO env override); without an override the\n# install logged \"Knowledge service not installed\" and the\n# Doctor \"Import Evernote\" surface would later show \"service\n# unavailable\" when the feature flag is flipped on.\n#\n# Customer-facing primarily for Evernote import (Doctor UI,\n# feature-flagged OFF at v1.0; flipped on for v1.1). The CLI\n# install path is NOT flag-gated -- the binary is always\n# installed; the flag only controls UI visibility.\n#\n# Mirror of the ostler_security + ostler_fda vendor patterns\n# (PRs #115 + #116).\n#\n# Hard-fail if the vendor dir is missing so a forgotten\n# vendor-sync surfaces at build time, not at install time.\nVENDOR_SRC=\"${SRCROOT}/../vendor/cm024_knowledge\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/cm024_knowledge/ is missing.\" >&2\n    echo \"error: see vendor/README.md for the manual sync recipe.\" >&2\n    echo \"error: the customer-install path pip-installs ostler-knowledge\" >&2\n    echo \"error: from Contents/Resources/cm024_knowledge/. Refusing to build\" >&2\n    echo \"error: a .app that would silently skip the Knowledge service install.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/cm024_knowledge\"\n# Copy WITHOUT -p so we do not preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break\n# codesign). The trailing /. on the source copies the dir\n# contents (not the dir itself) into ${DEST}/cm024_knowledge/.\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/cm024_knowledge/\"\n# Strip any __pycache__ that snuck in from a developer\n# checkout. pip-install does not need them and they bloat\n# the codesigned bundle.\nfind \"${DEST}/cm024_knowledge\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/cm024_knowledge\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Belt-and-braces xattr strip on the package (the bundle-\n# wide xattr -cr in the next phase repeats this, but doing\n# it here keeps the per-phase output clean).\n/usr/bin/xattr -cr \"${DEST}/cm024_knowledge\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

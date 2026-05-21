@@ -93,6 +93,7 @@ MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES="Installing security Python dep
 MSG_INFO_INSTALLING_SQLCIPHER="Installing SQLCipher..."
 MSG_INFO_INSTALLING_TAILSCALE="Installing Tailscale..."
 MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST="Intel support is not on the roadmap; raise a request if required."
+MSG_INFO_KNOWLEDGE_SERVICE_BUNDLED_WITH_INSTALLER="Knowledge service bundled with installer; using vendored source."
 MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE="Knowledge service not installed: PWG_KNOWLEDGE_REPO empty."
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="later in System Settings > Privacy & Security > Full Disk Access"
 MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  launch to verify cron-delivery + imessage-tcc posture)."
