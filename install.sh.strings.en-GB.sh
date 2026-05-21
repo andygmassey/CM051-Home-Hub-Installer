@@ -569,7 +569,7 @@ MSG_PROMPT_TZ_CONFIRM_HELP="Detected timezone: %s"
 MSG_PROMPT_USER_TZ_TITLE="Enter timezone (e.g. Europe/London, Asia/Hong_Kong)"
 
 MSG_PROMPT_ASSISTANT_NAME_TITLE="What would you like to call your assistant?"
-MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="The name in the field is a random suggestion -- type over it with anything you like. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin." # assistant-name-exempt: F6.1 suggestion-pool exemplar
+MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="The name in the field is a random suggestion -- type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices." # assistant-name-exempt: F6.1 suggestion-pool exemplar
 MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Type any name you like -- the suggestion is just a starting point."
 
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="How will your assistant reach you?"
