@@ -130,6 +130,49 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+      - name: Bundle Doctor agent into Resources
+        script: |
+          set -euo pipefail
+          # install.sh probes ${SCRIPT_DIR}/doctor/agent/ at section
+          # 3.14h (install.sh:4802) and copies the contents into
+          # ${OSTLER_DIR}/doctor/ so the launchd-managed Doctor
+          # service can serve the diagnostic dashboard at
+          # http://127.0.0.1:8089/doctor. When SCRIPT_DIR is the
+          # installer .app's Contents/Resources, doctor/agent/ must
+          # land at Contents/Resources/doctor/agent/.
+          #
+          # The pre-vendor behaviour was a soft skip: missing bundle
+          # plus no PWG_DOCTOR_REPO override meant install.sh
+          # continued without staging Doctor, leaving Ostler.app's
+          # Pairing tab (which iframes http://127.0.0.1:8089/pair-ios)
+          # with no service to render. Vendoring closes that gap for
+          # the v1.0 customer install path.
+          #
+          # T-1 launch readiness, Plan C, 2026-05-21. The PRODUCTISATION
+          # task that claimed Doctor was bundled-ready was a paper-only
+          # close; the .app bundle path had never actually shipped the
+          # files. This phase delivers them.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/doctor/agent"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling Doctor agent from ${SRC} into Resources/doctor/agent/"
+            mkdir -p "${DEST}/doctor/agent"
+            # Copy WITHOUT -p so xattrs do not propagate. codesign
+            # rejects "resource fork, Finder information, or similar
+            # detritus" on the staged bundle, so we keep the staged
+            # files xattr-free even before the final Strip-xattrs pass.
+            cp -R "${SRC}/" "${DEST}/doctor/agent/"
+            # Belt-and-braces xattr strip on the destination.
+            /usr/bin/xattr -cr "${DEST}/doctor" || true
+          else
+            echo "ERROR: vendor/doctor/agent not found at ${SRC}" >&2
+            echo "       Re-sync from HR015 doctor/agent/ - see vendor/doctor/README.md." >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/doctor/agent
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/doctor/agent
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail

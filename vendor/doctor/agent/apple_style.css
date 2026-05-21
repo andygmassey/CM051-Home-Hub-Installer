@@ -1,0 +1,478 @@
+/* ==========================================================================
+   Ostler Doctor - design system cascade
+   --------------------------------------------------------------------------
+   Dark-mode interior surface mirroring the marketing site's design tokens
+   (assets/ostler.css on os001) with a warm-ink palette tuned for an admin
+   dashboard. The marketing site is light-only; Doctor stays dark because
+   it pairs with terminal output the user is reading at install time.
+
+   Principles lifted from the marketing site:
+   - oxblood accent (#8B1F1F warm shifted to #C84545 for dark contrast)
+   - chassis off-white (#F8F8F4 inverted to ink #0d0b08)
+   - Outfit display + IBM Plex Sans body + IBM Plex Mono mono
+   - layered card shadow + soft hairline rules
+   - pill buttons + oxblood underline accents
+
+   Doctor-specific extensions on top:
+   - service-health LEDs (green / amber / red) with oxblood-glow
+     on the warm/info finding rows
+   - copyable fix-command code block
+   - disk-usage bars
+   - model pills + service grid + posture tiles
+
+   The class surface (.system-bar, .service-card, .finding-card,
+   .fix-block, .section-label, etc.) is preserved so existing Python
+   render functions keep working without needing template edits.
+   ========================================================================== */
+
+/* Outfit for display, IBM Plex Sans for body, IBM Plex Mono for mono.
+   Loaded from Google Fonts; system-ui fallbacks for offline. */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    /* Ostler dark palette. The marketing site light tokens are kept
+       in CSS comments next to each value for cross-reference. */
+    --ostler-ink: #0d0b08;            /* light-mode chassis was #F8F8F4 */
+    --ostler-ink-deep: #07060a;
+    --ostler-panel: #1a1612;          /* light-mode panel was #FFFFFF */
+    --ostler-panel-elev: #221c16;
+    --ostler-chassis: #ECE8DD;        /* the cream we use for body text */
+
+    /* Accents */
+    --ostler-accent: #C84545;          /* oxblood, brightened for dark */
+    --ostler-accent-hover: #D76060;
+    --ostler-accent-warm: #E26A6A;
+    --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+    --ostler-accent-2: #6E8FCC;        /* dark-mode equivalent of #1E2C52 */
+    --ostler-accent-3: #6FA86F;        /* dark-mode equivalent of #2C4A2C */
+
+    /* Hairlines + soft borders */
+    --ostler-hairline: rgba(236, 232, 221, 0.42);
+    --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+    --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+
+    /* Type colours */
+    --text: var(--ostler-chassis);
+    --text-secondary: rgba(236, 232, 221, 0.74);
+    --text-muted: rgba(236, 232, 221, 0.50);
+    --text-faint: rgba(236, 232, 221, 0.32);
+
+    /* Aliases preserved from the previous Apple-Diagnostic theme so
+       existing render functions that hard-code these names keep
+       working (the colour values just change). */
+    --bg: var(--ostler-ink);
+    --bg-card: var(--ostler-panel);
+    --bg-elevated: var(--ostler-panel-elev);
+    --border: var(--ostler-hairline-soft);
+    --border-subtle: var(--ostler-hairline-faint);
+
+    /* Status traffic lights -- semantic, kept distinct from the
+       brand accent so an oxblood "service-up" indicator never reads
+       as "error". */
+    --green: #5cb579;
+    --green-glow: rgba(92, 181, 121, 0.14);
+    --red: #d96666;
+    --red-glow: rgba(217, 102, 102, 0.14);
+    --yellow: #d4a052;
+    --yellow-glow: rgba(212, 160, 82, 0.14);
+
+    /* Amber alias used by first_run.py for the wizard 'done-box'.
+       Resolves to the Ostler oxblood family so the wizard feels like
+       the same product as the dashboard. */
+    --amber: var(--ostler-accent);
+    --amber-light: var(--ostler-accent-warm);
+    --amber-glow: var(--ostler-accent-glow);
+
+    /* Geometry */
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 999px;
+
+    /* Shadows */
+    --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+    --shadow-card: 0 1px 2px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.35), 0 24px 56px rgba(0,0,0,0.28);
+
+    /* Type tokens */
+    --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+}
+
+body {
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 24px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+    color: var(--ostler-accent);
+    text-decoration: none;
+}
+
+a:hover { color: var(--ostler-accent-hover); }
+
+::selection {
+    background: var(--ostler-accent);
+    color: #fff;
+}
+
+/* ==========================================================================
+   Page header (Doctor title bar with refresh + Send-by-Email)
+   ========================================================================== */
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 28px;
+}
+
+.page-title {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+}
+
+.page-subtitle {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+
+.refresh-btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    padding: 10px 18px;
+    color: var(--text-secondary);
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: border-color 0.18s, color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.refresh-btn:hover {
+    border-color: var(--ostler-accent);
+    color: var(--text);
+    background: var(--bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-soft);
+}
+
+/* ==========================================================================
+   System overview bar (status pill across the top of every page)
+   ========================================================================== */
+
+.system-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 22px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 22px;
+}
+
+.system-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.system-status-dot.healthy {
+    background: var(--green);
+    box-shadow: 0 0 12px var(--green-glow);
+}
+
+.system-status-dot.degraded {
+    background: var(--yellow);
+    box-shadow: 0 0 12px var(--yellow-glow);
+}
+
+.system-status-dot.down {
+    background: var(--red);
+    box-shadow: 0 0 12px var(--red-glow);
+}
+
+.system-status-text {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 600;
+    flex: 1;
+    color: var(--text);
+}
+
+.system-meta {
+    display: flex;
+    gap: 22px;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Service cards (Doctor "About-this-Mac"-style grid)
+   ========================================================================== */
+
+.service-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 26px;
+}
+
+.service-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: var(--shadow-soft);
+    transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+
+.service-card:hover {
+    border-color: var(--ostler-accent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-card);
+}
+
+.service-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.service-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.service-dot.green  { background: var(--green);  box-shadow: 0 0 8px var(--green-glow); }
+.service-dot.red    { background: var(--red);    box-shadow: 0 0 8px var(--red-glow); }
+.service-dot.yellow { background: var(--yellow); box-shadow: 0 0 8px var(--yellow-glow); }
+.service-dot.grey   { background: var(--text-faint); }
+
+.service-name {
+    font-family: var(--font-display);
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.005em;
+}
+
+.service-detail {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Findings list (clean, oxblood-accented severity rules)
+   ========================================================================== */
+
+.finding-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    margin-bottom: 12px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    box-shadow: var(--shadow-soft);
+    transition: border-color 0.18s, transform 0.18s;
+}
+
+.finding-card:hover {
+    border-color: var(--border);
+    transform: translateY(-1px);
+}
+
+.finding-severity {
+    width: 4px;
+    border-radius: 2px;
+    align-self: stretch;
+    flex-shrink: 0;
+}
+
+.finding-severity.critical { background: var(--red); }
+.finding-severity.warning  { background: var(--yellow); }
+.finding-severity.info     { background: var(--ostler-accent); }
+
+.finding-content { flex: 1; }
+
+.finding-title {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+    letter-spacing: -0.005em;
+}
+
+.finding-detail {
+    font-family: var(--font-body);
+    font-size: 0.86rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    margin-bottom: 10px;
+}
+
+/* ==========================================================================
+   Fix command block (copyable shell command)
+   ========================================================================== */
+
+.fix-block {
+    background: var(--ostler-ink-deep);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.fix-command {
+    font-family: var(--font-mono);
+    font-size: 0.80rem;
+    letter-spacing: 0.01em;
+    color: var(--ostler-accent-warm);
+    flex: 1;
+    user-select: all;
+    word-break: break-all;
+}
+
+.fix-copy {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 0.72rem;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: border-color 0.18s, color 0.18s, background 0.18s;
+    white-space: nowrap;
+}
+
+.fix-copy:hover {
+    border-color: var(--ostler-accent);
+    color: var(--ostler-accent-warm);
+}
+
+.fix-copy.copied {
+    border-color: var(--green);
+    color: var(--green);
+    background: var(--green-glow);
+}
+
+/* ==========================================================================
+   Section labels (the small uppercase header above each block)
+   ========================================================================== */
+
+.section-label {
+    font-family: var(--font-display);
+    font-size: 0.70rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    margin-top: 26px;
+}
+
+.section-label:first-child { margin-top: 0; }
+
+/* ==========================================================================
+   Disk usage bars
+   ========================================================================== */
+
+.disk-bar-container { margin-bottom: 14px; }
+
+.disk-label-row {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.disk-bar-bg {
+    height: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.disk-bar-fill {
+    height: 100%;
+    border-radius: var(--radius-pill);
+    transition: width 0.5s ease;
+}
+
+/* ==========================================================================
+   Model pills (Ollama model list as pill cluster)
+   ========================================================================== */
+
+.model-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.model-pill {
+    padding: 5px 12px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 720px) {
+    body { padding: 20px 16px; }
+    .page-header { flex-direction: column; gap: 12px; align-items: stretch; }
+    .system-bar { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .system-meta { flex-wrap: wrap; gap: 14px; }
+    .service-grid { grid-template-columns: repeat(2, 1fr); }
+    .finding-card { padding: 14px 16px; }
+}
+
+@media (max-width: 480px) {
+    .service-grid { grid-template-columns: 1fr; }
+}
