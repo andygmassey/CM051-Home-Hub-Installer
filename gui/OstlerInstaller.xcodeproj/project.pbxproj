@@ -293,6 +293,7 @@
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
+				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -428,6 +429,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is exported by gui/Makefile's release target\n# before invoking xcodebuild; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\nif [ -n \"${OSTLER_APP_PATH:-}\" ] && [ -d \"${OSTLER_APP_PATH}\" ]; then\n  echo \"Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/\"\n  cp -R \"${OSTLER_APP_PATH}\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
+		};
+		FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/ostler_security",
+			);
+			name = "Bundle ostler_security Python package into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_security",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh probes ${SCRIPT_DIR}/ostler_security/ and\n# ${SCRIPT_DIR}/ostler_security/pyproject.toml to decide\n# whether to run the passphrase setup + db-encryption step\n# (install.sh:1789). When that probe fails the install\n# silently skips the passphrase prompt and then hard-fails\n# later at the encrypt_db step with \"No passphrase set\".\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/ostler_security/. This script copies\n# the vendored source from vendor/ostler_security/ into the\n# bundle's Resources folder.\n#\n# Caught by Andy's Mac Studio retest #6 on 2026-05-21:\n# PRODUCTISATION task #236 (marked completed) had never\n# actually delivered the .app bundle path. Fix: bundle\n# the vendored package + reorder install.sh so a missing\n# module is a hard fail rather than a silent skip.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/ostler_security\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling ostler_security from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/ostler_security\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/ostler_security/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/ostler_security\" || true\nelse\n  echo \"ERROR: vendor/ostler_security not found at ${SRC}\" >&2\n  echo \"       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/README.md.\" >&2\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
