@@ -294,6 +294,13 @@
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
+				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
+				A594C4AF71E56E7417E3B57B /* Bundle Doctor agent into Resources */,
+				C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */,
+				ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */,
+				9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */,
+				8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */,
+				37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -370,6 +377,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/ostler_fda",
+			);
+			name = "Bundle ostler_fda Python package into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/ostler_fda\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/ostler_fda/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/ostler_fda\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/ostler_fda/\"\n/usr/bin/xattr -cr \"${DEST}/ostler_fda\"\n";
+		};
 		0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -388,6 +415,84 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
 		};
+		37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/email_ingest",
+			);
+			name = "Bundle email-ingest LaunchAgent + scripts into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/email-ingest",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/email_ingest\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling email_ingest from ${SRC} into Resources/email-ingest/\"\n  mkdir -p \"${DEST}/email-ingest\"\n  # install.sh:5088 looks for ${SCRIPT_DIR}/email-ingest/INSTALL_SNIPPET.sh\n  # so the bundled directory MUST be named email-ingest (hyphen),\n  # matching the source directory name in HR015.\n  cp -R \"${SRC}/\"* \"${DEST}/email-ingest/\"\n  /usr/bin/xattr -cr \"${DEST}/email-ingest\" || true\n  chmod 755 \"${DEST}/email-ingest/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/email-ingest/bin/\"*.sh \"${DEST}/email-ingest/bin/\"*.py \"${DEST}/email-ingest/bin/ostler-rescan-mail\" 2>/dev/null || true\nelse\n  echo \"ERROR: vendor/email_ingest not found at ${SRC}\" >&2\n  exit 1\nfi\n";
+		};
+		8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# The CM041 PWG People Graph repo ships two productised assets:\n#   - contact_syncer/  Python package, runs the GDPR import\n#                      pipeline. install.sh §3.10 looks for it\n#                      at \"${SCRIPT_DIR}/contact_syncer\" (i.e.\n#                      Contents/Resources/contact_syncer/ when\n#                      install.sh runs from inside the .app),\n#                      copies it to ${OSTLER_DIR}/import-pipeline/,\n#                      and invokes\n#                      .venv/bin/python -m contact_syncer.import_all.\n#   - assistant_api/   ical-server.py (the local API on :8089)\n#                      + its companion docs. Installed by a\n#                      later install.sh phase that wires it\n#                      as a launchd agent.\n#\n# CRITICAL bundle layout: both subdirs MUST live at the\n# Resources root (NOT under a vendor/cm041/ wrapper) because\n# install.sh's path checks (lines 4196 onward + 4245) hard-code\n# the unwrapped paths. Don't introduce a vendor/cm041/ subdir\n# at install-time; copy the CONTENTS of vendor/cm041/ directly.\n#\n# `cp -R` without -p so source xattrs (com.apple.provenance,\n# com.apple.macl on Sonoma+) don't propagate into the .app\n# bundle. The subsequent \"Strip xattrs\" phase is a belt-and-\n# braces second pass over the whole bundle.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm041\"\nif [ ! -d \"${VENDOR_ROOT}/contact_syncer\" ] || [ ! -d \"${VENDOR_ROOT}/assistant_api\" ]; then\n  echo \"error: vendor/cm041/ missing contact_syncer/ or assistant_api/.\" >&2\n  echo \"       Expected: ${VENDOR_ROOT}/contact_syncer + ${VENDOR_ROOT}/assistant_api\" >&2\n  echo \"       Re-sync from the CM041 PWG People Graph repo.\" >&2\n  exit 1\nfi\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-syncer rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/contact_syncer\" \"${DEST}/assistant_api\"\ncp -R \"${VENDOR_ROOT}/contact_syncer\" \"${DEST}/contact_syncer\"\ncp -R \"${VENDOR_ROOT}/assistant_api\"  \"${DEST}/assistant_api\"\n/usr/bin/xattr -cr \"${DEST}/contact_syncer\" \"${DEST}/assistant_api\"\n# ical-server.py is executable on the operator instance via\n# `python ical-server.py`, not chmod +x, so we don't toggle\n# the mode here. requirements.txt + .env.example land 644.\n";
+		};
+		9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm048_pipeline",
+			);
+			name = "Bundle CM048 conversation pipeline into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh phase 3.10b probes ${SCRIPT_DIR}/cm048_pipeline/\n# to discover the vendored Python package, then sets up a\n# dedicated venv under ${OSTLER_DIR}/services/cm048/ and\n# symlinks the pwg-convo CLI into /usr/local/bin/.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/cm048_pipeline/. Without this bundling\n# the install.sh probe fails and the conversation pipeline\n# is unavailable on the customer Mac (or the install\n# hard-fails when --allow-plaintext is not set).\n#\n# Companion to PR #115 (ostler_security): same vendoring\n# discipline, different upstream (CM048 source-of-truth\n# lives at ../CM048\\ -\\ PWG\\ Conversation\\ Processing/).\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/cm048_pipeline\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling cm048_pipeline from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/cm048_pipeline\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/cm048_pipeline/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/cm048_pipeline\" || true\nelse\n  echo \"ERROR: vendor/cm048_pipeline not found at ${SRC}\" >&2\n  echo \"       Sync manually from CM048 -- see vendor/README.md.\" >&2\n  exit 1\nfi\n";
+		};
+		A594C4AF71E56E7417E3B57B /* Bundle Doctor agent into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/doctor/agent",
+			);
+			name = "Bundle Doctor agent into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/doctor/agent",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/doctor/agent\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling Doctor agent from ${SRC} into Resources/doctor/agent/\"\n  mkdir -p \"${DEST}/doctor/agent\"\n  cp -R \"${SRC}/\" \"${DEST}/doctor/agent/\"\n  /usr/bin/xattr -cr \"${DEST}/doctor\" || true\nelse\n  echo \"ERROR: vendor/doctor/agent not found at ${SRC}\" >&2\n  exit 1\nfi\n";
+		};
 		B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -405,6 +510,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Info.plist sets ATSApplicationFontsPath = \"Fonts\", which tells\n# macOS to look at Contents/Resources/Fonts/ for app-specific fonts\n# to register at launch. xcodegen's default group-based resources\n# copy flattens the source Fonts/ subdir, so without this step the\n# TTFs land flat at Contents/Resources/*.ttf and macOS never finds\n# them. Every Font.custom(...) call then silently falls back to\n# system. Caught by TNM 2026-05-16 review of PR #77 (Check 6).\n# Fix: post-build, ensure Fonts/ subdir exists and move any flat\n# brand TTFs (Outfit, IBMPlexSans, JetBrainsMono) + OFL.txt into it.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/Fonts\"\nfor f in Outfit-Regular.ttf Outfit-Medium.ttf Outfit-SemiBold.ttf Outfit-Bold.ttf \\\n         IBMPlexSans-Regular.ttf IBMPlexSans-Medium.ttf IBMPlexSans-SemiBold.ttf \\\n         JetBrainsMono-Regular.ttf JetBrainsMono-Medium.ttf \\\n         OFL.txt; do\n    if [ -f \"${DEST}/${f}\" ]; then\n        mv -f \"${DEST}/${f}\" \"${DEST}/Fonts/${f}\"\n    fi\ndone\n";
+		};
+		C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/hub_power",
+			);
+			name = "Bundle hub_power scripts into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/hub-power",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh's Phase 3.14 (Hub power policy) probes\n# ${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh to decide\n# whether to install the hub-power LaunchAgent (battery\n# / AC / sleep / wake throttling for MacBook hubs).\n# When that probe fails the install logs an info line\n# (\"hub-power scripts not bundled with installer\") and\n# silently continues. That is fine on a Mac Mini /\n# Studio (always-on AC, watcher is a no-op anyway), but\n# on a MacBook hub it means the LaunchAgent never lands\n# and the customer's battery drains on the first trip\n# away from the wall.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/hub-power/. Note that the on-disk\n# subdir name is \"hub-power\" (matching what install.sh\n# looks for) even though the vendor subdir is \"hub_power\"\n# (matching the directory naming convention for vendor/).\n#\n# Source of truth: HR015 - Gaming PC/hub-power/. See\n# vendor/hub_power/README.md for the sync convention.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/hub_power\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling hub_power from ${SRC} into Resources/hub-power/\"\n  mkdir -p \"${DEST}/hub-power\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/hub-power/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/hub-power\" || true\n  # Re-assert executable bits on the shell scripts. The\n  # cp above should preserve them, but a `git checkout`\n  # on a case-insensitive filesystem can occasionally\n  # land without the x-bit.\n  chmod 755 \"${DEST}/hub-power/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/hub-power/bin/\"*.sh\nelse\n  echo \"ERROR: vendor/hub_power not found at ${SRC}\" >&2\n  echo \"       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/hub_power/README.md.\" >&2\n  exit 1\nfi\n";
 		};
 		E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -430,6 +555,29 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is exported by gui/Makefile's release target\n# before invoking xcodebuild; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\nif [ -n \"${OSTLER_APP_PATH:-}\" ] && [ -d \"${OSTLER_APP_PATH}\" ]; then\n  echo \"Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/\"\n  cp -R \"${OSTLER_APP_PATH}\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
 		};
+		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm024_knowledge/pyproject.toml",
+				"$(SRCROOT)/../vendor/cm024_knowledge/requirements.txt",
+				"$(SRCROOT)/../vendor/cm024_knowledge/src/cli.py",
+			);
+			name = "Bundle cm024_knowledge Python package into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm024_knowledge/pyproject.toml",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm024_knowledge/src/cli.py",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# Vendor the CM024 Knowledge service (ostler-knowledge CLI)\n# into the signed .app so install.sh Phase 3.13b can pip-\n# install it into the customer venv without a network clone.\n# Pre-2026-05-21 the Knowledge service path was clone-only\n# (PWG_KNOWLEDGE_REPO env override); without an override the\n# install logged \"Knowledge service not installed\" and the\n# Doctor \"Import Evernote\" surface would later show \"service\n# unavailable\" when the feature flag is flipped on.\n#\n# Customer-facing primarily for Evernote import (Doctor UI,\n# feature-flagged OFF at v1.0; flipped on for v1.1). The CLI\n# install path is NOT flag-gated -- the binary is always\n# installed; the flag only controls UI visibility.\n#\n# Mirror of the ostler_security + ostler_fda vendor patterns\n# (PRs #115 + #116).\n#\n# Hard-fail if the vendor dir is missing so a forgotten\n# vendor-sync surfaces at build time, not at install time.\nVENDOR_SRC=\"${SRCROOT}/../vendor/cm024_knowledge\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/cm024_knowledge/ is missing.\" >&2\n    echo \"error: see vendor/README.md for the manual sync recipe.\" >&2\n    echo \"error: the customer-install path pip-installs ostler-knowledge\" >&2\n    echo \"error: from Contents/Resources/cm024_knowledge/. Refusing to build\" >&2\n    echo \"error: a .app that would silently skip the Knowledge service install.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/cm024_knowledge\"\n# Copy WITHOUT -p so we do not preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break\n# codesign). The trailing /. on the source copies the dir\n# contents (not the dir itself) into ${DEST}/cm024_knowledge/.\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/cm024_knowledge/\"\n# Strip any __pycache__ that snuck in from a developer\n# checkout. pip-install does not need them and they bloat\n# the codesigned bundle.\nfind \"${DEST}/cm024_knowledge\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/cm024_knowledge\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Belt-and-braces xattr strip on the package (the bundle-\n# wide xattr -cr in the next phase repeats this, but doing\n# it here keeps the per-phase output clean).\n/usr/bin/xattr -cr \"${DEST}/cm024_knowledge\"\n";
+		};
 		FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -448,7 +596,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n# install.sh probes ${SCRIPT_DIR}/ostler_security/ and\n# ${SCRIPT_DIR}/ostler_security/pyproject.toml to decide\n# whether to run the passphrase setup + db-encryption step\n# (install.sh:1789). When that probe fails the install\n# silently skips the passphrase prompt and then hard-fails\n# later at the encrypt_db step with \"No passphrase set\".\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/ostler_security/. This script copies\n# the vendored source from vendor/ostler_security/ into the\n# bundle's Resources folder.\n#\n# Caught by Andy's Mac Studio retest #6 on 2026-05-21:\n# PRODUCTISATION task #236 (marked completed) had never\n# actually delivered the .app bundle path. Fix: bundle\n# the vendored package + reorder install.sh so a missing\n# module is a hard fail rather than a silent skip.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/ostler_security\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling ostler_security from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/ostler_security\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/ostler_security/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/ostler_security\" || true\nelse\n  echo \"ERROR: vendor/ostler_security not found at ${SRC}\" >&2\n  echo \"       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/README.md.\" >&2\n  exit 1\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/ostler_security\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling ostler_security from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/ostler_security\"\n  cp -R \"${SRC}/\" \"${DEST}/ostler_security/\"\n  /usr/bin/xattr -cr \"${DEST}/ostler_security\" || true\nelse\n  echo \"ERROR: vendor/ostler_security not found at ${SRC}\" >&2\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

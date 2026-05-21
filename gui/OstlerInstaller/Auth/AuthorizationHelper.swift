@@ -32,6 +32,32 @@
 
 import Foundation
 import AppKit
+import os
+
+/// Escape a string for embedding inside an AppleScript double-quoted
+/// literal. AppleScript strings accept `\"` for an embedded double
+/// quote and `\\` for a literal backslash; everything else passes
+/// through. Exposed at file scope so the test target can pin the
+/// escape behaviour against future regressions.
+internal func escapeForAppleScriptLiteral(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+}
+
+/// Build the AppleScript that drives the macOS admin password
+/// prompt. Both `innerShell` and `prompt` are escaped for the
+/// AppleScript string literal before interpolation so any embedded
+/// double quote (e.g. shell-expanded paths like
+/// `"/var/db/sudo/ts/$ORIG_USER"`) does not close the string early.
+/// Exposed at file scope for unit testing.
+internal func buildAuthorizationAppleScript(innerShell: String, prompt: String) -> String {
+    let escapedInnerShell = escapeForAppleScriptLiteral(innerShell)
+    let escapedPrompt = escapeForAppleScriptLiteral(prompt)
+    return """
+    do shell script "\(escapedInnerShell)" with prompt "\(escapedPrompt)" with administrator privileges
+    """
+}
 
 actor AuthorizationHelper {
     static let shared = AuthorizationHelper()
@@ -59,15 +85,23 @@ actor AuthorizationHelper {
         defer { inFlight = false }
 
         let prompt = "Ostler needs administrator access. \(reason)"
-        // Escape both the prompt and the inner shell command for the
-        // AppleScript layer. Single quotes around the inner command
-        // are stripped by AppleScript before evaluation.
-        let escapedPrompt = prompt
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-
-        // Inner shell, single-quoted so AppleScript passes it through
-        // verbatim. Runs as root via `with administrator privileges`.
+        // Inner shell. Runs as root via `with administrator privileges`.
+        // Script construction (and its escape rules) live in
+        // `buildAuthorizationAppleScript` so the test target can pin
+        // the escape behaviour.
+        //
+        // 2026-05-21 Studio retest #8 silent-bail root cause: the
+        // pre-fix build interpolated `innerShell` raw, so the inner
+        // shell's double-quoted paths broke out of the AppleScript
+        // string. osascript exited with parse error -2741 ("Expected
+        // expression but found unknown token") instantly, with no
+        // password prompt. The Swift code read
+        // `task.terminationStatus != 0`, returned false, and the
+        // coordinator surfaced "admin authorisation declined or
+        // failed" with no further detail. The pre-fix code also
+        // discarded the captured stderr; the diagnostic-logging
+        // hunk below makes future failures of this shape visible
+        // through the `ai.ostler.installer` os_log subsystem.
         //
         //   1. /usr/bin/sudo -v
         //        Belt: refreshes root's own timestamp. Cheap insurance
@@ -100,23 +134,52 @@ actor AuthorizationHelper {
             "/bin/chmod 600 \"/var/db/sudo/ts/$ORIG_USER\" ; " +
             "/usr/sbin/chown root:wheel \"/var/db/sudo/ts/$ORIG_USER\""
 
-        let script = """
-        do shell script "\(innerShell)" with prompt "\(escapedPrompt)" with administrator privileges
-        """
+        let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
 
         let result: Bool = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let task = Process()
                 task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
                 task.arguments = ["-e", script]
-                task.standardError = Pipe()
-                task.standardOutput = Pipe()
+                let stderrPipe = Pipe()
+                let stdoutPipe = Pipe()
+                task.standardError = stderrPipe
+                task.standardOutput = stdoutPipe
                 do {
                     try task.run()
                     task.waitUntilExit()
-                    continuation.resume(returning: task.terminationStatus == 0)
+                    let exitCode = task.terminationStatus
+                    if exitCode != 0 {
+                        // Capture stderr so the next failure mode of
+                        // this shape (parse error, TCC denial,
+                        // entitlement regression) is visible in the
+                        // unified log under `ai.ostler.installer`,
+                        // not just in NSLog under the default
+                        // subsystem. Truncate to keep large
+                        // AppleScript dumps from spamming the log
+                        // pipeline. User-cancel produces exit 1 with
+                        // a benign "User canceled" stderr message;
+                        // we log at debug level for that case and
+                        // error level for everything else.
+                        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        let stderr = String(data: stderrData, encoding: .utf8)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            ?? ""
+                        let stderrExcerpt = stderr.count > 512
+                            ? String(stderr.prefix(512)) + "...(truncated)"
+                            : stderr
+                        let isUserCancel = stderr.contains("User canceled")
+                            || stderr.contains("User cancelled")
+                            || stderr.contains("(-128)")
+                        if isUserCancel {
+                            OstlerLog.lifecycle.debug("osascript admin prompt cancelled by user (exit \(exitCode, privacy: .public))")
+                        } else {
+                            OstlerLog.lifecycle.error("osascript admin prompt failed: exit=\(exitCode, privacy: .public) stderr=\(stderrExcerpt, privacy: .public)")
+                        }
+                    }
+                    continuation.resume(returning: exitCode == 0)
                 } catch {
-                    NSLog("osascript launch failed: \(error)")
+                    OstlerLog.lifecycle.error("osascript spawn failed before run: \(error.localizedDescription, privacy: .public)")
                     continuation.resume(returning: false)
                 }
             }

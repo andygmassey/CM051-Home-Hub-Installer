@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler email ingest LaunchAgent.
+
+        Hourly, drains any new messages from Apple Mail's local store
+        into a Gmail-format mbox and hands the mbox to CM046's email
+        adapter, which threads, cleans, and writes CM048 conversation
+        files. The result: emails the user got in the last hour are
+        in the assistant's knowledge graph by the next tick.
+
+        Pieces:
+          1. ostler_fda/apple_mail_mbox.py is the emit-mbox primitive.
+          2. email-ingest/bin/email-ingest-tick.sh is the wrapper
+             this LaunchAgent runs; it drives 1 plus pwg-email-ingest.
+          3. CM051 install.sh integration copies the wrapper, renders
+             this plist, and calls launchctl bootstrap.
+
+        The installer renders the placeholders below at install time:
+          OSTLER_BIN  -> $OSTLER_DIR/bin
+          OSTLER_HOME -> $HOME (used as working directory)
+          OSTLER_LOGS -> $LOGS_DIR (~/.ostler/logs by default)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.email-ingest</string>
+
+    <!--
+        Wrapper script does both halves of the chain (emit plus ingest)
+        so the LaunchAgent stays a single-process unit. The script is
+        installed to OSTLER_BIN/email-ingest-tick.sh by CM051's
+        installer; placeholder is replaced at install time.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/email-ingest-tick.sh</string>
+    </array>
+
+    <!--
+        One hour. Apple Mail syncs in the background as it always
+        does, so any reasonable cadence works; an hour gives the
+        delivery and sync layer time to settle without leaving recent
+        mail invisible to the assistant for too long.
+    -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!--
+        RunAtLoad fires the script once as soon as the agent loads
+        (login or post-install). On a fresh install the wrapper
+        clamps the emit window via the backfill-days flag so we
+        don't try to ingest the user's entire mail history in one
+        tick.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!--
+        Sane working directory: the wrapper is absolute-path safe
+        but $HOME-relative resolution still works from here.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. The installer creates the
+        dir. Doctor surfaces these logs so the operator can see
+        whether the last tick succeeded without spelunking launchctl.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/email-ingest.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/email-ingest.err</string>
+
+    <!--
+        Background priority. Email ingest is not latency-critical;
+        we don't want it competing with foreground work for I/O on
+        the user's daily-driver Mac.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

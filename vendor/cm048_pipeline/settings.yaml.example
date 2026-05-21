@@ -1,0 +1,123 @@
+# ~/.ostler/settings.yaml -- Ostler / Personal World Graph user settings (example)
+#
+# Copy to ~/.ostler/settings.yaml and edit. All fields are optional -- CM048
+# falls back to the defaults baked into src/settings.py when a field is
+# absent.
+#
+# Env-var overrides (useful for CI / test fixtures):
+#   OSTLER_USER_ID          overrides user_id
+#   OSTLER_OLLAMA_URL       overrides ollama_url
+#   OSTLER_QDRANT_URL       overrides qdrant_url
+#   OSTLER_STATE_DIR        overrides processing_state_dir
+
+# -----------------------------------------------------------------------------
+# Identity
+# -----------------------------------------------------------------------------
+
+# Stable user ID. Used as RDF subject suffix (pwg:user/<id>), Qdrant
+# payload key, SQLite coach table partition. Change with care — this
+# becomes a de-facto primary key across all PWG storage.
+user_id: your_user_id
+
+# Display name used in prompt templates via {user_name} /
+# {user_display_name} placeholders. Only user-facing; safe to rename.
+user_display_name: Your Name
+
+# -----------------------------------------------------------------------------
+# Locale
+# -----------------------------------------------------------------------------
+
+# BCP-47 locale. Drives spelling, date formatting, punctuation style in
+# enrichment outputs. Injected into prompt templates as {target_locale}.
+# Examples: en-GB, en-US, en-AU, fr-FR, de-DE, zh-HK
+locale: en-GB
+
+# -----------------------------------------------------------------------------
+# Coaching
+# -----------------------------------------------------------------------------
+
+# User Coach tone. Affects how the coach delivers observations:
+#   direct       — blunt, no hedging. "You interrupted Sam twice."
+#   supportive   — warmer framing. "Sam didn't get to finish a thought —
+#                  worth watching next time."
+#   configurable — ask per-invocation (the caller supplies tone at
+#                  process time)
+coaching_tone: supportive
+
+# -----------------------------------------------------------------------------
+# Redaction policy
+# -----------------------------------------------------------------------------
+
+# Per-category redaction in the cleaned transcript output. Two modes:
+#   mask — replace the sensitive span with a category placeholder
+#          (e.g. "[redacted:financial]")
+#   keep — leave as-is (useful when the transcript is personal-only and
+#          never leaves the device)
+#
+# Two categories are NON-configurable and always enforced:
+#   credentials    — forced mask (passwords, API keys, OTPs)
+#   safeguarding   — mask + escalate (child safety, coercion markers)
+#
+# policy_version is persisted with each conversation output. Bumping it
+# lets downstream consumers detect stale redactions.
+redaction:
+  financial: mask
+  medical: mask
+  legal: mask
+  contact_info: mask
+  policy_version: default@1.0
+
+# -----------------------------------------------------------------------------
+# Work geofence
+# -----------------------------------------------------------------------------
+
+# Enforces "don't process transcripts captured at work". CM031/CM042
+# are meant to block capture at these locations; CM048 rejects
+# defensively if a transcript arrives tagged
+# `captured_at_work_geofenced_location: true`.
+work_geofence:
+  enabled: false
+  addresses:
+    # - "Office Tower, 1 Example Road, Example City"
+  radius_m: 100
+
+# -----------------------------------------------------------------------------
+# LLM endpoints
+# -----------------------------------------------------------------------------
+
+# Ollama base URL. Default: localhost. Change to your Ollama server's address.
+ollama_url: http://localhost:11434
+
+# Model routing. Small model for classification (fast, cheap), larger
+# model for enrichment / relationship / coach / fact steps. All can be
+# the same model if you're resource-constrained.
+ollama_classify_model: qwen3.5:9b
+ollama_enrich_model: qwen3.5:35b-a3b
+ollama_fact_model: qwen3.5:35b-a3b
+ollama_relationship_model: qwen3.5:35b-a3b
+ollama_coach_model: qwen3.5:35b-a3b
+
+# -----------------------------------------------------------------------------
+# Storage
+# -----------------------------------------------------------------------------
+
+qdrant_url: http://localhost:6333
+oxigraph_url: http://localhost:7878
+qdrant_conversations_collection: conversations
+
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+
+# Per-step state persistence. Never deleted automatically — state is
+# the source of truth for "did this step finish cleanly?".
+processing_state_dir: ~/.ostler/processing
+
+# Final enriched conversation markdown output (one .md per conversation).
+# User-facing zone of the two-zone layout: open this folder in
+# Obsidian to browse the customer's processed conversation summaries
+# alongside the wiki and call transcripts.
+output_conversations_dir: ~/Documents/Ostler/Conversations
+
+# User Coach observation store.
+coach_db_path: ~/.ostler/coach/observations.db

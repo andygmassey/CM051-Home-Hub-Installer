@@ -246,4 +246,97 @@ final class AdminAuthorizationGateTests: XCTestCase {
         XCTAssertEqual(launchCalls, 1,
                        "launch step must fire exactly once even under double-call")
     }
+
+    // MARK: - AppleScript quoting (Studio retest #8 regression guard)
+
+    /// Pins the escape behaviour that lets `do shell script` survive
+    /// inner-shell commands containing embedded double quotes. Before
+    /// 2026-05-21 the inner shell was interpolated raw, so a path
+    /// like `"/var/db/sudo/ts/$ORIG_USER"` closed the AppleScript
+    /// string early. osascript exited with parse error -2741 instantly
+    /// and the coordinator surfaced "admin authorisation declined or
+    /// failed" without a password prompt ever appearing.
+    func testEscapeForAppleScriptLiteralEscapesDoubleQuoteAndBackslash() {
+        XCTAssertEqual(
+            escapeForAppleScriptLiteral("/var/db/sudo/ts/$U"),
+            "/var/db/sudo/ts/$U",
+            "shell-expansion sigils pass through untouched"
+        )
+        XCTAssertEqual(
+            escapeForAppleScriptLiteral("touch \"/var/db/sudo/ts/$U\""),
+            "touch \\\"/var/db/sudo/ts/$U\\\"",
+            "embedded double quotes must be escaped to \\\""
+        )
+        XCTAssertEqual(
+            escapeForAppleScriptLiteral("a\\b"),
+            "a\\\\b",
+            "literal backslashes must be doubled before quotes are escaped"
+        )
+        XCTAssertEqual(
+            escapeForAppleScriptLiteral("\\\""),
+            "\\\\\\\"",
+            "backslash-escape ordering survives mixed input"
+        )
+    }
+
+    /// Pins the assembled AppleScript shape so a future refactor
+    /// cannot silently reintroduce the unescaped-inner-shell bug.
+    func testBuildAuthorizationAppleScriptEscapesEmbeddedQuotes() {
+        let innerShell = "/usr/bin/touch \"/var/db/sudo/ts/$U\""
+        let prompt = "Ostler needs administrator access. \"reason\""
+        let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
+
+        // Both literals must appear with their double quotes escaped
+        // so the AppleScript string does not close early.
+        XCTAssertTrue(
+            script.contains("/usr/bin/touch \\\"/var/db/sudo/ts/$U\\\""),
+            "inner-shell double quotes must land escaped in the assembled script. Got: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains("administrator access. \\\"reason\\\""),
+            "prompt double quotes must land escaped in the assembled script. Got: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains("with administrator privileges"),
+            "assembled script must end with the admin-privileges clause"
+        )
+        // The pre-fix bug: raw interpolation left the inner-shell's
+        // double quotes unescaped, producing
+        //   `do shell script "/usr/bin/touch "/var/db/...`
+        // i.e. the AppleScript do-shell-script string opened, ran
+        // /usr/bin/touch and then closed on the inner shell's `"`.
+        // Scan the assembled script byte-by-byte and refuse to find
+        // any unescaped `"` between the do-shell-script opening
+        // quote and its closing one. `osacompile -e <script>` is
+        // the authoritative parser but pulling it into the test
+        // suite adds a process-spawn dependency; this scanner is a
+        // cheap structural guard.
+        XCTAssertTrue(
+            assembledScriptHasBalancedAppleScriptStrings(script),
+            "assembled script must keep the AppleScript string literals balanced. Got: \(script)"
+        )
+    }
+
+    /// Walks `script` and confirms every double quote inside an open
+    /// AppleScript string literal is preceded by a `\` escape. Returns
+    /// false if the literal closes early, which is exactly the failure
+    /// shape the unescaped-inner-shell bug produced.
+    private func assembledScriptHasBalancedAppleScriptStrings(_ script: String) -> Bool {
+        var inString = false
+        var prev: Character = " "
+        var openCount = 0
+        var closeCount = 0
+        for c in script {
+            if c == "\"" && prev != "\\" {
+                if inString {
+                    closeCount += 1
+                } else {
+                    openCount += 1
+                }
+                inString.toggle()
+            }
+            prev = c
+        }
+        return !inString && openCount == closeCount && openCount >= 2
+    }
 }

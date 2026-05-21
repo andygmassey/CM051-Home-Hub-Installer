@@ -38,7 +38,7 @@ done
 
 # ── stdin check ────────────────────────────────────────────────────
 # When piped via `curl | bash`, stdin is the script not the terminal.
-# We need terminal input for passphrase etc, so redirect from /dev/tty.
+# We need terminal input for confirmations etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
 if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
@@ -153,6 +153,15 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    Set to a clone URL pointing at a tagged release SHA of the"
     echo "    evernote-knowledge repo to install ostler-knowledge into"
     echo "    a dedicated venv at ~/.ostler/services/knowledge/."
+    echo ""
+    echo "  PWG_CM048_REPO"
+    echo "    Source repo for the CM048 conversation processing pipeline."
+    echo "    Default: empty (productised tarball bundles the pipeline at"
+    echo "    Contents/Resources/cm048_pipeline/; install.sh discovers it"
+    echo "    and pip-installs into a dedicated venv at"
+    echo "    ~/.ostler/services/cm048/). Set to a clone URL for dev or"
+    echo "    private-beta installs. Missing pipeline AND no override is"
+    echo "    a hard fail unless --allow-plaintext is passed."
     echo ""
     echo "  PWG_NOTICES_BASE_URL"
     echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
@@ -660,6 +669,21 @@ DOCTOR_REPO="${PWG_DOCTOR_REPO:-}"
 # PWG_KNOWLEDGE_REPO="https://github.com/your-org/repo.git" ./install.sh
 KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 
+# CM048 conversation processing pipeline. Python package providing the
+# pwg-convo CLI plus the conversation processor that turns raw human
+# transcripts into three-tier output (conversation MD, person signals
+# to Oxigraph, user-coach observations). The productised tarball
+# bundles a copy under ${SCRIPT_DIR}/cm048_pipeline/; install.sh
+# pip-installs it into a dedicated venv at ~/.ostler/services/cm048/
+# and symlinks .venv/bin/pwg-convo into /usr/local/bin/pwg-convo so
+# Doctor + Marvin + the assistant can invoke it without venv juggling.
+# Without bundling AND without an override, the install hard-fails
+# (rather than the older silent-skip which only surfaced as confusing
+# downstream failures). Pass --allow-plaintext to skip warn-only for
+# dev / CI shells. Override:
+# PWG_CM048_REPO="https://github.com/your-org/cm048.git" ./install.sh
+CM048_REPO="${PWG_CM048_REPO:-}"
+
 # Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
 # LICENSES/ tree. Same productisation rule: bundled tarball is the
 # primary path, raw fetch is the fallback. Empty default keeps the
@@ -701,7 +725,7 @@ step "$MSG_STEP_CHECKING_PREREQUISITES" "prereq_check"
 # - Apple ID gives us the user's name (no need to ask)
 # - StoreKit receipt proves purchase
 # - Activation code for free Ostler month is generated here
-# - The whole Phase 2 reduces to: passphrase + confirm
+# - The whole Phase 2 reduces to: Touch ID briefing acknowledgement
 #
 # For the beta, we use an activation code entered here.
 # Set OSTLER_BETA=1 to skip (F&F testers don't need a code).
@@ -1847,104 +1871,151 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     fi
 fi
 
-# Copy FDA extraction module if available
-# FDA_DIR is the PARENT – the package lives at FDA_DIR/ostler_fda/
+# Copy FDA extraction module if bundled.
+#
+# FDA_DIR is the PARENT -- the package lives at FDA_DIR/ostler_fda/.
+# When install.sh runs from inside the signed .app, SCRIPT_DIR is
+# Contents/Resources and the postBuildScript in gui/project.yml lands
+# the package at SCRIPT_DIR/ostler_fda/. When install.sh runs from a
+# developer's HR015 sibling-clone layout (dev mode), the package is
+# also at SCRIPT_DIR/ostler_fda/ (../HR015 - Gaming PC/ostler_fda
+# symlinked or vendored locally).
+#
+# Pre-2026-05-21 a missing package fell through to "FDA extraction
+# module not bundled. Skipping instant data extraction" later in
+# Phase 3.7, leaving the customer with zero extracted data and no
+# clear error. The hard-fail below mirrors the ostler_security probe
+# pattern (install.sh:1820-1846) so a build regression surfaces
+# immediately rather than 30 minutes into the install.
 FDA_DIR="${OSTLER_DIR}/fda-module"
 HAS_FDA_MODULE=false
 if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     mkdir -p "$FDA_DIR"
     cp -R "${SCRIPT_DIR}/ostler_fda" "$FDA_DIR/"
     HAS_FDA_MODULE=true
+else
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT"
+    else
+        echo ""
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1"
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2"
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3"
+        fail "$MSG_FAIL_FDA_MODULE_MISSING_RE_RUN"
+    fi
 fi
 
-PASSPHRASE=""
 RECOVERY_KEY=""
+RECOVERY_PASSPHRASE=""
+PASSKEY_PRIMED=false
 
 # Check if security is already configured (re-run detection)
-if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
-    ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PASSPHRASE_SET_UP"
-    HAS_SECURITY_MODULE=false  # skip passphrase setup
+#
+# Two artefacts can mark "security configured":
+#   - passkey.json  -- primary path (passkey-primary flow, 2026-04-23+)
+#   - keychain.json -- legacy passphrase path OR opt-in recovery passphrase
+#                       written by setup_passphrase() during a previous run
+#
+# Either is sufficient to skip security setup on a re-run.
+if [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+    ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN"
+    HAS_SECURITY_MODULE=false  # skip security setup on re-run
 elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Why a strong passphrase matters${NC}"
+    echo -e "  ${BOLD}Touch ID protects your data${NC}"
     echo ""
     echo "  This is not a newsletter signup. Ostler will hold every"
     echo "  relationship, every conversation, every pattern in your life."
-    echo "  Think of it like the password for your entire digital soul."
+    echo "  Think of it like the lock for your entire digital soul."
     echo ""
-    echo "  We enforce a strong passphrase because the alternative is"
-    echo "  someone else being able to read everything about you."
+    echo "  Your knowledge graph is encrypted with a key wrapped by"
+    echo "  Touch ID on this Mac. macOS prompts for Touch ID later in"
+    echo "  the install to set it up."
     echo ""
-    echo "  Pick something you will remember. A sentence works well:"
-    echo "    'mango sunset river telescope'"
-    echo "    'my cat hates the vacuum cleaner'"
-    echo "    'coffee before nine or everything burns'"
+    echo "  A 12-word recovery phrase is also generated. We show it"
+    echo "  once. Write it down somewhere safe."
     echo ""
-    echo "  Minimum: 16 characters or 4+ words."
-    echo ""
-    echo -e "  ${RED}If you lose this AND the recovery key, your data is${NC}"
-    echo -e "  ${RED}gone forever. We cannot help. That is the point.${NC}"
+    echo -e "  ${RED}If you lose Touch ID access AND the recovery phrase,${NC}"
+    echo -e "  ${RED}your data is gone forever. We cannot help. That is${NC}"
+    echo -e "  ${RED}the point.${NC}"
     echo ""
 
-    while true; do
-        PASSPHRASE="$(gui_read "$MSG_PROMPT_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_PASSPHRASE_HELP" "" "passphrase")"
+    ACK_PASSKEY="$(gui_read "$MSG_PROMPT_PASSKEY_ACK_TITLE" acknowledge "OK" "$MSG_PROMPT_PASSKEY_ACK_HELP" "OK,CANCEL" "passkey_ack")"
+    if [[ "$ACK_PASSKEY" == "CANCEL" || "$ACK_PASSKEY" == "cancel" ]]; then
         echo ""
+        echo "  No problem. Nothing has been installed."
+        echo "  Re-run the installer when you are ready."
+        exit 0
+    fi
+    PASSKEY_PRIMED=true
+    ok "$MSG_OK_TOUCH_ID_BRIEFING_ACKNOWLEDGED"
 
-        # Validate using the Python module (use venv Python for cryptography)
-        VALIDATE_MSG=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
-import sys
-from ostler_security.passphrase import validate_passphrase_strength
-pp = sys.stdin.read()
-ok, msg = validate_passphrase_strength(pp)
-if not ok:
-    print(msg)
-    sys.exit(1)
-" 2>&1)
-        VALIDATE_EXIT=$?
+    # ── Optional recovery passphrase (collected here so Phase 3 stays
+    # unattended). The actual setup_passphrase() call lands in Phase
+    # 3.6 once ostler_security's deps are pip-installed in the venv.
+    echo ""
+    echo "  $MSG_INFO_RECOVERY_PASSPHRASE_INTRO"
+    echo ""
+    ADD_RP="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE" yesno "Y" "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_HELP" "" "recovery_passphrase_opt_in")"
+    if [[ "${ADD_RP:-y}" == "y" || "${ADD_RP:-y}" == "Y" || "${ADD_RP:-y}" == "yes" ]]; then
+        while true; do
+            RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP" "" "recovery_passphrase")"
+            echo ""
+            if [[ -z "$RECOVERY_PASSPHRASE" ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED"
+                break
+            fi
 
-        if [[ $VALIDATE_EXIT -ne 0 ]]; then
-            warn "$VALIDATE_MSG"
-            continue
-        fi
+            # Quick length sanity check here; full strength validation
+            # runs in Phase 3.6 once the venv is fully provisioned.
+            # 12-char minimum mirrors the lower bound of
+            # validate_passphrase_strength's diceware path.
+            if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+                unset RECOVERY_PASSPHRASE
+                continue
+            fi
 
-        PASSPHRASE_CONFIRM="$(gui_read "$MSG_PROMPT_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_PASSPHRASE_CONFIRM_HELP" "" "passphrase_confirm")"
-        echo ""
-
-        if [[ "$PASSPHRASE" != "$PASSPHRASE_CONFIRM" ]]; then
-            warn "$MSG_WARN_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
-            continue
-        fi
-
-        unset PASSPHRASE_CONFIRM
-        ok "$MSG_OK_PASSPHRASE_ACCEPTED"
-        break
-    done
+            RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP" "" "recovery_passphrase_confirm")"
+            echo ""
+            if [[ "$RECOVERY_PASSPHRASE" != "$RP_CONFIRM" ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
+                unset RP_CONFIRM
+                continue
+            fi
+            unset RP_CONFIRM
+            ok "$MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3"
+            break
+        done
+    else
+        info "$MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY"
+    fi
 else
     # HAS_SECURITY_MODULE is false AND there is no existing
     # keychain.json. This means the ostler_security package was not
     # found at ${SCRIPT_DIR}/ostler_security/ (or the pyproject.toml
     # probe failed), so the install would silently continue, skip
-    # the passphrase prompt, and then hard-fail at the encrypt_db
-    # step several phases later with a confusing "no passphrase
+    # the passkey prompt, and then hard-fail at the encrypt_db
+    # step several phases later with a confusing "no passkey
     # set" error. Surface the real failure here instead.
     #
     # Caught by Mac Studio retest #6 on 2026-05-21: the bundled
     # .app was missing ostler_security/ in Contents/Resources/
     # because the post-build script that copies the vendored
     # package into the .app had never been wired up. Fix is in
-    # gui/project.yml + vendor/ostler_security/ in this same PR;
+    # gui/project.yml + vendor/ostler_security/ in PR #115;
     # this hard-fail is the safety net so that if a future build
     # regression strips the package out again, the customer gets a
     # clear actionable error instead of a silent half-install.
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-        warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
+        warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSKEY_SETUP"
         warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
         warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
         echo ""
-        warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
+        warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSKEY_SETUP"
         warn "$(printf "$MSG_WARN_SECURITY_MODULE_LOOKED_FOR_PATH" "${SCRIPT_DIR}")"
         warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE"
         warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_2"
@@ -2352,7 +2423,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 if [[ -d "$OSTLER_DIR" ]]; then
                     rm -rf "$OSTLER_DIR" 2>/dev/null || true
                 fi
-                unset PASSPHRASE 2>/dev/null || true
+                unset RECOVERY_PASSPHRASE 2>/dev/null || true
                 echo ""
                 echo "  No problem. Nothing has been installed and nothing was"
                 echo "  written to your Mac."
@@ -2508,7 +2579,7 @@ while true; do
             if [[ -d "$OSTLER_DIR" ]]; then
                 rm -rf "$OSTLER_DIR" 2>/dev/null || true
             fi
-            unset PASSPHRASE 2>/dev/null || true
+            unset RECOVERY_PASSPHRASE 2>/dev/null || true
             echo ""
             echo "  No problem. Nothing has been installed and nothing was"
             echo "  written to your Mac."
@@ -2550,7 +2621,7 @@ echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
 echo "    1. You are 18 or older"
 echo "    2. You understand what Ostler stores and how"
-echo "    3. You have set a passphrase you will remember"
+echo "    3. You will keep the 12-word recovery phrase safe"
 echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
@@ -2566,7 +2637,7 @@ while true; do
     if [[ "$CONSENT" == "INSTALL" ]]; then
         break
     elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
-        unset PASSPHRASE 2>/dev/null || true
+        unset RECOVERY_PASSPHRASE 2>/dev/null || true
         echo ""
         echo "  No problem. Nothing has been installed."
         echo "  Re-run the installer when you are ready."
@@ -3534,7 +3605,7 @@ if ! brew list sqlcipher &>/dev/null 2>&1; then
     brew install sqlcipher
 fi
 
-# Venv was created in Phase 2 for passphrase validation.
+# Venv was created in Phase 2 for ostler_security install.
 # Ensure it exists (re-run safe) and install remaining dependencies.
 OSTLER_VENV="${OSTLER_DIR}/.venv"
 if [[ ! -d "$OSTLER_VENV" ]]; then
@@ -3565,25 +3636,52 @@ export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
     fi
 }
 
-# Run passphrase setup (using the passphrase collected in Phase 2)
+# Run passkey-primary security setup via ostler_security.setup_wizard.
+#
+# This invokes the wizard's run_wizard() entry point, which:
+#   1. Checks FileVault posture (already prompted in Phase 2, skip here)
+#   2. Checks macOS 15+ for passkey PRF extension
+#   3. Registers a passkey via Touch ID (OS-level prompt fires here)
+#   4. Generates a 12-word BIP39 recovery phrase
+#   5. Wraps the DEK under both the passkey-derived KEK and the
+#      recovery-phrase-derived KEK
+#   6. Writes ${SECURITY_CONFIG_DIR}/passkey.json
+#
+# Replaces the pre-2026-04-23 passphrase-primary path that called
+# ostler_security.passphrase.setup_passphrase() directly with a
+# typed passphrase. The passphrase module is no longer the primary
+# unlock factor; its remaining role is the optional opt-in recovery
+# passphrase below.
+#
 # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
-if [[ -n "$PASSPHRASE" && "$HAS_SECURITY_MODULE" == true ]]; then
-    SETUP_OUTPUT=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
-import sys, os
+if [[ "$PASSKEY_PRIMED" == true && "$HAS_SECURITY_MODULE" == true ]]; then
+    # We pipe an empty stdin for the "wrote it down" confirmation; the
+    # installer surfaces the recovery phrase to the customer in Phase 4
+    # (line ~6373) via its own keychain-save flow, so the wizard's
+    # interactive confirmation step short-circuits with a single newline.
+    SETUP_OUTPUT=$("$OSTLER_PYTHON" -c "
+import sys
 from pathlib import Path
-passphrase = sys.stdin.read()
 try:
-    from ostler_security.passphrase import setup_passphrase
-    result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
-    print('RECOVERY_KEY=' + result['recovery_key'])
+    from ostler_security.setup_wizard import run_wizard
+    result = run_wizard(
+        config_dir=Path('${SECURITY_CONFIG_DIR}'),
+        skip_filevault=True,
+        confirmer=lambda _prompt: 'y',
+    )
+    # Emit only the recovery phrase + credential id on stdout.
+    # The wizard logs Touch ID UI status to stderr, which the
+    # installer surfaces in case of failure (see SETUP_EXIT branch).
+    print('RECOVERY_PHRASE=' + result['recovery_phrase'])
+    print('CREDENTIAL_ID=' + result['credential_id'])
+except SystemExit as e:
+    print('ERROR=setup_wizard exited with code ' + str(e.code), file=sys.stderr)
+    sys.exit(int(e.code) if isinstance(e.code, int) else 1)
 except Exception as e:
     print('ERROR=' + str(e), file=sys.stderr)
     sys.exit(1)
 " 2>&1)
     SETUP_EXIT=$?
-
-    # Clear passphrase from shell memory immediately
-    unset PASSPHRASE
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
@@ -3592,29 +3690,70 @@ except Exception as e:
             warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
         else
             warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
-            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -10
-            fail "$MSG_FAIL_PASSPHRASE_SETUP_FAILED_RE_RUN_WITH"
+            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -15
+            fail "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
-        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_KEY=" | cut -d= -f2-)
-        ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
+        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2-)
+        ok "$MSG_OK_DATABASES_ENCRYPTED_TOUCH_ID_REQUIRED_EACH_STARTUP"
+
+        # ── Persist the recovery passphrase (collected in Phase 2) ───
+        # In addition to the BIP39 recovery phrase (primary recovery
+        # if Touch ID is lost), the customer may have opted in during
+        # Phase 2 to a self-chosen recovery passphrase. Persist it now
+        # so Phase 3 stayed unattended; the actual call happens here
+        # because setup_passphrase() needs ostler_security pip-installed
+        # in the venv, which only became true earlier in this phase.
+        if [[ -n "$RECOVERY_PASSPHRASE" ]]; then
+            # Persist the recovery passphrase. We deliberately discard
+            # setup_passphrase's own generated recovery_key because the
+            # BIP39 phrase from the wizard is the canonical "show once"
+            # artefact; the recovery passphrase is itself the secret
+            # the customer remembers for this route.
+            RP_OUTPUT=$(printf '%s' "$RECOVERY_PASSPHRASE" | "$OSTLER_PYTHON" -c "
+import sys
+from pathlib import Path
+passphrase = sys.stdin.read()
+try:
+    from ostler_security.passphrase import setup_passphrase
+    from ostler_security.audit_log import log_event, EVENT_UNLOCK
+    result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
+    log_event(
+        EVENT_UNLOCK,
+        source='install.sh',
+        details={'action': 'recovery_passphrase_setup'},
+        db_path=Path('${SECURITY_CONFIG_DIR}') / 'audit.db',
+    )
+    print('OK')
+except Exception as e:
+    print('ERROR=' + str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>&1)
+            RP_EXIT=$?
+            unset RECOVERY_PASSPHRASE
+            if [[ $RP_EXIT -ne 0 ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED"
+                echo "$RP_OUTPUT" | sed -e 's/^/    /' | head -5
+            else
+                ok "$MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED"
+            fi
+        fi
     fi
-elif [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     # Re-run: security already configured in a previous install.
     # This is the legitimate skip path; nothing to do.
-    unset PASSPHRASE 2>/dev/null || true
+    :
 else
-    # PASSPHRASE empty or HAS_SECURITY_MODULE=false without an existing
-    # keychain. Deployed services refuse to start without encryption,
-    # so this would produce a green "succeeded" summary followed by
-    # services that will not boot.
-    unset PASSPHRASE 2>/dev/null || true
+    # Not primed and no existing security configuration. Deployed
+    # services refuse to start without encryption, so this would
+    # produce a green "succeeded" summary followed by services that
+    # will not boot.
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-        warn "$MSG_WARN_NO_PASSPHRASE_SET_DATABASES_WILL_NOT"
+        warn "$MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT"
         warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
         warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
-        fail "$MSG_FAIL_NO_PASSPHRASE_SET_NO_EXISTING_SECURITY"
+        fail "$MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY"
     fi
 fi
 
@@ -3622,7 +3761,7 @@ fi
 # CM041 / CM048 will eventually read this to skip the hard-fail in
 # dev mode; out of scope to wire that up here.
 # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
-if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     POSTURE_DIR="${OSTLER_DIR}/security-posture"
     mkdir -p "$POSTURE_DIR"
     POSTURE_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -3927,6 +4066,11 @@ FDARPEOF
         ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
     fi
 else
+    # Reachable only when --allow-plaintext was passed AND the FDA
+    # module is missing (the upstream probe at install.sh:1854 hard-
+    # fails in non-plaintext mode). Surface that we are skipping the
+    # instant data extraction so the operator is not surprised by an
+    # empty ~/.ostler/imports/fda/.
     info "$MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING"
     info "$MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT"
 fi
@@ -4234,15 +4378,29 @@ elif [[ -d "$PIPELINE_DIR/contact_syncer" ]]; then
     cd "$PIPELINE_DIR" && git pull --quiet 2>/dev/null || warn "$MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE"
     HAS_PIPELINE=true
 elif [[ -z "$PIPELINE_REPO" ]]; then
-    # Productised install path: no tarball-bundled pipeline and no
-    # PWG_PIPELINE_REPO override. The pipeline ships with the
-    # installer tarball at release; if a user gets here without one,
-    # GDPR import is simply unavailable (their Mac-side data extracted
-    # above is unaffected).
-    info "$MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER"
-    info "$MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC"
-    info "$MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN"
-    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET"
+    # Productised install path: contact_syncer/ was not bundled with
+    # the installer AND no PWG_PIPELINE_REPO override was set. This is
+    # the customer-regression case (the .app build dropped the
+    # vendored CM041 tree, or the customer ran install.sh standalone
+    # rather than from inside the .app bundle). The previous
+    # behaviour here was a silent skip; the productised contract is
+    # that GDPR import is part of the install, not a maybe.
+    #
+    # Hard-fail unless --allow-plaintext is set (the dev-mode
+    # escape-hatch which silences all bundle-vendoring guards).
+    # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1
+    # for the umbrella pattern.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED"
+        warn "$MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        echo ""
+        warn "$MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER"
+        warn "$MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL"
+        warn "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET"
+        fail "$MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER"
+    fi
 else
     info "$MSG_INFO_CLONING_IMPORT_PIPELINE"
     PIPELINE_CLONE_LOG="$(mktemp -t ostler-pipeline-clone.XXXXXX.log)"
@@ -4286,6 +4444,133 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
     fi
+fi
+
+# ── 3.10b CM048 conversation processing pipeline ─────────────────
+#
+# Installs CM048 as a self-contained Python service under
+# ${OSTLER_DIR}/services/cm048/ with its own venv and a pwg-convo CLI
+# symlinked into /usr/local/bin/. CM048 turns raw human-to-human
+# conversation transcripts into three-tier output: conversation MD,
+# per-person relationship signals (Oxigraph), and user-coach
+# observations (SQLite). Doctor + Marvin + assistant invoke pwg-convo
+# via subprocess; CM048 has NO library coupling to other services on
+# disk (productisation Rule 0.5: each service self-contained).
+#
+# Source-of-truth: vendor/cm048_pipeline/ in this repo (mirror of the
+# upstream CM048 - PWG Conversation Processing). The .app post-build
+# script in gui/project.yml copies the vendored tree into
+# Contents/Resources/cm048_pipeline/, which lands at
+# ${SCRIPT_DIR}/cm048_pipeline/ at install time. Dev installs without
+# the tarball can set PWG_CM048_REPO to clone the upstream repo.
+#
+# --allow-plaintext skips the entire setup warn-only (conversation
+# enrichment then unavailable; the rest of Ostler still runs). Without
+# the flag, a missing pipeline is a hard fail -- the alternative is
+# the customer hitting confusing "pwg-convo: command not found"
+# errors hours after install when the first conversation arrives.
+
+progress "Setting up conversation processing pipeline (CM048)" "cm048_setup"
+
+CM048_DIR="${OSTLER_DIR}/services/cm048"
+CM048_VENV="${CM048_DIR}/.venv"
+CM048_BIN="${CM048_VENV}/bin/pwg-convo"
+CM048_SYMLINK="/usr/local/bin/pwg-convo"
+CM048_SOURCE_OK=false
+
+mkdir -p "$(dirname "$CM048_DIR")"
+
+if [[ -d "${SCRIPT_DIR}/cm048_pipeline" && -f "${SCRIPT_DIR}/cm048_pipeline/pyproject.toml" ]]; then
+    # Productised path: vendored package bundled in the .app
+    info "$(printf "$MSG_INFO_INSTALLING_CM048_PIPELINE_FROM" "${SCRIPT_DIR}/cm048_pipeline")"
+    rm -rf "$CM048_DIR"
+    mkdir -p "$CM048_DIR"
+    cp -R "${SCRIPT_DIR}/cm048_pipeline/" "$CM048_DIR/"
+    CM048_SOURCE_OK=true
+elif [[ -n "$CM048_REPO" ]]; then
+    # Dev / private-beta path: PWG_CM048_REPO override
+    info "$(printf "$MSG_INFO_INSTALLING_CM048_PIPELINE_FROM" "$CM048_REPO")"
+    CM048_CLONE_LOG="$(mktemp -t ostler-cm048-clone.XXXXXX.log)"
+    if [[ -d "$CM048_DIR/.git" ]]; then
+        info "$(printf "$MSG_INFO_EXISTING_CHECKOUT_UPDATING" "$CM048_DIR")"
+        if git -C "$CM048_DIR" fetch --quiet origin 2>"$CM048_CLONE_LOG" \
+            && git -C "$CM048_DIR" reset --hard --quiet origin/main 2>>"$CM048_CLONE_LOG"; then
+            CM048_SOURCE_OK=true
+            rm -f "$CM048_CLONE_LOG"
+        else
+            warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
+            if [[ -s "$CM048_CLONE_LOG" ]]; then
+                sed -e 's/^/    /' "$CM048_CLONE_LOG" | head -5
+            fi
+            rm -f "$CM048_CLONE_LOG"
+            CM048_SOURCE_OK=true
+        fi
+    elif git clone --quiet --depth 1 "$CM048_REPO" "$CM048_DIR" 2>"$CM048_CLONE_LOG"; then
+        info "$(printf "$MSG_INFO_CLONED" "$CM048_DIR")"
+        CM048_SOURCE_OK=true
+        rm -f "$CM048_CLONE_LOG"
+    else
+        warn "$MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE"
+        if [[ -s "$CM048_CLONE_LOG" ]]; then
+            warn "$MSG_WARN_GIT_SAID"
+            sed -e 's/^/    /' "$CM048_CLONE_LOG" | head -5
+        fi
+        info "$(printf "$MSG_INFO_GIT_CLONE_2" "${CM048_REPO}" "${CM048_DIR}")"
+        info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048"
+        rm -f "$CM048_CLONE_LOG"
+    fi
+elif [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+    # Dev / CI escape hatch: skip the entire setup warn-only.
+    warn "$MSG_WARN_CM048_PIPELINE_SKIPPED_ALLOW_PLAINTEXT"
+    warn "$MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE"
+else
+    # No bundle, no override, no escape hatch -- hard fail. The
+    # alternative is the customer hitting "pwg-convo: command not
+    # found" hours later when the first iMessage / email / WhatsApp
+    # / meeting transcript tries to route through the pipeline.
+    echo ""
+    warn "$MSG_WARN_CM048_PIPELINE_NOT_FOUND"
+    warn "$(printf "$MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH" "${SCRIPT_DIR}")"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4"
+    fail "$MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN"
+fi
+
+if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
+    info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$CM048_VENV")"
+    python3 -m venv "$CM048_VENV"
+
+    info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
+    "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    if "$CM048_VENV/bin/pip" install --quiet "$CM048_DIR" 2>/tmp/ostler-cm048-pip.log; then
+        info "$MSG_INFO_CM048_PIPELINE_INSTALLED_VENV"
+    else
+        warn "$MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL"
+        if [[ -s /tmp/ostler-cm048-pip.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-cm048-pip.log | tail -5
+        fi
+    fi
+
+    if [[ -x "$CM048_BIN" ]]; then
+        info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
+        sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+
+        # Health check via the symlink. pwg-convo uses argparse without
+        # a --version flag (subcommands carry the per-mode arguments),
+        # so we exercise --help which argparse adds automatically and
+        # exits 0. Confirms PATH-side wiring + venv binding.
+        if "$CM048_SYMLINK" --help >/dev/null 2>&1; then
+            ok "$MSG_OK_CM048_PIPELINE_READY"
+        else
+            warn "$MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP"
+        fi
+    else
+        warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$CM048_BIN")"
+    fi
+elif [[ "$CM048_SOURCE_OK" == true ]]; then
+    warn "$MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML"
 fi
 
 # ── 3.11 Run GDPR import if exports were provided ────────────────
@@ -4833,13 +5118,34 @@ if [[ -d "${SCRIPT_DIR}/doctor/agent" ]]; then
 elif [[ -f "${DOCTOR_DIR}/status_collector.py" ]]; then
     info "$(printf "$MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL" "${DOCTOR_DIR}")"
 elif [[ -z "$DOCTOR_REPO" ]]; then
-    # Productised install path: no tarball-bundled scripts and no
-    # PWG_DOCTOR_REPO override. Doctor is optional (the rest of
-    # Ostler works without it); warn so the operator notices, but
-    # do not fail the install.
-    info "$MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH"
-    info "$MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE"
-    info "$MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR"
+    # No tarball-bundled copy, no existing on-disk install, and no
+    # PWG_DOCTOR_REPO override. Pre-2026-05-21 this was a soft skip
+    # ("Doctor is optional, the rest of Ostler works without it") on
+    # the premise that Doctor was a personal-instance convenience.
+    # For the v1.0 customer install path that premise no longer
+    # holds: Ostler.app's Pairing tab iframes
+    # http://127.0.0.1:8089/pair-ios (the ostler-assistant #45
+    # rewire), and the iOS pair flow renders an empty page if
+    # Doctor is not running. Hard-fail so the customer gets a clear
+    # actionable error instead of a half-install that breaks
+    # pairing several screens later.
+    #
+    # --allow-plaintext is the dev/CI escape hatch, matching the
+    # ostler_security (PR #115) hard-fail pattern. Operators
+    # running a smoke install without the iOS surface can opt out.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        echo ""
+        warn "$MSG_WARN_DOCTOR_NOT_BUNDLED_HARD_FAIL"
+        warn "$(printf "$MSG_WARN_DOCTOR_LOOKED_FOR_PATH" "${SCRIPT_DIR}")"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_2"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_3"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_4"
+        fail "$MSG_FAIL_DOCTOR_INSTALL_REQUIRED"
+    fi
 else
     info "$MSG_INFO_CLONING_DOCTOR_AGENT"
     DOCTOR_TMP="$(mktemp -d)"
@@ -4926,6 +5232,17 @@ fi
 # into /usr/local/bin/ostler-knowledge so the customer can invoke it
 # directly without activating the venv.
 #
+# Source resolution (matches the hub-power / doctor / email-ingest
+# pattern):
+#   1. Bundled vendor copy at ${SCRIPT_DIR}/cm024_knowledge/ (productised
+#      install -- the postBuildScript in gui/project.yml lands the
+#      vendored upstream source there). Preferred path, no network.
+#   2. PWG_KNOWLEDGE_REPO env override -- git clone --depth 1. For dev /
+#      private-beta runs against a non-vendored install.sh.
+#   3. Neither: warn-only skip. Doctor "Import Evernote" UI (feature-
+#      flagged OFF at v1.0; flipped on for v1.1) will surface a "service
+#      unavailable" message when the flag is later turned on.
+#
 # Customer data staging dir at ~/.ostler/data/knowledge-staging/ is
 # created at install time AND preserved by the uninstaller (it holds
 # imported note markdown + per-note image trees; can take 20+ minutes
@@ -4945,12 +5262,25 @@ KNOWLEDGE_STAGING_DIR="${OSTLER_DIR}/data/knowledge-staging"
 
 mkdir -p "$(dirname "$KNOWLEDGE_DIR")" "$KNOWLEDGE_STAGING_DIR"
 
-if [[ -z "$KNOWLEDGE_REPO" ]]; then
-    info "$MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE"
-    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2"
-    info "$MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE"
-    info "$MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED"
-else
+KNOWLEDGE_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/cm024_knowledge" && -f "${SCRIPT_DIR}/cm024_knowledge/pyproject.toml" ]]; then
+    # Productised install path: vendor/cm024_knowledge/ was copied
+    # into Contents/Resources/cm024_knowledge/ by the .app build, or
+    # is sitting alongside install.sh in the developer tarball
+    # layout. Copy the source into KNOWLEDGE_DIR so pip-install sees
+    # a stable on-disk tree (the customer's home directory rather
+    # than the .app's read-only Resources).
+    info "$MSG_INFO_KNOWLEDGE_SERVICE_BUNDLED_WITH_INSTALLER"
+    # Wipe and re-copy on every install so a re-run does not stack
+    # stale source files from an older vendored release.
+    rm -rf "$KNOWLEDGE_DIR"
+    mkdir -p "$KNOWLEDGE_DIR"
+    # Copy contents (the trailing /. preserves the dir contents, not
+    # the dir itself). Drop xattrs by not using -p.
+    cp -R "${SCRIPT_DIR}/cm024_knowledge/." "$KNOWLEDGE_DIR/"
+    KNOWLEDGE_SOURCE="bundled"
+elif [[ -n "$KNOWLEDGE_REPO" ]]; then
     info "$(printf "$MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM" "$KNOWLEDGE_REPO")"
 
     KNOWLEDGE_CLONE_LOG="$(mktemp -t ostler-knowledge-clone.XXXXXX.log)"
@@ -4959,16 +5289,19 @@ else
         if git -C "$KNOWLEDGE_DIR" fetch --quiet origin 2>"$KNOWLEDGE_CLONE_LOG" \
             && git -C "$KNOWLEDGE_DIR" reset --hard --quiet origin/main 2>>"$KNOWLEDGE_CLONE_LOG"; then
             rm -f "$KNOWLEDGE_CLONE_LOG"
+            KNOWLEDGE_SOURCE="cloned"
         else
             warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
             if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
                 sed -e 's/^/    /' "$KNOWLEDGE_CLONE_LOG" | head -5
             fi
             rm -f "$KNOWLEDGE_CLONE_LOG"
+            KNOWLEDGE_SOURCE="cloned"
         fi
     elif git clone --quiet --depth 1 "$KNOWLEDGE_REPO" "$KNOWLEDGE_DIR" 2>"$KNOWLEDGE_CLONE_LOG"; then
         info "$(printf "$MSG_INFO_CLONED" "$KNOWLEDGE_DIR")"
         rm -f "$KNOWLEDGE_CLONE_LOG"
+        KNOWLEDGE_SOURCE="cloned"
     else
         warn "$MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE"
         if [[ -s "$KNOWLEDGE_CLONE_LOG" ]]; then
@@ -4979,40 +5312,45 @@ else
         info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE"
         rm -f "$KNOWLEDGE_CLONE_LOG"
     fi
+else
+    info "$MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE"
+    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2"
+    info "$MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE"
+    info "$MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED"
+fi
 
-    if [[ -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
-        info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
-        python3 -m venv "$KNOWLEDGE_VENV"
+if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
+    info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
+    python3 -m venv "$KNOWLEDGE_VENV"
 
-        info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
-        "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
-            info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
-        else
-            warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL"
-            if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
-                sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
-            fi
+    info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
+    "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>/tmp/ostler-knowledge-pip.log; then
+        info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
+    else
+        warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL"
+        if [[ -s /tmp/ostler-knowledge-pip.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-knowledge-pip.log | tail -5
         fi
-
-        if [[ -x "$KNOWLEDGE_BIN" ]]; then
-            info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
-            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-
-            # Health check via the symlink (verifies PATH-side wiring + venv binding).
-            if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
-                ok "$(printf "$MSG_OK_KNOWLEDGE_SERVICE_READY" "$VERSION_OUT")"
-            else
-                warn "$MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION"
-            fi
-        else
-            warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$KNOWLEDGE_BIN")"
-        fi
-    elif [[ -d "$KNOWLEDGE_DIR" ]]; then
-        warn "$MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML"
-        warn "$MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK"
-        warn "$MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG"
     fi
+
+    if [[ -x "$KNOWLEDGE_BIN" ]]; then
+        info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
+        sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+
+        # Health check via the symlink (verifies PATH-side wiring + venv binding).
+        if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
+            ok "$(printf "$MSG_OK_KNOWLEDGE_SERVICE_READY" "$VERSION_OUT")"
+        else
+            warn "$MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION"
+        fi
+    else
+        warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$KNOWLEDGE_BIN")"
+    fi
+elif [[ -n "$KNOWLEDGE_SOURCE" && -d "$KNOWLEDGE_DIR" ]]; then
+    warn "$MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML"
+    warn "$MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK"
+    warn "$MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG"
 fi
 
 # ── 3.14 Hub power policy (MacBook-as-Hub support) ───────────────
@@ -5034,7 +5372,17 @@ HUB_POWER_DIR="${OSTLER_DIR}/hub-power"
 HUB_POWER_SNIPPET=""
 HUB_POWER_SOURCE=""
 
-if [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh" ]]; then
+# Power-policy gate. The hub-power LaunchAgent exists to throttle
+# Docker + Ollama on battery drain. On a desktop Mac (Mac Mini /
+# Studio, always-on AC, no battery present) the watcher would see
+# tier "ac" every tick and take no action, so installing it is
+# pure dead weight. Skip it entirely on AC-only hardware.
+#
+# HAS_BATTERY is set earlier in Phase 3 (around line 788) from
+# `pmset -g batt`. true = MacBook, false = desktop Mac.
+if [[ "${HAS_BATTERY:-false}" != "true" ]]; then
+    info "$MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT"
+elif [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh" ]]; then
     HUB_POWER_SNIPPET="${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh"
     HUB_POWER_SOURCE="bundled"
     mkdir -p "$HUB_POWER_DIR"
@@ -5045,12 +5393,18 @@ elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
     HUB_POWER_SOURCE="existing"
     info "$(printf "$MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL" "${HUB_POWER_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    # Productised install path: no tarball-bundled scripts and no
-    # PWG_HUB_POWER_REPO override. Mac Mini / Studio deployments do
-    # not need this LaunchAgent (always-on AC); only MacBook hubs do.
-    info "$MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH"
-    info "$MSG_INFO_MAC_MINI_STUDIO_DEPLOYMENTS_ARE_UNAFFECTED"
-    info "$MSG_INFO_MACBOOK_HUBS_SET_PWG_HUB_POWER"
+    # MacBook hub, but neither tarball-bundled scripts nor a
+    # PWG_HUB_POWER_REPO override is present. This was the old
+    # silent-info code path -- on a customer .app install we now
+    # expect the post-build script to have landed
+    # vendor/hub_power/ at ${SCRIPT_DIR}/hub-power/, so reaching
+    # here on a MacBook means the .app bundle is missing the
+    # vendored scripts. Surface as a warn (not a hard fail --
+    # the rest of the install still works, the customer just
+    # won't get battery-aware throttling).
+    warn "$MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE"
+    warn "$MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_2"
+    warn "$MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_3"
 else
     info "$MSG_INFO_CLONING_HUB_POWER_SCRIPTS"
     HUB_POWER_TMP="$(mktemp -d)"
@@ -5124,8 +5478,19 @@ elif [[ -f "${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh" ]]; then
     EMAIL_INGEST_SOURCE="existing"
     info "$(printf "$MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL" "${EMAIL_INGEST_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    info "$MSG_INFO_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_WITH"
-    info "$MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015"
+    # No bundled vendor copy AND no override repo. For productised
+    # customer installs this is the regression case (.app shipped
+    # without the email-ingest vendor). Hard-fail unless the dev/CI
+    # plaintext escape hatch is set, matching the vendor-PR pattern
+    # established by ostler_security (PR #115), FDA (#116), Doctor
+    # (#117), hub-power (#118), CM024 (#119), CM048 (#120), CM041
+    # (#121).
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        fail "$MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN"
+    fi
 else
     info "$MSG_INFO_CLONING_EMAIL_INGEST_SCRIPTS"
     EMAIL_INGEST_TMP="$(mktemp -d)"
@@ -6396,13 +6761,13 @@ else
     info "$MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING"
 fi
 
-# ── Show recovery key (saved from Phase 2/3) ──────────────────────
+# ── Show recovery phrase (saved from Phase 3.6 setup_wizard) ──────
 
 if [[ -n "$RECOVERY_KEY" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Your recovery key:${NC}"
+    echo -e "  ${BOLD}Your 12-word recovery phrase:${NC}"
     echo ""
     echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
     echo ""
@@ -6588,7 +6953,8 @@ echo "     Timezone:      ${USER_TZ}"
 echo "     Country code:  +${COUNTRY_CODE}"
 echo "     AI model:      ${AI_MODEL}"
 [[ "$FV_ENABLED" == true ]] && echo "     FileVault:     Enabled"
-[[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]] && echo "     Encryption:    Databases encrypted with passphrase"
+[[ -f "${SECURITY_CONFIG_DIR}/passkey.json" ]] && echo "     Encryption:    passkey-wrapped DEK (Touch ID)"
+[[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]] && echo "     Encryption:    passphrase-wrapped DEK (recovery passphrase)"
 [[ -n "$CONTACT_COUNT" && "$CONTACT_COUNT" -gt 0 ]] && echo "     Contacts:      ${CONTACT_COUNT} exported from iCloud"
 [[ -n "$EXPORTS_DIR" ]] && echo "     GDPR import:   Processed from ${EXPORTS_DIR}"
 [[ "${FDA_OK:-0}" -gt 0 ]] && echo "     Instant data:  ${FDA_OK} macOS source(s) extracted"

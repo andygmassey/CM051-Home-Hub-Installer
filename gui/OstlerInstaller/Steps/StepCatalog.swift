@@ -100,6 +100,7 @@ final class StepCatalog {
         "vane_install",
         "ai_models",
         "import_pipeline",
+        "cm048_setup",
         "import_data",
         "doctor_setup",
         "knowledge_setup",
