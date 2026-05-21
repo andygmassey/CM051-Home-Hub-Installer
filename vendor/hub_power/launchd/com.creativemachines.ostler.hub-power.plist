@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler Hub power policy watcher.
+
+        Polls every 60 seconds to detect AC / battery transitions and dispatch
+        the right service-control script. Also detects a "long gap" between
+        ticks as a proxy for sleep/wake events, and invokes hub-wake.sh.
+
+        Installed to ~/Library/LaunchAgents/ by the CM051 installer. See
+        hub-power/INSTALL_SNIPPET.sh for the install procedure.
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.hub-power</string>
+
+    <!--
+        The watcher is driven from hub-power-watch.sh. Path is resolved at
+        install time; the installer writes the absolute path in here.
+        Placeholder below is HUB_POWER_BIN – installer replaces it.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>HUB_POWER_BIN/hub-power-watch.sh</string>
+    </array>
+
+    <!--
+        Run once a minute. Sixty seconds is the sweet spot:
+          - Fast enough that a transition is detected before the pill in the
+            iOS Companion refreshes (30s foreground / 5min background).
+          - Slow enough that it doesn't wake a laptop from idle.
+    -->
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <!--
+        RunAtLoad makes the script fire once as soon as the agent loads (e.g.
+        at login or after a wake event). This catches the "we just booted on
+        battery" case immediately instead of waiting up to 60s.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!--
+        Keep a sane working directory. The scripts are absolute-path safe but
+        $HOME-relative paths still resolve correctly from here.
+    -->
+    <key>WorkingDirectory</key>
+    <string>HUB_POWER_HOME</string>
+
+    <!--
+        Log stdout + stderr to the same place the scripts write their own
+        timestamped log. Useful when debugging an install on a new Mac.
+    -->
+    <key>StandardOutPath</key>
+    <string>HUB_POWER_HOME/.ostler/hub-power.launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>HUB_POWER_HOME/.ostler/hub-power.launchd.log</string>
+
+    <!--
+        We do not want this agent to be throttled aggressively. A missed tick
+        when a MacBook is on battery could leave services running that should
+        have paused.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

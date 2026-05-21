@@ -296,6 +296,7 @@
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
 				A594C4AF71E56E7417E3B57B /* Bundle Doctor agent into Resources */,
+				C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -447,6 +448,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Info.plist sets ATSApplicationFontsPath = \"Fonts\", which tells\n# macOS to look at Contents/Resources/Fonts/ for app-specific fonts\n# to register at launch. xcodegen's default group-based resources\n# copy flattens the source Fonts/ subdir, so without this step the\n# TTFs land flat at Contents/Resources/*.ttf and macOS never finds\n# them. Every Font.custom(...) call then silently falls back to\n# system. Caught by TNM 2026-05-16 review of PR #77 (Check 6).\n# Fix: post-build, ensure Fonts/ subdir exists and move any flat\n# brand TTFs (Outfit, IBMPlexSans, JetBrainsMono) + OFL.txt into it.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/Fonts\"\nfor f in Outfit-Regular.ttf Outfit-Medium.ttf Outfit-SemiBold.ttf Outfit-Bold.ttf \\\n         IBMPlexSans-Regular.ttf IBMPlexSans-Medium.ttf IBMPlexSans-SemiBold.ttf \\\n         JetBrainsMono-Regular.ttf JetBrainsMono-Medium.ttf \\\n         OFL.txt; do\n    if [ -f \"${DEST}/${f}\" ]; then\n        mv -f \"${DEST}/${f}\" \"${DEST}/Fonts/${f}\"\n    fi\ndone\n";
+		};
+		C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/hub_power",
+			);
+			name = "Bundle hub_power scripts into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/hub-power",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh's Phase 3.14 (Hub power policy) probes\n# ${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh to decide\n# whether to install the hub-power LaunchAgent (battery\n# / AC / sleep / wake throttling for MacBook hubs).\n# When that probe fails the install logs an info line\n# (\"hub-power scripts not bundled with installer\") and\n# silently continues. That is fine on a Mac Mini /\n# Studio (always-on AC, watcher is a no-op anyway), but\n# on a MacBook hub it means the LaunchAgent never lands\n# and the customer's battery drains on the first trip\n# away from the wall.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/hub-power/. Note that the on-disk\n# subdir name is \"hub-power\" (matching what install.sh\n# looks for) even though the vendor subdir is \"hub_power\"\n# (matching the directory naming convention for vendor/).\n#\n# Source of truth: HR015 - Gaming PC/hub-power/. See\n# vendor/hub_power/README.md for the sync convention.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/hub_power\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling hub_power from ${SRC} into Resources/hub-power/\"\n  mkdir -p \"${DEST}/hub-power\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/hub-power/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/hub-power\" || true\n  # Re-assert executable bits on the shell scripts. The\n  # cp above should preserve them, but a `git checkout`\n  # on a case-insensitive filesystem can occasionally\n  # land without the x-bit.\n  chmod 755 \"${DEST}/hub-power/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/hub-power/bin/\"*.sh\nelse\n  echo \"ERROR: vendor/hub_power not found at ${SRC}\" >&2\n  echo \"       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/hub_power/README.md.\" >&2\n  exit 1\nfi\n";
 		};
 		E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

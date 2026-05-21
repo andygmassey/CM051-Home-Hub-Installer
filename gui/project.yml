@@ -182,6 +182,56 @@ targets:
           - $(SRCROOT)/../vendor/doctor/agent
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/doctor/agent
+      - name: Bundle hub_power scripts into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's Phase 3.14 (Hub power policy) probes
+          # ${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh to decide
+          # whether to install the hub-power LaunchAgent (battery
+          # / AC / sleep / wake throttling for MacBook hubs).
+          # When that probe fails the install logs an info line
+          # ("hub-power scripts not bundled with installer") and
+          # silently continues. That is fine on a Mac Mini /
+          # Studio (always-on AC, watcher is a no-op anyway), but
+          # on a MacBook hub it means the LaunchAgent never lands
+          # and the customer's battery drains on the first trip
+          # away from the wall.
+          #
+          # For the .app code path, SCRIPT_DIR is Contents/Resources
+          # at install time, so the package must land at
+          # Contents/Resources/hub-power/. Note that the on-disk
+          # subdir name is "hub-power" (matching what install.sh
+          # looks for) even though the vendor subdir is "hub_power"
+          # (matching the directory naming convention for vendor/).
+          #
+          # Source of truth: HR015 - Gaming PC/hub-power/. See
+          # vendor/hub_power/README.md for the sync convention.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/hub_power"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling hub_power from ${SRC} into Resources/hub-power/"
+            mkdir -p "${DEST}/hub-power"
+            # Copy WITHOUT -p so xattrs do not propagate -- codesign
+            # rejects "resource fork, Finder information, or similar
+            # detritus" on the staged bundle.
+            cp -R "${SRC}/" "${DEST}/hub-power/"
+            # Belt-and-braces xattr strip on the destination.
+            /usr/bin/xattr -cr "${DEST}/hub-power" || true
+            # Re-assert executable bits on the shell scripts. The
+            # cp above should preserve them, but a `git checkout`
+            # on a case-insensitive filesystem can occasionally
+            # land without the x-bit.
+            chmod 755 "${DEST}/hub-power/INSTALL_SNIPPET.sh"
+            chmod 755 "${DEST}/hub-power/bin/"*.sh
+          else
+            echo "ERROR: vendor/hub_power not found at ${SRC}" >&2
+            echo "       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/hub_power/README.md." >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/hub_power
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/hub-power
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
