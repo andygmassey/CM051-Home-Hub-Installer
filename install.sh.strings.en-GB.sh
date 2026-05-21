@@ -37,7 +37,7 @@ MSG_INFO_CD="  cd %s"
 MSG_INFO_CLONED="  Cloned to %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
-MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar -- audio capture is silent by design."
+MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  CM048 conversation pipeline installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
@@ -53,7 +53,7 @@ MSG_INFO_CLONING_IMPORT_PIPELINE="Cloning import pipeline..."
 MSG_INFO_CLONING_WIKI_RECOMPILE_SCRIPTS="Cloning wiki-recompile scripts..."
 MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL="Colima installed but not running. Will start it."
 MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN="Could not export contacts. You can import manually later."
-MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="Could not read contact card. No problem -- we will ask instead."
+MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="Could not read contact card. No problem – we will ask instead."
 MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR="  cp -R /tmp/doctor-src/doctor/agent/* %s/"
 MSG_INFO_CREATING_PYTHON_VENV="  Creating Python venv at %s..."
 MSG_INFO_CREATING_USER_FACING_CONTENT_TREE="Creating user-facing content tree at %s/"
@@ -173,7 +173,7 @@ MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C="  tar xzf /tmp/ostler.tgz -C %s/bin"
 MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR="(The rest of Ostler runs without the Doctor dashboard.)"
 MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="This is expected for now. GDPR import will be available in a future update."
 MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES="This may take 5-15 minutes depending on how much data you have..."
-MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO="This reads macOS databases directly -- no export needed."
+MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO="This reads macOS databases directly – no export needed."
 MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="Tip: to include your Gmail, add it to Mac Mail first"
 MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE="To install later once you have access:"
 MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="Triggering iCloud sync for %s (silent, first-run only)..."
@@ -195,7 +195,7 @@ MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT="You can add it later for instant onboardi
 
 # ── Success messages ──
 
-MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM="AI model: %s (%s) -- selected for your %s GB RAM"
+MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM="AI model: %s (%s) – selected for your %s GB RAM"
 MSG_OK_ALL_SOURCES_SELECTED_FACE_RECOGNITION_STILL="All sources selected (face recognition still off)"
 MSG_OK_ALREADY_AVAILABLE="%s already available"
 MSG_OK_APPLE_SILICON_DETECTED="Apple Silicon detected"
@@ -248,7 +248,7 @@ MSG_OK_MACOS_DETECTED="macOS %s detected"
 MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE="nomic-embed-text already available"
 MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama installed"
-MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only -- may need manual start after reboot)"
+MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only – may need manual start after reboot)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installed (desktop app)"
 MSG_OK_OLLAMA_RUNNING="Ollama running"
 MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED="ostler-assistant doctor: no errors detected"
@@ -327,7 +327,7 @@ MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL="  Conversations sent to
 MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="Could not change sleep settings. Enable 'Prevent automatic sleeping when plugged in' in System Settings > Energy."
 MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2="Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
 MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="Could not download ostler-assistant v%s from %s"
-MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Could not extract Gmail mbox from the Takeout zip -- skipping."
+MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Could not extract Gmail mbox from the Takeout zip – skipping."
 MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL="Could not extract ostler-assistant tarball; skipping LaunchAgent."
 MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU="Could not find the Tailscale CLI. You can configure it manually later."
 MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="Could not install legal/ consent-strings package; continuing"
@@ -352,7 +352,7 @@ MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Could not start Ollama automatica
 MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="Could not update pipeline (offline?)"
 MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
 MSG_WARN_CURL_SAID="Curl said:"
-MSG_WARN_DIRECTORY_NOT_FOUND_SKIPPING_IMPORT="Directory not found: %s -- skipping import."
+MSG_WARN_DIRECTORY_NOT_FOUND_SKIPPING_IMPORT="Directory not found: %s – skipping import."
 MSG_WARN_DOCKER_COMPOSE_F_DOCKER_COMPOSE_YML="       docker compose -f %s/docker-compose.yml restart vane"
 MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM="  docker compose --profile compile run --rm wiki-compiler"
 MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM_2="    docker compose --profile compile run --rm wiki-compiler"
@@ -549,9 +549,9 @@ MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install 
 # use printf %s placeholders for runtime values (e.g. detected
 # country code, detected timezone).
 
-MSG_PROMPT_REUSE_SETTINGS_TITLE="Continue with these settings? (Y/n)"
+MSG_PROMPT_REUSE_SETTINGS_TITLE="Continue with these settings?"
 
-MSG_PROMPT_PERMS_OK_TITLE="Ready to continue? (Y/n)"
+MSG_PROMPT_PERMS_OK_TITLE="Ready to continue?"
 MSG_PROMPT_PERMS_OK_HELP="macOS will prompt for Contacts and Files & Folders access. Optional Full Disk Access can be granted later."
 
 MSG_PROMPT_USER_NAME_DETECTED_TITLE="Full name (as it appears in your contacts)"
@@ -559,36 +559,36 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 
-MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="Use +%s? (Y/n)"
+MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="Use +%s?"
 MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE="Enter country code (e.g. 44 for UK, 1 for US)"
 MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE="Default country code"
 MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP="Used to normalise phone numbers during contact import."
 
-MSG_PROMPT_TZ_CONFIRM_TITLE="Use this timezone? (Y/n)"
+MSG_PROMPT_TZ_CONFIRM_TITLE="Use this timezone?"
 MSG_PROMPT_TZ_CONFIRM_HELP="Detected timezone: %s"
 MSG_PROMPT_USER_TZ_TITLE="Enter timezone (e.g. Europe/London, Asia/Hong_Kong)"
 
 MSG_PROMPT_ASSISTANT_NAME_TITLE="What would you like to call your assistant?"
-MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="The name in the field is a random suggestion -- type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices." # assistant-name-exempt: F6.1 suggestion-pool exemplar
-MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Type any name you like -- the suggestion is just a starting point."
+MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="The name in the field is a random suggestion – type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices." # assistant-name-exempt: F6.1 suggestion-pool exemplar
+MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Type any name you like – the suggestion is just a starting point."
 
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="How will your assistant reach you?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="Pick the messaging channels you would like your assistant to use. You can change this later in Doctor."
 
-MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk above? (y/N)"
-MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration -- you accept the consent above by enabling it."
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk above?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration – you accept the consent above by enabling it."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International format, like +44 7700 900000. Leading +, country code, digits only."
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
-MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Allowlist of phone numbers and Apple ID emails (comma-separated). %s only replies to listed contacts; messages from anyone else are ignored. At least one entry required. e.g. +447700900000, you@example.com"
+MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Allowlist of phone numbers and Apple ID emails (comma-separated). %s only replies to listed contacts; messages from anyone else are ignored. At least one entry required. For example: +447700900000, you@example.com"
 
-MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="Read mail via Apple Mail? (Y/n)"
+MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="Read mail via Apple Mail?"
 MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any account you have added to Apple Mail (iCloud, Gmail, Outlook, etc.) using Full Disk Access. No passwords stored. Recommended for almost everyone."
 
-MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server? (y/N)"
-MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Skip this if your accounts are with Gmail, iCloud, or Outlook -- those work better via Apple Mail above."
+MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server?"
+MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Skip this if your accounts are with Gmail, iCloud, or Outlook – those work better via Apple Mail above."
 
 MSG_PROMPT_IMAP_HOST_TITLE="IMAP host"
 MSG_PROMPT_IMAP_HOST_HELP="Self-hosted or custom IMAP server only. Use Apple Mail (above) for Gmail / iCloud / Outlook."
@@ -600,7 +600,7 @@ MSG_PROMPT_SMTP_PORT_TITLE="SMTP port"
 MSG_PROMPT_EMAIL_USERNAME_TITLE="Email address (also used as IMAP/SMTP username)"
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ -- never sent to Creative Machines."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally under ~/.ostler/ – never sent to Creative Machines."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"
@@ -610,9 +610,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Cont
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Request your data exports now"
-MSG_PROMPT_EXPORTS_ACK_HELP="You can do this on your phone while the installer runs. Exports usually take 1-3 days to arrive by email -- when they do, drop them in your Downloads folder and Ostler will find them automatically."
+MSG_PROMPT_EXPORTS_ACK_HELP="You can do this on your phone while the installer runs. Exports usually take 1 to 3 days to arrive by email. When they do, drop them in your Downloads folder and Ostler will find them automatically."
 
-MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault? (y/N)"
+MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is strongly recommended. Without it, physical access to your Mac means access to your data."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up Touch ID encryption"
@@ -625,19 +625,19 @@ MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="A separate secondary password. Used only as
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm recovery passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same recovery passphrase to confirm."
 
-MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install? (Y/n)"
+MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install?"
 MSG_PROMPT_IMPORT_CONFIRM_HELP="Found GDPR exports will be imported into your knowledge graph during install."
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives -- your full history with friends, family, places, opinions -- right from the start. The more Ostler knows day one, the more useful it is on day one. (You can also add this later -- no rush.)  Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder. Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows day one, the more useful it is on day one. (You can also add this later. No rush.)  Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder. Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
-MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout? (Y/n)"
+MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file directly. Google never sees Ostler."
 
 MSG_PROMPT_FDA_PRESET_TITLE="Which Mac sources should Ostler learn from?"
-MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset -- tick deliberately if you want them."
+MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – tick deliberately if you want them."
 MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended (most people start here)"
-MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything (every data source Ostler supports -- for power users)"
+MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything (every data source Ostler supports – for power users)"
 MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise (pick exactly which sources)"
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
@@ -645,20 +645,20 @@ MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
 MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
 MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
 
-MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings? (Y/n)"
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing -- how third-party data works"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Ostler will read data from sources you connect (email, contacts, messages, social archives). This data stays on this Mac. Creative Machines, the company that makes Ostler, never receives any of it -- we cannot, even if asked. Some of your data was created by other people (the emails they sent you, the messages they wrote). You are the one deciding to use it on your Mac. By continuing, you are saying you are comfortable with that."
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Ostler will read data from sources you connect (email, contacts, messages, social archives). This data stays on this Mac. Creative Machines, the company that makes Ostler, never receives any of it. We cannot, even if asked. Some of your data was created by other people (the emails they sent you, the messages they wrote). You are the one deciding to use it on your Mac. By continuing, you are saying you are comfortable with that."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install"
 MSG_PROMPT_CONSENT_INSTALL_HELP="By choosing Install Ostler, you confirm you accept the terms at ostler.ai/terms."
 MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
 MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
 
-MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Install Tailscale now? (Y/n)"
+MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Install Tailscale now?"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale lets you reach the assistant securely from your phone or other Macs."
 
-MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain? (Y/n)"
+MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain?"
 MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS Keychain for safekeeping."
 
