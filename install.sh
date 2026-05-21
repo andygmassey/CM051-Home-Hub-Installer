@@ -1847,14 +1847,38 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     fi
 fi
 
-# Copy FDA extraction module if available
-# FDA_DIR is the PARENT – the package lives at FDA_DIR/ostler_fda/
+# Copy FDA extraction module if bundled.
+#
+# FDA_DIR is the PARENT -- the package lives at FDA_DIR/ostler_fda/.
+# When install.sh runs from inside the signed .app, SCRIPT_DIR is
+# Contents/Resources and the postBuildScript in gui/project.yml lands
+# the package at SCRIPT_DIR/ostler_fda/. When install.sh runs from a
+# developer's HR015 sibling-clone layout (dev mode), the package is
+# also at SCRIPT_DIR/ostler_fda/ (../HR015 - Gaming PC/ostler_fda
+# symlinked or vendored locally).
+#
+# Pre-2026-05-21 a missing package fell through to "FDA extraction
+# module not bundled. Skipping instant data extraction" later in
+# Phase 3.7, leaving the customer with zero extracted data and no
+# clear error. The hard-fail below mirrors the ostler_security probe
+# pattern (install.sh:1820-1846) so a build regression surfaces
+# immediately rather than 30 minutes into the install.
 FDA_DIR="${OSTLER_DIR}/fda-module"
 HAS_FDA_MODULE=false
 if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     mkdir -p "$FDA_DIR"
     cp -R "${SCRIPT_DIR}/ostler_fda" "$FDA_DIR/"
     HAS_FDA_MODULE=true
+else
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT"
+    else
+        echo ""
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1"
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2"
+        warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3"
+        fail "$MSG_FAIL_FDA_MODULE_MISSING_RE_RUN"
+    fi
 fi
 
 PASSPHRASE=""
@@ -3927,6 +3951,11 @@ FDARPEOF
         ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
     fi
 else
+    # Reachable only when --allow-plaintext was passed AND the FDA
+    # module is missing (the upstream probe at install.sh:1854 hard-
+    # fails in non-plaintext mode). Surface that we are skipping the
+    # instant data extraction so the operator is not surprised by an
+    # empty ~/.ostler/imports/fda/.
     info "$MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING"
     info "$MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT"
 fi

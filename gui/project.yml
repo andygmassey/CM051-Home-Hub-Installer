@@ -133,44 +133,37 @@ targets:
       - name: Bundle ostler_security Python package into Resources
         script: |
           set -euo pipefail
-          # install.sh probes ${SCRIPT_DIR}/ostler_security/ and
-          # ${SCRIPT_DIR}/ostler_security/pyproject.toml to decide
-          # whether to run the passphrase setup + db-encryption step
-          # (install.sh:1789). When that probe fails the install
-          # silently skips the passphrase prompt and then hard-fails
-          # later at the encrypt_db step with "No passphrase set".
-          #
-          # For the .app code path, SCRIPT_DIR is Contents/Resources
-          # at install time, so the package must land at
-          # Contents/Resources/ostler_security/. This script copies
-          # the vendored source from vendor/ostler_security/ into the
-          # bundle's Resources folder.
-          #
-          # Caught by Andy's Mac Studio retest #6 on 2026-05-21:
-          # PRODUCTISATION task #236 (marked completed) had never
-          # actually delivered the .app bundle path. Fix: bundle
-          # the vendored package + reorder install.sh so a missing
-          # module is a hard fail rather than a silent skip.
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           SRC="${SRCROOT}/../vendor/ostler_security"
           if [ -d "${SRC}" ]; then
             echo "Bundling ostler_security from ${SRC} into Resources/"
             mkdir -p "${DEST}/ostler_security"
-            # Copy WITHOUT -p so xattrs do not propagate -- codesign
-            # rejects "resource fork, Finder information, or similar
-            # detritus" on the staged bundle.
             cp -R "${SRC}/" "${DEST}/ostler_security/"
-            # Belt-and-braces xattr strip on the destination.
             /usr/bin/xattr -cr "${DEST}/ostler_security" || true
           else
             echo "ERROR: vendor/ostler_security not found at ${SRC}" >&2
-            echo "       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/README.md." >&2
             exit 1
           fi
         inputFiles:
           - $(SRCROOT)/../vendor/ostler_security
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_security
+      - name: Bundle ostler_fda Python package into Resources
+        script: |
+          set -euo pipefail
+          VENDOR_SRC="${SRCROOT}/../vendor/ostler_fda"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/ostler_fda/ is missing." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/ostler_fda"
+          cp -R "${VENDOR_SRC}/." "${DEST}/ostler_fda/"
+          /usr/bin/xattr -cr "${DEST}/ostler_fda"
+        inputFiles:
+          - $(SRCROOT)/../vendor/ostler_fda
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
