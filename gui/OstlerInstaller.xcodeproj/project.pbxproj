@@ -293,6 +293,7 @@
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
+				9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -386,6 +387,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
+		};
+		9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm048_pipeline",
+			);
+			name = "Bundle CM048 conversation pipeline into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh phase 3.10b probes ${SCRIPT_DIR}/cm048_pipeline/\n# to discover the vendored Python package, then sets up a\n# dedicated venv under ${OSTLER_DIR}/services/cm048/ and\n# symlinks the pwg-convo CLI into /usr/local/bin/.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/cm048_pipeline/. Without this bundling\n# the install.sh probe fails and the conversation pipeline\n# is unavailable on the customer Mac (or the install\n# hard-fails when --allow-plaintext is not set).\n#\n# Companion to PR #115 (ostler_security): same vendoring\n# discipline, different upstream (CM048 source-of-truth\n# lives at ../CM048\\ -\\ PWG\\ Conversation\\ Processing/).\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/cm048_pipeline\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling cm048_pipeline from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/cm048_pipeline\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/cm048_pipeline/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/cm048_pipeline\" || true\nelse\n  echo \"ERROR: vendor/cm048_pipeline not found at ${SRC}\" >&2\n  echo \"       Sync manually from CM048 -- see vendor/README.md.\" >&2\n  exit 1\nfi\n";
 		};
 		B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */ = {
 			isa = PBXShellScriptBuildPhase;
