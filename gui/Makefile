@@ -93,8 +93,8 @@ DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
-        check-tools check-identity check-create-dmg print-version dmg-bg \
-        sparkle-embed
+        check-tools check-identity check-create-dmg check-ostler-app \
+        print-version dmg-bg sparkle-embed verify-dmg-contents
 
 all: debug
 
@@ -204,9 +204,53 @@ release: check-tools check-identity
 # launch posture (appcast.ostler.ai, hub_signing_public_2026-05-16,
 # automatic-check ON, auto-install OFF).
 # ---------------------------------------------------------------------------
+# Hard prerequisite for `make ship`. Refuses to proceed when
+# OSTLER_APP_PATH is empty or not a directory. Previously this was a
+# soft warn at sparkle-embed time, which combined with xcodebuild's
+# silent-skip on a missing bundle phase input to ship a DMG without
+# the Tauri Ostler.app inside Resources/ (2026-05-21 incident).
+#
+# A standalone `make sparkle-embed` is still allowed to soft-skip
+# (preserves the "safe to run by hand" property); only ship-path
+# invocation hard-fails via this gate.
+check-ostler-app:
+	@if [ -z "$(OSTLER_APP_PATH)" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: OSTLER_APP_PATH is empty." >&2; \
+	    echo "" >&2; \
+	    echo "  Shipping a DMG without the Tauri Ostler.app inside Resources/ produces" >&2; \
+	    echo "  a Hub-less installer (install.sh hits 'Ostler.app not found' at customer" >&2; \
+	    echo "  install time). The 2.58MB DMG cut on 2026-05-21 had exactly this shape." >&2; \
+	    echo "" >&2; \
+	    echo "  Most likely cause: a parent shell exported OSTLER_APP_PATH= (empty string)," >&2; \
+	    echo "  which defeats the \`?=\` default. Unset it first or pass an explicit value:" >&2; \
+	    echo "" >&2; \
+	    echo "    unset OSTLER_APP_PATH && make ship" >&2; \
+	    echo "    OSTLER_APP_PATH=/path/to/Ostler.app make ship" >&2; \
+	    echo "" >&2; \
+	    exit 1; \
+	fi
+	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: OSTLER_APP_PATH points at a path that does not exist:" >&2; \
+	    echo "  $(OSTLER_APP_PATH)" >&2; \
+	    echo "" >&2; \
+	    echo "  Build the Tauri Hub desktop first:" >&2; \
+	    echo "    cd ~/Documents/Projects/ostler-assistant" >&2; \
+	    echo "    cargo tauri build" >&2; \
+	    echo "" >&2; \
+	    echo "  Or point at an existing build:" >&2; \
+	    echo "    OSTLER_APP_PATH=/path/to/Ostler.app make ship" >&2; \
+	    echo "" >&2; \
+	    exit 1; \
+	fi
+	@printf '[CHECK] OSTLER_APP_PATH=%s (directory exists)\n' "$(OSTLER_APP_PATH)"
+
 sparkle-embed:
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
 	    echo "WARNING: OSTLER_APP_PATH=$(OSTLER_APP_PATH) not found; skipping Sparkle embed." >&2; \
+	    echo "         (For ship-path invocation use \`make ship\` — its check-ostler-app" >&2; \
+	    echo "          prereq turns this into a hard fail.)" >&2; \
 	else \
 	    $(STEP_INLINE) "Embedding Sparkle into $(OSTLER_APP_PATH)"; \
 	    "$(CURDIR)/scripts/embed-sparkle.sh" "$(OSTLER_APP_PATH)"; \
@@ -337,9 +381,77 @@ archive:
 	    echo "Archived: $(ARCHIVE_DIR)/$$ARCHIVE_NAME"
 
 # ---------------------------------------------------------------------------
-# One-shot: build → DMG → notarise → staple → archive
+# Post-ship verification: mount the DMG and assert the assembled payload
+# contains every component install.sh expects. Catches the silent-skip
+# failure mode (xcodebuild bundle phase or sparkle-embed dropped an input)
+# at ship time instead of at customer install time.
+#
+# The shape we assert is the EXACT failure shape from 2026-05-21: a DMG
+# missing Ostler.app inside Resources/ ships a Hub-less installer. We also
+# walk install.sh for the RemoteCapture wiring contract (repo + version +
+# URL pattern) so a future regression on PR #133 fails here too. Per locked
+# memory feedback_silent_bail_regression_test_shape, the assertion is
+# byte-by-byte on the assembled output, not happy-path observable.
 # ---------------------------------------------------------------------------
-ship: sparkle-embed release package notarise archive
+verify-dmg-contents:
+	@if [ ! -f "$(DMG_PATH)" ]; then \
+	    echo "ERROR: $(DMG_PATH) not found. Run \`make ship\` first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Verifying assembled DMG payload — checking for silent-skip regressions"
+	@MOUNT=$$(hdiutil attach "$(DMG_PATH)" -nobrowse -readonly 2>&1 | tail -1 | awk -F'\t' '{print $$NF}'); \
+	if [ -z "$$MOUNT" ] || [ ! -d "$$MOUNT" ]; then \
+	    echo "ERROR: could not mount $(DMG_PATH)" >&2; \
+	    exit 1; \
+	fi; \
+	RES="$$MOUNT/$(APP_NAME).app/Contents/Resources"; \
+	MISSING=""; \
+	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline contact_syncer email-ingest; do \
+	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
+	done; \
+	OSTLER_APP_OK=1; \
+	if [ ! -x "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" ]; then \
+	    OSTLER_APP_OK=0; \
+	fi; \
+	INSTALL_SH_OK=1; \
+	if ! grep -q "OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases" "$$RES/install.sh" 2>/dev/null; then \
+	    INSTALL_SH_OK=0; \
+	fi; \
+	if ! grep -q "releases/download/remote-capture-v" "$$RES/install.sh" 2>/dev/null; then \
+	    INSTALL_SH_OK=0; \
+	fi; \
+	hdiutil detach "$$MOUNT" >/dev/null 2>&1 || true; \
+	if [ -n "$$MISSING" ]; then \
+	    echo "ERROR: DMG payload missing in Resources/:$$MISSING" >&2; \
+	    echo "  This is the silent-warn-skip pattern caught 2026-05-21." >&2; \
+	    echo "  Likely cause: xcodebuild bundle phase or sparkle-embed skipped" >&2; \
+	    echo "  silently. The check-ostler-app prereq should have caught this" >&2; \
+	    echo "  upstream — investigate why it did not." >&2; \
+	    exit 1; \
+	fi; \
+	if [ "$$OSTLER_APP_OK" = "0" ]; then \
+	    echo "ERROR: Ostler.app present in Resources/ but missing the Tauri" >&2; \
+	    echo "       executable at Contents/MacOS/zeroclaw-desktop." >&2; \
+	    exit 1; \
+	fi; \
+	if [ "$$INSTALL_SH_OK" = "0" ]; then \
+	    echo "ERROR: install.sh on the DMG does not wire RemoteCapture against" >&2; \
+	    echo "       the public ostler-ai/ostler-releases CDN URL. Regression" >&2; \
+	    echo "       of CM051 PR #133. Customer install would 404 on download." >&2; \
+	    exit 1; \
+	fi; \
+	echo "[OK] DMG payload verified — Ostler.app + install.sh + 9 vendor packages all present"
+
+# ---------------------------------------------------------------------------
+# One-shot: validate → build → DMG → notarise → staple → verify → archive
+#
+# check-ostler-app runs first so we fail fast on the empty/missing
+# OSTLER_APP_PATH case (caught 2026-05-21 — would have saved one DMG cut).
+# verify-dmg-contents runs between notarise and archive so any silent-skip
+# regression downstream of check-ostler-app fails before we archive a bad
+# DMG into ~/.ostler-release-artefacts/.
+# ---------------------------------------------------------------------------
+ship: check-ostler-app sparkle-embed release package notarise verify-dmg-contents archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
