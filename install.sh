@@ -4206,15 +4206,29 @@ elif [[ -d "$PIPELINE_DIR/contact_syncer" ]]; then
     cd "$PIPELINE_DIR" && git pull --quiet 2>/dev/null || warn "$MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE"
     HAS_PIPELINE=true
 elif [[ -z "$PIPELINE_REPO" ]]; then
-    # Productised install path: no tarball-bundled pipeline and no
-    # PWG_PIPELINE_REPO override. The pipeline ships with the
-    # installer tarball at release; if a user gets here without one,
-    # GDPR import is simply unavailable (their Mac-side data extracted
-    # above is unaffected).
-    info "$MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER"
-    info "$MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC"
-    info "$MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN"
-    info "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET"
+    # Productised install path: contact_syncer/ was not bundled with
+    # the installer AND no PWG_PIPELINE_REPO override was set. This is
+    # the customer-regression case (the .app build dropped the
+    # vendored CM041 tree, or the customer ran install.sh standalone
+    # rather than from inside the .app bundle). The previous
+    # behaviour here was a silent skip; the productised contract is
+    # that GDPR import is part of the install, not a maybe.
+    #
+    # Hard-fail unless --allow-plaintext is set (the dev-mode
+    # escape-hatch which silences all bundle-vendoring guards).
+    # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1
+    # for the umbrella pattern.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED"
+        warn "$MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        echo ""
+        warn "$MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER"
+        warn "$MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL"
+        warn "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET"
+        fail "$MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER"
+    fi
 else
     info "$MSG_INFO_CLONING_IMPORT_PIPELINE"
     PIPELINE_CLONE_LOG="$(mktemp -t ostler-pipeline-clone.XXXXXX.log)"

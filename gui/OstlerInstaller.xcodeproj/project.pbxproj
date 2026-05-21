@@ -293,6 +293,7 @@
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
+				8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -386,6 +387,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
+		};
+		8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# The CM041 PWG People Graph repo ships two productised assets:\n#   - contact_syncer/  Python package, runs the GDPR import\n#                      pipeline. install.sh §3.10 looks for it\n#                      at \"${SCRIPT_DIR}/contact_syncer\" (i.e.\n#                      Contents/Resources/contact_syncer/ when\n#                      install.sh runs from inside the .app),\n#                      copies it to ${OSTLER_DIR}/import-pipeline/,\n#                      and invokes\n#                      .venv/bin/python -m contact_syncer.import_all.\n#   - assistant_api/   ical-server.py (the local API on :8089)\n#                      + its companion docs. Installed by a\n#                      later install.sh phase that wires it\n#                      as a launchd agent.\n#\n# CRITICAL bundle layout: both subdirs MUST live at the\n# Resources root (NOT under a vendor/cm041/ wrapper) because\n# install.sh's path checks (lines 4196 onward + 4245) hard-code\n# the unwrapped paths. Don't introduce a vendor/cm041/ subdir\n# at install-time; copy the CONTENTS of vendor/cm041/ directly.\n#\n# `cp -R` without -p so source xattrs (com.apple.provenance,\n# com.apple.macl on Sonoma+) don't propagate into the .app\n# bundle. The subsequent \"Strip xattrs\" phase is a belt-and-\n# braces second pass over the whole bundle.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm041\"\nif [ ! -d \"${VENDOR_ROOT}/contact_syncer\" ] || [ ! -d \"${VENDOR_ROOT}/assistant_api\" ]; then\n  echo \"error: vendor/cm041/ missing contact_syncer/ or assistant_api/.\" >&2\n  echo \"       Expected: ${VENDOR_ROOT}/contact_syncer + ${VENDOR_ROOT}/assistant_api\" >&2\n  echo \"       Re-sync from the CM041 PWG People Graph repo.\" >&2\n  exit 1\nfi\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-syncer rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/contact_syncer\" \"${DEST}/assistant_api\"\ncp -R \"${VENDOR_ROOT}/contact_syncer\" \"${DEST}/contact_syncer\"\ncp -R \"${VENDOR_ROOT}/assistant_api\"  \"${DEST}/assistant_api\"\n/usr/bin/xattr -cr \"${DEST}/contact_syncer\" \"${DEST}/assistant_api\"\n# ical-server.py is executable on the operator instance via\n# `python ical-server.py`, not chmod +x, so we don't toggle\n# the mode here. requirements.txt + .env.example land 644.\n";
 		};
 		B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */ = {
 			isa = PBXShellScriptBuildPhase;
