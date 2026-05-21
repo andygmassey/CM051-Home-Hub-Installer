@@ -48,7 +48,12 @@
     "signature_invalid_error": "Signature check failed. This file is not a licence we signed, or it was edited after delivery.",
     "expired_error": "Your licence expired on {expires_at}. Email hello@ostler.ai to renew.",
     "malformed_error": "Could not read this licence: {reason}",
-    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai."
+    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai.",
+    "drop_no_provider_error": "Could not read the dropped item. Try again, or paste the licence JSON below instead.",
+    "drop_url_resolve_error": "Could not resolve the dropped file ({reason}). Try again, or paste the licence JSON below instead.",
+    "drop_json_load_error": "Could not read the dropped JSON ({reason}). Try again, or paste the licence JSON below instead.",
+    "drop_text_load_error": "Could not read the dropped text ({reason}). Try again, or paste the licence JSON below instead.",
+    "drop_unsupported_type_error": "That drop type is not supported (got {types}). Drag a .json file instead, or paste the licence JSON below."
   },
 
   "device_limit": {
