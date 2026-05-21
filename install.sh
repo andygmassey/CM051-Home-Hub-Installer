@@ -5006,7 +5006,17 @@ HUB_POWER_DIR="${OSTLER_DIR}/hub-power"
 HUB_POWER_SNIPPET=""
 HUB_POWER_SOURCE=""
 
-if [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh" ]]; then
+# Power-policy gate. The hub-power LaunchAgent exists to throttle
+# Docker + Ollama on battery drain. On a desktop Mac (Mac Mini /
+# Studio, always-on AC, no battery present) the watcher would see
+# tier "ac" every tick and take no action, so installing it is
+# pure dead weight. Skip it entirely on AC-only hardware.
+#
+# HAS_BATTERY is set earlier in Phase 3 (around line 788) from
+# `pmset -g batt`. true = MacBook, false = desktop Mac.
+if [[ "${HAS_BATTERY:-false}" != "true" ]]; then
+    info "$MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT"
+elif [[ -d "${SCRIPT_DIR}/hub-power" && -f "${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh" ]]; then
     HUB_POWER_SNIPPET="${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh"
     HUB_POWER_SOURCE="bundled"
     mkdir -p "$HUB_POWER_DIR"
@@ -5017,12 +5027,18 @@ elif [[ -f "${HUB_POWER_DIR}/INSTALL_SNIPPET.sh" ]]; then
     HUB_POWER_SOURCE="existing"
     info "$(printf "$MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL" "${HUB_POWER_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    # Productised install path: no tarball-bundled scripts and no
-    # PWG_HUB_POWER_REPO override. Mac Mini / Studio deployments do
-    # not need this LaunchAgent (always-on AC); only MacBook hubs do.
-    info "$MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH"
-    info "$MSG_INFO_MAC_MINI_STUDIO_DEPLOYMENTS_ARE_UNAFFECTED"
-    info "$MSG_INFO_MACBOOK_HUBS_SET_PWG_HUB_POWER"
+    # MacBook hub, but neither tarball-bundled scripts nor a
+    # PWG_HUB_POWER_REPO override is present. This was the old
+    # silent-info code path -- on a customer .app install we now
+    # expect the post-build script to have landed
+    # vendor/hub_power/ at ${SCRIPT_DIR}/hub-power/, so reaching
+    # here on a MacBook means the .app bundle is missing the
+    # vendored scripts. Surface as a warn (not a hard fail --
+    # the rest of the install still works, the customer just
+    # won't get battery-aware throttling).
+    warn "$MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE"
+    warn "$MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_2"
+    warn "$MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_3"
 else
     info "$MSG_INFO_CLONING_HUB_POWER_SCRIPTS"
     HUB_POWER_TMP="$(mktemp -d)"
