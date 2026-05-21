@@ -26,7 +26,7 @@ final class LicensePersistenceTests: XCTestCase {
     }
 
     func testWriteThenReadRoundTrip() throws {
-        let path = tempDir.appendingPathComponent("ostler-licence.json")
+        let path = tempDir.appendingPathComponent("license.json")
         let payload = Data(#"{"version":1}"#.utf8)
         try LicensePersistence.write(licenseData: payload, to: path)
         let readBack = LicensePersistence.readExisting(at: path)
@@ -42,14 +42,14 @@ final class LicensePersistenceTests: XCTestCase {
         let path = tempDir
             .appendingPathComponent("nested", isDirectory: true)
             .appendingPathComponent("deeper", isDirectory: true)
-            .appendingPathComponent("ostler-licence.json")
+            .appendingPathComponent("license.json")
         let payload = Data("{}".utf8)
         try LicensePersistence.write(licenseData: payload, to: path)
         XCTAssertTrue(FileManager.default.fileExists(atPath: path.path))
     }
 
     func testWriteSetsFileMode0600() throws {
-        let path = tempDir.appendingPathComponent("ostler-licence.json")
+        let path = tempDir.appendingPathComponent("license.json")
         try LicensePersistence.write(licenseData: Data("{}".utf8), to: path)
         let attrs = try FileManager.default.attributesOfItem(atPath: path.path)
         let perms = attrs[.posixPermissions] as? NSNumber
