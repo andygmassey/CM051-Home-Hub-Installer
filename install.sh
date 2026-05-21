@@ -1312,10 +1312,13 @@ echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
 echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
 echo ""
 
-ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "$MSG_PROMPT_ASSISTANT_NAME_HELP_FULL" "" "assistant_name")"
+# Q6 helper text is rendered by OnboardingQuestionView from
+# ViewCopy `assistant_name_helper`; passing empty help here prevents
+# the GUI from rendering the same copy twice.
+ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "" "" "assistant_name")"
 while [[ -z "$ASSISTANT_NAME" ]]; do
     warn "$MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM"
-    ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "$MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT" "" "assistant_name")"
+    ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "" "" "assistant_name")"
 done
 
 ok "$(printf "$MSG_OK_YOUR_ASSISTANT_CALLED" "${ASSISTANT_NAME}")"

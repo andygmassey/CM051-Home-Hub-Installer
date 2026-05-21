@@ -28,6 +28,12 @@ struct SidebarView: View {
             .padding(.top, .ostlerSpace4)
             .padding(.bottom, .ostlerSpace3)
 
+            // ScrollView claims all available vertical space so the
+            // bottom-anchored footer (step counter / Done / Failed)
+            // never crowds out the step list. Without maxHeight:
+            // .infinity, the ScrollView shrinks to content height and
+            // the last two rows can disappear behind the footer when
+            // the install fails mid-flight.
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(catalog.ordered) { meta in
@@ -37,8 +43,7 @@ struct SidebarView: View {
                 }
                 .padding(.vertical, .ostlerSpace1)
             }
-
-            Spacer()
+            .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
                 if let finished = coordinator.finished {
@@ -129,9 +134,16 @@ private struct SidebarRow: View {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(Color.ostlerOxblood)
             }
         } else if isActive {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.ostlerOxblood)
+            // When the install has failed, the active step never
+            // received a completedSteps entry, so it would otherwise
+            // keep spinning forever. Show the failure glyph instead.
+            if coordinator.finished == .fail {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(Color.ostlerOxblood)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.ostlerOxblood)
+            }
         } else {
             Image(systemName: "circle").foregroundStyle(Color.ostlerHairlineSoft)
         }

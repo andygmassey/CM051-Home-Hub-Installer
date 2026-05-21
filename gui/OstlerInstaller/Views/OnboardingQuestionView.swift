@@ -85,25 +85,24 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // consent_install carries a hyperlinked terms link in
-            // place of plain help copy; render via a dedicated
-            // helper. Everything else gets the standard
-            // Text(help).
+            // Help / body copy. Order:
+            //   - consent_install: special hyperlinked terms body
+            //   - assistant_name: ViewCopy-owned brand-warm helper (the
+            //     suggestion-pool intro). install.sh deliberately sends
+            //     empty help for this prompt id so we don't render the
+            //     same copy twice.
+            //   - everything else: install.sh's `help` field.
             if q.prompt.id == "consent_install" {
                 consentInstallBody()
-            } else if let help = q.prompt.help, !help.isEmpty {
-                Text(help)
-                    .font(.ostlerBodyLg)
+            } else if q.prompt.id == "assistant_name" && !q.isReview {
+                Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
+                    .font(.ostlerBody)
                     .foregroundStyle(Color.ostlerInkMuted)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // F6.1 (assistant_name): inline helper copy explaining
-            // the suggestions, mirroring Andy's brand-warmth note.
-            if q.prompt.id == "assistant_name" && !q.isReview {
-                Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
-                    .font(.ostlerBody)
+            } else if let help = q.prompt.help, !help.isEmpty {
+                Text(help)
+                    .font(.ostlerBodyLg)
                     .foregroundStyle(Color.ostlerInkMuted)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -248,7 +247,8 @@ struct OnboardingQuestionView: View {
                        ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
                        : $choiceValue) {
                     ForEach(q.prompt.choices, id: \.self) { choice in
-                        Text(choice).tag(choice)
+                        Text(choiceLabel(promptId: q.prompt.id, value: choice))
+                            .tag(choice)
                     }
                 }
                 .pickerStyle(.menu)
@@ -582,6 +582,20 @@ struct OnboardingQuestionView: View {
             folderValue = expanded
         }
         focused = true
+    }
+
+    /// Looks up a human-readable label for a `.choice` prompt option
+    /// via ViewCopy key `onboarding_question.choice_label.{id}.{value}`.
+    /// install.sh passes raw machine values (`"1"`, `"recommended"`,
+    /// etc.) so without this lookup the dropdown shows the raw codes.
+    /// Falls back to the raw value when no label is catalogued.
+    private func choiceLabel(promptId: String, value: String) -> String {
+        let key = "onboarding_question.choice_label.\(promptId).\(value)"
+        let label = ViewCopy.shared.string(for: key)
+        // ViewCopy returns the key itself when the lookup misses; treat
+        // that as "no label catalogued" and surface the raw value.
+        if label == key { return value }
+        return label
     }
 
     /// F6.1: pull one suggestion at random from the ViewCopy

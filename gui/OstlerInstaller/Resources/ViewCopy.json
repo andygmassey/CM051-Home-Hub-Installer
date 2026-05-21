@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes -- use ASCII '--' or en-dash with spaces."
+    "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes – use ASCII '--' or en-dash with spaces."
   },
 
   "device_registration_error": {
@@ -20,7 +20,7 @@
 
   "install_failed_banner": {
     "heading": "Install failed",
-    "subtitle_default": "Something went wrong during install. Use Copy log to grab the details for hello@ostler.ai, then Try again.",
+    "subtitle_default": "Something went wrong during install. Use Copy log to grab the details for support@ostler.ai, then Try again.",
     "copy_log_button": "Copy log",
     "copy_log_button_copied": "Copied",
     "try_again_button": "Try again"
@@ -35,20 +35,20 @@
 
   "license_entry": {
     "heading": "Your licence",
-    "intro": "Ostler needs a licence file before it can install. The licence arrived in your welcome email from hello@ostler.ai. Save the attached file (it looks like `ostler-licence.json`), then drag it here -- or paste the JSON contents below.",
+    "intro": "Ostler needs a licence file before it can install. The licence arrived in your welcome email from support@ostler.ai. Save the attached file (it looks like `ostler-licence.json`), then drag it here – or paste the JSON contents below.",
     "dropzone_active": "Drop to verify",
     "dropzone_idle": "Drag your licence file here",
     "dropzone_hint": "Looks for ostler-licence.json (or similar)",
     "paste_label": "Or paste the licence text",
     "verify_button": "Verify Licence",
     "paste_empty_error": "Paste the licence JSON above first, or drop the file onto the box.",
-    "error_help_caption": "Need help? Email hello@ostler.ai",
-    "footer_hint": "Your licence stays on this Mac. It is verified locally with a key built into this installer -- no network call is made during this step.",
+    "error_help_caption": "Need help? Email support@ostler.ai",
+    "footer_hint": "Your licence stays on this Mac. It is verified locally with a key built into this installer – no network call is made during this step.",
     "read_file_error": "Could not read the licence file at {filename}.",
     "signature_invalid_error": "Signature check failed. This file is not a licence we signed, or it was edited after delivery.",
-    "expired_error": "Your licence expired on {expires_at}. Email hello@ostler.ai to renew.",
+    "expired_error": "Your licence expired on {expires_at}. Email support@ostler.ai to renew.",
     "malformed_error": "Could not read this licence: {reason}",
-    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact hello@ostler.ai.",
+    "short_id_guidance": "That looks like a Licence ID, not the full licence. Please drag the licence file (ostler-licence.json) from your welcome email into the box above, or paste its full JSON contents here. If you cannot find the email, contact support@ostler.ai.",
     "drop_no_provider_error": "Could not read the dropped item. Try again, or paste the licence JSON below instead.",
     "drop_url_resolve_error": "Could not resolve the dropped file ({reason}). Try again, or paste the licence JSON below instead.",
     "drop_json_load_error": "Could not read the dropped JSON ({reason}). Try again, or paste the licence JSON below instead.",
@@ -60,10 +60,10 @@
     "heading": "This licence is on {count} Macs",
     "explanation": "Each Ostler licence is valid on up to {max} Macs. This one is already at the limit, so we cannot register this Mac without freeing up a slot first.",
     "what_you_can_do_caption": "What you can do",
-    "bullet_email_us": "Email us at hello@ostler.ai and we will free a slot for you. Quote your licence id below.",
+    "bullet_email_us": "Email us at support@ostler.ai and we will free a slot for you. Quote your licence id below.",
     "bullet_buy_another": "Or purchase an additional licence at ostler.ai if this is a new Mac you want to keep alongside your other ones.",
     "quit_button": "Quit installer",
-    "email_button": "Email hello@ostler.ai",
+    "email_button": "Email support@ostler.ai",
     "license_id_caption": "Licence id",
     "fallback_count": "the maximum number of",
     "fallback_max": "the licensed number of",
@@ -98,17 +98,30 @@
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",
     "error_invalid_choice": "Pick one of: {options}",
-    "assistant_name_helper": "The name in the field is a random suggestion -- type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "choice_label": {
+      "channel_choice": {
+        "1": "iMessage",
+        "2": "Email",
+        "3": "iMessage and email (recommended)",
+        "4": "Skip for now"
+      },
+      "fda_preset": {
+        "recommended": "Recommended",
+        "everything": "Everything",
+        "customise": "Customise"
+      }
+    },
     "fda_preset_recommended": "Recommended",
     "fda_preset_recommended_subtitle": "Most people start here",
     "fda_preset_everything": "Everything",
-    "fda_preset_everything_subtitle": "Every data source Ostler supports -- for power users",
+    "fda_preset_everything_subtitle": "Every data source Ostler supports – for power users",
     "fda_preset_customise": "Customise",
     "fda_preset_customise_subtitle": "Pick exactly which sources",
     "folder_picker_choose_button": "Choose Folder...",
     "folder_picker_choose_panel_prompt": "Choose folder",
     "folder_picker_skip_button": "Skip this step",
-    "folder_picker_no_selection_placeholder": "(no folder selected -- will skip)",
+    "folder_picker_no_selection_placeholder": "(no folder selected – will skip)",
     "consent_install_primary": "Install Ostler",
     "consent_install_cancel": "Cancel",
     "consent_install_terms_link_label": "terms",

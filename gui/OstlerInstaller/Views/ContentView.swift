@@ -115,8 +115,17 @@ struct ContentView: View {
                     // is reviewing a previous answer via Back. The
                     // sidebar Steps + footer remain visible so the
                     // customer never loses their progress anchor.
-                    if coordinator.pendingPrompt != nil ||
-                       coordinator.backReviewIndex != nil {
+                    //
+                    // When the install has failed, the banner across
+                    // the top carries the message + actions; the right
+                    // pane stays blank rather than reverting to the
+                    // HintPanelView (which would otherwise pop back to
+                    // step 1 copy and confuse the customer) or showing
+                    // a stale prompt that no longer accepts input.
+                    if coordinator.finished == .fail {
+                        Color.clear
+                    } else if coordinator.pendingPrompt != nil ||
+                              coordinator.backReviewIndex != nil {
                         OnboardingQuestionView()
                     } else {
                         HintPanelView()
