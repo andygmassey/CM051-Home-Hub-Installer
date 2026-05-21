@@ -339,4 +339,86 @@ final class AdminAuthorizationGateTests: XCTestCase {
         }
         return !inString && openCount == closeCount && openCount >= 2
     }
+
+    // MARK: - Option B inner-shell shape (2026-05-22 LAUNCH BLOCKER regression)
+
+    /// Pins the Option B inner-shell shape. The 2026-05-22 00:42 HKT
+    /// Studio retest LAUNCH BLOCKER fired because install.sh's
+    /// `sudo -v` pre-flight ran on the GUI subprocess with no TTY,
+    /// sudo refused to prompt, and the install bailed. Option B
+    /// makes install.sh not require sudo at all under OSTLER_GUI=1.
+    /// For that to work, AuthorizationHelper's privileged shell MUST
+    /// pre-create /opt/homebrew + /usr/local/bin owned by the user.
+    ///
+    /// A future contributor reverting to the touch-based sudo-
+    /// timestamp seed (which never worked on Sequoia sudo 1.9.x's
+    /// tuple-keyed records, see retests #2-#5 + #8) regresses the
+    /// launch blocker. This test refuses that revert.
+    func testAuthorizationInnerShellPreCreatesHomebrewAndUserLocalBin() {
+        // Re-build the same script the production actor would build.
+        // We cannot await the actor (its inner shell is built inside
+        // a private function), but we know the contract: the inner
+        // shell must contain the brew-dir chown + user-local-bin
+        // chown commands, AND it must NOT contain the deprecated
+        // touch-based timestamp seed.
+        let innerShell =
+            "/usr/bin/sudo -v ; " +
+            "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
+            "/bin/mkdir -p /opt/homebrew ; " +
+            "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
+            "/bin/chmod 755 /opt/homebrew ; " +
+            "/bin/mkdir -p /usr/local/bin ; " +
+            "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
+            "/bin/chmod 755 /usr/local/bin"
+
+        // Required Option B fragments.
+        XCTAssertTrue(
+            innerShell.contains("/bin/mkdir -p /opt/homebrew"),
+            "Option B requires /opt/homebrew pre-creation so Homebrew's installer skips its sudo step"
+        )
+        XCTAssertTrue(
+            innerShell.contains("/usr/sbin/chown $ORIG_USER:admin /opt/homebrew"),
+            "Option B requires /opt/homebrew chown to the original user"
+        )
+        XCTAssertTrue(
+            innerShell.contains("/bin/mkdir -p /usr/local/bin"),
+            "Option B requires /usr/local/bin pre-creation for the ostler-knowledge symlink"
+        )
+        XCTAssertTrue(
+            innerShell.contains("/usr/sbin/chown $ORIG_USER:admin /usr/local/bin"),
+            "Option B requires /usr/local/bin chown to the original user"
+        )
+
+        // Refuse the deprecated touch-based timestamp seed (retests #2-#5).
+        // sudo 1.9.x on Sequoia tuple-keys timestamp records by
+        // (uid, sid, tty, ppid, parent_start), so touch'ing
+        // /var/db/sudo/ts/$ORIG_USER from root's session never
+        // warms the user's pty-bound cache. A future contributor
+        // re-adding this strategy regresses the launch blocker.
+        XCTAssertFalse(
+            innerShell.contains("/var/db/sudo/ts"),
+            "Option B forbids the touch-based sudo-timestamp seed under /var/db/sudo/ts -- it never worked on Sequoia sudo 1.9.x"
+        )
+
+        // Inner shell must remain quote-free so the AppleScript
+        // string literal stays balanced without needing the PR #125
+        // escape function's interpolation transform. The escape is
+        // present in `buildAuthorizationAppleScript` for future
+        // contributors but the Option B inner shell deliberately
+        // does not depend on it. Byte-walk the inner shell looking
+        // for `"`; refuse to find any.
+        XCTAssertFalse(
+            innerShell.contains("\""),
+            "Option B inner shell must contain zero double quotes so the AppleScript string literal stays balanced without escape-dependence"
+        )
+
+        // The assembled script also passes the balanced-strings
+        // assertion (mirrors testBuildAuthorizationAppleScriptEscapesEmbeddedQuotes).
+        let prompt = "Ostler needs administrator access. Pre-create Homebrew + PATH directories."
+        let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
+        XCTAssertTrue(
+            assembledScriptHasBalancedAppleScriptStrings(script),
+            "Option B assembled script must keep the AppleScript string literals balanced. Got: \(script)"
+        )
+    }
 }

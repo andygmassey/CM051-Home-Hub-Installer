@@ -932,6 +932,20 @@ final class InstallerCoordinator: ObservableObject {
             msg: "Installer launched: pid=\(proc.processIdentifier) script=\(scriptPath)"
         )
         OstlerLog.lifecycle.info("launchInstaller: pid=\(proc.processIdentifier, privacy: .public) script=\(scriptPath, privacy: .public) fifo=\(fifoPath, privacy: .public)")
+
+        // Option B replacement for install.sh's `sudo pmset` calls:
+        // a per-process caffeinate assertion that lives for the
+        // duration of the install. No sudo, no system-wide state
+        // change, no cleanup-on-crash debt. See CaffeinateManager.
+        if let caffeinatePid = CaffeinateManager.shared.start() {
+            appendLog(level: "info", msg: "Sleep prevention armed (caffeinate pid=\(caffeinatePid))")
+            OstlerLog.lifecycle.info("caffeinate started pid=\(caffeinatePid, privacy: .public)")
+        } else {
+            appendLog(level: "warn",
+                      msg: "Could not start caffeinate -- machine may sleep during install. Keep the lid open / mouse moving.")
+            OstlerLog.lifecycle.warning("caffeinate failed to start; install will proceed without sleep prevention")
+        }
+
         startWatchdog()
     }
 
@@ -1203,6 +1217,12 @@ final class InstallerCoordinator: ObservableObject {
         }
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
+
+        // Release the caffeinate power assertion. Idempotent; safe to
+        // call even when start() failed earlier. Single sink so a
+        // success / failure / cancel / quit path all release the
+        // assertion identically.
+        CaffeinateManager.shared.stop()
     }
 
     // ── Logging ──────────────────────────────────────────────────
