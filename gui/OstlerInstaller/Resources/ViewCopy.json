@@ -98,7 +98,7 @@
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",
     "error_invalid_choice": "Pick one of: {options}",
-    "assistant_name_helper": "Pick anything -- they will respond to it. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "assistant_name_helper": "The name in the field is a random suggestion -- type over it with anything you like. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
     "fda_preset_recommended": "Recommended",
     "fda_preset_recommended_subtitle": "Most people start here",
     "fda_preset_everything": "Everything",

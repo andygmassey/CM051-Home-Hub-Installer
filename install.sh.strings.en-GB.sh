@@ -64,7 +64,7 @@ MSG_INFO_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM="  docker compose --profile compi
 MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA="Docker not installed. Will install Colima + Docker CLI + docker-compose plugin (lightweight, no Docker Desktop required)."
 MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH="Doctor agent files not bundled with installer."
 MSG_INFO_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_WITH="Email-ingest scripts not bundled with installer."
-MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN="Email-ingest scripts are missing from the installer bundle. This is a productised-install regression; the .app should ship with vendor/email_ingest bundled at Contents/Resources/email-ingest. Re-run with --allow-plaintext if you are on a dev or CI path."
+MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN="Email-ingest scripts are missing from the installer bundle. Re-download the .app from ostler.ai/install and try again."
 MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Email-ingest scripts not bundled and --allow-plaintext was passed; LaunchAgent install will be skipped. Future emails will not be drained."
 MSG_INFO_EXISTING_CHECKOUT_UPDATING="  Existing checkout at %s; updating..."
 MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP="Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
@@ -523,7 +523,7 @@ MSG_ERR_URL="  url:      %s"
 # ── Fail messages (terminal -- the installer exits after) ──
 
 MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED="At least 16 GB RAM required. You have %s GB. 24 GB recommended."
-MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature, notarisation, or checksum verification failed. The bundle has been left in /Applications for support to inspect. Remove it manually and re-run the installer once the upstream release is fixed."
+MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature or notarisation check failed. The bundle was left in /Applications for support. Email support@ostler.ai and re-run the installer."
 MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Check your network and re-run the installer."
 MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="Could not pull nomic-embed-text after 3 attempts. Check your network and re-run the installer."
 MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER="Docker not available. Re-run the installer to install Colima."
@@ -569,8 +569,8 @@ MSG_PROMPT_TZ_CONFIRM_HELP="Detected timezone: %s"
 MSG_PROMPT_USER_TZ_TITLE="Enter timezone (e.g. Europe/London, Asia/Hong_Kong)"
 
 MSG_PROMPT_ASSISTANT_NAME_TITLE="What would you like to call your assistant?"
-MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="Pick anything -- they will respond to it. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin." # assistant-name-exempt: F6.1 suggestion-pool exemplar
-MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Pick anything -- they will respond to it."
+MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="The name in the field is a random suggestion -- type over it with anything you like. Some Ostler operators have gone with HAL, JARVIS, or Mycroft. Andy went with Marvin." # assistant-name-exempt: F6.1 suggestion-pool exemplar
+MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Type any name you like -- the suggestion is just a starting point."
 
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="How will your assistant reach you?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="Pick the messaging channels you would like your assistant to use. You can change this later in Doctor."
@@ -578,8 +578,8 @@ MSG_PROMPT_CHANNEL_CHOICE_HELP="Pick the messaging channels you would like your 
 MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk above? (y/N)"
 MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration -- you accept the consent above by enabling it."
 
-MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number (E.164)"
-MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="Leading +, country code, digits only. e.g. +447700900000"
+MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International format, like +44 7700 900000. Leading +, country code, digits only."
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Allowlist of phone numbers and Apple ID emails (comma-separated). %s only replies to listed contacts; messages from anyone else are ignored. At least one entry required. e.g. +447700900000, you@example.com"
