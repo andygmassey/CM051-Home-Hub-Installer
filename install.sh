@@ -154,6 +154,15 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    evernote-knowledge repo to install ostler-knowledge into"
     echo "    a dedicated venv at ~/.ostler/services/knowledge/."
     echo ""
+    echo "  PWG_CM048_REPO"
+    echo "    Source repo for the CM048 conversation processing pipeline."
+    echo "    Default: empty (productised tarball bundles the pipeline at"
+    echo "    Contents/Resources/cm048_pipeline/; install.sh discovers it"
+    echo "    and pip-installs into a dedicated venv at"
+    echo "    ~/.ostler/services/cm048/). Set to a clone URL for dev or"
+    echo "    private-beta installs. Missing pipeline AND no override is"
+    echo "    a hard fail unless --allow-plaintext is passed."
+    echo ""
     echo "  PWG_NOTICES_BASE_URL"
     echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
     echo "    LICENSES/ tree when neither the tarball nor the hub-power"
@@ -659,6 +668,21 @@ DOCTOR_REPO="${PWG_DOCTOR_REPO:-}"
 # Override:
 # PWG_KNOWLEDGE_REPO="https://github.com/your-org/repo.git" ./install.sh
 KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
+
+# CM048 conversation processing pipeline. Python package providing the
+# pwg-convo CLI plus the conversation processor that turns raw human
+# transcripts into three-tier output (conversation MD, person signals
+# to Oxigraph, user-coach observations). The productised tarball
+# bundles a copy under ${SCRIPT_DIR}/cm048_pipeline/; install.sh
+# pip-installs it into a dedicated venv at ~/.ostler/services/cm048/
+# and symlinks .venv/bin/pwg-convo into /usr/local/bin/pwg-convo so
+# Doctor + Marvin + the assistant can invoke it without venv juggling.
+# Without bundling AND without an override, the install hard-fails
+# (rather than the older silent-skip which only surfaced as confusing
+# downstream failures). Pass --allow-plaintext to skip warn-only for
+# dev / CI shells. Override:
+# PWG_CM048_REPO="https://github.com/your-org/cm048.git" ./install.sh
+CM048_REPO="${PWG_CM048_REPO:-}"
 
 # Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
 # LICENSES/ tree. Same productisation rule: bundled tarball is the
@@ -4315,6 +4339,133 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
     fi
+fi
+
+# ── 3.10b CM048 conversation processing pipeline ─────────────────
+#
+# Installs CM048 as a self-contained Python service under
+# ${OSTLER_DIR}/services/cm048/ with its own venv and a pwg-convo CLI
+# symlinked into /usr/local/bin/. CM048 turns raw human-to-human
+# conversation transcripts into three-tier output: conversation MD,
+# per-person relationship signals (Oxigraph), and user-coach
+# observations (SQLite). Doctor + Marvin + assistant invoke pwg-convo
+# via subprocess; CM048 has NO library coupling to other services on
+# disk (productisation Rule 0.5: each service self-contained).
+#
+# Source-of-truth: vendor/cm048_pipeline/ in this repo (mirror of the
+# upstream CM048 - PWG Conversation Processing). The .app post-build
+# script in gui/project.yml copies the vendored tree into
+# Contents/Resources/cm048_pipeline/, which lands at
+# ${SCRIPT_DIR}/cm048_pipeline/ at install time. Dev installs without
+# the tarball can set PWG_CM048_REPO to clone the upstream repo.
+#
+# --allow-plaintext skips the entire setup warn-only (conversation
+# enrichment then unavailable; the rest of Ostler still runs). Without
+# the flag, a missing pipeline is a hard fail -- the alternative is
+# the customer hitting confusing "pwg-convo: command not found"
+# errors hours after install when the first conversation arrives.
+
+progress "Setting up conversation processing pipeline (CM048)" "cm048_setup"
+
+CM048_DIR="${OSTLER_DIR}/services/cm048"
+CM048_VENV="${CM048_DIR}/.venv"
+CM048_BIN="${CM048_VENV}/bin/pwg-convo"
+CM048_SYMLINK="/usr/local/bin/pwg-convo"
+CM048_SOURCE_OK=false
+
+mkdir -p "$(dirname "$CM048_DIR")"
+
+if [[ -d "${SCRIPT_DIR}/cm048_pipeline" && -f "${SCRIPT_DIR}/cm048_pipeline/pyproject.toml" ]]; then
+    # Productised path: vendored package bundled in the .app
+    info "$(printf "$MSG_INFO_INSTALLING_CM048_PIPELINE_FROM" "${SCRIPT_DIR}/cm048_pipeline")"
+    rm -rf "$CM048_DIR"
+    mkdir -p "$CM048_DIR"
+    cp -R "${SCRIPT_DIR}/cm048_pipeline/" "$CM048_DIR/"
+    CM048_SOURCE_OK=true
+elif [[ -n "$CM048_REPO" ]]; then
+    # Dev / private-beta path: PWG_CM048_REPO override
+    info "$(printf "$MSG_INFO_INSTALLING_CM048_PIPELINE_FROM" "$CM048_REPO")"
+    CM048_CLONE_LOG="$(mktemp -t ostler-cm048-clone.XXXXXX.log)"
+    if [[ -d "$CM048_DIR/.git" ]]; then
+        info "$(printf "$MSG_INFO_EXISTING_CHECKOUT_UPDATING" "$CM048_DIR")"
+        if git -C "$CM048_DIR" fetch --quiet origin 2>"$CM048_CLONE_LOG" \
+            && git -C "$CM048_DIR" reset --hard --quiet origin/main 2>>"$CM048_CLONE_LOG"; then
+            CM048_SOURCE_OK=true
+            rm -f "$CM048_CLONE_LOG"
+        else
+            warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
+            if [[ -s "$CM048_CLONE_LOG" ]]; then
+                sed -e 's/^/    /' "$CM048_CLONE_LOG" | head -5
+            fi
+            rm -f "$CM048_CLONE_LOG"
+            CM048_SOURCE_OK=true
+        fi
+    elif git clone --quiet --depth 1 "$CM048_REPO" "$CM048_DIR" 2>"$CM048_CLONE_LOG"; then
+        info "$(printf "$MSG_INFO_CLONED" "$CM048_DIR")"
+        CM048_SOURCE_OK=true
+        rm -f "$CM048_CLONE_LOG"
+    else
+        warn "$MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE"
+        if [[ -s "$CM048_CLONE_LOG" ]]; then
+            warn "$MSG_WARN_GIT_SAID"
+            sed -e 's/^/    /' "$CM048_CLONE_LOG" | head -5
+        fi
+        info "$(printf "$MSG_INFO_GIT_CLONE_2" "${CM048_REPO}" "${CM048_DIR}")"
+        info "$MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048"
+        rm -f "$CM048_CLONE_LOG"
+    fi
+elif [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+    # Dev / CI escape hatch: skip the entire setup warn-only.
+    warn "$MSG_WARN_CM048_PIPELINE_SKIPPED_ALLOW_PLAINTEXT"
+    warn "$MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE"
+else
+    # No bundle, no override, no escape hatch -- hard fail. The
+    # alternative is the customer hitting "pwg-convo: command not
+    # found" hours later when the first iMessage / email / WhatsApp
+    # / meeting transcript tries to route through the pipeline.
+    echo ""
+    warn "$MSG_WARN_CM048_PIPELINE_NOT_FOUND"
+    warn "$(printf "$MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH" "${SCRIPT_DIR}")"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3"
+    warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4"
+    fail "$MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN"
+fi
+
+if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
+    info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$CM048_VENV")"
+    python3 -m venv "$CM048_VENV"
+
+    info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
+    "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    if "$CM048_VENV/bin/pip" install --quiet "$CM048_DIR" 2>/tmp/ostler-cm048-pip.log; then
+        info "$MSG_INFO_CM048_PIPELINE_INSTALLED_VENV"
+    else
+        warn "$MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL"
+        if [[ -s /tmp/ostler-cm048-pip.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-cm048-pip.log | tail -5
+        fi
+    fi
+
+    if [[ -x "$CM048_BIN" ]]; then
+        info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
+        sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+
+        # Health check via the symlink. pwg-convo uses argparse without
+        # a --version flag (subcommands carry the per-mode arguments),
+        # so we exercise --help which argparse adds automatically and
+        # exits 0. Confirms PATH-side wiring + venv binding.
+        if "$CM048_SYMLINK" --help >/dev/null 2>&1; then
+            ok "$MSG_OK_CM048_PIPELINE_READY"
+        else
+            warn "$MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP"
+        fi
+    else
+        warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$CM048_BIN")"
+    fi
+elif [[ "$CM048_SOURCE_OK" == true ]]; then
+    warn "$MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML"
 fi
 
 # ── 3.11 Run GDPR import if exports were provided ────────────────

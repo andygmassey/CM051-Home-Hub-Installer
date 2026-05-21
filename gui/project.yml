@@ -286,6 +286,44 @@ targets:
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm024_knowledge/pyproject.toml
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm024_knowledge/src/cli.py
+      - name: Bundle CM048 conversation pipeline into Resources
+        script: |
+          set -euo pipefail
+          # install.sh phase 3.10b probes ${SCRIPT_DIR}/cm048_pipeline/
+          # to discover the vendored Python package, then sets up a
+          # dedicated venv under ${OSTLER_DIR}/services/cm048/ and
+          # symlinks the pwg-convo CLI into /usr/local/bin/.
+          #
+          # For the .app code path, SCRIPT_DIR is Contents/Resources
+          # at install time, so the package must land at
+          # Contents/Resources/cm048_pipeline/. Without this bundling
+          # the install.sh probe fails and the conversation pipeline
+          # is unavailable on the customer Mac (or the install
+          # hard-fails when --allow-plaintext is not set).
+          #
+          # Companion to PR #115 (ostler_security): same vendoring
+          # discipline, different upstream (CM048 source-of-truth
+          # lives at ../CM048\ -\ PWG\ Conversation\ Processing/).
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm048_pipeline"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm048_pipeline from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm048_pipeline"
+            # Copy WITHOUT -p so xattrs do not propagate -- codesign
+            # rejects "resource fork, Finder information, or similar
+            # detritus" on the staged bundle.
+            cp -R "${SRC}/" "${DEST}/cm048_pipeline/"
+            # Belt-and-braces xattr strip on the destination.
+            /usr/bin/xattr -cr "${DEST}/cm048_pipeline" || true
+          else
+            echo "ERROR: vendor/cm048_pipeline not found at ${SRC}" >&2
+            echo "       Sync manually from CM048 -- see vendor/README.md." >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm048_pipeline
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
