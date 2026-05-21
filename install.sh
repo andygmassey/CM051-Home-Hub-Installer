@@ -38,7 +38,7 @@ done
 
 # ── stdin check ────────────────────────────────────────────────────
 # When piped via `curl | bash`, stdin is the script not the terminal.
-# We need terminal input for passphrase etc, so redirect from /dev/tty.
+# We need terminal input for confirmations etc, so redirect from /dev/tty.
 # Skip for read-only flags so they work in non-interactive contexts.
 if [[ "$SHOW_HELP" != true && "$SHOW_LICENSES" != true && ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
     exec < /dev/tty
@@ -701,7 +701,7 @@ step "$MSG_STEP_CHECKING_PREREQUISITES" "prereq_check"
 # - Apple ID gives us the user's name (no need to ask)
 # - StoreKit receipt proves purchase
 # - Activation code for free Ostler month is generated here
-# - The whole Phase 2 reduces to: passphrase + confirm
+# - The whole Phase 2 reduces to: Touch ID briefing acknowledgement
 #
 # For the beta, we use an activation code entered here.
 # Set OSTLER_BETA=1 to skip (F&F testers don't need a code).
@@ -1857,72 +1857,95 @@ if [[ -d "${SCRIPT_DIR}/ostler_fda" ]]; then
     HAS_FDA_MODULE=true
 fi
 
-PASSPHRASE=""
 RECOVERY_KEY=""
+RECOVERY_PASSPHRASE=""
+PASSKEY_PRIMED=false
 
 # Check if security is already configured (re-run detection)
-if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
-    ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PASSPHRASE_SET_UP"
-    HAS_SECURITY_MODULE=false  # skip passphrase setup
+#
+# Two artefacts can mark "security configured":
+#   - passkey.json  -- primary path (passkey-primary flow, 2026-04-23+)
+#   - keychain.json -- legacy passphrase path OR opt-in recovery passphrase
+#                       written by setup_passphrase() during a previous run
+#
+# Either is sufficient to skip security setup on a re-run.
+if [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+    ok "$MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN"
+    HAS_SECURITY_MODULE=false  # skip security setup on re-run
 elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Why a strong passphrase matters${NC}"
+    echo -e "  ${BOLD}Touch ID protects your data${NC}"
     echo ""
     echo "  This is not a newsletter signup. Ostler will hold every"
     echo "  relationship, every conversation, every pattern in your life."
-    echo "  Think of it like the password for your entire digital soul."
+    echo "  Think of it like the lock for your entire digital soul."
     echo ""
-    echo "  We enforce a strong passphrase because the alternative is"
-    echo "  someone else being able to read everything about you."
+    echo "  Your knowledge graph is encrypted with a key wrapped by"
+    echo "  Touch ID on this Mac. macOS prompts for Touch ID later in"
+    echo "  the install to set it up."
     echo ""
-    echo "  Pick something you will remember. A sentence works well:"
-    echo "    'mango sunset river telescope'"
-    echo "    'my cat hates the vacuum cleaner'"
-    echo "    'coffee before nine or everything burns'"
+    echo "  A 12-word recovery phrase is also generated. We show it"
+    echo "  once. Write it down somewhere safe."
     echo ""
-    echo "  Minimum: 16 characters or 4+ words."
-    echo ""
-    echo -e "  ${RED}If you lose this AND the recovery key, your data is${NC}"
-    echo -e "  ${RED}gone forever. We cannot help. That is the point.${NC}"
+    echo -e "  ${RED}If you lose Touch ID access AND the recovery phrase,${NC}"
+    echo -e "  ${RED}your data is gone forever. We cannot help. That is${NC}"
+    echo -e "  ${RED}the point.${NC}"
     echo ""
 
-    while true; do
-        PASSPHRASE="$(gui_read "$MSG_PROMPT_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_PASSPHRASE_HELP" "" "passphrase")"
+    ACK_PASSKEY="$(gui_read "$MSG_PROMPT_PASSKEY_ACK_TITLE" acknowledge "OK" "$MSG_PROMPT_PASSKEY_ACK_HELP" "OK,CANCEL" "passkey_ack")"
+    if [[ "$ACK_PASSKEY" == "CANCEL" || "$ACK_PASSKEY" == "cancel" ]]; then
         echo ""
+        echo "  No problem. Nothing has been installed."
+        echo "  Re-run the installer when you are ready."
+        exit 0
+    fi
+    PASSKEY_PRIMED=true
+    ok "$MSG_OK_TOUCH_ID_BRIEFING_ACKNOWLEDGED"
 
-        # Validate using the Python module (use venv Python for cryptography)
-        VALIDATE_MSG=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
-import sys
-from ostler_security.passphrase import validate_passphrase_strength
-pp = sys.stdin.read()
-ok, msg = validate_passphrase_strength(pp)
-if not ok:
-    print(msg)
-    sys.exit(1)
-" 2>&1)
-        VALIDATE_EXIT=$?
+    # ── Optional recovery passphrase (collected here so Phase 3 stays
+    # unattended). The actual setup_passphrase() call lands in Phase
+    # 3.6 once ostler_security's deps are pip-installed in the venv.
+    echo ""
+    echo "  $MSG_INFO_RECOVERY_PASSPHRASE_INTRO"
+    echo ""
+    ADD_RP="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE" yesno "Y" "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_HELP" "" "recovery_passphrase_opt_in")"
+    if [[ "${ADD_RP:-y}" == "y" || "${ADD_RP:-y}" == "Y" || "${ADD_RP:-y}" == "yes" ]]; then
+        while true; do
+            RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP" "" "recovery_passphrase")"
+            echo ""
+            if [[ -z "$RECOVERY_PASSPHRASE" ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED"
+                break
+            fi
 
-        if [[ $VALIDATE_EXIT -ne 0 ]]; then
-            warn "$VALIDATE_MSG"
-            continue
-        fi
+            # Quick length sanity check here; full strength validation
+            # runs in Phase 3.6 once the venv is fully provisioned.
+            # 12-char minimum mirrors the lower bound of
+            # validate_passphrase_strength's diceware path.
+            if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+                unset RECOVERY_PASSPHRASE
+                continue
+            fi
 
-        PASSPHRASE_CONFIRM="$(gui_read "$MSG_PROMPT_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_PASSPHRASE_CONFIRM_HELP" "" "passphrase_confirm")"
-        echo ""
-
-        if [[ "$PASSPHRASE" != "$PASSPHRASE_CONFIRM" ]]; then
-            warn "$MSG_WARN_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
-            continue
-        fi
-
-        unset PASSPHRASE_CONFIRM
-        ok "$MSG_OK_PASSPHRASE_ACCEPTED"
-        break
-    done
+            RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP" "" "recovery_passphrase_confirm")"
+            echo ""
+            if [[ "$RECOVERY_PASSPHRASE" != "$RP_CONFIRM" ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
+                unset RP_CONFIRM
+                continue
+            fi
+            unset RP_CONFIRM
+            ok "$MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3"
+            break
+        done
+    else
+        info "$MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY"
+    fi
 else
-    warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
+    warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSKEY_SETUP"
     warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
 fi
 
@@ -2324,7 +2347,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 if [[ -d "$OSTLER_DIR" ]]; then
                     rm -rf "$OSTLER_DIR" 2>/dev/null || true
                 fi
-                unset PASSPHRASE 2>/dev/null || true
+                unset RECOVERY_PASSPHRASE 2>/dev/null || true
                 echo ""
                 echo "  No problem. Nothing has been installed and nothing was"
                 echo "  written to your Mac."
@@ -2480,7 +2503,7 @@ while true; do
             if [[ -d "$OSTLER_DIR" ]]; then
                 rm -rf "$OSTLER_DIR" 2>/dev/null || true
             fi
-            unset PASSPHRASE 2>/dev/null || true
+            unset RECOVERY_PASSPHRASE 2>/dev/null || true
             echo ""
             echo "  No problem. Nothing has been installed and nothing was"
             echo "  written to your Mac."
@@ -2522,7 +2545,7 @@ echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"
 echo "    1. You are 18 or older"
 echo "    2. You understand what Ostler stores and how"
-echo "    3. You have set a passphrase you will remember"
+echo "    3. You will keep the 12-word recovery phrase safe"
 echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
@@ -2538,7 +2561,7 @@ while true; do
     if [[ "$CONSENT" == "INSTALL" ]]; then
         break
     elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
-        unset PASSPHRASE 2>/dev/null || true
+        unset RECOVERY_PASSPHRASE 2>/dev/null || true
         echo ""
         echo "  No problem. Nothing has been installed."
         echo "  Re-run the installer when you are ready."
@@ -3506,7 +3529,7 @@ if ! brew list sqlcipher &>/dev/null 2>&1; then
     brew install sqlcipher
 fi
 
-# Venv was created in Phase 2 for passphrase validation.
+# Venv was created in Phase 2 for ostler_security install.
 # Ensure it exists (re-run safe) and install remaining dependencies.
 OSTLER_VENV="${OSTLER_DIR}/.venv"
 if [[ ! -d "$OSTLER_VENV" ]]; then
@@ -3537,25 +3560,52 @@ export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
     fi
 }
 
-# Run passphrase setup (using the passphrase collected in Phase 2)
+# Run passkey-primary security setup via ostler_security.setup_wizard.
+#
+# This invokes the wizard's run_wizard() entry point, which:
+#   1. Checks FileVault posture (already prompted in Phase 2, skip here)
+#   2. Checks macOS 15+ for passkey PRF extension
+#   3. Registers a passkey via Touch ID (OS-level prompt fires here)
+#   4. Generates a 12-word BIP39 recovery phrase
+#   5. Wraps the DEK under both the passkey-derived KEK and the
+#      recovery-phrase-derived KEK
+#   6. Writes ${SECURITY_CONFIG_DIR}/passkey.json
+#
+# Replaces the pre-2026-04-23 passphrase-primary path that called
+# ostler_security.passphrase.setup_passphrase() directly with a
+# typed passphrase. The passphrase module is no longer the primary
+# unlock factor; its remaining role is the optional opt-in recovery
+# passphrase below.
+#
 # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
-if [[ -n "$PASSPHRASE" && "$HAS_SECURITY_MODULE" == true ]]; then
-    SETUP_OUTPUT=$(printf '%s' "$PASSPHRASE" | "$OSTLER_PYTHON" -c "
-import sys, os
+if [[ "$PASSKEY_PRIMED" == true && "$HAS_SECURITY_MODULE" == true ]]; then
+    # We pipe an empty stdin for the "wrote it down" confirmation; the
+    # installer surfaces the recovery phrase to the customer in Phase 4
+    # (line ~6373) via its own keychain-save flow, so the wizard's
+    # interactive confirmation step short-circuits with a single newline.
+    SETUP_OUTPUT=$("$OSTLER_PYTHON" -c "
+import sys
 from pathlib import Path
-passphrase = sys.stdin.read()
 try:
-    from ostler_security.passphrase import setup_passphrase
-    result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
-    print('RECOVERY_KEY=' + result['recovery_key'])
+    from ostler_security.setup_wizard import run_wizard
+    result = run_wizard(
+        config_dir=Path('${SECURITY_CONFIG_DIR}'),
+        skip_filevault=True,
+        confirmer=lambda _prompt: 'y',
+    )
+    # Emit only the recovery phrase + credential id on stdout.
+    # The wizard logs Touch ID UI status to stderr, which the
+    # installer surfaces in case of failure (see SETUP_EXIT branch).
+    print('RECOVERY_PHRASE=' + result['recovery_phrase'])
+    print('CREDENTIAL_ID=' + result['credential_id'])
+except SystemExit as e:
+    print('ERROR=setup_wizard exited with code ' + str(e.code), file=sys.stderr)
+    sys.exit(int(e.code) if isinstance(e.code, int) else 1)
 except Exception as e:
     print('ERROR=' + str(e), file=sys.stderr)
     sys.exit(1)
 " 2>&1)
     SETUP_EXIT=$?
-
-    # Clear passphrase from shell memory immediately
-    unset PASSPHRASE
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
         if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
@@ -3564,29 +3614,70 @@ except Exception as e:
             warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
         else
             warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
-            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -10
-            fail "$MSG_FAIL_PASSPHRASE_SETUP_FAILED_RE_RUN_WITH"
+            echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -15
+            fail "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
-        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_KEY=" | cut -d= -f2-)
-        ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
+        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2-)
+        ok "$MSG_OK_DATABASES_ENCRYPTED_TOUCH_ID_REQUIRED_EACH_STARTUP"
+
+        # ── Persist the recovery passphrase (collected in Phase 2) ───
+        # In addition to the BIP39 recovery phrase (primary recovery
+        # if Touch ID is lost), the customer may have opted in during
+        # Phase 2 to a self-chosen recovery passphrase. Persist it now
+        # so Phase 3 stayed unattended; the actual call happens here
+        # because setup_passphrase() needs ostler_security pip-installed
+        # in the venv, which only became true earlier in this phase.
+        if [[ -n "$RECOVERY_PASSPHRASE" ]]; then
+            # Persist the recovery passphrase. We deliberately discard
+            # setup_passphrase's own generated recovery_key because the
+            # BIP39 phrase from the wizard is the canonical "show once"
+            # artefact; the recovery passphrase is itself the secret
+            # the customer remembers for this route.
+            RP_OUTPUT=$(printf '%s' "$RECOVERY_PASSPHRASE" | "$OSTLER_PYTHON" -c "
+import sys
+from pathlib import Path
+passphrase = sys.stdin.read()
+try:
+    from ostler_security.passphrase import setup_passphrase
+    from ostler_security.audit_log import log_event, EVENT_UNLOCK
+    result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
+    log_event(
+        EVENT_UNLOCK,
+        source='install.sh',
+        details={'action': 'recovery_passphrase_setup'},
+        db_path=Path('${SECURITY_CONFIG_DIR}') / 'audit.db',
+    )
+    print('OK')
+except Exception as e:
+    print('ERROR=' + str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>&1)
+            RP_EXIT=$?
+            unset RECOVERY_PASSPHRASE
+            if [[ $RP_EXIT -ne 0 ]]; then
+                warn "$MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED"
+                echo "$RP_OUTPUT" | sed -e 's/^/    /' | head -5
+            else
+                ok "$MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED"
+            fi
+        fi
     fi
-elif [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     # Re-run: security already configured in a previous install.
     # This is the legitimate skip path; nothing to do.
-    unset PASSPHRASE 2>/dev/null || true
+    :
 else
-    # PASSPHRASE empty or HAS_SECURITY_MODULE=false without an existing
-    # keychain. Deployed services refuse to start without encryption,
-    # so this would produce a green "succeeded" summary followed by
-    # services that will not boot.
-    unset PASSPHRASE 2>/dev/null || true
+    # Not primed and no existing security configuration. Deployed
+    # services refuse to start without encryption, so this would
+    # produce a green "succeeded" summary followed by services that
+    # will not boot.
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-        warn "$MSG_WARN_NO_PASSPHRASE_SET_DATABASES_WILL_NOT"
+        warn "$MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT"
         warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
         warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
-        fail "$MSG_FAIL_NO_PASSPHRASE_SET_NO_EXISTING_SECURITY"
+        fail "$MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY"
     fi
 fi
 
@@ -3594,7 +3685,7 @@ fi
 # CM041 / CM048 will eventually read this to skip the hard-fail in
 # dev mode; out of scope to wire that up here.
 # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
-if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
+if [[ "$ALLOW_PLAINTEXT" == "1" && ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && ! -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
     POSTURE_DIR="${OSTLER_DIR}/security-posture"
     mkdir -p "$POSTURE_DIR"
     POSTURE_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -6368,13 +6459,13 @@ else
     info "$MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING"
 fi
 
-# ── Show recovery key (saved from Phase 2/3) ──────────────────────
+# ── Show recovery phrase (saved from Phase 3.6 setup_wizard) ──────
 
 if [[ -n "$RECOVERY_KEY" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Your recovery key:${NC}"
+    echo -e "  ${BOLD}Your 12-word recovery phrase:${NC}"
     echo ""
     echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
     echo ""
@@ -6560,7 +6651,8 @@ echo "     Timezone:      ${USER_TZ}"
 echo "     Country code:  +${COUNTRY_CODE}"
 echo "     AI model:      ${AI_MODEL}"
 [[ "$FV_ENABLED" == true ]] && echo "     FileVault:     Enabled"
-[[ -f "${SECURITY_CONFIG_DIR}/keychain.json" ]] && echo "     Encryption:    Databases encrypted with passphrase"
+[[ -f "${SECURITY_CONFIG_DIR}/passkey.json" ]] && echo "     Encryption:    passkey-wrapped DEK (Touch ID)"
+[[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]] && echo "     Encryption:    passphrase-wrapped DEK (recovery passphrase)"
 [[ -n "$CONTACT_COUNT" && "$CONTACT_COUNT" -gt 0 ]] && echo "     Contacts:      ${CONTACT_COUNT} exported from iCloud"
 [[ -n "$EXPORTS_DIR" ]] && echo "     GDPR import:   Processed from ${EXPORTS_DIR}"
 [[ "${FDA_OK:-0}" -gt 0 ]] && echo "     Instant data:  ${FDA_OK} macOS source(s) extracted"

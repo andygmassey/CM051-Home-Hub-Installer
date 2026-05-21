@@ -63,8 +63,8 @@
   "encrypt_db": {
     "id": "encrypt_db",
     "title": "Encrypting your databases",
-    "subtitle": "PBKDF2 + SQLCipher + recovery key",
-    "why": "Your knowledge graph is encrypted at rest with the passphrase you chose. The recovery key is shown once – write it down. We cannot help if both are lost.",
+    "subtitle": "Touch ID + SQLCipher + 12-word recovery phrase",
+    "why": "Your knowledge graph is encrypted at rest with a key wrapped by Touch ID on this Mac. A 12-word recovery phrase is shown once: write it down. We cannot help if both Touch ID access and the recovery phrase are lost.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,
