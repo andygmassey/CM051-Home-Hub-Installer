@@ -1,0 +1,8 @@
+# Production dependencies for the ostler-knowledge CLI.
+# Mirrors pyproject.toml [project].dependencies; provided for
+# environments that prefer pip-install-from-requirements over
+# pip-install-from-source.
+click>=8.0
+httpx>=0.24
+pyyaml>=6.0
+qdrant-client>=1.7
