@@ -1,0 +1,16 @@
+# ostler_security dependencies – pinned versions for supply chain safety (AV-7)
+# Update these versions deliberately, not automatically.
+# TODO: add --require-hashes once hash values are captured for all platforms
+
+cryptography>=46.0.1,<47.0.0
+pysqlcipher3>=1.2.0,<2.0.0
+
+# OPF (OpenAI Privacy Filter) runtime. Optional install group in
+# pyproject.toml ([opf]); listed here so a plain `pip install -r
+# requirements.txt` development-time install picks them up. Switched
+# from transformers + torch (~4 GB) to onnxruntime + tokenizers
+# (~50 MB) on 2026-05-01 – see THIRD_PARTY_NOTICES.md.
+onnxruntime>=1.18.0,<2.0.0
+tokenizers>=0.20.0,<1.0.0
+huggingface_hub>=0.25.0,<1.0.0
+numpy>=1.24.0,<3.0.0

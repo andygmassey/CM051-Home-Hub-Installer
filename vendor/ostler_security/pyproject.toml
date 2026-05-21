@@ -1,0 +1,97 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ostler_security"
+version = "0.1.0"
+description = "Ostler security primitives: encryption, authentication, audit logging."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Creative Machines Limited" },
+]
+keywords = ["security", "encryption", "sqlcipher", "passkey", "audit"]
+
+# Pinned versions for supply chain safety (AV-7). Update deliberately,
+# not automatically. pyproject is now the source of truth for installs.
+#
+# pysqlcipher3 is intentionally an OPTIONAL dependency. The SQLCipher
+# C library has to be installed via Homebrew first, which we cannot
+# guarantee in every test/dev environment. ostler_security.database
+# already handles pysqlcipher3 being absent gracefully (HAS_SQLCIPHER
+# flag, falls through to plain sqlite3 with a warning). For full
+# encryption support, install with `pip install ostler_security[encrypted]`.
+dependencies = [
+    "cryptography>=46.0.1,<47.0.0",
+]
+
+[project.optional-dependencies]
+encrypted = [
+    "pysqlcipher3>=1.2.0,<2.0.0",
+]
+# OPF (OpenAI Privacy Filter) runtime – pulled in only when the
+# caller actually needs the privacy classifier. Switched from
+# transformers + torch (~4 GB) to onnxruntime + tokenizers (~50 MB)
+# on 2026-05-01: transformers v5 (which the OPF tokenizer config
+# requires) is not on PyPI yet, and the smaller install footprint
+# materially improves the Hub installer experience.
+opf = [
+    "onnxruntime>=1.18.0,<2.0.0",
+    "tokenizers>=0.20.0,<1.0.0",
+    "huggingface_hub>=0.25.0,<1.0.0",
+    "numpy>=1.24.0,<3.0.0",
+]
+test = [
+    "pytest>=7.0",
+    "pytest-mock>=3.10",
+]
+
+[tool.pytest.ini_options]
+# Register custom markers used by the OPF live-model tests so
+# pytest does not warn on each collection.
+markers = [
+    "slow: tests that load real model weights or download large assets",
+]
+
+[project.scripts]
+# Console scripts installed into the venv's bin/ when the package is
+# pip-installed. Andy's installer pip-installs into the Hub venv, so
+# these end up callable as `ostler-recovery` / `ostler-migrate-dbs`.
+ostler-recovery = "ostler_security.recovery_cli:main"
+ostler-migrate-dbs = "ostler_security.migrate_dbs_cli:main"
+ostler-migrate-keychain = "ostler_security.migrate_keychain_service:main"
+ostler-migrate-aad = "ostler_security.migrate_recovery_key_aad:main"
+ostler-flip-constants = "ostler_security.flip_constants:main"
+ostler-consent = "ostler_security.consent_cli:main"
+
+# This pyproject.toml lives INSIDE the package directory itself
+# (HR015/ostler_security/pyproject.toml). setuptools' default
+# discovery would scan this dir and find the sub-packages (tests,
+# bin/), but not the top-level package. Tell setuptools explicitly
+# that "." IS the ostler_security package source.
+#
+# tests/ is excluded from the wheel (dev-only). bin/ is Swift Package
+# Manager source for OstlerPasskeyHelper, never installed via pip.
+[tool.setuptools]
+packages = ["ostler_security"]
+
+[tool.setuptools.package-dir]
+ostler_security = "."
+
+[tool.setuptools.package-data]
+# bip39_english.txt is the BIP-39 wordlist used by passphrase.py for
+# recovery-phrase generation. It must travel with the wheel.
+ostler_security = ["bip39_english.txt"]
+
+[tool.setuptools.exclude-package-data]
+# Don't ship Swift source, tests, or top-level docs inside the wheel.
+# These travel beside the package in the source tree but not inside
+# the install artefact.
+ostler_security = [
+    "bin/**",
+    "tests/**",
+    "*.md",
+    "requirements.txt",
+]
