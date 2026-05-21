@@ -293,6 +293,7 @@
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
+				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -369,6 +370,29 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/ostler_fda/__init__.py",
+				"$(SRCROOT)/../vendor/ostler_fda/extract_all.py",
+				"$(SRCROOT)/../vendor/ostler_fda/pwg_ingest.py",
+			);
+			name = "Bundle ostler_fda Python package into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda/__init__.py",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda/extract_all.py",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# Vendor the FDA extraction module into the signed .app so\n# install.sh Phase 3.7 can do the instant onboarding sweep\n# (Safari, iMessage, Notes, Calendar, Photos metadata,\n# Reminders, Apple Mail, Google Takeout). Pre-2026-05-21\n# this package was sibling-cloned from a developer's HR015\n# checkout, which silently fell through to \"FDA extraction\n# module not bundled. Skipping instant data extraction\" on\n# customer Macs and left the user with no data extracted.\n#\n# Mirror of the ostler_security vendor pattern (PR #115).\n#\n# Hard-fail if the vendor dir is missing so a forgotten\n# vendor-sync surfaces at build time, not at install time.\nVENDOR_SRC=\"${SRCROOT}/../vendor/ostler_fda\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/ostler_fda/ is missing.\" >&2\n    echo \"error: see vendor/README.md for the manual sync recipe.\" >&2\n    echo \"error: the customer-install path imports ostler_fda.extract_all\" >&2\n    echo \"error: from Contents/Resources/ostler_fda/. Refusing to build\" >&2\n    echo \"error: a .app that would silently skip instant data extraction.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/ostler_fda\"\n# Copy WITHOUT -p so we do not preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break\n# codesign). The trailing /. on the source copies the dir\n# contents (not the dir itself) into ${DEST}/ostler_fda/.\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/ostler_fda/\"\n# Belt-and-braces xattr strip on the package (the bundle-\n# wide xattr -cr in the next phase repeats this, but doing\n# it here keeps the per-phase output clean).\n/usr/bin/xattr -cr \"${DEST}/ostler_fda\"\n";
+		};
 		0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

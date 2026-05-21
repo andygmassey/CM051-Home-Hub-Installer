@@ -130,6 +130,49 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+      - name: Bundle ostler_fda Python package into Resources
+        script: |
+          set -euo pipefail
+          # Vendor the FDA extraction module into the signed .app so
+          # install.sh Phase 3.7 can do the instant onboarding sweep
+          # (Safari, iMessage, Notes, Calendar, Photos metadata,
+          # Reminders, Apple Mail, Google Takeout). Pre-2026-05-21
+          # this package was sibling-cloned from a developer's HR015
+          # checkout, which silently fell through to "FDA extraction
+          # module not bundled. Skipping instant data extraction" on
+          # customer Macs and left the user with no data extracted.
+          #
+          # Mirror of the ostler_security vendor pattern (PR #115).
+          #
+          # Hard-fail if the vendor dir is missing so a forgotten
+          # vendor-sync surfaces at build time, not at install time.
+          VENDOR_SRC="${SRCROOT}/../vendor/ostler_fda"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/ostler_fda/ is missing." >&2
+              echo "error: see vendor/README.md for the manual sync recipe." >&2
+              echo "error: the customer-install path imports ostler_fda.extract_all" >&2
+              echo "error: from Contents/Resources/ostler_fda/. Refusing to build" >&2
+              echo "error: a .app that would silently skip instant data extraction." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/ostler_fda"
+          # Copy WITHOUT -p so we do not preserve source xattrs
+          # (com.apple.provenance / com.apple.macl on Sonoma+ break
+          # codesign). The trailing /. on the source copies the dir
+          # contents (not the dir itself) into ${DEST}/ostler_fda/.
+          cp -R "${VENDOR_SRC}/." "${DEST}/ostler_fda/"
+          # Belt-and-braces xattr strip on the package (the bundle-
+          # wide xattr -cr in the next phase repeats this, but doing
+          # it here keeps the per-phase output clean).
+          /usr/bin/xattr -cr "${DEST}/ostler_fda"
+        inputFiles:
+          - $(SRCROOT)/../vendor/ostler_fda/__init__.py
+          - $(SRCROOT)/../vendor/ostler_fda/extract_all.py
+          - $(SRCROOT)/../vendor/ostler_fda/pwg_ingest.py
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda/__init__.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda/extract_all.py
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail

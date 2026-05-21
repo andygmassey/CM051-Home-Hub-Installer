@@ -1,0 +1,546 @@
+"""Ingest FDA extraction results into the PWG knowledge graph.
+
+Reads the JSON output from extract_all.py and feeds it into
+Qdrant (vector search) and Oxigraph (RDF knowledge graph).
+
+This bridges the FDA extraction (macOS-native data) with the
+PWG import pipeline (which handles GDPR exports). Both end up
+in the same knowledge graph.
+
+Usage:
+    python -m ostler_fda.pwg_ingest [--fda-dir ~/.ostler/imports/fda]
+
+Requires:
+    - Qdrant running at localhost:6333
+    - Oxigraph running at localhost:7878
+    - Ollama running at localhost:11434 (for embeddings)
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+# ── Config from environment (same as GDPR import pipeline) ────────
+
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
+OLLAMA_URL = os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
+DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
+
+
+# ── Shared utilities (same patterns as contact_syncer) ────────────
+
+def _sparql_update(sparql: str) -> None:
+    """Execute a SPARQL UPDATE against Oxigraph."""
+    transport = httpx.HTTPTransport(proxy=None)
+    with httpx.Client(timeout=30.0, transport=transport) as client:
+        resp = client.post(
+            f"{OXIGRAPH_URL}/update",
+            content=sparql,
+            headers={"Content-Type": "application/sparql-update"},
+        )
+        resp.raise_for_status()
+
+
+def _sparql_query(sparql: str) -> list:
+    """Execute a SPARQL SELECT and return bindings."""
+    transport = httpx.HTTPTransport(proxy=None)
+    with httpx.Client(timeout=30.0, transport=transport) as client:
+        resp = client.post(
+            f"{OXIGRAPH_URL}/query",
+            content=sparql,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "application/sparql-results+json",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("results", {}).get("bindings", [])
+
+
+def _escape(s: str) -> str:
+    """Escape a string for safe inclusion in a SPARQL string literal.
+
+    Per SPARQL 1.1 section 19.7 (STRING_LITERAL2), the quoted form
+    forbids raw ``\\``, ``"``, LF, and CR. The previous implementation
+    handled three of those four; an attacker-controlled string
+    containing CR could terminate the literal prematurely and inject
+    additional SPARQL.
+
+    This version escapes:
+    - the four spec-forbidden chars via ECHAR: ``\\\\``, ``\\"``, ``\\n``,
+      ``\\r``;
+    - three additional whitespace controls (tab, backspace, form feed)
+      via ECHAR for robustness — some parsers trip on raw controls
+      even when the spec tolerates them;
+    - every other C0/C1 control character (0x00–0x1F, 0x7F) via UCHAR
+      (``\\uXXXX``), which SPARQL 1.1 accepts anywhere in a literal.
+
+    ``$``, ``@``, ``{``, ``}`` are deliberately NOT escaped: they are
+    valid inside a SPARQL string literal and have no ECHAR form.
+    Backslash-escaping them would produce invalid ECHAR sequences
+    (``\\$`` isn't in SPARQL 1.1's ECHAR set) and break parsing.
+    """
+    out: list[str] = []
+    for ch in s:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ch == "\b":
+            out.append("\\b")
+        elif ch == "\f":
+            out.append("\\f")
+        elif code < 0x20 or code == 0x7F:
+            # Other C0 controls + DEL — no ECHAR form, use UCHAR.
+            out.append(f"\\u{code:04X}")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _embed_text(text: str) -> list[float]:
+    """Get embedding vector from Ollama."""
+    transport = httpx.HTTPTransport(proxy=None)
+    with httpx.Client(timeout=60.0, transport=transport) as client:
+        resp = client.post(
+            f"{OLLAMA_URL}/api/embed",
+            json={"model": EMBED_MODEL, "input": text},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    embs = data.get("embeddings") or [data.get("embedding")]
+    return embs[0]
+
+
+def _person_id_from_identifier(identifier: str) -> str:
+    """Generate a stable person ID from a phone number or email."""
+    clean = identifier.strip().lower()
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+
+
+def _person_uri(person_id: str) -> str:
+    return f"https://pwg.dev/ontology#person_{person_id}"
+
+
+# ── iMessage ingestion ────────────────────────────────────────────
+
+def ingest_imessage(fda_dir: Path) -> dict:
+    """Ingest iMessage conversations into the people graph.
+
+    Creates Person nodes for each unique contact found in iMessage,
+    with phone/email identifiers for cross-referencing with GDPR data.
+    """
+    conversations_file = fda_dir / "imessage_conversations.json"
+    if not conversations_file.exists():
+        logger.info("No iMessage data to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    conversations = json.loads(conversations_file.read_text())
+    people_created = 0
+    people_enriched = 0
+
+    for convo in conversations:
+        participants = convo.get("participants", [])
+        msg_count = convo.get("message_count", 0)
+        last_msg = convo.get("last_message")
+
+        for participant in participants:
+            if not participant:
+                continue
+
+            person_id = _person_id_from_identifier(participant)
+            uri = _person_uri(person_id)
+
+            # Check if person already exists in Oxigraph
+            exists = _person_exists(uri)
+
+            if not exists:
+                # Create a minimal person node
+                is_phone = participant.startswith("+") or participant.replace("-", "").replace(" ", "").isdigit()
+                id_type = "phone" if is_phone else "email"
+
+                triples = [
+                    f"<{uri}> a pwg:Person",
+                    f'<{uri}> pwg:displayName "{_escape(participant)}"',
+                    f'<{uri}> pwg:contactType "person"',
+                    f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+                    f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                    f'<{uri}> pwg:source "imessage_fda"',
+                ]
+
+                # Add identifier
+                id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+                triples.extend([
+                    f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+                    f"<{id_uri}> a pwg:PersonIdentifier",
+                    f'<{id_uri}> pwg:identifierType "{id_type}"',
+                    f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                    f'<{id_uri}> pwg:identifierLabel "IMESSAGE"',
+                ])
+
+                sparql = (
+                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                    "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+                )
+                _sparql_update(sparql)
+                people_created += 1
+            else:
+                # Enrich: add iMessage identifier if not already present
+                id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+                if not _identifier_exists(id_uri):
+                    is_phone = participant.startswith("+") or participant.replace("-", "").replace(" ", "").isdigit()
+                    id_type = "phone" if is_phone else "email"
+                    sparql = (
+                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                        f"INSERT DATA {{\n"
+                        f"  <{uri}> pwg:hasIdentifier <{id_uri}> .\n"
+                        f"  <{id_uri}> a pwg:PersonIdentifier .\n"
+                        f'  <{id_uri}> pwg:identifierType "{id_type}" .\n'
+                        f'  <{id_uri}> pwg:identifierValue "{_escape(participant)}" .\n'
+                        f'  <{id_uri}> pwg:identifierLabel "IMESSAGE" .\n'
+                        f"}}"
+                    )
+                    _sparql_update(sparql)
+                    people_enriched += 1
+
+            # Update last_contact if this conversation is more recent
+            if last_msg and msg_count > 0:
+                _update_last_contact(uri, last_msg, "imessage")
+
+    logger.info(
+        "iMessage: %d people created, %d enriched",
+        people_created, people_enriched,
+    )
+    return {
+        "status": "ok",
+        "people_created": people_created,
+        "people_enriched": people_enriched,
+    }
+
+
+def _person_exists(uri: str) -> bool:
+    """Check if a person URI exists in Oxigraph."""
+    try:
+        result = _sparql_query(
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            f"SELECT ?t WHERE {{ <{uri}> a ?t }} LIMIT 1"
+        )
+        return len(result) > 0
+    except Exception:
+        return False
+
+
+def _identifier_exists(id_uri: str) -> bool:
+    """Check if an identifier URI exists in Oxigraph."""
+    try:
+        result = _sparql_query(
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            f"SELECT ?t WHERE {{ <{id_uri}> a ?t }} LIMIT 1"
+        )
+        return len(result) > 0
+    except Exception:
+        return False
+
+
+# Per-source last-contact predicates (CM041 schema/people.ttl). FDA
+# only ingests calendar and iMessage signal; the legacy aggregate
+# pwg:lastContact was retired in CM041 PR-D1a.
+_SOURCE_PREDICATE = {
+    "calendar": "pwg:lastContactCalendar",
+    "imessage": "pwg:lastContactIMessage",
+}
+
+
+def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
+    """Update a person's per-source last-contact if this timestamp is
+    more recent than what's stored.
+
+    Oxigraph upsert uses the atomic DELETE-INSERT-WHERE-FILTER
+    pattern: equal or older dates are no-ops, idempotent on re-runs.
+
+    Sources that are not contact events (e.g. photos face labels are
+    proximity, not interaction) are intentionally absent from
+    _SOURCE_PREDICATE and produce a debug-log no-op rather than
+    poisoning the freshness signal. Same discipline as the PR-A fix
+    that stopped contact_syncer using vCard REV as a contact event.
+    """
+    predicate = _SOURCE_PREDICATE.get(source)
+    if predicate is None:
+        logger.debug(
+            "No last-contact predicate for source %r; skipping", source
+        )
+        return
+
+    # Known follow-up: harden timestamp parsing against the same edge
+    # cases the GDPR import pipeline handles (timezone-naive inputs,
+    # empty strings, malformed ISO-8601). Out of scope for PR-D1b.
+    try:
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        date_str = dt.strftime("%Y-%m-%d")
+
+        sparql = (
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+            f"DELETE {{ <{person_uri}> {predicate} ?old }}\n"
+            f'INSERT {{ <{person_uri}> {predicate} "{date_str}"^^xsd:date }}\n'
+            "WHERE {\n"
+            f"  OPTIONAL {{ <{person_uri}> {predicate} ?old }}\n"
+            f'  FILTER (!BOUND(?old) || ?old < "{date_str}"^^xsd:date)\n'
+            "}"
+        )
+        _sparql_update(sparql)
+    except Exception as e:
+        logger.debug("Could not update last_contact: %s", e)
+
+
+# ── Calendar attendee ingestion ───────────────────────────────────
+
+def ingest_calendar(fda_dir: Path) -> dict:
+    """Ingest calendar event attendees into the people graph.
+
+    Creates Person nodes for attendees and links them to events.
+    Meeting frequency is a strong relationship signal.
+    """
+    events_file = fda_dir / "calendar_events.json"
+    if not events_file.exists():
+        logger.info("No calendar data to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    events = json.loads(events_file.read_text())
+    people_seen: set[str] = set()
+    events_processed = 0
+
+    for event in events:
+        attendees = event.get("attendees", [])
+        start_date = event.get("start_date", "")
+        title = event.get("title", "")
+
+        for attendee in attendees:
+            if not attendee:
+                continue
+
+            person_id = _person_id_from_identifier(attendee)
+            uri = _person_uri(person_id)
+
+            if person_id not in people_seen:
+                people_seen.add(person_id)
+
+                if not _person_exists(uri):
+                    triples = [
+                        f"<{uri}> a pwg:Person",
+                        f'<{uri}> pwg:displayName "{_escape(attendee)}"',
+                        f'<{uri}> pwg:contactType "person"',
+                        f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+                        f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                        f'<{uri}> pwg:source "calendar_fda"',
+                    ]
+                    sparql = (
+                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                        "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+                    )
+                    _sparql_update(sparql)
+
+            # Update last contact from meeting date
+            if start_date:
+                _update_last_contact(uri, start_date, "calendar")
+
+        events_processed += 1
+
+    logger.info(
+        "Calendar: %d events processed, %d unique attendees",
+        events_processed, len(people_seen),
+    )
+    return {
+        "status": "ok",
+        "events_processed": events_processed,
+        "unique_attendees": len(people_seen),
+    }
+
+
+# ── Photos face ingestion ────────────────────────────────────────
+
+def ingest_photos_people(fda_dir: Path) -> dict:
+    """Ingest Photos face labels into the people graph.
+
+    Creates Person nodes for recognised faces and links them
+    to photo events (dates + locations = "you were with X at Y on Z").
+    """
+    people_file = fda_dir / "photos_people.json"
+    if not people_file.exists():
+        logger.info("No Photos data to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    people = json.loads(people_file.read_text())
+    people_created = 0
+
+    for person in people:
+        name = person.get("name", "")
+        if not name:
+            continue
+
+        person_id = _person_id_from_identifier(f"photos_face_{name}")
+        uri = _person_uri(person_id)
+
+        if not _person_exists(uri):
+            photo_count = person.get("photo_count", 0)
+            first_seen = person.get("first_seen", "")
+            last_seen = person.get("last_seen", "")
+
+            triples = [
+                f"<{uri}> a pwg:Person",
+                f'<{uri}> pwg:displayName "{_escape(name)}"',
+                f'<{uri}> pwg:contactType "person"',
+                f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+                f'<{uri}> pwg:source "photos_fda"',
+                f'<{uri}> pwg:photoCount "{photo_count}"^^xsd:integer',
+            ]
+
+            if first_seen:
+                triples.append(
+                    f'<{uri}> pwg:createdAt "{first_seen}"^^xsd:dateTime'
+                )
+            # Photos face-label last_seen is proximity, not a contact
+            # event. Person nodes are still created for face discovery,
+            # but freshness signal stays clean. Same discipline as the
+            # PR-A vCard REV fix.
+
+            sparql = (
+                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+            )
+            _sparql_update(sparql)
+            people_created += 1
+
+    logger.info("Photos: %d people created from face labels", people_created)
+    return {"status": "ok", "people_created": people_created}
+
+
+# ── Apple Mail contact ingestion ──────────────────────────────────
+
+def ingest_mail_contacts(fda_dir: Path) -> dict:
+    """Ingest frequent email contacts into the people graph.
+
+    Uses the sender frequency data to create/enrich Person nodes
+    with email identifiers.
+    """
+    contacts_file = fda_dir / "apple_mail_contacts.json"
+    if not contacts_file.exists():
+        logger.info("No Apple Mail contacts to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    contacts = json.loads(contacts_file.read_text())
+    people_created = 0
+
+    for email, count in contacts.items():
+        if not email or count < 3:
+            # Skip very infrequent senders
+            continue
+
+        person_id = _person_id_from_identifier(email)
+        uri = _person_uri(person_id)
+
+        if not _person_exists(uri):
+            triples = [
+                f"<{uri}> a pwg:Person",
+                f'<{uri}> pwg:displayName "{_escape(email)}"',
+                f'<{uri}> pwg:contactType "person"',
+                f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+                f'<{uri}> pwg:source "apple_mail_fda"',
+            ]
+
+            id_uri = f"https://pwg.dev/ontology#id_{person_id}_mail"
+            triples.extend([
+                f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+                f"<{id_uri}> a pwg:PersonIdentifier",
+                f'<{id_uri}> pwg:identifierType "email"',
+                f'<{id_uri}> pwg:identifierValue "{_escape(email)}"',
+                f'<{id_uri}> pwg:identifierLabel "APPLE_MAIL"',
+            ])
+
+            sparql = (
+                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+            )
+            _sparql_update(sparql)
+            people_created += 1
+
+    logger.info("Apple Mail: %d contacts created", people_created)
+    return {"status": "ok", "people_created": people_created}
+
+
+# ── Master runner ─────────────────────────────────────────────────
+
+def ingest_all(fda_dir: Optional[Path] = None) -> dict:
+    """Run all FDA -> PWG ingestion steps.
+
+    Reads the JSON output from extract_all.py and feeds it into
+    Qdrant and Oxigraph.
+    """
+    fda_dir = fda_dir or (Path.home() / ".ostler" / "imports" / "fda")
+
+    if not fda_dir.exists():
+        logger.error("FDA output directory not found: %s", fda_dir)
+        return {"status": "error", "reason": f"directory not found: {fda_dir}"}
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    results = {}
+
+    # Ingest in order of value for the people graph
+    logger.info("Ingesting FDA data into PWG knowledge graph...")
+    logger.info("")
+
+    for name, func in [
+        ("imessage", ingest_imessage),
+        ("calendar", ingest_calendar),
+        ("photos", ingest_photos_people),
+        ("apple_mail", ingest_mail_contacts),
+    ]:
+        try:
+            results[name] = func(fda_dir)
+        except Exception as e:
+            logger.warning("[warn] %s ingestion failed: %s", name, e)
+            results[name] = {"status": "error", "error": str(e)}
+
+    logger.info("")
+    logger.info("FDA -> PWG ingestion complete.")
+    return results
+
+
+def main():
+    """CLI entry point."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Ingest FDA data into PWG")
+    parser.add_argument("--fda-dir", type=str, default=None)
+    args = parser.parse_args()
+
+    fda_dir = Path(args.fda_dir) if args.fda_dir else None
+    results = ingest_all(fda_dir)
+    print(json.dumps(results, indent=2))
+
+
+if __name__ == "__main__":
+    main()
