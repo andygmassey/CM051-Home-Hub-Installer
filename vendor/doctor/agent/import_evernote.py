@@ -1,0 +1,492 @@
+"""Doctor endpoint logic for the Evernote import service (CM024 Block 3.3).
+
+Sister piece to CM051's ``~/.ostler/services/knowledge/`` install path
+(landed in CM051 PR #70). The Doctor web UI exposes three routes that
+this module backs:
+
+    POST /api/v1/import/evernote                – start a job
+    GET  /api/v1/import/evernote/<job_id>/status – poll job state
+    GET  /api/v1/import/evernote/<job_id>/tail   – tail the last 100 log lines
+
+All four customer-visible surfaces (3 API routes + the ``/import-evernote``
+UI page) are feature-flag-gated by ``features.evernote_import`` in
+``~/.ostler/config/features.yaml``. When the flag is off they 404. The
+installer always deploys ``ostler-knowledge``; only the customer-visible
+surface stays hidden until the operator flips the flag.
+
+Concurrency: a single global lockfile at
+``~/.ostler/locks/import-evernote.lock`` prevents two imports running
+at once. PID-based stale detection reclaims a lock whose owning process
+exited (Doctor crashed, machine rebooted, etc.). The forked import
+subprocess is detached (``start_new_session=True``) so closing the
+Doctor page does not kill the import.
+
+Per-job state is split into two on-disk records:
+
+* While running, only ``~/.ostler/locks/import-evernote.lock`` exists.
+  It carries the job_id, pid, started_at, log_path, enex_path so
+  ``read_status`` can synthesise the running state without a state
+  file. The lockfile is the running-state record.
+* On completion (or runner crash), the runner wrapper writes a
+  terminal state file at
+  ``~/.ostler/state/import-evernote-<job_id>.json`` with status =
+  succeeded / failed, exit_code, completed_at -- then removes the
+  lockfile. The state file is the terminal-state record.
+
+Reads order: state file (terminal) wins over lockfile (running). The
+runner uses fsync + atomic rename so a read cannot observe a half-written
+state file.
+
+Auth model: Doctor binds 127.0.0.1 (see ``web_ui.py`` __main__). No
+HTTP middleware gates these endpoints -- any process on the customer's
+Mac that can already reach ``localhost:8089/doctor`` can reach these
+routes. The lockfile is operational concurrency control, not an auth
+boundary.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import yaml  # PyYAML, listed in doctor/agent/requirements.txt
+
+
+# ── Default paths ─────────────────────────────────────────────────────
+
+DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
+DEFAULT_FEATURES_FILE = DEFAULT_OSTLER_DIR / "config" / "features.yaml"
+DEFAULT_LOCK_DIR = DEFAULT_OSTLER_DIR / "locks"
+DEFAULT_LOG_DIR = DEFAULT_OSTLER_DIR / "logs"
+DEFAULT_STATE_DIR = DEFAULT_OSTLER_DIR / "state"
+DEFAULT_STAGING_DIR = DEFAULT_OSTLER_DIR / "data" / "knowledge-staging"
+
+LOCK_FILENAME = "import-evernote.lock"
+LOG_FILENAME_PREFIX = "import-evernote-"
+STATE_FILENAME_PREFIX = "import-evernote-"
+
+DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+
+# Job IDs are ``YYYYMMDDTHHMMSSZ-<8 hex>``. The format is deliberately
+# narrow so the regex can double as a path-traversal defence on
+# ``GET /status/{job_id}`` and ``GET /tail/{job_id}``.
+JOB_ID_PATTERN = r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$"
+_JOB_ID_RE = re.compile(JOB_ID_PATTERN)
+
+
+# ── Errors ────────────────────────────────────────────────────────────
+
+
+@dataclass
+class EvernoteImportError(Exception):
+    """Carries an HTTP status code so the FastAPI handler can map cleanly.
+
+    Same pattern as ``wiki_correct.ValidationError`` (commit 015736c) –
+    the route handler in ``web_ui.py`` catches this once and turns it
+    into a ``JSONResponse``. Status codes mirror the contract documented
+    in the launch-scope brief:
+
+    * 400 – bad request body / invalid path / invalid job_id
+    * 404 – job_id not found
+    * 409 – another import is already running (lockfile held)
+    * 500 – filesystem error reading state / log
+    """
+
+    status: int
+    detail: str
+
+    def __str__(self) -> str:
+        return self.detail
+
+
+# ── Feature flag ──────────────────────────────────────────────────────
+
+
+def _features_file() -> Path:
+    """Resolve the features.yaml path. ``OSTLER_FEATURES_FILE`` env var
+    wins over the home-dir default so tests can point at a tmp file."""
+    raw = os.environ.get("OSTLER_FEATURES_FILE")
+    return Path(raw) if raw else DEFAULT_FEATURES_FILE
+
+
+def is_feature_enabled(*, _path: Optional[Path] = None) -> bool:
+    """Return True iff ``features.evernote_import: true`` in features.yaml.
+
+    Safe default is OFF: a missing file, malformed YAML, missing key,
+    or a non-True value all return False. This is intentional -- v1
+    ships flag-off, the customer does not see the surface until the
+    operator explicitly flips it.
+
+    Read on every request so flag flips are hot and do not require a
+    Hub restart.
+    """
+    path = _path or _features_file()
+    if not path.is_file():
+        return False
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    features = data.get("features")
+    if not isinstance(features, dict):
+        return False
+    return features.get("evernote_import") is True
+
+
+# ── Path validation ───────────────────────────────────────────────────
+
+
+def validate_enex_path(raw_path: Any) -> Path:
+    """Resolve and validate an ENEX file path supplied by the user.
+
+    Returns the resolved absolute Path. Raises ``EvernoteImportError(400)``
+    on any failure -- missing field, wrong type, empty string, unresolvable
+    path, file does not exist, wrong extension.
+
+    Path validation is light-touch: we resolve symlinks so the operator
+    can paste a symlinked path, and we reject anything that is not a
+    regular file ending ``.enex``. We do **not** restrict the path to
+    a particular root because the operator legitimately exports their
+    ENEX wherever they like (Downloads, Desktop, external drive).
+    """
+    if not isinstance(raw_path, str):
+        raise EvernoteImportError(400, "enex_path must be a string")
+
+    stripped = raw_path.strip()
+    if not stripped:
+        raise EvernoteImportError(400, "enex_path must be non-empty")
+
+    try:
+        resolved = Path(stripped).expanduser().resolve()
+    except (OSError, RuntimeError) as exc:
+        raise EvernoteImportError(400, f"could not resolve enex_path: {exc}")
+
+    if not resolved.is_file():
+        raise EvernoteImportError(400, f"enex file not found: {resolved}")
+
+    if resolved.suffix.lower() != ".enex":
+        raise EvernoteImportError(
+            400, f"file must end in .enex (got '{resolved.suffix}')",
+        )
+
+    return resolved
+
+
+# ── Lockfile ─────────────────────────────────────────────────────────
+
+
+def _lock_path(lock_dir: Optional[Path]) -> Path:
+    return (Path(lock_dir) if lock_dir else DEFAULT_LOCK_DIR) / LOCK_FILENAME
+
+
+def _pid_alive(pid: Any) -> bool:
+    """Return True iff ``pid`` is a live process this user can signal.
+
+    Uses ``os.kill(pid, 0)`` -- the standard portable liveness probe on
+    POSIX. PermissionError means the process exists but is owned by
+    someone else; we treat that as alive so we never clobber a process
+    we cannot reason about.
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def lockfile_state(*, _lock_dir: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """Return the current lockfile contents annotated with ``alive``.
+
+    Returns None when no lockfile exists or the file is malformed.
+    The ``alive`` key is added by this function -- callers use it to
+    distinguish "another import is running" (409) from "stale lock,
+    safe to reclaim".
+    """
+    path = _lock_path(_lock_dir)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    data["alive"] = _pid_alive(data.get("pid"))
+    return data
+
+
+def current_running_job_id(*, _lock_dir: Optional[Path] = None) -> Optional[str]:
+    """Return the job_id of the currently-running import, or None.
+
+    Block 3.4's UI calls this on page load to reattach to an
+    in-progress job whose POST was issued from a previous browser
+    session. Returns None for both "no lock" and "stale lock".
+    """
+    lock = lockfile_state(_lock_dir=_lock_dir)
+    if lock and lock.get("alive"):
+        return lock.get("job_id")
+    return None
+
+
+# ── Start import ──────────────────────────────────────────────────────
+
+# Single in-process lock so two FastAPI handlers cannot both pass the
+# lockfile check and both fork. The cross-process guard is the on-disk
+# lockfile; this lock just closes the microsecond window between the
+# disk check and the Popen call.
+_start_lock = threading.Lock()
+
+
+def _runner_path() -> Path:
+    """Resolve the supervisor wrapper script alongside this module."""
+    return Path(__file__).resolve().parent / "import_evernote_runner.py"
+
+
+def start_import(
+    enex_path: Path,
+    *,
+    _now: Optional[datetime] = None,
+    _lock_dir: Optional[Path] = None,
+    _log_dir: Optional[Path] = None,
+    _state_dir: Optional[Path] = None,
+    _staging_dir: Optional[Path] = None,
+    _binary: Optional[str] = None,
+    _subprocess: Any = None,
+    _runner: Optional[Path] = None,
+    _python: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Fork ``ostler-knowledge`` via the supervisor wrapper.
+
+    Returns ``{"job_id": "...", "status": "started"}``. Raises
+    ``EvernoteImportError(409)`` if a non-stale lock is held by another
+    import; raises ``(500)`` on unexpected filesystem errors. Caller is
+    responsible for checking ``is_feature_enabled()`` first -- this
+    function trusts that the route handler has done the gate.
+    """
+    lock_dir = Path(_lock_dir or DEFAULT_LOCK_DIR).expanduser()
+    log_dir = Path(_log_dir or DEFAULT_LOG_DIR).expanduser()
+    state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
+    staging_dir = Path(_staging_dir or DEFAULT_STAGING_DIR).expanduser()
+
+    # Resolve subprocess at call time (not in the default arg) so
+    # ``monkeypatch.setattr(ie, "subprocess", rec)`` in tests actually
+    # captures the Popen invocation through the FastAPI route.
+    sub = _subprocess if _subprocess is not None else subprocess
+
+    runner = _runner or _runner_path()
+    binary = _binary or os.environ.get(
+        "OSTLER_KNOWLEDGE_BIN", DEFAULT_OSTLER_KNOWLEDGE_BIN,
+    )
+    python = _python or sys.executable
+
+    with _start_lock:
+        existing = lockfile_state(_lock_dir=lock_dir)
+        if existing and existing.get("alive"):
+            raise EvernoteImportError(
+                409,
+                f"another import is already in progress "
+                f"(job_id={existing.get('job_id')}, pid={existing.get('pid')})",
+            )
+
+        for d in (lock_dir, log_dir, state_dir, staging_dir):
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise EvernoteImportError(
+                    500, f"could not create directory {d}: {exc}",
+                )
+
+        now = _now or datetime.now(timezone.utc)
+        job_id = now.strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
+
+        log_path = log_dir / f"{LOG_FILENAME_PREFIX}{job_id}.log"
+        state_path = state_dir / f"{STATE_FILENAME_PREFIX}{job_id}.json"
+        lock_path = _lock_path(lock_dir)
+        started_at = now.isoformat()
+
+        try:
+            log_handle = open(log_path, "wb", buffering=0)
+        except OSError as exc:
+            raise EvernoteImportError(
+                500, f"could not open log file {log_path}: {exc}",
+            )
+
+        try:
+            try:
+                proc = sub.Popen(
+                    [
+                        python, str(runner),
+                        "--state", str(state_path),
+                        "--lock", str(lock_path),
+                        "--job-id", job_id,
+                        "--log-path", str(log_path),
+                        "--enex-path", str(enex_path),
+                        "--started-at", started_at,
+                        "--",
+                        binary, "convert", "--source", "evernote",
+                        str(enex_path), "--output", str(staging_dir),
+                    ],
+                    stdout=log_handle,
+                    stderr=sub.STDOUT,
+                    stdin=sub.DEVNULL,
+                    start_new_session=True,
+                )
+            except (OSError, FileNotFoundError) as exc:
+                raise EvernoteImportError(
+                    500, f"could not fork import subprocess: {exc}",
+                )
+        finally:
+            log_handle.close()
+
+        # Write the lockfile *after* fork so we can record the runner
+        # PID. The microsecond window between Popen returning and the
+        # write below is closed by the in-process ``_start_lock`` above.
+        lock = {
+            "job_id": job_id,
+            "pid": proc.pid,
+            "started_at": started_at,
+            "log_path": str(log_path),
+            "enex_path": str(enex_path),
+        }
+        lock_path.write_text(json.dumps(lock, indent=2), encoding="utf-8")
+
+    return {"job_id": job_id, "status": "started"}
+
+
+# ── Read status / tail ───────────────────────────────────────────────
+
+
+def _safe_job_id(job_id: Any) -> str:
+    """Reject job_ids that do not match the format ``start_import`` mints.
+
+    Defence against path-traversal -- ``job_id`` is interpolated into
+    state and log file paths, so an attacker who can hit Doctor
+    (localhost-only, but still) could try ``../../etc/passwd``
+    shenanigans without this.
+    """
+    if not isinstance(job_id, str) or not _JOB_ID_RE.match(job_id):
+        raise EvernoteImportError(400, "invalid job_id")
+    return job_id
+
+
+def read_status(
+    job_id: str,
+    *,
+    _state_dir: Optional[Path] = None,
+    _lock_dir: Optional[Path] = None,
+    _now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Return the current state for ``job_id``.
+
+    Read order: terminal state file > lockfile-derived running state.
+    If neither matches, raises 404. If the lockfile carries the
+    matching job_id but the PID is dead and no terminal state file
+    exists, returns a synthesised ``failed`` state -- the runner
+    crashed without writing.
+    """
+    job_id = _safe_job_id(job_id)
+    state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
+    state_path = state_dir / f"{STATE_FILENAME_PREFIX}{job_id}.json"
+
+    if state_path.is_file():
+        try:
+            return json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise EvernoteImportError(
+                500, f"could not read state file: {exc}",
+            )
+
+    lock = lockfile_state(_lock_dir=_lock_dir)
+    if lock and lock.get("job_id") == job_id:
+        if lock.get("alive"):
+            return {
+                "job_id": job_id,
+                "status": "running",
+                "pid": lock.get("pid"),
+                "started_at": lock.get("started_at"),
+                "log_path": lock.get("log_path"),
+                "enex_path": lock.get("enex_path"),
+                "exit_code": None,
+                "completed_at": None,
+            }
+        # Matching job, dead PID, no terminal state -- runner crashed.
+        now = _now or datetime.now(timezone.utc)
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "exit_code": None,
+            "started_at": lock.get("started_at"),
+            "completed_at": now.isoformat(),
+            "log_path": lock.get("log_path"),
+            "enex_path": lock.get("enex_path"),
+            "note": "runner exited without writing final state",
+        }
+
+    raise EvernoteImportError(404, f"unknown job_id: {job_id}")
+
+
+def read_tail(
+    job_id: str,
+    *,
+    lines: int = 100,
+    _state_dir: Optional[Path] = None,
+    _lock_dir: Optional[Path] = None,
+) -> str:
+    """Return the last ``lines`` lines of the job's log as text.
+
+    Empty string if the log file does not exist yet. Raises 404 if the
+    job_id is unknown (no state file *and* no lockfile pointing to it).
+
+    Reads the whole file then slices -- import logs are bounded (a
+    500-note import produces a few hundred KB) and the seek-from-end
+    incantation needed to do this efficiently is fiddly enough that
+    the readability win wins. Revisit if we ever ship multi-million-
+    note imports.
+    """
+    job_id = _safe_job_id(job_id)
+    state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
+    log_path: Optional[str] = None
+
+    state_path = state_dir / f"{STATE_FILENAME_PREFIX}{job_id}.json"
+    if state_path.is_file():
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            log_path = data.get("log_path")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if not log_path:
+        lock = lockfile_state(_lock_dir=_lock_dir)
+        if lock and lock.get("job_id") == job_id:
+            log_path = lock.get("log_path")
+
+    if not log_path:
+        raise EvernoteImportError(404, f"unknown job_id: {job_id}")
+
+    log = Path(log_path)
+    if not log.is_file():
+        return ""
+
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise EvernoteImportError(500, f"could not read log: {exc}")
+
+    all_lines = text.splitlines()
+    return "\n".join(all_lines[-lines:])

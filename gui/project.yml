@@ -164,6 +164,24 @@ targets:
           - $(SRCROOT)/../vendor/ostler_fda
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda
+      - name: Bundle Doctor agent into Resources
+        script: |
+          set -euo pipefail
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/doctor/agent"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling Doctor agent from ${SRC} into Resources/doctor/agent/"
+            mkdir -p "${DEST}/doctor/agent"
+            cp -R "${SRC}/" "${DEST}/doctor/agent/"
+            /usr/bin/xattr -cr "${DEST}/doctor" || true
+          else
+            echo "ERROR: vendor/doctor/agent not found at ${SRC}" >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/doctor/agent
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/doctor/agent
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail

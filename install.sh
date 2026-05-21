@@ -4862,13 +4862,34 @@ if [[ -d "${SCRIPT_DIR}/doctor/agent" ]]; then
 elif [[ -f "${DOCTOR_DIR}/status_collector.py" ]]; then
     info "$(printf "$MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL" "${DOCTOR_DIR}")"
 elif [[ -z "$DOCTOR_REPO" ]]; then
-    # Productised install path: no tarball-bundled scripts and no
-    # PWG_DOCTOR_REPO override. Doctor is optional (the rest of
-    # Ostler works without it); warn so the operator notices, but
-    # do not fail the install.
-    info "$MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH"
-    info "$MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE"
-    info "$MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR"
+    # No tarball-bundled copy, no existing on-disk install, and no
+    # PWG_DOCTOR_REPO override. Pre-2026-05-21 this was a soft skip
+    # ("Doctor is optional, the rest of Ostler works without it") on
+    # the premise that Doctor was a personal-instance convenience.
+    # For the v1.0 customer install path that premise no longer
+    # holds: Ostler.app's Pairing tab iframes
+    # http://127.0.0.1:8089/pair-ios (the ostler-assistant #45
+    # rewire), and the iOS pair flow renders an empty page if
+    # Doctor is not running. Hard-fail so the customer gets a clear
+    # actionable error instead of a half-install that breaks
+    # pairing several screens later.
+    #
+    # --allow-plaintext is the dev/CI escape hatch, matching the
+    # ostler_security (PR #115) hard-fail pattern. Operators
+    # running a smoke install without the iOS surface can opt out.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        echo ""
+        warn "$MSG_WARN_DOCTOR_NOT_BUNDLED_HARD_FAIL"
+        warn "$(printf "$MSG_WARN_DOCTOR_LOOKED_FOR_PATH" "${SCRIPT_DIR}")"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_2"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_3"
+        warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_4"
+        fail "$MSG_FAIL_DOCTOR_INSTALL_REQUIRED"
+    fi
 else
     info "$MSG_INFO_CLONING_DOCTOR_AGENT"
     DOCTOR_TMP="$(mktemp -d)"
