@@ -720,22 +720,33 @@ echo ""
 step "$MSG_STEP_CHECKING_PREREQUISITES" "prereq_check"
 
 # ── Licence / activation check ─────────────────────────────────────
-# TODO (post-App Store): Verify Home Hub purchase via StoreKit receipt.
-# When the installer is bundled inside the Mac App Store app:
-# - Apple ID gives us the user's name (no need to ask)
-# - StoreKit receipt proves purchase
-# - Activation code for free Ostler month is generated here
-# - The whole Phase 2 reduces to: Touch ID briefing acknowledgement
 #
-# For the beta, we use an activation code entered here.
-# Set OSTLER_BETA=1 to skip (F&F testers don't need a code).
-# Activation check is not wired up yet (licence server and StoreKit
-# receipts come with App Store packaging, CM043 Phase 4). Today every
-# install behaves as beta, so the conditional block was a no-op with
-# a single ':' inside. Dropped the empty block; left the TODO tag at
-# file level so the activation path gets picked up during packaging.
+# Wired in the GUI layer ahead of this script running. Customer flow:
 #
-# TODO(app-store-packaging): activate against licence server or local code check
+#   1. OstlerInstaller.app shows LicenseEntryView (drag-drop the
+#      `ostler-licence.json` attachment from the welcome email,
+#      or paste its contents).
+#   2. `LicenseVerifier` runs Ed25519 signature verification against
+#      the embedded production public key (task #332).
+#   3. On `.valid`, `InstallerCoordinator.verifyLicense` calls
+#      `LicensePersistence.write` which atomically writes the
+#      verified payload to `~/.ostler/license/license.json`
+#      (mode 0600, parent dir 0700, tmp + fsync + rename + parent
+#      fsync). That's the canonical engine-zone path the Sparkle
+#      auto-update delegate in ostler-assistant reads at runtime.
+#   4. Device fingerprint registration with CM050 runs in parallel
+#      (task #340), gated by the same `licenseVerified` flag.
+#   5. Only then does the GUI exec this script. So by the time
+#      `install.sh` is running, the licence is on disk + verified
+#      + the device is registered.
+#
+# This script therefore does NOT touch the licence file. Anything
+# Hub-side that needs licence introspection should read the
+# canonical path written by the GUI -- single source of truth.
+#
+# TODO (post-App Store): StoreKit receipt verification replaces the
+# drag-drop flow when the installer is bundled inside a Mac App
+# Store app. Out of scope for v1.0 launch.
 
 # macOS check
 if [[ "$(uname)" != "Darwin" ]]; then
