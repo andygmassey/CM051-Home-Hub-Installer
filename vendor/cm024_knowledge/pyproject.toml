@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ostler-knowledge"
+version = "0.1.0"
+description = "Local Evernote knowledge ingest for the Ostler / PWG personal knowledge graph."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Creative Machines"},
+]
+keywords = ["knowledge-graph", "evernote", "personal-knowledge", "rag"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: MacOS",
+    "Intended Audience :: End Users/Desktop",
+]
+
+# Production dependencies. Versions pin floor, not ceiling -- bump as
+# upstream APIs evolve. Bumped pins go in their own PR.
+dependencies = [
+    "click>=8.0",
+    "httpx>=0.24",
+    "pyyaml>=6.0",
+    "qdrant-client>=1.7",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+# Console scripts. CM051's installer symlinks the venv-installed binary
+# at ~/.ostler/services/knowledge/.venv/bin/ostler-knowledge to
+# /usr/local/bin/ostler-knowledge so the customer can invoke it without
+# activating the venv.
+[project.scripts]
+ostler-knowledge = "src.cli:cli"
+
+[project.urls]
+Repository = "https://github.com/andygmassey/evernote-knowledge"
+
+# Package layout. The repo uses ``src/`` as the literal Python package
+# name (rather than the src-layout convention where ``src/`` is the
+# parent of a real package). Renaming to ``ostler_knowledge/`` is a
+# post-launch refactor; for v0.1 we honour the existing imports
+# (``from src.ingestion.adapters import ...``) by installing ``src``
+# as a top-level package.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
