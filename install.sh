@@ -5096,8 +5096,19 @@ elif [[ -f "${EMAIL_INGEST_DIR}/INSTALL_SNIPPET.sh" ]]; then
     EMAIL_INGEST_SOURCE="existing"
     info "$(printf "$MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL" "${EMAIL_INGEST_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    info "$MSG_INFO_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_WITH"
-    info "$MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015"
+    # No bundled vendor copy AND no override repo. For productised
+    # customer installs this is the regression case (.app shipped
+    # without the email-ingest vendor). Hard-fail unless the dev/CI
+    # plaintext escape hatch is set, matching the vendor-PR pattern
+    # established by ostler_security (PR #115), FDA (#116), Doctor
+    # (#117), hub-power (#118), CM024 (#119), CM048 (#120), CM041
+    # (#121).
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        fail "$MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN"
+    fi
 else
     info "$MSG_INFO_CLONING_EMAIL_INGEST_SCRIPTS"
     EMAIL_INGEST_TMP="$(mktemp -d)"

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# ostler-rescan-mail
+#
+# Kick the email-ingest LaunchAgent on demand. Customer runs this
+# after adding accounts to Apple Mail (or after Mail.app downloads
+# fresh messages) when they don't want to wait for the next hourly
+# tick.
+#
+# Idempotent. Safe to run repeatedly. No arguments.
+#
+# Reference: #259 (detect missing local Mail content + suggest
+# connecting accounts). The rescan-mail script is the Doctor
+# banner's fix_command and the GUI installer's empty-mail-sheet
+# "Continue without email" deferred-recovery path.
+#
+# British English in customer-facing strings. No em-dashes.
+
+set -euo pipefail
+
+LABEL="com.creativemachines.ostler.email-ingest"
+GUI_TARGET="gui/$(id -u)/${LABEL}"
+
+# launchctl kickstart -k restarts a running job or starts a loaded
+# job that is currently waiting on its interval. -k stops first;
+# the agent loop reloads cleanly. Exit code 3 means "service not
+# loaded" -- we treat that as a soft failure (the install hasn't
+# completed yet, or the agent was deliberately removed).
+
+if /bin/launchctl kickstart -k "${GUI_TARGET}" 2>/dev/null; then
+    echo "Ostler kicked the email-ingest tick. Mail should appear in your wiki within a few minutes."
+    exit 0
+fi
+
+# Fallback: the agent might not be loaded yet (fresh install
+# pre-CM051 step 3.14a), or the label may have drifted. Surface a
+# clear, non-alarming message rather than a stack trace.
+cat <<EOM
+Ostler tried to nudge the email-ingest job but the LaunchAgent is not loaded.
+
+Two likely reasons:
+  1. The installer has not finished setting up the email pipeline yet.
+  2. The agent was removed earlier (e.g. by an uninstall).
+
+What to try next:
+  1. If you have just installed Ostler, wait a minute and try again.
+  2. Otherwise, re-run the installer to repair the email pipeline.
+
+Label: ${LABEL}
+EOM
+exit 1
