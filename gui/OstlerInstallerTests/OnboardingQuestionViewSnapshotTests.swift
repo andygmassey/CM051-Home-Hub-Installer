@@ -119,4 +119,31 @@ final class OnboardingQuestionViewSnapshotTests: XCTestCase {
         )
         XCTAssertNotNil(image, "Back-review read-only render should not crash.")
     }
+
+    // 5. Q12 passkey_ack with modality-branched body.
+    //
+    // LAUNCH BLOCKER regression net (2026-05-22): the Q12 branch
+    // routes its help text through `passkeyAckBody()` which reads
+    // BiometricProbe.cachedModality and picks a catalogue key. The
+    // test below feeds the prompt with the bash-side help string and
+    // asserts the view renders -- the body itself comes from
+    // ViewCopy.json, not the bash help, so the customer never reads
+    // "Touch ID" on a Mac Studio.
+    func testRendersPasskeyAckPromptWithoutCrashing() {
+        let coord = makeCoordinator()
+        emitPrompt(
+            coord,
+            id: "passkey_ack",
+            kind: "acknowledge",
+            title: "Ready to set up disk encryption",
+            // Note: this bash-emitted help is deliberately IGNORED by
+            // the Q12 branch; the view reads from ViewCopy.json
+            // keyed by BiometricProbe.cachedModality.
+            help: "Your knowledge graph is encrypted with a key wrapped by Touch ID (if available on this Mac) or by your login password."
+        )
+        let image = render(
+            OnboardingQuestionView().environmentObject(coord)
+        )
+        XCTAssertNotNil(image, "Q12 passkey_ack render should not crash.")
+    }
 }

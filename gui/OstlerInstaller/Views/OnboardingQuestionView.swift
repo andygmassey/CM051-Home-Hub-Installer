@@ -87,13 +87,21 @@ struct OnboardingQuestionView: View {
 
             // Help / body copy. Order:
             //   - consent_install: special hyperlinked terms body
-            //   - assistant_name: ViewCopy-owned brand-warm helper (the
-            //     suggestion-pool intro). install.sh deliberately sends
-            //     empty help for this prompt id so we don't render the
-            //     same copy twice.
+            //   - passkey_ack (Q12): modality-branched copy because
+            //     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
+            //     which is wrong on every desktop Mac without a Magic
+            //     Keyboard with Touch ID (Mac Studio / Mac Mini /
+            //     Mac Pro / standard iMac). BiometricProbe.cachedResult
+            //     drives a modality-appropriate ViewCopy string.
+            //   - assistant_name (Q6): ViewCopy-owned brand-warm helper
+            //     (the suggestion-pool intro). install.sh deliberately
+            //     sends empty help for this prompt id so we don't render
+            //     the same copy twice.
             //   - everything else: install.sh's `help` field.
             if q.prompt.id == "consent_install" {
                 consentInstallBody()
+            } else if q.prompt.id == "passkey_ack" {
+                passkeyAckBody()
             } else if q.prompt.id == "assistant_name" && !q.isReview {
                 Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
                     .font(.ostlerBody)
@@ -158,6 +166,36 @@ struct OnboardingQuestionView: View {
         return Text(s)
             .font(.ostlerBodyLg)
             .foregroundStyle(Color.ostlerInk)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Q12 (passkey_ack) body: modality-branched help copy.
+    ///
+    /// LAUNCH BLOCKER fix 2026-05-22. The bash-side
+    /// MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID" which fails
+    /// on every desktop Mac without a Magic Keyboard with Touch ID
+    /// (Mac Studio, Mac Mini, Mac Pro, standard iMac). We override
+    /// the bash help text with one of three catalogue strings based
+    /// on the modality detected by `BiometricProbe` at process start.
+    ///
+    /// The underlying encryption flow does not change -- the
+    /// passkey-wrapped DEK from task #130 already supports password
+    /// + Apple Watch fallback on macOS Sequoia+. Only the copy
+    /// differs by modality, so the customer reads an honest screen.
+    private func passkeyAckBody() -> some View {
+        let key: String
+        switch BiometricProbe.cachedModality {
+        case .touchID:
+            key = "passkey_ack.help_touch_id"
+        case .opticID:
+            key = "passkey_ack.help_optic_id"
+        case .none:
+            key = "passkey_ack.help_password_or_watch"
+        }
+        return Text(ViewCopy.shared.string(for: key))
+            .font(.ostlerBodyLg)
+            .foregroundStyle(Color.ostlerInkMuted)
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
     }
