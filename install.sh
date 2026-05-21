@@ -1922,8 +1922,36 @@ if not ok:
         break
     done
 else
-    warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
-    warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
+    # HAS_SECURITY_MODULE is false AND there is no existing
+    # keychain.json. This means the ostler_security package was not
+    # found at ${SCRIPT_DIR}/ostler_security/ (or the pyproject.toml
+    # probe failed), so the install would silently continue, skip
+    # the passphrase prompt, and then hard-fail at the encrypt_db
+    # step several phases later with a confusing "no passphrase
+    # set" error. Surface the real failure here instead.
+    #
+    # Caught by Mac Studio retest #6 on 2026-05-21: the bundled
+    # .app was missing ostler_security/ in Contents/Resources/
+    # because the post-build script that copies the vendored
+    # package into the .app had never been wired up. Fix is in
+    # gui/project.yml + vendor/ostler_security/ in this same PR;
+    # this hard-fail is the safety net so that if a future build
+    # regression strips the package out again, the customer gets a
+    # clear actionable error instead of a silent half-install.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
+        warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        echo ""
+        warn "$MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSPHRASE_SETUP"
+        warn "$(printf "$MSG_WARN_SECURITY_MODULE_LOOKED_FOR_PATH" "${SCRIPT_DIR}")"
+        warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE"
+        warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_2"
+        warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_3"
+        warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_4"
+        fail "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
+    fi
 fi
 
 # ── 8. AI model (automatic) ────────────────────────────────────────
