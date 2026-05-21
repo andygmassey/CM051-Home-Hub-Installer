@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "6"
-    MARKETING_VERSION: "0.2.1"
+    CURRENT_PROJECT_VERSION: "7"
+    MARKETING_VERSION: "1.0.0"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "0.2.1"
-        CFBundleVersion: "6"
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "7"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -57,6 +57,10 @@ targets:
         NSPrincipalClass: NSApplication
         LSApplicationCategoryType: public.app-category.utilities
         NSAppleEventsUsageDescription: "Ostler needs to ask for your administrator password to install Hub services."
+        NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
+        NSDesktopFolderUsageDescription: "Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac."
+        NSDownloadsFolderUsageDescription: "Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac."
+        NSDocumentsFolderUsageDescription: "Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac."
         ATSApplicationFontsPath: Fonts
     entitlements:
       path: OstlerInstaller/OstlerInstaller.entitlements
@@ -122,6 +126,22 @@ targets:
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh"
+          # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
+          # so the customer DMG ships a clean single-app layout (just the
+          # installer + drag-to-Applications) yet install.sh's source-
+          # preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle
+          # at runtime when install.sh runs from inside Contents/Resources.
+          # OSTLER_APP_PATH is exported by gui/Makefile's release target
+          # before invoking xcodebuild; if absent or missing the build
+          # logs a warning and the customer install will skip the Hub-app
+          # step (install.sh's existing source-not-found warning).
+          if [ -n "${OSTLER_APP_PATH:-}" ] && [ -d "${OSTLER_APP_PATH}" ]; then
+            echo "Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/"
+            cp -R "${OSTLER_APP_PATH}" "${DEST}/Ostler.app"
+            /usr/bin/xattr -cr "${DEST}/Ostler.app" || true
+          else
+            echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2
+          fi
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
