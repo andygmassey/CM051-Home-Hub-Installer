@@ -93,11 +93,15 @@ if ! grep -qE 'KNOWLEDGE_SYMLINK="/usr/local/bin/ostler-knowledge"' "$INSTALL_SC
     echo "FAIL [symlink-target]: symlink target not /usr/local/bin/ostler-knowledge" >&2
     exit 1
 fi
-if ! grep -qE 'sudo ln -sf "\$KNOWLEDGE_BIN" "\$KNOWLEDGE_SYMLINK"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [symlink-cmd]: 'sudo ln -sf \$KNOWLEDGE_BIN \$KNOWLEDGE_SYMLINK' missing" >&2
+# Accept either branch of the OSTLER_GUI=1 fork: the GUI path runs
+# `ln -sf` unprivileged (after AuthorizationHelper chowned the dir),
+# the CLI path still runs `sudo ln -sf`. As long as one of them is
+# present the symlink will get created.
+if ! grep -qE '(sudo )?ln -sf "\$KNOWLEDGE_BIN" "\$KNOWLEDGE_SYMLINK"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [symlink-cmd]: 'ln -sf \$KNOWLEDGE_BIN \$KNOWLEDGE_SYMLINK' missing (sudo or non-sudo)" >&2
     exit 1
 fi
-echo "PASS: /usr/local/bin/ostler-knowledge symlink installed via sudo"
+echo "PASS: /usr/local/bin/ostler-knowledge symlink installed (GUI: no-sudo / CLI: sudo)"
 
 # ── Health check via --version ──────────────────────────────────
 if ! grep -qE '"\$KNOWLEDGE_SYMLINK" --version' "$INSTALL_SCRIPT"; then

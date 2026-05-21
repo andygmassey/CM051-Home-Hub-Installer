@@ -1,29 +1,79 @@
 // AuthorizationHelper.swift
 //
 // Wrapper around osascript's `do shell script ... with administrator
-// privileges` for the FIRST sudo grant. install.sh's existing
-// keepalive loop refreshes the timestamp every 60s so we only need
-// to seed it once.
+// privileges` for the ONE privileged window we need during the
+// install. install.sh under OSTLER_GUI=1 runs with zero further sudo
+// prompts (see InstallerCoordinator + install.sh's OSTLER_GUI=1
+// short-circuit of the sudo -v pre-flight); the only root work we do
+// is here, in this single AppleScript admin shell, while the user's
+// authdb cache is warm from clicking through the macOS native dialog.
 //
-// 2026-05-20 (Studio retest #2 failure at 15:30:42): PR #95 wired
-// AuthorizationHelper into `bootstrap()` and ran `/usr/bin/sudo -v`
-// inside the privileged shell. Root cause we missed: when AppleScript
-// elevates via `with administrator privileges`, the inner command
-// runs AS ROOT, not as the original user. `sudo -v` then writes its
-// timestamp under `/var/db/sudo/ts/root/`, not the invoking user's
-// directory. Two minutes later install.sh's bare `sudo -v` at line
-// 2583 runs AS THE USER, finds a cold cache, and trips
-// `fail $MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL`.
+// HISTORY (Mac Studio retests T-1 to launch):
 //
-// The fix is to write the user's timestamp file directly while we
-// have root. sudo accepts an empty/touched timestamp file as warm
-// (sudo(8): "An empty file is interpreted as an updated timestamp
-// equal to the file's mtime"), so a single `touch` of
-// `/var/db/sudo/ts/$ORIGINAL_USER` does the job. We also keep the
-// `sudo -v` call so root's cache is warm for any helper sub-process
-// install.sh might spawn under root (belt-and-braces).
+//   retest #2 (2026-05-20 15:30:42): F1 v1 ran `/usr/bin/sudo -v`
+//   inside the privileged shell. macOS Sequoia's sudo (1.9.x) uses
+//   per-(uid,sid,tty) tickets with tty_tickets default-on. The
+//   AppleScript admin shell runs as root with its own sid/tty, so
+//   the warmed cache belonged to root's tuple, not the user's. When
+//   install.sh later ran `sudo -v` on its own pty, the lookup
+//   missed and the install bailed.
 //
-// $ORIGINAL_USER is read from `stat -f %Su /dev/console` -- the user
+//   retest #3 + #4 (2026-05-20 ~21:00 + 23:30): F1 v2 tried to
+//   write `/var/db/sudo/ts/$ORIG_USER` directly while root. Sequoia
+//   sudo binary timestamp records are tuple-keyed (uid + sid + tty
+//   + ppid + parent_start) and a zero-byte file is NOT treated as
+//   warm on modern sudo. install.sh on its own pty failed the
+//   tuple lookup and tripped the gate again.
+//
+//   retest #5 (2026-05-20 23:42) + Studio retest 2026-05-22 00:42 HKT
+//   (LAUNCH BLOCKER on the same gate): the F1 approach is
+//   fundamentally unsound on Sequoia + sudo 1.9.x. Option B
+//   replaces it: don't try to warm install.sh's sudo cache. Make
+//   install.sh not need sudo at all under OSTLER_GUI=1.
+//
+//   retest #8 (2026-05-21): orthogonal AppleScript-escape regression
+//   (PR #125) where embedded double quotes inside the inner shell
+//   closed the AppleScript string literal early. Fixed by routing
+//   both `innerShell` and `prompt` through
+//   `escapeForAppleScriptLiteral` via `buildAuthorizationAppleScript`.
+//   The Option B inner shell below stays compatible with that escape
+//   contract -- no shell-expanded paths need quoting because
+//   `$ORIG_USER` resolves to a bare username on supported macOS
+//   topologies (single-user, non-corporate-LDAP).
+//
+// OPTION B MECHANICS:
+//
+//   1. Pre-create the directories root would otherwise need to
+//      touch during install.sh. Chown them to the original user so
+//      install.sh writes user-side from then on.
+//        - /opt/homebrew  -> Homebrew's official installer no
+//          longer escalates when the prefix already exists owned
+//          by the running user. Combined with NONINTERACTIVE=1
+//          on its child invocation, this skips the brew-side
+//          sudo dialog too.
+//        - /usr/local/bin -> the ostler-knowledge symlink target.
+//          Stock macOS leaves /usr/local/bin as root:wheel 755 so
+//          `ln -sf` would fail without sudo. Chown moves it to
+//          user-writable; we keep the 755 mode so other tools
+//          installed there (e.g. Homebrew formulae on Intel) keep
+//          working.
+//
+//   2. The system-wide sleep policy (pmset) is replaced with a
+//      per-process `caffeinate -dimsu` started by the Swift
+//      parent. caffeinate inherits the user's session and never
+//      asks for sudo. See CaffeinateManager.swift.
+//
+//   3. install.sh's `sudo -v` pre-flight at line 2671 and its 60s
+//      keepalive loop at line 2724 short-circuit when OSTLER_GUI=1
+//      is set. With Option B (1) + (2) in place, nothing downstream
+//      of those calls needs root either.
+//
+// We still issue `sudo -v` inside the admin shell as belt-and-
+// braces in case a future contributor adds a root-needing helper
+// that runs DIRECTLY inside this same osascript invocation. That
+// cache is root's own and is harmless either way.
+//
+// $ORIG_USER is read from `stat -f %Su /dev/console` -- the user
 // who owns the active GUI session is the user who launched the .app
 // from Finder, by definition.
 //
@@ -88,51 +138,69 @@ actor AuthorizationHelper {
         // Inner shell. Runs as root via `with administrator privileges`.
         // Script construction (and its escape rules) live in
         // `buildAuthorizationAppleScript` so the test target can pin
-        // the escape behaviour.
+        // the escape behaviour against the 2026-05-21 retest #8
+        // unescaped-quote regression and the 2026-05-22 Option B
+        // rebase.
         //
-        // 2026-05-21 Studio retest #8 silent-bail root cause: the
-        // pre-fix build interpolated `innerShell` raw, so the inner
-        // shell's double-quoted paths broke out of the AppleScript
-        // string. osascript exited with parse error -2741 ("Expected
-        // expression but found unknown token") instantly, with no
-        // password prompt. The Swift code read
-        // `task.terminationStatus != 0`, returned false, and the
-        // coordinator surfaced "admin authorisation declined or
-        // failed" with no further detail. The pre-fix code also
-        // discarded the captured stderr; the diagnostic-logging
-        // hunk below makes future failures of this shape visible
-        // through the `ai.ostler.installer` os_log subsystem.
+        // Option B (see file header): pre-create + chown the directories
+        // install.sh would otherwise need sudo to write to. install.sh
+        // then runs unprivileged end-to-end under OSTLER_GUI=1. The
+        // touch-based sudo-timestamp seed that this block used to
+        // perform is gone -- it never worked on Sequoia sudo 1.9.x
+        // tuple-keyed timestamps (retests #2-#5 + 2026-05-22 00:42 HKT
+        // launch-blocker retest, all the same gate).
+        //
+        // Steps:
         //
         //   1. /usr/bin/sudo -v
-        //        Belt: refreshes root's own timestamp. Cheap insurance
-        //        for any helper invoked under the privileged shell.
+        //        Belt-and-braces. Refreshes root's own timestamp so
+        //        any helper invoked DIRECTLY inside this osascript
+        //        invocation has a warm cache. Option B does not rely
+        //        on this for install.sh.
         //
         //   2. ORIG_USER=$(stat -f %Su /dev/console)
         //        The user who owns the active GUI session. On a
         //        single-user macOS install (the only Ostler-supported
         //        topology) this is the user who launched the .app.
         //
-        //   3. mkdir -p /var/db/sudo/ts && chmod 700 /var/db/sudo/ts
-        //        Defensive: directory exists by default on macOS but
-        //        not on a freshly imaged Mac before any sudo run.
+        //   3. /opt/homebrew prep
+        //        mkdir -p creates the prefix if missing; chown moves
+        //        it to the user so Homebrew's own installer skips
+        //        its sudo escalation step. Idempotent on re-runs.
+        //        Group `admin` matches Homebrew's own default for
+        //        /opt/homebrew so formulae installed later see the
+        //        expected GID.
         //
-        //   4. touch /var/db/sudo/ts/$ORIG_USER
-        //      chmod 600 /var/db/sudo/ts/$ORIG_USER
-        //      chown root:wheel /var/db/sudo/ts/$ORIG_USER
-        //        sudo(8) accepts a fresh-mtime file in this directory
-        //        as a warm timestamp. No binary format required. The
-        //        chmod / chown bring permissions into line with sudo's
-        //        own writes so a later real sudo run does not refuse
-        //        the file as "tampered" (sudo checks 0600 + root:wheel
-        //        on each access).
+        //   4. /usr/local/bin prep
+        //        Pre-create + chown for the ostler-knowledge symlink
+        //        install.sh creates at line ~5339. Stock macOS leaves
+        //        /usr/local/bin as root:wheel 755. We chown it to the
+        //        user (keeping 755) so `ln -sf` from install.sh works
+        //        without sudo. On Intel Macs where /usr/local is the
+        //        Homebrew prefix this matches Homebrew's own chown;
+        //        on Apple Silicon /usr/local/bin is otherwise unused
+        //        on a fresh Mac so the only consumer is Ostler.
+        //
+        // NB on shell quoting: $ORIG_USER comes from
+        // `stat -f %Su /dev/console`, which on supported (single-user,
+        // non-corporate-LDAP) macOS installs returns a bare username
+        // with no whitespace or shell metachars, so leaving paths
+        // unquoted is safe. Even if a future hostile environment
+        // breaks that assumption, the PR #125 escape function escapes
+        // any embedded `"` in the assembled AppleScript literal, so
+        // adding quoting later remains a one-line change without
+        // touching the escape contract. Every command is pinned to
+        // its absolute path so a hostile PATH on the customer's
+        // account cannot shadow `chown` etc with a malicious binary.
         let innerShell =
             "/usr/bin/sudo -v ; " +
             "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
-            "/bin/mkdir -p /var/db/sudo/ts ; " +
-            "/bin/chmod 700 /var/db/sudo/ts ; " +
-            "/usr/bin/touch \"/var/db/sudo/ts/$ORIG_USER\" ; " +
-            "/bin/chmod 600 \"/var/db/sudo/ts/$ORIG_USER\" ; " +
-            "/usr/sbin/chown root:wheel \"/var/db/sudo/ts/$ORIG_USER\""
+            "/bin/mkdir -p /opt/homebrew ; " +
+            "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
+            "/bin/chmod 755 /opt/homebrew ; " +
+            "/bin/mkdir -p /usr/local/bin ; " +
+            "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
+            "/bin/chmod 755 /usr/local/bin"
 
         let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
 
