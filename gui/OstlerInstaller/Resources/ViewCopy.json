@@ -138,5 +138,12 @@
   "sidebar": {
     "subtitle": "Installer",
     "step_counter": "Step {current} of {total}"
+  },
+
+  "passkey_ack": {
+    "_meta": "Q12 (passkey-ack) help-copy variants, modality-branched at view-render time by OnboardingQuestionView using BiometricProbe. LAUNCH BLOCKER fix 2026-05-22: the bash-side MSG_PROMPT_PASSKEY_ACK_HELP hard-coded Touch ID, which fails on every desktop Mac without a Magic Keyboard with Touch ID (Mac Studio, Mac Mini, Mac Pro, standard iMac). The GUI now overrides the bash help text with one of these three variants based on detected biometric modality.",
+    "help_touch_id": "Your knowledge graph is encrypted with a key wrapped by Touch ID on this Mac. macOS prompts for Touch ID later in the install. A 12-word recovery phrase is also generated and shown once. Press Continue when you're ready.",
+    "help_optic_id": "Your knowledge graph is encrypted with a key wrapped by Optic ID on this Mac. macOS prompts for Optic ID later in the install. A 12-word recovery phrase is also generated and shown once. Press Continue when you're ready.",
+    "help_password_or_watch": "Your knowledge graph is encrypted with a key wrapped by your login password (or Apple Watch if paired) on this Mac. macOS will prompt for your password later in the install. A 12-word recovery phrase is also generated and shown once. Press Continue when you're ready."
   }
 }
