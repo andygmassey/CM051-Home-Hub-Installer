@@ -12,6 +12,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 struct LicenseEntryView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
@@ -56,14 +57,23 @@ struct LicenseEntryView: View {
     // MARK: - Drop zone
 
     private var dropZone: some View {
+        // Drag-over uses `ostlerForest` (accent-3, green-leaning) as
+        // an "accept affordance". The pre-2026-05-21 build used
+        // `ostlerOxblood` for the drag-over border, which is the
+        // brand's reject / error red and reads to customers as a
+        // rejection signal. Studio retest #8 surfaced this: customers
+        // dragged a valid licence file, saw the oxblood border, and
+        // concluded the file was being rejected, despite the drop
+        // sometimes succeeding silently. Oxblood is reserved for
+        // genuine validation errors (the `errorBanner`).
         RoundedRectangle(cornerRadius: 12)
             .strokeBorder(
-                isTargeted ? Color.ostlerOxblood : Color.ostlerHairlineFaint,
+                isTargeted ? Color.ostlerForest : Color.ostlerHairlineFaint,
                 style: StrokeStyle(lineWidth: isTargeted ? 2 : 1, dash: isTargeted ? [] : [6, 4])
             )
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isTargeted ? Color.ostlerOxblood.opacity(0.04) : Color.ostlerChassisDeep)
+                    .fill(isTargeted ? Color.ostlerForest.opacity(0.04) : Color.ostlerChassisDeep)
             )
             .frame(height: 130)
             .overlay(dropZoneContent)
@@ -163,38 +173,128 @@ struct LicenseEntryView: View {
 
     // MARK: - Drop handling
 
+    /// Single drop path that funnels every supported NSItemProvider
+    /// representation (URL.self loadable, public.file-url, public.json,
+    /// public.plain-text) through the same `verify(data:source:)` call
+    /// the paste-button uses. The pre-2026-05-21 build forked into
+    /// three independent branches with silent guard returns on each
+    /// async-load failure -- a JSON file dragged from Finder where
+    /// `loadObject(ofClass: URL.self)` returned a nil URL produced a
+    /// drop-accepted-then-silent-bail with no error message and no
+    /// installer advance. Every failure path here surfaces an error
+    /// via `errorMessage` so the customer sees the actual reason.
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        guard let provider = providers.first else {
+            DispatchQueue.main.async {
+                self.errorMessage = ViewCopy.shared.string(for: "license_entry.drop_no_provider_error")
+            }
+            return false
+        }
+        acquireDropData(from: provider)
+        return true
+    }
+
+    /// Fan out across the provider's supported representations and
+    /// dispatch to `verify(data:source:)` once data is in hand. All
+    /// failure paths land on `errorMessage` rather than silently
+    /// bailing, so the customer always gets either an installer
+    /// advance or a one-line reason.
+    private func acquireDropData(from provider: NSItemProvider) {
+        let typeIdentifiers = provider.registeredTypeIdentifiers
+        OstlerLog.lifecycle.debug("license drop: provider types=\(typeIdentifiers.joined(separator: ","), privacy: .public)")
+
+        // Branch A: URL.self loadable. Finder-sourced file drops land
+        // here on macOS 12+.
         if provider.canLoadObject(ofClass: URL.self) {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url else { return }
+            _ = provider.loadObject(ofClass: URL.self) { url, error in
                 DispatchQueue.main.async {
-                    self.loadFromURL(url)
+                    if let url {
+                        self.loadFromURL(url)
+                    } else {
+                        self.errorMessage = ViewCopy.shared.string(
+                            for: "license_entry.drop_url_resolve_error",
+                            fills: ["reason": error?.localizedDescription ?? "no URL returned"]
+                        )
+                        OstlerLog.lifecycle.error("license drop URL.self load returned nil: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                    }
                 }
             }
-            return true
+            return
         }
+
+        // Branch B: explicit public.file-url representation.
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                guard let urlData = item as? Data,
-                      let url = URL(dataRepresentation: urlData, relativeTo: nil) else { return }
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                 DispatchQueue.main.async {
-                    self.loadFromURL(url)
+                    if let urlData = item as? Data,
+                       let url = URL(dataRepresentation: urlData, relativeTo: nil) {
+                        self.loadFromURL(url)
+                    } else {
+                        self.errorMessage = ViewCopy.shared.string(
+                            for: "license_entry.drop_url_resolve_error",
+                            fills: ["reason": error?.localizedDescription ?? "file URL data was empty or malformed"]
+                        )
+                        OstlerLog.lifecycle.error("license drop public.file-url load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                    }
                 }
             }
-            return true
+            return
         }
+
+        // Branch C: explicit public.json representation. The pre-fix
+        // build registered `.json` in the `.onDrop(of:)` accept list
+        // but never handled it in the dispatcher, so a JSON-only
+        // provider (no fileURL, no URL.self coercion) fell through
+        // to the false return and the customer saw the dashed-idle
+        // border with no error.
+        if provider.hasItemConformingToTypeIdentifier(UTType.json.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.json.identifier, options: nil) { item, error in
+                DispatchQueue.main.async {
+                    if let data = item as? Data {
+                        self.verify(data: data, source: "drop-json")
+                    } else if let s = item as? String, let data = s.data(using: .utf8) {
+                        self.verify(data: data, source: "drop-json-string")
+                    } else {
+                        self.errorMessage = ViewCopy.shared.string(
+                            for: "license_entry.drop_json_load_error",
+                            fills: ["reason": error?.localizedDescription ?? "JSON payload was empty"]
+                        )
+                        OstlerLog.lifecycle.error("license drop public.json load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                    }
+                }
+            }
+            return
+        }
+
+        // Branch D: plain-text payload. Apps that put JSON on the
+        // pasteboard as text-only land here (e.g. dragging a text
+        // selection out of a code editor).
         if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
-                guard let s = item as? String,
-                      let data = s.data(using: .utf8) else { return }
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
                 DispatchQueue.main.async {
-                    self.verify(data: data, source: "drop-text")
+                    if let s = item as? String, let data = s.data(using: .utf8) {
+                        self.verify(data: data, source: "drop-text")
+                    } else {
+                        self.errorMessage = ViewCopy.shared.string(
+                            for: "license_entry.drop_text_load_error",
+                            fills: ["reason": error?.localizedDescription ?? "text payload was empty"]
+                        )
+                        OstlerLog.lifecycle.error("license drop public.plain-text load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                    }
                 }
             }
-            return true
+            return
         }
-        return false
+
+        // No branch matched. Surface what we saw so a customer
+        // sending a screenshot to support has something to paste.
+        DispatchQueue.main.async {
+            self.errorMessage = ViewCopy.shared.string(
+                for: "license_entry.drop_unsupported_type_error",
+                fills: ["types": typeIdentifiers.joined(separator: ", ")]
+            )
+            OstlerLog.lifecycle.error("license drop unsupported provider types: \(typeIdentifiers.joined(separator: ","), privacy: .public)")
+        }
     }
 
     private func loadFromURL(_ url: URL) {
