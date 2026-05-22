@@ -149,6 +149,11 @@
     "step_counter": "Step {current} of {total}"
   },
 
+  "hint_panel": {
+    "_meta": "Main content area copy. CX-14 D5 (2026-05-23): watchdog overlay shown when subprocess silence >= 15s without finishing -- pre-fix the watchdog only logged into the hidden-by-default LogDrawer so a wedged install looked identical to a slow one.",
+    "watchdog_still_going": "Still going, please wait..."
+  },
+
   "passkey_ack": {
     "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
     "help_touch_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",

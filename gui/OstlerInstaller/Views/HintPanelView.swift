@@ -125,6 +125,41 @@ struct HintPanelView: View {
                 )
             }
 
+            // CX-14 D5 (2026-05-23): "Still going, please wait"
+            // overlay surfaces when the subprocess has been silent
+            // for >= 15s without finishing. Pre-fix the watchdog
+            // only logged into the (hidden by default) LogDrawer,
+            // so a wedged install looked identical to a slow one.
+            // Suppress when a status banner is already showing so
+            // the customer sees one progress signal, not two.
+            if coordinator.watchdogSilent,
+               coordinator.preInstallStatus == nil,
+               coordinator.finished == nil,
+               coordinator.error == nil {
+                HStack(alignment: .center, spacing: .ostlerSpace2) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.ostlerOxblood)
+                    Text(ViewCopy.shared.string(
+                        for: "hint_panel.watchdog_still_going"
+                    ))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                }
+                .padding(CGFloat.ostlerSpace3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.ostlerInkBlueSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.ostlerInkBlue.opacity(0.25), lineWidth: 1)
+                )
+            }
+
             Spacer()
         }
         .padding(CGFloat.ostlerSpace4)
