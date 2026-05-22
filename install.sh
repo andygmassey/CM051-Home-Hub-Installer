@@ -2035,7 +2035,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
         exit 0
     fi
     PASSKEY_PRIMED=true
-    ok "$MSG_OK_TOUCH_ID_BRIEFING_ACKNOWLEDGED"
+    ok "$MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED"
 
     # ── Mandatory passphrase capture ─────────────────────────────────
     # v1.0 passphrase-primary: passphrase is the ONLY unlock factor,
