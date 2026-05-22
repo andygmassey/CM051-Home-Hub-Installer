@@ -298,14 +298,41 @@ struct LicenseEntryView: View {
     }
 
     private func loadFromURL(_ url: URL) {
-        guard let data = try? Data(contentsOf: url) else {
+        // Use do/try/catch (not `try?`) so the underlying read-error
+        // reason surfaces to the customer. The pre-fix `try?` form
+        // collapsed permission errors, missing-file, quarantine xattr
+        // conflicts, and disconnected network volumes into the same
+        // generic "Could not read the licence file at <name>" message,
+        // which was a dead end for both customer and support.
+        //
+        // After the read succeeds we also guard against zero-byte
+        // files. The pre-fix path let an empty `Data` slide into the
+        // verifier, where `JSONSerialization` reported it as malformed
+        // -- the bytes weren't malformed, there just weren't any. The
+        // mismatched cause-and-effect was the most common silent-bail
+        // shape on the drop-zone path (matches Andy's prior-retest
+        // memory of "the previous time it said the file was empty or
+        // something").
+        do {
+            let data = try readLicenceFile(at: url)
+            OstlerLog.lifecycle.info("license drop file read \(data.count) bytes from \(url.lastPathComponent, privacy: .public)")
+            verify(data: data, source: "drop-file")
+        } catch LicenceFileError.empty(let filename) {
+            errorMessage = ViewCopy.shared.string(
+                for: "license_entry.drop_file_empty_error",
+                fills: ["filename": filename]
+            )
+            OstlerLog.lifecycle.error("license drop file empty: \(filename, privacy: .public)")
+        } catch {
             errorMessage = ViewCopy.shared.string(
                 for: "license_entry.read_file_error",
-                fills: ["filename": url.lastPathComponent]
+                fills: [
+                    "filename": url.lastPathComponent,
+                    "reason": error.localizedDescription
+                ]
             )
-            return
+            OstlerLog.lifecycle.error("license drop file read failed \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
-        verify(data: data, source: "drop-file")
     }
 
     // MARK: - Verify + hand off
@@ -344,6 +371,28 @@ struct LicenseEntryView: View {
     static var shortIdGuidanceMessage: String {
         ViewCopy.shared.string(for: "license_entry.short_id_guidance")
     }
+}
+
+// Errors thrown by `readLicenceFile(at:)`. Distinct cases let the
+// view layer surface a precise reason to the customer (the catalogue
+// key differs for `empty` vs. underlying `Data(contentsOf:)` failures).
+enum LicenceFileError: Error, Equatable {
+    /// The file existed and read succeeded, but the byte count was 0.
+    /// Carries the filename for the customer-facing copy.
+    case empty(filename: String)
+}
+
+// Reads a licence file from disk and guards against zero-byte payloads.
+// Lives at module scope so the OstlerInstallerTests target can exercise
+// the read + empty-guard paths directly via `@testable import
+// OstlerInstaller`, byte-by-byte (per locked memory
+// `feedback_silent_bail_regression_test_shape`).
+func readLicenceFile(at url: URL) throws -> Data {
+    let data = try Data(contentsOf: url)
+    guard !data.isEmpty else {
+        throw LicenceFileError.empty(filename: url.lastPathComponent)
+    }
+    return data
 }
 
 // Detects pastes that match the short-Licence-ID shape rather than the
