@@ -90,6 +90,7 @@
   "onboarding_question": {
     "header_with_total": "Question {current} of {total}",
     "header_without_total": "Question {current}",
+    "header_statement_label": "For your information",
     "header_review_suffix": "  (review)",
     "continue_button": "Continue",
     "back_button": "Back",
