@@ -1127,9 +1127,11 @@ if [[ -n "$DETECTED_CODE" ]]; then
         COUNTRY_CODE="$DETECTED_CODE"
     fi
 else
-    echo "  Your country code is used to normalise phone numbers during"
-    echo "  contact import (e.g. 44 for UK, 1 for US, 852 for HK)."
-    echo ""
+    # Studio retest #7 finding #4: the bash-side echo block here
+    # duplicated the help text now carried by
+    # MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP (which also explains the
+    # region-inference effect). Single source of truth in the
+    # catalogue; the GUI renders the help string in the prompt body.
     COUNTRY_CODE="$(gui_read "$MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE" text "44" "$MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP" "" "country_code")"
     COUNTRY_CODE=${COUNTRY_CODE:-44}
 fi
@@ -1308,24 +1310,14 @@ else
 fi
 
 # ── 4. Name your AI assistant ─────────────────────────────────────
+# Q6 helper text + suggestion list are rendered by OnboardingQuestionView
+# from ViewCopy.json (assistant_name_helper + assistant_name_suggestions.
+# comma_separated). The previous bash-side echo block here duplicated
+# the same content in the question body (Studio retest #7 finding #6:
+# "Body text is duplicated twice"), so we leave both empty here and
+# let the GUI catalogue be the single source of truth. Customer sees
+# one suggestion list, not two.
 
-echo ""
-echo -e "  ${BOLD}Name your AI assistant${NC}"
-echo ""
-echo "  Your assistant lives on your Mac and manages your knowledge"
-echo "  graph. Give it a name you will enjoy talking to."
-echo ""
-echo "  Some ideas (or type your own):"
-echo ""
-echo -e "    ${BOLD}Joshua${NC}     – the calm, careful AI from WarGames"
-echo -e "    ${BOLD}Samantha${NC}   – the warm, attentive companion from Her"
-echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
-echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
-echo ""
-
-# Q6 helper text is rendered by OnboardingQuestionView from
-# ViewCopy `assistant_name_helper`; passing empty help here prevents
-# the GUI from rendering the same copy twice.
 ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "" "" "assistant_name")"
 while [[ -z "$ASSISTANT_NAME" ]]; do
     warn "$MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM"
@@ -2152,8 +2144,12 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
 
-# Scan common locations for recognisable GDPR export files
-info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
+# Scan common locations for recognisable GDPR export files.
+# Studio retest #7 finding #13 (Image #53): the previous `info`
+# emit here rendered as a ~200ms transient status page in the GUI
+# before the find-scan moved on. Drop to log-only so the GUI never
+# renders a flash page; the bash terminal output is unaffected.
+gui_log info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
@@ -2748,6 +2744,14 @@ while true; do
         echo ""
     fi
 done
+
+# Studio retest #7 finding #18 (Image #58): post-consent wrap-up
+# screen so the customer sees a clean "all set, walk away" state
+# instead of bouncing back to the "A few questions" sidebar state
+# while Phase 3 kicks off. The step itself is a no-op marker -- the
+# GUI renders the HintCopy "setup_complete_wrap_up" block until the
+# next step (homebrew_install) fires its STEP_BEGIN.
+step "All set. You can walk away now." "setup_complete_wrap_up"
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 
