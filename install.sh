@@ -2336,6 +2336,13 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
             "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || \
                 warn "$MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS"
+        else
+            # Surface a missing-bundle warning so a future buried-failure
+            # retest catches the gap in the GUI install log rather than
+            # at the customer's first Article 9 / WhatsApp / voice gate
+            # (which would raise ModuleNotFoundError hours after install).
+            # See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F3.
+            warn "$MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED"
         fi
         ok "$MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV"
     else
@@ -5443,6 +5450,238 @@ elif [[ "$CM048_SOURCE_OK" == true ]]; then
     warn "$MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML"
 fi
 
+# ── 3.10c Calendar / Gmail bridge for ical-server.py ─────────────
+#
+# Phase 3.10c installs the two binaries that ical-server.py
+# (the local API on :8089, wired earlier in vendor/cm041/assistant_api/)
+# expects at hard-coded paths:
+#
+#   1. /usr/local/bin/gws -- the Google Workspace CLI (Apache-2.0,
+#      official Google build). Used by ical-server for Google
+#      Calendar event listings + Gmail subject/snippet probes.
+#      Source: https://github.com/googleworkspace/cli
+#      The customer's first Gmail / Google Calendar call would
+#      otherwise raise FileNotFoundError and the call silently
+#      returns empty (try/except in ical-server.py swallows it).
+#      See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F4.
+#
+#   2. ~/.zeroclaw/ical-query.sh -- a shell wrapper that ical-server
+#      invokes for iCloud / CalDAV events. Without it the wrapper
+#      shell-out raises FileNotFoundError and the iCloud calendar
+#      returns empty events (same silent-degrade pattern as gws).
+#      See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F5.
+#
+# Both are best-effort: a failure here logs WARN and continues so
+# the rest of the install is unaffected. The customer-visible impact
+# is that the iOS Companion's calendar / mail surfaces show empty
+# until the bridge is repaired.
+
+# 1. gws (Google Workspace CLI) -- download + SHA256-verify + install.
+#
+# Pinned to v0.22.5 (the version Andy runs on his Mac Mini). The
+# release archives are signed by Google's release infrastructure
+# and notarised by Apple; we pin the SHA256 of each architecture's
+# tarball to guard against download tampering. If the customer is
+# offline at install time the install logs WARN and continues; the
+# Gmail / Calendar features stay degraded until the customer re-runs
+# install.sh online.
+GWS_VERSION="0.22.5"
+progress "Installing Google Workspace CLI (gws v${GWS_VERSION})" "gws_install"
+
+
+GWS_BIN_DEST="/usr/local/bin/gws"
+GWS_BASE_URL="https://github.com/googleworkspace/cli/releases/download/v${GWS_VERSION}"
+GWS_SHA256_ARM64="1d2a9ffd5bc9b2c2c4b48630daf082fad13d9e57d741988a2c248eed562f7dac"
+GWS_SHA256_X86_64="51f9bd731404d4bba26c36e2e30dd68c56dccd1f834c01252cb0b14d6a6544b2"
+
+# Architecture detection. Apple Silicon ships aarch64; older Intel
+# Macs ship x86_64. Universal2 binary is not produced upstream so
+# we install the matching arch.
+case "$(uname -m)" in
+    arm64|aarch64)
+        GWS_ARCH_LABEL="aarch64-apple-darwin"
+        GWS_EXPECTED_SHA256="$GWS_SHA256_ARM64"
+        ;;
+    x86_64)
+        GWS_ARCH_LABEL="x86_64-apple-darwin"
+        GWS_EXPECTED_SHA256="$GWS_SHA256_X86_64"
+        ;;
+    *)
+        GWS_ARCH_LABEL=""
+        ;;
+esac
+
+if [[ -z "$GWS_ARCH_LABEL" ]]; then
+    warn "$MSG_WARN_GWS_UNSUPPORTED_ARCHITECTURE_GMAIL_DEGRADED"
+elif [[ -x "$GWS_BIN_DEST" ]] && "$GWS_BIN_DEST" --version 2>/dev/null | grep -q "$GWS_VERSION"; then
+    # Idempotency: a prior install at the matching version stays put.
+    ok "$(printf "$MSG_OK_GWS_ALREADY_INSTALLED_AT_VERSION" "$GWS_VERSION")"
+elif ! command -v curl >/dev/null 2>&1; then
+    warn "$MSG_WARN_CURL_NOT_AVAILABLE_GWS_INSTALL_SKIPPED"
+else
+    GWS_TMPDIR="$(mktemp -d -t ostler-gws.XXXXXX)"
+    GWS_ARCHIVE="${GWS_TMPDIR}/gws.tar.gz"
+    GWS_ARCHIVE_URL="${GWS_BASE_URL}/google-workspace-cli-${GWS_ARCH_LABEL}.tar.gz"
+    if curl -fsSL --max-time 60 "$GWS_ARCHIVE_URL" -o "$GWS_ARCHIVE" 2>"${GWS_TMPDIR}/curl.log"; then
+        GWS_ACTUAL_SHA256="$(shasum -a 256 "$GWS_ARCHIVE" | awk '{print $1}')"
+        if [[ "$GWS_ACTUAL_SHA256" == "$GWS_EXPECTED_SHA256" ]]; then
+            # Extract + install. Phase 3 already chowned /usr/local/bin
+            # to the install user (Option B), so we do not need sudo.
+            mkdir -p "${GWS_TMPDIR}/extracted"
+            if tar -xzf "$GWS_ARCHIVE" -C "${GWS_TMPDIR}/extracted" 2>/dev/null \
+               && [[ -f "${GWS_TMPDIR}/extracted/gws" ]]; then
+                mkdir -p "$(dirname "$GWS_BIN_DEST")"
+                cp "${GWS_TMPDIR}/extracted/gws" "$GWS_BIN_DEST"
+                chmod 755 "$GWS_BIN_DEST"
+                # The archive ships pre-codesigned + notarised by
+                # Google; no further codesign step needed. Strip
+                # any quarantine xattr from the curl-download so
+                # Gatekeeper does not block first launch.
+                /usr/bin/xattr -d com.apple.quarantine "$GWS_BIN_DEST" 2>/dev/null || true
+                if "$GWS_BIN_DEST" --version >/dev/null 2>&1; then
+                    ok "$(printf "$MSG_OK_GWS_INSTALLED_AT_VERSION_DEST" "$GWS_VERSION" "$GWS_BIN_DEST")"
+                else
+                    warn "$(printf "$MSG_WARN_GWS_INSTALLED_BUT_VERSION_PROBE_FAILED" "$GWS_BIN_DEST")"
+                fi
+            else
+                warn "$MSG_WARN_GWS_ARCHIVE_EXTRACT_FAILED"
+            fi
+        else
+            warn "$(printf "$MSG_WARN_GWS_SHA256_MISMATCH_EXPECTED_GOT" "$GWS_EXPECTED_SHA256" "$GWS_ACTUAL_SHA256")"
+        fi
+    else
+        warn "$(printf "$MSG_WARN_GWS_DOWNLOAD_FAILED_URL" "$GWS_ARCHIVE_URL")"
+        if [[ -s "${GWS_TMPDIR}/curl.log" ]]; then
+            warn "$MSG_WARN_CURL_SAID"
+            sed -e 's/^/    /' "${GWS_TMPDIR}/curl.log" | head -5
+        fi
+    fi
+    rm -rf "$GWS_TMPDIR"
+fi
+
+# 2. ~/.zeroclaw/ical-query.sh -- shell wrapper that ical-server
+# invokes for iCloud / CalDAV calendar events. The path is a legacy
+# artefact of how the bridge was first wired on Andy's instance;
+# rather than patching every call site we materialise the wrapper
+# at the path ical-server.py defaults to.
+#
+# The wrapper hands off to a Python module under the customer's
+# Ostler venv. We write a stub that exits non-zero with a clear
+# message until the customer has paired their iCloud account via
+# the assistant UI (Phase 3.5b already wired the OSTLER_ICLOUD_USER
+# / OSTLER_ICLOUD_APP_PASSWORD env vars when present). Once those
+# env vars are set, the wrapper shells out to the python-caldav
+# library to fetch upcoming events as raw iCal text.
+ICAL_WRAPPER_DIR="${HOME}/.zeroclaw"
+ICAL_WRAPPER="${ICAL_WRAPPER_DIR}/ical-query.sh"
+mkdir -p "$ICAL_WRAPPER_DIR"
+cat > "$ICAL_WRAPPER" <<'ICALWRAPEOF'
+#!/usr/bin/env bash
+# ostler ical-query wrapper. Generated by install.sh.
+# Invoked by ical-server.py (vendor/cm041/assistant_api/ical-server.py)
+# as: ical-query.sh <days>
+#
+# Reads OSTLER_ICLOUD_USER + OSTLER_ICLOUD_APP_PASSWORD from
+# ${HOME}/.ostler/config/.env when present and uses python-caldav
+# (installed into the Ostler venv) to fetch upcoming events from
+# iCloud. Emits raw iCalendar lines (DTSTART/DTEND/SUMMARY/...) that
+# ical-server.py's parse_ical_output() expects.
+#
+# British English throughout. No em-dashes in customer-facing output.
+set -euo pipefail
+DAYS="${1:-14}"
+OSTLER_DIR="${HOME}/.ostler"
+PYBIN="${OSTLER_DIR}/.venv/bin/python3"
+ENV_FILE="${OSTLER_DIR}/config/.env"
+
+if [[ ! -x "$PYBIN" ]]; then
+    echo "ical-query: Ostler Python environment not found at $PYBIN" >&2
+    exit 1
+fi
+
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+fi
+
+if [[ -z "${OSTLER_ICLOUD_USER:-}" || -z "${OSTLER_ICLOUD_APP_PASSWORD:-}" ]]; then
+    # iCloud not paired yet. Exit 0 with empty output so ical-server
+    # treats the calendar as "no events" rather than degraded.
+    exit 0
+fi
+
+"$PYBIN" - "$DAYS" <<'PYEOF'
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+
+try:
+    import caldav  # noqa: F401
+except ImportError:
+    # caldav lib not installed in the Ostler venv; surface a clear
+    # error to stderr so Doctor / healthz can flag it. ical-server
+    # silently consumes stdout so stderr is the right channel.
+    sys.stderr.write(
+        "ical-query: python-caldav not installed. Run "
+        ".venv/bin/pip install caldav inside ~/.ostler/.\n"
+    )
+    sys.exit(1)
+
+import caldav  # second import after the guard above
+
+days = int(sys.argv[1]) if len(sys.argv) > 1 else 14
+user = os.environ.get("OSTLER_ICLOUD_USER", "")
+pwd = os.environ.get("OSTLER_ICLOUD_APP_PASSWORD", "")
+url = os.environ.get("OSTLER_ICLOUD_URL", "https://caldav.icloud.com/")
+
+now = datetime.now(timezone.utc)
+end = now + timedelta(days=days)
+
+try:
+    client = caldav.DAVClient(url=url, username=user, password=pwd)
+    principal = client.principal()
+    calendars = principal.calendars()
+except Exception as exc:
+    sys.stderr.write(f"ical-query: CalDAV login failed: {exc}\n")
+    sys.exit(1)
+
+for cal in calendars:
+    try:
+        events = cal.search(start=now, end=end, event=True, expand=True)
+    except Exception:
+        continue
+    for ev in events:
+        try:
+            raw = ev.data
+        except Exception:
+            continue
+        # Print only the lines parse_ical_output looks for.
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if stripped.startswith((
+                "DTSTART",
+                "DTEND",
+                "LOCATION",
+                "SUMMARY",
+                "ATTENDEE",
+                "ORGANIZER",
+                "UID",
+            )):
+                print(stripped)
+PYEOF
+ICALWRAPEOF
+chmod 755 "$ICAL_WRAPPER"
+
+# Smoke-test the wrapper is executable + at the expected path. Do not
+# actually exec it (no CalDAV creds yet at this point in install).
+if [[ -x "$ICAL_WRAPPER" ]]; then
+    ok "$(printf "$MSG_OK_ICAL_QUERY_WRAPPER_INSTALLED_AT" "$ICAL_WRAPPER")"
+else
+    warn "$(printf "$MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT" "$ICAL_WRAPPER")"
+fi
+
 # ── 3.11 Run GDPR import if exports were provided ────────────────
 
 if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]]; then
@@ -5901,6 +6140,13 @@ DRDPEOF
     launchctl bootstrap "gui/$(id -u)" "$REGISTER_PLIST" 2>/dev/null || \
         launchctl load "$REGISTER_PLIST" 2>/dev/null || true
     ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
+else
+    # Surface a missing-bundle warning. The deferred-register agent
+    # is a belt-and-braces retry path; the primary registration runs
+    # during install via the GUI. Worst-case impact is the customer
+    # silently consuming a device slot without retry if the install-
+    # time POST failed. See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F9.
+    warn "$MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED"
 fi
 
 # Detect user's shell and add to appropriate RC file
@@ -7130,7 +7376,14 @@ elif [[ -f "${WIKI_RECOMPILE_DIR}/INSTALL_SNIPPET.sh" ]]; then
     WIKI_RECOMPILE_SOURCE="existing"
     info "$(printf "$MSG_INFO_REUSING_EXISTING_WIKI_RECOMPILE_INSTALL" "${WIKI_RECOMPILE_DIR}")"
 elif [[ -z "$HUB_POWER_REPO" ]]; then
-    info "$MSG_INFO_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED_WITH"
+    # No bundled scripts AND no clone fallback configured. On a real
+    # customer install (no HUB_POWER_REPO env var) this is the silent-
+    # bail path the deep-dive audit flagged: surface it as a WARN
+    # instead of info, so the next retest's log shows the gap rather
+    # than the customer noticing their wiki has stopped refreshing
+    # days later. See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F2.
+    warn "$MSG_WARN_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED"
+    warn "$MSG_WARN_WIKI_WILL_NOT_AUTO_UPDATE_MANUAL"
     info "$MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015"
 else
     info "$MSG_INFO_CLONING_WIKI_RECOMPILE_SCRIPTS"
@@ -7433,6 +7686,12 @@ ASSISTANT_TMPDIR=""
 if [[ -d "${SCRIPT_DIR}/assistant-agent" && -f "${SCRIPT_DIR}/assistant-agent/INSTALL_SNIPPET.sh" ]]; then
     mkdir -p "$OSTLER_ASSISTANT_DIR"
     cp -R "${SCRIPT_DIR}/assistant-agent/"* "$OSTLER_ASSISTANT_DIR/"
+else
+    # Surface a missing-bundle warning so a future buried-failure
+    # retest catches the gap. Without this assets stage, the LaunchAgent
+    # never loads and the customer's daily briefs + WhatsApp keepalive
+    # silently never fire. See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F1.
+    warn "$MSG_WARN_ASSISTANT_AGENT_NOT_BUNDLED_LAUNCHAGENT_SKIPPED"
 fi
 
 if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" ]]; then

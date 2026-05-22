@@ -102,6 +102,7 @@ final class StepCatalog {
         "ai_models",
         "import_pipeline",
         "cm048_setup",
+        "gws_install",
         "import_data",
         "doctor_setup",
         "ical_server_setup",

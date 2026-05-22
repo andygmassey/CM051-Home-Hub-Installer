@@ -380,6 +380,10 @@
 				2BE665C74BE61DE6E12496F9 /* Bundle CM021 PWG Email Intelligence (pwg-email-ingest CLI) into Resources */,
 				A960ED2414DB9CC1D912777E /* Bundle imessage-bridge LaunchAgent + producer into Resources */,
 				E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */,
+				F91168F12AE17E931B5752D1 /* Bundle wiki-recompile (daily wiki rebuild LaunchAgent) */,
+				76832E6CF8371198DB115450 /* Bundle legal Python package (consent-string constants) */,
+				2662C5C53104DBE527D98B0F /* Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources */,
+				BE798CA5C879050E43B4A9DA /* Bundle scripts/deferred-register-device.sh into Resources/scripts */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -495,6 +499,27 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
 		};
+		2662C5C53104DBE527D98B0F /* Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/THIRD_PARTY_NOTICES.md",
+			);
+			name = "Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/THIRD_PARTY_NOTICES.md",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/LICENSES",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh:6502 + 6533 probe ${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md\n# and ${SCRIPT_DIR}/LICENSES/ to install canonical OSS\n# attribution files into ~/.ostler/. Without the bundle,\n# the customer's wiki licences page is empty and the\n# `install.sh --licenses` flag has nothing to print.\n# Compliance-paperwork concern but not install-blocking.\n#\n# Source-of-truth: HR015 repo /LICENSES/ + /THIRD_PARTY_NOTICES.md,\n# vendored into CM051 at vendor/LICENSES/ + vendor/THIRD_PARTY_NOTICES.md.\n# See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F7 + F8.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nNOTICES_SRC=\"${SRCROOT}/../vendor/THIRD_PARTY_NOTICES.md\"\nLICENSES_SRC=\"${SRCROOT}/../vendor/LICENSES\"\nif [ ! -f \"${NOTICES_SRC}\" ]; then\n  echo \"ERROR: vendor/THIRD_PARTY_NOTICES.md not found at ${NOTICES_SRC}\" >&2\n  echo \"       Re-sync from HR015 /THIRD_PARTY_NOTICES.md (see vendor/README.md).\" >&2\n  exit 1\nfi\nif [ ! -d \"${LICENSES_SRC}\" ]; then\n  echo \"ERROR: vendor/LICENSES not found at ${LICENSES_SRC}\" >&2\n  echo \"       Re-sync from HR015 /LICENSES/ (see vendor/README.md).\" >&2\n  exit 1\nfi\necho \"Bundling THIRD_PARTY_NOTICES.md + LICENSES/ into Resources/\"\ncp \"${NOTICES_SRC}\" \"${DEST}/THIRD_PARTY_NOTICES.md\"\nmkdir -p \"${DEST}/LICENSES\"\ncp -R \"${LICENSES_SRC}/\"* \"${DEST}/LICENSES/\"\n/usr/bin/xattr -cr \"${DEST}/LICENSES\" \"${DEST}/THIRD_PARTY_NOTICES.md\" || true\nchmod 644 \"${DEST}/THIRD_PARTY_NOTICES.md\"\n";
+		};
 		2BE665C74BE61DE6E12496F9 /* Bundle CM021 PWG Email Intelligence (pwg-email-ingest CLI) into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -571,6 +596,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# The CM041 PWG People Graph repo ships four productised assets:\n#   - contact_syncer/      Python package, runs the GDPR import\n#                          pipeline + the install-time iCloud\n#                          contacts hydration (CX-81 B1).\n#                          install.sh phases look for it at\n#                          \"${SCRIPT_DIR}/contact_syncer\" and\n#                          invoke .venv/bin/python -m\n#                          contact_syncer.import_all (GDPR) or\n#                          contact_syncer.syncer --vcf (B1).\n#   - meeting_syncer/      Python package, runs install-time\n#                          calendar backfill (CX-81 B1). Added\n#                          alongside contact_syncer on\n#                          2026-05-26 so the customer's Hub\n#                          launches with a populated Timeline.\n#                          Invoked as .venv/bin/python -m\n#                          meeting_syncer.syncer --days 90.\n#   - identity_resolver/   Shared Python helper imported by\n#                          BOTH syncers (sys.path hack inside\n#                          syncer.py expects it as a sibling\n#                          package at runtime). Vendored on\n#                          2026-05-26 to unblock B1; the\n#                          existing customer install never hit\n#                          the import path (contact_syncer.\n#                          import_all doesn't touch it), so\n#                          this surfaces a latent\n#                          ImportError as well as wiring B1.\n#   - assistant_api/       ical-server.py (the local API on\n#                          :8089) + its companion docs.\n#                          Installed by a later install.sh\n#                          phase that wires it as a launchd\n#                          agent.\n#\n# CRITICAL bundle layout: every subdir MUST live at the\n# Resources root (NOT under a vendor/cm041/ wrapper) because\n# install.sh's path checks hard-code the unwrapped paths.\n# Don't introduce a vendor/cm041/ subdir at install-time;\n# copy the CONTENTS of vendor/cm041/ directly. The\n# identity_resolver sibling layout is what\n# contact_syncer.syncer + meeting_syncer.syncer expect at\n# runtime via their `_PARENT_DIR` sys.path hack.\n#\n# `cp -R` without -p so source xattrs (com.apple.provenance,\n# com.apple.macl on Sonoma+) don't propagate into the .app\n# bundle. The subsequent \"Strip xattrs\" phase is a belt-and-\n# braces second pass over the whole bundle.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm041\"\nfor sub in contact_syncer meeting_syncer identity_resolver assistant_api; do\n  if [ ! -d \"${VENDOR_ROOT}/${sub}\" ]; then\n    echo \"error: vendor/cm041/${sub}/ missing.\" >&2\n    echo \"       Expected: ${VENDOR_ROOT}/${sub}\" >&2\n    echo \"       Re-sync from the CM041 PWG People Graph repo.\" >&2\n    exit 1\n  fi\ndone\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-syncer rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/contact_syncer\" \"${DEST}/meeting_syncer\" \"${DEST}/identity_resolver\" \"${DEST}/assistant_api\"\ncp -R \"${VENDOR_ROOT}/contact_syncer\"    \"${DEST}/contact_syncer\"\ncp -R \"${VENDOR_ROOT}/meeting_syncer\"    \"${DEST}/meeting_syncer\"\ncp -R \"${VENDOR_ROOT}/identity_resolver\" \"${DEST}/identity_resolver\"\ncp -R \"${VENDOR_ROOT}/assistant_api\"     \"${DEST}/assistant_api\"\n/usr/bin/xattr -cr \"${DEST}/contact_syncer\" \"${DEST}/meeting_syncer\" \"${DEST}/identity_resolver\" \"${DEST}/assistant_api\"\n# ical-server.py is executable on the operator instance via\n# `python ical-server.py`, not chmod +x, so we don't toggle\n# the mode here. requirements.txt + .env.example land 644.\n";
+		};
+		76832E6CF8371198DB115450 /* Bundle legal Python package (consent-string constants) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/legal/pyproject.toml",
+				"$(SRCROOT)/../vendor/legal/consent_strings.py",
+			);
+			name = "Bundle legal Python package (consent-string constants)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/legal/pyproject.toml",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh:1913 probes ${SCRIPT_DIR}/legal/pyproject.toml\n# to pip-install the legal package into the customer venv.\n# The package contains the consent-string constants that\n# ostler_security.consent and the Rust gates import at\n# runtime when the customer triggers an Article 9 sensitive-\n# data flow, the WhatsApp channel arm, or voice transcription.\n# Without this bundle, the GUI install silently skips the\n# pip install (no warn, no error - the [[ -d ]] gate is\n# false), and the customer hits ModuleNotFoundError at the\n# first consent gate, hours after install.\n#\n# Source-of-truth: HR015 repo /legal/, vendored into CM051\n# at vendor/legal/. See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F3.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/legal\"\nif [ ! -d \"${SRC}\" ] || [ ! -f \"${SRC}/pyproject.toml\" ]; then\n  echo \"ERROR: vendor/legal not found at ${SRC} (need pyproject.toml)\" >&2\n  echo \"       Re-sync from HR015 /legal/ (see vendor/README.md).\" >&2\n  exit 1\nfi\necho \"Bundling legal from ${SRC} into Resources/legal/\"\nmkdir -p \"${DEST}/legal\"\ncp -R \"${SRC}/\"* \"${DEST}/legal/\"\n# Strip __pycache__ that may have leaked from a developer\n# checkout - pip-install does not need them and they bloat\n# the codesigned bundle.\nfind \"${DEST}/legal\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/legal\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n/usr/bin/xattr -cr \"${DEST}/legal\" || true\n";
 		};
 		9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -649,6 +695,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Info.plist sets ATSApplicationFontsPath = \"Fonts\", which tells\n# macOS to look at Contents/Resources/Fonts/ for app-specific fonts\n# to register at launch. xcodegen's default group-based resources\n# copy flattens the source Fonts/ subdir, so without this step the\n# TTFs land flat at Contents/Resources/*.ttf and macOS never finds\n# them. Every Font.custom(...) call then silently falls back to\n# system. Caught by TNM 2026-05-16 review of PR #77 (Check 6).\n# Fix: post-build, ensure Fonts/ subdir exists and move any flat\n# brand TTFs (Outfit, IBMPlexSans, JetBrainsMono) + OFL.txt into it.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/Fonts\"\nfor f in Outfit-Regular.ttf Outfit-Medium.ttf Outfit-SemiBold.ttf Outfit-Bold.ttf \\\n         IBMPlexSans-Regular.ttf IBMPlexSans-Medium.ttf IBMPlexSans-SemiBold.ttf \\\n         JetBrainsMono-Regular.ttf JetBrainsMono-Medium.ttf \\\n         OFL.txt; do\n    if [ -f \"${DEST}/${f}\" ]; then\n        mv -f \"${DEST}/${f}\" \"${DEST}/Fonts/${f}\"\n    fi\ndone\n";
+		};
+		BE798CA5C879050E43B4A9DA /* Bundle scripts/deferred-register-device.sh into Resources/scripts */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../scripts/deferred-register-device.sh",
+			);
+			name = "Bundle scripts/deferred-register-device.sh into Resources/scripts";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/deferred-register-device.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh:4963 probes ${SCRIPT_DIR}/scripts/deferred-register-device.sh\n# to install the LaunchAgent that retries device registration\n# against appcast.ostler.ai when the install-time POST fails\n# (Wi-Fi blip, Worker briefly down). Without this bundle,\n# the LaunchAgent loads but exits immediately on missing-file.\n# Belt-and-braces fallback; primary registration is during\n# install via the GUI's task #340 path.\n#\n# Source-of-truth: CM051 repo /scripts/deferred-register-device.sh.\n# See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F9.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../scripts/deferred-register-device.sh\"\nif [ ! -f \"${SRC}\" ]; then\n  echo \"ERROR: scripts/deferred-register-device.sh not found at ${SRC}\" >&2\n  exit 1\nfi\necho \"Bundling scripts/deferred-register-device.sh into Resources/scripts/\"\nmkdir -p \"${DEST}/scripts\"\ncp \"${SRC}\" \"${DEST}/scripts/deferred-register-device.sh\"\nchmod 755 \"${DEST}/scripts/deferred-register-device.sh\"\n/usr/bin/xattr -cr \"${DEST}/scripts\" || true\n";
 		};
 		C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -738,6 +804,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Vendor the CM024 Knowledge service (ostler-knowledge CLI)\n# into the signed .app so install.sh Phase 3.13b can pip-\n# install it into the customer venv without a network clone.\n# Pre-2026-05-21 the Knowledge service path was clone-only\n# (PWG_KNOWLEDGE_REPO env override); without an override the\n# install logged \"Knowledge service not installed\" and the\n# Doctor \"Import Evernote\" surface would later show \"service\n# unavailable\" when the feature flag is flipped on.\n#\n# Customer-facing primarily for Evernote import (Doctor UI,\n# feature-flagged OFF at v1.0; flipped on for v1.1). The CLI\n# install path is NOT flag-gated -- the binary is always\n# installed; the flag only controls UI visibility.\n#\n# Mirror of the ostler_security + ostler_fda vendor patterns\n# (PRs #115 + #116).\n#\n# Hard-fail if the vendor dir is missing so a forgotten\n# vendor-sync surfaces at build time, not at install time.\nVENDOR_SRC=\"${SRCROOT}/../vendor/cm024_knowledge\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/cm024_knowledge/ is missing.\" >&2\n    echo \"error: see vendor/README.md for the manual sync recipe.\" >&2\n    echo \"error: the customer-install path pip-installs ostler-knowledge\" >&2\n    echo \"error: from Contents/Resources/cm024_knowledge/. Refusing to build\" >&2\n    echo \"error: a .app that would silently skip the Knowledge service install.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/cm024_knowledge\"\n# Copy WITHOUT -p so we do not preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break\n# codesign). The trailing /. on the source copies the dir\n# contents (not the dir itself) into ${DEST}/cm024_knowledge/.\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/cm024_knowledge/\"\n# Strip any __pycache__ that snuck in from a developer\n# checkout. pip-install does not need them and they bloat\n# the codesigned bundle.\nfind \"${DEST}/cm024_knowledge\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/cm024_knowledge\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Belt-and-braces xattr strip on the package (the bundle-\n# wide xattr -cr in the next phase repeats this, but doing\n# it here keeps the per-phase output clean).\n/usr/bin/xattr -cr \"${DEST}/cm024_knowledge\"\n";
+		};
+		F91168F12AE17E931B5752D1 /* Bundle wiki-recompile (daily wiki rebuild LaunchAgent) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../wiki-recompile/INSTALL_SNIPPET.sh",
+			);
+			name = "Bundle wiki-recompile (daily wiki rebuild LaunchAgent)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/wiki-recompile/INSTALL_SNIPPET.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh:5838 probes ${SCRIPT_DIR}/wiki-recompile/INSTALL_SNIPPET.sh\n# to install the wiki-recompile LaunchAgent (rebuilds the\n# customer's MkDocs wiki on a daily tick so newly-ingested\n# data lands in the wiki view). Without this bundle, the\n# GUI install falls through to either a reuse-existing\n# branch (only true on a re-install) or an info-log + skip\n# branch. The customer's wiki then freezes at the first\n# compile output.\n#\n# Source-of-truth: CM051 repo root /wiki-recompile/.\n# See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F2.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../wiki-recompile\"\nif [ ! -d \"${SRC}\" ] || [ ! -f \"${SRC}/INSTALL_SNIPPET.sh\" ]; then\n  echo \"ERROR: wiki-recompile/ not found at ${SRC} (need INSTALL_SNIPPET.sh)\" >&2\n  echo \"       CM051 repo root must contain wiki-recompile/INSTALL_SNIPPET.sh.\" >&2\n  exit 1\nfi\necho \"Bundling wiki-recompile from ${SRC} into Resources/wiki-recompile/\"\nmkdir -p \"${DEST}/wiki-recompile\"\ncp -R \"${SRC}/\"* \"${DEST}/wiki-recompile/\"\n/usr/bin/xattr -cr \"${DEST}/wiki-recompile\" || true\nchmod 755 \"${DEST}/wiki-recompile/INSTALL_SNIPPET.sh\"\n";
 		};
 		FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

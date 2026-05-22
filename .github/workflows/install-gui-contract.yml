@@ -18,12 +18,20 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
       - 'lib/progress_emitter.sh'
+      - 'lib/write_pipeline_signals.py'
       - 'gui/OstlerInstaller/**'
+      - 'gui/project.yml'
       - 'scripts/extract_install_protocol.py'
+      - 'scripts/check_install_sh_script_dir_coverage.py'
       - 'gui/scripts/extract_gui_renderers.py'
       - 'tests/test_install_gui_contract.py'
       - 'tests/test_install_gui_contract_negatives.py'
+      - 'tests/test_installer_app_bundle_contents.sh'
+      - 'vendor/legal/**'
+      - 'vendor/LICENSES/**'
+      - 'vendor/THIRD_PARTY_NOTICES.md'
       - '.github/workflows/install-gui-contract.yml'
 
 permissions:
@@ -62,3 +70,22 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest tests.test_install_gui_contract_negatives -v
+
+      - name: Check ${SCRIPT_DIR}/X coverage (durable bundling contract gate)
+        # The deep-dive audit (CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md)
+        # found 10+ install.sh probes against ${SCRIPT_DIR}/X that had no
+        # matching postBuildScript in gui/project.yml. This gate prevents
+        # the next buried-failure gap from reaching a customer retest by
+        # asserting every probe is covered.
+        run: |
+          set -euo pipefail
+          python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+
+      - name: Run app-bundle byte-by-byte regression
+        # Per locked memory feedback_silent_bail_regression_test_shape.
+        # Each per-finding assertion pins the EXACT failure shape the
+        # 2026-05-22 audit flagged so a regression is caught at CI rather
+        # than at the customer's first install.
+        run: |
+          set -euo pipefail
+          bash tests/test_installer_app_bundle_contents.sh
