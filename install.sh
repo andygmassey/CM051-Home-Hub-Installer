@@ -3781,6 +3781,41 @@ info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
     fi
 }
 
+# Install ostler-passkey-helper to /usr/local/bin so the Python
+# ostler_security.webauthn_client subprocess can find it.
+#
+# The helper is a Developer ID-signed universal Swift binary (built
+# from ostler_security/bin/src/Package.swift) that bridges Python to
+# Apple's AuthenticationServices framework for WebAuthn passkey
+# registration + assertion. Python's webauthn_client.py looks for it
+# at the hard-coded DEFAULT_HELPER_PATH "/usr/local/bin/ostler-passkey-helper".
+#
+# Discovered missing 2026-05-22 Studio retest #10: the Swift package
+# existed in the HR015 worktree but was never built/vendored/copied
+# during install. setup_wizard.register_passkey() hit HELPER_NOT_FOUND
+# (exit code 2) immediately after the sqlcipher3 install succeeded.
+#
+# /usr/local/bin is chown'd to the original user as part of
+# AuthorizationHelper.swift's Option B admin pre-flight (see comment
+# in that file), so the install.sh subprocess (running as the user)
+# can write here without sudo.
+HELPER_SRC="${SCRIPT_DIR}/ostler_security/bin/ostler-passkey-helper"
+HELPER_DST="/usr/local/bin/ostler-passkey-helper"
+if [[ -x "$HELPER_SRC" ]]; then
+    mkdir -p /usr/local/bin
+    cp "$HELPER_SRC" "$HELPER_DST"
+    chmod 755 "$HELPER_DST"
+    ok "Passkey helper installed at $HELPER_DST"
+else
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "ostler-passkey-helper not found in installer bundle; passkey setup will fail. Continuing because --allow-plaintext was passed."
+    else
+        warn "ostler-passkey-helper not found at $HELPER_SRC."
+        warn "The installer bundle is incomplete. Re-download from ostler.ai/install."
+        fail "Passkey helper missing from installer bundle. Required for encrypted databases."
+    fi
+fi
+
 # Run passkey-primary security setup via ostler_security.setup_wizard.
 #
 # This invokes the wizard's run_wizard() entry point, which:
