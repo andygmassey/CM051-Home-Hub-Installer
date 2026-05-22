@@ -1823,12 +1823,60 @@ else
     info "$MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL"
 fi
 
+# ── 2.99 Python 3.10+ check (must run BEFORE any venv is created) ──
+#
+# Studio retest 2026-05-22 caught a phase-ordering bug: the venv was
+# created here using the system `python3` (3.9.6 on a default macOS
+# 15 install), then Phase 3.4 ran `brew install python@3.12` AFTER
+# the venv was already bound to 3.9.6. Result: `encrypt_db` died
+# trying to pip-install pysqlcipher3 against a Python the wheel does
+# not support. Fix: check + install Python BEFORE venv creation,
+# carry the verified-good path forward as `PYTHON3_BIN`, and use
+# that everywhere (not PATH-based `python3` resolution, which can
+# resolve to the system binary even after a PATH prepend).
+if [[ -z "${PYTHON3_BIN:-}" ]]; then
+    PYTHON3_BIN=""
+    if command -v python3 &>/dev/null; then
+        SYS_PY_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
+        SYS_PY_MAJOR=$(echo "$SYS_PY_VERSION" | cut -d. -f1)
+        SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
+        if [[ "$SYS_PY_MAJOR" -ge 3 && "$SYS_PY_MINOR" -ge 10 ]]; then
+            PYTHON3_BIN="$(command -v python3)"
+            ok "$(printf "$MSG_OK_PYTHON" "${SYS_PY_VERSION}")"
+        fi
+    fi
+    if [[ -z "$PYTHON3_BIN" ]]; then
+        if command -v python3 &>/dev/null; then
+            warn "$(printf "$MSG_WARN_PYTHON_TOO_OLD_NEED_3_10" "${SYS_PY_VERSION}")"
+        else
+            warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
+        fi
+        if ! brew install python@3.12; then
+            fail "Could not install Python 3.12 via Homebrew. Re-run the installer with a working network connection, or install Python 3.12 manually with: brew install python@3.12"
+        fi
+        # Use the explicit Homebrew keg path, NOT the PATH-prepended
+        # `python3` which can resolve to /usr/bin/python3 (system 3.9.x)
+        # even after a `export PATH=...` prepend.
+        if [[ -x "/opt/homebrew/opt/python@3.12/bin/python3.12" ]]; then
+            PYTHON3_BIN="/opt/homebrew/opt/python@3.12/bin/python3.12"
+        elif [[ -x "/usr/local/opt/python@3.12/bin/python3.12" ]]; then
+            PYTHON3_BIN="/usr/local/opt/python@3.12/bin/python3.12"
+        else
+            fail "brew install python@3.12 reported success but the python3.12 binary was not found at the expected paths. Try 'brew reinstall python@3.12' and re-run the installer."
+        fi
+        NEW_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
+        ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${NEW_PY_VERSION}")"
+    fi
+    export PYTHON3_BIN
+fi
+
 HAS_SECURITY_MODULE=false
 if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
     # macOS Sonoma+ blocks pip3 install to system Python, so use a venv.
+    # PYTHON3_BIN is the verified-3.10+ Python set above.
     OSTLER_VENV="${OSTLER_DIR}/.venv"
     if [[ ! -d "$OSTLER_VENV" ]]; then
-        python3 -m venv "$OSTLER_VENV"
+        "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
     fi
     OSTLER_PIP="${OSTLER_VENV}/bin/pip"
     OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
@@ -3158,30 +3206,17 @@ else
 fi
 
 # ── 3.4 Python check ──────────────────────────────────────────────
-
-NEED_PYTHON=false
-if command -v python3 &>/dev/null; then
-    PY_VERSION=$(python3 --version | cut -d' ' -f2)
-    PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
-    PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-    if [[ $PY_MAJOR -ge 3 && $PY_MINOR -ge 10 ]]; then
-        ok "$(printf "$MSG_OK_PYTHON" "${PY_VERSION}")"
-    else
-        warn "$(printf "$MSG_WARN_PYTHON_TOO_OLD_NEED_3_10" "${PY_VERSION}")"
-        NEED_PYTHON=true
-    fi
+#
+# The verified-3.10+ Python is established in Phase 2.99 before any
+# venv creation (so the venv is bound to the correct interpreter from
+# the start). This block remains as a defence-in-depth no-op log line
+# in case PYTHON3_BIN was somehow unset; the original install/check
+# logic moved up to Phase 2.99 per the 2026-05-22 phase-ordering fix.
+if [[ -n "${PYTHON3_BIN:-}" && -x "$PYTHON3_BIN" ]]; then
+    PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
+    ok "$(printf "$MSG_OK_PYTHON" "${PY_VERSION}")"
 else
-    warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
-    NEED_PYTHON=true
-fi
-
-if [[ "$NEED_PYTHON" == true ]]; then
-    brew install python@3.12
-    # Homebrew Python is at /opt/homebrew/bin/python3.12
-    # Make it the default python3 for this session
-    export PATH="/opt/homebrew/opt/python@3.12/bin:$PATH"
-    PY_VERSION=$(python3 --version | cut -d' ' -f2)
-    ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${PY_VERSION}")"
+    fail "PYTHON3_BIN is unset at Phase 3.4; the Phase 2.99 Python check should have set it. This is a script bug."
 fi
 
 # ── 3.5 Write config ──────────────────────────────────────────────
@@ -3672,7 +3707,7 @@ fi
 # Ensure it exists (re-run safe) and install remaining dependencies.
 OSTLER_VENV="${OSTLER_DIR}/.venv"
 if [[ ! -d "$OSTLER_VENV" ]]; then
-    python3 -m venv "$OSTLER_VENV"
+    "$PYTHON3_BIN" -m venv "$OSTLER_VENV"
 fi
 OSTLER_PIP="${OSTLER_VENV}/bin/pip"
 OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
@@ -4501,7 +4536,7 @@ if [[ "$HAS_PIPELINE" == true ]]; then
 
     if [[ -n "$PIPELINE_REQS" ]]; then
         if [[ ! -d ".venv" ]]; then
-            python3 -m venv .venv
+            "$PYTHON3_BIN" -m venv .venv
         fi
         .venv/bin/pip install --quiet -r "$PIPELINE_REQS"
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
@@ -4603,7 +4638,7 @@ fi
 
 if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$CM048_VENV")"
-    python3 -m venv "$CM048_VENV"
+    "$PYTHON3_BIN" -m venv "$CM048_VENV"
 
     info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
     "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
@@ -5240,7 +5275,7 @@ fi
 
 if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     if [[ ! -d "${DOCTOR_DIR}/.venv" ]]; then
-        python3 -m venv "${DOCTOR_DIR}/.venv"
+        "$PYTHON3_BIN" -m venv "${DOCTOR_DIR}/.venv"
     fi
     "${DOCTOR_DIR}/.venv/bin/pip" install --quiet -r "${DOCTOR_DIR}/requirements.txt"
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
@@ -5384,7 +5419,7 @@ fi
 
 if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
     info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$KNOWLEDGE_VENV")"
-    python3 -m venv "$KNOWLEDGE_VENV"
+    "$PYTHON3_BIN" -m venv "$KNOWLEDGE_VENV"
 
     info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
     "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
