@@ -308,9 +308,13 @@ enum LogRedactor {
             (try? NSRegularExpression(pattern: #"\+\d{7,15}\b"#),
              "⟨phone⟩"),
             // IPv6 (run before IPv4 so the longer pattern wins).
-            // Covers full + compressed forms; conservative on length
-            // to avoid false positives on hex-like log content.
-            (try? NSRegularExpression(pattern: #"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b"#),
+            // Permits compressed `::` forms by allowing empty hex
+            // groups: e.g. `2001:db8::1` parses as
+            //   2001 + :db8 + : (empty) + :1
+            // Anchored on at least one leading hex group + 2-7
+            // following `:hex?` groups so single-colon shapes (MAC
+            // addresses, time stamps) do not match.
+            (try? NSRegularExpression(pattern: #"\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}\b"#),
              "⟨ip⟩"),
             // IPv4
             (try? NSRegularExpression(pattern: #"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"#),

@@ -297,7 +297,7 @@ MSG_OK_YOUR_ASSISTANT_CALLED="Your assistant is called %s"
 # ── Warnings (non-fatal) ──
 
 MSG_WARN_BASH_INSTALL_SNIPPET_SH="  bash %s/INSTALL_SNIPPET.sh"
-MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK="Block 3.1 of the CM024 productisation stack adds pyproject.toml --"
+MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK="Block 3.1 of the CM024 productisation stack adds pyproject.toml…"
 MSG_WARN_BUNDLE="  Bundle: %s"
 MSG_WARN_CD="  cd %s"
 MSG_WARN_CD_2="    cd %s"
