@@ -74,7 +74,7 @@
     "id": "fda_extract",
     "title": "Reading your Mac's databases",
     "subtitle": "The instant onboarding bit",
-    "why": "Ostler reads Safari, iMessage, Notes, Calendar, Photos, Reminders, and Mail directly from macOS. Nothing leaves your machine. Full Disk Access is a one-time grant in System Settings.",
+    "why": "macOS won't let any app read your messages, mail, notes, calendars or photos without your explicit say-so. We need that one permission so Ostler can pull all of it together into your knowledge graph. Everything stays on this Mac – nothing is sent anywhere. You'll grant it once in System Settings and macOS remembers from then on.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
     "long_running_copy": "First-run extraction can take a couple of minutes if your Mail or Photos library is large.",

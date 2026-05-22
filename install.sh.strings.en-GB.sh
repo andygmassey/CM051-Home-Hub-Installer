@@ -582,7 +582,7 @@ MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk
 MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration – you accept the consent above by enabling it."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
-MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International format, like +44 7700 900000. Leading +, country code, digits only."
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Allowlist of phone numbers and Apple ID emails (comma-separated). %s only replies to listed contacts; messages from anyone else are ignored. At least one entry required. For example: +447700900000, you@example.com"
@@ -638,7 +638,7 @@ MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file directly. Google never sees Ostler."
 
 MSG_PROMPT_FDA_PRESET_TITLE="Which Mac sources should Ostler learn from?"
-MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – tick deliberately if you want them."
+MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – choose deliberately if you want them."
 MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended (most people start here)"
 MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything (every data source Ostler supports – for power users)"
 MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise (pick exactly which sources)"
