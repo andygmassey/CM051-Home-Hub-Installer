@@ -104,6 +104,15 @@ internal func escapeForAppleScriptLiteral(_ value: String) -> String {
 internal func buildAuthorizationAppleScript(innerShell: String, prompt: String) -> String {
     let escapedInnerShell = escapeForAppleScriptLiteral(innerShell)
     let escapedPrompt = escapeForAppleScriptLiteral(prompt)
+    // CX-6 (osascript dialog header → "Ostler Installer"): deferred
+    // to v1.0.1. The `tell application "OstlerInstaller" to ...`
+    // wrapper looks tempting but routes the shell script through
+    // Apple Events, which triggers a TCC Automation permission
+    // prompt the customer has to grant BEFORE the admin dialog
+    // appears. Net worse UX than the current "osascript" header.
+    // The proper fix is osacompile-ing a tiny "Ostler Admin Prompt"
+    // .app bundled inside Resources/ and invoking THAT instead of
+    // /usr/bin/osascript; that's a v1.0.1 polish.
     return """
     do shell script "\(escapedInnerShell)" with prompt "\(escapedPrompt)" with administrator privileges
     """

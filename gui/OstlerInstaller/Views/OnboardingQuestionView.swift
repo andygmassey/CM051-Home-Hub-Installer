@@ -102,6 +102,8 @@ struct OnboardingQuestionView: View {
                 consentInstallBody()
             } else if q.prompt.id == "passkey_ack" {
                 passkeyAckBody()
+            } else if q.prompt.id == "recovery_passphrase" {
+                recoveryPassphraseBody()
             } else if q.prompt.id == "assistant_name" && !q.isReview {
                 Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
                     .font(.ostlerBody)
@@ -200,12 +202,40 @@ struct OnboardingQuestionView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// Q14 (recovery_passphrase) helper copy, modality-branched to
+    /// match the primary unlock factor. Sister to passkeyAckBody:
+    /// the bash-side MSG_PROMPT_RECOVERY_PASSPHRASE_HELP hard-coded
+    /// "Touch ID" as the fallback referent, but the recovery
+    /// passphrase falls back from whatever primary the customer's
+    /// Mac actually uses (Touch ID on MacBook Pro / Magic Keyboard;
+    /// login password + Apple Watch on Mac Studio / Mac Mini).
+    private func recoveryPassphraseBody() -> some View {
+        let key: String
+        switch BiometricProbe.cachedModality {
+        case .touchID:
+            key = "recovery_passphrase.help_touch_id"
+        case .opticID:
+            key = "recovery_passphrase.help_optic_id"
+        case .none:
+            key = "recovery_passphrase.help_password_or_watch"
+        }
+        return Text(ViewCopy.shared.string(for: key))
+            .font(.ostlerBodyLg)
+            .foregroundStyle(Color.ostlerInkMuted)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     /// "Question 5 of 17" style header. Drops the "of Y" suffix until
-    /// the channel_choice answer commits and Y becomes known.
+    /// the channel_choice answer commits and Y becomes known, AND
+    /// drops it again if the actual question count overruns the
+    /// planned total (which happens when conditional questions like
+    /// recovery_passphrase or +WhatsApp fire after the count was
+    /// sent). Showing "QUESTION 19 OF 16" looked broken to customers.
     private func header(_ q: DisplayedQuestion) -> some View {
         let x = String(q.index)
         let label: String
-        if let total = coordinator.totalQuestionCount {
+        if let total = coordinator.totalQuestionCount, q.index <= total {
             label = ViewCopy.shared.string(
                 for: "onboarding_question.header_with_total",
                 fills: ["current": x, "total": String(total)]

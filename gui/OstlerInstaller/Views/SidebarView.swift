@@ -29,29 +29,58 @@ struct SidebarView: View {
             .padding(.bottom, .ostlerSpace3)
 
             // ScrollView claims all available vertical space so the
-            // bottom-anchored footer (step counter / Done / Failed)
-            // never crowds out the step list. Without maxHeight:
-            // .infinity, the ScrollView shrinks to content height and
-            // the last two rows can disappear behind the footer when
-            // the install fails mid-flight.
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(catalog.ordered) { meta in
-                        SidebarRow(meta: meta)
-                            .padding(.horizontal, .ostlerSpace2)
+            // bottom-anchored footer never crowds out the step list.
+            // ScrollViewReader keeps the active step (or, on failure,
+            // the failed step) visible by auto-scrolling to it; the
+            // sidebar can hold 21 steps which doesn't fit in the
+            // viewport without scrolling.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(catalog.ordered) { meta in
+                            SidebarRow(meta: meta)
+                                .padding(.horizontal, .ostlerSpace2)
+                                .id(meta.id)
+                        }
+                    }
+                    .padding(.vertical, .ostlerSpace1)
+                }
+                .onChange(of: coordinator.currentStepId) { _, newId in
+                    if let id = newId {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
                     }
                 }
-                .padding(.vertical, .ostlerSpace1)
+                .onChange(of: coordinator.finished) { _, finished in
+                    // On failure, pin the failed (last-active) step
+                    // in view so the customer sees the xmark on the
+                    // right step, not whatever happened to be at the
+                    // top of the visible viewport.
+                    if finished == .fail, let id = coordinator.currentStepId {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
+                }
             }
             .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
                 if let finished = coordinator.finished {
-                    Label(finished == .ok ? "Done" : "Failed",
-                          systemImage: finished == .ok ? "checkmark.circle.fill"
-                                                       : "xmark.circle.fill")
-                        .foregroundStyle(finished == .ok ? Color.ostlerForest : Color.ostlerOxblood)
-                        .font(.ostlerCaption)
+                    // F5 polish 2026-05-22: drop the duplicate Failed/Done
+                    // label in the sidebar footer when the install
+                    // finishes. The top-of-window banner already carries
+                    // the failure heading + actions, and the sidebar row
+                    // shows the xmark on the actual step that died.
+                    // Render an empty marker so the layout doesn't jump.
+                    if finished == .ok {
+                        Label("Done", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(Color.ostlerForest)
+                            .font(.ostlerCaption)
+                    } else {
+                        EmptyView()
+                    }
                 } else {
                     Text(ViewCopy.shared.string(
                         for: "sidebar.step_counter",
@@ -82,16 +111,16 @@ private struct SidebarRow: View {
     var body: some View {
         HStack(spacing: .ostlerSpace2) {
             statusIcon
-                .frame(width: 18, height: 18)
+                .frame(width: 16, height: 16)
             Text(meta.title)
                 .font(.custom(isActive ? Font.OstlerFontName.bodySemi : Font.OstlerFontName.bodyRegular,
                               size: 12, relativeTo: .body))
                 .foregroundStyle(textColor)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 4)
         .padding(.horizontal, .ostlerSpace2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
