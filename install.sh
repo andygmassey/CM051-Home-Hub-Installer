@@ -2033,8 +2033,23 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
     ADD_RP="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE" yesno "Y" "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_HELP" "" "recovery_passphrase_opt_in")"
     if [[ "${ADD_RP:-y}" == "y" || "${ADD_RP:-y}" == "Y" || "${ADD_RP:-y}" == "yes" ]]; then
+        # Studio retest #8 (2026-05-22): on passphrase mismatch the
+        # only visible feedback was a [WARN] line buried in the log
+        # drawer. Customer sees nothing on the form -- just gets
+        # re-prompted for "Enter recovery passphrase" with no
+        # explanation. RP_ERROR carries the previous-attempt
+        # failure reason into the next gui_read's help text so the
+        # GUI renders it inline above the password field. Cleared
+        # on success.
+        RP_ERROR=""
         while true; do
-            RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP" "" "recovery_passphrase")"
+            rp_help="$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP"
+            if [[ -n "$RP_ERROR" ]]; then
+                rp_help="⚠️  ${RP_ERROR}
+
+${rp_help}"
+            fi
+            RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$rp_help" "" "recovery_passphrase")"
             echo ""
             if [[ -z "$RECOVERY_PASSPHRASE" ]]; then
                 warn "$MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED"
@@ -2047,18 +2062,22 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
             # validate_passphrase_strength's diceware path.
             if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
                 warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+                RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
                 unset RECOVERY_PASSPHRASE
                 continue
             fi
 
-            RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP" "" "recovery_passphrase_confirm")"
+            rpc_help="$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP"
+            RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$rpc_help" "" "recovery_passphrase_confirm")"
             echo ""
             if [[ "$RECOVERY_PASSPHRASE" != "$RP_CONFIRM" ]]; then
                 warn "$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
+                RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
                 unset RP_CONFIRM
                 continue
             fi
             unset RP_CONFIRM
+            RP_ERROR=""
             ok "$MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3"
             break
         done
