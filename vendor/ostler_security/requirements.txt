@@ -3,7 +3,7 @@
 # TODO: add --require-hashes once hash values are captured for all platforms
 
 cryptography>=46.0.1,<47.0.0
-pysqlcipher3>=1.2.0,<2.0.0
+sqlcipher3>=0.6.0,<0.7.0
 
 # OPF (OpenAI Privacy Filter) runtime. Optional install group in
 # pyproject.toml ([opf]); listed here so a plain `pip install -r

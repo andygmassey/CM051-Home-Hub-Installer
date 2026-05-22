@@ -26,6 +26,7 @@
     "copy_log_button_copied": "Copied",
     "copy_redacted_log_button": "Copy redacted log",
     "copy_redacted_log_button_copied": "Redacted copied",
+    "email_support_button": "Email support",
     "try_again_button": "Try again"
   },
 
@@ -101,14 +102,16 @@
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",
     "error_invalid_choice": "Pick one of: {options}",
-    "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Marvin, Samantha, Joshua, Friday, Athena, Sage, and Rosie are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
     "choice_label": {
       "channel_choice": {
         "1": "iMessage",
         "2": "Email",
-        "3": "iMessage and email (recommended)",
-        "4": "Skip for now",
-        "5": "iMessage, email and WhatsApp (read-only)"
+        "3": "WhatsApp",
+        "4": "iMessage + Email (recommended)",
+        "5": "iMessage + WhatsApp",
+        "6": "Email + WhatsApp",
+        "7": "All three (iMessage + Email + WhatsApp)"
       },
       "fda_preset": {
         "recommended": "Recommended",
@@ -132,11 +135,13 @@
     "consent_install_terms_url": "https://ostler.ai/terms",
     "consent_install_body_prefix": "Ready to install. By clicking Install Ostler, you confirm you accept the ",
     "consent_install_body_suffix": ".",
+    "consent_install_typed_placeholder": "Type INSTALL",
+    "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
     "preinstall_status_caption": "STATUS"
   },
 
   "assistant_name_suggestions": {
-    "comma_separated": "Marvin, Samantha, Joshua, HAL, JARVIS, Friday, Alfred, Mycroft, Wadsworth, Beatrix, Penelope, Watson, Reginald, Atlas, Ada", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
+    "comma_separated": "Marvin, Samantha, Joshua, Friday, Athena, Sage, Rosie", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
   },
 
   "sidebar": {
@@ -145,16 +150,16 @@
   },
 
   "passkey_ack": {
-    "_meta": "Q12 (passkey-ack) help-copy variants, modality-branched at view-render time by OnboardingQuestionView using BiometricProbe. LAUNCH BLOCKER fix 2026-05-22: the bash-side MSG_PROMPT_PASSKEY_ACK_HELP hard-coded Touch ID, which fails on every desktop Mac without a Magic Keyboard with Touch ID (Mac Studio, Mac Mini, Mac Pro, standard iMac). The GUI now overrides the bash help text with one of these three variants based on detected biometric modality.",
-    "help_touch_id": "Your knowledge graph is encrypted with a key wrapped by Touch ID on this Mac. macOS prompts for Touch ID later in the install. A 12-word recovery phrase is also generated and shown once. Press Continue when you're ready.",
-    "help_optic_id": "Your knowledge graph is encrypted with a key wrapped by Optic ID on this Mac. macOS prompts for Optic ID later in the install. A 12-word recovery phrase is also generated and shown once. Press Continue when you're ready.",
-    "help_password_or_watch": "Your knowledge graph is encrypted with a key wrapped by your login password (or Apple Watch if paired) on this Mac. macOS will prompt for your password later in the install. A 12-word recovery phrase is also generated and shown once. Press Continue when you're ready."
+    "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
+    "help_touch_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",
+    "help_optic_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",
+    "help_password_or_watch": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready."
   },
 
   "recovery_passphrase": {
-    "_meta": "Q14 (recovery_passphrase) help-copy variants, modality-branched at view-render time by OnboardingQuestionView using BiometricProbe. Sister fix to passkey_ack: the bash-side MSG_PROMPT_RECOVERY_PASSPHRASE_HELP hard-coded Touch ID, but the recovery passphrase is the fallback for whatever primary unlock the customer's Mac actually uses.",
-    "help_touch_id": "A separate secondary password. Used only as a fallback if Touch ID fails. Cannot be recovered. We recommend storing it in your password manager.",
-    "help_optic_id": "A separate secondary password. Used only as a fallback if Optic ID fails. Cannot be recovered. We recommend storing it in your password manager.",
-    "help_password_or_watch": "A separate secondary password. Used only as a fallback if your login password (or paired Apple Watch) fails. Cannot be recovered. We recommend storing it in your password manager."
+    "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
+    "help_touch_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",
+    "help_optic_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",
+    "help_password_or_watch": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
   }
 }

@@ -81,7 +81,15 @@ struct SidebarView: View {
                     } else {
                         EmptyView()
                     }
-                } else {
+                } else if coordinator.currentStepIdx > 0 {
+                    // Studio retest #8 (2026-05-22) showed "Step 0 of 11"
+                    // throughout the questions phase -- mathematically
+                    // wrong (rows above show ~21 steps, not 11) and
+                    // semantically wrong (we're in questions, not
+                    // install). Hide the counter+bar until the install
+                    // phase actually starts ticking steps. The
+                    // active-row highlight in the rows above already
+                    // tells the customer where they are.
                     Text(ViewCopy.shared.string(
                         for: "sidebar.step_counter",
                         fills: [

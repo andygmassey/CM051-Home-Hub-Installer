@@ -226,26 +226,22 @@ struct OnboardingQuestionView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// "Question 5 of 17" style header. Drops the "of Y" suffix until
-    /// the channel_choice answer commits and Y becomes known, AND
-    /// drops it again if the actual question count overruns the
-    /// planned total (which happens when conditional questions like
-    /// recovery_passphrase or +WhatsApp fire after the count was
-    /// sent). Showing "QUESTION 19 OF 16" looked broken to customers.
+    /// "Question 5" style header. Studio retest #8 (2026-05-22) caught
+    /// the "of Y" total being a jumpy mess in practice: Q1-Q7 ran
+    /// before the channel_choice answer expanded the dynamic question
+    /// set, so they rendered without "of Y"; Q8-Q14 then suddenly
+    /// gained "OF 14"; Q15+ (conditional recovery_passphrase + retry)
+    /// overran the planned total and dropped "of Y" again. Three
+    /// shapes in one flow looked broken. Andy chose to drop the
+    /// "of Y" suffix entirely -- just "QUESTION X" at every step.
+    /// The sidebar already shows phase progress, so the customer
+    /// still has an anchor.
     private func header(_ q: DisplayedQuestion) -> some View {
         let x = String(q.index)
-        let label: String
-        if let total = coordinator.totalQuestionCount, q.index <= total {
-            label = ViewCopy.shared.string(
-                for: "onboarding_question.header_with_total",
-                fills: ["current": x, "total": String(total)]
-            )
-        } else {
-            label = ViewCopy.shared.string(
-                for: "onboarding_question.header_without_total",
-                fills: ["current": x]
-            )
-        }
+        let label = ViewCopy.shared.string(
+            for: "onboarding_question.header_without_total",
+            fills: ["current": x]
+        )
         let suffix = q.isReview
             ? ViewCopy.shared.string(for: "onboarding_question.header_review_suffix")
             : ""
@@ -330,6 +326,25 @@ struct OnboardingQuestionView: View {
             EmptyView()
         case .folder:
             folderPicker(q)
+        case .textWithCancel:
+            // Typed-input legal gate: same control shape as `.text`
+            // but the Continue button in `buttonRow` is disabled
+            // until the trimmed input upper-cased matches the
+            // accept sentinel in `choices[0]` (e.g. "INSTALL").
+            // The companion Cancel button posts `choices[1]`
+            // (e.g. "CANCEL") for graceful exit.
+            TextField(
+                ViewCopy.shared.string(
+                    for: "onboarding_question.consent_install_typed_placeholder"
+                ),
+                text: q.isReview ? .constant(q.priorAnswer ?? "") : $textValue
+            )
+                .textFieldStyle(.roundedBorder)
+                .font(.ostlerBodyLg)
+                .tint(.ostlerOxblood)
+                .focused($focused)
+                .disabled(q.isReview)
+                .onSubmit { submit(q) }
         }
     }
 
@@ -486,20 +501,29 @@ struct OnboardingQuestionView: View {
                 }
                 .buttonStyle(.ostlerPrimary)
                 .keyboardShortcut(.defaultAction)
-            } else if q.prompt.id == "consent_install" {
-                // F6.8: Install Ostler / Cancel pair. Install posts
-                // "INSTALL" back over the FIFO, Cancel posts "CANCEL"
-                // (install.sh's loop branches on these values).
+            } else if q.prompt.kind == .textWithCancel {
+                // Typed-input legal gate (e.g. Q15 consent_install):
+                // Cancel posts choices[1] back to install.sh for
+                // graceful exit; Continue submits choices[0] but
+                // only when the customer's typed input matches the
+                // accept sentinel (case-insensitive, trimmed).
+                // The disabled state on Continue prevents the
+                // "type CONTINUE then press CONTINUE" footgun the
+                // pre-2026-05-22 acknowledge-kind suffered from.
+                let cancelSentinel = q.prompt.choices.count > 1
+                    ? q.prompt.choices[1]
+                    : "CANCEL"
                 Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel")) {
-                    coordinator.respond(to: q.prompt, with: "CANCEL")
+                    coordinator.respond(to: q.prompt, with: cancelSentinel)
                 }
                 .buttonStyle(.ostlerGhost)
 
                 Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_primary")) {
-                    coordinator.respond(to: q.prompt, with: "INSTALL")
+                    submit(q)
                 }
                 .buttonStyle(.ostlerPrimary)
                 .keyboardShortcut(.defaultAction)
+                .disabled(!typedInstallMatches(q, textValue))
             } else if q.prompt.kind == .folder {
                 // F6.5: folder picker carries a Skip button alongside
                 // the standard Continue. Skip submits an empty path
@@ -575,7 +599,28 @@ struct OnboardingQuestionView: View {
             // its own button row above, not the default Continue.
             return q.prompt.defaultValue ?? ""
         case .folder:      return folderValue
+        case .textWithCancel:
+            // Submit the accept sentinel verbatim (e.g. "INSTALL")
+            // rather than the raw typed text so install.sh's FIFO
+            // reader does not see case / whitespace variation.
+            // The validator below has already confirmed the trimmed
+            // upper-cased input matches choices[0]; we round-trip
+            // that canonical form back to install.sh.
+            return q.prompt.choices.first ?? textValue
         }
+    }
+
+    /// Returns true if the customer's typed input satisfies the
+    /// accept sentinel for the current `.textWithCancel` prompt.
+    /// Thin wrapper around the module-scope pure function so the
+    /// view + the OstlerInstallerTests target hit the same logic
+    /// (see `typedInstallInputMatches(sentinel:input:)`).
+    fileprivate func typedInstallMatches(_ q: DisplayedQuestion, _ input: String) -> Bool {
+        guard q.prompt.kind == .textWithCancel else { return false }
+        return typedInstallInputMatches(
+            sentinel: q.prompt.choices.first ?? "",
+            input: input
+        )
     }
 
     /// Returns nil when the answer is acceptable, or a customer-
@@ -608,6 +653,18 @@ struct OnboardingQuestionView: View {
             //         disabled when folderValue is empty so validate
             //         is only reached with a real path.
             break
+        case .textWithCancel:
+            // Legal-gate validator: the trimmed + upper-cased input
+            // must exactly match the accept sentinel (choices[0]).
+            // The Continue button is also gated on this check, so
+            // validate() should normally only see a satisfying input;
+            // this branch is defence-in-depth in case the button
+            // logic ever drifts.
+            if !typedInstallMatches(q, answer) {
+                return ViewCopy.shared.string(
+                    for: "onboarding_question.consent_install_typed_mismatch"
+                )
+            }
         }
         return nil
     }
@@ -642,6 +699,12 @@ struct OnboardingQuestionView: View {
             ? (q.prompt.choices.first ?? "")
             : def
         case .acknowledge: break // no input state to seed
+        case .textWithCancel:
+            // Always start blank. The customer's typed-INSTALL
+            // ceremony is the whole point; pre-filling would
+            // undermine the "proactively write INSTALL" legal
+            // intent.
+            textValue = ""
         case .folder:
             // Default is supplied by install.sh as the customer's
             // ~/Downloads path. Tilde-expand defensively (gui_read
@@ -702,4 +765,29 @@ private struct DisplayedQuestion: Equatable {
     let index: Int
     let priorAnswer: String?
     let isReview: Bool
+}
+
+/// Pure validator for the `.textWithCancel` typed-input legal gate.
+///
+/// Returns true when `input` is a legitimate match for `sentinel`:
+///   - case-insensitive (lower-cased "install" accepts as readily
+///     as upper-cased "INSTALL")
+///   - whitespace-trimmed at start AND end ("  INSTALL  " accepts)
+///   - empty sentinel rejects every input as a defence-in-depth
+///     guard against an install.sh bug passing no choices through
+///
+/// Deliberate non-matches: empty input ("" -> false), partial
+/// typing ("INSTAL" -> false), Unicode lookalikes (full-width
+/// "ＩＮＳＴＡＬＬ" -> false because String.uppercased() does not
+/// fold Halfwidth+Fullwidth to ASCII). The legal-ceremony intent
+/// is "customer typed the exact ASCII word"; Unicode lookalikes
+/// would defeat that intent.
+///
+/// Lives at module scope so OstlerInstallerTests can exercise it
+/// directly via `@testable import OstlerInstaller`, mirroring the
+/// `looksLikeShortLicenceId` pattern in LicenseEntryView.swift.
+func typedInstallInputMatches(sentinel: String, input: String) -> Bool {
+    guard !sentinel.isEmpty else { return false }
+    let typed = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    return typed == sentinel.uppercased()
 }

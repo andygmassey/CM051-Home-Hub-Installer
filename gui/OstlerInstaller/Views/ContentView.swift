@@ -102,7 +102,13 @@ struct ContentView: View {
             }
             HStack(spacing: 0) {
                 SidebarView()
-                    .frame(width: 200)
+                    // Studio retest #8 (2026-05-22) found 200pt too
+                    // narrow: 6 of the 21 step labels truncated with
+                    // ellipsis at lineLimit 1 ("Installing Homebrew +
+                    // ...", "Encrypting your data...", "Reading your
+                    // Mac's dat...", etc.). 260pt fits every catalogue
+                    // entry on one line at 12pt without truncation.
+                    .frame(width: 260)
                     .background(Color.ostlerChassisDeep)
 
                 Rectangle()
@@ -118,12 +124,15 @@ struct ContentView: View {
                     //
                     // When the install has failed, the banner across
                     // the top carries the message + actions; the right
-                    // pane stays blank rather than reverting to the
-                    // HintPanelView (which would otherwise pop back to
-                    // step 1 copy and confuse the customer) or showing
-                    // a stale prompt that no longer accepts input.
+                    // pane reverts to a read-only LogDrawerView (the
+                    // same view the bottom drawer would show) so the
+                    // customer can read the actual failure output
+                    // without having to flip the verbose-log toggle.
+                    // Studio retest #8 (2026-05-22) flagged the blank
+                    // white pane as confusing -- the failure log is
+                    // exactly what the customer needs to see next.
                     if coordinator.finished == .fail {
-                        Color.clear
+                        LogDrawerView()
                     } else if coordinator.pendingPrompt != nil ||
                               coordinator.backReviewIndex != nil {
                         OnboardingQuestionView()
@@ -182,13 +191,36 @@ private struct InstallFailedBannerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: CGFloat.ostlerSpace3)
-            // F-CX-2 2026-05-22: dual "Copy log" / "Copy redacted log"
-            // pair. Customers were emailing support@ostler.ai with
-            // full unredacted logs that contained their email
-            // addresses, phone numbers, full file paths and IPs.
-            // The redacted variant runs LogRedactor.redact() over the
-            // buffer first, so support gets the diagnostic detail
-            // without the PII surface.
+            // F-1c Phase 2 UX sweep 2026-05-22: primary "Email support"
+            // button opens Mail.app with subject + URL-encoded
+            // PII-redacted body already populated. Saves the customer
+            // a redact-then-paste-then-compose round-trip and means
+            // support gets a consistent subject line.
+            //
+            // The two "Copy log" buttons stay for customers who prefer
+            // paste-into-Slack or paste-into-an-issue-tracker; the
+            // redactor pipeline runs through the same LogRedactor so
+            // PII handling is identical across all three paths.
+            Button(ViewCopy.shared.string(for: "install_failed_banner.email_support_button")) {
+                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+                let redacted = LogRedactor.redact(buffer)
+                // mailto: body is URL-encoded with a leading note so
+                // support sees that this is a redacted log, not raw.
+                let bodyHeader = "Hi Ostler support team,\n\n"
+                    + "My installer failed. PII-redacted log below.\n\n"
+                    + "---\n\n"
+                let body = bodyHeader + redacted
+                let subject = "Install failure (OstlerInstaller)"
+                let allowed = CharacterSet.urlQueryAllowed
+                let encSubject = subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? subject
+                let encBody = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? body
+                let mailto = "mailto:support@ostler.ai?subject=\(encSubject)&body=\(encBody)"
+                if let url = URL(string: mailto) {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.ostlerGhost)
+            .foregroundStyle(Color.white)
             Button(redactedCopied
                    ? ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button_copied")
                    : ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button")) {
@@ -248,22 +280,56 @@ enum LogRedactor {
         var s = input
         // Order matters: longer / more-specific patterns first so
         // they don't get pre-consumed by broader regexes.
+        // Phase 2 UX sweep 2026-05-22: added IPv6, API-key prefix
+        // patterns (sk-*, gho_*, ghp_*, github_pat_*), and a
+        // conservative names regex (capitalised pair) per Andy's
+        // F-1b expansion. Re-uses the prefix shapes from
+        // bin/operator-pii-scan.sh.
         let replacements: [(NSRegularExpression?, String)] = [
             // UUID v4 (licence IDs, fingerprints)
             (try? NSRegularExpression(pattern: #"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"#),
              "⟨uuid⟩"),
+            // API-key shapes (must run BEFORE the email regex because
+            // ghp_/gho_ tokens can superficially resemble local parts)
+            (try? NSRegularExpression(pattern: #"\bsk-ant-[A-Za-z0-9_-]{20,}\b"#),
+             "⟨api-key⟩"),
+            (try? NSRegularExpression(pattern: #"\bsk-[A-Za-z0-9]{20,}\b"#),
+             "⟨api-key⟩"),
+            (try? NSRegularExpression(pattern: #"\bghp_[A-Za-z0-9]{30,}\b"#),
+             "⟨api-key⟩"),
+            (try? NSRegularExpression(pattern: #"\bgho_[A-Za-z0-9]{30,}\b"#),
+             "⟨api-key⟩"),
+            (try? NSRegularExpression(pattern: #"\bgithub_pat_[A-Za-z0-9_]{30,}\b"#),
+             "⟨api-key⟩"),
             // Email
             (try? NSRegularExpression(pattern: #"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#),
              "⟨email⟩"),
             // E.164 phone (+447700900000 etc.)
             (try? NSRegularExpression(pattern: #"\+\d{7,15}\b"#),
              "⟨phone⟩"),
+            // IPv6 (run before IPv4 so the longer pattern wins).
+            // Permits compressed `::` forms by allowing empty hex
+            // groups: e.g. `2001:db8::1` parses as
+            //   2001 + :db8 + : (empty) + :1
+            // Anchored on at least one leading hex group + 2-7
+            // following `:hex?` groups so single-colon shapes (MAC
+            // addresses, time stamps) do not match.
+            (try? NSRegularExpression(pattern: #"\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}\b"#),
+             "⟨ip⟩"),
             // IPv4
             (try? NSRegularExpression(pattern: #"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"#),
              "⟨ip⟩"),
             // /Users/<name>/ (preserve everything after the username)
             (try? NSRegularExpression(pattern: #"/Users/[^/\s]+"#),
              "/Users/⟨user⟩"),
+            // Conservative name shape: two capitalised words in a row
+            // (e.g. "Andy Massey", "Mary Jane Watson"). Lower-cased
+            // common log noise like "Apple Mail" / "Apple Silicon" /
+            // "Touch ID" would also match -- accepted as overreach
+            // because false positives (extra ⟨name⟩) are preferable
+            // to false negatives (PII reaching support).
+            (try? NSRegularExpression(pattern: #"\b[A-Z][a-z]{1,15} [A-Z][a-z]{1,20}\b"#),
+             "⟨name⟩"),
         ]
         for (re, replacement) in replacements {
             guard let re else { continue }
