@@ -1112,7 +1112,7 @@ fi
 
 DETECTED_FIRST_LOWER=$(echo "${DETECTED_FIRST:-}" | tr '[:upper:]' '[:lower:]')
 DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]' | cut -d' ' -f1)}
-USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "" "" "user_id")"
+USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "$MSG_PROMPT_USER_ID_HELP" "" "user_id")"
 USER_ID=${USER_ID:-$DEFAULT_ID}
 
 # ── 2. Confirm country code ───────────────────────────────────────
@@ -2716,6 +2716,13 @@ fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 # ══════════════════════════════════════════════════════════════════════
 #  PHASE 3: INSTALL EVERYTHING (unattended -- user can walk away)
 # ══════════════════════════════════════════════════════════════════════
+
+# CX-8 2026-05-22: emit a phase marker so the GUI strap switches from
+# "SETUP (ANSWER A FEW QUESTIONS, THEN WALK AWAY)" to "INSTALLING".
+# Without this the previous phase label stuck across all of Phase 3,
+# leaving the customer staring at "answer questions" copy while the
+# install was actually progressing.
+step "$MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE" "phase3_install"
 
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
