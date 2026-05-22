@@ -104,15 +104,21 @@ internal func escapeForAppleScriptLiteral(_ value: String) -> String {
 internal func buildAuthorizationAppleScript(innerShell: String, prompt: String) -> String {
     let escapedInnerShell = escapeForAppleScriptLiteral(innerShell)
     let escapedPrompt = escapeForAppleScriptLiteral(prompt)
-    // CX-6 (osascript dialog header → "Ostler Installer"): deferred
-    // to v1.0.1. The `tell application "OstlerInstaller" to ...`
-    // wrapper looks tempting but routes the shell script through
-    // Apple Events, which triggers a TCC Automation permission
-    // prompt the customer has to grant BEFORE the admin dialog
-    // appears. Net worse UX than the current "osascript" header.
-    // The proper fix is osacompile-ing a tiny "Ostler Admin Prompt"
-    // .app bundled inside Resources/ and invoking THAT instead of
-    // /usr/bin/osascript; that's a v1.0.1 polish.
+    // CX-6: the admin dialog title is sourced from the process that
+    // executes the AppleScript. When the script ran via an external
+    // AppleScript-runner Process invocation, the dialog credited that
+    // runner ("xxxxxxxx wants to make changes") -- unprofessional at
+    // the trust-critical moment. Fix: run the same script in-process
+    // via `NSAppleScript` (see `requestAdminAuthorization` below).
+    // The executing process is then OstlerInstaller itself, so the
+    // dialog reads "OstlerInstaller wants to make changes".
+    //
+    // The `tell application "OstlerInstaller" to ...` Apple Events
+    // wrapper looks tempting as a no-code-change alternative but
+    // routes the shell script through Apple Events, which triggers
+    // a TCC Automation permission prompt BEFORE the admin dialog
+    // ever shows. Two prompts instead of one. NSAppleScript bypasses
+    // that because no Apple Event is sent.
     return """
     do shell script "\(escapedInnerShell)" with prompt "\(escapedPrompt)" with administrator privileges
     """
@@ -213,51 +219,45 @@ actor AuthorizationHelper {
 
         let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
 
+        // CX-6: execute the AppleScript in-process via NSAppleScript
+        // so the calling app for the macOS Authorization dialog is
+        // OstlerInstaller (dialog reads "OstlerInstaller wants to
+        // make changes") instead of the external AppleScript-runner
+        // process the Studio retest #7 build invoked via Process.
+        // NSAppleScript must run on the main thread (its compile +
+        // execute path posts to the main run loop internally and
+        // asserts otherwise).
+        //
+        // Error reporting: the NSDictionary returned via the inout
+        // pointer carries NSAppleScript.errorNumber (Int, AppleScript
+        // -2700 series) and NSAppleScript.errorMessage (String).
+        // Cancellation is errorNumber -128; we log at debug and
+        // return false. Everything else we log at error level with
+        // a truncated message so unified log captures the failure
+        // shape without spamming.
         let result: Bool = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let task = Process()
-                task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                task.arguments = ["-e", script]
-                let stderrPipe = Pipe()
-                let stdoutPipe = Pipe()
-                task.standardError = stderrPipe
-                task.standardOutput = stdoutPipe
-                do {
-                    try task.run()
-                    task.waitUntilExit()
-                    let exitCode = task.terminationStatus
-                    if exitCode != 0 {
-                        // Capture stderr so the next failure mode of
-                        // this shape (parse error, TCC denial,
-                        // entitlement regression) is visible in the
-                        // unified log under `ai.ostler.installer`,
-                        // not just in NSLog under the default
-                        // subsystem. Truncate to keep large
-                        // AppleScript dumps from spamming the log
-                        // pipeline. User-cancel produces exit 1 with
-                        // a benign "User canceled" stderr message;
-                        // we log at debug level for that case and
-                        // error level for everything else.
-                        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                        let stderr = String(data: stderrData, encoding: .utf8)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                            ?? ""
-                        let stderrExcerpt = stderr.count > 512
-                            ? String(stderr.prefix(512)) + "...(truncated)"
-                            : stderr
-                        let isUserCancel = stderr.contains("User canceled")
-                            || stderr.contains("User cancelled")
-                            || stderr.contains("(-128)")
-                        if isUserCancel {
-                            OstlerLog.lifecycle.debug("osascript admin prompt cancelled by user (exit \(exitCode, privacy: .public))")
-                        } else {
-                            OstlerLog.lifecycle.error("osascript admin prompt failed: exit=\(exitCode, privacy: .public) stderr=\(stderrExcerpt, privacy: .public)")
-                        }
-                    }
-                    continuation.resume(returning: exitCode == 0)
-                } catch {
-                    OstlerLog.lifecycle.error("osascript spawn failed before run: \(error.localizedDescription, privacy: .public)")
+            DispatchQueue.main.async {
+                guard let appleScript = NSAppleScript(source: script) else {
+                    OstlerLog.lifecycle.error("NSAppleScript initialisation returned nil for admin prompt script")
                     continuation.resume(returning: false)
+                    return
+                }
+                var errorInfo: NSDictionary?
+                _ = appleScript.executeAndReturnError(&errorInfo)
+                if let errorInfo = errorInfo {
+                    let errorNumber = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
+                    let errorMessage = (errorInfo[NSAppleScript.errorMessage] as? String) ?? ""
+                    let messageExcerpt = errorMessage.count > 512
+                        ? String(errorMessage.prefix(512)) + "...(truncated)"
+                        : errorMessage
+                    if errorNumber == -128 {
+                        OstlerLog.lifecycle.debug("NSAppleScript admin prompt cancelled by user (errorNumber -128)")
+                    } else {
+                        OstlerLog.lifecycle.error("NSAppleScript admin prompt failed: errorNumber=\(errorNumber, privacy: .public) message=\(messageExcerpt, privacy: .public)")
+                    }
+                    continuation.resume(returning: false)
+                } else {
+                    continuation.resume(returning: true)
                 }
             }
         }
