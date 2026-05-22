@@ -8,6 +8,20 @@
     "quit_button": "Quit installer"
   },
 
+  "permissions_prewarm": {
+    "_meta": "CX-14 Section E1 (2026-05-23): log-line strings emitted by PermissionsPrewarmer at app launch. The pre-warmer requests Contacts / Calendar / Reminders / Photos via the relevant macOS frameworks BEFORE install.sh spawns, so the customer sees all the TCC prompts in a concerted burst while they are still attentive (rather than scattered across a 15-minute install). The log lines surface in the LogDrawer + lifecycle OSLog stream; they are not rendered in the main install layout. Customer-facing copy ('Ostler needs access to ...') lives in Info.plist's NS*UsageDescription strings, which macOS controls.",
+    "starting": "Pre-warming permission prompts: requesting Contacts, Calendar, Reminders, and Photos access up-front.",
+    "contacts_granted": "Contacts access granted.",
+    "contacts_denied": "Contacts access not granted. You can change this later in System Settings > Privacy & Security > Contacts.",
+    "calendar_granted": "Calendar access granted.",
+    "calendar_denied": "Calendar access not granted. You can change this later in System Settings > Privacy & Security > Calendars.",
+    "reminders_granted": "Reminders access granted.",
+    "reminders_denied": "Reminders access not granted. You can change this later in System Settings > Privacy & Security > Reminders.",
+    "photos_granted": "Photos access granted.",
+    "photos_denied": "Photos access not granted. You can change this later in System Settings > Privacy & Security > Photos.",
+    "finished": "Permission pre-warm complete. Continuing to install."
+  },
+
   "admin_access_required": {
     "heading": "Administrator access required",
     "prompt_reason": "Ostler needs administrator access to install required software and keep your Mac awake during setup.",
@@ -20,14 +34,19 @@
   },
 
   "install_failed_banner": {
+    "_meta": "CX-14 Section E2 (2026-05-23): split into a minimal top banner (title only) and a rich body pane. The previous design crammed the heading + subtitle + four buttons into a single horizontal banner; the buttons wrapped on the 880pt window and the subtitle 'Something went wrong... Try again' read as a single throwaway sentence. The split surfaces the rich apology + next-step copy in the right pane (where the customer is already looking) while the top banner stays as a quiet always-visible failure marker. The 'Try again' button was dropped: terminating the app and asking the customer to re-launch is more reliable than an in-place restart, and the Quit option in the footer already does the same thing. support@ostler.ai is now hyperlinked inline via AttributedString rather than living in a separate 'Email support' label.",
     "heading": "Install failed",
-    "subtitle_default": "Something went wrong during install. Use Copy redacted log to grab the details (with personal info masked) for support@ostler.ai, then Try again.",
+    "subtitle_default": "The installer hit a fatal error and stopped.",
+    "body_heading": "The installer hit a fatal error and stopped",
+    "body_paragraph_prefix": "We are sorry for the interruption. The full installer output is below so you can see what happened. To get help, email ",
+    "body_support_email_label": "support@ostler.ai",
+    "body_support_email_url": "mailto:support@ostler.ai",
+    "body_paragraph_suffix": " (the Email support button below opens your mail app with a redacted log already attached), or copy the log yourself with the buttons below and paste it into a reply.",
     "copy_log_button": "Copy log",
     "copy_log_button_copied": "Copied",
     "copy_redacted_log_button": "Copy redacted log",
     "copy_redacted_log_button_copied": "Redacted copied",
-    "email_support_button": "Email support",
-    "try_again_button": "Try again"
+    "email_support_button": "Email support"
   },
 
   "footer": {

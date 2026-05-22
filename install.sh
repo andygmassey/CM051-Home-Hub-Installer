@@ -3227,33 +3227,45 @@ progress "Setting up Ollama (local AI engine)" "ollama_install"
 if command -v ollama &>/dev/null; then
     ok "$MSG_OK_OLLAMA_INSTALLED"
 else
-    # Install the cask (GUI app) not the formula (CLI only).
-    # The cask auto-starts Ollama on boot via launchd.
-    # The formula requires manual `ollama serve` after every reboot.
+    # CX-14 Section E1 (2026-05-23). Install the FORMULA, not the
+    # cask. The cask installs Ollama.app + ships a notarised .app
+    # bundle whose first launch triggers a Gatekeeper "downloaded
+    # from internet" dialog (xattr com.apple.quarantine), which
+    # mid-installs the customer either fights through or ignores
+    # (and then later wonders why the Hub cannot reach Ollama).
+    #
+    # The formula installs `ollama` as a CLI binary into Homebrew's
+    # bin (no .app to quarantine, no Gatekeeper dialog). It serves
+    # on the SAME port (11434) and uses the SAME on-disk layout for
+    # models (~/.ollama/), so every downstream wire path (Hub
+    # agents, embedding pipeline, the model-pull retries below) is
+    # unchanged. The only difference is start-on-boot: we use
+    # `brew services start ollama` to wire a launchd plist for
+    # persistence (cask's `open -a Ollama` path is no longer
+    # available; brew services is the formula's native equivalent).
     info "$MSG_INFO_INSTALLING_OLLAMA"
-    if brew install --cask ollama 2>/dev/null; then
-        ok "$MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP"
-    else
-        # Fallback to CLI formula if cask fails
-        brew install ollama
-        ok "$MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED"
-    fi
+    brew install ollama
+    ok "$MSG_OK_OLLAMA_INSTALLED"
 fi
 
 if curl -s http://localhost:11434/api/tags &>/dev/null; then
     ok "$MSG_OK_OLLAMA_RUNNING"
 else
     info "$MSG_INFO_STARTING_OLLAMA"
-    # Try launching the app first (persists across reboots).
-    # -gj: start in background, hidden -- it's a daemon, no UI needed.
-    open -gj -a Ollama 2>/dev/null || ollama serve &>/dev/null &
+    # Formula path: prefer `brew services start ollama` so the
+    # launchd plist persists across reboots (cask used to do this
+    # via the .app's built-in LaunchAgent; formula needs the
+    # explicit brew-services wire). Fall back to a backgrounded
+    # `ollama serve` if brew services is unavailable (e.g. a
+    # Homebrew install that did not wire services for some reason).
+    brew services start ollama 2>/dev/null || ollama serve &>/dev/null &
     # Wait up to 30 seconds for Ollama to be ready
     OLLAMA_WAIT=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
-            echo "  macOS may have asked you to approve Ollama."
-            echo "  Open Ollama from Applications, approve any dialogs, then re-run."
+            echo "  Run 'brew services start ollama' from Terminal to start it manually,"
+            echo "  then re-run the installer."
             exit 1
         fi
         sleep 2
