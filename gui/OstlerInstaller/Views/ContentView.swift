@@ -164,6 +164,7 @@ struct ContentView: View {
 private struct InstallFailedBannerView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
     @State private var copied = false
+    @State private var redactedCopied = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: CGFloat.ostlerSpace3) {
@@ -181,6 +182,28 @@ private struct InstallFailedBannerView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: CGFloat.ostlerSpace3)
+            // F-CX-2 2026-05-22: dual "Copy log" / "Copy redacted log"
+            // pair. Customers were emailing support@ostler.ai with
+            // full unredacted logs that contained their email
+            // addresses, phone numbers, full file paths and IPs.
+            // The redacted variant runs LogRedactor.redact() over the
+            // buffer first, so support gets the diagnostic detail
+            // without the PII surface.
+            Button(redactedCopied
+                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button_copied")
+                   : ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button")) {
+                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+                let redacted = LogRedactor.redact(buffer)
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(redacted, forType: .string)
+                redactedCopied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    redactedCopied = false
+                }
+            }
+            .buttonStyle(.ostlerGhost)
+            .foregroundStyle(Color.white)
             Button(copied
                    ? ViewCopy.shared.string(for: "install_failed_banner.copy_log_button_copied")
                    : ViewCopy.shared.string(for: "install_failed_banner.copy_log_button")) {
@@ -205,6 +228,50 @@ private struct InstallFailedBannerView: View {
         .padding(.vertical, CGFloat.ostlerSpace2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.ostlerOxblood)
+    }
+}
+
+/// PII redactor for install logs destined for support@ostler.ai.
+/// Masks the categories most likely to leak personal data:
+///   - email addresses → ⟨email⟩
+///   - phone numbers (E.164 + common Western formats) → ⟨phone⟩
+///   - /Users/<name>/... paths → /Users/⟨user⟩/...
+///   - IPv4 + IPv6 addresses → ⟨ip⟩
+///   - macOS Keychain item IDs, fingerprints, licence ids (UUIDs) → ⟨uuid⟩
+///
+/// Intentionally conservative: false positives (over-redaction) are
+/// fine; false negatives (PII leaking through) are not. The
+/// catalogue-fronted button copy ("Copy redacted log") tells the
+/// customer what to expect.
+enum LogRedactor {
+    static func redact(_ input: String) -> String {
+        var s = input
+        // Order matters: longer / more-specific patterns first so
+        // they don't get pre-consumed by broader regexes.
+        let replacements: [(NSRegularExpression?, String)] = [
+            // UUID v4 (licence IDs, fingerprints)
+            (try? NSRegularExpression(pattern: #"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"#),
+             "⟨uuid⟩"),
+            // Email
+            (try? NSRegularExpression(pattern: #"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#),
+             "⟨email⟩"),
+            // E.164 phone (+447700900000 etc.)
+            (try? NSRegularExpression(pattern: #"\+\d{7,15}\b"#),
+             "⟨phone⟩"),
+            // IPv4
+            (try? NSRegularExpression(pattern: #"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"#),
+             "⟨ip⟩"),
+            // /Users/<name>/ (preserve everything after the username)
+            (try? NSRegularExpression(pattern: #"/Users/[^/\s]+"#),
+             "/Users/⟨user⟩"),
+        ]
+        for (re, replacement) in replacements {
+            guard let re else { continue }
+            let range = NSRange(s.startIndex..<s.endIndex, in: s)
+            s = re.stringByReplacingMatches(
+                in: s, options: [], range: range, withTemplate: replacement)
+        }
+        return s
     }
 }
 
@@ -340,12 +407,21 @@ private struct FooterView: View {
 
     var body: some View {
         HStack(spacing: .ostlerSpace2) {
-            Button(ViewCopy.shared.string(for: "footer.cancel_button")) {
-                coordinator.cancel()
-                NSApp.terminate(nil)
+            // F-CX-3 2026-05-22: consent_install renders its own
+            // Cancel + Install Ostler pair inside the question view,
+            // so suppressing the footer Cancel here avoids the
+            // double-Cancel UX Andy flagged from Studio retest #7.
+            // Same for the failed state: the banner already has its
+            // own Try again + Copy log; footer reserves the Quit
+            // slot on the right.
+            if coordinator.pendingPrompt?.id != "consent_install" && coordinator.finished == nil {
+                Button(ViewCopy.shared.string(for: "footer.cancel_button")) {
+                    coordinator.cancel()
+                    NSApp.terminate(nil)
+                }
+                .buttonStyle(.ostlerGhost)
+                .keyboardShortcut(.cancelAction)
             }
-            .buttonStyle(.ostlerGhost)
-            .keyboardShortcut(.cancelAction)
 
             Spacer()
 

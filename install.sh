@@ -1368,7 +1368,7 @@ echo -e "    ${BOLD}3. Both${NC}          – iMessage + email (recommended)"
 echo -e "    ${BOLD}4. Skip for now${NC}  – set up later"
 echo -e "    ${BOLD}5. + WhatsApp${NC}    – iMessage + email + WhatsApp (read-only)"
 echo ""
-CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "3" "$MSG_PROMPT_CHANNEL_CHOICE_HELP" "1,2,3,4" "channel_choice")"
+CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "3" "$MSG_PROMPT_CHANNEL_CHOICE_HELP" "1,2,3,4,5" "channel_choice")"
 CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
 
 # Normalise into per-channel boolean flags for the config writer.
