@@ -94,14 +94,31 @@ def _extract_decoder_cases(src: str, rel: str) -> list[dict]:
 
 
 def _extract_prompt_kinds(src: str, rel: str) -> list[str]:
-    """Pull the raw values of PromptKind from its enum declaration.
+    """Pull the protocol-wire values of PromptKind from its enum
+    declaration.
 
-    The Swift declaration is:
+    The Swift declaration carries two forms:
         enum PromptKind: String, Equatable {
             case text, secret, yesno, choice
+            case acknowledge
+            case folder
+            case textWithCancel = "text_with_cancel"
         }
 
-    We tolerate one-per-line and comma-separated forms.
+    For a case with an explicit raw value (`= "snake_case"`), the
+    raw value IS the wire value -- install.sh emits the snake_case
+    form across the FIFO, and the Swift `PromptKind(rawValue:)`
+    initialiser deserialises it back. The contract test's job is
+    to confirm install.sh's `kind=` arg can deserialise; that
+    means the wire value, not the Swift case name.
+
+    For a case WITHOUT a raw value, Swift's default raw value is
+    the case name itself, so the wire value equals the case name.
+
+    The pre-2026-05-22 extractor scraped only case names, which
+    blew up the contract test the first time someone introduced
+    a snake_case raw value (`textWithCancel = "text_with_cancel"`
+    for the Q15 typed-INSTALL legal gate).
     """
     enum_pat = re.compile(
         r"enum\s+PromptKind\b[^{]*\{(.*?)\}",
@@ -111,13 +128,32 @@ def _extract_prompt_kinds(src: str, rel: str) -> list[str]:
     if not m:
         return []
     body = m.group(1)
-    # Each `case` line lists one or more comma-separated case names.
-    # Char class excludes \n so a `case x, y, z` line does not greedily
-    # swallow the next `case ...` declaration when blank lines (from
-    # stripped doc comments) sit between them.
     kinds: list[str] = []
-    for case_m in re.finditer(r"case\s+([A-Za-z0-9_, \t]+)", body):
-        for name in case_m.group(1).split(","):
+    # Each `case` line is either:
+    #   case foo                       (default raw value = "foo")
+    #   case foo, bar, baz             (multi-case, default raw values)
+    #   case foo = "snake_case"        (explicit raw value)
+    # Multi-case lines never carry explicit raw values in Swift, so
+    # the two shapes are mutually exclusive per line.
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("case"):
+            continue
+        # Drop trailing `//` comments before splitting.
+        comment_idx = stripped.find("//")
+        if comment_idx >= 0:
+            stripped = stripped[:comment_idx].rstrip()
+        # Strip the leading `case` keyword.
+        rest = stripped[len("case"):].strip()
+        if not rest:
+            continue
+        # Explicit raw value form: `name = "wire_value"`.
+        eq_match = re.match(r"([A-Za-z0-9_]+)\s*=\s*\"([^\"]+)\"", rest)
+        if eq_match:
+            kinds.append(eq_match.group(2))
+            continue
+        # Default raw value form: comma-separated case names.
+        for name in rest.split(","):
             name = name.strip()
             if name:
                 kinds.append(name)
