@@ -2721,18 +2721,26 @@ echo "    3. You will keep your passphrase and recovery key safe"
 echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
-# 2026-05-20 Studio retest #2: install consent now uses the
-# acknowledge kind (button-only). The GUI renders an Install / Cancel
-# button pair with a hyperlinked terms link in the body copy; pressing
-# Cancel writes "CANCEL" into the FIFO, pressing Install writes
-# "INSTALL". Customer never has to type a confirmation word. TTY
-# fallback (no OSTLER_GUI) still accepts the typed answers for
-# operators driving install.sh from a terminal.
+# 2026-05-22 Phase 2 UX sweep: install consent is the typed-input
+# legal gate (kind `text_with_cancel`). Andy's brief: "this was
+# where we needed the user to proactively write INSTALL for Legal
+# reasons." The GUI renders a text field + Cancel button; Continue
+# is disabled until the trimmed/upper-cased input matches the first
+# choice ("INSTALL"). Cancel posts the second choice ("CANCEL")
+# verbatim. The 2026-05-20 retest #2 button-pair shape is gone;
+# the typed-INSTALL ceremony is the deliberate-consent signal the
+# legal review wants. TTY fallback (no OSTLER_GUI) still accepts
+# the typed answers for operators driving install.sh from a
+# terminal -- the while-loop branches below cover both forms.
 while true; do
-    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" acknowledge "INSTALL" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
-    if [[ "$CONSENT" == "INSTALL" ]]; then
+    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" text_with_cancel "" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
+    # Case-insensitive accept: the GUI normalises to upper-case
+    # before posting; TTY operators might type "install" lower-case
+    # via a terminal. Bash matches both shapes here.
+    CONSENT_NORM="$(printf '%s' "$CONSENT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+    if [[ "$CONSENT_NORM" == "INSTALL" ]]; then
         break
-    elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
+    elif [[ "$CONSENT_NORM" == "CANCEL" ]]; then
         unset RECOVERY_PASSPHRASE 2>/dev/null || true
         echo ""
         echo "  No problem. Nothing has been installed."

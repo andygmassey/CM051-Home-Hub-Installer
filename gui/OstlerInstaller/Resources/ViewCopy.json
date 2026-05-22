@@ -135,6 +135,8 @@
     "consent_install_terms_url": "https://ostler.ai/terms",
     "consent_install_body_prefix": "Ready to install. By clicking Install Ostler, you confirm you accept the ",
     "consent_install_body_suffix": ".",
+    "consent_install_typed_placeholder": "Type INSTALL",
+    "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
     "preinstall_status_caption": "STATUS"
   },
 
