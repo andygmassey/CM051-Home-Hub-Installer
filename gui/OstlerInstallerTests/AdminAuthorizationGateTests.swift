@@ -421,4 +421,62 @@ final class AdminAuthorizationGateTests: XCTestCase {
             "Option B assembled script must keep the AppleScript string literals balanced. Got: \(script)"
         )
     }
+
+    // MARK: - CX-6: in-process execution (2026-05-22 dialog-title fix)
+
+    /// Pins the in-process NSAppleScript execution path. Studio retest #7
+    /// (2026-05-22) showed the admin password dialog reading "osascript
+    /// wants to make changes" because the AppleScript was executed via
+    /// `Process()` shelling out to `/usr/bin/osascript`. macOS
+    /// Authorization Services attributes the dialog to the calling
+    /// process, so the dialog credited osascript.
+    ///
+    /// Fix: execute the same AppleScript IN-process via `NSAppleScript`.
+    /// The calling process is then OstlerInstaller itself, so the
+    /// dialog reads "OstlerInstaller wants to make changes".
+    ///
+    /// This test refuses any revert that reintroduces the
+    /// `/usr/bin/osascript` Process shell-out from AuthorizationHelper.
+    /// The byte-by-byte source scan mirrors the shape contract used by
+    /// `testBuildAuthorizationAppleScriptEscapesEmbeddedQuotes` and the
+    /// pattern locked in `feedback_silent_bail_regression_test_shape`.
+    func testAuthorizationHelperDoesNotShellOutToOsascript() throws {
+        // Resolve the source file via __FILE__-style path arithmetic so
+        // the test stays valid wherever the test bundle is copied to at
+        // run time. AuthorizationHelper.swift sits one directory up
+        // from the test target's source tree.
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let helperURL = testFileURL
+            .deletingLastPathComponent()      // OstlerInstallerTests/
+            .deletingLastPathComponent()      // gui/
+            .appendingPathComponent("OstlerInstaller/Auth/AuthorizationHelper.swift")
+
+        let source = try String(contentsOf: helperURL, encoding: .utf8)
+
+        // Refuse the Process-shell-out shape. The two refusal markers
+        // together pin the exact failure shape so a future contributor
+        // cannot accidentally reintroduce either half (osascript path
+        // OR Process() executable-URL invocation against it).
+        XCTAssertFalse(
+            source.contains("/usr/bin/osascript"),
+            "CX-6: AuthorizationHelper must not shell out to /usr/bin/osascript -- the macOS Authorization dialog would then credit osascript, not OstlerInstaller. Use NSAppleScript in-process instead."
+        )
+        XCTAssertFalse(
+            source.contains("URL(fileURLWithPath: \"/usr/bin/osascript\")"),
+            "CX-6: AuthorizationHelper must not construct a Process executableURL pointing at /usr/bin/osascript -- the macOS Authorization dialog would then credit osascript."
+        )
+
+        // Require the in-process NSAppleScript shape. NSAppleScript runs
+        // the same `do shell script ... with administrator privileges`
+        // directive but executes inside our process, so the dialog
+        // credits OstlerInstaller.
+        XCTAssertTrue(
+            source.contains("NSAppleScript(source: script)"),
+            "CX-6: AuthorizationHelper must execute the AppleScript via NSAppleScript(source:) so the admin dialog credits OstlerInstaller."
+        )
+        XCTAssertTrue(
+            source.contains("executeAndReturnError"),
+            "CX-6: AuthorizationHelper must use NSAppleScript.executeAndReturnError(_:) to receive the AppleScript error dictionary on cancel/failure."
+        )
+    }
 }

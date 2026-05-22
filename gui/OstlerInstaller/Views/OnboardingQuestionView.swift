@@ -226,26 +226,22 @@ struct OnboardingQuestionView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// "Question 5 of 17" style header. Drops the "of Y" suffix until
-    /// the channel_choice answer commits and Y becomes known, AND
-    /// drops it again if the actual question count overruns the
-    /// planned total (which happens when conditional questions like
-    /// recovery_passphrase or +WhatsApp fire after the count was
-    /// sent). Showing "QUESTION 19 OF 16" looked broken to customers.
+    /// "Question 5" style header. Studio retest #8 (2026-05-22) caught
+    /// the "of Y" total being a jumpy mess in practice: Q1-Q7 ran
+    /// before the channel_choice answer expanded the dynamic question
+    /// set, so they rendered without "of Y"; Q8-Q14 then suddenly
+    /// gained "OF 14"; Q15+ (conditional recovery_passphrase + retry)
+    /// overran the planned total and dropped "of Y" again. Three
+    /// shapes in one flow looked broken. Andy chose to drop the
+    /// "of Y" suffix entirely -- just "QUESTION X" at every step.
+    /// The sidebar already shows phase progress, so the customer
+    /// still has an anchor.
     private func header(_ q: DisplayedQuestion) -> some View {
         let x = String(q.index)
-        let label: String
-        if let total = coordinator.totalQuestionCount, q.index <= total {
-            label = ViewCopy.shared.string(
-                for: "onboarding_question.header_with_total",
-                fills: ["current": x, "total": String(total)]
-            )
-        } else {
-            label = ViewCopy.shared.string(
-                for: "onboarding_question.header_without_total",
-                fills: ["current": x]
-            )
-        }
+        let label = ViewCopy.shared.string(
+            for: "onboarding_question.header_without_total",
+            fills: ["current": x]
+        )
         let suffix = q.isReview
             ? ViewCopy.shared.string(for: "onboarding_question.header_review_suffix")
             : ""

@@ -108,7 +108,7 @@
         "2": "Email",
         "3": "iMessage and email (recommended)",
         "4": "Skip for now",
-        "5": "iMessage, email and WhatsApp (read-only)"
+        "5": "iMessage, email and WhatsApp"
       },
       "fda_preset": {
         "recommended": "Recommended",

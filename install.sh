@@ -1823,24 +1823,35 @@ else
     info "$MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL"
 fi
 
-# ── 2.99 Python 3.10+ check (must run BEFORE any venv is created) ──
+# ── 2.99 Python 3.10/3.11 check (must run BEFORE any venv is created) ──
 #
 # Studio retest 2026-05-22 caught a phase-ordering bug: the venv was
 # created here using the system `python3` (3.9.6 on a default macOS
-# 15 install), then Phase 3.4 ran `brew install python@3.12` AFTER
+# 15 install), then Phase 3.4 ran `brew install python@3.11` AFTER
 # the venv was already bound to 3.9.6. Result: `encrypt_db` died
 # trying to pip-install pysqlcipher3 against a Python the wheel does
 # not support. Fix: check + install Python BEFORE venv creation,
 # carry the verified-good path forward as `PYTHON3_BIN`, and use
 # that everywhere (not PATH-based `python3` resolution, which can
 # resolve to the system binary even after a PATH prepend).
+#
+# Studio retest 2026-05-22 (round 2) caught a second trap: pinning
+# Python 3.12 broke pysqlcipher3 wheel build. pysqlcipher3 1.2.0 (the
+# only release on PyPI, March 2020) uses `distutils` in its setup.py;
+# Python 3.12 removed distutils per PEP 632 in October 2023, so the
+# wheel build dies with `ModuleNotFoundError: No module named
+# 'distutils'`. Pin Python 3.11 instead -- 3.11 still ships distutils.
+# v1.0.1 migration to `sqlcipher3-binary` (maintained fork, Python
+# 3.12 binary wheels) is tracked separately.
 if [[ -z "${PYTHON3_BIN:-}" ]]; then
     PYTHON3_BIN=""
     if command -v python3 &>/dev/null; then
         SYS_PY_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
         SYS_PY_MAJOR=$(echo "$SYS_PY_VERSION" | cut -d. -f1)
         SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
-        if [[ "$SYS_PY_MAJOR" -ge 3 && "$SYS_PY_MINOR" -ge 10 ]]; then
+        # Accept 3.10 or 3.11 only. 3.12+ fails pysqlcipher3 wheel build
+        # (distutils removed); 3.9 and older fail other deps.
+        if [[ "$SYS_PY_MAJOR" -eq 3 && "$SYS_PY_MINOR" -ge 10 && "$SYS_PY_MINOR" -le 11 ]]; then
             PYTHON3_BIN="$(command -v python3)"
             ok "$(printf "$MSG_OK_PYTHON" "${SYS_PY_VERSION}")"
         fi
@@ -1851,18 +1862,18 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
         else
             warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
         fi
-        if ! brew install python@3.12; then
-            fail "Could not install Python 3.12 via Homebrew. Re-run the installer with a working network connection, or install Python 3.12 manually with: brew install python@3.12"
+        if ! brew install python@3.11; then
+            fail "Could not install Python 3.11 via Homebrew. Re-run the installer with a working network connection, or install Python 3.11 manually with: brew install python@3.11"
         fi
         # Use the explicit Homebrew keg path, NOT the PATH-prepended
         # `python3` which can resolve to /usr/bin/python3 (system 3.9.x)
         # even after a `export PATH=...` prepend.
-        if [[ -x "/opt/homebrew/opt/python@3.12/bin/python3.12" ]]; then
-            PYTHON3_BIN="/opt/homebrew/opt/python@3.12/bin/python3.12"
-        elif [[ -x "/usr/local/opt/python@3.12/bin/python3.12" ]]; then
-            PYTHON3_BIN="/usr/local/opt/python@3.12/bin/python3.12"
+        if [[ -x "/opt/homebrew/opt/python@3.11/bin/python3.11" ]]; then
+            PYTHON3_BIN="/opt/homebrew/opt/python@3.11/bin/python3.11"
+        elif [[ -x "/usr/local/opt/python@3.11/bin/python3.11" ]]; then
+            PYTHON3_BIN="/usr/local/opt/python@3.11/bin/python3.11"
         else
-            fail "brew install python@3.12 reported success but the python3.12 binary was not found at the expected paths. Try 'brew reinstall python@3.12' and re-run the installer."
+            fail "brew install python@3.11 reported success but the python3.11 binary was not found at the expected paths. Try 'brew reinstall python@3.11' and re-run the installer."
         fi
         NEW_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
         ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${NEW_PY_VERSION}")"
@@ -2022,8 +2033,23 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
     ADD_RP="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE" yesno "Y" "$MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_HELP" "" "recovery_passphrase_opt_in")"
     if [[ "${ADD_RP:-y}" == "y" || "${ADD_RP:-y}" == "Y" || "${ADD_RP:-y}" == "yes" ]]; then
+        # Studio retest #8 (2026-05-22): on passphrase mismatch the
+        # only visible feedback was a [WARN] line buried in the log
+        # drawer. Customer sees nothing on the form -- just gets
+        # re-prompted for "Enter recovery passphrase" with no
+        # explanation. RP_ERROR carries the previous-attempt
+        # failure reason into the next gui_read's help text so the
+        # GUI renders it inline above the password field. Cleared
+        # on success.
+        RP_ERROR=""
         while true; do
-            RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP" "" "recovery_passphrase")"
+            rp_help="$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP"
+            if [[ -n "$RP_ERROR" ]]; then
+                rp_help="⚠️  ${RP_ERROR}
+
+${rp_help}"
+            fi
+            RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$rp_help" "" "recovery_passphrase")"
             echo ""
             if [[ -z "$RECOVERY_PASSPHRASE" ]]; then
                 warn "$MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED"
@@ -2036,18 +2062,22 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
             # validate_passphrase_strength's diceware path.
             if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
                 warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+                RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
                 unset RECOVERY_PASSPHRASE
                 continue
             fi
 
-            RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP" "" "recovery_passphrase_confirm")"
+            rpc_help="$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP"
+            RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$rpc_help" "" "recovery_passphrase_confirm")"
             echo ""
             if [[ "$RECOVERY_PASSPHRASE" != "$RP_CONFIRM" ]]; then
                 warn "$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
+                RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
                 unset RP_CONFIRM
                 continue
             fi
             unset RP_CONFIRM
+            RP_ERROR=""
             ok "$MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3"
             break
         done
@@ -3728,7 +3758,12 @@ info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
 
 export SQLCIPHER_CFLAGS="-I$(brew --prefix sqlcipher)/include"
 export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
-"$OSTLER_PIP" install --quiet "pysqlcipher3>=1.2.0,<2.0.0" 2>/dev/null || {
+# Studio retest 2026-05-22 round 2: `2>/dev/null` here masked the
+# actual pysqlcipher3 wheel-build failure (distutils-not-found on
+# Python 3.12). Same silent-fail pattern audit/2026-05-04.md HIGH-2
+# flagged on the cryptography install above. Customer can't fix
+# what they can't see -- surface stderr.
+"$OSTLER_PIP" install "pysqlcipher3>=1.2.0,<2.0.0" || {
     # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
         warn "$MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT"

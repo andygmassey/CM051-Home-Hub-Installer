@@ -102,7 +102,13 @@ struct ContentView: View {
             }
             HStack(spacing: 0) {
                 SidebarView()
-                    .frame(width: 200)
+                    // Studio retest #8 (2026-05-22) found 200pt too
+                    // narrow: 6 of the 21 step labels truncated with
+                    // ellipsis at lineLimit 1 ("Installing Homebrew +
+                    // ...", "Encrypting your data...", "Reading your
+                    // Mac's dat...", etc.). 260pt fits every catalogue
+                    // entry on one line at 12pt without truncation.
+                    .frame(width: 260)
                     .background(Color.ostlerChassisDeep)
 
                 Rectangle()
@@ -118,12 +124,15 @@ struct ContentView: View {
                     //
                     // When the install has failed, the banner across
                     // the top carries the message + actions; the right
-                    // pane stays blank rather than reverting to the
-                    // HintPanelView (which would otherwise pop back to
-                    // step 1 copy and confuse the customer) or showing
-                    // a stale prompt that no longer accepts input.
+                    // pane reverts to a read-only LogDrawerView (the
+                    // same view the bottom drawer would show) so the
+                    // customer can read the actual failure output
+                    // without having to flip the verbose-log toggle.
+                    // Studio retest #8 (2026-05-22) flagged the blank
+                    // white pane as confusing -- the failure log is
+                    // exactly what the customer needs to see next.
                     if coordinator.finished == .fail {
-                        Color.clear
+                        LogDrawerView()
                     } else if coordinator.pendingPrompt != nil ||
                               coordinator.backReviewIndex != nil {
                         OnboardingQuestionView()
