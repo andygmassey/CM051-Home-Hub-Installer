@@ -652,7 +652,13 @@ MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Ostler will read data from sources you connect (email, contacts, messages, social archives). This data stays on this Mac. Creative Machines, the company that makes Ostler, never receives any of it. We cannot, even if asked. Some of your data was created by other people (the emails they sent you, the messages they wrote). You are the one deciding to use it on your Mac. By continuing, you are saying you are comfortable with that."
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Ostler will read data from sources you connect (email, contacts, messages, social archives). This data stays on this Mac. Creative Machines, the company that makes Ostler, never receives any of it. We cannot, even if asked.
+
+Some of your data was created by other people – the emails they sent you, the messages they wrote. You are the one deciding to use it on your Mac.
+
+By continuing, you are saying you are comfortable with that.
+
+Read more at docs.ostler.ai/privacy/third-party-data."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install"
 MSG_PROMPT_CONSENT_INSTALL_HELP="By choosing Install Ostler, you confirm you accept the terms at ostler.ai/terms."
