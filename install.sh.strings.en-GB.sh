@@ -440,8 +440,8 @@ MSG_WARN_PORT_1_ALREADY_USE_PID="Port %s is already in use by %s (PID %s)"
 MSG_WARN_PORT_3000_ALREADY_USE_ANOTHER_SERVICE="  - Port 3000 already in use by another service"
 MSG_WARN_POWER_SOURCE="Power source: %s"
 MSG_WARN_PWG_EMAIL_INGEST_MBOX_TMP_MANUAL="  pwg-email-ingest mbox /tmp/manual.mbox.txt"
-MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED="pysqlcipher3 install failed."
-MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT="pysqlcipher3 install failed. Databases will not be encrypted."
+MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED="sqlcipher3 install failed."
+MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT="sqlcipher3 install failed. Databases will not be encrypted."
 MSG_WARN_PYTHON3_M_OSTLER_FDA_APPLE_MAIL="  python3 -m ostler_fda.apple_mail_mbox --emit-mbox /tmp/manual.mbox.txt"
 MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON="Python 3 not found. Installing Python 3.12..."
 MSG_WARN_PYTHON_TOO_OLD_NEED_3_10="Python %s is too old (need 3.10+). Installing Python 3.12..."
@@ -499,7 +499,7 @@ MSG_WARN_WIZARD_CONFIG_STAYS_PLACE_BINARY_STAYS="Wizard config stays in place; b
 MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM="Your assistant needs a name. Pick from the suggestions above or type your own."
 MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM="You can re-grant it in System Settings > Privacy & Security > Contacts."
 MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER="You can run the security setup later: python3 -m ostler_security.setup_wizard"
-MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL="You may need to install manually: %s install pysqlcipher3"
+MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL="You may need to install manually: %s install sqlcipher3"
 
 # ── Error messages (security / integrity, hard-fail context) ──
 
@@ -536,7 +536,7 @@ MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY="No passkey set and no existing sec
 MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="CM048 conversation pipeline is required. Re-run with --allow-plaintext for dev/CI, or fix the missing bundle above and retry."
 MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
-MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="pysqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
+MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only. Linux support coming soon."
 MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 10 minutes. Run 'xcode-select --install' manually, accept the dialog, then re-run this installer."
 

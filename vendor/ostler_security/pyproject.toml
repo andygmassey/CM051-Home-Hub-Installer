@@ -17,19 +17,25 @@ keywords = ["security", "encryption", "sqlcipher", "passkey", "audit"]
 # Pinned versions for supply chain safety (AV-7). Update deliberately,
 # not automatically. pyproject is now the source of truth for installs.
 #
-# pysqlcipher3 is intentionally an OPTIONAL dependency. The SQLCipher
-# C library has to be installed via Homebrew first, which we cannot
-# guarantee in every test/dev environment. ostler_security.database
-# already handles pysqlcipher3 being absent gracefully (HAS_SQLCIPHER
-# flag, falls through to plain sqlite3 with a warning). For full
-# encryption support, install with `pip install ostler_security[encrypted]`.
+# sqlcipher3 is intentionally an OPTIONAL dependency. We don't want
+# to drag in a 3 MB native wheel in dev/test environments that don't
+# need encryption. ostler_security.database already handles sqlcipher3
+# being absent gracefully (HAS_SQLCIPHER flag, falls through to plain
+# sqlite3 with a warning). For full encryption support, install with
+# `pip install ostler_security[encrypted]`.
+#
+# Migrated from pysqlcipher3 to sqlcipher3 on 2026-05-22 (Studio
+# retest #9 launch blocker). pysqlcipher3 1.2.0 (last PyPI release
+# 2020-03) was unbuildable on macOS regardless of Python version --
+# its setup.py ignored every build-flag env var. sqlcipher3 0.6.2
+# ships prebuilt arm64/x86_64 macOS wheels.
 dependencies = [
     "cryptography>=46.0.1,<47.0.0",
 ]
 
 [project.optional-dependencies]
 encrypted = [
-    "pysqlcipher3>=1.2.0,<2.0.0",
+    "sqlcipher3>=0.6.0,<0.7.0",
 ]
 # OPF (OpenAI Privacy Filter) runtime – pulled in only when the
 # caller actually needs the privacy classifier. Switched from
