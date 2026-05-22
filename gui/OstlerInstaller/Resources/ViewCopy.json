@@ -26,6 +26,7 @@
     "copy_log_button_copied": "Copied",
     "copy_redacted_log_button": "Copy redacted log",
     "copy_redacted_log_button_copied": "Redacted copied",
+    "email_support_button": "Email support",
     "try_again_button": "Try again"
   },
 
@@ -101,14 +102,16 @@
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",
     "error_invalid_choice": "Pick one of: {options}",
-    "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Many people pick something simple. Marvin, Friday, Watson, HAL, JARVIS, and Mycroft are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
+    "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Marvin, Samantha, Joshua, Friday, Athena, Sage, and Rosie are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
     "choice_label": {
       "channel_choice": {
         "1": "iMessage",
         "2": "Email",
-        "3": "iMessage and email (recommended)",
-        "4": "Skip for now",
-        "5": "iMessage, email and WhatsApp"
+        "3": "WhatsApp",
+        "4": "iMessage + Email (recommended)",
+        "5": "iMessage + WhatsApp",
+        "6": "Email + WhatsApp",
+        "7": "All three (iMessage + Email + WhatsApp)"
       },
       "fda_preset": {
         "recommended": "Recommended",
@@ -132,11 +135,13 @@
     "consent_install_terms_url": "https://ostler.ai/terms",
     "consent_install_body_prefix": "Ready to install. By clicking Install Ostler, you confirm you accept the ",
     "consent_install_body_suffix": ".",
+    "consent_install_typed_placeholder": "Type INSTALL",
+    "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
     "preinstall_status_caption": "STATUS"
   },
 
   "assistant_name_suggestions": {
-    "comma_separated": "Marvin, Samantha, Joshua, HAL, JARVIS, Friday, Alfred, Mycroft, Wadsworth, Beatrix, Penelope, Watson, Reginald, Atlas, Ada", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
+    "comma_separated": "Marvin, Samantha, Joshua, Friday, Athena, Sage, Rosie", "_exempt_suggestions": "assistant-name-exempt: brand-warm pool of suggestion options shown to the customer at install time. Customer picks their own."
   },
 
   "sidebar": {

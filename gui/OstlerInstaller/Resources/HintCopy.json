@@ -19,6 +19,16 @@
     "illustration": null,
     "needs_fda": false
   },
+  "setup_complete_wrap_up": {
+    "id": "setup_complete_wrap_up",
+    "title": "All set. You can walk away now.",
+    "subtitle": "The installer will run on its own",
+    "why": "Your answers are saved. Phase 3 takes 10 to 15 minutes and runs unattended – Docker, Ollama, the knowledge graph, the assistant binary. You can come back when it's done. Nothing else needs your input.",
+    "duration_estimate_s": 5,
+    "long_running_threshold_s": 30,
+    "illustration": null,
+    "needs_fda": false
+  },
   "homebrew_install": {
     "id": "homebrew_install",
     "title": "Installing Homebrew + system tools",

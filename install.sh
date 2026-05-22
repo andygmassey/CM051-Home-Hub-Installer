@@ -1127,9 +1127,11 @@ if [[ -n "$DETECTED_CODE" ]]; then
         COUNTRY_CODE="$DETECTED_CODE"
     fi
 else
-    echo "  Your country code is used to normalise phone numbers during"
-    echo "  contact import (e.g. 44 for UK, 1 for US, 852 for HK)."
-    echo ""
+    # Studio retest #7 finding #4: the bash-side echo block here
+    # duplicated the help text now carried by
+    # MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP (which also explains the
+    # region-inference effect). Single source of truth in the
+    # catalogue; the GUI renders the help string in the prompt body.
     COUNTRY_CODE="$(gui_read "$MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE" text "44" "$MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP" "" "country_code")"
     COUNTRY_CODE=${COUNTRY_CODE:-44}
 fi
@@ -1308,24 +1310,14 @@ else
 fi
 
 # ── 4. Name your AI assistant ─────────────────────────────────────
+# Q6 helper text + suggestion list are rendered by OnboardingQuestionView
+# from ViewCopy.json (assistant_name_helper + assistant_name_suggestions.
+# comma_separated). The previous bash-side echo block here duplicated
+# the same content in the question body (Studio retest #7 finding #6:
+# "Body text is duplicated twice"), so we leave both empty here and
+# let the GUI catalogue be the single source of truth. Customer sees
+# one suggestion list, not two.
 
-echo ""
-echo -e "  ${BOLD}Name your AI assistant${NC}"
-echo ""
-echo "  Your assistant lives on your Mac and manages your knowledge"
-echo "  graph. Give it a name you will enjoy talking to."
-echo ""
-echo "  Some ideas (or type your own):"
-echo ""
-echo -e "    ${BOLD}Joshua${NC}     – the calm, careful AI from WarGames"
-echo -e "    ${BOLD}Samantha${NC}   – the warm, attentive companion from Her"
-echo -e "    ${BOLD}Atlas${NC}      – steady, reliable, mythological"
-echo -e "    ${BOLD}Ada${NC}        – after Ada Lovelace, the first programmer"
-echo ""
-
-# Q6 helper text is rendered by OnboardingQuestionView from
-# ViewCopy `assistant_name_helper`; passing empty help here prevents
-# the GUI from rendering the same copy twice.
 ASSISTANT_NAME="$(gui_read "$MSG_PROMPT_ASSISTANT_NAME_TITLE" text "" "" "" "assistant_name")"
 while [[ -z "$ASSISTANT_NAME" ]]; do
     warn "$MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM"
@@ -2152,8 +2144,12 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
 
-# Scan common locations for recognisable GDPR export files
-info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
+# Scan common locations for recognisable GDPR export files.
+# Studio retest #7 finding #13 (Image #53): the previous `info`
+# emit here rendered as a ~200ms transient status page in the GUI
+# before the find-scan moved on. Drop to log-only so the GUI never
+# renders a flash page; the bash terminal output is unaffected.
+gui_log info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
@@ -2725,18 +2721,26 @@ echo "    3. You will keep your passphrase and recovery key safe"
 echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
 echo ""
 
-# 2026-05-20 Studio retest #2: install consent now uses the
-# acknowledge kind (button-only). The GUI renders an Install / Cancel
-# button pair with a hyperlinked terms link in the body copy; pressing
-# Cancel writes "CANCEL" into the FIFO, pressing Install writes
-# "INSTALL". Customer never has to type a confirmation word. TTY
-# fallback (no OSTLER_GUI) still accepts the typed answers for
-# operators driving install.sh from a terminal.
+# 2026-05-22 Phase 2 UX sweep: install consent is the typed-input
+# legal gate (kind `text_with_cancel`). Andy's brief: "this was
+# where we needed the user to proactively write INSTALL for Legal
+# reasons." The GUI renders a text field + Cancel button; Continue
+# is disabled until the trimmed/upper-cased input matches the first
+# choice ("INSTALL"). Cancel posts the second choice ("CANCEL")
+# verbatim. The 2026-05-20 retest #2 button-pair shape is gone;
+# the typed-INSTALL ceremony is the deliberate-consent signal the
+# legal review wants. TTY fallback (no OSTLER_GUI) still accepts
+# the typed answers for operators driving install.sh from a
+# terminal -- the while-loop branches below cover both forms.
 while true; do
-    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" acknowledge "INSTALL" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
-    if [[ "$CONSENT" == "INSTALL" ]]; then
+    CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" text_with_cancel "" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
+    # Case-insensitive accept: the GUI normalises to upper-case
+    # before posting; TTY operators might type "install" lower-case
+    # via a terminal. Bash matches both shapes here.
+    CONSENT_NORM="$(printf '%s' "$CONSENT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+    if [[ "$CONSENT_NORM" == "INSTALL" ]]; then
         break
-    elif [[ "$CONSENT" == "CANCEL" || "$CONSENT" == "cancel" ]]; then
+    elif [[ "$CONSENT_NORM" == "CANCEL" ]]; then
         unset RECOVERY_PASSPHRASE 2>/dev/null || true
         echo ""
         echo "  No problem. Nothing has been installed."
@@ -2748,6 +2752,14 @@ while true; do
         echo ""
     fi
 done
+
+# Studio retest #7 finding #18 (Image #58): post-consent wrap-up
+# screen so the customer sees a clean "all set, walk away" state
+# instead of bouncing back to the "A few questions" sidebar state
+# while Phase 3 kicks off. The step itself is a no-op marker -- the
+# GUI renders the HintCopy "setup_complete_wrap_up" block until the
+# next step (homebrew_install) fires its STEP_BEGIN.
+step "All set. You can walk away now." "setup_complete_wrap_up"
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 

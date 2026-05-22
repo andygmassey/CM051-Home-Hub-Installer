@@ -62,6 +62,25 @@ enum PromptKind: String, Equatable {
     /// that produced the "Please enter a value to continue" error
     /// when the customer pressed Continue with an empty field.
     case folder
+    /// Typed-input legal gate -- a text field paired with a Cancel
+    /// button. The customer must type a specific sentinel string
+    /// (e.g. "INSTALL") to proceed; anything else keeps the Continue
+    /// button disabled. Cancel posts the second value in `choices`
+    /// back to install.sh (e.g. "CANCEL") for graceful exit.
+    ///
+    /// The contract is encoded via `choices`:
+    ///   - choices[0] = accept sentinel (case-insensitive, trimmed)
+    ///   - choices[1] = cancel sentinel (posted on Cancel-button press)
+    ///
+    /// Studio retest #7 walkthrough (2026-05-22): Q15 install consent
+    /// previously rendered as a button pair (Install Ostler / Cancel).
+    /// Restored as a typed-input gate per Andy's legal-sign-off
+    /// requirement ("user needs to proactively write INSTALL for
+    /// Legal reasons"). The typed-INSTALL ceremony reinforces that
+    /// the customer is making a deliberate consent decision.
+    /// Snake-case raw value so install.sh's `gui_read` call
+    /// (`gui_read … text_with_cancel …`) deserialises correctly.
+    case textWithCancel = "text_with_cancel"
 }
 
 enum StepStatus: String, Equatable {

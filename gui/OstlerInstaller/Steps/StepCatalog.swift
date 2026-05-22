@@ -90,6 +90,7 @@ final class StepCatalog {
         "license_entry",
         "prereq_check",
         "setup_questions",
+        "setup_complete_wrap_up",
         "homebrew_install",
         "docker_install",
         "ollama_install",
