@@ -25,16 +25,23 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Try to import SQLCipher; fall back to plain sqlite3 with a warning
+# Try to import SQLCipher; fall back to plain sqlite3 with a warning.
+#
+# Migrated from pysqlcipher3 to sqlcipher3 on 2026-05-22 (Studio retest
+# #9 launch blocker). pysqlcipher3 1.2.0 (last PyPI release 2020-03)
+# is abandoned and its setup.py never finds the SQLCipher headers on
+# macOS, so the install always failed at encrypt_db. sqlcipher3 0.6.2
+# ships prebuilt arm64/x86_64 wheels; dbapi2 import shape is
+# identical, so this is a one-line swap.
 try:
-    from pysqlcipher3 import dbapi2 as sqlcipher
+    from sqlcipher3 import dbapi2 as sqlcipher
     HAS_SQLCIPHER = True
 except ImportError:
     sqlcipher = None  # type: ignore
     HAS_SQLCIPHER = False
     logger.warning(
-        "pysqlcipher3 not installed. Databases will NOT be encrypted. "
-        "Install with: pip install pysqlcipher3"
+        "sqlcipher3 not installed. Databases will NOT be encrypted. "
+        "Install with: pip install sqlcipher3"
     )
 
 
@@ -80,15 +87,15 @@ def get_db_connection(
         # pattern the 2026-04-28 fixes removed from CM048 and the
         # other two downstream services -- propagating the same
         # discipline here so the security boundary holds even when
-        # ostler_security itself is the package missing pysqlcipher3.
+        # ostler_security itself is the package missing sqlcipher3.
         # If the operator genuinely wants plaintext, they should call
         # this function with encryption_key_hex=None.
         raise RuntimeError(
-            f"pysqlcipher3 is not installed but an encryption key was "
+            f"sqlcipher3 is not installed but an encryption key was "
             f"provided for {db_path!r}. Refusing to open the database "
             f"in plaintext mode -- this would silently leak encrypted-"
             f"-at-rest expectations. Install with: "
-            f"pip install pysqlcipher3, or call get_db_connection "
+            f"pip install sqlcipher3, or call get_db_connection "
             f"without an encryption_key_hex if plaintext is intentional."
         )
 
@@ -118,7 +125,7 @@ def migrate_to_encrypted(
         or SQLCipher not available).
     """
     if not HAS_SQLCIPHER:
-        logger.error("Cannot migrate: pysqlcipher3 not installed")
+        logger.error("Cannot migrate: sqlcipher3 not installed")
         return False
 
     db_path = Path(db_path)

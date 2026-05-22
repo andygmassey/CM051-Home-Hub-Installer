@@ -119,8 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not HAS_SQLCIPHER:
         print(
-            "ERROR: pysqlcipher3 is not installed in this Python environment. "
-            "Install it first: pip install pysqlcipher3",
+            "ERROR: sqlcipher3 is not installed in this Python environment. "
+            "Install it first: pip install sqlcipher3",
             file=sys.stderr,
         )
         return 2

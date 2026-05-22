@@ -1835,22 +1835,24 @@ fi
 # that everywhere (not PATH-based `python3` resolution, which can
 # resolve to the system binary even after a PATH prepend).
 #
-# Studio retest 2026-05-22 (round 2) caught a second trap: pinning
-# Python 3.12 broke pysqlcipher3 wheel build. pysqlcipher3 1.2.0 (the
-# only release on PyPI, March 2020) uses `distutils` in its setup.py;
-# Python 3.12 removed distutils per PEP 632 in October 2023, so the
-# wheel build dies with `ModuleNotFoundError: No module named
-# 'distutils'`. Pin Python 3.11 instead -- 3.11 still ships distutils.
-# v1.0.1 migration to `sqlcipher3-binary` (maintained fork, Python
-# 3.12 binary wheels) is tracked separately.
+# Studio retest 2026-05-22 (round 3) caught the actual encrypt_db
+# trap: pysqlcipher3 1.2.0 (the only release on PyPI, March 2020) is
+# abandoned and unbuildable on macOS. Migrated to sqlcipher3 (the
+# maintained fork) which ships prebuilt arm64 + x86_64 macOS wheels
+# for cp310/cp311/cp312. We pin Python 3.11 here because round 3
+# verified the full ostler_security + cryptography + sqlcipher3
+# stack runs clean on 3.11; 3.12 wheels also exist for everything
+# but the move-to-3.12 retest is post-launch hygiene rather than
+# launch-blocking. 3.11 EOL is October 2027, plenty of runway.
 if [[ -z "${PYTHON3_BIN:-}" ]]; then
     PYTHON3_BIN=""
     if command -v python3 &>/dev/null; then
         SYS_PY_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
         SYS_PY_MAJOR=$(echo "$SYS_PY_VERSION" | cut -d. -f1)
         SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
-        # Accept 3.10 or 3.11 only. 3.12+ fails pysqlcipher3 wheel build
-        # (distutils removed); 3.9 and older fail other deps.
+        # Accept 3.10 or 3.11 only. 3.12+ has sqlcipher3 wheels available
+        # but is untested in this stack today (post-launch hygiene). 3.9
+        # and older fail other deps.
         if [[ "$SYS_PY_MAJOR" -eq 3 && "$SYS_PY_MINOR" -ge 10 && "$SYS_PY_MINOR" -le 11 ]]; then
             PYTHON3_BIN="$(command -v python3)"
             ok "$(printf "$MSG_OK_PYTHON" "${SYS_PY_VERSION}")"
@@ -3756,14 +3758,17 @@ info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
 # and silently masked any genuine cryptography install failure --
 # audit ref /tmp/silent_fail_audit_2026-05-04.md HIGH-2.
 
-export SQLCIPHER_CFLAGS="-I$(brew --prefix sqlcipher)/include"
-export SQLCIPHER_LDFLAGS="-L$(brew --prefix sqlcipher)/lib"
-# Studio retest 2026-05-22 round 2: `2>/dev/null` here masked the
-# actual pysqlcipher3 wheel-build failure (distutils-not-found on
-# Python 3.12). Same silent-fail pattern audit/2026-05-04.md HIGH-2
-# flagged on the cryptography install above. Customer can't fix
-# what they can't see -- surface stderr.
-"$OSTLER_PIP" install "pysqlcipher3>=1.2.0,<2.0.0" || {
+# Studio retest 2026-05-22 round 3: pysqlcipher3 1.2.0 (the only
+# release on PyPI, March 2020) is abandoned. Its setup.py ignores
+# both `SQLCIPHER_CFLAGS` and standard `CFLAGS`/`LDFLAGS`, so the
+# wheel build never finds Homebrew's sqlcipher headers + always
+# dies with `fatal error: 'sqlcipher/sqlite3.h' file not found`,
+# regardless of Python version or env-var permutation. Migrate to
+# `sqlcipher3` (the maintained fork), which ships prebuilt
+# macosx_11_0_arm64 wheels for cp310/cp311/cp312 -- installs in <1s
+# with no compile. Import API is identical at the dbapi2 level so
+# `from sqlcipher3 import dbapi2 as sqlcipher` is a drop-in swap.
+"$OSTLER_PIP" install "sqlcipher3>=0.6.0,<0.7.0" || {
     # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
     if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
         warn "$MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT"
