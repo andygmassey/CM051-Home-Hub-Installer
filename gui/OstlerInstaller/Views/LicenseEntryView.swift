@@ -199,23 +199,37 @@ struct LicenseEntryView: View {
     /// failure paths land on `errorMessage` rather than silently
     /// bailing, so the customer always gets either an installer
     /// advance or a one-line reason.
+    ///
+    /// Each branch logs an `.info` line at entry so a retest can
+    /// identify which dispatcher branch matched without needing a
+    /// debug build (the previous build only logged the registered
+    /// type list and per-branch failures; if no branch matched, the
+    /// customer saw the dashed-idle border with no installer
+    /// advance and the cause was invisible to support).
     private func acquireDropData(from provider: NSItemProvider) {
         let typeIdentifiers = provider.registeredTypeIdentifiers
-        OstlerLog.lifecycle.debug("license drop: provider types=\(typeIdentifiers.joined(separator: ","), privacy: .public)")
+        OstlerLog.lifecycle.info("license drop: provider types=\(typeIdentifiers.joined(separator: ","), privacy: .public)")
 
         // Branch A: URL.self loadable. Finder-sourced file drops land
-        // here on macOS 12+.
+        // here on macOS 12+. Apple Forum threads under
+        // <feedback://NSItemProvider-canLoadObject-URL> note Sequoia
+        // (macOS 15) occasionally returns `false` here for files with
+        // an active quarantine xattr; in that case Branch B picks up
+        // via the older `public.file-url` representation. Keep both
+        // branches; reorder only on confirmed-repro evidence.
         if provider.canLoadObject(ofClass: URL.self) {
+            OstlerLog.lifecycle.info("license drop: matched branch A (canLoadObject URL.self)")
             _ = provider.loadObject(ofClass: URL.self) { url, error in
                 DispatchQueue.main.async {
                     if let url {
+                        OstlerLog.lifecycle.info("license drop branch A resolved URL: \(url.lastPathComponent, privacy: .public)")
                         self.loadFromURL(url)
                     } else {
                         self.errorMessage = ViewCopy.shared.string(
                             for: "license_entry.drop_url_resolve_error",
                             fills: ["reason": error?.localizedDescription ?? "no URL returned"]
                         )
-                        OstlerLog.lifecycle.error("license drop URL.self load returned nil: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                        OstlerLog.lifecycle.error("license drop branch A URL.self load returned nil: \(error?.localizedDescription ?? "no error", privacy: .public)")
                     }
                 }
             }
@@ -224,17 +238,19 @@ struct LicenseEntryView: View {
 
         // Branch B: explicit public.file-url representation.
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            OstlerLog.lifecycle.info("license drop: matched branch B (public.file-url)")
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                 DispatchQueue.main.async {
                     if let urlData = item as? Data,
                        let url = URL(dataRepresentation: urlData, relativeTo: nil) {
+                        OstlerLog.lifecycle.info("license drop branch B resolved URL: \(url.lastPathComponent, privacy: .public)")
                         self.loadFromURL(url)
                     } else {
                         self.errorMessage = ViewCopy.shared.string(
                             for: "license_entry.drop_url_resolve_error",
                             fills: ["reason": error?.localizedDescription ?? "file URL data was empty or malformed"]
                         )
-                        OstlerLog.lifecycle.error("license drop public.file-url load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                        OstlerLog.lifecycle.error("license drop branch B public.file-url load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
                     }
                 }
             }
@@ -248,18 +264,21 @@ struct LicenseEntryView: View {
         // to the false return and the customer saw the dashed-idle
         // border with no error.
         if provider.hasItemConformingToTypeIdentifier(UTType.json.identifier) {
+            OstlerLog.lifecycle.info("license drop: matched branch C (public.json)")
             provider.loadItem(forTypeIdentifier: UTType.json.identifier, options: nil) { item, error in
                 DispatchQueue.main.async {
                     if let data = item as? Data {
+                        OstlerLog.lifecycle.info("license drop branch C loaded \(data.count, privacy: .public) bytes")
                         self.verify(data: data, source: "drop-json")
                     } else if let s = item as? String, let data = s.data(using: .utf8) {
+                        OstlerLog.lifecycle.info("license drop branch C loaded \(data.count, privacy: .public) bytes (string)")
                         self.verify(data: data, source: "drop-json-string")
                     } else {
                         self.errorMessage = ViewCopy.shared.string(
                             for: "license_entry.drop_json_load_error",
                             fills: ["reason": error?.localizedDescription ?? "JSON payload was empty"]
                         )
-                        OstlerLog.lifecycle.error("license drop public.json load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                        OstlerLog.lifecycle.error("license drop branch C public.json load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
                     }
                 }
             }
@@ -270,16 +289,18 @@ struct LicenseEntryView: View {
         // pasteboard as text-only land here (e.g. dragging a text
         // selection out of a code editor).
         if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            OstlerLog.lifecycle.info("license drop: matched branch D (public.plain-text)")
             provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
                 DispatchQueue.main.async {
                     if let s = item as? String, let data = s.data(using: .utf8) {
+                        OstlerLog.lifecycle.info("license drop branch D loaded \(data.count, privacy: .public) bytes")
                         self.verify(data: data, source: "drop-text")
                     } else {
                         self.errorMessage = ViewCopy.shared.string(
                             for: "license_entry.drop_text_load_error",
                             fills: ["reason": error?.localizedDescription ?? "text payload was empty"]
                         )
-                        OstlerLog.lifecycle.error("license drop public.plain-text load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
+                        OstlerLog.lifecycle.error("license drop branch D public.plain-text load failed: \(error?.localizedDescription ?? "no error", privacy: .public)")
                     }
                 }
             }
@@ -297,15 +318,44 @@ struct LicenseEntryView: View {
         }
     }
 
+    /// Read bytes off disk for a URL that came in via Branch A or B.
+    ///
+    /// Pre-2026-05-22: this used `try? Data(contentsOf:)`. The
+    /// `try?` swallowed the actual error and the message that landed
+    /// on the customer's screen was the generic "Could not read the
+    /// licence file at <filename>" -- a dead end with no support
+    /// signal. If the read happened to succeed but the file was
+    /// empty (zero bytes), the empty Data slid into `verify(data:)`,
+    /// JSON-parsed, and emitted "Could not parse licence JSON" --
+    /// also dead-end and misleading-cause-and-effect (the bytes
+    /// weren't malformed, there just weren't any). Both shapes are
+    /// what Andy's earlier "file empty" recollection refers to.
+    ///
+    /// Now: explicit do/try/catch surfaces the actual underlying
+    /// error via `localizedDescription`, and an explicit empty-data
+    /// guard raises a distinct `drop_file_empty_error` rather than
+    /// pretending the bytes were malformed.
     private func loadFromURL(_ url: URL) {
-        guard let data = try? Data(contentsOf: url) else {
+        do {
+            let data = try readLicenceFile(at: url)
+            OstlerLog.lifecycle.info("license drop file read \(data.count, privacy: .public) bytes from \(url.lastPathComponent, privacy: .public)")
+            verify(data: data, source: "drop-file")
+        } catch is LicenceFileEmpty {
+            OstlerLog.lifecycle.error("license drop file empty: \(url.lastPathComponent, privacy: .public)")
             errorMessage = ViewCopy.shared.string(
-                for: "license_entry.read_file_error",
+                for: "license_entry.drop_file_empty_error",
                 fills: ["filename": url.lastPathComponent]
             )
-            return
+        } catch {
+            OstlerLog.lifecycle.error("license drop file read failed \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            errorMessage = ViewCopy.shared.string(
+                for: "license_entry.read_file_error",
+                fills: [
+                    "filename": url.lastPathComponent,
+                    "reason": error.localizedDescription
+                ]
+            )
         }
-        verify(data: data, source: "drop-file")
     }
 
     // MARK: - Verify + hand off
@@ -344,6 +394,39 @@ struct LicenseEntryView: View {
     static var shortIdGuidanceMessage: String {
         ViewCopy.shared.string(for: "license_entry.short_id_guidance")
     }
+}
+
+/// Sentinel error type for the "URL read succeeded but the file
+/// has zero bytes" case. Distinct from the underlying read error
+/// so the catch in `LicenseEntryView.loadFromURL` can emit a
+/// dedicated `drop_file_empty_error` message instead of letting
+/// an empty Data slide into the JSON parser (which would then
+/// misleadingly emit "Could not parse licence JSON").
+///
+/// Module-scope `struct` rather than a nested `enum` case so the
+/// `@testable import OstlerInstaller` tests can construct + match
+/// it without depending on SwiftUI types.
+struct LicenceFileEmpty: Error {}
+
+/// Read a licence file from disk and surface either:
+///  - the underlying `Data(contentsOf:)` error (which carries the
+///    actual filesystem-level reason: permissions, missing file,
+///    quarantine xattr conflict on Sequoia, etc.) via
+///    `error.localizedDescription`, or
+///  - `LicenceFileEmpty` if the read succeeded but the file has
+///    zero bytes (the path that previously slid into
+///    `verify(data:)` and emitted a misleading
+///    "malformed JSON" error).
+///
+/// Lives at module scope so OstlerInstallerTests can test it
+/// directly without instantiating `LicenseEntryView` (which
+/// requires an EnvironmentObject and a SwiftUI hosting context).
+func readLicenceFile(at url: URL) throws -> Data {
+    let data = try Data(contentsOf: url)
+    guard !data.isEmpty else {
+        throw LicenceFileEmpty()
+    }
+    return data
 }
 
 // Detects pastes that match the short-Licence-ID shape rather than the

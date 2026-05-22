@@ -94,6 +94,12 @@ final class LicenseEntryShortIdHeuristicTests: XCTestCase {
 
     func testGuidanceMessageMentionsSupportEmail() {
         // Customer must have an out if they cannot find the email.
-        XCTAssertTrue(LicenseEntryView.shortIdGuidanceMessage.contains("hello@ostler.ai"))
+        // Drive-by 2026-05-22: was asserting `hello@ostler.ai` but
+        // ViewCopy.json has standardised on `support@ostler.ai` (see
+        // `error_help_caption`, `expired_error`, `bullet_email_us`).
+        // The original assertion has been red on main since the
+        // catalogue lift; fold the fix in here rather than leaving
+        // a pre-existing red blocking the dropzone-deep-dive PR.
+        XCTAssertTrue(LicenseEntryView.shortIdGuidanceMessage.contains("support@ostler.ai"))
     }
 }
