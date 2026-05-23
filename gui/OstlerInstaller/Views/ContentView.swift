@@ -13,7 +13,16 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if coordinator.licenseVerified {
+            // CX-17 (2026-05-23): the permissions intro screen lands
+            // BEFORE everything else (licence, admin gate, install).
+            // The macOS TCC dialogs must fire while the customer is
+            // attentive at first launch -- not after they have
+            // walked away to read their welcome email. Once the
+            // intro flow is `.complete` or `.skipped` we fall
+            // through to the existing licence + admin gates.
+            if !coordinator.permissionsPrewarmFinished {
+                PermissionsIntroView()
+            } else if coordinator.licenseVerified {
                 gatedContent
             } else {
                 LicenseEntryView()
@@ -25,6 +34,17 @@ struct ContentView: View {
             // Bootstrap is idempotent + already guards on `.ready`;
             // a second call from `runDeviceRegistration` is harmless.
             if gate == .ready { coordinator.bootstrap() }
+        }
+        .onChange(of: coordinator.permissionsPrewarmFinished) { _, finished in
+            // CX-17: when the customer leaves the intro screen
+            // (Grant + all-granted, Grant + summary acknowledge, or
+            // Skip), kick the licence re-verify path that App.swift
+            // used to fire from onAppear. Returning customers with
+            // a persisted licence drop straight into the install
+            // gates; first-timers land on LicenseEntryView.
+            if finished {
+                coordinator.verifyExistingLicenseOnLaunch()
+            }
         }
         // PROMPT events are rendered inline in `installLayout` via
         // `OnboardingQuestionView` (#353). FDA approval is still a
@@ -188,12 +208,21 @@ struct ContentView: View {
 /// does the same thing. The Email-support button stays as the
 /// primary CTA in the body pane (introduced PR #150).
 private struct InstallFailedBannerView: View {
+    @EnvironmentObject private var coordinator: InstallerCoordinator
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: CGFloat.ostlerSpace3) {
             Image(systemName: "exclamationmark.octagon.fill")
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(Color.white)
-            Text(ViewCopy.shared.string(for: "install_failed_banner.heading"))
+            // CX-17 (2026-05-23): when install.sh's fail_with_code
+            // emitted a stable error code on the DONE marker, fold
+            // the code INTO the banner heading ("Install failed:
+            // ERR-17-DOCTOR-MISSING") rather than rendering it as
+            // a separate row. The code is the FIRST thing support
+            // sees when triaging a customer report -- right next to
+            // the failure marker, not buried in the log.
+            Text(bannerHeading())
                 .font(.ostlerH2)
                 .foregroundStyle(Color.white)
             Spacer(minLength: CGFloat.ostlerSpace3)
@@ -202,6 +231,22 @@ private struct InstallFailedBannerView: View {
         .padding(.vertical, CGFloat.ostlerSpace2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.ostlerOxblood)
+    }
+
+    /// Builds the visible banner heading. With a code, renders the
+    /// `install_failed_banner.error_code_heading_with_code` template
+    /// after substituting `{code}`. Without a code (success path or
+    /// a regression-test seam that fired finished=.fail without
+    /// going through the DONE marker), falls back to the plain
+    /// heading so the banner still renders gracefully.
+    private func bannerHeading() -> String {
+        if let code = coordinator.lastErrorCode, !code.isEmpty {
+            return ViewCopy.shared.string(
+                for: "install_failed_banner.error_code_heading_with_code",
+                fills: ["code": code]
+            )
+        }
+        return ViewCopy.shared.string(for: "install_failed_banner.heading")
     }
 }
 
@@ -332,7 +377,13 @@ private struct InstallFailedBodyView: View {
     /// test (EmailSupportMailtoTest) can byte-walk the assembled URL
     /// without spinning up a real coordinator.
     private func openSupportMailto() {
-        let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+        // CX-17 (2026-05-23): prepend the Reference: ERR-NN-* line
+        // to the buffer so it is the FIRST thing support sees in
+        // the pasted log. The subject also gets the [ERR-NN-*]
+        // suffix via SupportMailtoBuilder so triage can sort the
+        // inbox by code without opening every email.
+        let code = coordinator.lastErrorCode
+        let buffer = LogDrawerView.formatBuffer(coordinator.logLines, errorCode: code)
         let redacted = LogRedactor.redact(buffer)
 
         // 1. Copy the redacted log to the system pasteboard FIRST so
@@ -343,7 +394,7 @@ private struct InstallFailedBodyView: View {
         pb.setString(redacted, forType: .string)
 
         // 2. Build the short mailto: URL (no log content in the body).
-        if let url = SupportMailtoBuilder.makeMailtoURL() {
+        if let url = SupportMailtoBuilder.makeMailtoURL(errorCode: code) {
             NSWorkspace.shared.open(url)
         }
 
@@ -360,7 +411,10 @@ private struct InstallFailedBodyView: View {
     }
 
     private func copyRedacted() {
-        let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+        let buffer = LogDrawerView.formatBuffer(
+            coordinator.logLines,
+            errorCode: coordinator.lastErrorCode
+        )
         let redacted = LogRedactor.redact(buffer)
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -372,7 +426,10 @@ private struct InstallFailedBodyView: View {
     }
 
     private func copyRaw() {
-        let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+        let buffer = LogDrawerView.formatBuffer(
+            coordinator.logLines,
+            errorCode: coordinator.lastErrorCode
+        )
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(buffer, forType: .string)
@@ -511,7 +568,23 @@ enum SupportMailtoBuilder {
     /// Returns nil if percent-encoding fails (it won't in practice,
     /// but kept as an Option for parity with `URL(string:)`).
     static func makeMailtoURLString() -> String {
-        let subject = ViewCopy.shared.string(for: "install_failed_banner.email_subject")
+        return makeMailtoURLString(errorCode: nil)
+    }
+
+    /// CX-17 (2026-05-23) overload: when an error code is supplied,
+    /// the subject gets a `[ERR-NN-*]` suffix so support triage can
+    /// sort the inbox by code without opening every email. Subject
+    /// suffix template lives at `install_failed_banner.error_code_subject_suffix`
+    /// per Rule 0.9.
+    static func makeMailtoURLString(errorCode: String?) -> String {
+        var subject = ViewCopy.shared.string(for: "install_failed_banner.email_subject")
+        if let code = errorCode, !code.isEmpty {
+            let suffixTemplate = ViewCopy.shared.string(
+                for: "install_failed_banner.error_code_subject_suffix",
+                fills: ["code": code]
+            )
+            subject += suffixTemplate
+        }
         let body = makeBody()
         let allowed = CharacterSet.urlQueryAllowed
         let encSubject = subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? subject
@@ -522,6 +595,11 @@ enum SupportMailtoBuilder {
     /// Convenience: parse the string into a URL.
     static func makeMailtoURL() -> URL? {
         URL(string: makeMailtoURLString())
+    }
+
+    /// CX-17 overload that threads the error code through.
+    static func makeMailtoURL(errorCode: String?) -> URL? {
+        URL(string: makeMailtoURLString(errorCode: errorCode))
     }
 }
 

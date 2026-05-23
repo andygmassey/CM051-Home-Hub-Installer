@@ -36,6 +36,14 @@ final class InstallerCoordinator: ObservableObject {
     @Published var finished: StepStatus? = nil
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
+    /// CX-17 (2026-05-23): stable error code carried on the DONE
+    /// marker when install.sh fires `fail_with_code`. Surfaces on
+    /// the failure banner header + the auto-copied log header sent
+    /// to support, so triage can hop from "customer pasted code
+    /// ERR-17-DOCTOR-MISSING" straight to the source line. Nil on
+    /// the success path; nil on legacy bare-`fail` callsites (the
+    /// test harness asserts none remain).
+    @Published var lastErrorCode: String? = nil
     /// True when the very first `bootstrap()` attempt asked the user
     /// for admin access via the native macOS AppleScript dialog and
     /// the user clicked Cancel (or the osascript call otherwise
@@ -382,6 +390,11 @@ final class InstallerCoordinator: ObservableObject {
             OstlerLog.lifecycle.debug("bootstrap: already parked waiting for user acknowledgement -- short-circuit")
             return
         }
+        guard permissionsPrewarmFinished else {
+            appendLog(level: "info", msg: "Bootstrap deferred -- waiting for permissions intro to complete")
+            OstlerLog.lifecycle.info("bootstrap deferred: permissionsPrewarmFinished=false state=\(String(describing: self.permissionsIntroState), privacy: .public)")
+            return
+        }
         guard licenseVerified else {
             appendLog(level: "info", msg: "Bootstrap deferred -- waiting for licence")
             OstlerLog.lifecycle.info("bootstrap deferred: licenseVerified=false")
@@ -534,22 +547,91 @@ final class InstallerCoordinator: ObservableObject {
         _ = verifyLicense(data: data, source: "on-disk")
     }
 
-    /// CX-14 Section E1 (2026-05-23). Mid-install auth pre-warm.
+    // ── Permissions intro + pre-warm state machine (CX-17) ──────────
+    //
+    // CX-14 Section E1 (2026-05-23) introduced the pre-warm. CX-17
+    // (2026-05-23) layered an intro screen + serial sequencing on
+    // top after the Studio retest log showed all four TCC dialogs
+    // firing AND grants/denies landing in the same second. Andy did
+    // not see two of the four popups and ended up with silent
+    // denies he would have allowed.
+    //
+    // Surface contract:
+    //   - `permissionsIntroState` drives the view layer. ContentView
+    //     renders PermissionsIntroView while the state is .intro /
+    //     .requesting / .summary. Once it flips to .complete or
+    //     .skipped, ContentView falls through to the licence + admin
+    //     gates.
+    //   - `bootstrap()` already guards on `licenseVerified` +
+    //     `registrationGate == .ready`. CX-17 adds an additional
+    //     guard via `permissionsPrewarmFinished` so the install
+    //     subprocess cannot launch with the intro screen still up.
+    //     Belt-and-braces: the view layer also gates the licence
+    //     entry on the intro state, so the licence-verify path
+    //     never runs in parallel with the pre-warm popups.
+    //
+    /// Drives the intro / pre-warm flow. The view layer (ContentView)
+    /// gates the licence entry + every downstream surface on this.
+    /// `permissionsIntroVisible` returns true while the customer
+    /// has not yet finished with the intro flow.
+    @Published var permissionsIntroState: PermissionsIntroState = .intro
+
+    /// Per-permission results from the most recent prewarm() call.
+    /// Set when prewarm() returns; consumed by the summary screen
+    /// AND by any future telemetry path that wants to know which
+    /// permissions the customer ended up granting.
+    @Published var permissionsPrewarmResults: [PermissionsPrewarmer.Result] = []
+
+    /// True when the intro flow has produced a terminal outcome
+    /// (complete or skipped). bootstrap() refuses to launch while
+    /// this is false. The view layer also reads this to know when
+    /// to fall through to LicenseEntryView.
+    var permissionsPrewarmFinished: Bool {
+        switch permissionsIntroState {
+        case .complete, .skipped: return true
+        case .intro, .requesting, .summary: return false
+        }
+    }
+
+    /// Override hook for tests: lets unit tests inject a stub
+    /// `PermissionRequester` + a zero gapMillis so the sequencing
+    /// path runs deterministically without sleeping in real time.
+    /// Production code leaves this nil and the production defaults
+    /// from `PermissionsPrewarmer.init` apply.
+    private var permissionsPrewarmerFactory: (@MainActor () -> PermissionsPrewarmer)? = nil
+
+    #if DEBUG
+    /// Test seam. Installs a custom `PermissionsPrewarmer` factory
+    /// so the sequencing test can drive `beginPermissionsPrewarm()`
+    /// against a spy without spinning up the real CNContactStore /
+    /// EKEventStore / PHPhotoLibrary. Marked DEBUG so it cannot
+    /// accidentally ship.
+    func setPermissionsPrewarmerFactory(_ factory: @escaping @MainActor () -> PermissionsPrewarmer) {
+        self.permissionsPrewarmerFactory = factory
+    }
+    #endif
+
+    /// CX-14 Section E1 (2026-05-23) + CX-17 (2026-05-23). Mid-install
+    /// auth pre-warm with intro screen + sequenced requests.
     ///
-    /// Fires the Contacts/Calendar/Reminders/Photos TCC requests
-    /// IN A CONCERTED BURST at app launch, BEFORE install.sh
-    /// spawns. macOS shows the dialogs up-front while the customer
-    /// is still attentive at the welcome screen; install.sh then
-    /// inherits the resulting TCC state via parent-bundle
-    /// attribution.
+    /// Fires the Contacts/Calendar/Reminders/Photos TCC requests at
+    /// app launch, BEFORE install.sh spawns. The intro screen lands
+    /// FIRST and explains what is about to happen; the customer
+    /// taps Grant permissions to fire the actual requests serially
+    /// with an 800ms gap between each (CX-17 fix for Andy missing
+    /// two of the four popups on Studio retest 2026-05-23).
+    /// install.sh then inherits the resulting TCC state via
+    /// parent-bundle attribution.
     ///
-    /// This closes both:
+    /// This closes:
     ///   - C4 (TCC subprocess attribution): install.sh's children
     ///     no longer need to coax their own TCC grants out of a
     ///     detached subprocess context; the .app already has them.
     ///   - E1 (mid-install pop-ups): the customer is no longer
     ///     surprised by Contacts/Calendar prompts surfacing 10
     ///     minutes into the install while they have walked away.
+    ///   - CX-17 (concurrent burst): the customer sees one popup
+    ///     at a time with a beat between them.
     ///
     /// FDA is NOT pre-warmed here -- it has no requestAccess API
     /// and is granted manually via System Settings. The existing
@@ -560,17 +642,73 @@ final class InstallerCoordinator: ObservableObject {
     /// prompting), so this method can be safely called from
     /// onAppear without worrying about re-prompting on a re-launch.
     /// We still log per-call to surface state in the LogDrawer.
-    ///
-    /// Public surface is sync (SwiftUI `onAppear` calls it without
-    /// `await`); the body hops to an async task so PermissionsPrewarmer
-    /// can await each framework call.
     func requestPermissionsThenStart() {
-        Task { @MainActor in
-            let prewarmer = PermissionsPrewarmer(emitLog: { [weak self] level, msg in
-                self?.appendLog(level: level, msg: msg)
-            })
-            await prewarmer.prewarm()
+        // CX-17: this method now ONLY puts the intro screen on
+        // screen. The actual prewarm() fires when the customer
+        // taps the Grant permissions button -> beginPermissionsPrewarm().
+        // The previous (CX-14) shape fired prewarm() directly here,
+        // which produced the concurrent-burst regression.
+        guard permissionsIntroState == .intro else {
+            // Idempotent: a re-fire from onAppear (window restored,
+            // etc.) must not reset the customer's progress through
+            // the flow.
+            return
         }
+        OstlerLog.lifecycle.info("permissionsPrewarm: intro screen presented")
+    }
+
+    /// Triggered by the Grant permissions button in PermissionsIntroView.
+    /// Runs the SERIAL request loop in PermissionsPrewarmer, captures
+    /// per-permission results, then either advances to .complete (all
+    /// granted) or .summary(denials:) (one or more denied).
+    func beginPermissionsPrewarm() {
+        guard permissionsIntroState == .intro else {
+            OstlerLog.lifecycle.debug("beginPermissionsPrewarm: ignored -- state=\(String(describing: self.permissionsIntroState), privacy: .public)")
+            return
+        }
+        permissionsIntroState = .requesting
+        OstlerLog.lifecycle.info("permissionsPrewarm: customer tapped Grant permissions -- starting serial request loop")
+        Task { @MainActor in
+            let prewarmer = makePrewarmer()
+            let results = await prewarmer.prewarm()
+            self.permissionsPrewarmResults = results
+            let denials = results.filter { !$0.granted }.map(\.permission)
+            if denials.isEmpty {
+                self.permissionsIntroState = .complete
+                OstlerLog.lifecycle.info("permissionsPrewarm: all four permissions granted -- advancing")
+            } else {
+                self.permissionsIntroState = .summary(denials: denials)
+                OstlerLog.lifecycle.info("permissionsPrewarm: \(denials.count, privacy: .public) permission(s) not granted -- showing summary")
+            }
+        }
+    }
+
+    /// Triggered by the Skip for now button in PermissionsIntroView.
+    /// The customer can grant later via System Settings; install.sh
+    /// has skip-on-deny fallbacks everywhere.
+    func skipPermissionsPrewarm() {
+        guard permissionsIntroState == .intro else { return }
+        permissionsIntroState = .skipped
+        appendLog(level: "info", msg: "Permissions pre-warm skipped by user. Grants can be added later in System Settings > Privacy & Security.")
+        OstlerLog.lifecycle.info("permissionsPrewarm: customer tapped Skip for now")
+    }
+
+    /// Triggered by the Continue install button on the denial
+    /// summary screen. Advances the state machine to .complete so
+    /// the licence + bootstrap flow can proceed.
+    func acknowledgePermissionsDenialSummary() {
+        guard case .summary = permissionsIntroState else { return }
+        permissionsIntroState = .complete
+        OstlerLog.lifecycle.info("permissionsPrewarm: customer acknowledged denial summary -- continuing to install")
+    }
+
+    private func makePrewarmer() -> PermissionsPrewarmer {
+        if let factory = permissionsPrewarmerFactory {
+            return factory()
+        }
+        return PermissionsPrewarmer(emitLog: { [weak self] level, msg in
+            self?.appendLog(level: level, msg: msg)
+        })
     }
 
     /// Verifies a licence document and -- on success -- flips
@@ -1318,11 +1456,25 @@ final class InstallerCoordinator: ObservableObject {
             // Forward to the AuthorizationHelper so the user gets the
             // native prompt rather than a hidden bash sudo prompt.
             Task { await AuthorizationHelper.shared.requestAdminAuthorization(reason: reason) }
-        case .done(let status):
+        case .done(let status, let code):
             finished = status
+            // CX-17 (2026-05-23): when install.sh emits a stable
+            // error code via fail_with_code, store it on the
+            // coordinator so InstallFailedBannerView can render it
+            // on the failure-banner header AND the SupportMailtoBuilder
+            // can attach a Reference: ERR-NN-* line to the log
+            // header sent to support. A nil code (success path, or
+            // a legacy bare `fail "..."` callsite) leaves the field
+            // untouched -- the test harness asserts every fail call
+            // is wrapped with a code so this should never happen on
+            // the failure path in practice.
+            if let code, status == .fail {
+                lastErrorCode = code
+            }
+            let suffix = code.map { " [\($0)]" } ?? ""
             appendLog(level: status == .ok ? "info" : "error",
-                      msg: "Install finished: \(status.rawValue)")
-            OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public)")
+                      msg: "Install finished: \(status.rawValue)\(suffix)")
+            OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public) code=\(code ?? "", privacy: .public)")
         case .rawLine(let msg):
             // Raw subprocess stdout/stderr that did NOT carry an
             // #OSTLER marker. Only surface in the drawer when the

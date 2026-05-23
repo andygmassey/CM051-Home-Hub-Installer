@@ -248,7 +248,56 @@ warn()  { gui_active || echo -e "${YELLOW}[warn]${NC}  $*"; gui_warn "$*"; }
 # match the visual class of `fail` (which exits) without exiting
 # itself -- caller decides whether to exit or recover.
 err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log error "$*"; }
-fail()  { gui_active || echo -e "${RED}[fail]${NC}  $*"; gui_log error "$*"; gui_done fail; exit 1; }
+
+# CX-17 (2026-05-23): stable error-code framework. Andy asked
+# during Studio retest #6 whether we could "add error codes in the
+# failure notice so we can track down when and where (and ideally
+# what) fails if a customer has an issue". Yes -- every fail
+# callsite now carries a stable code of shape ERR-NN-COMPONENT-SHORTREASON
+# where NN is the 1-based step index in the StepCatalog.canonicalOrder
+# sidebar (e.g. ERR-17-DOCTOR-* lives in the doctor_setup step). The
+# code surfaces on the failure banner header, the auto-copied log
+# header that goes to support, AND on the GUI DONE marker so the
+# Swift side can pin the code to the failed step.
+#
+# Two callsite shapes:
+#   - `fail "..."`            (legacy; still works; emits no code)
+#   - `fail_with_code "ERR-NN-FOO-BAR" "..."` (preferred; emits code)
+#
+# A bare `fail "..."` is a regression at this point -- the
+# tests/test_every_fail_call_has_error_code.sh harness asserts every
+# fail callsite is `fail_with_code` so we don't drift back. The
+# legacy fail() shape is kept for the test rig + emergency one-off
+# patches only.
+OSTLER_LAST_ERROR_CODE=""
+
+fail_with_code() {
+    # fail_with_code <CODE> <MSG...>
+    # CODE must match ERR-NN-* shape. We do not enforce that here
+    # (a malformed code at runtime is worse than a malformed code
+    # in the log) but the test harness asserts the shape at lint
+    # time. The CODE is exported on OSTLER_LAST_ERROR_CODE so the
+    # gui_done call below can attach it to the DONE marker.
+    local code="$1"; shift
+    OSTLER_LAST_ERROR_CODE="$code"
+    export OSTLER_LAST_ERROR_CODE
+    fail "$*"
+}
+
+fail()  {
+    # Render the code prefix on the TTY line + the GUI log so the
+    # error is greppable end-to-end. The code may be empty -- a
+    # legacy fail "..." call (no code attached) renders without a
+    # prefix, matching the pre-CX-17 behaviour.
+    local code_prefix=""
+    if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
+        code_prefix="[${OSTLER_LAST_ERROR_CODE}] "
+    fi
+    gui_active || echo -e "${RED}[fail]${NC}  ${code_prefix}$*"
+    gui_log error "${code_prefix}$*"
+    gui_done fail
+    exit 1
+}
 
 # step() opens a top-level section ("==> Title"). When OSTLER_GUI=1,
 # also emits a PHASE marker so the GUI sidebar can swap to the next
@@ -769,7 +818,7 @@ gui_emit PCT "step=prereq_check" "pct=5"
 
 # macOS check
 if [[ "$(uname)" != "Darwin" ]]; then
-    fail "$MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT"
+    fail_with_code "ERR-02-MACOS-LINUX-ONLY" "$MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT"
 fi
 MACOS_VERSION=$(sw_vers -productVersion)
 MACOS_MAJOR=$(echo "$MACOS_VERSION" | cut -d. -f1)
@@ -793,7 +842,7 @@ if ! command -v git &>/dev/null; then
     XCODE_TIMEOUT=600  # 10 minutes -- generous; CLI install is ~150 MB
     until command -v git &>/dev/null; do
         if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
-            fail "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
+            fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
         fi
         sleep 5
         XCODE_WAIT=$((XCODE_WAIT + 5))
@@ -816,7 +865,7 @@ gui_emit PCT "step=prereq_check" "pct=50"
 # RAM check
 RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
 if [[ $RAM_GB -lt 16 ]]; then
-    fail "$(printf "$MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED" "${RAM_GB}")"
+    fail_with_code "ERR-02-PREREQ-RAM-LOW" "$(printf "$MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED" "${RAM_GB}")"
 elif [[ $RAM_GB -lt 24 ]]; then
     warn "$(printf "$MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS" "${RAM_GB}")"
 else
@@ -831,7 +880,7 @@ FREE_GB=$(df -g / | tail -1 | awk '{print $4}')
 if [[ $FREE_GB -lt 35 ]]; then
     warn "$(printf "$MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST" "${FREE_GB}")"
     if [[ $FREE_GB -lt 15 ]]; then
-        fail "$(printf "$MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE" "${FREE_GB}")"
+        fail_with_code "ERR-02-PREREQ-DISK-LOW" "$(printf "$MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE" "${FREE_GB}")"
     fi
 else
     ok "$(printf "$MSG_OK_GB_FREE_DISK_SPACE" "${FREE_GB}")"
@@ -1968,7 +2017,7 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
             warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
         fi
         if ! brew install python@3.11; then
-            fail "Could not install Python 3.11 via Homebrew. Re-run the installer with a working network connection, or install Python 3.11 manually with: brew install python@3.11"
+            fail_with_code "ERR-05-HOMEBREW-PYTHON-INSTALL" "Could not install Python 3.11 via Homebrew. Re-run the installer with a working network connection, or install Python 3.11 manually with: brew install python@3.11"
         fi
         # Use the explicit Homebrew keg path, NOT the PATH-prepended
         # `python3` which can resolve to /usr/bin/python3 (system 3.9.x)
@@ -1978,7 +2027,7 @@ if [[ -z "${PYTHON3_BIN:-}" ]]; then
         elif [[ -x "/usr/local/opt/python@3.11/bin/python3.11" ]]; then
             PYTHON3_BIN="/usr/local/opt/python@3.11/bin/python3.11"
         else
-            fail "brew install python@3.11 reported success but the python3.11 binary was not found at the expected paths. Try 'brew reinstall python@3.11' and re-run the installer."
+            fail_with_code "ERR-05-HOMEBREW-PYTHON-MISSING" "brew install python@3.11 reported success but the python3.11 binary was not found at the expected paths. Try 'brew reinstall python@3.11' and re-run the installer."
         fi
         NEW_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
         ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${NEW_PY_VERSION}")"
@@ -2044,7 +2093,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
                 sed -e 's/^/    /' /tmp/ostler-pip-install.log | head -5
             fi
             rm -f /tmp/ostler-pip-install.log
-            fail "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
+            fail_with_code "ERR-09-OSTLER-SECURITY-PIP" "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
         fi
     fi
 fi
@@ -2079,7 +2128,7 @@ else
         warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1"
         warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2"
         warn "$MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3"
-        fail "$MSG_FAIL_FDA_MODULE_MISSING_RE_RUN"
+        fail_with_code "ERR-10-FDA-MODULE-MISSING" "$MSG_FAIL_FDA_MODULE_MISSING_RE_RUN"
     fi
 fi
 
@@ -2224,7 +2273,7 @@ else
         warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_2"
         warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_3"
         warn "$MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_4"
-        fail "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
+        fail_with_code "ERR-09-OSTLER-SECURITY-BUNDLE" "$MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN"
     fi
 fi
 
@@ -2923,7 +2972,7 @@ else
     echo -e "  ${YELLOW}sleep during the install (and to install Homebrew if missing).${NC}"
     echo -e "  ${YELLOW}After this, the install runs unattended.${NC}"
     echo ""
-    sudo -v || fail "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
+    sudo -v || fail_with_code "ERR-04-SUDO-DENIED" "$MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL"
 fi
 
 # ── Composite cleanup ─────────────────────────────────────────────
@@ -3259,7 +3308,7 @@ else
                 if [[ -d "/Applications/Docker.app" ]]; then
                     open -a Docker 2>/dev/null || true
                 else
-                    fail "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD"
+                    fail_with_code "ERR-06-DOCKER-COLIMA-FAIL" "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD"
                 fi
             }
         fi
@@ -3275,7 +3324,7 @@ else
         echo ""
         open -a Docker 2>/dev/null || true
     else
-        fail "$MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER"
+        fail_with_code "ERR-06-DOCKER-NOT-AVAILABLE" "$MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER"
     fi
 
     # Wait for Docker to be ready (Colima or Desktop)
@@ -3400,7 +3449,7 @@ if [[ -n "${PYTHON3_BIN:-}" && -x "$PYTHON3_BIN" ]]; then
     PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
     ok "$(printf "$MSG_OK_PYTHON" "${PY_VERSION}")"
 else
-    fail "PYTHON3_BIN is unset at Phase 3.4; the Phase 2.99 Python check should have set it. This is a script bug."
+    fail_with_code "ERR-08-PYTHON-BIN-UNSET" "PYTHON3_BIN is unset at Phase 3.4; the Phase 2.99 Python check should have set it. This is a script bug."
 fi
 
 # ── 3.5 Write config ──────────────────────────────────────────────
@@ -3922,7 +3971,7 @@ info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
     else
         warn "$MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED"
         warn "$(printf "$MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL" "${OSTLER_PIP}")"
-        fail "$MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN"
+        fail_with_code "ERR-09-SQLCIPHER-MISSING" "$MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN"
     fi
 }
 
@@ -3991,7 +4040,7 @@ except Exception as e:
         else
             warn "$MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT"
             echo "$SETUP_OUTPUT" | sed -e 's/^/    /' | head -15
-            fail "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
+            fail_with_code "ERR-09-PASSKEY-SETUP" "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
         RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2-)
@@ -4011,7 +4060,7 @@ else
         warn "$MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER"
         warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
-        fail "$MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY"
+        fail_with_code "ERR-09-NO-PASSKEY" "$MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY"
     fi
 fi
 
@@ -4579,7 +4628,7 @@ if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
     if ! ollama_pull_with_retry nomic-embed-text; then
-        fail "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT"
+        fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT"
     fi
     ok "$MSG_OK_EMBEDDING_MODEL_READY"
 fi
@@ -4606,7 +4655,7 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         esac
         info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
         if ! ollama_pull_with_retry "$AI_MODEL"; then
-            fail "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")"
+            fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")"
         fi
         ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
     fi
@@ -4657,7 +4706,7 @@ elif [[ -z "$PIPELINE_REPO" ]]; then
         warn "$MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER"
         warn "$MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL"
         warn "$MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET"
-        fail "$MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER"
+        fail_with_code "ERR-14-IMPORT-PIPELINE" "$MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER"
     fi
 else
     info "$MSG_INFO_CLONING_IMPORT_PIPELINE"
@@ -4793,7 +4842,7 @@ else
     warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2"
     warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3"
     warn "$MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4"
-    fail "$MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN"
+    fail_with_code "ERR-15-CM048-PIPELINE" "$MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN"
 fi
 
 if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
@@ -5412,7 +5461,7 @@ elif [[ -z "$DOCTOR_REPO" ]]; then
         warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_2"
         warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_3"
         warn "$MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_4"
-        fail "$MSG_FAIL_DOCTOR_INSTALL_REQUIRED"
+        fail_with_code "ERR-17-DOCTOR-MISSING" "$MSG_FAIL_DOCTOR_INSTALL_REQUIRED"
     fi
 else
     info "$MSG_INFO_CLONING_DOCTOR_AGENT"
@@ -5766,7 +5815,7 @@ elif [[ -z "$HUB_POWER_REPO" ]]; then
         warn "$MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
         warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
     else
-        fail "$MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN"
+        fail_with_code "ERR-20-EMAIL-INGEST-VENDOR" "$MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN"
     fi
 else
     info "$MSG_INFO_CLONING_EMAIL_INGEST_SCRIPTS"
@@ -6436,7 +6485,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
         err "$MSG_ERR_CM042_REFUSING_STAGE_BUNDLE"
         rm -rf "$REMOTECAPTURE_TMPDIR"
         REMOTECAPTURE_TMPDIR=""
-        fail "$MSG_FAIL_CM042_SIGNATURE_FAILED"
+        fail_with_code "ERR-24-CM042-SHA-MISMATCH" "$MSG_FAIL_CM042_SIGNATURE_FAILED"
     fi
 
     # Extract into /Applications. The tarball contains
@@ -6463,7 +6512,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
             fi
             rm -rf "$REMOTECAPTURE_TMPDIR"
             REMOTECAPTURE_TMPDIR=""
-            fail "$MSG_FAIL_CM042_SIGNATURE_FAILED"
+            fail_with_code "ERR-24-CM042-EXTRACT" "$MSG_FAIL_CM042_SIGNATURE_FAILED"
         fi
 
         # Signature + notarisation verification. Both must pass
@@ -6502,7 +6551,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
             # load the LaunchAgent.
             rm -rf "$REMOTECAPTURE_TMPDIR"
             REMOTECAPTURE_TMPDIR=""
-            fail "$MSG_FAIL_CM042_SIGNATURE_FAILED"
+            fail_with_code "ERR-24-CM042-SIGNATURE" "$MSG_FAIL_CM042_SIGNATURE_FAILED"
         fi
     else
         warn "$MSG_WARN_CM042_EXTRACT_FAILED"
