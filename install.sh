@@ -4809,7 +4809,17 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
 
     if [[ -x "$CM048_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
-        sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
+        # been chowned to the user by the parent .app's
+        # AuthorizationHelper, so a plain `ln -sf` writes
+        # user-side with no further sudo prompt. Matches the
+        # ostler-knowledge symlink pattern below.
+        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+            ln -sf "$CM048_BIN" "$CM048_SYMLINK" \
+                || sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+        else
+            sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
+        fi
 
         # Health check via the symlink. pwg-convo uses argparse without
         # a --version flag (subcommands carry the per-mode arguments),
