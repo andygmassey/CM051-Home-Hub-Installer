@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ostler-fda"
+version = "0.1.0"
+description = "macOS Full Disk Access data extractors for Ostler"
+requires-python = ">=3.10"
+
+# The ostler_fda Python source lives directly in this directory
+# (the .py files are siblings of pyproject.toml). package-dir
+# maps the package name "ostler_fda" to "." so that
+# `pip install /path/to/vendor/ostler_fda/` produces a venv with
+# `import ostler_fda.apple_mail_mbox` working.
+[tool.setuptools]
+packages = ["ostler_fda"]
+package-dir = {"ostler_fda" = "."}
