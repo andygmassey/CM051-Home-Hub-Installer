@@ -28,6 +28,26 @@ import XCTest
 @MainActor
 final class PermissionsPrewarmSequencingTest: XCTestCase {
 
+    // MARK: - AppleEvent probe toggle (CX-18)
+    //
+    // PermissionsPrewarmer.prewarm() now fires the AppleEvent
+    // Contacts probe at the top of the function (CX-18 fix for
+    // the install.sh osascript Contacts pre-warm gap). The probe
+    // pops a real macOS prompt on a clean test host; turn it off
+    // for the duration of these tests so xcodebuild test does not
+    // wait on a user dialog. Restored in tearDown so the override
+    // does not leak between test cases.
+
+    override func setUp() async throws {
+        try await super.setUp()
+        PermissionsPrewarmer.appleEventContactsProbeEnabled = false
+    }
+
+    override func tearDown() async throws {
+        PermissionsPrewarmer.appleEventContactsProbeEnabled = true
+        try await super.tearDown()
+    }
+
     // MARK: - Spy
 
     /// Records the permission + the timestamp of each request so

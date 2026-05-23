@@ -2304,6 +2304,20 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
 
+# CX-18 (2026-05-23): Studio retest #13 surfaced three unannounced
+# macOS folder-access prompts (Downloads, Desktop, Documents) firing
+# back-to-back while the customer was waiting on the GDPR scan to
+# finish, with no explanation of why their Mac suddenly wanted
+# permission to read all three folders. Emit a structured info line
+# BEFORE the find-scan starts so the Log drawer + GUI spinner caption
+# explain what is about to happen. This is a true status line (NOT
+# gui_log) so it renders on screen for the customer to read before
+# the macOS popups land. Cross-reference: NSDesktopFolderUsageDescription
+# + NSDocumentsFolderUsageDescription + NSDownloadsFolderUsageDescription
+# in gui/OstlerInstaller/Info.plist drive what macOS shows in each
+# prompt.
+info "$MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING"
+
 # Scan common locations for recognisable GDPR export files.
 # Studio retest #7 finding #13 (Image #53): the previous `info`
 # emit here rendered as a ~200ms transient status page in the GUI
