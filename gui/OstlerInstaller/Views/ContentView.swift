@@ -316,20 +316,46 @@ private struct InstallFailedBodyView: View {
         return s
     }
 
+    /// CX-15 (2026-05-23): the previous implementation crammed the
+    /// full PII-redacted log into the mailto: body. macOS Mail.app
+    /// silently truncates mailto: URLs at ~2KB and the body would
+    /// drop mid-sentence around ~580 chars. Customers landed in
+    /// a half-written email and could not actually send the log.
+    ///
+    /// Fix: copy the redacted log to the clipboard FIRST, then open
+    /// a SHORT mailto: with just the heading + paste-prompt. The
+    /// customer pastes one Cmd-V and is done.
+    ///
+    /// Strings live in ViewCopy.json under install_failed_banner.*
+    /// per Rule 0.9. Body assembly is delegated to the static helper
+    /// `SupportMailtoBuilder.makeMailtoURL(...)` so the regression
+    /// test (EmailSupportMailtoTest) can byte-walk the assembled URL
+    /// without spinning up a real coordinator.
     private func openSupportMailto() {
         let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
         let redacted = LogRedactor.redact(buffer)
-        let bodyHeader = "Hi Ostler support team,\n\n"
-            + "My installer failed. PII-redacted log below.\n\n"
-            + "---\n\n"
-        let body = bodyHeader + redacted
-        let subject = "Install failure (OstlerInstaller)"
-        let allowed = CharacterSet.urlQueryAllowed
-        let encSubject = subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? subject
-        let encBody = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? body
-        let mailto = "mailto:support@ostler.ai?subject=\(encSubject)&body=\(encBody)"
-        if let url = URL(string: mailto) {
+
+        // 1. Copy the redacted log to the system pasteboard FIRST so
+        //    even if the URL.open call later races / fails, the
+        //    customer already has the log on their clipboard.
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(redacted, forType: .string)
+
+        // 2. Build the short mailto: URL (no log content in the body).
+        if let url = SupportMailtoBuilder.makeMailtoURL() {
             NSWorkspace.shared.open(url)
+        }
+
+        // 3. Light visual confirmation by re-using the existing
+        //    redactedCopied state-flash pattern from copyRedacted().
+        //    The Email-support button label does not bind to this
+        //    flag, but the Copy-redacted button does, so the customer
+        //    sees the "Redacted copied" pill flip briefly -- explicit
+        //    confirmation that the clipboard now carries the log.
+        redactedCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            redactedCopied = false
         }
     }
 
@@ -432,6 +458,70 @@ enum LogRedactor {
                 in: s, options: [], range: range, withTemplate: replacement)
         }
         return s
+    }
+}
+
+/// CX-15 (2026-05-23): assembles the SHORT mailto: URL for the
+/// install-failed Email-support button. The previous implementation
+/// stuffed the full PII-redacted log into the URL body; macOS Mail
+/// silently truncates mailto: at ~2KB and the body dropped mid-
+/// sentence around ~580 chars. Now the log lives on the clipboard
+/// (see `InstallFailedBodyView.openSupportMailto()`); the body is
+/// just heading + paste-prompt + separator.
+///
+/// Pulled out as a static helper for two reasons:
+///   1. The regression test `EmailSupportMailtoTest` can call this
+///      without spinning up an `InstallerCoordinator` or live view.
+///   2. The byte-by-byte URL-length cap (~1024 chars, well under
+///      macOS's 2KB ceiling) is enforced in ONE place that the test
+///      points at. Future regression "let me inline a small log
+///      preview" would have to mutate this builder, and the cap
+///      test would fail.
+///
+/// All customer-facing strings come from ViewCopy.json under
+/// install_failed_banner.email_body_* per Rule 0.9.
+enum SupportMailtoBuilder {
+
+    /// Defensive cap on the assembled mailto: URL length. macOS Mail
+    /// truncates at ~2KB; we sit well under that so any future copy
+    /// edit has headroom. The regression test asserts this cap.
+    static let urlLengthCap: Int = 1024
+
+    /// The mailto: recipient. Kept in sync with
+    /// install_failed_banner.body_support_email_url in ViewCopy.json
+    /// (the hyperlink rendered in the body paragraph).
+    static let recipient: String = "support@ostler.ai"
+
+    /// Assembles the body text from the three ViewCopy catalogue keys.
+    /// Layout (top to bottom):
+    ///   <intro>\n\n
+    ///   <clipboard_instruction>\n\n
+    ///   <separator>\n\n
+    ///
+    /// Returns the raw (unencoded) body so the test can assert on
+    /// the keyed substrings before percent-encoding.
+    static func makeBody() -> String {
+        let intro = ViewCopy.shared.string(for: "install_failed_banner.email_body_intro")
+        let instruction = ViewCopy.shared.string(for: "install_failed_banner.email_body_clipboard_instruction")
+        let separator = ViewCopy.shared.string(for: "install_failed_banner.email_body_separator")
+        return intro + "\n\n" + instruction + "\n\n" + separator + "\n\n"
+    }
+
+    /// Assembles the full mailto: URL string (post percent-encoding).
+    /// Returns nil if percent-encoding fails (it won't in practice,
+    /// but kept as an Option for parity with `URL(string:)`).
+    static func makeMailtoURLString() -> String {
+        let subject = ViewCopy.shared.string(for: "install_failed_banner.email_subject")
+        let body = makeBody()
+        let allowed = CharacterSet.urlQueryAllowed
+        let encSubject = subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? subject
+        let encBody = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? body
+        return "mailto:\(recipient)?subject=\(encSubject)&body=\(encBody)"
+    }
+
+    /// Convenience: parse the string into a URL.
+    static func makeMailtoURL() -> URL? {
+        URL(string: makeMailtoURLString())
     }
 }
 
