@@ -141,9 +141,23 @@ struct LogDrawerView: View {
 
 extension LogDrawerView {
     static func formatBuffer(_ lines: [InstallerCoordinator.LogLine]) -> String {
+        return formatBuffer(lines, errorCode: nil)
+    }
+
+    /// CX-17 (2026-05-23): when the install failed with a stable
+    /// error code from `fail_with_code`, prepend a Reference line
+    /// to the buffer so it is the FIRST thing support sees in the
+    /// pasted log -- right next to the timestamps. The catalogue
+    /// key `install_failed_banner.error_code_prefix` controls the
+    /// label so a translated catalogue ("Référence") drives the
+    /// header text without code edits.
+    static func formatBuffer(
+        _ lines: [InstallerCoordinator.LogLine],
+        errorCode: String?
+    ) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
-        return lines.map { line in
+        let body = lines.map { line in
             let level = line.level.uppercased().padding(
                 toLength: 5,
                 withPad: " ",
@@ -151,6 +165,11 @@ extension LogDrawerView {
             )
             return "\(formatter.string(from: line.timestamp))  [\(level)] \(line.text)"
         }.joined(separator: "\n")
+        if let code = errorCode, !code.isEmpty {
+            let prefix = ViewCopy.shared.string(for: "install_failed_banner.error_code_prefix")
+            return "\(prefix): \(code)\n\n\(body)"
+        }
+        return body
     }
 }
 

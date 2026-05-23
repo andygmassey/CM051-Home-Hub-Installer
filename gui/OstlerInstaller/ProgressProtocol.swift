@@ -34,7 +34,13 @@ enum InstallerEvent: Equatable {
     case phase(id: String, title: String)
     case needsFDA(probe: String, reason: String)
     case needsSudo(reason: String)
-    case done(status: StepStatus)
+    /// CX-17 (2026-05-23): when install.sh's `fail_with_code` fires,
+    /// the DONE marker carries a `code=ERR-NN-COMPONENT-SHORTREASON`
+    /// keyword so the GUI can surface the code on the failure banner
+    /// header AND on the auto-copied log header sent to support.
+    /// `errorCode` is `nil` for the success path and for any legacy
+    /// `fail "..."` callsite that did not pass through fail_with_code.
+    case done(status: StepStatus, errorCode: String?)
     /// Non-marker stdout/stderr line from the subprocess. Surfaced in
     /// the Log drawer only when `devModeRawLog` is on; otherwise these
     /// are filtered out so the customer-facing drawer stays curated.
@@ -164,7 +170,11 @@ struct ProgressDecoder {
         case "NEEDS_SUDO":
             return .needsSudo(reason: kv["reason"] ?? "")
         case "DONE":
-            return .done(status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok)
+            let code = kv["code"].flatMap { $0.isEmpty ? nil : $0 }
+            return .done(
+                status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,
+                errorCode: code
+            )
         default:
             return .unknown(raw: raw)
         }
