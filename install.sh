@@ -719,6 +719,25 @@ echo ""
 
 step "$MSG_STEP_CHECKING_PREREQUISITES" "prereq_check"
 
+# Record the wall-clock start of the prereq_check phase so we can
+# enforce a minimum dwell time at the end of the section. Studio
+# retest #3 (2026-05-22) flagged that on a fast Mac the
+# "Checking your Mac" row flashes past in <1 second, leaving the
+# customer with no time to read what the installer is verifying.
+# We emit per-item PCT markers below so the GUI can show ticks
+# accumulate (RAM ✓, CPU ✓, macOS ✓, disk ✓) and then pad the tail
+# of the phase to a minimum 1.5 s if all checks finish faster
+# (controlled by PREREQ_MIN_DWELL_S below; tests can override via
+# the env var to keep test runs snappy).
+PREREQ_CHECK_START=$(date +%s)
+PREREQ_MIN_DWELL_S="${PREREQ_MIN_DWELL_S:-2}"
+
+# Initial PCT=5 so the progress bar shows it has started doing
+# something before the macOS-version probe completes. Pure cosmetic
+# but eliminates the "frozen at 0" first impression on really slow
+# disks (rare but seen on a cold SSD spin-up).
+gui_emit PCT "step=prereq_check" "pct=5"
+
 # ── Licence / activation check ─────────────────────────────────────
 #
 # Wired in the GUI layer ahead of this script running. Customer flow:
@@ -761,6 +780,7 @@ if [[ $MACOS_MAJOR -lt 13 ]]; then
     warn "$(printf "$MSG_WARN_MACOS_OUTDATED_WE_RECOMMEND_MACOS_13" "${MACOS_VERSION}")"
     warn "$MSG_WARN_SOME_FEATURES_MAY_NOT_WORK_CORRECTLY"
 fi
+gui_emit PCT "step=prereq_check" "pct=20"
 
 # Git / Xcode command line tools -- needed for cloning the pipeline
 if ! command -v git &>/dev/null; then
@@ -782,6 +802,7 @@ if ! command -v git &>/dev/null; then
 else
     ok "$MSG_OK_GIT_AVAILABLE"
 fi
+gui_emit PCT "step=prereq_check" "pct=35"
 
 # Apple Silicon check
 ARCH=$(uname -m)
@@ -790,6 +811,7 @@ if [[ "$ARCH" == "arm64" ]]; then
 else
     warn "$MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED"
 fi
+gui_emit PCT "step=prereq_check" "pct=50"
 
 # RAM check
 RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
@@ -800,6 +822,7 @@ elif [[ $RAM_GB -lt 24 ]]; then
 else
     ok "$(printf "$MSG_OK_GB_RAM_DETECTED" "${RAM_GB}")"
 fi
+gui_emit PCT "step=prereq_check" "pct=70"
 
 # Disk space check -- need ~35 GB: Docker images (~1 GB), AI model (5-10 GB),
 # embedding model (300 MB), import pipeline + venv (~500 MB), databases (grows
@@ -813,6 +836,7 @@ if [[ $FREE_GB -lt 35 ]]; then
 else
     ok "$(printf "$MSG_OK_GB_FREE_DISK_SPACE" "${FREE_GB}")"
 fi
+gui_emit PCT "step=prereq_check" "pct=85"
 
 # Power source check. On a MacBook, Phase 3 takes 10-15 minutes of
 # continuous Docker pulls and Ollama model downloads. The hub power
@@ -851,6 +875,24 @@ elif command -v docker &>/dev/null; then
     warn "$MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL"
 else
     info "$MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA"
+fi
+gui_emit PCT "step=prereq_check" "pct=100"
+
+# Minimum-dwell pad for the prereq_check phase. On a fast Mac with
+# warm caches, the section above completes in ~250 ms which leaves
+# the GUI sidebar tick + the "Checking your Mac" row no time to
+# settle in the customer's visual field before the next row takes
+# over. Studio retest #3 (2026-05-22) flagged this. Pad to a minimum
+# of PREREQ_MIN_DWELL_S seconds, calculated against the wall-clock
+# start time captured before the licence/macOS/git/arch/RAM/disk
+# probes ran. Test runs and CI override via env to keep the suite
+# snappy (PREREQ_MIN_DWELL_S=0).
+if [[ "${OSTLER_GUI:-0}" == "1" ]] && [[ "${PREREQ_MIN_DWELL_S}" -gt 0 ]]; then
+    PREREQ_CHECK_END=$(date +%s)
+    PREREQ_CHECK_ELAPSED=$(( PREREQ_CHECK_END - PREREQ_CHECK_START ))
+    if (( PREREQ_CHECK_ELAPSED < PREREQ_MIN_DWELL_S )); then
+        sleep "$(( PREREQ_MIN_DWELL_S - PREREQ_CHECK_ELAPSED ))"
+    fi
 fi
 
 # Check if --check mode
@@ -5829,6 +5871,42 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         info "$MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD"
     fi
     gui_emit MAIL_ACCOUNTS_FOUND "count=${MAIL_ACCOUNTS_FOUND}" "has_fetched=${MAIL_HAS_FETCHED}"
+
+    # Interactive remediation prompt when Apple Mail has zero accounts
+    # connected on this Mac. The existing detection writes
+    # MAIL_ACCOUNTS_FOUND + MAIL_HAS_FETCHED to pipeline_signals.json and
+    # Doctor surfaces a follow-up after 24 hours (HR015 #109), but at
+    # install time a customer who has not yet added a mail account
+    # would otherwise have no idea Ostler's email-ingest path is empty.
+    # We give them one chance, in-line, to pop System Settings >
+    # Internet Accounts before the install moves on. Skip is fine: the
+    # Doctor follow-up still ships.
+    #
+    # Suppressed when OSTLER_GUI is unset (TTY / CI / curl|bash) so
+    # tests and headless re-runs don't block on input.
+    if [[ "$MAIL_ACCOUNTS_FOUND" -eq 0 ]] && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        _mail_remediation_answer="$(gui_read \
+            "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
+            yesno \
+            "n" \
+            "$MSG_PROMPT_MAIL_NOT_CONNECTED_HELP" \
+            "" \
+            "mail_not_connected")"
+        case "${_mail_remediation_answer:-n}" in
+            y|Y|yes|YES|Yes)
+                ok "$MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS"
+                # System Settings deep-link reliably opens the
+                # Internet Accounts pane on macOS 13+; older macOS
+                # versions silently fall back to the top-level pane,
+                # which is acceptable for v1.0.
+                open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                ;;
+            *)
+                ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
+                ;;
+        esac
+        unset _mail_remediation_answer
+    fi
 else
     warn "$MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON"
 fi

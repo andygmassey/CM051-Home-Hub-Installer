@@ -94,6 +94,9 @@ final class LicenseEntryShortIdHeuristicTests: XCTestCase {
 
     func testGuidanceMessageMentionsSupportEmail() {
         // Customer must have an out if they cannot find the email.
-        XCTAssertTrue(LicenseEntryView.shortIdGuidanceMessage.contains("hello@ostler.ai"))
+        // (Catalogue is `support@ostler.ai` after the email-address sweep
+        // in PR #113 / #146; the pre-sweep `hello@ostler.ai` literal is
+        // dead.)
+        XCTAssertTrue(LicenseEntryView.shortIdGuidanceMessage.contains("support@ostler.ai"))
     }
 }

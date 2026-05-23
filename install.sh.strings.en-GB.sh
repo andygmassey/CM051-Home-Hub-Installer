@@ -246,6 +246,8 @@ MSG_OK_CM048_PIPELINE_READY="CM048 conversation pipeline ready."
 MSG_OK_KNOWLEDGE_SERVICE_READY="Knowledge service ready: %s"
 MSG_OK_LICENCE_TEXTS_INSTALLED_SOURCE="Licence texts installed at %s/ (source: %s)"
 MSG_OK_MACOS_DETECTED="macOS %s detected"
+MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS="Opening System Settings > Internet Accounts so you can add a mail account. Come back to this window once you have signed in to your first account."
+MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS="Skipping the Internet Accounts step. You can add a mail account later from System Settings; Doctor will surface a follow-up if no mail arrives within 24 hours."
 MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE="nomic-embed-text already available"
 MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama installed"
@@ -593,6 +595,9 @@ MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID ema
 
 MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="Read mail via Apple Mail?"
 MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any email account you have added to Apple Mail (iCloud, Gmail, Outlook, etc.) using Full Disk Access. No passwords stored. Recommended for almost everyone."
+
+MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Add a mail account to Apple Mail?"
+MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Apple Mail has no accounts connected on this Mac yet, so Ostler will not have any email to read. Pick Yes to open System Settings > Internet Accounts now (you can add iCloud, Gmail, or Outlook there). Pick No to skip; you can add an account later and Doctor will surface a follow-up if no mail arrives within 24 hours."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Keep as NO if your accounts are with Gmail, iCloud, or Outlook – those work better via Apple Mail above."
