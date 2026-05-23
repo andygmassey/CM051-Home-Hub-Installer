@@ -149,6 +149,220 @@ final class LicenseEntryDropzoneTests: XCTestCase {
         XCTAssertFalse(msg.contains("\u{2014}"), "read_file_error must not contain em-dashes (U+2014).")
     }
 
+    // MARK: - Branch C public.json item resolution (CX-16, 2026-05-23)
+    //
+    // The CX-16 bug: Finder drops of a .json file under the public.json
+    // representation return a file URL (URL or NSURL), NOT the file
+    // bytes. The pre-fix Branch C handler only cast to Data + String,
+    // so the URL case fell to the empty-payload branch and customers
+    // saw "Could not read the dropped JSON (JSON payload was empty)"
+    // on what should have been a valid drop.
+    //
+    // The dispatcher now walks Data -> String -> URL -> NSURL -> empty
+    // via `resolveDroppedJSONItem(_:)`. These tests pin that order
+    // byte-by-byte. The axis of failure (per locked memory
+    // `feedback_silent_bail_regression_test_shape`) is "what
+    // NSItemProvider returns under public.json".
+
+    func testResolveDroppedJSON_DataItem_ResolvesAsData() {
+        // First arm: when caller returns raw bytes, dispatcher takes
+        // them as-is. Guard against a future refactor that re-encodes
+        // the Data through String (which would corrupt non-utf8 bytes).
+        let payload = Data(#"{"version":1,"license_id":"abc"}"#.utf8)
+
+        let resolution = resolveDroppedJSONItem(payload)
+
+        XCTAssertEqual(resolution, .data(payload),
+            "Data item must resolve to .data(...) without re-encoding.")
+    }
+
+    func testResolveDroppedJSON_StringItem_ResolvesAsString() {
+        // Second arm: String input is utf8-encoded into Data before
+        // the verifier sees it.
+        let payload = #"{"version":1}"#
+
+        let resolution = resolveDroppedJSONItem(payload)
+
+        XCTAssertEqual(resolution, .string(Data(payload.utf8)),
+            "String item must resolve to .string with utf8-encoded bytes.")
+    }
+
+    func testResolveDroppedJSON_URLItem_ResolvesAsURL_WhichLoadsFileBytes() throws {
+        // Third arm + the actual CX-16 fix: a URL pointing at the
+        // dropped .json file must resolve via .url(...) so the
+        // view layer routes through loadFromURL + readLicenceFile,
+        // not into the empty-payload branch. Test also asserts
+        // readLicenceFile actually reads the file when given the
+        // resolved URL (the end-to-end happy path the customer hits
+        // when dragging ostler-licence.json out of Finder).
+        let tmp = try writeTempFile(name: "ostler-licence.json", contents: #"{"version":1}"#)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let resolution = resolveDroppedJSONItem(tmp)
+
+        guard case .url(let url) = resolution else {
+            XCTFail("URL item must resolve to .url(...), got \(resolution).")
+            return
+        }
+        XCTAssertEqual(url, tmp, "URL passthrough must preserve the original URL value.")
+
+        // End-to-end: the URL must read through readLicenceFile
+        // without throwing the empty-file guard (which would re-create
+        // the old customer-facing error).
+        let data = try readLicenceFile(at: url)
+        XCTAssertEqual(data, Data(#"{"version":1}"#.utf8),
+            "readLicenceFile must succeed for the URL the dispatcher hands off; otherwise the customer is back to the empty banner.")
+    }
+
+    func testResolveDroppedJSON_NSURLItem_ResolvesAsURL() throws {
+        // Fourth arm: Foundation occasionally hands back the bridged
+        // NSURL class rather than the Swift URL value type (older
+        // Cocoa code paths, Objective-C extensions). Customers in
+        // that path must NOT silently drop to the empty branch.
+        let tmp = try writeTempFile(name: "ostler-licence.json", contents: #"{"version":1}"#)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let bridged: NSURL = tmp as NSURL
+
+        let resolution = resolveDroppedJSONItem(bridged)
+
+        guard case .url(let url) = resolution else {
+            XCTFail("NSURL item must resolve to .url(...), got \(resolution).")
+            return
+        }
+        XCTAssertEqual(url.lastPathComponent, "ostler-licence.json",
+            "NSURL fall-through must preserve the path so loadFromURL can read it.")
+        XCTAssertFalse(resolution == .empty,
+            "NSURL must never fall to .empty; that path resurrects the original CX-16 bug.")
+    }
+
+    // MARK: - Branch C empty-data / empty-string / nil regression (original
+    //         user-visible behaviour stays when nothing usable comes back)
+
+    func testResolveDroppedJSON_NilItem_ResolvesAsEmpty() {
+        // The pre-fix behaviour: nil item -> "JSON payload was empty"
+        // error banner. Kept as a regression test so the URL/NSURL
+        // additions did NOT swallow the genuinely-empty case (which
+        // would advance the verifier with garbage and produce a
+        // misleading malformed-JSON banner downstream).
+        XCTAssertEqual(resolveDroppedJSONItem(nil), .empty,
+            "nil item must resolve to .empty so the view surfaces the existing JSON-payload-was-empty banner.")
+    }
+
+    func testResolveDroppedJSON_EmptyData_ResolvesAsEmpty() {
+        // A provider that loaded zero bytes is the same shape as
+        // nil from the customer's perspective: no licence to verify.
+        XCTAssertEqual(resolveDroppedJSONItem(Data()), .empty,
+            "Empty Data must not advance to .data; verify would see zero bytes and report malformed JSON.")
+    }
+
+    func testResolveDroppedJSON_EmptyString_ResolvesAsEmpty() {
+        XCTAssertEqual(resolveDroppedJSONItem(""), .empty,
+            "Empty String must not advance to .string; verify would see zero bytes and report malformed JSON.")
+    }
+
+    func testResolveDroppedJSON_UnrelatedType_ResolvesAsEmpty() {
+        // Defensive: a provider that hands back an unrelated object
+        // (e.g. NSNumber from a misbehaving extension) must not crash
+        // -- it must fall to .empty so the customer gets the existing
+        // error banner.
+        XCTAssertEqual(resolveDroppedJSONItem(NSNumber(value: 42)), .empty)
+        XCTAssertEqual(resolveDroppedJSONItem([1, 2, 3]), .empty)
+        XCTAssertEqual(resolveDroppedJSONItem(["k": "v"]), .empty)
+        XCTAssertEqual(resolveDroppedJSONItem(NSObject()), .empty,
+            "Unknown types must terminate at .empty so the view shows the error banner.")
+    }
+
+    // MARK: - Byte-walk: dispatcher fall-through ORDER
+    //
+    // Per locked memory `feedback_silent_bail_regression_test_shape`:
+    // walk the assembled output node-by-node asserting the EXACT
+    // order each type takes through the switch. These tests guarantee
+    // that even if a future refactor re-orders the if-let chain, the
+    // resolved arm matches the type the runtime hands back.
+    //
+    // Order: Data -> String -> URL -> NSURL -> empty
+    //
+    // Each test walks ONE input shape and asserts the EXACT arm fires,
+    // not a happy-path "does it work" lookup.
+
+    func testDispatcherOrder_Arm1_DataInputResolvesViaDataArm() {
+        // Arm 1: Data. Anything castable as Data resolves through this
+        // arm and never falls to .url / .empty. Guard against a future
+        // refactor that accidentally puts URL above Data.
+        let payload = Data(#"{"version":1}"#.utf8)
+
+        let resolution = resolveDroppedJSONItem(payload)
+
+        guard case .data = resolution else {
+            XCTFail("Arm 1 (Data) must fire for Data input, got \(resolution).")
+            return
+        }
+    }
+
+    func testDispatcherOrder_Arm2_StringInputResolvesViaStringArm() {
+        // Arm 2: String. A String cannot bridge to URL via `as?`, so
+        // this test pins the contract that the dispatcher does NOT
+        // try URL(string:) on a String input (which would mis-route
+        // a JSON-string payload into the file-load path and almost
+        // certainly throw at readLicenceFile).
+        let resolution = resolveDroppedJSONItem(#"{"version":1}"#)
+
+        guard case .string = resolution else {
+            XCTFail("Arm 2 (String) must fire for String input, got \(resolution).")
+            return
+        }
+    }
+
+    func testDispatcherOrder_Arm3_URLInputResolvesViaURLArm() throws {
+        // Arm 3: URL. A native Swift URL value matches the URL arm
+        // first; it never falls through to the NSURL arm. The NSURL
+        // arm only fires when Foundation hands back the bridged class.
+        let tmp = try writeTempFile(name: "ostler-licence.json", contents: "{}")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let resolution = resolveDroppedJSONItem(tmp)
+
+        guard case .url(let url) = resolution else {
+            XCTFail("Arm 3 (URL) must fire for URL input, got \(resolution).")
+            return
+        }
+        XCTAssertEqual(url, tmp, "URL arm must preserve the original URL value.")
+    }
+
+    func testDispatcherOrder_Arm4_NSURLInputResolvesViaNSURLArm() throws {
+        // Arm 4: NSURL. Foundation-bridged NSURL must fall through
+        // to this arm (Swift URL hits Arm 3 first), and must convert
+        // via `as URL` so the resulting URL is loadable by
+        // readLicenceFile.
+        let tmp = try writeTempFile(name: "ostler-licence.json", contents: "{}")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let bridged: NSURL = tmp as NSURL
+
+        let resolution = resolveDroppedJSONItem(bridged)
+
+        guard case .url(let url) = resolution else {
+            XCTFail("Arm 4 (NSURL) must fire for NSURL input and emit .url, got \(resolution).")
+            return
+        }
+        XCTAssertEqual(url.lastPathComponent, tmp.lastPathComponent,
+            "NSURL -> URL conversion must preserve path components.")
+        // Sanity check: the converted URL is actually loadable.
+        XCTAssertNoThrow(try Data(contentsOf: url),
+            "NSURL -> URL conversion must yield a URL that Foundation can read.")
+    }
+
+    func testDispatcherOrder_Arm5_UnknownInputResolvesViaEmptyArm() {
+        // Arm 5: terminal. Nothing matched. Critical that the
+        // dispatcher does not crash + does not silently advance to
+        // verify with garbage bytes. The customer-visible behaviour
+        // here is the existing JSON-payload-was-empty banner; this
+        // test pins the resolution feed-in to that banner.
+        let resolution = resolveDroppedJSONItem(NSObject())
+
+        XCTAssertEqual(resolution, .empty,
+            "Arm 5 (empty) must fire for unknown types so the customer sees the existing error banner, not a crash or silent advance.")
+    }
+
     // MARK: - Helpers
 
     private func writeTempFile(name: String, contents: String) throws -> URL {

@@ -247,14 +247,31 @@ struct LicenseEntryView: View {
         // provider (no fileURL, no URL.self coercion) fell through
         // to the false return and the customer saw the dashed-idle
         // border with no error.
+        //
+        // CX-16 follow-up (2026-05-23): NSItemProvider.loadItem under
+        // public.json typically returns a file URL (URL or NSURL),
+        // NOT the file bytes, when the customer drags a `.json` file
+        // out of Finder. The original Branch C handler only cast the
+        // item to Data + String, so the URL case fell to the empty-
+        // payload branch and customers saw "Could not read the
+        // dropped JSON (JSON payload was empty)" on what should have
+        // been a successful drop. The dispatcher now walks
+        // Data -> String -> URL -> NSURL -> empty, mirroring how
+        // Branch B handles `urlData as? Data` + `URL(dataRepresentation:)`.
+        // The resolution table itself lives in `resolveDroppedJSONItem(_:)`
+        // so the fall-through order is testable byte-by-byte without
+        // spinning up a real Finder drag-drop fixture.
         if provider.hasItemConformingToTypeIdentifier(UTType.json.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.json.identifier, options: nil) { item, error in
                 DispatchQueue.main.async {
-                    if let data = item as? Data {
+                    switch resolveDroppedJSONItem(item) {
+                    case .data(let data):
                         self.verify(data: data, source: "drop-json")
-                    } else if let s = item as? String, let data = s.data(using: .utf8) {
+                    case .string(let data):
                         self.verify(data: data, source: "drop-json-string")
-                    } else {
+                    case .url(let url):
+                        self.loadFromURL(url)
+                    case .empty:
                         self.errorMessage = ViewCopy.shared.string(
                             for: "license_entry.drop_json_load_error",
                             fills: ["reason": error?.localizedDescription ?? "JSON payload was empty"]
@@ -412,4 +429,69 @@ func looksLikeShortLicenceId(_ text: String) -> Bool {
     guard !trimmed.contains("{"), !trimmed.contains("\"") else { return false }
     let hexCharSet = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
     return trimmed.unicodeScalars.allSatisfy { hexCharSet.contains($0) }
+}
+
+// MARK: - Branch C public.json item resolution
+//
+// CX-16 (2026-05-23): NSItemProvider.loadItem(forTypeIdentifier:options:)
+// returns Any?, but the concrete type varies by drop source:
+//
+//   - Apps that put encoded JSON bytes on the pasteboard return `Data`.
+//   - Apps that put a JSON string on the pasteboard return `String`.
+//   - Finder (and most macOS file drops) return a file URL pointing
+//     at the .json file on disk. The URL arrives as either `URL` or,
+//     under certain Foundation paths, the bridged `NSURL`. In neither
+//     case are the file bytes inlined.
+//
+// The pre-fix dispatcher only handled the first two, so Finder drops
+// of a real `.json` file fell to the empty-payload branch and the
+// customer saw "JSON payload was empty" on what should have been a
+// successful drag-drop (Studio retest 2026-05-23). This pure-Swift
+// helper makes the fall-through order explicit + testable; the view's
+// Branch C dispatcher walks the cases in declared order and the
+// regression suite walks the same cases byte-by-byte.
+//
+// Returns `.empty` for nil items, empty data, empty strings, and
+// nil URLs -- every shape the customer might hit where there is
+// genuinely nothing to read. The view turns `.empty` into the
+// existing user-visible "JSON payload was empty" banner so the
+// regression test for the old behaviour still passes.
+enum DroppedJSONResolution: Equatable {
+    case data(Data)
+    case string(Data)
+    case url(URL)
+    case empty
+}
+
+func resolveDroppedJSONItem(_ item: Any?) -> DroppedJSONResolution {
+    // 1. Data: caller already has the bytes -- shortest path.
+    if let data = item as? Data {
+        return data.isEmpty ? .empty : .data(data)
+    }
+
+    // 2. String: caller serialised JSON as text. Encode utf8 and
+    //    treat as inline bytes.
+    if let s = item as? String {
+        guard !s.isEmpty, let data = s.data(using: .utf8) else {
+            return .empty
+        }
+        return .string(data)
+    }
+
+    // 3. URL: file URL pointing at the .json on disk. Caller will
+    //    open + read via loadFromURL, which routes through
+    //    readLicenceFile(at:) (Shape 1 + Shape 2 guards from PR #155).
+    if let url = item as? URL {
+        return .url(url)
+    }
+
+    // 4. NSURL: Foundation occasionally returns the bridged NSURL
+    //    class instead of the Swift URL value type. Coerce back to
+    //    URL via `as URL` (the standard cast pattern). Falls through
+    //    to the same loadFromURL path as Branch B's URL output.
+    if let nsurl = item as? NSURL {
+        return .url(nsurl as URL)
+    }
+
+    return .empty
 }
