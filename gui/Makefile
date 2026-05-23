@@ -134,7 +134,8 @@ STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app \
-        print-version dmg-bg sparkle-embed verify-dmg-contents download-python
+        print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
+        sign-python-bundle
 
 all: debug
 
@@ -284,6 +285,32 @@ release: check-tools check-identity download-python
 # SU_AUTOMATICALLY_UPDATE, CODESIGN_ID. Defaults match the v1.0
 # launch posture (appcast.ostler.ai, hub_signing_public_2026-05-16,
 # automatic-check ON, auto-install OFF).
+# ---------------------------------------------------------------------------
+# Sign every Mach-O inside the bundled Python tree with hardened runtime.
+#
+# CX-20 (launch blocker, 2026-05-23): DMG #17 notarytool rejected with
+# "The executable does not have the hardened runtime enabled" for
+# Contents/Resources/python/bin/python3.11. xcodebuild's --deep re-sign
+# at archive time signs embedded binaries with the Developer ID identity
+# but does NOT enable hardened runtime on them -- only the main app
+# target gets --options runtime from xcodebuild build settings. Apple
+# requires hardened runtime on every Mach-O for notarisation.
+#
+# This step runs AFTER release (which produces the signed .app at
+# $(APP_PATH)) and BEFORE package (which makes the DMG), so the
+# hardened-runtime signatures are inside the DMG when notarytool
+# scans it.
+#
+# Re-signs the outer .app at the end so the outer signature seals
+# the new inner signatures.
+# ---------------------------------------------------------------------------
+sign-python-bundle:
+	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"
+	@bash scripts/sign-python-bundle.sh "$(APP_PATH)" "$(CODESIGN_ID)"
+	$(STEP) "Re-signing outer .app to seal inner Python signatures"
+	codesign --force --deep --sign "$(CODESIGN_ID)" --options runtime --timestamp "$(APP_PATH)"
+	codesign --verify --deep --strict --verbose=2 "$(APP_PATH)"
+
 # ---------------------------------------------------------------------------
 # Hard prerequisite for `make ship`. Refuses to proceed when
 # OSTLER_APP_PATH is empty or not a directory. Previously this was a
@@ -532,7 +559,7 @@ verify-dmg-contents:
 # regression downstream of check-ostler-app fails before we archive a bad
 # DMG into ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python sparkle-embed release package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python sparkle-embed release sign-python-bundle package notarise verify-dmg-contents archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
