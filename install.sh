@@ -855,9 +855,30 @@ gui_emit PCT "step=prereq_check" "pct=20"
 CLT_INSTALL_TRIGGERED=false
 if ! /usr/bin/xcode-select -p &>/dev/null; then
     info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
-    echo "  macOS will show a dialog -- click 'Install' to start the download."
-    echo "  CLT downloads in the background while you answer the questions below."
     /usr/bin/xcode-select --install 2>/dev/null || true
+
+    # CX-23 (2026-05-24): macOS's CLT install dialog appears BEHIND
+    # the OstlerInstaller window on a fresh-Mac install (unlike TCC
+    # and admin dialogs which auto-focus to front). Andy retest #17
+    # missed the dialog entirely and the install timed out at the
+    # homebrew_install wait. Layered fix below -- any one of the
+    # three paths bringing the dialog forward is enough.
+    #
+    # Give macOS a moment to launch the CLT installer process before
+    # we try to activate it.
+    sleep 1
+
+    # Path 1: AppleScript-driven activation. Requires the process to
+    # exist; the `2>/dev/null || true` makes us tolerant of cases
+    # where xcode-select silently no-ops (e.g., a previous install
+    # already in progress).
+    osascript -e 'tell application "System Events" to tell process "Install Command Line Developer Tools" to set frontmost to true' 2>/dev/null || true
+
+    # Path 2: macOS's `open -a` is the standard way to bring an app
+    # to the front. The CLT installer's .app lives at the canonical
+    # CoreServices path on every modern macOS.
+    open "/System/Library/CoreServices/Install Command Line Developer Tools.app" 2>/dev/null || true
+
     CLT_INSTALL_TRIGGERED=true
     ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
 else
