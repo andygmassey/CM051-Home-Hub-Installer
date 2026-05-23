@@ -111,7 +111,16 @@ struct OnboardingQuestionView: View {
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let help = q.prompt.help, !help.isEmpty {
-                Text(help)
+                // B2 (CX-14): customers couldn't click docs.ostler.ai/...
+                // links in body copy because SwiftUI Text(String) does not
+                // auto-linkify. Wrap the help text in an AttributedString
+                // post-processor that detects bare `docs.ostler.ai/...`
+                // and `https://...` substrings and turns them into
+                // `.link` runs. Underscores in catalogue keys (e.g. the
+                // `download_my_data` segment inside the EXPORTS_ACK help)
+                // would have broken a Markdown-parsing alternative; the
+                // regex is deliberately narrow to avoid false positives.
+                Text(linkifiedHelp(help))
                     .font(.ostlerBodyLg)
                     .foregroundStyle(Color.ostlerInkMuted)
                     .lineSpacing(2)
@@ -226,6 +235,26 @@ struct OnboardingQuestionView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// Prompt ids that render as information-only screens -- no user
+    /// input control beyond the Continue button, just title + body
+    /// copy. For these the "QUESTION X" header is misleading (the
+    /// customer is reading, not answering), so the header renders
+    /// "FOR YOUR INFORMATION" instead. Best-effort identification
+    /// from the catalogue probe done as part of CX-14 Section B3;
+    /// Andy will confirm at the next Studio retest.
+    ///
+    /// Identified via `grep -n " acknowledge " install.sh`:
+    ///   - `exports_ack`    (Q: "Have you requested your data exports?")
+    ///   - `passkey_ack`    ("Ready to set up disk encryption")
+    ///
+    /// Both are `.acknowledge`-kind prompts that render no input
+    /// field. If a future prompt joins this shape, add it to the
+    /// Set below.
+    private static let statementPromptIds: Set<String> = [
+        "exports_ack",
+        "passkey_ack"
+    ]
+
     /// "Question 5" style header. Studio retest #8 (2026-05-22) caught
     /// the "of Y" total being a jumpy mess in practice: Q1-Q7 ran
     /// before the channel_choice answer expanded the dynamic question
@@ -236,12 +265,23 @@ struct OnboardingQuestionView: View {
     /// "of Y" suffix entirely -- just "QUESTION X" at every step.
     /// The sidebar already shows phase progress, so the customer
     /// still has an anchor.
+    ///
+    /// B3 (CX-14): statement-shaped prompts (info-only screens with
+    /// no input control) render "FOR YOUR INFORMATION" instead of
+    /// "QUESTION X". Path A per Andy's pre-answered default --
+    /// hard-coded Set<String> short-circuit, no metadata protocol
+    /// extension (which would have churned the contract tests).
     private func header(_ q: DisplayedQuestion) -> some View {
-        let x = String(q.index)
-        let label = ViewCopy.shared.string(
-            for: "onboarding_question.header_without_total",
-            fills: ["current": x]
-        )
+        let isStatement = Self.statementPromptIds.contains(q.prompt.id)
+        let labelKey = isStatement
+            ? "onboarding_question.header_statement_label"
+            : "onboarding_question.header_without_total"
+        let label = isStatement
+            ? ViewCopy.shared.string(for: labelKey)
+            : ViewCopy.shared.string(
+                for: labelKey,
+                fills: ["current": String(q.index)]
+            )
         let suffix = q.isReview
             ? ViewCopy.shared.string(for: "onboarding_question.header_review_suffix")
             : ""
@@ -758,6 +798,15 @@ struct OnboardingQuestionView: View {
         if trimmed.isEmpty { return true }
         return trimmed.hasPrefix("y")
     }
+
+    /// B2 (CX-14): turn `https://...` and bare `docs.ostler.ai/...`
+    /// substrings inside `help` into clickable AttributedString runs.
+    /// Thin wrapper around the module-scope pure function so the
+    /// OstlerInstallerTests target can exercise `linkifyHelpText`
+    /// directly without spinning up a SwiftUI host.
+    fileprivate func linkifiedHelp(_ raw: String) -> AttributedString {
+        return linkifyHelpText(raw)
+    }
 }
 
 private struct DisplayedQuestion: Equatable {
@@ -790,4 +839,149 @@ func typedInstallInputMatches(sentinel: String, input: String) -> Bool {
     guard !sentinel.isEmpty else { return false }
     let typed = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     return typed == sentinel.uppercased()
+}
+
+/// B2 (CX-14): URL-regex post-processor that turns plain help text
+/// into an AttributedString with `.link` attribute runs on detected
+/// URL substrings. Replaces a SwiftUI `Text(String)` call site so
+/// `docs.ostler.ai/data-exports` (etc.) becomes clickable instead
+/// of rendering as inert text.
+///
+/// Detected URL shapes (narrow by design to avoid catalogue-string
+/// false positives):
+///   - `https://` followed by host + path until a delimiter
+///   - bare `docs.ostler.ai/...` (auto-prefixed with `https://` for
+///     the `.link` URL value; rendered text keeps the bare form)
+///
+/// Deliberately NOT detected:
+///   - `http://` (no insecure links in customer copy)
+///   - bare hostnames that aren't `docs.ostler.ai` (e.g. plain
+///     `ostler.ai/terms` -- the consent_install body has its own
+///     specialised handler `consentInstallBody()` and we don't want
+///     to double-handle)
+///   - underscored keys like `download_my_data` or
+///     `info_and_permissions` that appear inside catalogue strings
+///     (a Markdown alternative would have rendered these as italic
+///     delimiters; the narrow regex sidesteps the problem)
+///
+/// Delimiter set: any character that terminates a URL inside body
+/// copy. Trailing punctuation (`.` `,` `;` `:` `)` `]` `"` `'` `!`
+/// `?`) is excluded from the link run -- a customer copy line like
+/// "see docs.ostler.ai/data-exports." should not include the period
+/// in the clickable target.
+///
+/// Lives at module scope so OstlerInstallerTests can exercise it
+/// directly via `@testable import OstlerInstaller`, mirroring the
+/// `typedInstallInputMatches` pattern above.
+func linkifyHelpText(_ raw: String) -> AttributedString {
+    // Two-pattern alternation: explicit `https://...` OR bare
+    // `docs.ostler.ai/...`. NSRegularExpression doesn't support
+    // possessive quantifiers but greedy `+` plus a strict character
+    // class is enough here -- URLs don't contain spaces or the
+    // closing-bracket / punctuation set we exclude below.
+    //
+    // The trailing class excludes whitespace, end-of-string, and
+    // common sentence-ending punctuation. Anchors are NOT used so
+    // multiple URLs in the same string each get their own run.
+    let pattern = "(https://[A-Za-z0-9._~%/\\-?=&#+]+|docs\\.ostler\\.ai/[A-Za-z0-9._~%/\\-?=&#+]+)"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        return AttributedString(raw)
+    }
+
+    let nsRaw = raw as NSString
+    let fullRange = NSRange(location: 0, length: nsRaw.length)
+    let matches = regex.matches(in: raw, options: [], range: fullRange)
+    guard !matches.isEmpty else {
+        return AttributedString(raw)
+    }
+
+    var result = AttributedString()
+    var cursor = 0
+
+    for match in matches {
+        let r = match.range
+        // Prefix segment before this URL.
+        if r.location > cursor {
+            let prefix = nsRaw.substring(
+                with: NSRange(location: cursor, length: r.location - cursor)
+            )
+            result += AttributedString(prefix)
+        }
+
+        // Extract the matched URL, then trim trailing sentence
+        // punctuation off the URL itself (but keep it as plain
+        // text after the link so the sentence still reads
+        // correctly).
+        var urlText = nsRaw.substring(with: r)
+        var tail = ""
+        let trailingPunctuation: Set<Character> = [
+            ".", ",", ";", ":", ")", "]", "\"", "'", "!", "?"
+        ]
+        while let last = urlText.last, trailingPunctuation.contains(last) {
+            tail = String(last) + tail
+            urlText = String(urlText.dropLast())
+        }
+        guard !urlText.isEmpty else {
+            // The whole match was punctuation -- shouldn't happen
+            // given the pattern, but be defensive.
+            result += AttributedString(nsRaw.substring(with: r))
+            cursor = r.location + r.length
+            continue
+        }
+
+        var linkRun = AttributedString(urlText)
+        let urlValue = urlText.hasPrefix("https://")
+            ? urlText
+            : "https://" + urlText
+        if let url = URL(string: urlValue) {
+            linkRun.link = url
+        }
+        linkRun.foregroundColor = .ostlerOxblood
+        linkRun.underlineStyle = .single
+        result += linkRun
+
+        if !tail.isEmpty {
+            result += AttributedString(tail)
+        }
+
+        cursor = r.location + r.length
+    }
+
+    // Suffix segment after the final URL.
+    if cursor < nsRaw.length {
+        let suffix = nsRaw.substring(
+            with: NSRange(location: cursor, length: nsRaw.length - cursor)
+        )
+        result += AttributedString(suffix)
+    }
+
+    return result
+}
+
+/// B2 test seam: returns the substrings detected as URLs by
+/// `linkifyHelpText`, in source order, with trailing sentence
+/// punctuation stripped. Pure-function mirror of the same regex +
+/// trim logic the view uses. Lets the test target assert detection
+/// shape without inspecting an opaque AttributedString.
+func linkifyDetectedURLs(_ raw: String) -> [String] {
+    let pattern = "(https://[A-Za-z0-9._~%/\\-?=&#+]+|docs\\.ostler\\.ai/[A-Za-z0-9._~%/\\-?=&#+]+)"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        return []
+    }
+    let nsRaw = raw as NSString
+    let matches = regex.matches(
+        in: raw,
+        options: [],
+        range: NSRange(location: 0, length: nsRaw.length)
+    )
+    let trailingPunctuation: Set<Character> = [
+        ".", ",", ";", ":", ")", "]", "\"", "'", "!", "?"
+    ]
+    return matches.map { m -> String in
+        var s = nsRaw.substring(with: m.range)
+        while let last = s.last, trailingPunctuation.contains(last) {
+            s = String(s.dropLast())
+        }
+        return s
+    }
 }
