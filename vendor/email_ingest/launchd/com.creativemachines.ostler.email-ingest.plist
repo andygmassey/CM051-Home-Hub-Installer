@@ -78,6 +78,25 @@
     <string>OSTLER_LOGS/email-ingest.err</string>
 
     <!--
+        OSTLER_PYTHON tells the tick script which python interpreter
+        to use. Without this, the tick falls through to PATH-`python3`
+        which on a stock macOS is /Library/Developer/CommandLineTools
+        /usr/bin/python3 -- the system python with no installed
+        site-packages. The tick imports ostler_fda.apple_mail_mbox,
+        which only exists inside the dedicated email-ingest venv
+        created by CM051's install.sh. Failing to set this caused
+        the LAUNCH-BLOCKER ModuleNotFoundError seen in retest #N
+        (2026-05-23). The installer renders OSTLER_PYTHON_PATH ->
+        ${OSTLER_DIR}/services/email-ingest/.venv/bin/python3 at
+        install time.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OSTLER_PYTHON</key>
+        <string>OSTLER_PYTHON_PATH</string>
+    </dict>
+
+    <!--
         Background priority. Email ingest is not latency-critical;
         we don't want it competing with foreground work for I/O on
         the user's daily-driver Mac.

@@ -94,10 +94,22 @@ esc_bin="$(printf '%s' "$OSTLER_BIN_DIR"                    | sed 's/[&/\]/\\&/g
 esc_home="$(printf '%s' "$EMAIL_INGEST_HOME_RESOLVED"        | sed 's/[&/\]/\\&/g')"
 esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/g')"
 
+# OSTLER_VENV_PYTHON: absolute path to a python3 binary that has
+# `ostler_fda` installed (created by CM051 install.sh's email-ingest
+# venv setup). If unset/empty we fall back to the literal "python3"
+# so the tick script's PATH-based default kicks in; the operator
+# will see a ModuleNotFoundError at runtime, but the LaunchAgent
+# itself still loads, which is the degraded-but-survivable shape.
+# Reference: CX-17 (retest 2026-05-23) — system python lookup was
+# the launch-blocker root cause.
+OSTLER_PYTHON_PATH_VALUE="${OSTLER_VENV_PYTHON:-python3}"
+esc_python="$(printf '%s' "$OSTLER_PYTHON_PATH_VALUE"        | sed 's/[&/\]/\\&/g')"
+
 sed \
     -e "s/OSTLER_BIN/$esc_bin/g" \
     -e "s/OSTLER_HOME/$esc_home/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
+    -e "s/OSTLER_PYTHON_PATH/$esc_python/g" \
     "$EMAIL_INGEST_PLIST_SRC" > "$RENDERED_PLIST"
 
 chmod 0644 "$RENDERED_PLIST"

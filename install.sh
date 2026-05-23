@@ -5801,10 +5801,60 @@ else
     fi
 fi
 
+# ── 3.14b-pre-venv  Email-ingest venv with ostler_fda installed ───
+#
+# The email-ingest LaunchAgent's first tick (RunAtLoad=true) imports
+# ostler_fda.apple_mail_mbox. Prior to this change the tick used the
+# system python3 (/Library/Developer/CommandLineTools/usr/bin/python3
+# on first-install Macs without a `brew install python`), which does
+# not have ostler_fda installed -- ModuleNotFoundError, exit 1, and
+# the install step surfaced a hard failure at step 17/21.
+#
+# Fix: bundle ostler_fda as a pip-installable package (pyproject.toml
+# alongside the .py sources in vendor/ostler_fda/) and install it
+# into a dedicated venv under ${OSTLER_DIR}/services/email-ingest/.
+# Mirrors the cm048 / knowledge / doctor venv patterns. The venv's
+# python3 is rendered into the LaunchAgent plist via the snippet's
+# placeholder substitution (OSTLER_PYTHON_PATH).
+
+EMAIL_INGEST_VENV_DIR="${OSTLER_DIR}/services/email-ingest"
+EMAIL_INGEST_VENV="${EMAIL_INGEST_VENV_DIR}/.venv"
+EMAIL_INGEST_VENV_PYTHON="${EMAIL_INGEST_VENV}/bin/python3"
+OSTLER_FDA_SRC=""
+
+if [[ -d "${SCRIPT_DIR}/ostler_fda" && -f "${SCRIPT_DIR}/ostler_fda/pyproject.toml" ]]; then
+    OSTLER_FDA_SRC="${SCRIPT_DIR}/ostler_fda"
+elif [[ -d "${SCRIPT_DIR}/../vendor/ostler_fda" && -f "${SCRIPT_DIR}/../vendor/ostler_fda/pyproject.toml" ]]; then
+    # Dev path: install.sh run from gui/scripts/ checkout
+    OSTLER_FDA_SRC="${SCRIPT_DIR}/../vendor/ostler_fda"
+fi
+
+if [[ -n "$OSTLER_FDA_SRC" ]]; then
+    info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$EMAIL_INGEST_VENV")"
+    mkdir -p "$EMAIL_INGEST_VENV_DIR"
+    "$PYTHON3_BIN" -m venv "$EMAIL_INGEST_VENV"
+
+    info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
+    "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC" 2>/tmp/ostler-fda-pip.log; then
+        ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"
+    else
+        warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
+        if [[ -s /tmp/ostler-fda-pip.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-fda-pip.log | tail -5
+        fi
+        EMAIL_INGEST_VENV_PYTHON=""
+    fi
+else
+    warn "$MSG_WARN_OSTLER_FDA_SOURCE_NOT_FOUND_EMAIL_INGEST"
+    EMAIL_INGEST_VENV_PYTHON=""
+fi
+
 if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
     if OSTLER_INSTALL_ROOT="$EMAIL_INGEST_DIR" \
        OSTLER_DIR="$OSTLER_DIR" \
        LOGS_DIR="$LOGS_DIR" \
+       OSTLER_VENV_PYTHON="$EMAIL_INGEST_VENV_PYTHON" \
        bash "$EMAIL_INGEST_SNIPPET"; then
         ok "$MSG_OK_EMAIL_INGEST_LAUNCHAGENT_LOADED_LABEL_COM"
         info "$MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST"
