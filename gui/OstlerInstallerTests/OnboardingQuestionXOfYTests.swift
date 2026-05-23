@@ -57,6 +57,85 @@ final class OnboardingQuestionXOfYTests: XCTestCase {
         XCTAssertEqual(coord.currentQuestionIndex, 3)
     }
 
+    // MARK: - CX-14 D4: re-emit of same prompt id must NOT advance X
+    //
+    // install.sh wraps validation-required prompts in `while [[ -z
+    // … ]]; do gui_read … done` loops (whatsapp_recipient at
+    // install.sh:1514, imessage_allowed at :1563, assistant_name at
+    // :1322). When the customer commits empty input, install.sh
+    // emits the SAME prompt id again. Pre-fix, that re-emit would
+    // bump X from "Question 9" to "Question 10" even though the
+    // customer had not committed an answer -- producing Studio
+    // retest #8's "Q9 off-by-one" report. Walk every retry-able
+    // prompt-id path byte-by-byte so the fix cannot silently
+    // regress.
+
+    func testReemittedPromptIdDoesNotAdvanceX() {
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "whatsapp_recipient")
+        let xAfterFirstEmit = coord.currentQuestionIndex
+        XCTAssertEqual(xAfterFirstEmit, 1)
+
+        // Simulate install.sh's while-loop retry: same id re-emitted
+        // without the customer having advanced. X must stay pinned.
+        emitPrompt(coord, id: "whatsapp_recipient")
+        XCTAssertEqual(
+            coord.currentQuestionIndex, xAfterFirstEmit,
+            "Re-emitted prompt id from install.sh validation retry must NOT bump X."
+        )
+        emitPrompt(coord, id: "whatsapp_recipient")
+        XCTAssertEqual(
+            coord.currentQuestionIndex, xAfterFirstEmit,
+            "Third retry: X still pinned."
+        )
+    }
+
+    func testReemittedAssistantNamePromptDoesNotAdvanceX() {
+        // install.sh:1322 -- assistant_name has its own while-loop
+        // validation retry. Same contract as whatsapp_recipient.
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "user_name")
+        coord.applyAnswerForTests(promptId: "user_name", answer: "Alice")
+        emitPrompt(coord, id: "assistant_name")
+        let xAfterAssistantFirstEmit = coord.currentQuestionIndex
+        XCTAssertEqual(xAfterAssistantFirstEmit, 2)
+
+        emitPrompt(coord, id: "assistant_name")
+        XCTAssertEqual(coord.currentQuestionIndex, xAfterAssistantFirstEmit)
+    }
+
+    func testReemittedImessageAllowedPromptDoesNotAdvanceX() {
+        // install.sh:1563 -- imessage_allowed has its own
+        // while-loop validation retry.
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "imessage_allowed")
+        let xAfter = coord.currentQuestionIndex
+        XCTAssertEqual(xAfter, 1)
+
+        emitPrompt(coord, id: "imessage_allowed")
+        emitPrompt(coord, id: "imessage_allowed")
+        XCTAssertEqual(coord.currentQuestionIndex, xAfter,
+                       "Multiple retries must leave X pinned.")
+    }
+
+    func testNewUniquePromptStillAdvancesXAfterRetryLoop() {
+        // The retry-de-dupe must not break the happy path: a new,
+        // never-seen prompt id always advances X by exactly one.
+        let coord = makeCoordinator()
+        emitPrompt(coord, id: "whatsapp_recipient")
+        emitPrompt(coord, id: "whatsapp_recipient") // retry -- X pinned
+        XCTAssertEqual(coord.currentQuestionIndex, 1)
+
+        coord.applyAnswerForTests(
+            promptId: "whatsapp_recipient",
+            answer: "+15551234567"
+        )
+
+        emitPrompt(coord, id: "imessage_allowed")
+        XCTAssertEqual(coord.currentQuestionIndex, 2,
+                       "Fresh prompt id after a retry loop must advance X by exactly one.")
+    }
+
     // MARK: - Y stays nil until channel_choice
 
     func testYStaysNilBeforeChannelChoiceCommits() {

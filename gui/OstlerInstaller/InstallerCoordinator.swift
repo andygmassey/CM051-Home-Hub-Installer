@@ -77,6 +77,55 @@ final class InstallerCoordinator: ObservableObject {
     /// render it as a visible status banner during quiet windows.
     @Published var preInstallStatus: String? = nil
 
+    /// CX-14 D5 (2026-05-23): true when the no-output watchdog has
+    /// passed the first silence threshold and the subprocess has gone
+    /// quiet without finishing. Drives a customer-visible "Still
+    /// going, please wait" overlay near the spinner in HintPanelView.
+    /// Pre-fix the watchdog only logged into the (hidden by default)
+    /// LogDrawer, so a wedged install looked indistinguishable from
+    /// a slow one. Cleared as soon as fresh stdout/stderr arrives.
+    @Published var watchdogSilent: Bool = false
+
+    // ── Failure-state machine (CX-14 D-section, 2026-05-23) ──────
+    //
+    // `InstallerCoordinator` already exposes the relevant signals
+    // (`finished`, `currentStepId`, `error`) but the CX-14 brief
+    // asked for an explicit `.failed(step:)` shape so D1-D6 share a
+    // single source of truth.
+    //
+    // Rather than introduce a parallel state-machine enum (which
+    // would require porting every existing branch in
+    // SidebarView/ContentView/HintPanelView), the failure state is
+    // derived from the existing signals via the `failureState`
+    // helper below. The helper IS the contract: anything that wants
+    // to render the failure shape (sidebar xmark, banner, error
+    // pane, watchdog overlay suppression) goes through it.
+    //
+    // The contract: `failureState` returns a `.failed(step:)` value
+    // EXACTLY WHEN `finished == .fail`. The step id carries the
+    // identifier of the step that was active when the install died
+    // so the sidebar can pin the xmark to the right row. When the
+    // install has not finished or finished okay, `failureState`
+    // returns `.running` or `.success` respectively.
+    enum InstallerState: Equatable {
+        case running
+        case success
+        case failed(step: String?)
+    }
+
+    /// Derives a single failure-state snapshot from `finished` +
+    /// `currentStepId`. CX-14 (2026-05-23): D1-D6 all read this
+    /// helper instead of duplicating the `finished == .fail` checks
+    /// scattered across views.
+    var failureState: InstallerState {
+        switch finished {
+        case .none: return .running
+        case .some(.ok): return .success
+        case .some(.warn): return .success // warn surfaces in-line; not a failure transition
+        case .some(.fail): return .failed(step: currentStepId)
+        }
+    }
+
     // ── Onboarding question rendering (in-window, #353) ──────────
     //
     // The Studio retry on 2026-05-16 surfaced that 12+ sheet-style
@@ -87,15 +136,25 @@ final class InstallerCoordinator: ObservableObject {
     // instead of `.sheet(item:)`. The view reads from `pendingPrompt`
     // (live) or `answerHistory[backReviewIndex]` (read-only review).
     //
-    // X is a monotonic counter incremented on each PROMPT event so
-    // the customer sees "Question 5 of 17" rather than guessing how
-    // many taps remain. Y is computed when the `channel_choice`
-    // prompt is answered (because the channel selection picks 1 of 4
-    // expected path lengths) and may be revised when later branches
-    // are committed (e.g. opting into a custom IMAP server adds
-    // another ~7 prompts). Until Y is known the header degrades to
-    // "Question X".
+    // X is a monotonic counter incremented on each *unique* PROMPT id
+    // so the customer sees "Question 5" rather than guessing how many
+    // taps remain. CX-14 D4 fix 2026-05-23: re-emits of the SAME
+    // prompt id (install.sh validation retry loops -- e.g.
+    // `whatsapp_recipient`, `imessage_allowed`, `assistant_name` each
+    // sit in `while [[ -z … ]]; do gui_read … done`) must NOT advance
+    // X. Pre-fix, an empty input on Q9 (whatsapp_recipient) would tick
+    // the header to Q10 on the retry even though the customer had
+    // not committed an answer, drifting the counter for every later
+    // question. `seenPromptIds` tracks committed-or-displayed ids so
+    // retries are idempotent on X.
     @Published var currentQuestionIndex: Int = 0
+    /// Set of prompt ids already counted in `currentQuestionIndex`.
+    /// CX-14 D4 fix (2026-05-23): install.sh's validation retry loops
+    /// re-emit the same prompt id when the customer enters invalid
+    /// input. Without de-dup the X counter advances on each retry
+    /// instead of staying pinned to "Question N", producing the
+    /// "Q9 off-by-one" Studio retest #8 flagged.
+    private var seenPromptIds: Set<String> = []
     @Published var totalQuestionCount: Int? = nil
     @Published var answerHistory: [AnsweredQuestion] = []
     /// When set, the OnboardingQuestionView renders the matching
@@ -156,6 +215,26 @@ final class InstallerCoordinator: ObservableObject {
     func simulateLineForTests(_ line: String) {
         let event = ProgressDecoder.decode(line: line)
         apply(event: event, fromStderr: false)
+    }
+
+    /// Test seam for the no-output watchdog (CX-14 D5). Lets unit
+    /// tests rewind `lastSubprocessOutputAt` past the silence
+    /// threshold + drive `tickWatchdog()` deterministically without
+    /// waiting on the real 5-second Task.sleep cadence.
+    func simulateWatchdogSilenceForTests(elapsedSeconds: Double) {
+        lastSubprocessOutputAt = Date(timeIntervalSinceNow: -elapsedSeconds)
+        tickWatchdog()
+    }
+
+    /// Test seam for the failure-state machine (CX-14 D1/D2). Sets
+    /// the underlying signals without running install.sh so unit
+    /// tests can assert that `failureState` returns
+    /// `.failed(step: <expected>)` and that the sidebar / banner
+    /// derivations stay aligned.
+    func simulateFailureForTests(step: String?, errorMessage: String? = nil) {
+        currentStepId = step
+        finished = .fail
+        error = errorMessage
     }
 
     /// Test seam. Simulates the answer-side of a prompt commit
@@ -971,6 +1050,21 @@ final class InstallerCoordinator: ObservableObject {
         guard let last = lastSubprocessOutputAt else { return }
         let elapsed = Date().timeIntervalSince(last)
 
+        // CX-14 D5 (2026-05-23): expose the watchdog state to the
+        // main content area so HintPanelView can render a visible
+        // "Still going, please wait" overlay near the spinner.
+        // Threshold at 15s matches the first warning threshold below;
+        // pre-fix the watchdog only logged into the (hidden) drawer.
+        // Skip while a prompt is pending -- the customer is the slow
+        // path then, not the installer.
+        let shouldSurface = elapsed >= 15
+            && pendingPrompt == nil
+            && backReviewIndex == nil
+            && finished == nil
+        if shouldSurface != watchdogSilent {
+            watchdogSilent = shouldSurface
+        }
+
         // First-output milestone is logged separately in
         // handleIncoming. Watchdog only surfaces silence.
         let thresholds: [(seconds: Double, stage: Int, level: String)] = [
@@ -1042,6 +1136,11 @@ final class InstallerCoordinator: ObservableObject {
         // is the cheapest path that guarantees we never miss
         // input. firstOutputLogged is a one-shot.
         lastSubprocessOutputAt = Date()
+        // CX-14 D5 (2026-05-23): clear the visible "Still going"
+        // overlay as soon as fresh output arrives. The tick handler
+        // re-arms it if silence continues, but the customer needs
+        // the immediate signal that the installer is moving again.
+        if watchdogSilent { watchdogSilent = false }
         if !firstOutputLogged {
             firstOutputLogged = true
             let elapsed = startedAt.map { Date().timeIntervalSince($0) } ?? 0
@@ -1133,11 +1232,18 @@ final class InstallerCoordinator: ObservableObject {
                 id: id, kind: kind, title: title,
                 defaultValue: defaultValue, help: help, choices: choices
             )
-            // X advances on every PROMPT event so the in-window
-            // header shows monotonic progress. A user clicking Back
-            // for review does not roll X back (the review state is
-            // tracked separately by `backReviewIndex`).
-            currentQuestionIndex += 1
+            // CX-14 D4 fix (2026-05-23): only advance X for the
+            // FIRST appearance of a given prompt id. install.sh's
+            // validation retry loops (`while [[ -z … ]]; do gui_read
+            // … done`) re-emit the same id when the customer types
+            // empty input; without the dedupe, X drifts ahead of the
+            // questions the customer has actually committed to,
+            // surfacing as Studio retest #8's "Q9 off-by-one". Back
+            // review tracking remains untouched (its own index).
+            if !seenPromptIds.contains(id) {
+                seenPromptIds.insert(id)
+                currentQuestionIndex += 1
+            }
             // If the customer is in a Back review when a new prompt
             // arrives, drop them back into the live view -- the
             // previous prompt is now stale.
