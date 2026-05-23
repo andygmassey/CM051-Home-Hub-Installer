@@ -1,0 +1,15 @@
+BEGIN:VCARD
+VERSION:3.0
+PRODID:-//Apple Inc.//iOS 18.0//EN
+N:Tester;Alice;;;
+FN:Alice Tester
+TEL;type=CELL;type=VOICE;type=pref:+15551234567
+TEL;type=HOME;type=VOICE:+15557654321
+EMAIL;type=WORK;type=INTERNET;type=pref:alice@example.com
+EMAIL;type=HOME;type=INTERNET:alice.home@example.com
+ADR;type=WORK:;;1 Example Street;Exampleville;CA;94043;United States
+ORG:Example Corp
+TITLE:Synthetic Test User
+NOTE:Synthetic fixture for CM051 CX-12 (CX-14 Section F) — see\nfeedback_synthetic_fixtures_no_real_data_default. Phone uses the\nNANP 555-01XX reserved prefix; email is the IANA RFC 2606 example domain.
+REV:2026-05-23T00:00:00Z
+END:VCARD

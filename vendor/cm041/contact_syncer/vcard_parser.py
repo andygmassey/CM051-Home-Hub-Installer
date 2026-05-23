@@ -133,12 +133,61 @@ def _extract_and_strip_photo(text: str) -> Tuple[str, Optional[Dict[str, Any]]]:
     return stripped, photo
 
 
+def first_mobile_phone(phones: List[Dict[str, str]]) -> str:
+    """Return the first phone value labelled CELL/MOBILE/IPHONE; else first.
+
+    Empty string if the list is empty. Installer pre-fill consumers want a
+    sensible default for WhatsApp + iMessage allowed-contacts, so prefer a
+    mobile entry where present and fall back to the first phone otherwise.
+    Never raises.
+    """
+    if not phones:
+        return ""
+    mobile_labels = {"CELL", "MOBILE", "IPHONE"}
+    for entry in phones:
+        label = (entry.get("label") or "").upper()
+        value = entry.get("value") or ""
+        if label in mobile_labels and value:
+            return value
+    for entry in phones:
+        value = entry.get("value") or ""
+        if value:
+            return value
+    return ""
+
+
+def first_work_email(emails: List[Dict[str, str]]) -> str:
+    """Return the first email value labelled WORK; else first non-empty.
+
+    Empty string if the list is empty. Installer pre-fill consumers want a
+    sensible default for iMessage allowed-contacts; prefer a work email where
+    present and fall back to the first email otherwise. Never raises.
+    """
+    if not emails:
+        return ""
+    for entry in emails:
+        label = (entry.get("label") or "").upper()
+        value = entry.get("value") or ""
+        if label == "WORK" and value:
+            return value
+    for entry in emails:
+        value = entry.get("value") or ""
+        if value:
+            return value
+    return ""
+
+
 def parse_vcard(vcard_text: str) -> Dict[str, Any]:
     """Parse a single vCard text and return a structured dict.
 
     Returned keys:
         uid, fn, given_name, family_name, phones, emails,
-        org, title, notes, birthday, rev, photo
+        org, title, notes, birthday, rev, photo, phone, email
+
+    The two singular ``phone`` and ``email`` keys are convenience pre-fill
+    surfaces (first mobile + first work-email) used by the CM051 installer
+    Q3 contact-card capture. They are empty strings when no matching entry
+    exists; this never causes the parse to fail.
     """
     # PHOTO is extracted from the raw text up-front — vobject's PHOTO handling
     # is flaky (see _PHOTO_LINE_RE comment). The stripped text is what vobject
@@ -223,6 +272,8 @@ def parse_vcard(vcard_text: str) -> Dict[str, Any]:
         "family_name": family_name,
         "phones": phones,
         "emails": emails,
+        "phone": first_mobile_phone(phones),
+        "email": first_work_email(emails),
         "org": org,
         "title": title,
         "notes": notes,

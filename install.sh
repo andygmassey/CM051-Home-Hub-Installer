@@ -1010,6 +1010,14 @@ if [[ -n "$CARD_DATA" ]]; then
     CONTACTS_BACKUP="${OSTLER_DIR}/backups/contacts-backup-$(date +%Y%m%d-%H%M%S).vcf"
     CONTACTS_EXPORT="${OSTLER_DIR}/imports/icloud-contacts.vcf"
     mkdir -p "${OSTLER_DIR}/imports" "${OSTLER_DIR}/backups"
+    # CX-12 F6 (locked 2026-05-23): the osascript that follows counts +
+    # exports the entire address book and can dwell silently for up to
+    # ~30s on large libraries. Without a status line the GUI panel sits
+    # blank while the customer wonders whether the installer has frozen
+    # (Studio retest #5 "21s blank-wait" finding). Emit a structured
+    # info line first so the Log drawer + the spinner caption both
+    # surface what is happening.
+    info "$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"
     CONTACT_COUNT=$(osascript -e '
 tell application "Contacts"
     set vcfData to vcard of every person
@@ -1074,8 +1082,10 @@ _country_to_code() {
 }
 
 DETECTED_CODE=""
+DETECTED_CODE_SOURCE=""
 if [[ -n "$DETECTED_COUNTRY" ]]; then
     DETECTED_CODE=$(_country_to_code "$DETECTED_COUNTRY")
+    [[ -n "$DETECTED_CODE" ]] && DETECTED_CODE_SOURCE="contacts_country"
 fi
 
 # Also try to extract country code from phone number
@@ -1096,6 +1106,7 @@ if [[ -z "$DETECTED_CODE" && -n "$DETECTED_PHONE" ]]; then
             +33*)  DETECTED_CODE="33" ;;
             +49*)  DETECTED_CODE="49" ;;
         esac
+        [[ -n "$DETECTED_CODE" ]] && DETECTED_CODE_SOURCE="phone"
     fi
 fi
 
@@ -1110,6 +1121,21 @@ else
     USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_FALLBACK_TITLE" text "" "" "" "user_name")"
 fi
 
+# CX-12 F2 (locked 2026-05-23): expose the me-card phone + email as
+# named install-context vars so later prompts (Q8 iMessage allowed,
+# WhatsApp recipient, Q4 country code detect-from-phone) can pre-fill
+# their default values instead of forcing the customer to retype data
+# we already read from Contacts. Silent skip when either field is
+# empty: the downstream prompts treat empty defaults the same as the
+# pre-CX-12 behaviour. Trim leading/trailing whitespace just in case
+# the osascript output picked up stray characters.
+USER_PHONE="${DETECTED_PHONE:-}"
+USER_PHONE="${USER_PHONE# }"
+USER_PHONE="${USER_PHONE% }"
+USER_EMAIL="${DETECTED_EMAIL:-}"
+USER_EMAIL="${USER_EMAIL# }"
+USER_EMAIL="${USER_EMAIL% }"
+
 DETECTED_FIRST_LOWER=$(echo "${DETECTED_FIRST:-}" | tr '[:upper:]' '[:lower:]')
 DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]' | cut -d' ' -f1)}
 USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "$MSG_PROMPT_USER_ID_HELP" "" "user_id")"
@@ -1119,8 +1145,22 @@ USER_ID=${USER_ID:-$DEFAULT_ID}
 
 echo ""
 if [[ -n "$DETECTED_CODE" ]]; then
+    # CX-12 F5 (locked 2026-05-23): differentiate the prompt surface
+    # based on where the country code came from. When inferred from
+    # the me-card phone prefix (rather than the Contacts country
+    # field) we show the dedicated "We detected +%s. Use this for
+    # your Hub?" title + help copy so the customer understands which
+    # signal we used. Both surfaces still flow through the same Y/N
+    # confirm → free-text fallback when declined.
+    if [[ "$DETECTED_CODE_SOURCE" == "phone" ]]; then
+        CC_CONFIRM_TITLE="$(printf "$MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE" "$DETECTED_CODE")"
+        CC_CONFIRM_HELP="$MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP"
+    else
+        CC_CONFIRM_TITLE="$(printf "$MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE" "$DETECTED_CODE")"
+        CC_CONFIRM_HELP=""
+    fi
     echo "  Country code detected from your contact card: +${DETECTED_CODE}"
-    CC_CONFIRM="$(gui_read "$(printf "$MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE" "$DETECTED_CODE")" yesno "" "" "" "country_code_confirm")"
+    CC_CONFIRM="$(gui_read "$CC_CONFIRM_TITLE" yesno "" "$CC_CONFIRM_HELP" "" "country_code_confirm")"
     if [[ "${CC_CONFIRM:-y}" == "n" || "${CC_CONFIRM:-y}" == "N" ]]; then
         COUNTRY_CODE="$(gui_read "$MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE" text "" "" "" "country_code")"
     else
@@ -1522,9 +1562,15 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo "  Enter your number with the country code: leading +, digits only."
     echo "  Example: +44 7700 900123"
     echo ""
+    # CX-12 F4 (locked 2026-05-23): pre-fill the WhatsApp recipient
+    # with the me-card phone captured at Q3. Customer can edit or wipe
+    # before submitting; the existing while-loop still enforces the +
+    # E.164 prefix check, so a pre-filled non-+ value won't escape the
+    # validator silently. Blank when no phone was detected.
+    WHATSAPP_RECIPIENT_DEFAULT="${USER_PHONE:-}"
     while [[ -z "$CHANNEL_WHATSAPP_RECIPIENT" ]]; do
         CHANNEL_WHATSAPP_RECIPIENT="$(gui_read \
-            "$MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE" text "" \
+            "$MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE" text "$WHATSAPP_RECIPIENT_DEFAULT" \
             "$MSG_PROMPT_WHATSAPP_RECIPIENT_HELP" \
             "" "whatsapp_recipient")"
         # Trim whitespace.
@@ -1571,8 +1617,20 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     echo "  least one entry is given. To skip iMessage entirely, cancel"
     echo "  and re-run the installer with iMessage unticked."
     echo ""
+    # CX-12 F3 (locked 2026-05-23): pre-fill the allowlist with the
+    # me-card phone + email captured at Q3, comma-separated. Customer
+    # can append, edit, or wipe before submitting. Blank when both
+    # fields are empty so we don't ship a literal ", " as the default.
+    IMESSAGE_ALLOWED_DEFAULT=""
+    if [[ -n "$USER_PHONE" && -n "$USER_EMAIL" ]]; then
+        IMESSAGE_ALLOWED_DEFAULT="${USER_PHONE}, ${USER_EMAIL}"
+    elif [[ -n "$USER_PHONE" ]]; then
+        IMESSAGE_ALLOWED_DEFAULT="$USER_PHONE"
+    elif [[ -n "$USER_EMAIL" ]]; then
+        IMESSAGE_ALLOWED_DEFAULT="$USER_EMAIL"
+    fi
     while [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; do
-        CHANNEL_IMESSAGE_ALLOWED="$(gui_read "$MSG_PROMPT_IMESSAGE_ALLOWED_TITLE" text "" "$(printf "$MSG_PROMPT_IMESSAGE_ALLOWED_HELP" "$ASSISTANT_NAME")" "" "imessage_allowed")"
+        CHANNEL_IMESSAGE_ALLOWED="$(gui_read "$MSG_PROMPT_IMESSAGE_ALLOWED_TITLE" text "$IMESSAGE_ALLOWED_DEFAULT" "$(printf "$MSG_PROMPT_IMESSAGE_ALLOWED_HELP" "$ASSISTANT_NAME")" "" "imessage_allowed")"
         if [[ -z "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
             warn "$MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT"
             warn "$MSG_WARN_RE_RUN_INSTALLER_WITH_IMESSAGE_UNTICKED"
