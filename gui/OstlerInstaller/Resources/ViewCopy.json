@@ -19,6 +19,8 @@
     "reminders_denied": "Reminders access not granted. You can change this later in System Settings > Privacy & Security > Reminders.",
     "photos_granted": "Photos access granted.",
     "photos_denied": "Photos access not granted. You can change this later in System Settings > Privacy & Security > Photos.",
+    "applescript_contacts_granted": "Contacts automation access granted (allows the installer to read your contact card during setup).",
+    "applescript_contacts_denied": "Contacts automation access not granted. The installer will fall back to typing your details by hand. You can re-grant this later in System Settings > Privacy & Security > Automation.",
     "finished": "Permission pre-warm complete. Continuing to install.",
     "intro_heading": "Ostler needs four permissions to read your data on this Mac",
     "intro_subheading": "macOS will show four dialogs, one after the other. Click Allow on each so the installer can complete without pausing later. You can change any of these later in System Settings.",
