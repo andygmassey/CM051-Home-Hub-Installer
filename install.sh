@@ -832,43 +832,38 @@ fi
 gui_emit PCT "step=prereq_check" "pct=20"
 
 # Xcode Command Line Tools -- needed for git, make, and as a hard
-# prereq for Homebrew (which the install phase invokes later). The
-# package ships /usr/bin/git, /usr/bin/make, headers, dyld stubs, etc.
+# prereq for Homebrew (which the install phase invokes later).
 #
-# CX-21 (2026-05-23, Studio retest #15): the previous check used
-# `command -v git`, which is fatally wrong on a fresh macOS install.
-# Apple ships /usr/bin/git as a stub that exists IN PATH whether or not
-# Command Line Tools are installed -- when CLT is missing, invoking git
-# triggers the macOS "Install Command Line Tools" GUI dialog and exits
-# non-zero. So `command -v git` always returned true and this whole
-# block was silently skipped, leaving CLT uninstalled. Downstream
-# Homebrew install then dies sub-second because Homebrew's own
-# installer aborts in NONINTERACTIVE mode when CLT is missing.
+# CX-21 (2026-05-23): the previous check used `command -v git`, which
+# is fatally wrong on a fresh macOS install. Apple ships /usr/bin/git
+# as a stub that exists IN PATH whether or not CLT is installed --
+# when CLT is missing, invoking it triggers the macOS "Install
+# Command Line Tools" GUI dialog and exits non-zero. So `command -v
+# git` always returned true and the install block was silently
+# skipped. Robust check: /usr/bin/xcode-select -p (exit 0 only when
+# CLT is actually installed).
 #
-# Robust check: /usr/bin/xcode-select -p returns the active developer
-# directory path, exit 0 if CLT is installed, exit 1 ("unable to get
-# active developer directory") if not.
+# CX-22 (2026-05-23): also do NOT block here on the install. CLT
+# download is 5-10 minutes; making the customer wait BEFORE the
+# questions phase means 5-10 idle minutes staring at a "checking
+# prerequisites" screen. Instead, trigger the install dialog here
+# and proceed immediately to the questions phase. CLT downloads in
+# the background WHILE the customer answers the questions (which
+# also takes ~5 min). The wait-for-CLT loop has moved to the top of
+# the homebrew_install step (lower in this script), where it only
+# fires if CLT is still finishing.
+CLT_INSTALL_TRIGGERED=false
 if ! /usr/bin/xcode-select -p &>/dev/null; then
     info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
-    echo "  macOS will show a dialog -- click 'Install' and wait."
+    echo "  macOS will show a dialog -- click 'Install' to start the download."
+    echo "  CLT downloads in the background while you answer the questions below."
     /usr/bin/xcode-select --install 2>/dev/null || true
-    # Wait for xcode-select to finish, with a timeout so the installer
-    # doesn't hang forever if the user dismisses the install dialog.
-    # Check `xcode-select -p` rather than `command -v git`: the stub
-    # responds to PATH lookup before CLT is installed.
-    XCODE_WAIT=0
-    XCODE_TIMEOUT=600  # 10 minutes -- generous; CLI install is ~150 MB
-    until /usr/bin/xcode-select -p &>/dev/null; do
-        if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
-            fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
-        fi
-        sleep 5
-        XCODE_WAIT=$((XCODE_WAIT + 5))
-    done
-    ok "$MSG_OK_GIT_AVAILABLE"
+    CLT_INSTALL_TRIGGERED=true
+    ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
 else
     ok "$MSG_OK_GIT_AVAILABLE"
 fi
+export CLT_INSTALL_TRIGGERED
 gui_emit PCT "step=prereq_check" "pct=35"
 
 # Apple Silicon check.
@@ -3322,6 +3317,35 @@ if [[ "$HAS_BATTERY" == true ]]; then
 fi
 
 progress "Checking Homebrew and system tools" "homebrew_install"
+
+# CX-22 (2026-05-23, retest #16): if CLT was triggered at prereq-check
+# phase, the customer has been answering questions for ~5 min while CLT
+# downloads in background. By the time we get here, CLT is usually
+# ready. If it isn't, wait now -- but with progress emits so the
+# customer (and the GUI watchdog) see we're alive. This is the ONLY
+# wait-for-CLT block in install.sh; the prereq-check phase trigger is
+# fire-and-forget.
+if ! /usr/bin/xcode-select -p &>/dev/null; then
+    info "$MSG_INFO_WAITING_FOR_CLT_TO_FINISH"
+    XCODE_WAIT=0
+    XCODE_TIMEOUT=900  # 15 minutes -- generous; CLI install is ~150 MB
+    LAST_HEARTBEAT=0
+    until /usr/bin/xcode-select -p &>/dev/null; do
+        if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
+            fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
+        fi
+        sleep 10
+        XCODE_WAIT=$((XCODE_WAIT + 10))
+        # Heartbeat every 30s so the GUI watchdog stays quiet + customer
+        # sees progress. Without this, install.sh emits nothing for the
+        # entire CLT download and the watchdog fires WARN/ERROR.
+        if (( XCODE_WAIT - LAST_HEARTBEAT >= 30 )); then
+            info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
+            LAST_HEARTBEAT=$XCODE_WAIT
+        fi
+    done
+    ok "$MSG_OK_GIT_AVAILABLE"
+fi
 
 if command -v brew &>/dev/null; then
     ok "$MSG_OK_HOMEBREW_INSTALLED"
