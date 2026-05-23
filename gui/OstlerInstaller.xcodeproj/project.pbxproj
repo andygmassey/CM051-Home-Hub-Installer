@@ -352,6 +352,7 @@
 				573FCA21A33278A6BA0D6D15 /* Sources */,
 				BC061E46C88E5D80D0115AEC /* Resources */,
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
+				4E98769DBA62B4C9868A0711 /* Bundle python-build-standalone Python 3.11 into Resources */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
@@ -494,6 +495,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/email_ingest\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling email_ingest from ${SRC} into Resources/email-ingest/\"\n  mkdir -p \"${DEST}/email-ingest\"\n  # install.sh:5088 looks for ${SCRIPT_DIR}/email-ingest/INSTALL_SNIPPET.sh\n  # so the bundled directory MUST be named email-ingest (hyphen),\n  # matching the source directory name in HR015.\n  cp -R \"${SRC}/\"* \"${DEST}/email-ingest/\"\n  /usr/bin/xattr -cr \"${DEST}/email-ingest\" || true\n  chmod 755 \"${DEST}/email-ingest/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/email-ingest/bin/\"*.sh \"${DEST}/email-ingest/bin/\"*.py \"${DEST}/email-ingest/bin/ostler-rescan-mail\" 2>/dev/null || true\nelse\n  echo \"ERROR: vendor/email_ingest not found at ${SRC}\" >&2\n  exit 1\nfi\n";
+		};
+		4E98769DBA62B4C9868A0711 /* Bundle python-build-standalone Python 3.11 into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle python-build-standalone Python 3.11 into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/python/bin/python3.11",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# CX-19 (launch blocker, 2026-05-23). Studio retest #14 against\n# DMG #16 caught a phase-ordering bug that lands on every fresh\n# customer Mac: install.sh runs `python3 --version` early in\n# the QUESTIONS phase; on a stock macOS 15 install that hits\n# the /usr/bin/python3 Apple stub which fires the \"Install\n# Command Line Tools\" GUI dialog and returns non-zero. The\n# subsequent `brew install python@3.11` fallback also fails\n# because Homebrew has not been installed yet.\n#\n# Fix: bundle a portable Python 3.11 inside the .app via\n# python-build-standalone (the same upstream uv / ruff / mise /\n# Posit consume). install.sh prefers the bundled binary at\n# ${SCRIPT_DIR}/python/bin/python3.11 over any system python3,\n# so the customer install never depends on CLT or Homebrew\n# being present for the venv work.\n#\n# The Makefile target `download-python` (in gui/Makefile)\n# downloads + SHA-256-verifies the tarball into\n# ${BUILD_DIR}/python-bundle.tar.gz before xcodebuild runs.\n# If you are invoking xcodebuild by hand (rare), run\n# `make -C gui download-python` first.\n#\n# Apple Silicon only for v1.0 (the aarch64-apple-darwin\n# install_only flavor). Intel Mac support deferred to v1.0.1.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.\n# When `make ship` is the entry point, BUILD_DIR defaults to\n# /tmp/ostler-installer-build-andy. When xcodebuild runs from\n# Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.\nPYTHON_TARBALL=\"\"\nfor candidate in \\\n    \"/tmp/ostler-installer-build-andy/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/../build/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/build/python-bundle.tar.gz\"; do\n    if [ -f \"$candidate\" ]; then\n        PYTHON_TARBALL=\"$candidate\"\n        break\n    fi\ndone\nif [ -z \"$PYTHON_TARBALL\" ]; then\n    echo \"ERROR: python-build-standalone tarball missing.\" >&2\n    echo \"       Run 'make -C gui download-python' before building.\" >&2\n    echo \"       Searched:\" >&2\n    echo \"         /tmp/ostler-installer-build-andy/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/../build/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/build/python-bundle.tar.gz\" >&2\n    exit 1\nfi\necho \"Bundling python-build-standalone from ${PYTHON_TARBALL} into Resources/python/\"\n# Wipe any prior extraction so re-runs are idempotent and we never\n# ship a hybrid tree from two different upstream releases.\nrm -rf \"${DEST}/python\"\nmkdir -p \"${DEST}/python\"\n# --strip-components=1 drops the upstream \"python/\" wrapper dir.\ntar -xzf \"$PYTHON_TARBALL\" -C \"${DEST}/python\" --strip-components=1\n# Strip __pycache__ from the standard library before codesign.\n# python-build-standalone ships pre-compiled .pyc files; they are\n# not signable, and codesign --deep refuses to traverse them when\n# the parent dir lands as a \"code resource\". CPython regenerates\n# them lazily at first import. Mirror of the cm024_knowledge /\n# cm048_pipeline patterns below.\nfind \"${DEST}/python\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/python\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Verify the binary landed at the expected path. install.sh\n# specifically tests `[[ -x ${SCRIPT_DIR}/python/bin/python3.11 ]]`\n# so a layout drift in upstream would silently degrade us back\n# to the system-python path (which is the failure shape we are\n# paying down). Refuse to ship a misshapen bundle.\nif [ ! -x \"${DEST}/python/bin/python3.11\" ]; then\n    echo \"ERROR: python3.11 binary not found at\" >&2\n    echo \"       ${DEST}/python/bin/python3.11 after extraction.\" >&2\n    echo \"       Upstream tarball layout may have changed.\" >&2\n    exit 1\nfi\n# Belt-and-braces xattr strip on the destination.\n/usr/bin/xattr -cr \"${DEST}/python\" || true\n";
 		};
 		8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

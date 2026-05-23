@@ -271,6 +271,7 @@ MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO="Power source: AC (desktop Mac, no battery
 MSG_OK_POWER_SOURCE_AC_GOOD_10_15="Power source: AC (good for the 10-15 minute install)"
 MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG="Previous installation detected. Loading config..."
 MSG_OK_PYTHON="Python %s"
+MSG_OK_PYTHON_BUNDLED="Using bundled Python %s (no system install needed)"
 MSG_OK_PYTHON_INSTALLED="Python %s installed"
 MSG_OK_QDRANT_HEALTHY="Qdrant healthy"
 MSG_OK_READY="%s ready"
@@ -531,6 +532,7 @@ MSG_ERR_URL="  url:      %s"
 
 # ── Fail messages (terminal -- the installer exits after) ──
 
+MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="Intel Macs are not supported in v1.0. Apple Silicon (M1, M2, M3 or M4) is required. Intel support is coming in v1.0.1."
 MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED="At least 16 GB RAM required. You have %s GB. 24 GB recommended."
 MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature or notarisation check failed. The bundle was left in /Applications for support. Email support@ostler.ai and re-run the installer."
 MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Check your network and re-run the installer."

@@ -102,6 +102,87 @@ targets:
                   mv -f "${DEST}/${f}" "${DEST}/Fonts/${f}"
               fi
           done
+      - name: Bundle python-build-standalone Python 3.11 into Resources
+        script: |
+          set -euo pipefail
+          # CX-19 (launch blocker, 2026-05-23). Studio retest #14 against
+          # DMG #16 caught a phase-ordering bug that lands on every fresh
+          # customer Mac: install.sh runs `python3 --version` early in
+          # the QUESTIONS phase; on a stock macOS 15 install that hits
+          # the /usr/bin/python3 Apple stub which fires the "Install
+          # Command Line Tools" GUI dialog and returns non-zero. The
+          # subsequent `brew install python@3.11` fallback also fails
+          # because Homebrew has not been installed yet.
+          #
+          # Fix: bundle a portable Python 3.11 inside the .app via
+          # python-build-standalone (the same upstream uv / ruff / mise /
+          # Posit consume). install.sh prefers the bundled binary at
+          # ${SCRIPT_DIR}/python/bin/python3.11 over any system python3,
+          # so the customer install never depends on CLT or Homebrew
+          # being present for the venv work.
+          #
+          # The Makefile target `download-python` (in gui/Makefile)
+          # downloads + SHA-256-verifies the tarball into
+          # ${BUILD_DIR}/python-bundle.tar.gz before xcodebuild runs.
+          # If you are invoking xcodebuild by hand (rare), run
+          # `make -C gui download-python` first.
+          #
+          # Apple Silicon only for v1.0 (the aarch64-apple-darwin
+          # install_only flavor). Intel Mac support deferred to v1.0.1.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          # The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.
+          # When `make ship` is the entry point, BUILD_DIR defaults to
+          # /tmp/ostler-installer-build-${USER}. When xcodebuild runs from
+          # Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.
+          PYTHON_TARBALL=""
+          for candidate in \
+              "/tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" \
+              "${SRCROOT}/../build/python-bundle.tar.gz" \
+              "${SRCROOT}/build/python-bundle.tar.gz"; do
+              if [ -f "$candidate" ]; then
+                  PYTHON_TARBALL="$candidate"
+                  break
+              fi
+          done
+          if [ -z "$PYTHON_TARBALL" ]; then
+              echo "ERROR: python-build-standalone tarball missing." >&2
+              echo "       Run 'make -C gui download-python' before building." >&2
+              echo "       Searched:" >&2
+              echo "         /tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" >&2
+              echo "         ${SRCROOT}/../build/python-bundle.tar.gz" >&2
+              echo "         ${SRCROOT}/build/python-bundle.tar.gz" >&2
+              exit 1
+          fi
+          echo "Bundling python-build-standalone from ${PYTHON_TARBALL} into Resources/python/"
+          # Wipe any prior extraction so re-runs are idempotent and we never
+          # ship a hybrid tree from two different upstream releases.
+          rm -rf "${DEST}/python"
+          mkdir -p "${DEST}/python"
+          # --strip-components=1 drops the upstream "python/" wrapper dir.
+          tar -xzf "$PYTHON_TARBALL" -C "${DEST}/python" --strip-components=1
+          # Strip __pycache__ from the standard library before codesign.
+          # python-build-standalone ships pre-compiled .pyc files; they are
+          # not signable, and codesign --deep refuses to traverse them when
+          # the parent dir lands as a "code resource". CPython regenerates
+          # them lazily at first import. Mirror of the cm024_knowledge /
+          # cm048_pipeline patterns below.
+          find "${DEST}/python" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          find "${DEST}/python" -type f -name "*.pyc" -delete 2>/dev/null || true
+          # Verify the binary landed at the expected path. install.sh
+          # specifically tests `[[ -x ${SCRIPT_DIR}/python/bin/python3.11 ]]`
+          # so a layout drift in upstream would silently degrade us back
+          # to the system-python path (which is the failure shape we are
+          # paying down). Refuse to ship a misshapen bundle.
+          if [ ! -x "${DEST}/python/bin/python3.11" ]; then
+              echo "ERROR: python3.11 binary not found at" >&2
+              echo "       ${DEST}/python/bin/python3.11 after extraction." >&2
+              echo "       Upstream tarball layout may have changed." >&2
+              exit 1
+          fi
+          # Belt-and-braces xattr strip on the destination.
+          /usr/bin/xattr -cr "${DEST}/python" || true
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/python/bin/python3.11
       - name: Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources
         script: |
           set -euo pipefail

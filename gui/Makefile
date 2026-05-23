@@ -90,11 +90,51 @@ DMG_PATH      := $(DIST_DIR)/$(DMG_NAME)
 APP_PATH      := $(DIST_DIR)/$(APP_NAME).app
 DEBUG_APP     := $(DERIVED_DATA)/Build/Products/Debug/$(APP_NAME).app
 
+# ---------------------------------------------------------------------------
+# CX-19 (launch blocker, 2026-05-23): python-build-standalone bundling.
+#
+# Studio retest #14 (DMG #16) caught a phase-ordering bug that lands on
+# every fresh customer Mac. install.sh runs `python3 --version` early in
+# the QUESTIONS phase; on a stock macOS 15 install (no Command Line Tools,
+# no Homebrew) that hits the /usr/bin/python3 Apple stub which fires the
+# "Install Command Line Tools" GUI dialog and returns non-zero. The script
+# then falls through to `brew install python@3.11` which itself fails with
+# exit 127 because Homebrew has not been installed yet -- that step is in
+# the INSTALL phase (~line 3264) which runs AFTER the Python check at
+# ~line 1999.
+#
+# Architectural fix: bundle Python 3.11 inside the .app via
+# python-build-standalone (https://github.com/astral-sh/python-build-standalone).
+# These are portable statically-linked CPython builds designed for embedding
+# in distributable tools -- uv, ruff, mise, Posit all use them. install.sh
+# uses the bundled Python for every venv it creates, so the customer never
+# triggers the CLT dialog and the install does not depend on Homebrew
+# existing yet.
+#
+# Apple Silicon only for v1.0 (the aarch64-apple-darwin install_only flavor).
+# Intel Mac support is deferred to v1.0.1 -- the same upstream releases ship
+# x86_64-apple-darwin builds so the lift is straightforward, but Intel Macs
+# were never a primary launch target.
+#
+# Pinned version: cpython-3.11.15+20260510-aarch64-apple-darwin-install_only.tar.gz
+# SHA-256:        03bcedae9b19a48888d7dc8ba064f73f6efaaf2b13f6a8e1a1bcc062df13e855
+#
+# To bump: pick a newer cpython-3.11.X+YYYYMMDD release from
+# https://github.com/astral-sh/python-build-standalone/releases, update
+# PYTHON_BUNDLE_VERSION + PYTHON_BUNDLE_SHA256 below, run
+# `make download-python` and confirm the verify step still passes.
+# ---------------------------------------------------------------------------
+PYTHON_BUNDLE_VERSION  ?= 3.11.15+20260510
+PYTHON_BUNDLE_SHA256   ?= 03bcedae9b19a48888d7dc8ba064f73f6efaaf2b13f6a8e1a1bcc062df13e855
+PYTHON_BUNDLE_PLATFORM ?= aarch64-apple-darwin-install_only
+PYTHON_BUNDLE_URL      := https://github.com/astral-sh/python-build-standalone/releases/download/$(word 2,$(subst +, ,$(PYTHON_BUNDLE_VERSION)))/cpython-$(PYTHON_BUNDLE_VERSION)-$(PYTHON_BUNDLE_PLATFORM).tar.gz
+PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
+
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app \
-        print-version dmg-bg sparkle-embed verify-dmg-contents
+        print-version dmg-bg sparkle-embed verify-dmg-contents download-python
 
 all: debug
 
@@ -142,9 +182,50 @@ debug: check-tools
 	open "$(DEBUG_APP)"
 
 # ---------------------------------------------------------------------------
+# Download + verify python-build-standalone tarball.
+#
+# Cached: re-runnable, skips network when $(PYTHON_BUNDLE_TARBALL) already
+# exists with the right SHA-256. SHA-256 mismatch deletes the file and
+# refuses to proceed -- never ship from an unverified download.
+#
+# The tarball lives in $(BUILD_DIR) (default /tmp) so `make clean` wipes it.
+# It is consumed by the gui/project.yml postBuildScript that extracts into
+# OstlerInstaller.app/Contents/Resources/python/ at xcodebuild time.
+# ---------------------------------------------------------------------------
+download-python:
+	@mkdir -p "$(BUILD_DIR)"; \
+	EXPECTED="$(PYTHON_BUNDLE_SHA256)"; \
+	if [ -f "$(PYTHON_BUNDLE_TARBALL)" ]; then \
+	    ACTUAL="$$(shasum -a 256 "$(PYTHON_BUNDLE_TARBALL)" | awk '{print $$1}')"; \
+	    if [ "$$ACTUAL" = "$$EXPECTED" ]; then \
+	        printf '[STEP] python-build-standalone cache hit: %s\n' "$(PYTHON_BUNDLE_TARBALL)"; \
+	        exit 0; \
+	    fi; \
+	    printf '[STEP] python-build-standalone cache present but SHA-256 differs -- redownloading\n'; \
+	    rm -f "$(PYTHON_BUNDLE_TARBALL)"; \
+	fi; \
+	printf '\n[STEP] Downloading python-build-standalone %s -> %s\n' "$(PYTHON_BUNDLE_VERSION)" "$(PYTHON_BUNDLE_TARBALL)"; \
+	if ! curl -fsSL -o "$(PYTHON_BUNDLE_TARBALL)" "$(PYTHON_BUNDLE_URL)"; then \
+	    echo "ERROR: download failed: $(PYTHON_BUNDLE_URL)" >&2; \
+	    rm -f "$(PYTHON_BUNDLE_TARBALL)"; \
+	    exit 1; \
+	fi; \
+	ACTUAL="$$(shasum -a 256 "$(PYTHON_BUNDLE_TARBALL)" | awk '{print $$1}')"; \
+	if [ "$$ACTUAL" != "$$EXPECTED" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: python-build-standalone SHA-256 mismatch." >&2; \
+	    echo "  expected: $$EXPECTED" >&2; \
+	    echo "  actual:   $$ACTUAL" >&2; \
+	    echo "  file:     $(PYTHON_BUNDLE_TARBALL)" >&2; \
+	    rm -f "$(PYTHON_BUNDLE_TARBALL)"; \
+	    exit 1; \
+	fi; \
+	printf '[OK] python-build-standalone verified: %s\n' "$$ACTUAL"
+
+# ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
-release: check-tools check-identity
+release: check-tools check-identity download-python
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"
@@ -451,7 +532,7 @@ verify-dmg-contents:
 # regression downstream of check-ostler-app fails before we archive a bad
 # DMG into ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app sparkle-embed release package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python sparkle-embed release package notarise verify-dmg-contents archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
