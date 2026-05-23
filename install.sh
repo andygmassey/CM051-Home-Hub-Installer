@@ -853,12 +853,21 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=35"
 
-# Apple Silicon check
+# Apple Silicon check.
+#
+# CX-19 (2026-05-23): bundled Python (python-build-standalone) is the
+# Apple Silicon (arm64) build for v1.0. Intel Mac support is deferred
+# to v1.0.1 -- the same upstream releases ship x86_64-apple-darwin
+# binaries, but Intel Macs were never a primary launch target and we
+# don't have a clean retest path on Intel hardware before launch.
+# Hard-fail honestly here so the customer sees a clear message rather
+# than an opaque downstream failure when the bundled python3.11 cannot
+# execute on x86_64.
 ARCH=$(uname -m)
 if [[ "$ARCH" == "arm64" ]]; then
     ok "$MSG_OK_APPLE_SILICON_DETECTED"
 else
-    warn "$MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED"
+    fail_with_code "ERR-01-ARCH-INTEL-NOT-SUPPORTED" "$MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0"
 fi
 gui_emit PCT "step=prereq_check" "pct=50"
 
@@ -1996,41 +2005,74 @@ fi
 # stack runs clean on 3.11; 3.12 wheels also exist for everything
 # but the move-to-3.12 retest is post-launch hygiene rather than
 # launch-blocking. 3.11 EOL is October 2027, plenty of runway.
+# CX-19 (launch blocker, 2026-05-23): prefer bundled Python over system Python.
+#
+# Studio retest #14 (DMG #16) caught a phase-ordering bug that EVERY fresh
+# customer Mac hits: `python3 --version` triggers the /usr/bin/python3
+# Apple stub on a stock macOS 15 install (no Command Line Tools, no
+# Homebrew), which fires the "Install Command Line Tools" GUI dialog
+# and returns non-zero. The brew-install-python fallback below also
+# fails because Homebrew has not been installed yet at this point in
+# install.sh -- the Homebrew install step is in the INSTALL phase, the
+# Python check is in the QUESTIONS phase that runs before it.
+#
+# Fix: bundle python-build-standalone Python 3.11 inside the .app and
+# prefer it over any system python3. SCRIPT_DIR is Contents/Resources
+# when install.sh runs from the signed .app, so
+# ${SCRIPT_DIR}/python/bin/python3.11 is the bundled binary embedded
+# at archive time (see gui/project.yml postBuildScripts +
+# gui/Makefile download-python target).
+#
+# Dev mode fallback (running from HR015 source layout, not from the
+# signed .app) retains the existing brew-install-or-system-python
+# logic. This branch is hit only by developers running install.sh
+# directly from a sibling clone -- not by customers.
 if [[ -z "${PYTHON3_BIN:-}" ]]; then
     PYTHON3_BIN=""
-    if command -v python3 &>/dev/null; then
-        SYS_PY_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
-        SYS_PY_MAJOR=$(echo "$SYS_PY_VERSION" | cut -d. -f1)
-        SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
-        # Accept 3.10 or 3.11 only. 3.12+ has sqlcipher3 wheels available
-        # but is untested in this stack today (post-launch hygiene). 3.9
-        # and older fail other deps.
-        if [[ "$SYS_PY_MAJOR" -eq 3 && "$SYS_PY_MINOR" -ge 10 && "$SYS_PY_MINOR" -le 11 ]]; then
-            PYTHON3_BIN="$(command -v python3)"
-            ok "$(printf "$MSG_OK_PYTHON" "${SYS_PY_VERSION}")"
-        fi
-    fi
-    if [[ -z "$PYTHON3_BIN" ]]; then
+    BUNDLED_PYTHON="${SCRIPT_DIR}/python/bin/python3.11"
+    if [[ -x "$BUNDLED_PYTHON" ]]; then
+        PYTHON3_BIN="$BUNDLED_PYTHON"
+        BUNDLED_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
+        ok "$(printf "$MSG_OK_PYTHON_BUNDLED" "${BUNDLED_PY_VERSION}")"
+    else
+        # Dev mode fallback: existing brew-install-or-system-python path.
+        # This branch is hit only when install.sh runs from a developer's
+        # HR015 sibling-clone, not from the customer-facing signed .app
+        # (which always has ${SCRIPT_DIR}/python/bin/python3.11 bundled).
         if command -v python3 &>/dev/null; then
-            warn "$(printf "$MSG_WARN_PYTHON_TOO_OLD_NEED_3_10" "${SYS_PY_VERSION}")"
-        else
-            warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
+            SYS_PY_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
+            SYS_PY_MAJOR=$(echo "$SYS_PY_VERSION" | cut -d. -f1)
+            SYS_PY_MINOR=$(echo "$SYS_PY_VERSION" | cut -d. -f2)
+            # Accept 3.10 or 3.11 only. 3.12+ has sqlcipher3 wheels available
+            # but is untested in this stack today (post-launch hygiene). 3.9
+            # and older fail other deps.
+            if [[ "$SYS_PY_MAJOR" -eq 3 && "$SYS_PY_MINOR" -ge 10 && "$SYS_PY_MINOR" -le 11 ]]; then
+                PYTHON3_BIN="$(command -v python3)"
+                ok "$(printf "$MSG_OK_PYTHON" "${SYS_PY_VERSION}")"
+            fi
         fi
-        if ! brew install python@3.11; then
-            fail_with_code "ERR-05-HOMEBREW-PYTHON-INSTALL" "Could not install Python 3.11 via Homebrew. Re-run the installer with a working network connection, or install Python 3.11 manually with: brew install python@3.11"
+        if [[ -z "$PYTHON3_BIN" ]]; then
+            if command -v python3 &>/dev/null; then
+                warn "$(printf "$MSG_WARN_PYTHON_TOO_OLD_NEED_3_10" "${SYS_PY_VERSION}")"
+            else
+                warn "$MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON"
+            fi
+            if ! brew install python@3.11; then
+                fail_with_code "ERR-05-HOMEBREW-PYTHON-INSTALL" "Could not install Python 3.11 via Homebrew. Re-run the installer with a working network connection, or install Python 3.11 manually with: brew install python@3.11"
+            fi
+            # Use the explicit Homebrew keg path, NOT the PATH-prepended
+            # `python3` which can resolve to /usr/bin/python3 (system 3.9.x)
+            # even after a `export PATH=...` prepend.
+            if [[ -x "/opt/homebrew/opt/python@3.11/bin/python3.11" ]]; then
+                PYTHON3_BIN="/opt/homebrew/opt/python@3.11/bin/python3.11"
+            elif [[ -x "/usr/local/opt/python@3.11/bin/python3.11" ]]; then
+                PYTHON3_BIN="/usr/local/opt/python@3.11/bin/python3.11"
+            else
+                fail_with_code "ERR-05-HOMEBREW-PYTHON-MISSING" "brew install python@3.11 reported success but the python3.11 binary was not found at the expected paths. Try 'brew reinstall python@3.11' and re-run the installer."
+            fi
+            NEW_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
+            ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${NEW_PY_VERSION}")"
         fi
-        # Use the explicit Homebrew keg path, NOT the PATH-prepended
-        # `python3` which can resolve to /usr/bin/python3 (system 3.9.x)
-        # even after a `export PATH=...` prepend.
-        if [[ -x "/opt/homebrew/opt/python@3.11/bin/python3.11" ]]; then
-            PYTHON3_BIN="/opt/homebrew/opt/python@3.11/bin/python3.11"
-        elif [[ -x "/usr/local/opt/python@3.11/bin/python3.11" ]]; then
-            PYTHON3_BIN="/usr/local/opt/python@3.11/bin/python3.11"
-        else
-            fail_with_code "ERR-05-HOMEBREW-PYTHON-MISSING" "brew install python@3.11 reported success but the python3.11 binary was not found at the expected paths. Try 'brew reinstall python@3.11' and re-run the installer."
-        fi
-        NEW_PY_VERSION=$("$PYTHON3_BIN" --version 2>&1 | cut -d' ' -f2)
-        ok "$(printf "$MSG_OK_PYTHON_INSTALLED" "${NEW_PY_VERSION}")"
     fi
     export PYTHON3_BIN
 fi
