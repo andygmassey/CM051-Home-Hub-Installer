@@ -260,6 +260,7 @@ MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM="Ostler assistant LaunchAge
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED="ostler-assistant v%s staged at %s (signed)"
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED="ostler-assistant v%s staged at %s (unsigned)"
 MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089="Ostler Doctor running at http://localhost:8089/doctor"
+MSG_OK_OSTLER_FDA_INSTALLED_VENV="  Apple Mail reader installed."
 MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL="ostler-import, ostler-fda, and ostler-uninstall commands installed"
 MSG_OK_OXIGRAPH_HEALTHY="Oxigraph healthy"
 MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Passphrase noted. It will encrypt your databases during Phase 3."
