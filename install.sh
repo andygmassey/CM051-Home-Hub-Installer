@@ -3409,22 +3409,56 @@ else
     } > "$BREW_INSTALL_LOG"
 
     set +e
-    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
+    # CX-25 (2026-05-24, Studio retest #19): Homebrew's official curl|bash
+    # installer aborts at have_sudo_access() UNCONDITIONALLY -- even when
+    # the prefix is pre-chowned and no sudo is actually needed. From the
+    # captured log: "Need sudo access on macOS (e.g. the user needs to
+    # be an Administrator)!" despite andy being in the admin group and
+    # /opt/homebrew being owned by andy:admin.
+    #
+    # Manual tarball install sidesteps the official script's sudo check
+    # entirely. /opt/homebrew is pre-chowned by the parent .app at install
+    # start, so we have write access to the prefix without sudo. Homebrew
+    # docs document this as a supported install path -- "Just clone or
+    # unpack the source tarball wherever you want it".
+    #
+    # https://docs.brew.sh/Installation#untar-anywhere-unsupported
+    if [[ "${OSTLER_GUI:-0}" == "1" ]] && [[ -d /opt/homebrew ]] && [[ -w /opt/homebrew ]]; then
+        echo "Using manual tarball install (prefix is pre-chowned)" >> "$BREW_INSTALL_LOG"
+        curl -fsSL https://github.com/Homebrew/brew/tarball/master 2>>"$BREW_INSTALL_LOG" \
+            | tar xz --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG"
+        BREW_EXIT=${PIPESTATUS[0]:-0}
+        # If curl succeeded, validate via brew --version. If brew is
+        # broken (bad tarball, missing files), this catches it.
+        if [[ $BREW_EXIT -eq 0 ]]; then
+            if [[ -x /opt/homebrew/bin/brew ]]; then
+                /opt/homebrew/bin/brew --version >> "$BREW_INSTALL_LOG" 2>&1
+                BREW_EXIT=$?
+            else
+                echo "FAIL: /opt/homebrew/bin/brew not found after tarball extract" >> "$BREW_INSTALL_LOG"
+                BREW_EXIT=1
+            fi
+        fi
     else
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
+        # Fallback: official installer (used in dev mode where /opt/homebrew
+        # is not pre-chowned, OR if pre-chown silently failed).
+        echo "Falling back to official installer (prefix not pre-chowned)" >> "$BREW_INSTALL_LOG"
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
+        BREW_EXIT=$?
     fi
-    BREW_EXIT=$?
     set -e
 
     if [[ $BREW_EXIT -ne 0 ]]; then
         warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
         warn "$MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES"
-        # Surface the last 30 lines so the customer log has the actual
-        # failure reason without being overwhelmed by the whole script.
-        # The full log stays at /tmp/ostler-brew-install.log for
-        # post-mortem if needed.
-        tail -30 "$BREW_INSTALL_LOG" | sed -e 's/^/    /'
+        # Surface the last 30 lines via warn() so the GUI's prefix-aware
+        # log parser actually renders them in the customer log. The
+        # earlier tail|sed pattern emitted plain stdout lines that the
+        # GUI dropped (CX-24 retest #19 caught this -- the diagnostic
+        # text was there in the file but invisible in the GUI).
+        while IFS= read -r line; do
+            warn "    $line"
+        done < <(tail -30 "$BREW_INSTALL_LOG")
         fail_with_code "ERR-04-HOMEBREW-INSTALL" "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
     fi
 
