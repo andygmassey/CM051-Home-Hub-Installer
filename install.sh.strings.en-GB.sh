@@ -585,7 +585,7 @@ MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk
 MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration – you accept the consent above by enabling it."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
-MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International format, like +44 7700 900000. Leading +, country code, digits only."
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.\n\nFor example:\n+447700900000, you@example.com"
@@ -640,7 +640,7 @@ MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file directly. Google never sees Ostler."
 
 MSG_PROMPT_FDA_PRESET_TITLE="Which Mac sources should Ostler learn from?"
-MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – tick deliberately if you want them."
+MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – choose deliberately if you want them."
 MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended – Includes Apple Mail, Contacts, Calendar, Notes, Messages, Reminders, and Safari history. Excludes Photos face-recognition data and any third-party export archives (you can add those at the previous step)."
 MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything – Recommended + Photos people-clusters (face recognition) + Safari bookmarks + Google Takeout (Gmail / Calendar / Contacts). Excludes nothing native; third-party exports still go through the previous step."
 MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise – Pick each source on the next screen. Sensitive sources stay off until you tick them."
@@ -654,7 +654,13 @@ MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.\n\nBy continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.\n\nLegal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c)."
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
+
+By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
+
+Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
+
+Read more at docs.ostler.ai/privacy/third-party-data."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
 MSG_PROMPT_CONSENT_INSTALL_HELP="Type INSTALL below to confirm. By doing so you accept the terms at ostler.ai/terms."
