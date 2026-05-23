@@ -259,7 +259,19 @@ gui_phase() {
 
 gui_done() {
     # gui_done [status]
-    gui_emit DONE "status=${1:-ok}"
+    #
+    # CX-17 (2026-05-23): when the script-side OSTLER_LAST_ERROR_CODE
+    # is set (via `fail_with_code "ERR-NN-..." "..."`), pass it
+    # through to the GUI on the DONE marker so the Swift side can
+    # surface it on the failure banner + the auto-copied log header.
+    # Empty code (legacy bare `fail "..."`) emits no code= keyword
+    # which the parser tolerates -- matches the pre-CX-17 wire shape.
+    local status="${1:-ok}"
+    if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
+        gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}"
+    else
+        gui_emit DONE "status=$status"
+    fi
 }
 
 # Surface a sudo-required pause to the GUI. install.sh's existing

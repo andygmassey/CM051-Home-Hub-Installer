@@ -42,6 +42,12 @@ final class AdminAuthorizationGateTests: XCTestCase {
         let coord = InstallerCoordinator()
         coord.licenseVerified = true
         coord.registrationGate = .ready
+        // CX-17 (2026-05-23): bootstrap() now also gates on the
+        // permissions-intro flow having finished. The existing
+        // admin-gate tests don't exercise the prewarm; advance the
+        // state machine to .complete so the legacy admin gate is
+        // the only remaining surface under test.
+        coord.permissionsIntroState = .complete
         return coord
     }
 

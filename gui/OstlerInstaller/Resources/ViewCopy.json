@@ -9,7 +9,7 @@
   },
 
   "permissions_prewarm": {
-    "_meta": "CX-14 Section E1 (2026-05-23): log-line strings emitted by PermissionsPrewarmer at app launch. The pre-warmer requests Contacts / Calendar / Reminders / Photos via the relevant macOS frameworks BEFORE install.sh spawns, so the customer sees all the TCC prompts in a concerted burst while they are still attentive (rather than scattered across a 15-minute install). The log lines surface in the LogDrawer + lifecycle OSLog stream; they are not rendered in the main install layout. Customer-facing copy ('Ostler needs access to ...') lives in Info.plist's NS*UsageDescription strings, which macOS controls.",
+    "_meta": "CX-14 Section E1 (2026-05-23) + CX-17 (2026-05-23): log-line strings emitted by PermissionsPrewarmer + customer-facing intro screen copy shown BEFORE the pre-warm fires. The intro screen names each of the four macOS TCC dialogs the customer is about to see, explains WHY each is needed, and offers Grant / Skip primary + secondary actions. The pre-warm then runs the four requests SERIALLY with an 800ms gap between each (CX-17 fix: the original concurrent burst fired all four popups in the same second and the customer missed two of them on Studio retest 2026-05-23). The log lines surface in the LogDrawer + lifecycle OSLog stream. Customer-facing copy in the macOS TCC dialog itself ('Ostler needs access to ...') lives in Info.plist's NS*UsageDescription strings, which macOS controls.",
     "starting": "Pre-warming permission prompts: requesting Contacts, Calendar, Reminders, and Photos access up-front.",
     "contacts_granted": "Contacts access granted.",
     "contacts_denied": "Contacts access not granted. You can change this later in System Settings > Privacy & Security > Contacts.",
@@ -19,7 +19,23 @@
     "reminders_denied": "Reminders access not granted. You can change this later in System Settings > Privacy & Security > Reminders.",
     "photos_granted": "Photos access granted.",
     "photos_denied": "Photos access not granted. You can change this later in System Settings > Privacy & Security > Photos.",
-    "finished": "Permission pre-warm complete. Continuing to install."
+    "finished": "Permission pre-warm complete. Continuing to install.",
+    "intro_heading": "Ostler needs four permissions to read your data on this Mac",
+    "intro_subheading": "macOS will show four dialogs, one after the other. Click Allow on each so the installer can complete without pausing later. You can change any of these later in System Settings.",
+    "intro_contacts_title": "Contacts",
+    "intro_contacts_reason": "So the Hub can pre-fill names + addresses while you set up, and recognise who you talk to most.",
+    "intro_calendar_title": "Calendar",
+    "intro_calendar_reason": "So the Hub can surface what is on next and link people to events on the wiki.",
+    "intro_reminders_title": "Reminders",
+    "intro_reminders_reason": "So the Hub can push to-dos from emails, meetings, and chats into Apple Reminders.",
+    "intro_photos_title": "Photos",
+    "intro_photos_reason": "So the Hub can read photo metadata (date, location, captions) and tie memories to people, places, and events.",
+    "intro_privacy_note": "Your data stays on this Mac. Nothing is uploaded.",
+    "intro_grant_button": "Grant permissions",
+    "intro_skip_button": "Skip for now",
+    "denial_summary_heading": "Some permissions were not granted",
+    "denial_summary_footer": "You can grant these later in System Settings > Privacy & Security.",
+    "denial_continue_button": "Continue install"
   },
 
   "admin_access_required": {
@@ -51,7 +67,10 @@
     "email_body_clipboard_instruction": "My installer failed. The PII-redacted log has been copied to my clipboard. Please paste it below the line:",
     "email_body_separator": "---",
     "email_subject": "Install failure (OstlerInstaller)",
-    "email_copied_hint": "Log copied to clipboard – paste into the email"
+    "email_copied_hint": "Log copied to clipboard – paste into the email",
+    "error_code_prefix": "Reference",
+    "error_code_heading_with_code": "Install failed: {code}",
+    "error_code_subject_suffix": " [{code}]"
   },
 
   "footer": {
