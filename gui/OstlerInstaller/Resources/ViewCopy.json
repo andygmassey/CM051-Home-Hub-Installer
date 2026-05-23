@@ -149,14 +149,13 @@
     "error_invalid_choice": "Pick one of: {options}",
     "assistant_name_helper": "The name in the field is a random suggestion – type over it with anything you like. Marvin, Samantha, Joshua, Friday, Athena, Sage, and Rosie are all popular choices.", "_exempt_assistant_name_helper": "assistant-name-exempt: F6.1 suggestion-pool exemplar, not a default",
     "choice_label": {
+      "_meta_channel_choice": "CX-18 (Studio retest #13, 2026-05-23): labels were out of sync with install.sh's semantics — install.sh accepts 1,2,3,4,5 with meanings iMessage / Email / iMessage+Email (recommended) / Skip / iMessage+Email+WhatsApp. The previous labels listed 1-7 (with 6 + 7 dead because install.sh rejects them via the choices=1,2,3,4,5 CSV) and mapped 3 to 'WhatsApp' which install.sh actually treats as 'iMessage + Email'. Founder report: 'Channels (Q7) still does not have the whole list of channels'. Labels now match install.sh case-block semantics 1:1. If install.sh's CHANNEL_CHOICE handler in install.sh ever grows new values, add the matching label here AND update the choices CSV passed to gui_read.",
       "channel_choice": {
-        "1": "iMessage",
-        "2": "Email",
-        "3": "WhatsApp",
-        "4": "iMessage + Email (recommended)",
-        "5": "iMessage + WhatsApp",
-        "6": "Email + WhatsApp",
-        "7": "All three (iMessage + Email + WhatsApp)"
+        "1": "iMessage only",
+        "2": "Email only",
+        "3": "iMessage + Email (recommended)",
+        "4": "Skip for now (set up later)",
+        "5": "iMessage + Email + WhatsApp"
       },
       "fda_preset": {
         "recommended": "Recommended",
@@ -178,7 +177,10 @@
     "consent_install_cancel": "Cancel",
     "consent_install_terms_link_label": "terms",
     "consent_install_terms_url": "https://ostler.ai/terms",
-    "consent_install_body_prefix": "Ready to install. By clicking Install Ostler, you confirm you accept the ",
+    "_meta_consent_install_body": "CX-18 (Studio retest #13, 2026-05-23): Q20 body was duplicating the headline ('Ready to install?' / 'Ready to install. By clicking...') AND rendered the type-INSTALL action as plain body copy AND rendered 'terms' as plain text. Split into five runs so the SwiftUI view can render INSTALL bold + terms as an underlined link, with no headline repetition. consentInstallBody() in OnboardingQuestionView.swift composes prefix + bold(install_token) + middle + link(terms_link_label) + suffix.",
+    "consent_install_body_prefix": "Please type ",
+    "consent_install_body_install_token": "INSTALL",
+    "consent_install_body_middle": " to confirm you accept the ",
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Type INSTALL",
     "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
@@ -204,6 +206,12 @@
     "help_touch_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",
     "help_optic_id": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready.",
     "help_password_or_watch": "Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready."
+  },
+
+  "consent_third_party": {
+    "_meta": "CX-18 (Studio retest #13, 2026-05-23): Q19 third-party-data acknowledgement was rendering as a wall of equal-weight body text with 'Legal note:' buried mid-paragraph and no visual separation between the customer-facing explanation and the GDPR fine-print. The SwiftUI view now overrides the default help-text render with two Text() views: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Bash-side MSG_PROMPT_CONSENT_THIRD_PARTY_HELP keeps the full text for TTY installs; the GUI uses these split strings instead. docs.ostler.ai/privacy/third-party-data link rendering is handled by the existing linkifyHelpText() Markdown post-processor.",
+    "intro_body": "Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.\n\nBy continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.",
+    "legal_note": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
   },
 
   "recovery_passphrase": {

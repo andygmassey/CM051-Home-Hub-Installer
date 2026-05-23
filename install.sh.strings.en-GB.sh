@@ -683,7 +683,7 @@ Legal note: For records you import to this Mac, you are the data controller and 
 Read more at docs.ostler.ai/privacy/third-party-data."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
-MSG_PROMPT_CONSENT_INSTALL_HELP="Type INSTALL below to confirm. By doing so you accept the terms at ostler.ai/terms."
+MSG_PROMPT_CONSENT_INSTALL_HELP="Please type INSTALL to confirm you accept the terms."
 MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Type INSTALL"
 MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
 MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"

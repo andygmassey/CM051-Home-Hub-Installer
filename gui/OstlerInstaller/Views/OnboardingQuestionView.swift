@@ -100,6 +100,8 @@ struct OnboardingQuestionView: View {
             //   - everything else: install.sh's `help` field.
             if q.prompt.id == "consent_install" {
                 consentInstallBody()
+            } else if q.prompt.id == "consent_third_party" {
+                consentThirdPartyBody()
             } else if q.prompt.id == "passkey_ack" {
                 passkeyAckBody()
             } else if q.prompt.id == "recovery_passphrase" {
@@ -148,23 +150,43 @@ struct OnboardingQuestionView: View {
         .onChange(of: q.isReview) { _, _ in seed(from: q) }
     }
 
-    /// F6.8 consent_install body: "Ready to install. By clicking
-    /// Install Ostler, you confirm you accept the [terms]." The
-    /// `terms` token is rendered as a hyperlink to ostler.ai/terms
-    /// via SwiftUI's AttributedString support; tapping opens the
-    /// default browser through `NSWorkspace.shared.open(_:)`.
+    /// F6.8 consent_install body. CX-18 (Studio retest #13, 2026-05-23):
+    /// previous shape literally repeated the headline ("Ready to
+    /// install. By clicking...") and rendered `terms` as plain text
+    /// with no emphasis on the type-INSTALL action. New shape reads:
+    /// "Please type **INSTALL** to confirm you accept the [terms]."
+    /// — with INSTALL rendered bold (to emphasise the typed-input
+    /// action the customer must perform in the field below) and
+    /// `terms` rendered as an underlined Oxblood link to
+    /// ostler.ai/terms. The body no longer repeats the Q20 headline.
+    ///
+    /// Composed from five catalogue runs:
+    ///   - consent_install_body_prefix          (plain)
+    ///   - consent_install_body_install_token   (bold)
+    ///   - consent_install_body_middle          (plain)
+    ///   - consent_install_terms_link_label     (link, underlined)
+    ///   - consent_install_body_suffix          (plain)
     private func consentInstallBody() -> some View {
         let prefix = ViewCopy.shared.string(for: "onboarding_question.consent_install_body_prefix")
+        let installToken = ViewCopy.shared.string(for: "onboarding_question.consent_install_body_install_token")
+        let middle = ViewCopy.shared.string(for: "onboarding_question.consent_install_body_middle")
         let linkLabel = ViewCopy.shared.string(for: "onboarding_question.consent_install_terms_link_label")
         let suffix = ViewCopy.shared.string(for: "onboarding_question.consent_install_body_suffix")
         let urlString = ViewCopy.shared.string(for: "onboarding_question.consent_install_terms_url")
 
-        // AttributedString lets us embed a tappable link inline.
-        // SwiftUI renders .link attributes as default-styled
+        // AttributedString lets us embed inline emphasis + a tappable
+        // link. SwiftUI renders .link attributes as default-styled
         // clickable runs; we add an explicit foreground to keep the
         // Oxblood accent and an underline to make the affordance
         // visible against the muted body copy.
         var s = AttributedString(prefix)
+
+        var bold = AttributedString(installToken)
+        bold.inlinePresentationIntent = .stronglyEmphasized
+        s += bold
+
+        s += AttributedString(middle)
+
         var link = AttributedString(linkLabel)
         if let url = URL(string: urlString) {
             link.link = url
@@ -172,6 +194,7 @@ struct OnboardingQuestionView: View {
         link.foregroundColor = .ostlerOxblood
         link.underlineStyle = .single
         s += link
+
         s += AttributedString(suffix)
 
         return Text(s)
@@ -179,6 +202,43 @@ struct OnboardingQuestionView: View {
             .foregroundStyle(Color.ostlerInk)
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Q19 (consent_third_party) body. CX-18 (Studio retest #13,
+    /// 2026-05-23): the previous render was a wall of equal-weight
+    /// body text from a single MSG_PROMPT_CONSENT_THIRD_PARTY_HELP
+    /// string with "Legal note:" buried mid-paragraph. The default
+    /// help-text path rendered the whole thing through linkifiedHelp()
+    /// in one Text() view with no visual subordination of the GDPR
+    /// fine-print.
+    ///
+    /// New render splits the screen into two Text() views, both
+    /// fed from ViewCopy keys (Rule 0.9 catalogue):
+    ///   - intro_body  (standard body copy, primary explanation)
+    ///   - legal_note  (smaller, italic, .secondary-coloured: looks
+    ///                  like fine print, reads like fine print)
+    ///
+    /// The docs.ostler.ai/privacy/third-party-data link inside
+    /// legal_note is auto-detected and made clickable by the existing
+    /// linkifyHelpText() Markdown-style post-processor.
+    ///
+    /// Bash-side MSG_PROMPT_CONSENT_THIRD_PARTY_HELP is unchanged so
+    /// the TTY install path still renders the full text inline.
+    private func consentThirdPartyBody() -> some View {
+        let intro = ViewCopy.shared.string(for: "consent_third_party.intro_body")
+        let legal = ViewCopy.shared.string(for: "consent_third_party.legal_note")
+        return VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(linkifiedHelp(intro))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(linkifiedHelp(legal))
+                .font(.ostlerCaption.italic())
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Q12 (passkey_ack) body: modality-branched help copy.
