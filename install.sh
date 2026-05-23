@@ -3377,11 +3377,57 @@ else
     # installer to skip its own sudo dialog + tty-only prompts (it
     # would otherwise re-prompt for password even when the prefix is
     # already user-owned, then fail because the GUI has no tty).
+    #
+    # CX-24 (2026-05-24, Studio retest #18): the Homebrew installer
+    # was dying sub-second with NO captured output, leaving us
+    # zero diagnostic info. Capture stderr+stdout to a log file so
+    # any failure surfaces a real error message in the customer log
+    # (and in the failure banner mailto via the log Reference line).
+    BREW_INSTALL_LOG="/tmp/ostler-brew-install.log"
+    rm -f "$BREW_INSTALL_LOG"
+
+    # Pre-probe state that affects Homebrew installer behaviour, so
+    # the captured log starts with context (sudo cache age, prefix
+    # ownership) before the actual install attempt. Helps future
+    # diagnosis when this fails again on a different fresh-Mac
+    # variant.
+    {
+        echo "=== Homebrew install context ($(date -u +"%Y-%m-%dT%H:%M:%SZ")) ==="
+        echo "USER=$(id -un) (uid=$(id -u))"
+        echo "OSTLER_GUI=${OSTLER_GUI:-0}"
+        echo "ARCH=$ARCH"
+        echo "PATH=$PATH"
+        echo "--- /opt/homebrew owner check ---"
+        ls -ld /opt /opt/homebrew 2>&1 || true
+        echo "--- sudo -nv test (does sudo work without prompt?) ---"
+        sudo -nv 2>&1 || echo "sudo -nv failed: cached credentials unavailable"
+        echo "--- xcode-select state ---"
+        xcode-select -p 2>&1 || true
+        echo "--- /usr/bin/git --version ---"
+        /usr/bin/git --version 2>&1 || true
+        echo "=== Homebrew installer output begins ==="
+    } > "$BREW_INSTALL_LOG"
+
+    set +e
     if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
     else
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
     fi
+    BREW_EXIT=$?
+    set -e
+
+    if [[ $BREW_EXIT -ne 0 ]]; then
+        warn "$(printf "$MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT" "$BREW_EXIT")"
+        warn "$MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES"
+        # Surface the last 30 lines so the customer log has the actual
+        # failure reason without being overwhelmed by the whole script.
+        # The full log stays at /tmp/ostler-brew-install.log for
+        # post-mortem if needed.
+        tail -30 "$BREW_INSTALL_LOG" | sed -e 's/^/    /'
+        fail_with_code "ERR-04-HOMEBREW-INSTALL" "$MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED"
+    fi
+
     if [[ "$ARCH" == "arm64" ]]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
     fi
