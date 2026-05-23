@@ -534,6 +534,45 @@ final class InstallerCoordinator: ObservableObject {
         _ = verifyLicense(data: data, source: "on-disk")
     }
 
+    /// CX-14 Section E1 (2026-05-23). Mid-install auth pre-warm.
+    ///
+    /// Fires the Contacts/Calendar/Reminders/Photos TCC requests
+    /// IN A CONCERTED BURST at app launch, BEFORE install.sh
+    /// spawns. macOS shows the dialogs up-front while the customer
+    /// is still attentive at the welcome screen; install.sh then
+    /// inherits the resulting TCC state via parent-bundle
+    /// attribution.
+    ///
+    /// This closes both:
+    ///   - C4 (TCC subprocess attribution): install.sh's children
+    ///     no longer need to coax their own TCC grants out of a
+    ///     detached subprocess context; the .app already has them.
+    ///   - E1 (mid-install pop-ups): the customer is no longer
+    ///     surprised by Contacts/Calendar prompts surfacing 10
+    ///     minutes into the install while they have walked away.
+    ///
+    /// FDA is NOT pre-warmed here -- it has no requestAccess API
+    /// and is granted manually via System Settings. The existing
+    /// FullDiskAccessSheet flow handles that.
+    ///
+    /// Idempotency: macOS short-circuits subsequent requestAccess
+    /// calls (returning the already-decided status without re-
+    /// prompting), so this method can be safely called from
+    /// onAppear without worrying about re-prompting on a re-launch.
+    /// We still log per-call to surface state in the LogDrawer.
+    ///
+    /// Public surface is sync (SwiftUI `onAppear` calls it without
+    /// `await`); the body hops to an async task so PermissionsPrewarmer
+    /// can await each framework call.
+    func requestPermissionsThenStart() {
+        Task { @MainActor in
+            let prewarmer = PermissionsPrewarmer(emitLog: { [weak self] level, msg in
+                self?.appendLog(level: level, msg: msg)
+            })
+            await prewarmer.prewarm()
+        }
+    }
+
     /// Verifies a licence document and -- on success -- flips
     /// the gate and persists the bytes to disk. Returns the raw
     /// result so the view can render an inline error.

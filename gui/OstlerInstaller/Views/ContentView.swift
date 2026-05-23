@@ -122,17 +122,20 @@ struct ContentView: View {
                     // sidebar Steps + footer remain visible so the
                     // customer never loses their progress anchor.
                     //
-                    // When the install has failed, the banner across
-                    // the top carries the message + actions; the right
-                    // pane reverts to a read-only LogDrawerView (the
-                    // same view the bottom drawer would show) so the
-                    // customer can read the actual failure output
-                    // without having to flip the verbose-log toggle.
-                    // Studio retest #8 (2026-05-22) flagged the blank
-                    // white pane as confusing -- the failure log is
-                    // exactly what the customer needs to see next.
+                    // When the install has failed, CX-14 Section E2
+                    // (2026-05-23) replaces the previous read-only
+                    // LogDrawerView with InstallFailedBodyView: the
+                    // rich apology + next-step copy + hyperlinked
+                    // support@ostler.ai + Email-support + Copy-log
+                    // actions. Pre-CX-14 the right pane was just the
+                    // log scrollback with no contextual copy; Studio
+                    // retest #6 found customers reading the log and
+                    // not understanding what to do next. The new pane
+                    // embeds the LogDrawerView inside the body so the
+                    // log is still visible but framed by the next-
+                    // step copy.
                     if coordinator.finished == .fail {
-                        LogDrawerView()
+                        InstallFailedBodyView()
                     } else if coordinator.pendingPrompt != nil ||
                               coordinator.backReviewIndex != nil {
                         OnboardingQuestionView()
@@ -160,106 +163,197 @@ struct ContentView: View {
     }
 }
 
-/// F5: prominent top-of-window failure banner. Replaces the bottom-
-/// left footer status line as the primary failure signal. Surfaces:
-///   - one-line cause from `coordinator.error` (falls back to a
-///     generic "Install failed" if no error is set)
-///   - "Copy log" button (mirrors the LogDrawerView Copy log button
-///     so the customer can grab the full buffer for hello@ostler.ai)
-///   - "Try again" button -- terminates the app so the customer
-///     can re-launch. We deliberately do NOT attempt an in-place
-///     restart because the failed install may have left
-///     ~/.ostler/ in a state that needs a fresh process to clean up.
+/// F5 + CX-14 Section E2 (2026-05-23): top-of-window failure banner.
+///
+/// PRE-CX-14 the banner crammed the heading + a one-line cause +
+/// four buttons (Email support / Copy redacted / Copy log / Try
+/// again) into a single horizontal strip. Studio retest #6 found:
+///   - the four buttons wrapped on the 880pt window, so the actions
+///     looked accidental rather than offered
+///   - the subtitle read as a single throwaway sentence in the
+///     space the customer mostly scans for what-happened context
+///   - the customer did not connect the buttons to the failure copy
+///     and walked away thinking the installer had hung
+///
+/// CX-14 split: top banner is now MINIMAL (title only, no buttons,
+/// no exit-code duplicate). The rich apology + next-step copy +
+/// action buttons live in `InstallFailedBodyView` in the right
+/// pane, where the customer is already looking when the install
+/// fails. The hyperlinked support@ostler.ai inline in the body
+/// removes the need for a separate "Email support" label.
+///
+/// We deliberately DROP "Try again": terminating the app and
+/// asking the customer to re-launch is more reliable than an
+/// in-place restart, and the Quit option in the footer already
+/// does the same thing. The Email-support button stays as the
+/// primary CTA in the body pane (introduced PR #150).
 private struct InstallFailedBannerView: View {
-    @EnvironmentObject private var coordinator: InstallerCoordinator
-    @State private var copied = false
-    @State private var redactedCopied = false
-
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: CGFloat.ostlerSpace3) {
             Image(systemName: "exclamationmark.octagon.fill")
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(Color.white)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ViewCopy.shared.string(for: "install_failed_banner.heading"))
-                    .font(.ostlerH2)
-                    .foregroundStyle(Color.white)
-                Text(coordinator.error
-                     ?? ViewCopy.shared.string(for: "install_failed_banner.subtitle_default"))
-                    .font(.ostlerBody)
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(ViewCopy.shared.string(for: "install_failed_banner.heading"))
+                .font(.ostlerH2)
+                .foregroundStyle(Color.white)
             Spacer(minLength: CGFloat.ostlerSpace3)
-            // F-1c Phase 2 UX sweep 2026-05-22: primary "Email support"
-            // button opens Mail.app with subject + URL-encoded
-            // PII-redacted body already populated. Saves the customer
-            // a redact-then-paste-then-compose round-trip and means
-            // support gets a consistent subject line.
-            //
-            // The two "Copy log" buttons stay for customers who prefer
-            // paste-into-Slack or paste-into-an-issue-tracker; the
-            // redactor pipeline runs through the same LogRedactor so
-            // PII handling is identical across all three paths.
-            Button(ViewCopy.shared.string(for: "install_failed_banner.email_support_button")) {
-                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
-                let redacted = LogRedactor.redact(buffer)
-                // mailto: body is URL-encoded with a leading note so
-                // support sees that this is a redacted log, not raw.
-                let bodyHeader = "Hi Ostler support team,\n\n"
-                    + "My installer failed. PII-redacted log below.\n\n"
-                    + "---\n\n"
-                let body = bodyHeader + redacted
-                let subject = "Install failure (OstlerInstaller)"
-                let allowed = CharacterSet.urlQueryAllowed
-                let encSubject = subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? subject
-                let encBody = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? body
-                let mailto = "mailto:support@ostler.ai?subject=\(encSubject)&body=\(encBody)"
-                if let url = URL(string: mailto) {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            .buttonStyle(.ostlerGhost)
-            .foregroundStyle(Color.white)
-            Button(redactedCopied
-                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button_copied")
-                   : ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button")) {
-                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
-                let redacted = LogRedactor.redact(buffer)
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(redacted, forType: .string)
-                redactedCopied = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    redactedCopied = false
-                }
-            }
-            .buttonStyle(.ostlerGhost)
-            .foregroundStyle(Color.white)
-            Button(copied
-                   ? ViewCopy.shared.string(for: "install_failed_banner.copy_log_button_copied")
-                   : ViewCopy.shared.string(for: "install_failed_banner.copy_log_button")) {
-                let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(buffer, forType: .string)
-                copied = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    copied = false
-                }
-            }
-            .buttonStyle(.ostlerGhost)
-            .foregroundStyle(Color.white)
-            Button(ViewCopy.shared.string(for: "install_failed_banner.try_again_button")) {
-                NSApp.terminate(nil)
-            }
-            .buttonStyle(.ostlerPrimary)
-            .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, CGFloat.ostlerSpace3)
         .padding(.vertical, CGFloat.ostlerSpace2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.ostlerOxblood)
+    }
+}
+
+/// CX-14 Section E2 (2026-05-23): rich body pane shown in the
+/// right content area when `coordinator.finished == .fail`. Pairs
+/// with the minimal top `InstallFailedBannerView` to split the
+/// "what happened" copy from the always-visible failure marker.
+///
+/// LAYOUT (top to bottom):
+///   - body_heading ("The installer hit a fatal error and stopped")
+///     -- translates the previous "code 1" exit-code shorthand into
+///     a single human sentence
+///   - body paragraph with hyperlinked `support@ostler.ai` inline
+///     via AttributedString (.link attribute + Oxblood foreground +
+///     underline, matching the consent-install body link styling)
+///   - LogDrawerView (read-only buffer view) so the customer can
+///     see the actual failure output without flipping the verbose-
+///     log toggle
+///   - actions row: Email support (primary CTA, same mailto pipeline
+///     as before) + Copy redacted log + Copy log
+///
+/// The "Try again" button is deliberately dropped per E2 brief:
+/// the footer Quit option already terminates the app, and asking
+/// the customer to re-launch by hand is more reliable than an
+/// in-place restart that might land on partial install state.
+private struct InstallFailedBodyView: View {
+    @EnvironmentObject private var coordinator: InstallerCoordinator
+    @State private var copied = false
+    @State private var redactedCopied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CGFloat.ostlerSpace3) {
+            Text(ViewCopy.shared.string(for: "install_failed_banner.body_heading"))
+                .font(.ostlerH1)
+                .foregroundStyle(Color.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // AttributedString with an inline .link run on the
+            // support@ostler.ai label. SwiftUI renders .link as a
+            // tappable run that opens via NSWorkspace by default;
+            // we add an explicit Oxblood + underline to match the
+            // consent-install terms-link styling in
+            // OnboardingQuestionView.consentInstallBody().
+            Text(supportBodyAttributed())
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInk)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Read-only failure log so the customer can see the
+            // actual subprocess output. Inherits the LogDrawer's
+            // existing buffer formatting + colourisation.
+            Rectangle()
+                .fill(Color.ostlerHairlineFaint)
+                .frame(height: 1)
+
+            LogDrawerView()
+                .frame(maxWidth: .infinity, maxHeight: 220)
+
+            // Actions row. Email support stays as primary CTA; the
+            // two copy-log variants stay for customers who prefer
+            // paste-into-Slack / paste-into-an-issue-tracker. Try
+            // again is dropped per E2.
+            HStack(spacing: CGFloat.ostlerSpace3) {
+                Button(ViewCopy.shared.string(for: "install_failed_banner.email_support_button")) {
+                    openSupportMailto()
+                }
+                .buttonStyle(.ostlerPrimary)
+                .keyboardShortcut(.defaultAction)
+
+                Button(redactedCopied
+                       ? ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button_copied")
+                       : ViewCopy.shared.string(for: "install_failed_banner.copy_redacted_log_button")) {
+                    copyRedacted()
+                }
+                .buttonStyle(.ostlerGhost)
+
+                Button(copied
+                       ? ViewCopy.shared.string(for: "install_failed_banner.copy_log_button_copied")
+                       : ViewCopy.shared.string(for: "install_failed_banner.copy_log_button")) {
+                    copyRaw()
+                }
+                .buttonStyle(.ostlerGhost)
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, CGFloat.ostlerSpace4)
+        .padding(.vertical, CGFloat.ostlerSpace4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Builds the body paragraph as an AttributedString with the
+    /// support@ostler.ai label rendered as an inline .link run.
+    /// Mirrors `OnboardingQuestionView.consentInstallBody()`'s
+    /// pattern so the visual styling is consistent across the app.
+    private func supportBodyAttributed() -> AttributedString {
+        let prefix = ViewCopy.shared.string(for: "install_failed_banner.body_paragraph_prefix")
+        let label = ViewCopy.shared.string(for: "install_failed_banner.body_support_email_label")
+        let urlString = ViewCopy.shared.string(for: "install_failed_banner.body_support_email_url")
+        let suffix = ViewCopy.shared.string(for: "install_failed_banner.body_paragraph_suffix")
+
+        var s = AttributedString(prefix)
+        var link = AttributedString(label)
+        if let url = URL(string: urlString) {
+            link.link = url
+        }
+        link.foregroundColor = .ostlerOxblood
+        link.underlineStyle = .single
+        s += link
+        s += AttributedString(suffix)
+        return s
+    }
+
+    private func openSupportMailto() {
+        let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+        let redacted = LogRedactor.redact(buffer)
+        let bodyHeader = "Hi Ostler support team,\n\n"
+            + "My installer failed. PII-redacted log below.\n\n"
+            + "---\n\n"
+        let body = bodyHeader + redacted
+        let subject = "Install failure (OstlerInstaller)"
+        let allowed = CharacterSet.urlQueryAllowed
+        let encSubject = subject.addingPercentEncoding(withAllowedCharacters: allowed) ?? subject
+        let encBody = body.addingPercentEncoding(withAllowedCharacters: allowed) ?? body
+        let mailto = "mailto:support@ostler.ai?subject=\(encSubject)&body=\(encBody)"
+        if let url = URL(string: mailto) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func copyRedacted() {
+        let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+        let redacted = LogRedactor.redact(buffer)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(redacted, forType: .string)
+        redactedCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            redactedCopied = false
+        }
+    }
+
+    private func copyRaw() {
+        let buffer = LogDrawerView.formatBuffer(coordinator.logLines)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(buffer, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            copied = false
+        }
     }
 }
 

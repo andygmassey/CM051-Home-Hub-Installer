@@ -32,6 +32,19 @@ struct OstlerInstallerApp: App {
                     // ordering; see CM051 PR #71.)
                     SelfRelocator.checkAndRelocate()
 
+                    // CX-14 Section E1 (2026-05-23). Mid-install
+                    // auth pre-warm. Fire the Contacts / Calendar /
+                    // Reminders / Photos TCC requests in a concerted
+                    // burst now (BEFORE install.sh spawns) so the
+                    // customer sees all the dialogs up-front at the
+                    // welcome screen rather than scattered across a
+                    // 15-minute install while they have walked away.
+                    // Closes E1 + C4 (TCC subprocess attribution).
+                    // Returning customers (already-decided TCC state)
+                    // are a no-op -- macOS short-circuits subsequent
+                    // requestAccess calls.
+                    coordinator.requestPermissionsThenStart()
+
                     // Re-verify any persisted licence next. If it
                     // verifies, ContentView's `.onChange` calls
                     // `coordinator.bootstrap()` automatically. If it

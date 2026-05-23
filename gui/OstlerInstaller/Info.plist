@@ -28,6 +28,8 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Ostler needs to ask for your administrator password to install Hub services.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Ostler reads your calendar so the Hub can surface what is on next, prepare meeting briefs, and link people to events on the wiki. Events never leave this Mac.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac.</string>
 	<key>NSDesktopFolderUsageDescription</key>
@@ -36,6 +38,10 @@
 	<string>Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ostler reads photo metadata (date, location, captions) so the Hub can tie memories to people, places, and events on the wiki. Photos themselves stay on this Mac.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Ostler reads and writes reminders so the Hub can push to-dos from emails, meetings, and chats into Apple Reminders. Reminders stay on this Mac and your iCloud account.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>
