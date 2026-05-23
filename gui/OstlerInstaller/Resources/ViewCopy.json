@@ -46,7 +46,12 @@
     "copy_log_button_copied": "Copied",
     "copy_redacted_log_button": "Copy redacted log",
     "copy_redacted_log_button_copied": "Redacted copied",
-    "email_support_button": "Email support"
+    "email_support_button": "Email support",
+    "email_body_intro": "Hi Ostler support team,",
+    "email_body_clipboard_instruction": "My installer failed. The PII-redacted log has been copied to my clipboard. Please paste it below the line:",
+    "email_body_separator": "---",
+    "email_subject": "Install failure (OstlerInstaller)",
+    "email_copied_hint": "Log copied to clipboard – paste into the email"
   },
 
   "footer": {
