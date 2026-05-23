@@ -38,7 +38,7 @@ MSG_INFO_CLONED="  Cloned to %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
-MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  CM048 conversation pipeline installed in venv."
+MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
 MSG_INFO_HUB_APP_DRAG_HINT="Open the installer DMG and drag both Ostler.app and OstlerInstaller.app onto the Applications shortcut, then re-run the installer."
@@ -87,8 +87,8 @@ MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="If a Tailscale window appears, s
 MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE="Import-Evernote UI in Doctor will surface a 'service unavailable'"
 MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="Import pipeline not bundled with installer."
 MSG_INFO_INSTALLING_CM042="Installing Ostler RemoteCapture v%s (call + meeting transcription)..."
-MSG_INFO_INSTALLING_CM048_PIPELINE_FROM="Installing CM048 conversation pipeline from %s..."
-MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV="  Installing CM048 pipeline into venv..."
+MSG_INFO_INSTALLING_CM048_PIPELINE_FROM="Installing conversation memory engine from %s..."
+MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV="  Installing conversation memory engine into venv..."
 MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI="Installing Colima + Docker CLI..."
 MSG_INFO_INSTALLING_HOMEBREW="Installing Homebrew..."
 MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM="Installing Knowledge service from %s..."
@@ -129,7 +129,7 @@ MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge installed in venv."
 MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler will show an extra consent screen before installing"
-MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  Override the source repo with PWG_CM048_REPO=<url> ./install.sh"
+MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  Override the source repo for the conversation memory engine via the env var documented in ./install.sh --help."
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  Override the source repo with PWG_DOCTOR_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  Override the source repo with PWG_HUB_POWER_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  Override the source repo with PWG_KNOWLEDGE_REPO=<url> ./install.sh"
@@ -242,7 +242,7 @@ MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED="iMessage Automation permission: g
 MSG_OK_IMESSAGE_CHANNEL="iMessage channel: %s"
 MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER="Import pipeline bundled with installer"
 MSG_OK_IMPORT_PIPELINE_READY="Import pipeline ready"
-MSG_OK_CM048_PIPELINE_READY="CM048 conversation pipeline ready."
+MSG_OK_CM048_PIPELINE_READY="Conversation memory engine ready."
 MSG_OK_KNOWLEDGE_SERVICE_READY="Knowledge service ready: %s"
 MSG_OK_LICENCE_TEXTS_INSTALLED_SOURCE="Licence texts installed at %s/ (source: %s)"
 MSG_OK_MACOS_DETECTED="macOS %s detected"
@@ -300,7 +300,7 @@ MSG_OK_YOUR_ASSISTANT_CALLED="Your assistant is called %s"
 # ── Warnings (non-fatal) ──
 
 MSG_WARN_BASH_INSTALL_SNIPPET_SH="  bash %s/INSTALL_SNIPPET.sh"
-MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK="Block 3.1 of the CM024 productisation stack adds pyproject.toml…"
+MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK="Block 3.1 of the Knowledge service productisation stack adds pyproject.toml…"
 MSG_WARN_BUNDLE="  Bundle: %s"
 MSG_WARN_CD="  cd %s"
 MSG_WARN_CD_2="    cd %s"
@@ -309,16 +309,16 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Could not download Ostler RemoteCapture v%s from
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Common causes: release tag not yet published, network offline, or upstream notarisation still in flight. Re-run the installer once the release is live."
 MSG_WARN_CM042_EXTRACT_FAILED="Could not extract Ostler RemoteCapture tarball; skipping LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent load failed. See output above and ~/Library/LaunchAgents/."
-MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire CM048 in."
-MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="CM048 pipeline install failed (clone)."
+MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire the conversation memory engine in."
+MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Conversation memory engine install failed (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Looked for: %s/cm048_pipeline/pyproject.toml"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE="  This usually means the installer .app was built without"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2="  the vendored cm048_pipeline package bundled into"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/. Re-download the installer or"
 MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4="  re-run with --allow-plaintext for a dev/CI install."
-MSG_WARN_CM048_PIPELINE_NOT_FOUND="CM048 conversation pipeline not found. Conversation enrichment cannot run without it."
-MSG_WARN_CM048_PIPELINE_SKIPPED_ALLOW_PLAINTEXT="CM048 conversation pipeline setup skipped (--allow-plaintext)."
-MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML="CM048 source resolved but pyproject.toml is missing; venv setup skipped."
+MSG_WARN_CM048_PIPELINE_NOT_FOUND="Conversation memory engine not found. Conversation enrichment cannot run without it."
+MSG_WARN_CM048_PIPELINE_SKIPPED_ALLOW_PLAINTEXT="Conversation memory engine setup skipped (--allow-plaintext)."
+MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML="Conversation memory engine source resolved but pyproject.toml is missing; venv setup skipped."
 MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP="Colima failed to start. Trying Docker Desktop as fallback..."
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="Common causes: tag v%s not yet published, network offline,"
 MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
@@ -399,7 +399,7 @@ MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY="INBOX means the assistant will r
 MSG_WARN_INSUFFICIENT_DISK_WIKI_OUTPUT_VOLUME="  - Insufficient disk for the wiki output volume"
 MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED="Intel Mac detected – performance will be limited. Apple Silicon recommended."
 MSG_WARN_IS_CLOUD_PROVIDER_HOST="%s is a cloud-provider host."
-MSG_WARN_JWT_SECRET_BANLIST_REGENERATING_KEEP_CM019="JWT_SECRET in %s is on the banlist; regenerating to keep CM019 services importable"
+MSG_WARN_JWT_SECRET_BANLIST_REGENERATING_KEEP_CM019="JWT_SECRET in %s is on the banlist; regenerating to keep knowledge graph services importable"
 MSG_WARN_JWT_SECRET_TOO_SHORT_CHARS_REGENERATING="JWT_SECRET in %s is too short (%s < %s chars); regenerating"
 MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML="Knowledge repo cloned but pyproject.toml missing; venv setup skipped."
 MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE="Knowledge service install failed (clone)."
@@ -436,7 +436,7 @@ MSG_WARN_OXIGRAPH_NOT_RESPONDING="Oxigraph not responding"
 MSG_WARN_OXIGRAPH_NOT_YET_HEALTHY_THIS_PHASE="  - Oxigraph not yet healthy at this phase (check logs above)"
 MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY="Passwords did not match (or were empty). Try again."
 MSG_WARN_PHASE_3_TAKES_10_15_MINUTES="Phase 3 takes 10-15 minutes of Docker + Ollama downloads."
-MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL="  pip install failed; CM048 conversation pipeline will not be available."
+MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL="  pip install failed; conversation memory engine will not be available."
 MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL="  pip install failed; ostler-knowledge will not be available."
 MSG_WARN_PIP_SAID="pip said:"
 MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL="Plug into AC power for the full install."
@@ -532,12 +532,12 @@ MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Ch
 MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="Could not pull nomic-embed-text after 3 attempts. Check your network and re-run the installer."
 MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER="Docker not available. Re-run the installer to install Colima."
 MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="FDA extraction module is missing from the installer bundle. Re-download the .app from ostler.ai/install, or re-run with --allow-plaintext for dev/CI."
-MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline install failed. The CM041 contact_syncer bundle is required for the productised install. Re-run with --allow-plaintext for dev/CI, or re-download the installer and try again."
+MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline install failed. The contact_syncer bundle is required for the productised install. Re-run with --allow-plaintext for dev/CI, or re-download the installer and try again."
 MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="Need sudo access to disable sleep + install Homebrew. Re-run when ready."
 MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
 MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE="Not enough disk space (%s GB). Free up space and try again."
 MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY="No passkey set and no existing security configuration. Re-run with --allow-plaintext for dev/CI, or re-run the installer and acknowledge the Touch ID briefing."
-MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="CM048 conversation pipeline is required. Re-run with --allow-plaintext for dev/CI, or fix the missing bundle above and retry."
+MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="Conversation memory engine is required. Re-run with --allow-plaintext for dev/CI, or fix the missing bundle above and retry."
 MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
 MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
@@ -584,14 +584,17 @@ MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Type any name you like – the suggestion 
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="How will your assistant reach you?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="Pick the messaging channels you would like your assistant to use. You can change this later in the Doctor section of the app."
 
-MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp connector and accept the risk above?"
-MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web access is a third-party integration – you accept the consent above by enabling it."
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
-MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.\n\nFor example:\n+447700900000, you@example.com"
+MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.
+
+For example:
++447700900000, you@example.com"
 
 MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="Read mail via Apple Mail?"
 MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any email account you have added to Apple Mail (iCloud, Gmail, Outlook, etc.) using Full Disk Access. No passwords stored. Recommended for almost everyone."
@@ -622,7 +625,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Cont
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Have you requested your data exports?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports from around 20 platforms. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.\n\nMost archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.\n\nSkip any you do not use; you can always import more later."
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports from around 20 platforms. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
+
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is strongly recommended. Without it, physical access to your Mac means access to your data."
@@ -640,7 +647,11 @@ MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install?"
 MSG_PROMPT_IMPORT_CONFIRM_HELP="Found GDPR exports will be imported into your knowledge graph during install."
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.\n\nRequest your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder.\n\nOstler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
+
+Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder.
+
+Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file directly. Google never sees Ostler."

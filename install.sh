@@ -2772,7 +2772,11 @@ echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
-    THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "" "$MSG_PROMPT_CONSENT_THIRD_PARTY_HELP" "" "consent_third_party")"
+    # Q19 consent_third_party: GDPR-grade consent must be an active opt-in.
+    # Default seeded as "n" so the customer must explicitly toggle to Yes
+    # (the GUI's yesValue() returns true for empty strings, which would
+    # otherwise pre-check the Yes toggle and amount to a pre-ticked box).
+    THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_THIRD_PARTY_HELP" "" "consent_third_party")"
     case "${THIRD_PARTY:-}" in
         y|Y)
             OSTLER_CONSENT_THIRD_PARTY_DECISION="accepted"
@@ -4724,7 +4728,7 @@ fi
 # the customer hitting confusing "pwg-convo: command not found"
 # errors hours after install when the first conversation arrives.
 
-progress "Setting up conversation processing pipeline (CM048)" "cm048_setup"
+progress "Setting up conversation memory" "cm048_setup"
 
 CM048_DIR="${OSTLER_DIR}/services/cm048"
 CM048_VENV="${CM048_DIR}/.venv"
