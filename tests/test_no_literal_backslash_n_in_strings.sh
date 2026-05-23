@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regression guard: no literal "\n" escape sequences inside customer-rendered
+# Regression guard (CX-16, PR #160, locked 2026-05-23):
+# no literal "\n" escape sequences inside customer-rendered
 # string catalogue VALUES.
 #
 # bash does NOT interpret \n inside ordinary double-quoted strings, so a
