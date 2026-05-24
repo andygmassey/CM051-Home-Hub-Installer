@@ -881,6 +881,23 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
 
     CLT_INSTALL_TRIGGERED=true
     ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
+
+    # CX-54 (DMG #30, 2026-05-24): customers consistently miss that
+    # they can continue answering installer questions while macOS's
+    # CLT installer downloads in the background -- the dialog steals
+    # focus, the CLT download progress window appears, and customers
+    # wait. Surface a prominent in-window hint AND bounce focus back
+    # to OstlerInstaller after a few seconds so the customer naturally
+    # sees the questions are still there. Studio retest #25 finding.
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        info "$MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND"
+        (
+            sleep 4
+            osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
+                open -a "OstlerInstaller" 2>/dev/null || true
+        ) &
+        disown 2>/dev/null || true
+    fi
 else
     ok "$MSG_OK_GIT_AVAILABLE"
 fi
@@ -1902,6 +1919,49 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         CHANNEL_EMAIL_USERNAME=""
         CHANNEL_EMAIL_FROM=""
         CHANNEL_EMAIL_PASSWORD=""
+
+        # CX-37 (DMG #30, 2026-05-24): early Mail-account probe.
+        # Previously the "no Mail accounts -> open Internet Accounts"
+        # prompt fired during Phase 4 (email_ingest step), interrupting
+        # the "you can walk away now" promise with a 5-10s wait for the
+        # operator to answer + a System Settings dialog mid-install.
+        # Move the prompt to the questions phase so by the time Phase 4
+        # runs, accounts are configured. Probe + remediation only --
+        # the pipeline_signals.json sidecar write stays in Phase 4.
+        if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+           && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+           && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
+            _early_mail_accounts=0
+            _early_mail_v_dir=""
+            if [[ -d "${HOME}/Library/Mail" ]]; then
+                _early_mail_v_dir=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
+            fi
+            if [[ -n "$_early_mail_v_dir" && -f "${_early_mail_v_dir}/MailData/Accounts.plist" ]]; then
+                _early_mail_accounts=$(grep -c '<key>AccountName</key>' "${_early_mail_v_dir}/MailData/Accounts.plist" 2>/dev/null || echo 0)
+            fi
+            if [[ "$_early_mail_accounts" -eq 0 ]]; then
+                _early_mail_answer="$(gui_read \
+                    "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
+                    yesno \
+                    "Y" \
+                    "$MSG_PROMPT_MAIL_NOT_CONNECTED_HELP" \
+                    "" \
+                    "mail_not_connected")"
+                case "${_early_mail_answer:-n}" in
+                    y|Y|yes|YES|Yes)
+                        ok "$MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS"
+                        open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                        ;;
+                    *)
+                        ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
+                        ;;
+                esac
+                unset _early_mail_answer
+            fi
+            MAIL_PROMPT_SHOWN_EARLY=1
+            export MAIL_PROMPT_SHOWN_EARLY
+            unset _early_mail_accounts _early_mail_v_dir
+        fi
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -2412,6 +2472,22 @@ DETECTED_EXPORTS=()
 # in gui/OstlerInstaller/Info.plist drive what macOS shows in each
 # prompt.
 info "$MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING"
+
+# CX-47 (DMG #30, 2026-05-24): elevate the 3-folder-prompt warning
+# from a transient info line to a blocking acknowledge gui_read. The
+# previous info() rendered for ~200ms then scrolled away, so customers
+# hit the three Downloads/Desktop/Documents TCC popups without warning
+# and didn't know what they were. Blocking ack lets them read + click
+# Continue knowing what's about to happen. Suppressed under TTY/CI.
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    _="$(gui_read \
+        "$MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE" \
+        acknowledge \
+        "" \
+        "$MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING" \
+        "" \
+        "gdpr_scan_incoming_ack")"
+fi
 
 # Scan common locations for recognisable GDPR export files.
 # Studio retest #7 finding #13 (Image #53): the previous `info`
@@ -6489,7 +6565,14 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
     #
     # Suppressed when OSTLER_GUI is unset (TTY / CI / curl|bash) so
     # tests and headless re-runs don't block on input.
-    if [[ "$MAIL_ACCOUNTS_FOUND" -eq 0 ]] && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    # CX-37 (DMG #30, 2026-05-24): skip the Phase 4 prompt if the
+    # earlier Phase 2 prompt already asked. MAIL_PROMPT_SHOWN_EARLY is
+    # set by the Apple-Mail-branch probe in the questions phase --
+    # asking twice mid-install would be a worse experience than asking
+    # once early.
+    if [[ "$MAIL_ACCOUNTS_FOUND" -eq 0 ]] \
+       && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+       && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
         _mail_remediation_answer="$(gui_read \
             "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
             yesno \
@@ -8190,6 +8273,21 @@ fi
 # point probing a permission the customer has not consented to.
 
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+    # CX-55 (DMG #30, 2026-05-24): pre-warn the customer that the
+    # next step will trigger macOS's "OstlerInstaller wants to control
+    # Messages" Automation permission dialog. Without warning, the
+    # dialog appears unannounced + customers think the installer has
+    # gone rogue. Blocking ack means they read it, then know to click
+    # Allow on the popup that follows. Suppressed under TTY/CI.
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        _="$(gui_read \
+            "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE" \
+            acknowledge \
+            "" \
+            "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP" \
+            "" \
+            "imessage_automation_incoming_ack")"
+    fi
     info "$MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY"
 
     IMESSAGE_POSTURE_DIR="${OSTLER_DIR}/imessage-posture"
