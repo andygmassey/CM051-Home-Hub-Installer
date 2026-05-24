@@ -4118,7 +4118,23 @@ TOMLPREAMBLE
         echo "]"
     fi
 
-    if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+    # CX-61 (DMG #36, 2026-05-24): only write the assistant daemon's
+    # [channels.email] section when CUSTOM IMAP is the chosen source.
+    # Apple Mail FDA path is drained independently by the
+    # email-ingest LaunchAgent (HR015 mbox reader); the daemon's
+    # channel adds nothing in Apple-Mail-only mode, and its health
+    # endpoint mis-reports "not-ready" against an empty IMAP config
+    # (Studio retest #28 cosmetic). Skipping the section entirely
+    # makes the daemon's channel state honest. Customer can still
+    # opt into custom IMAP later by re-running the installer and
+    # answering yes to the Custom IMAP prompt.
+    _email_section_active=false
+    if [[ "$CHANNEL_EMAIL_ENABLED" == true \
+          && "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
+        _email_section_active=true
+    fi
+
+    if [[ "$_email_section_active" == true ]]; then
         # Escape any embedded double quotes in email fields so a
         # provider hostname with weird characters can't break the
         # TOML.
@@ -4157,6 +4173,7 @@ TOMLPREAMBLE
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
         echo "allowed_senders = []"
     fi
+    unset _email_section_active
 
     if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         # Web mode (wa-rs). Pair-code linking happens at runtime

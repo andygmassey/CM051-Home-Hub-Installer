@@ -71,6 +71,17 @@ struct InstallCompleteView: View {
     }
 
     var body: some View {
+        // CX-64 (DMG #36, 2026-05-24): wrap the body in a ScrollView so
+        // the hero never gets clipped above the viewport when the
+        // installer window is shorter than the assembled content.
+        // Studio retest #28 had the "You're all set" hero scrolled out
+        // of sight: total content runs ~600pt (hero + tick list +
+        // pairing QR + CTAs) and the VStack's trailing Spacer was
+        // taking the overflow off the TOP, not the bottom. ScrollView
+        // gives the content the room it actually needs, with the hero
+        // pinned at the top so it's always the first thing the
+        // customer sees on a successful install.
+        ScrollView {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             // Hero: large oxblood check + bold heading. Mirrors the
             // sidebar's terminal "Done" footer but at full size so
@@ -170,10 +181,12 @@ struct InstallCompleteView: View {
             }
             .padding(.top, .ostlerSpace2)
 
-            Spacer()
+            Spacer(minLength: .ostlerSpace2)
         }
         .padding(CGFloat.ostlerSpace4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ostlerChassis)
         .task {
             // Fire the initial pair-code fetch when the success
