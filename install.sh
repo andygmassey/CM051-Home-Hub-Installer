@@ -4192,6 +4192,15 @@ TOMLPREAMBLE
     # ZeroClaw rejecting the admin token. See sister PR HR015 #63.
     echo
     echo "[gateway]"
+    # CX-59 (DMG #34, 2026-05-24): pin the gateway port to 8000.
+    # Without an explicit `port =` here, zeroclaw's binary default
+    # of 42617 wins, and Ostler.app's polling, the installer's
+    # success-screen pairing QR fetch (CX-56), and CM031's iOS
+    # pairing flow ALL hit localhost:8000 and get "connection
+    # refused" forever. Caught in Studio retest #29 2026-05-24
+    # after the CX-58 assistant-agent bundling fix surfaced the
+    # daemon successfully but on the wrong port.
+    echo "port = 8000"
     echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
 
     # Wire the assistant's web_search tool to the bundled Vane
