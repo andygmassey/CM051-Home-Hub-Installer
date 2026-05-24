@@ -1909,6 +1909,27 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # Move the prompt to the questions phase so by the time Phase 4
         # runs, accounts are configured. Probe + remediation only --
         # the pipeline_signals.json sidecar write stays in Phase 4.
+        #
+        # CX-57 (DMG #32, 2026-05-24): the CX-37 probe block was
+        # killing the installer at exit 1 right after the customer
+        # answered email_custom_imap in Studio retest #27. Bash
+        # `set -euo pipefail` makes the probe's `find | sort | tail`
+        # pipeline + `grep -c '<key>' || echo 0` fallback fragile in
+        # weird ways:
+        #   - grep -c "no match" returns "0" + exit 1; the `|| echo 0`
+        #     then APPENDS another "0", so the captured value can be
+        #     "0\n0", which `[[ -eq 0 ]]` rejects as a syntax error.
+        #   - file-system permission denials inside command sub can
+        #     poison the outer pipeline status under pipefail.
+        # Wrap the entire probe in `set +e` so any sub-step failure is
+        # contained -- the worst case is we skip the early prompt and
+        # the Phase 4 fallback fires anyway. Also drop the grep
+        # entirely in favour of a `tr -dc '0-9' | head -c10` digit
+        # filter so the count value is always a clean integer or 0.
+        # Tracer log markers bracket the block so the next retest can
+        # pinpoint a regression instantly.
+        gui_log info "CX-37 probe: entering"
+        set +e
         if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
            && [[ "${OSTLER_GUI:-0}" == "1" ]] \
            && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
@@ -1918,9 +1939,17 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
                 _early_mail_v_dir=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
             fi
             if [[ -n "$_early_mail_v_dir" && -f "${_early_mail_v_dir}/MailData/Accounts.plist" ]]; then
-                _early_mail_accounts=$(grep -c '<key>AccountName</key>' "${_early_mail_v_dir}/MailData/Accounts.plist" 2>/dev/null || echo 0)
+                # Sanitise to a clean integer -- `tr -dc 0-9` drops
+                # everything that is not a digit, `head -c10` caps to
+                # a max-10-digit value so a malformed plist can never
+                # poison the `-eq 0` arithmetic compare downstream.
+                _early_mail_accounts_raw="$(grep -c '<key>AccountName</key>' "${_early_mail_v_dir}/MailData/Accounts.plist" 2>/dev/null)"
+                _early_mail_accounts="$(printf '%s' "${_early_mail_accounts_raw:-0}" | tr -dc '0-9' | head -c10)"
+                [[ -z "$_early_mail_accounts" ]] && _early_mail_accounts=0
+                unset _early_mail_accounts_raw
             fi
-            if [[ "$_early_mail_accounts" -eq 0 ]]; then
+            gui_log info "CX-37 probe: v_dir=[${_early_mail_v_dir}] accounts=[${_early_mail_accounts}]"
+            if [[ "$_early_mail_accounts" -eq 0 ]] 2>/dev/null; then
                 _early_mail_answer="$(gui_read \
                     "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
                     yesno \
@@ -1943,6 +1972,8 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             export MAIL_PROMPT_SHOWN_EARLY
             unset _early_mail_accounts _early_mail_v_dir
         fi
+        set -e
+        gui_log info "CX-37 probe: exiting"
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -1960,16 +1991,31 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     # Build a human-friendly summary that reflects whichever paths
     # are enabled. Apple Mail FDA has no host / username; custom
     # IMAP carries the existing username + host info.
+    #
+    # CX-57 (DMG #32, 2026-05-24): bracket with tracer logs + use a
+    # plain joiner instead of `IFS=' + ' read <<<` so a single
+    # malformed entry can't poison the entire email channel summary.
+    # Same belt-and-braces shape as the CX-37 probe above.
+    gui_log info "CX-57 email-summary: entering"
     _email_summary_parts=()
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
         _email_summary_parts+=("Apple Mail (FDA)")
     fi
     if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
-        _email_summary_parts+=("${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST}")
+        _email_summary_parts+=("${CHANNEL_EMAIL_USERNAME:-?} via ${CHANNEL_EMAIL_IMAP_HOST:-?}")
     fi
-    IFS=' + ' read -r _email_summary_joined <<< "${_email_summary_parts[*]}"
+    _email_summary_joined=""
+    for _email_part in "${_email_summary_parts[@]}"; do
+        if [[ -z "$_email_summary_joined" ]]; then
+            _email_summary_joined="$_email_part"
+        else
+            _email_summary_joined="${_email_summary_joined} + ${_email_part}"
+        fi
+    done
+    [[ -z "$_email_summary_joined" ]] && _email_summary_joined="Apple Mail (FDA)"
     ok "$(printf "$MSG_OK_EMAIL_CHANNEL_FOLDER" "${_email_summary_joined}" "${CHANNEL_EMAIL_IMAP_FOLDER}")"
-    unset _email_summary_parts _email_summary_joined
+    unset _email_summary_parts _email_summary_joined _email_part
+    gui_log info "CX-57 email-summary: exiting"
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
