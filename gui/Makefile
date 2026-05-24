@@ -525,7 +525,7 @@ verify-dmg-contents:
 	fi; \
 	RES="$$MOUNT/$(APP_NAME).app/Contents/Resources"; \
 	MISSING=""; \
-	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline contact_syncer email-ingest; do \
+	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline contact_syncer email-ingest assistant-agent; do \
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \
@@ -559,7 +559,7 @@ verify-dmg-contents:
 	    echo "       of CM051 PR #133. Customer install would 404 on download." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified — Ostler.app + install.sh + 9 vendor packages all present"
+	echo "[OK] DMG payload verified — Ostler.app + install.sh + 10 vendor packages all present"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive
