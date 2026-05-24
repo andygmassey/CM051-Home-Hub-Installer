@@ -70,7 +70,18 @@ struct SidebarView: View {
             // footer panel so the Steps/Done summary doesn't visually
             // merge into the scroll list above. Matches the right-pane
             // dividing line, gives the footer its own visual frame.
-            Divider()
+            // CX-45 (DMG #29, 2026-05-24): horizontal-pad the divider
+            // by the same ostlerSpace3 used by the brand block + footer
+            // so its right end aligns with the sidebar's vertical
+            // dividing line on the right (was edge-to-edge, looked off).
+            // CX-45-refine (DMG #29, 2026-05-24): once the install
+            // has finished, the footer collapses to just the "Done"
+            // label and the divider above it has nothing to bracket --
+            // hide it entirely in the terminal state.
+            if coordinator.finished == nil {
+                Divider()
+                    .padding(.horizontal, .ostlerSpace3)
+            }
 
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
                 if let finished = coordinator.finished {

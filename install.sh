@@ -7233,6 +7233,19 @@ cleanup_battery_watch
 
 step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 
+# CX-48 (DMG #29, 2026-05-24): also fire gui_step_begin so the
+# sidebar's `health_check` row flips from empty-circle to spinning,
+# then to ok-check when the trailing gui_step_end at the script's
+# tail closes it. Pre-fix the row stayed at "○" for the entire
+# Phase 4 (`step` only sets the phase title, not the per-step state)
+# then jumped straight to "Done" -- confusing because the customer
+# sees the row never visibly complete.
+if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
+    gui_step_end ok
+fi
+__OSTLER_STEP_ID="health_check"
+gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
+
 HEALTHY=true
 
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
