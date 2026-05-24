@@ -24,6 +24,33 @@ struct HintPanelView: View {
         if coordinator.finished == .ok {
             InstallCompleteView()
                 .environmentObject(coordinator)
+                // CX-53 (DMG ship, 2026-05-24): when install.sh has
+                // emitted a RECOVERY_KEY marker AND the customer has
+                // not yet acknowledged it, stack the RecoveryKeyView
+                // sheet on top of the InstallCompleteView. The sheet
+                // is modal so the customer must click Continue (after
+                // ticking the saved-it confirm box) to dismiss it.
+                // We drive isPresented from a derived binding so a
+                // late-arriving RECOVERY_KEY marker re-opens the
+                // sheet automatically.
+                .sheet(isPresented: Binding(
+                    get: {
+                        (coordinator.recoveryKey?.isEmpty == false)
+                            && !coordinator.recoveryKeyAcknowledged
+                    },
+                    set: { _ in
+                        // Dismissal is driven by the Continue button
+                        // inside the sheet (which sets
+                        // recoveryKeyAcknowledged = true). We ignore
+                        // attempts to set isPresented externally
+                        // (e.g. macOS escape-key dismissal) so the
+                        // customer cannot accidentally skip past the
+                        // reveal without confirming.
+                    }
+                )) {
+                    RecoveryKeyView()
+                        .environmentObject(coordinator)
+                }
         } else {
             mainBody
         }

@@ -801,3 +801,36 @@ MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="The Command Line Tools dialog has appear
 # the install-time TCC posture snapshot.
 MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE="Permission needed: iMessage Automation"
 MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="Ostler will now ask macOS for permission to talk to Messages.app. macOS will show a popup saying \"OstlerInstaller wants access to control Messages\" – click Allow so the assistant can send and receive iMessages on your behalf. Without this permission iMessage messages will silently never leave the box. This is a one-time grant; you can change it later in System Settings > Privacy & Security > Automation."
+
+# CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet shown in the
+# main GUI window after install completes. The TTY path already echoes
+# the key in YELLOW BOLD at install.sh:7580; the GUI path needs the
+# same surface so customers don't end up locked out if their Keychain
+# ever wobbles. install.sh emits a structured RECOVERY_KEY marker that
+# the Swift coordinator parses into a dedicated @Published property
+# (not into logLines, where it would leak into the Log drawer). The
+# RecoveryKeyView renders the value in monospace with Copy / Save PDF /
+# Print buttons + a confirm checkbox + Continue.
+MSG_INFO_RECOVERY_KEY_REVEALED_TITLE="Your recovery key"
+MSG_INFO_RECOVERY_KEY_REVEALED_BODY="Write this down or print it now. It's the only way back in if you lose your passphrase AND your Keychain becomes inaccessible. Ostler cannot recover it for you – the key never leaves this Mac and is not stored on any server."
+MSG_INFO_RECOVERY_KEY_REVEALED_CONFIRM="I've saved this somewhere safe"
+MSG_INFO_RECOVERY_KEY_REVEALED_COPY="Copy to clipboard"
+MSG_INFO_RECOVERY_KEY_REVEALED_SAVE_PDF="Save as PDF..."
+MSG_INFO_RECOVERY_KEY_REVEALED_PRINT="Print..."
+MSG_INFO_RECOVERY_KEY_REVEALED_CONTINUE="Continue"
+MSG_INFO_RECOVERY_KEY_PDF_DEFAULT_FILENAME="Ostler Recovery Key.pdf"
+MSG_INFO_RECOVERY_KEY_PRINT_JOB_TITLE="Ostler Recovery Key"
+MSG_OK_RECOVERY_KEY_COPIED_TO_CLIPBOARD="Recovery key copied to clipboard"
+MSG_OK_RECOVERY_KEY_SAVED_AS_PDF="Recovery key saved to %s"
+
+# CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR shown on the
+# install-complete screen. The Hub gateway exposes a §3.3 pair-code
+# envelope at POST http://localhost:8000/admin/paircode (no auth
+# needed on localhost). The GUI fetches the envelope, renders it as
+# a 256x256 QR with an oxblood border, and offers a Refresh button.
+# CM031 iOS app scans the QR + decodes the envelope.
+MSG_INFO_PAIR_IPHONE_TITLE="Pair your iPhone"
+MSG_INFO_PAIR_IPHONE_HELP="Open the Ostler app on your iPhone and scan this QR code to link it to this Hub. You can also pair later from the Hub's Settings menu."
+MSG_INFO_PAIR_IPHONE_FETCHING="Generating pairing code..."
+MSG_INFO_PAIR_REFRESH="Refresh code"
+MSG_ERR_PAIR_FETCH_FAILED="Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."

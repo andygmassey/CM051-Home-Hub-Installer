@@ -8445,6 +8445,17 @@ fi
 # passphrase. Same Keychain-save flow as before.
 
 if [[ -n "$RECOVERY_KEY" ]]; then
+    # CX-53 (DMG ship, 2026-05-24): emit a structured RECOVERY_KEY
+    # marker for the GUI installer BEFORE rendering anything to the
+    # TTY. The Swift coordinator pulls the value into a dedicated
+    # @Published property and renders a RecoveryKeyView sheet with
+    # Copy / Save PDF / Print + confirm-checkbox controls; the TTY
+    # path keeps the YELLOW BOLD echo below for terminal customers.
+    # We DELIBERATELY do NOT emit a LOG marker carrying the recovery
+    # key value -- LOG markers land in the GUI Log drawer (visible
+    # to anyone the customer hands the laptop to). The RECOVERY_KEY
+    # marker bypasses logLines on the Swift side.
+    gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
