@@ -6895,7 +6895,20 @@ else
                 _imessage_fda_dialog_msg_esc="${_imessage_fda_dialog_msg//\"/\\\"}"
                 _imessage_fda_title_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE//\"/\\\"}"
                 _imessage_fda_button_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON//\"/\\\"}"
-                osascript -e "display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" with icon caution" >/dev/null 2>&1 || true
+                # CX-66 z-order fix: System Settings was opened above, so
+                # without an explicit `activate` the dialog would render
+                # behind it. Wrapping the display dialog inside a
+                # `tell application "System Events"` block + activate
+                # brings the modal to the front of every other window
+                # so the customer can't miss it. We also pause briefly
+                # before display to let System Settings finish its
+                # window animation -- racing a half-rendered Settings
+                # pane was the original z-order risk.
+                sleep 1
+                osascript \
+                    -e 'tell application "System Events" to activate' \
+                    -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" with icon caution" \
+                    >/dev/null 2>&1 || true
                 unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
                       _imessage_fda_title_esc _imessage_fda_button_esc
 

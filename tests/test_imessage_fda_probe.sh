@@ -158,9 +158,19 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -R.*ostler-assistant'; then
     echo "FAIL [case-6]: assist block missing Finder reveal" >&2
     exit 1
 fi
-# Block must invoke osascript dialog
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'osascript.*display dialog'; then
-    echo "FAIL [case-6]: assist block missing osascript dialog" >&2
+# Block must invoke osascript + display dialog (may be split across
+# multiple -e args for the System Events activate front-bringer).
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'osascript'; then
+    echo "FAIL [case-6]: assist block missing osascript invocation" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'display dialog'; then
+    echo "FAIL [case-6]: assist block missing display dialog AppleScript" >&2
+    exit 1
+fi
+# z-order fix: must bring dialog to front before/around display
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'System Events.*activate'; then
+    echo "FAIL [case-6]: assist block missing z-order activate" >&2
     exit 1
 fi
 # Block must re-probe chat.db after dialog dismissal
