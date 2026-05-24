@@ -66,6 +66,12 @@ struct SidebarView: View {
             }
             .frame(maxHeight: .infinity)
 
+            // CX-40 (DMG #27, 2026-05-24): 1px top divider above the
+            // footer panel so the Steps/Done summary doesn't visually
+            // merge into the scroll list above. Matches the right-pane
+            // dividing line, gives the footer its own visual frame.
+            Divider()
+
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
                 if let finished = coordinator.finished {
                     // F5 polish 2026-05-22: drop the duplicate Failed/Done
@@ -150,7 +156,16 @@ private struct SidebarRow: View {
     }
 
     private var isActive: Bool {
-        coordinator.currentStepId == meta.id
+        // CX-39 (DMG #27, 2026-05-24): once the install has finished
+        // (either ok or fail), no step is "active" any more. Pre-fix,
+        // when `Install finished: ok` arrived BEFORE the final step's
+        // gui_step_end (race between async log ingestion + the install-
+        // complete marker), the sidebar's last row kept spinning while
+        // the "Done" footer rendered the green check -- making the
+        // customer think the install was stuck. Gating isActive on
+        // `finished == nil` collapses the row to its completed glyph
+        // immediately when the terminal state arrives.
+        coordinator.finished == nil && coordinator.currentStepId == meta.id
     }
 
     private var textColor: Color {

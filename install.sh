@@ -7827,3 +7827,13 @@ if [[ "${OSTLER_GUI:-}" == "1" ]]; then
 else
     open "http://localhost:8044" 2>/dev/null || true
 fi
+
+# CX-41 (DMG #27, 2026-05-24): launch Ostler.app at the end of a
+# successful install so the customer knows the Hub UI exists.
+# Without this they finish the installer + close the .app + have no
+# obvious way to know there's an Ostler app to interact with. Open
+# is best-effort -- if for any reason /Applications/Ostler.app
+# isn't there (warn-only from earlier phase), this no-ops silently.
+if [[ -d "/Applications/Ostler.app" ]]; then
+    open -gj "/Applications/Ostler.app" 2>/dev/null || true
+fi

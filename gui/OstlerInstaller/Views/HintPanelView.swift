@@ -34,17 +34,38 @@ struct HintPanelView: View {
                     }
                 }
                 Spacer()
-                if coordinator.currentStepPercent > 0 {
+                // CX-38 (DMG #27, 2026-05-24): only show the per-step
+                // percentage during the active install phase. Pre-fix,
+                // currentStepPercent could be 100 from a prior step's
+                // tail or from cross-phase state, showing "100%" during
+                // the questions phase (no install in progress) and
+                // around the 3rd-to-last install step (premature) which
+                // looked like the installer was lying. Gate on:
+                //   - phase contains "Install" (skip questions/license/etc)
+                //   - install not yet finished (so we don't dwell on 100%
+                //     while later steps run)
+                //   - a step is actively in progress (currentStepId != nil)
+                //   - the value is > 0
+                if coordinator.phase.localizedCaseInsensitiveContains("install"),
+                   coordinator.finished == nil,
+                   coordinator.currentStepId != nil,
+                   coordinator.currentStepPercent > 0 {
                     Text("\(coordinator.currentStepPercent)%")
                         .font(.ostlerMono.monospacedDigit())
                         .foregroundStyle(Color.ostlerInkMuted)
                 }
             }
 
-            ProgressView(value: Double(coordinator.currentStepPercent),
-                         total: 100)
-                .progressViewStyle(.linear)
-                .tint(.ostlerOxblood)
+            // Same gate as the text above so the progress bar doesn't
+            // sit at full red between steps or during questions.
+            if coordinator.phase.localizedCaseInsensitiveContains("install"),
+               coordinator.finished == nil,
+               coordinator.currentStepId != nil {
+                ProgressView(value: Double(coordinator.currentStepPercent),
+                             total: 100)
+                    .progressViewStyle(.linear)
+                    .tint(.ostlerOxblood)
+            }
 
             if let why = meta?.why {
                 Text(why)
