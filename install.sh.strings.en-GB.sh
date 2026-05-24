@@ -711,3 +711,18 @@ MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale lets you reach the assistant secure
 MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain?"
 MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS Keychain for safekeeping."
 
+
+# CX-47 (DMG #30, 2026-05-24): elevated pre-warn banner for the three
+# folder-access TCC prompts triggered by the GDPR-export scan.
+MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE="Three folder-access prompts coming up"
+
+# CX-54 (DMG #30, 2026-05-24): in-window hint surfaced after macOS's
+# Command Line Tools install dialog steals focus. Customers consistently
+# miss that the questions phase continues in the background.
+MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="The Command Line Tools dialog has appeared in front of this window – click Install on it, then come back here (or wait a few seconds, we'll bring this window back to the front for you). Tools download in the background while you carry on answering the questions below; nothing here is blocked."
+
+# CX-55 (DMG #30, 2026-05-24): pre-warn for the iMessage Automation
+# permission prompt that macOS shows when we probe Messages.app for
+# the install-time TCC posture snapshot.
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE="Permission needed: iMessage Automation"
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="Ostler will now ask macOS for permission to talk to Messages.app. macOS will show a popup saying \"OstlerInstaller wants access to control Messages\" – click Allow so the assistant can send and receive iMessages on your behalf. Without this permission iMessage messages will silently never leave the box. This is a one-time grant; you can change it later in System Settings > Privacy & Security > Automation."
