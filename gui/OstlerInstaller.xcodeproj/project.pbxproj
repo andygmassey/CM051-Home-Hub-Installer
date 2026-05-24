@@ -73,6 +73,7 @@
 		E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */; };
 		E5316E9CFE905AC4CFFAA6C0 /* Outfit-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7872CDF57A4C636DE0B8BAB0 /* Outfit-Bold.ttf */; };
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
+		E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260069E8B35BBB27233D9472 /* InstallCompleteView.swift */; };
 		F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1249B5BB363F304334F02 /* ContentView.swift */; };
 		F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */; };
 		FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */; };
@@ -99,6 +100,7 @@
 		1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLimitReachedView.swift; sourceTree = "<group>"; };
 		1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Regular.ttf"; sourceTree = "<group>"; };
 		206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeBannerTest.swift; sourceTree = "<group>"; };
+		260069E8B35BBB27233D9472 /* InstallCompleteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallCompleteView.swift; sourceTree = "<group>"; };
 		290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerTheme.swift; sourceTree = "<group>"; };
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 				1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */,
 				E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */,
 				E92A90F0ED1636988B7278FB /* HintPanelView.swift */,
+				260069E8B35BBB27233D9472 /* InstallCompleteView.swift */,
 				6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */,
 				0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */,
 				DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */,
@@ -698,6 +701,7 @@
 				E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */,
 				51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */,
 				6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */,
+				E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */,
 				12ECCC78BC04865699AF3802 /* InstallerCoordinator.swift in Sources */,
 				E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */,
 				D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */,

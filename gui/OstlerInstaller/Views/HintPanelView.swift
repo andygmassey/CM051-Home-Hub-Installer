@@ -14,6 +14,23 @@ struct HintPanelView: View {
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        // CX-49 (DMG #30, 2026-05-24): when the install finishes ok,
+        // swap the generic "Quick sanity pass" Health Check placeholder
+        // out for a proper affirmative completion view. Customers in
+        // Studio retest #24/#25 explicitly asked for a confirmed positive
+        // check + summary in the main window when everything is done.
+        // The fail-state path continues to fall through to the existing
+        // step-and-error rendering below.
+        if coordinator.finished == .ok {
+            InstallCompleteView()
+                .environmentObject(coordinator)
+        } else {
+            mainBody
+        }
+    }
+
+    @ViewBuilder
+    private var mainBody: some View {
         let meta = StepCatalog.shared.meta(for: coordinator.currentStepId ?? "")
 
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
