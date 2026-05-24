@@ -90,6 +90,9 @@ MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub power scripts not bundled with 
 MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installer; using vendored source."
 MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; iOS Companion endpoints will be limited."
 MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="If a Tailscale window appears, sign in with Apple / Google / Microsoft."
+MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
+MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="Opening System Settings + Finder to walk you through granting Full Disk Access to the assistant..."
+MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
 MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
 MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Assistant cannot read Messages history yet. The Doctor dashboard will show a card guiding you through System Settings."
@@ -626,6 +629,14 @@ MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enab
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
+
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Grant Full Disk Access"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="macOS needs your permission for the assistant to read your Messages history."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="1. The Full Disk Access pane is open in System Settings."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="2. A Finder window is highlighting ostler-assistant."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4="3. Drag ostler-assistant from Finder into the Full Disk Access list and tick the box."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE5="4. Click OK below once done."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="OK"
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.

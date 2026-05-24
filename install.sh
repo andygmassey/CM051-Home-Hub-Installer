@@ -7147,6 +7147,95 @@ else
             info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
         else
             info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
+            # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
+            #
+            # macOS TCC grants Full Disk Access per-binary; there's
+            # no public API to add a binary programmatically. The
+            # cleanest customer experience we can build on stock
+            # macOS is a guided drag-add: open System Settings to
+            # the Full Disk Access pane, reveal the daemon binary
+            # in Finder so the customer can drag it directly, and
+            # show a modal that blocks install.sh until they're
+            # done. After the modal dismisses, re-probe chat.db.
+            # If readable, write needed=false (Doctor card never
+            # appears). If still not readable, the CX-60 Doctor
+            # card takes over as the persistent reminder.
+            #
+            # Gated on OSTLER_GUI=1: the assist requires the GUI
+            # session (System Settings + Finder + AppleScript
+            # dialog all need a windowed environment).
+            if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+                info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
+
+                # Open System Settings to the Full Disk Access pane.
+                # The URL scheme is stable on macOS 13+; older macOS
+                # falls back to Privacy & Security top-level which
+                # is acceptable. The 2>/dev/null swallows the rare
+                # "scheme not registered" warning on stripped builds.
+                open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+
+                # Reveal the daemon binary in Finder so the customer
+                # can drag it directly into System Settings without
+                # navigating to ~/.ostler/bin/ themselves. The -R
+                # flag selects the file in the parent folder.
+                open -R "${OSTLER_DIR}/bin/ostler-assistant" 2>/dev/null || true
+
+                # Modal that blocks install.sh until the customer
+                # dismisses it. The osascript dialog is reliable
+                # in the Phase 4 context (we're already running
+                # under user UI session via OstlerInstaller.app).
+                # Build the message body from per-line catalogue
+                # strings to keep Rule 0.9 happy (no literal \n
+                # in catalogue values).
+                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s\n%s\n%s' \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE5")"
+                # Escape any embedded double-quotes for the
+                # AppleScript string literal. Then pass through
+                # osascript -e. Failures (user clicks the close
+                # widget instead of OK) are swallowed -- the
+                # re-probe below settles the question regardless.
+                _imessage_fda_dialog_msg_esc="${_imessage_fda_dialog_msg//\"/\\\"}"
+                _imessage_fda_title_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE//\"/\\\"}"
+                _imessage_fda_button_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON//\"/\\\"}"
+                osascript -e "display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" with icon caution" >/dev/null 2>&1 || true
+                unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
+                      _imessage_fda_title_esc _imessage_fda_button_esc
+
+                # Re-probe chat.db. The TCC cache for the install.sh
+                # binary (which inherits OstlerInstaller.app's
+                # posture) doesn't reflect grants made to the
+                # ostler-assistant binary -- but for the customer's
+                # downstream experience, what matters is whether
+                # the daemon binary itself can read chat.db on its
+                # next LaunchAgent restart. We can't probe that
+                # directly from this process. Best signal: if
+                # install.sh's own probe of chat.db now succeeds
+                # (it inherited OstlerInstaller.app's FDA, which
+                # was almost certainly the binary the customer just
+                # added in System Settings AS WELL), that's a strong
+                # heuristic that the daemon binary also has FDA.
+                # Imperfect; the Doctor card's live re-probe
+                # (status_collector + check_imessage_fda) gives the
+                # ground truth on next refresh.
+                sleep 2
+                if sqlite3 -readonly \
+                        "file:${_imessage_chat_db_path}?mode=ro" \
+                        "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+                    _imessage_fda_needed="false"
+                    info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
+                    # Kick the assistant LaunchAgent to pick up the
+                    # new FDA grant. launchctl kickstart -k restarts
+                    # the agent without un/re-loading, so the new
+                    # TCC posture takes effect immediately.
+                    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                else
+                    info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
+                fi
+            fi
         fi
     else
         # No chat.db on this Mac at all (e.g. Messages.app never

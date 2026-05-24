@@ -129,5 +129,69 @@ assert any(r.__name__ == "check_imessage_fda" for r in dr.ALL_RULES)
 print("PASS [case-5]: Doctor rule passes all 5 sub-assertions")
 PY
 
+# ── Case 6 (CX-66): assist block is present + gated on OSTLER_GUI ──
+if ! grep -q "CX-66.*assisted FDA grant" "$INSTALL_SH"; then
+    echo "FAIL [case-6]: CX-66 assist block missing from install.sh" >&2
+    exit 1
+fi
+ASSIST_BLOCK=$(awk '
+    /CX-66.*assisted FDA grant/ { in_block=1 }
+    in_block && /^        fi$/  { exit }
+    in_block { print }
+' "$INSTALL_SH")
+if [[ -z "$ASSIST_BLOCK" ]]; then
+    echo "FAIL [case-6]: could not extract CX-66 assist block" >&2
+    exit 1
+fi
+# Block must be gated on OSTLER_GUI=1 (no AppleScript dialog in headless installs)
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'OSTLER_GUI.*== "1"'; then
+    echo "FAIL [case-6]: assist block missing OSTLER_GUI gate" >&2
+    exit 1
+fi
+# Block must open System Settings via x-apple URL scheme
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'x-apple.systempreferences.*Privacy_AllFiles'; then
+    echo "FAIL [case-6]: assist block missing System Settings deep-link" >&2
+    exit 1
+fi
+# Block must reveal the daemon binary in Finder
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -R.*ostler-assistant'; then
+    echo "FAIL [case-6]: assist block missing Finder reveal" >&2
+    exit 1
+fi
+# Block must invoke osascript dialog
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'osascript.*display dialog'; then
+    echo "FAIL [case-6]: assist block missing osascript dialog" >&2
+    exit 1
+fi
+# Block must re-probe chat.db after dialog dismissal
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'sleep 2' ; then
+    echo "FAIL [case-6]: assist block missing re-probe sleep" >&2
+    exit 1
+fi
+# Block must launchctl kickstart the assistant LaunchAgent on success
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'launchctl kickstart.*com.creativemachines.ostler.assistant'; then
+    echo "FAIL [case-6]: assist block missing LaunchAgent kickstart" >&2
+    exit 1
+fi
+echo "PASS [case-6]: assist block has all 6 required components"
+
+# ── Case 7 (CX-66): all catalogue strings present ──────────────────
+for key in MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING \
+           MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED \
+           MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1 \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2 \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3 \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4 \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE5 \
+           MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON; do
+    if ! grep -q "^${key}=" "$STRINGS_FILE"; then
+        echo "FAIL [case-7]: catalogue missing $key" >&2
+        exit 1
+    fi
+done
+echo "PASS [case-7]: all 10 CX-66 catalogue strings present"
+
 echo ""
-echo "ALL CX-60 IMESSAGE FDA PROBE TESTS PASSED"
+echo "ALL CX-60 + CX-66 IMESSAGE FDA PROBE TESTS PASSED"
