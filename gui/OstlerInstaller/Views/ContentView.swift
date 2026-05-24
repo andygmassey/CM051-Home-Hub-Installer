@@ -768,7 +768,22 @@ private struct FooterView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
                 .buttonStyle(.ostlerGhost)
-                Button(ViewCopy.shared.string(for: "footer.done_button")) { NSApp.terminate(nil) }
+                Button(ViewCopy.shared.string(for: "footer.done_button")) {
+                    // CX-52 (DMG #30, 2026-05-24): on successful install,
+                    // move OstlerInstaller.app to ~/.Trash on the way out.
+                    // The installer has served its purpose; leaving it
+                    // in /Applications as a stale 33MB DMG-extracted
+                    // bundle is clutter the customer didn't ask for.
+                    // Best-effort: any failure (path missing, perms) is
+                    // swallowed so the terminate still happens.
+                    let bundleURL = Bundle.main.bundleURL
+                    if bundleURL.path.hasPrefix("/Applications/") {
+                        var trashedURL: NSURL?
+                        try? FileManager.default.trashItem(
+                            at: bundleURL, resultingItemURL: &trashedURL)
+                    }
+                    NSApp.terminate(nil)
+                }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.ostlerPrimary)
             } else if coordinator.finished == .fail {
