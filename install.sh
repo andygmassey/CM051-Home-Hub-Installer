@@ -6764,11 +6764,32 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
     if tar xzf "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" -C /Applications 2>"${REMOTECAPTURE_TMPDIR}/tar.log" \
        || sudo tar xzf "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}" -C /Applications 2>>"${REMOTECAPTURE_TMPDIR}/tar.log"; then
 
+        # CX-36 (2026-05-24, Studio retest #22): the upstream tarball at
+        # ostler-ai/ostler-releases/remote-capture-v0.1.0 contains
+        # `RemoteCapture.app/` at the root, NOT `Ostler RemoteCapture.app/`
+        # as install.sh originally expected. Rather than re-cut the upstream
+        # release (which would require coordinating the CM042 build pipeline
+        # rename), rename the extracted bundle locally on the customer Mac.
+        # The Info.plist CFBundleName still reads "RemoteCapture" -- that is
+        # a separate branding follow-up. v1.0 just needs the install to
+        # complete; bundle filename match (REMOTECAPTURE_APP_PATH) is what
+        # subsequent codesign/spctl/LaunchAgent steps key off.
+        if [[ ! -d "$REMOTECAPTURE_APP_PATH" ]] && [[ -d "/Applications/RemoteCapture.app" ]]; then
+            mv "/Applications/RemoteCapture.app" "$REMOTECAPTURE_APP_PATH" 2>/dev/null \
+                || sudo mv "/Applications/RemoteCapture.app" "$REMOTECAPTURE_APP_PATH" 2>/dev/null \
+                || true
+        fi
+
         if [[ ! -d "$REMOTECAPTURE_APP_PATH" ]]; then
             err "$(printf "$MSG_ERR_CM042_BUNDLE_NOT_FOUND_POST_EXTRACT" "${REMOTECAPTURE_APP_PATH}")"
             if [[ -s "${REMOTECAPTURE_TMPDIR}/tar.log" ]]; then
                 sed -e 's/^/    /' "${REMOTECAPTURE_TMPDIR}/tar.log" | head -5
             fi
+            # CX-36: dump what /Applications actually has so the customer
+            # log shows whether tar landed nothing, or landed with a name
+            # we did not expect (different layout in a future release).
+            echo "    /Applications/ entries matching RemoteCapture:"
+            ls -la "/Applications/" 2>/dev/null | grep -i "remote\|ostler" | sed -e 's/^/      /'
             rm -rf "$REMOTECAPTURE_TMPDIR"
             REMOTECAPTURE_TMPDIR=""
             fail_with_code "ERR-24-CM042-EXTRACT" "$MSG_FAIL_CM042_SIGNATURE_FAILED"
