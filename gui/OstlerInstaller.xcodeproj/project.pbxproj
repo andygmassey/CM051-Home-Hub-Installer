@@ -371,6 +371,7 @@
 				9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */,
 				8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */,
 				37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */,
+				E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
 			buildRules = (
@@ -619,6 +620,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# install.sh's Phase 3.14 (Hub power policy) probes\n# ${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh to decide\n# whether to install the hub-power LaunchAgent (battery\n# / AC / sleep / wake throttling for MacBook hubs).\n# When that probe fails the install logs an info line\n# (\"hub-power scripts not bundled with installer\") and\n# silently continues. That is fine on a Mac Mini /\n# Studio (always-on AC, watcher is a no-op anyway), but\n# on a MacBook hub it means the LaunchAgent never lands\n# and the customer's battery drains on the first trip\n# away from the wall.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/hub-power/. Note that the on-disk\n# subdir name is \"hub-power\" (matching what install.sh\n# looks for) even though the vendor subdir is \"hub_power\"\n# (matching the directory naming convention for vendor/).\n#\n# Source of truth: HR015 - Gaming PC/hub-power/. See\n# vendor/hub_power/README.md for the sync convention.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/hub_power\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling hub_power from ${SRC} into Resources/hub-power/\"\n  mkdir -p \"${DEST}/hub-power\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/hub-power/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/hub-power\" || true\n  # Re-assert executable bits on the shell scripts. The\n  # cp above should preserve them, but a `git checkout`\n  # on a case-insensitive filesystem can occasionally\n  # land without the x-bit.\n  chmod 755 \"${DEST}/hub-power/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/hub-power/bin/\"*.sh\nelse\n  echo \"ERROR: vendor/hub_power not found at ${SRC}\" >&2\n  echo \"       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/hub_power/README.md.\" >&2\n  exit 1\nfi\n";
+		};
+		E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../assistant-agent",
+			);
+			name = "Bundle assistant-agent LaunchAgent snippet + plists into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/assistant-agent",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# CX-58 (DMG #33, 2026-05-24): MISSING from every prior DMG cut.\n# install.sh §3.14e (line 6731) looks for\n# \"${SCRIPT_DIR}/assistant-agent/INSTALL_SNIPPET.sh\" and copies it\n# to ${OSTLER_DIR}/assistant-agent/ before sourcing it to install\n# the com.creativemachines.ostler.assistant LaunchAgent (the\n# gateway daemon that Ostler.app polls at localhost:8000 + that\n# the installer's success screen pulls a pairing QR envelope from).\n# The package was never wired through the bundle phase, so the\n# snippet never made it into Resources/, so install.sh's\n# `if [[ ... -f INSTALL_SNIPPET.sh ]]` test silently failed AND\n# the LaunchAgent never got loaded AND every customer would have\n# ended up with a dead gateway + Ostler.app stuck at \"Hub\n# starting up...\". Caught in Studio retest #28 2026-05-24.\n#\n# The directory lives at the repo top (NOT under vendor/), so\n# the SRC path differs from the other vendor bundles. Layout\n# at SRC: INSTALL_SNIPPET.sh + launchd/ + tests/.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../assistant-agent\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling assistant-agent from ${SRC} into Resources/assistant-agent/\"\n  rm -rf \"${DEST}/assistant-agent\"\n  mkdir -p \"${DEST}/assistant-agent\"\n  cp -R \"${SRC}/\"* \"${DEST}/assistant-agent/\"\n  /usr/bin/xattr -cr \"${DEST}/assistant-agent\" || true\n  chmod 755 \"${DEST}/assistant-agent/INSTALL_SNIPPET.sh\"\nelse\n  echo \"ERROR: assistant-agent not found at ${SRC}\" >&2\n  echo \"       The gateway LaunchAgent install snippet lives there.\" >&2\n  echo \"       Without it, install.sh silently skips the assistant\" >&2\n  echo \"       LaunchAgent + the customer ends up with a dead Hub.\" >&2\n  exit 1\nfi\n";
 		};
 		E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

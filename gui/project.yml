@@ -612,6 +612,46 @@ targets:
           - $(SRCROOT)/../vendor/imessage_bridge
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/imessage-bridge
+      - name: Bundle assistant-agent LaunchAgent snippet + plists into Resources
+        script: |
+          set -euo pipefail
+          # CX-58 (DMG #33, 2026-05-24): MISSING from every prior DMG cut.
+          # install.sh §3.14e (line 6731) looks for
+          # "${SCRIPT_DIR}/assistant-agent/INSTALL_SNIPPET.sh" and copies it
+          # to ${OSTLER_DIR}/assistant-agent/ before sourcing it to install
+          # the com.creativemachines.ostler.assistant LaunchAgent (the
+          # gateway daemon that Ostler.app polls at localhost:8000 + that
+          # the installer's success screen pulls a pairing QR envelope from).
+          # The package was never wired through the bundle phase, so the
+          # snippet never made it into Resources/, so install.sh's
+          # `if [[ ... -f INSTALL_SNIPPET.sh ]]` test silently failed AND
+          # the LaunchAgent never got loaded AND every customer would have
+          # ended up with a dead gateway + Ostler.app stuck at "Hub
+          # starting up...". Caught in Studio retest #28 2026-05-24.
+          #
+          # The directory lives at the repo top (NOT under vendor/), so
+          # the SRC path differs from the other vendor bundles. Layout
+          # at SRC: INSTALL_SNIPPET.sh + launchd/ + tests/.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../assistant-agent"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling assistant-agent from ${SRC} into Resources/assistant-agent/"
+            rm -rf "${DEST}/assistant-agent"
+            mkdir -p "${DEST}/assistant-agent"
+            cp -R "${SRC}/"* "${DEST}/assistant-agent/"
+            /usr/bin/xattr -cr "${DEST}/assistant-agent" || true
+            chmod 755 "${DEST}/assistant-agent/INSTALL_SNIPPET.sh"
+          else
+            echo "ERROR: assistant-agent not found at ${SRC}" >&2
+            echo "       The gateway LaunchAgent install snippet lives there." >&2
+            echo "       Without it, install.sh silently skips the assistant" >&2
+            echo "       LaunchAgent + the customer ends up with a dead Hub." >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../assistant-agent
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/assistant-agent
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
