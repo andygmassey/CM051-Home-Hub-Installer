@@ -34,7 +34,37 @@ if [ ! -d "$PYTHON_DIR" ]; then
     exit 1
 fi
 
+# CX-30 (2026-05-24, Studio retest #20): the bundled python3.11 is signed
+# with hardened runtime (CX-20) but NO entitlements, so library validation
+# is ON by default. When pip installs cryptography (transitive dep of
+# ostler_security) into the customer venv, cryptography's _rust.abi3.so
+# is signed by the cryptography maintainers' Team ID -- DIFFERENT to
+# Creative Machines' V95N2B8X7A. Hardened-runtime library validation
+# refuses dlopen() across team IDs and the import fails with:
+#   "code signature ... not valid for use in process: mapping process
+#    and mapped file (non-platform) have different Team IDs"
+# Result: install.sh dies silently at encrypt_db (the setup_passphrase
+# Python -c block exits 1, but the diagnostic is lost because the
+# || block emits via warn() which only renders prefixed [WARN] lines).
+#
+# Fix: add the entitlement that disables library validation for the
+# bundled Python interpreter. The same entitlements file used for the
+# OstlerInstaller .app already declares disable-library-validation,
+# allow-dyld-environment-variables (needed for venv to set PYTHONPATH),
+# and the other minimal-privilege flags. Re-using it keeps a single
+# source of truth.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENTITLEMENTS="${SCRIPT_DIR}/../OstlerInstaller/OstlerInstaller.entitlements"
+if [ ! -f "$ENTITLEMENTS" ]; then
+    echo "ERROR: entitlements file not found at $ENTITLEMENTS" >&2
+    echo "       Expected: gui/OstlerInstaller/OstlerInstaller.entitlements" >&2
+    echo "       Without this the signed Python cannot load third-party C extensions" >&2
+    echo "       (cryptography, etc.) on the customer Mac -- install dies at encrypt_db." >&2
+    exit 1
+fi
+
 echo "Walking $PYTHON_DIR for Mach-O files..."
+echo "Entitlements: $ENTITLEMENTS"
 
 SIGNED=0
 FAILED=0
@@ -44,7 +74,13 @@ while IFS= read -r -d '' f; do
     # python3.11 / libpython3.11.dylib / *.so extension modules / any
     # nested binary tools shipped by python-build-standalone.
     if file -b "$f" 2>/dev/null | grep -qE "Mach-O.*(executable|dynamically linked shared library|bundle)"; then
-        if codesign --force --sign "$CODESIGN_ID" --options runtime --timestamp "$f" >/dev/null 2>&1; then
+        # CX-30: --entitlements applies library-validation-disabling entitlements
+        # to the bundled Python so dlopen() of third-party C extensions
+        # (cryptography, sqlcipher3, etc.) does NOT fail with Team ID mismatch
+        # at runtime on the customer Mac. Entitlements are only effective on
+        # main executables (python3.11), not libraries, but passing them
+        # on every codesign call is harmless and keeps the signing flow uniform.
+        if codesign --force --sign "$CODESIGN_ID" --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$f" >/dev/null 2>&1; then
             SIGNED=$((SIGNED + 1))
         else
             echo "FAIL: codesign $f" >&2

@@ -4946,7 +4946,25 @@ if [[ "$HAS_PIPELINE" == true ]]; then
         if [[ ! -d ".venv" ]]; then
             "$PYTHON3_BIN" -m venv .venv
         fi
-        .venv/bin/pip install --quiet -r "$PIPELINE_REQS"
+        # CX-31 (2026-05-24): capture pip install output to a log so a
+        # cryptography / wheel / network failure surfaces a real error
+        # instead of silently set -e'ing the script. Pre-CX-31 a pip
+        # failure here died invisible (audit ref: Studio retest #20
+        # diagnosis CX-30 trail). Surface tail via warn() per-line so
+        # the GUI prefix-aware parser actually renders the body.
+        PIPELINE_PIP_LOG="/tmp/ostler-pipeline-pip.log"
+        set +e
+        .venv/bin/pip install --quiet -r "$PIPELINE_REQS" > "$PIPELINE_PIP_LOG" 2>&1
+        PIPELINE_PIP_EXIT=$?
+        set -e
+        if [[ $PIPELINE_PIP_EXIT -ne 0 ]]; then
+            warn "$(printf "$MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT" "$PIPELINE_PIP_EXIT")"
+            warn "$MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES"
+            while IFS= read -r line; do
+                warn "    $line"
+            done < <(tail -30 "$PIPELINE_PIP_LOG")
+            fail_with_code "ERR-14-PIPELINE-PIP" "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED"
+        fi
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
     fi
@@ -5695,7 +5713,22 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     if [[ ! -d "${DOCTOR_DIR}/.venv" ]]; then
         "$PYTHON3_BIN" -m venv "${DOCTOR_DIR}/.venv"
     fi
-    "${DOCTOR_DIR}/.venv/bin/pip" install --quiet -r "${DOCTOR_DIR}/requirements.txt"
+    # CX-32 (2026-05-24): mirror CX-31 -- capture pip install output to a
+    # log and surface tail via warn() per-line on failure. Pre-CX-32 a
+    # doctor-pip failure died invisible (same axis as CX-30 / CX-31).
+    DOCTOR_PIP_LOG="/tmp/ostler-doctor-pip.log"
+    set +e
+    "${DOCTOR_DIR}/.venv/bin/pip" install --quiet -r "${DOCTOR_DIR}/requirements.txt" > "$DOCTOR_PIP_LOG" 2>&1
+    DOCTOR_PIP_EXIT=$?
+    set -e
+    if [[ $DOCTOR_PIP_EXIT -ne 0 ]]; then
+        warn "$(printf "$MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT" "$DOCTOR_PIP_EXIT")"
+        warn "$MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES"
+        while IFS= read -r line; do
+            warn "    $line"
+        done < <(tail -30 "$DOCTOR_PIP_LOG")
+        fail_with_code "ERR-17-DOCTOR-PIP" "$MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED"
+    fi
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
     mkdir -p "${HOME}/Library/LaunchAgents"

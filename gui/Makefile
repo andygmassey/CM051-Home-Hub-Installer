@@ -308,8 +308,19 @@ sign-python-bundle:
 	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"
 	@bash scripts/sign-python-bundle.sh "$(APP_PATH)" "$(CODESIGN_ID)"
 	$(STEP) "Re-signing outer .app to seal inner Python signatures"
-	codesign --force --deep --sign "$(CODESIGN_ID)" --options runtime --timestamp "$(APP_PATH)"
+	# CX-33 (2026-05-24): --entitlements MUST be passed here, otherwise the
+	# --force --deep re-sign STRIPS the disable-library-validation entitlement
+	# that sign-python-bundle.sh just applied to python3.11 -- and the customer
+	# install dies at encrypt_db with the cryptography Team-ID-mismatch error
+	# (Studio retest #20 trail). Same entitlements file as the outer .app uses,
+	# so the runtime + entitlements state is uniform across every Mach-O.
+	# Without this CX-30's fix gets undone before the DMG is even packaged.
+	codesign --force --deep --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
 	codesign --verify --deep --strict --verbose=2 "$(APP_PATH)"
+	@echo "Post-sign verify: python3.11 entitlements (must include disable-library-validation)"
+	@codesign -d --entitlements :- "$(APP_PATH)/Contents/Resources/python/bin/python3.11" 2>&1 | grep -q "disable-library-validation" \
+		&& echo "  ✓ disable-library-validation present on bundled python3.11" \
+		|| (echo "  ✗ disable-library-validation MISSING from python3.11 -- DMG will fail at encrypt_db on customer Mac"; exit 1)
 
 # ---------------------------------------------------------------------------
 # Hard prerequisite for `make ship`. Refuses to proceed when
