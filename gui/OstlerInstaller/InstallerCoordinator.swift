@@ -44,6 +44,22 @@ final class InstallerCoordinator: ObservableObject {
     /// the success path; nil on legacy bare-`fail` callsites (the
     /// test harness asserts none remain).
     @Published var lastErrorCode: String? = nil
+    /// CX-53 (DMG ship, 2026-05-24): the recovery key produced by
+    /// install.sh's setup_passphrase, captured from the structured
+    /// `#OSTLER RECOVERY_KEY value=...` marker. RecoveryKeyView (the
+    /// sheet shown over InstallCompleteView) reads this value and
+    /// renders it in monospace with Copy / Save PDF / Print buttons
+    /// + a confirm checkbox. DELIBERATELY kept out of `logLines` --
+    /// the Log drawer is visible to anyone the customer hands the
+    /// Mac to, so we route the secret through a dedicated property
+    /// and let the customer dismiss the sheet once they have saved
+    /// it somewhere safe.
+    @Published var recoveryKey: String? = nil
+    /// CX-53: set to true once the customer ticks "I've saved this
+    /// somewhere safe" + clicks Continue on RecoveryKeyView. Drives
+    /// the sheet's isPresented binding so the sheet dismisses + the
+    /// underlying InstallCompleteView remains usable.
+    @Published var recoveryKeyAcknowledged: Bool = false
     /// True when the very first `bootstrap()` attempt asked the user
     /// for admin access via the native macOS AppleScript dialog and
     /// the user clicked Cancel (or the osascript call otherwise
@@ -1353,18 +1369,19 @@ final class InstallerCoordinator: ObservableObject {
         // or a missing OSTLER_GUI gate).
         let key: String
         switch event {
-        case .stepBegin:  key = "stepBegin"
-        case .pct:        key = "pct"
-        case .log:        key = "log"
-        case .warn:       key = "warn"
-        case .prompt:     key = "prompt"
-        case .stepEnd:    key = "stepEnd"
-        case .phase:      key = "phase"
-        case .needsFDA:   key = "needsFDA"
-        case .needsSudo:  key = "needsSudo"
-        case .done:       key = "done"
-        case .rawLine:    key = "rawLine"
-        case .unknown:    key = "unknown"
+        case .stepBegin:   key = "stepBegin"
+        case .pct:         key = "pct"
+        case .log:         key = "log"
+        case .warn:        key = "warn"
+        case .prompt:      key = "prompt"
+        case .stepEnd:     key = "stepEnd"
+        case .phase:       key = "phase"
+        case .needsFDA:    key = "needsFDA"
+        case .needsSudo:   key = "needsSudo"
+        case .done:        key = "done"
+        case .recoveryKey: key = "recoveryKey"
+        case .rawLine:     key = "rawLine"
+        case .unknown:     key = "unknown"
         }
         eventCounts[key, default: 0] += 1
 
@@ -1475,6 +1492,23 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: status == .ok ? "info" : "error",
                       msg: "Install finished: \(status.rawValue)\(suffix)")
             OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public) code=\(code ?? "", privacy: .public)")
+        case .recoveryKey(let value):
+            // CX-53 (DMG ship, 2026-05-24): capture the recovery key
+            // from install.sh into a dedicated @Published property.
+            // We DO NOT call appendLog with the value -- the Log
+            // drawer is visible to anyone the customer hands the Mac
+            // to, and a recovery key in the drawer would be a
+            // significant secret leak. We DO log a non-secret marker
+            // line so the support log header carries evidence the
+            // sheet was surfaced, just without the value itself.
+            if !value.isEmpty {
+                recoveryKey = value
+                recoveryKeyAcknowledged = false
+                appendLog(level: "info", msg: "Recovery key ready -- shown in the GUI sheet")
+                OstlerLog.lifecycle.info("event RECOVERY_KEY received (value redacted)")
+            } else {
+                OstlerLog.lifecycle.warning("event RECOVERY_KEY received with empty value")
+            }
         case .rawLine(let msg):
             // Raw subprocess stdout/stderr that did NOT carry an
             // #OSTLER marker. Only surface in the drawer when the

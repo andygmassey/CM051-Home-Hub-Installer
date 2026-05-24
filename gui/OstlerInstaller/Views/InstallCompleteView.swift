@@ -6,15 +6,36 @@
 // customer sees a clear "you're done, everything is up" state
 // instead of the same body copy they were reading mid-install.
 //
+// CX-56 (DMG ship, 2026-05-24): pairing-QR section added between
+// the service tick list + the CTA buttons. The Hub gateway exposes
+// a §3.3 envelope at POST http://localhost:8000/admin/paircode
+// which we render as a 256x256 QR with an oxblood border. CM031's
+// iOS pairing flow scans the QR + verifies the envelope on the iOS
+// side. Fetch fires on .task with a Refresh button for retries
+// (e.g. gateway not yet up immediately after start-services).
+//
 // The per-service tick list reads from coordinator.completedSteps +
 // peeks for the health probes' "X healthy" / "X granted" log lines
 // so the page reflects the actual health-check outcomes. No data
 // flows OFF the Mac to render this view.
 
 import SwiftUI
+import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 struct InstallCompleteView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
+
+    // CX-56 pairing-QR state. Stays inside InstallCompleteView so
+    // the lifecycle (fetch on appear, refresh on tap) is colocated
+    // with the view that owns it; the GatewayClient itself is
+    // stateless.
+    @State private var pairEnvelope: String? = nil
+    @State private var pairFetchInFlight: Bool = false
+    @State private var pairFetchError: String? = nil
+
+    private let gatewayClient = GatewayClient()
 
     // The health probes install.sh runs at the tail of Phase 4. We
     // detect them by scanning logLines for the canonical "X healthy"
@@ -109,6 +130,16 @@ struct InstallCompleteView: View {
 
             Divider()
 
+            // CX-56 (DMG ship, 2026-05-24): iOS Companion pairing
+            // QR. Sits between the service tick list and the CTA
+            // buttons so the customer's last action on the install
+            // is "open the iPhone app and scan this". The QR
+            // encodes the §3.3 envelope returned by
+            // POST http://localhost:8000/admin/paircode.
+            pairingSection
+
+            Divider()
+
             // Primary CTA + secondary. Open the wiki (the customer's
             // first thing-they-actually-use) and the Ostler Hub.
             // Reveal-in-Finder lives in the bottom toolbar already so
@@ -144,6 +175,155 @@ struct InstallCompleteView: View {
         .padding(CGFloat.ostlerSpace4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.ostlerChassis)
+        .task {
+            // Fire the initial pair-code fetch when the success
+            // screen first appears. .task is async, cancels on
+            // disappear, and guards against double-fires if the
+            // view rebuilds for an unrelated reason.
+            await fetchPairCode()
+        }
+    }
+
+    // ── CX-56 pairing QR ──────────────────────────────────────────
+
+    @ViewBuilder
+    private var pairingSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace2) {
+            Text(ViewCopy.shared.string(for: "pair_iphone.title"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+
+            HStack(alignment: .center, spacing: .ostlerSpace3) {
+                // QR panel. Always reserves a 144x144 box so the
+                // layout doesn't jump between loading + loaded.
+                pairingQRPanel
+                    .frame(width: 144, height: 144)
+
+                VStack(alignment: .leading, spacing: .ostlerSpace1) {
+                    Text(ViewCopy.shared.string(for: "pair_iphone.help"))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let err = pairFetchError {
+                        Text(err)
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerOxbloodWarm)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: .ostlerSpace2) {
+                        Button(action: { Task { await fetchPairCode() } }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise")
+                                Text(ViewCopy.shared.string(for: "pair_iphone.refresh_button"))
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(pairFetchInFlight)
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .padding(.vertical, .ostlerSpace1)
+    }
+
+    @ViewBuilder
+    private var pairingQRPanel: some View {
+        ZStack {
+            // Oxblood-tinted border that matches the brand.
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.ostlerOxblood.opacity(0.5), lineWidth: 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white)
+                )
+
+            if let envelope = pairEnvelope, !envelope.isEmpty,
+               let qrImage = Self.makeQRImage(payload: envelope, size: 128) {
+                Image(nsImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+            } else if pairFetchInFlight {
+                VStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.ostlerOxblood)
+                    Text(ViewCopy.shared.string(for: "pair_iphone.fetching"))
+                        .font(.ostlerCaption)
+                        .foregroundStyle(Color.ostlerInkMuted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 4)
+                }
+            } else {
+                // Error or empty state: show a muted QR-glyph
+                // placeholder so the layout doesn't read as blank.
+                Image(systemName: "qrcode")
+                    .font(.system(size: 56))
+                    .foregroundStyle(Color.ostlerInkSubdued)
+            }
+        }
+    }
+
+    @MainActor
+    private func fetchPairCode() async {
+        guard !pairFetchInFlight else { return }
+        pairFetchInFlight = true
+        pairFetchError = nil
+        defer { pairFetchInFlight = false }
+
+        do {
+            let envelope = try await gatewayClient.fetchPairCodeEnvelope()
+            if envelope.isEmpty {
+                pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
+                pairEnvelope = nil
+            } else {
+                pairEnvelope = envelope
+                pairFetchError = nil
+            }
+        } catch {
+            pairFetchError = ViewCopy.shared.string(for: "pair_iphone.fetch_failed")
+            pairEnvelope = nil
+        }
+    }
+
+    /// Render a CoreImage QR code for the given payload at the
+    /// requested integer pixel size. Uses
+    /// CIFilter.qrCodeGenerator() with a high error-correction
+    /// level (Q = 25%) so the printed QR survives shutter blur on
+    /// the iPhone camera + scuffs on a printed sheet. Returns nil
+    /// when CoreImage fails to render (extremely rare; defensive
+    /// guard so the panel falls through to the placeholder rather
+    /// than crashing).
+    static func makeQRImage(payload: String, size: CGFloat) -> NSImage? {
+        let data = Data(payload.utf8)
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = data
+        // Q = 25% error correction. The §3.3 envelope is typically
+        // 200-400 bytes so the QR ends up at version 8-12; Q keeps
+        // it scannable in the wild.
+        filter.correctionLevel = "Q"
+        guard let output = filter.outputImage else { return nil }
+
+        // Scale up to the target size with nearest-neighbour so the
+        // pixels stay crisp on Retina + non-Retina displays. The
+        // generator emits a tiny image (~33x33 for a v4 code); we
+        // need to upscale by an integer factor.
+        let extent = output.extent
+        guard extent.width > 0, extent.height > 0 else { return nil }
+        let scale = size / extent.width
+        let transformed = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+
+        let context = CIContext(options: nil)
+        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: size, height: size))
     }
 
     private func openOstlerHub() {

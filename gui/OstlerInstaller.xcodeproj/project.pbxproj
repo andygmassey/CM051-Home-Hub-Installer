@@ -57,6 +57,7 @@
 		A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
+		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
 		C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */; };
 		CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FF342212E569C1E337355B /* CaffeinateManager.swift */; };
@@ -75,6 +76,7 @@
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
 		E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260069E8B35BBB27233D9472 /* InstallCompleteView.swift */; };
 		F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1249B5BB363F304334F02 /* ContentView.swift */; };
+		F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 524B76726D10373975055BD0 /* GatewayClient.swift */; };
 		F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */; };
 		FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */; };
 /* End PBXBuildFile section */
@@ -111,6 +113,7 @@
 		42B30C4B72F0216B459295F7 /* FailureStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailureStateMachineTests.swift; sourceTree = "<group>"; };
 		49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifierTests.swift; sourceTree = "<group>"; };
 		4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailSupportMailtoTest.swift; sourceTree = "<group>"; };
+		524B76726D10373975055BD0 /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistration.swift; sourceTree = "<group>"; };
 		58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPhaseAdvanceTests.swift; sourceTree = "<group>"; };
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
@@ -159,6 +162,7 @@
 		EF64A6B46A3BD66D6097C846 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		F096DE1EF195479F3854214B /* AuthorizationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizationHelper.swift; sourceTree = "<group>"; };
 		F0FF342212E569C1E337355B /* CaffeinateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateManager.swift; sourceTree = "<group>"; };
+		F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeyView.swift; sourceTree = "<group>"; };
 		F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistence.swift; sourceTree = "<group>"; };
 		FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricProbeTests.swift; sourceTree = "<group>"; };
 		FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryDropzoneTests.swift; sourceTree = "<group>"; };
@@ -196,6 +200,7 @@
 				0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */,
 				DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */,
 				8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */,
+				F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */,
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
 			);
 			path = Views;
@@ -302,6 +307,7 @@
 			children = (
 				EF64A6B46A3BD66D6097C846 /* App.swift */,
 				9EA7B9285055EFB24937AA9A /* Assets.xcassets */,
+				524B76726D10373975055BD0 /* GatewayClient.swift */,
 				7EC2E5CA6E396F6D43EF3FED /* Info.plist */,
 				AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */,
 				5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */,
@@ -699,6 +705,7 @@
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
 				135D1027BD0F3B4762310C2D /* FingerprintState.swift in Sources */,
 				E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */,
+				F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */,
 				51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */,
 				6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */,
 				E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */,
@@ -713,6 +720,7 @@
 				47875F42C956EED5EB0353A5 /* PermissionsIntroView.swift in Sources */,
 				4356B5C68B06550290E1A2E5 /* PermissionsPrewarmer.swift in Sources */,
 				0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */,
+				B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */,
 				FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */,
 				8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */,
 				2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */,

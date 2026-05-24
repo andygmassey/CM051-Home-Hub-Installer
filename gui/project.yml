@@ -74,6 +74,14 @@ targets:
         com.apple.security.cs.allow-jit: false
         com.apple.security.cs.allow-dyld-environment-variables: true
         com.apple.security.automation.apple-events: true
+        # CX-46 (DMG ship, 2026-05-24). Personal-information
+        # entitlements for the four TCC pre-warm prompts. Without
+        # these on a Developer-ID-signed hardened-runtime app,
+        # macOS silently denies the requestAccess call without
+        # rendering the prompt. Pair with Info.plist NS*UsageDescription.
+        com.apple.security.personal-information.addressbook: true
+        com.apple.security.personal-information.calendars: true
+        com.apple.security.personal-information.photos-library: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer

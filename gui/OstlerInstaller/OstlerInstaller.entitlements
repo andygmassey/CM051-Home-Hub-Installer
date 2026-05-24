@@ -14,5 +14,23 @@
 	<false/>
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
+	<!-- CX-46 (DMG ship, 2026-05-24). Personal-information
+	     entitlements for the four TCC pre-warm prompts (Contacts,
+	     Calendar, Reminders, Photos). Without these declared on a
+	     Developer-ID-signed hardened-runtime app, macOS silently
+	     denies CNContactStore.requestAccess /
+	     EKEventStore.requestFullAccessTo* / PHPhotoLibrary.requestAuthorization
+	     WITHOUT rendering the prompt (Studio retest 2026-05-24:
+	     Reminders fired but Contacts/Calendar/Photos returned
+	     "not granted" with no popup). The Info.plist NS*UsageDescription
+	     strings are already in place; these entitlements are the
+	     other half of the contract macOS checks before showing the
+	     TCC dialog. -->
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
+	<key>com.apple.security.personal-information.photos-library</key>
+	<true/>
 </dict>
 </plist>
