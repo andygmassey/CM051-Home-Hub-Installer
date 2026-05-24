@@ -207,9 +207,17 @@ targets:
           # Must be bundled flat alongside install.sh in Resources.
           cp "${SRCROOT}/../install.sh"                          "${DEST}/install.sh"
           cp "${SRCROOT}/../lib/progress_emitter.sh"             "${DEST}/lib/progress_emitter.sh"
+          # CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is
+          # invoked by install.sh:6220 (Mail content probe) to write
+          # ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from
+          # the bundle, so install.sh fell through to the warn-only "could not
+          # write pipeline_signals.json" branch -- which means Doctor's empty-
+          # Mail diagnostic loses its sidecar and the install path silently
+          # degrades. Bundle it alongside progress_emitter.sh.
+          cp "${SRCROOT}/../lib/write_pipeline_signals.py"       "${DEST}/lib/write_pipeline_signals.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh"
-          chmod 644 "${DEST}/install.sh.strings.en-GB.sh"
+          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
           # installer + drag-to-Applications) yet install.sh's source-
@@ -229,10 +237,12 @@ targets:
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
+          - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Bundle ostler_security Python package into Resources
         script: |

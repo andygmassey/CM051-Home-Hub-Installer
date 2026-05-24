@@ -6155,6 +6155,18 @@ fi
 # so the Doctor agent can decide whether to surface the "no local
 # Mail content yet" banner.
 #
+# CX-35 (2026-05-24, Studio retest #21): the whole block is wrapped
+# in `set +e` / `set -e` because Studio retest #21 died silently here
+# (between line 6143 "Logs:" info and the next progress() call for
+# wiki-recompile) with no warn/error marker reaching the GUI log.
+# Root cause was not pinpointable from static read -- some command
+# in this block exits non-zero under set -e/u/pipefail and the
+# diagnostic gets dropped. Until next retest tells us which line,
+# treat the whole probe as best-effort: it writes a Doctor sidecar,
+# its failure means Doctor falls back to safe defaults but the
+# install should NEVER die here. Checkpoint info lines below
+# pinpoint the death on next retest if it recurs.
+#
 # The Doctor empty-Mail banner (HR015 #109) fires only when ALL of:
 #   - mail_has_fetched is false
 #   - install_completed_ts is set
@@ -6170,15 +6182,21 @@ fi
 # silently return empty and the sidecar records mail_has_fetched=false;
 # Doctor's broader FDA diagnostic surfaces the underlying cause.
 
+info "CX-35 checkpoint: entering Mail content probe block"
+set +e  # CX-35: probe is best-effort; never kill the install from here
+_mail_probe_failure_line=""
+
 MAIL_ACCOUNTS_FOUND=0
 MAIL_HAS_FETCHED="false"
 APPLE_MAIL_VERSION_DIR=""
 
 # Mail.app stores per-version data under ~/Library/Mail/V<N>/.
 # Pick the highest version number (most recent macOS / Mail.app).
+info "CX-35 checkpoint: pre Mail.app version dir find"
 if [[ -d "${HOME}/Library/Mail" ]]; then
-    APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
+    APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1) || _mail_probe_failure_line="find Mail/V* dir"
 fi
+info "CX-35 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 
 if [[ -n "$APPLE_MAIL_VERSION_DIR" && -d "$APPLE_MAIL_VERSION_DIR" ]]; then
     # Account count is informational only. We accept rough over-counting
@@ -6202,9 +6220,10 @@ fi
 # Sidecar -- atomic write, 0600 perms. Preserves first_ingest_complete_ts
 # if a prior tick has populated it (reinstall case). The JSON-merge
 # logic lives in lib/write_pipeline_signals.py so it can be unit-tested.
+info "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
 PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
 PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
-mkdir -p "$PIPELINE_SIGNALS_DIR"
+mkdir -p "$PIPELINE_SIGNALS_DIR" || _mail_probe_failure_line="mkdir state dir"
 
 # Resolve the writer script with the same fallback chain as
 # progress_emitter.sh above (bundled / dev / post-install re-run).
@@ -6270,6 +6289,14 @@ fi
 
 unset MAIL_ACCOUNTS_FOUND MAIL_HAS_FETCHED APPLE_MAIL_VERSION_DIR ACCOUNTS_PLIST
 unset PIPELINE_SIGNALS_DIR PIPELINE_SIGNALS_FILE _pipeline_writer
+# CX-35: re-enable strict mode + surface any probe failure to the customer log
+set -e
+if [[ -n "$_mail_probe_failure_line" ]]; then
+    warn "Mail content probe: non-fatal failure at: $_mail_probe_failure_line"
+    warn "Doctor's empty-Mail diagnostic will fall back to safe defaults."
+fi
+unset _mail_probe_failure_line
+info "CX-35 checkpoint: exiting Mail content probe block cleanly"
 
 # ── 3.14d Wiki recompile LaunchAgent (daily wiki rebuild) ───────
 #
