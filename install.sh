@@ -7078,6 +7078,105 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
     fi
 fi
 
+# ── 3.14e-probe iMessage FDA probe (CX-60) ──────────────────────
+#
+# After the assistant LaunchAgent has had a chance to start, probe
+# whether the daemon binary can read ~/Library/Messages/chat.db.
+# macOS TCC grants Full Disk Access per-binary; the FDA the customer
+# granted to OstlerInstaller.app does NOT transfer to the
+# ostler-assistant binary that the LaunchAgent runs.
+#
+# Strategy: attempt a read-only sqlite3 open of chat.db from inside
+# install.sh. install.sh inherits OstlerInstaller.app's TCC posture,
+# which is the closest unprivileged proxy we have for whether FDA is
+# granted to anything on this Mac. False positives (probe succeeds,
+# daemon still can't read) are tolerable -- the Doctor card's live
+# auto-dismiss probe (status_collector + diagnostic_rules.
+# check_imessage_fda) re-evaluates on every refresh and clears the
+# card if the live state is healthy.
+#
+# We write the result to pipeline_signals.json so the Doctor card
+# only appears post-install (no false positives on fresh installs
+# of older builds that lack this probe). The writer call uses the
+# additive --imessage-fda-needed flag and preserves the mail half.
+#
+# Best-effort: any failure in this block leaves install.sh trucking
+# on. Doctor falls back to its safe-default "no card" path.
+
+info "$MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN"
+set +e  # CX-60: probe is best-effort; never kill the install from here
+_imessage_fda_probe_failure_line=""
+
+if [[ "${ASSISTANT_BINARY_INSTALLED:-false}" != "true" ]]; then
+    info "$MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON"
+else
+    _imessage_chat_db_path="${HOME}/Library/Messages/chat.db"
+    _imessage_fda_needed="true"  # conservative default
+
+    # Brief grace period: even with the LaunchAgent loaded, the
+    # daemon's iMessage channel needs a moment to attempt its first
+    # chat.db open. The probe itself is independent (install.sh
+    # opens chat.db directly), but waiting briefly avoids a noisy
+    # log entry from racing the LaunchAgent.
+    sleep 2
+
+    if [[ -f "$_imessage_chat_db_path" ]]; then
+        # sqlite3 ships with macOS. URI mode + ro lets us probe
+        # without locking the database against Messages.app.
+        if sqlite3 -readonly \
+                "file:${_imessage_chat_db_path}?mode=ro" \
+                "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+            _imessage_fda_needed="false"
+            info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
+        else
+            info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
+        fi
+    else
+        # No chat.db on this Mac at all (e.g. Messages.app never
+        # signed in to iMessage). Card would be a false positive --
+        # default to false so it stays quiet.
+        _imessage_fda_needed="false"
+        info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
+    fi
+
+    # Re-resolve the writer + sidecar path. The mail-content probe
+    # already mkdir'd PIPELINE_SIGNALS_DIR earlier in Phase 3, but
+    # that scope unset the variables. Resolve fresh + idempotently.
+    _imessage_pipeline_dir="${OSTLER_DIR}/state"
+    _imessage_pipeline_file="${_imessage_pipeline_dir}/pipeline_signals.json"
+    mkdir -p "$_imessage_pipeline_dir" \
+        || _imessage_fda_probe_failure_line="mkdir state dir"
+
+    _imessage_writer=""
+    if [[ -n "${OSTLER_PIPELINE_SIGNALS_WRITER:-}" \
+          && -f "${OSTLER_PIPELINE_SIGNALS_WRITER}" ]]; then
+        _imessage_writer="${OSTLER_PIPELINE_SIGNALS_WRITER}"
+    elif [[ -f "${SCRIPT_DIR}/lib/write_pipeline_signals.py" ]]; then
+        _imessage_writer="${SCRIPT_DIR}/lib/write_pipeline_signals.py"
+    elif [[ -f "${HOME}/.ostler/lib/write_pipeline_signals.py" ]]; then
+        _imessage_writer="${HOME}/.ostler/lib/write_pipeline_signals.py"
+    fi
+
+    if [[ -n "$_imessage_writer" ]]; then
+        if ! python3 "$_imessage_writer" \
+                --output "$_imessage_pipeline_file" \
+                --imessage-fda-needed "$_imessage_fda_needed"; then
+            warn "$MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED"
+        fi
+    else
+        warn "$MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED"
+    fi
+
+    unset _imessage_chat_db_path _imessage_fda_needed \
+          _imessage_pipeline_dir _imessage_pipeline_file _imessage_writer
+fi
+
+set -e
+if [[ -n "$_imessage_fda_probe_failure_line" ]]; then
+    warn "iMessage FDA probe: non-fatal failure at: $_imessage_fda_probe_failure_line"
+fi
+unset _imessage_fda_probe_failure_line
+
 fi  # end Apple Silicon guard
 
 # ── 3.14f Ostler RemoteCapture .app bundle + LaunchAgent ─────────

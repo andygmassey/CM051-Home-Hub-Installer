@@ -159,5 +159,130 @@ if [[ -f "$OUT8" ]]; then
 fi
 echo "PASS [case-8]: non-int --accounts exits 2 cleanly"
 
+# ── Case 9 (CX-60): --imessage-fda-needed=true on fresh file ────
+OUT9="${WORK}/case9/out.json"
+python3 "$WRITER" \
+    --output "$OUT9" \
+    --imessage-fda-needed true \
+    --install-ts 9000 >/dev/null
+python3 - "$OUT9" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+assert data["imessage_chat_db_fda_needed"] is True, data
+assert data["install_completed_ts"] == 9000, data
+# Mail half MUST be absent when the caller omitted those args.
+assert "mail_accounts_found" not in data, data
+assert "mail_has_fetched" not in data, data
+PY
+echo "PASS [case-9]: --imessage-fda-needed=true writes the field, no mail keys"
+
+# ── Case 10 (CX-60): both halves on the same invocation ─────────
+OUT10="${WORK}/case10/out.json"
+python3 "$WRITER" \
+    --output "$OUT10" \
+    --accounts 7 --has-fetched true \
+    --imessage-fda-needed false \
+    --install-ts 10000 >/dev/null
+python3 - "$OUT10" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+assert data["mail_accounts_found"] == 7, data
+assert data["mail_has_fetched"] is True, data
+assert data["imessage_chat_db_fda_needed"] is False, data
+assert data["install_completed_ts"] == 10000, data
+PY
+echo "PASS [case-10]: mail + iMessage halves written together"
+
+# ── Case 11 (CX-60): later mail-only call preserves imessage flag
+OUT11="${WORK}/case11/out.json"
+mkdir -p "$(dirname "$OUT11")"
+cat > "$OUT11" <<JSON
+{
+  "mail_accounts_found": 0,
+  "mail_has_fetched": false,
+  "install_completed_ts": 11000,
+  "imessage_chat_db_fda_needed": true
+}
+JSON
+python3 "$WRITER" \
+    --output "$OUT11" \
+    --accounts 4 --has-fetched true \
+    --install-ts 11500 >/dev/null
+python3 - "$OUT11" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+# Mail half overwritten...
+assert data["mail_accounts_found"] == 4, data
+assert data["mail_has_fetched"] is True, data
+# ...but the prior iMessage flag must survive.
+assert data["imessage_chat_db_fda_needed"] is True, data
+PY
+echo "PASS [case-11]: mail-only rewrite preserves prior imessage flag"
+
+# ── Case 12 (CX-60): later imessage-only call preserves mail half
+OUT12="${WORK}/case12/out.json"
+python3 "$WRITER" \
+    --output "$OUT12" \
+    --accounts 2 --has-fetched false \
+    --install-ts 12000 >/dev/null
+python3 "$WRITER" \
+    --output "$OUT12" \
+    --imessage-fda-needed true \
+    --install-ts 12500 >/dev/null
+python3 - "$OUT12" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+# Mail half from the first call must survive the imessage-only update.
+assert data["mail_accounts_found"] == 2, data
+assert data["mail_has_fetched"] is False, data
+assert data["imessage_chat_db_fda_needed"] is True, data
+assert data["install_completed_ts"] == 12500, data
+PY
+echo "PASS [case-12]: imessage-only rewrite preserves prior mail half"
+
+# ── Case 13 (CX-60): bad --imessage-fda-needed exits 2 ──────────
+OUT13="${WORK}/case13/out.json"
+set +e
+python3 "$WRITER" \
+    --output "$OUT13" \
+    --imessage-fda-needed "maybe" >/dev/null 2>"${WORK}/stderr13.txt"
+RC=$?
+set -e
+if [[ "$RC" != "2" ]]; then
+    echo "FAIL [case-13]: expected exit 2 on bad --imessage-fda-needed, got $RC" >&2
+    exit 1
+fi
+if ! grep -q "must be 'true' or 'false'" "${WORK}/stderr13.txt"; then
+    echo "FAIL [case-13]: stderr did not mention the accepted values" >&2
+    cat "${WORK}/stderr13.txt" >&2
+    exit 1
+fi
+echo "PASS [case-13]: bad --imessage-fda-needed exits 2 cleanly"
+
+# ── Case 14 (CX-60): --accounts without --has-fetched exits 2 ───
+OUT14="${WORK}/case14/out.json"
+set +e
+python3 "$WRITER" --output "$OUT14" --accounts 3 >/dev/null 2>"${WORK}/stderr14.txt"
+RC=$?
+set -e
+if [[ "$RC" != "2" ]]; then
+    echo "FAIL [case-14]: expected exit 2 on partial mail args, got $RC" >&2
+    exit 1
+fi
+if ! grep -q "must be supplied together" "${WORK}/stderr14.txt"; then
+    echo "FAIL [case-14]: stderr did not mention paired args" >&2
+    cat "${WORK}/stderr14.txt" >&2
+    exit 1
+fi
+echo "PASS [case-14]: partial mail args exit 2 cleanly"
+
 echo ""
 echo "ALL PIPELINE_SIGNALS WRITER TESTS PASSED"

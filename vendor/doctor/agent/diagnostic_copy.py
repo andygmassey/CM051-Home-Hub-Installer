@@ -355,3 +355,32 @@ OLLAMA_OLD_DETAIL = (
 )
 OLLAMA_OLD_FIX = "Upgrade Ollama"
 OLLAMA_OLD_FIX_COMMAND = "brew upgrade ollama"
+
+
+# ── check_imessage_fda (CX-60) ───────────────────────────────────────
+
+
+IMESSAGE_FDA_TITLE = "iMessage needs Full Disk Access"
+IMESSAGE_FDA_DETAIL = (
+    "The Ostler assistant cannot read your Messages history yet. "
+    "macOS requires you to grant Full Disk Access to the assistant "
+    "binary before it can open ~/Library/Messages/chat.db. Open System "
+    "Settings, drag ~/.ostler/bin/ostler-assistant into the Full Disk "
+    "Access list, then restart the assistant. This card disappears on "
+    "its own once the assistant can read Messages."
+)
+IMESSAGE_FDA_FIX = "Open System Settings to Full Disk Access"
+# x-apple.systempreferences URL scheme opens the Privacy & Security
+# pane and selects Full Disk Access on macOS 13+. Older macOS falls
+# back to the Privacy & Security top-level pane, which is acceptable.
+IMESSAGE_FDA_FIX_COMMAND = (
+    "open 'x-apple.systempreferences:com.apple.preference.security?"
+    "Privacy_AllFiles'"
+)
+# Secondary instruction shown alongside the deep-link: how to restart
+# the assistant once FDA has been granted, so the card can clear.
+IMESSAGE_FDA_RESTART_HINT = (
+    "After granting access, restart the assistant: "
+    "launchctl kickstart -k gui/$(id -u)/"
+    "com.creativemachines.ostler.assistant"
+)
