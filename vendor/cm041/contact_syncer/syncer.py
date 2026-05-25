@@ -76,8 +76,8 @@ class ContactSyncer:
         self,
         limit: Optional[int] = None,
         dry_run: bool = False,
-    ) -> None:
-        """Run the contact sync pipeline.
+    ) -> Dict[str, Any]:
+        """Run the contact sync pipeline from CardDAV.
 
         1. Check CTag -- skip if unchanged.
         2. Get ETags, compare against state file.
@@ -87,6 +87,16 @@ class ContactSyncer:
         6. Upsert Qdrant points.
         7. Update state file.
         8. Log classification breakdown.
+
+        Returns a result dict with shape::
+
+            {
+                "imported": int,        # person + business writes that succeeded
+                "skipped": int,         # parse / write errors
+                "errors": list[dict],   # detailed skip records
+                "deleted": int,         # contacts removed because the CardDAV
+                                        # collection no longer contains them
+            }
         """
         state = self._load_state()
         old_ctag = state.get("collection_ctag", "")
@@ -105,7 +115,7 @@ class ContactSyncer:
 
         if current_ctag and current_ctag == old_ctag and old_etags:
             print("CTag unchanged — no contacts modified since last sync. Skipping.")
-            return
+            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
 
         # Step 2: Get ETags and determine changes
         print("Fetching ETags...")
@@ -269,6 +279,156 @@ class ContactSyncer:
                 print(f"  (written to {skip_log})")
             except Exception as exc:
                 print(f"  (could not write skip log: {exc})")
+
+        imported = counts["person"] + counts["business"] + counts["unclassified"]
+        return {
+            "imported": imported,
+            "skipped": len(skipped),
+            "errors": skipped,
+            "deleted": deleted_count,
+        }
+
+    def sync_from_vcf(
+        self,
+        vcf_path: str,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """Ingest contacts from a single vCard file (B1 install-time hydration).
+
+        Used by the customer install path (CM051 install.sh hydrate_graph
+        sub-phase). The file is the iCloud Contacts export written earlier
+        in install.sh at ``${OSTLER_DIR}/imports/icloud-contacts.vcf``.
+
+        Differs from :meth:`sync` in that:
+          - input is a single concatenated multi-vCard file, not CardDAV
+          - no CTag / ETag / state-file tracking (one-shot, idempotent
+            on the graph-write side via identity resolution)
+          - no deletion handling (the graph is being populated, not
+            reconciled against a remote)
+          - all progress lines go to stderr so stdout stays clean for the
+            caller's JSON consumer
+
+        Returns the same shape as :meth:`sync`::
+
+            {"imported": N, "skipped": N, "errors": [...], "deleted": 0}
+        """
+        # Local helper -- keep prints off stdout so the caller can capture
+        # a single-line JSON status from stdout.
+        def _log(msg: str) -> None:
+            print(msg, file=sys.stderr)
+
+        if not os.path.isfile(vcf_path):
+            _log(f"vCard file not found: {vcf_path}")
+            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+
+        try:
+            with open(vcf_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except Exception as exc:
+            _log(f"Could not read vCard file: {exc}")
+            return {
+                "imported": 0,
+                "skipped": 0,
+                "errors": [{"stage": "read", "error": str(exc)}],
+                "deleted": 0,
+            }
+
+        if not text.strip():
+            _log("vCard file is empty.")
+            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+
+        # Split the concatenated multi-vCard file. iCloud's export glues
+        # BEGIN:VCARD ... END:VCARD blocks together with no separator
+        # other than the newline before the next BEGIN.
+        vcard_pattern = re.compile(r"BEGIN:VCARD.*?END:VCARD", re.DOTALL)
+        vcard_texts = vcard_pattern.findall(text)
+        total = len(vcard_texts)
+        _log(f"Found {total} vCards in {vcf_path}.")
+
+        if total == 0:
+            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+
+        counts = {"person": 0, "business": 0, "unclassified": 0, "errors": 0}
+        skipped: List[Dict[str, Any]] = []
+        qdrant_queue: List[Dict[str, Any]] = []
+
+        for i, vcard_text in enumerate(vcard_texts, 1):
+            if i % 100 == 0 or i == total:
+                _log(f"  Hydrating contacts: {i}/{total}")
+
+            try:
+                parsed = parse_vcard(vcard_text)
+            except Exception as exc:
+                counts["errors"] += 1
+                skipped.append({"uid": None, "fn": None, "stage": "parse", "error": str(exc)})
+                continue
+
+            uid_for_log = parsed.get("uid")
+            fn_for_log = parsed.get("fn")
+
+            try:
+                contact_type = classify_contact(parsed)
+                counts[contact_type] = counts.get(contact_type, 0) + 1
+
+                if dry_run:
+                    continue
+
+                if contact_type == "business":
+                    self._write_business_oxigraph(parsed)
+                else:
+                    person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
+                    description = self._build_description(parsed)
+                    qdrant_queue.append(
+                        {
+                            "person_id": person_id,
+                            "person_uri": person_uri,
+                            "parsed": parsed,
+                            "description": description,
+                        }
+                    )
+            except Exception as exc:
+                counts["errors"] += 1
+                skipped.append({
+                    "uid": uid_for_log,
+                    "fn": fn_for_log,
+                    "stage": "write",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+                continue
+
+        # Batch-embed + upsert Qdrant for people (mirrors sync()).
+        if qdrant_queue and not dry_run:
+            _log(f"Embedding {len(qdrant_queue)} person descriptions...")
+            descriptions = [item["description"] for item in qdrant_queue]
+            batch_size = self.cfg.EMBED_BATCH_SIZE
+            all_vectors: List[List[float]] = []
+
+            for batch_start in range(0, len(descriptions), batch_size):
+                batch = descriptions[batch_start : batch_start + batch_size]
+                vectors = self._embed_batch(batch)
+                all_vectors.extend(vectors)
+
+            for idx, item in enumerate(qdrant_queue):
+                if idx < len(all_vectors):
+                    self._upsert_qdrant(
+                        person_id=item["person_id"],
+                        person_uri=item["person_uri"],
+                        parsed=item["parsed"],
+                        vector=all_vectors[idx],
+                    )
+
+        imported = counts["person"] + counts["business"] + counts["unclassified"]
+        _log(
+            f"Hydration complete: {imported} imported "
+            f"({counts['person']} people, {counts['business']} businesses, "
+            f"{counts['unclassified']} unclassified), {len(skipped)} skipped."
+        )
+        return {
+            "imported": imported,
+            "skipped": len(skipped),
+            "errors": skipped,
+            "deleted": 0,
+        }
 
     # -- helpers --------------------------------------------------------------
 
@@ -902,16 +1062,63 @@ def main() -> None:
         action="store_true",
         help="Run duplicate detection report after sync.",
     )
+    parser.add_argument(
+        "--vcf",
+        type=str,
+        default=None,
+        help=(
+            "Path to a vCard file (multi-vCard concatenation, e.g. an iCloud "
+            "Contacts export). When given, the CardDAV path is skipped and "
+            "contacts are read from this file. Used by CM051 install.sh's "
+            "hydrate_graph sub-phase (CX-81 B1)."
+        ),
+    )
+    parser.add_argument(
+        "--graph-endpoint",
+        type=str,
+        default=None,
+        help=(
+            "Override the Oxigraph URL the syncer writes to. Equivalent to "
+            "setting the OXIGRAPH_URL environment variable but explicit on "
+            "the command line. Other backends (Qdrant, embed model) still "
+            "come from env vars / config.py."
+        ),
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Emit a single-line JSON status dict on stdout when the run "
+            "completes ({\"imported\": N, \"skipped\": N, \"errors\": [...]}). "
+            "Implied when --vcf is given so install-time callers can pipe "
+            "the count into a customer-facing message. Progress lines for "
+            "the vcf path are routed to stderr."
+        ),
+    )
     args = parser.parse_args()
 
-    syncer = ContactSyncer()
-    syncer.sync(limit=args.limit, dry_run=args.dry_run)
+    # Apply --graph-endpoint by mutating the config module so any code that
+    # reads config.OXIGRAPH_URL after this point picks up the override.
+    # ContactSyncer reads it inside __init__, so this must happen first.
+    if args.graph_endpoint:
+        config.OXIGRAPH_URL = args.graph_endpoint
 
-    if args.dedup and not args.dry_run:
+    syncer = ContactSyncer()
+    if args.vcf:
+        result = syncer.sync_from_vcf(vcf_path=args.vcf, dry_run=args.dry_run)
+    else:
+        result = syncer.sync(limit=args.limit, dry_run=args.dry_run)
+
+    if args.dedup and not args.dry_run and not args.vcf:
         print("\nRunning duplicate detection...")
         detector = DedupDetector(config.OXIGRAPH_URL)
         report = detector.detect()
         print_report(report)
+
+    # Single-line JSON status on stdout when requested or when reading from
+    # a vCard file. install.sh's hydrate_graph step parses this with `jq`.
+    if args.json or args.vcf:
+        print(json.dumps(result or {"imported": 0, "skipped": 0, "errors": []}))
 
 
 if __name__ == "__main__":
