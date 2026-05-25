@@ -142,6 +142,7 @@ MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP="No GDPR exports found in Downl
 MSG_INFO_OPENING_CHROME_WEB_STORE="Opening Chrome Web Store: %s"
 MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING="ostler-assistant binary not installed; skipping doctor probe"
 MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY="ostler-assistant doctor: deferred (daemon may still be"
+MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="Using ostler-assistant binary bundled in this DMG (offline-capable install path)."
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge installed in venv."

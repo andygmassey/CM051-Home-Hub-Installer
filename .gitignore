@@ -74,3 +74,12 @@ gui/**/xcuserdata/
 gui/**/*.xcworkspace/xcuserdata/
 gui/**/.build/
 gui/**/Packages/
+
+# Locally-built daemon binary bundled into the DMG at cut time. NOT tracked
+# in source -- built fresh from the ostler-assistant source repo via
+# `cargo build --release --bin zeroclaw` + signed + stripped, then copied
+# to assistant-agent/bin/ostler-assistant by the operator-facing
+# `make ship` runner. The customer-facing GitHub release tarball is the
+# durable distribution channel; this bundling is the offline-capable
+# fallback that ships in DMG Resources. CX-79b (2026-05-25).
+assistant-agent/bin/

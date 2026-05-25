@@ -6692,9 +6692,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.1})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.2})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.1}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.2}"
 # Customer-facing distribution. Binary first published to
 # ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
 # was lifted by GitHub support (ticket #4347825).
@@ -6726,7 +6726,36 @@ ASSISTANT_TMPDIR="$(mktemp -d)"
 
 ASSISTANT_BINARY_INSTALLED=false
 
-if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+# CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
+# Resources/assistant-agent/bin/ over the GitHub release download.
+# The bundled binary is built from the same commit that defines the
+# DMG signing + notarisation posture, so version skew between the
+# customer's daemon and the rest of the install is impossible. The
+# DMG bundling also makes the install network-independent for the
+# critical-path binary (a customer with flaky DNS / GitHub outage /
+# Tailscale rerouting still gets a working daemon).
+#
+# Falls through to the curl path if the bundled binary is absent
+# (older DMGs predating this bundling, or a corrupted install
+# extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
+# forces the curl path even when bundled is present -- used in CI
+# to exercise the customer-network code path.
+ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
+if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] && [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    mkdir -p "${OSTLER_DIR}/bin"
+    cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # DMG-extracted binaries inherit the quarantine xattr from the
+    # mount; clear it so the LaunchAgent can launch without a
+    # right-click-and-Allow ceremony. The DMG itself was already
+    # Gatekeeper-cleared by the customer at install time, so this
+    # is not a security downgrade (mirrors the post-tarball
+    # quarantine clear in the curl path below).
+    xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+    ASSISTANT_BINARY_INSTALLED=true
+elif curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
    && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
 
     # Verify SHA-256. Phase B writes the sidecar as
