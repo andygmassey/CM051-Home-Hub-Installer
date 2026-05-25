@@ -104,7 +104,36 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 
-PORT = 8089
+# Port is env-overridable so the customer-install path can bind
+# this service to a different port (8090) and let Doctor's
+# reverse-proxy on :8089 forward iOS-bound /api/v1/* traffic to
+# it. The default is preserved for the legacy operator-instance
+# usage where ical-server owns :8089 directly. See CM051 install
+# phase 3.13a + Doctor's DOCTOR_PROXY_PATHS env-var wiring.
+def _resolve_port() -> int:
+    raw = os.environ.get("OSTLER_API_PORT", "8089")
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        print(
+            f"WARNING: OSTLER_API_PORT={raw!r} is not an integer; "
+            "falling back to 8089.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 8089
+    if not (1 <= port <= 65535):
+        print(
+            f"WARNING: OSTLER_API_PORT={port} is out of range; "
+            "falling back to 8089.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 8089
+    return port
+
+
+PORT = _resolve_port()
 ICAL_SCRIPT = os.environ.get(
     "ICAL_SCRIPT", os.path.expanduser("~/.zeroclaw/ical-query.sh")
 )

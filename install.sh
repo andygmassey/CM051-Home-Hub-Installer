@@ -5523,6 +5523,8 @@ echo "  Stopping services..."
 cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
@@ -5544,6 +5546,7 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" 2>/dev/null || true
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
@@ -5761,6 +5764,16 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
+        <!-- CX-P0A (2026-05-26): forward the 13 iOS /api/v1/* paths to
+             the loopback-bound ical-server on 127.0.0.1:8090. Without
+             this list Doctor 404s every iOS Companion call beyond
+             /api/v1/auth/chat-token + /api/v1/wiki/correct. The two
+             path-parameter routes use FastAPI {slug}/{id} syntax so the
+             proxy's request.url.path forwarding substitutes them. -->
+        <key>DOCTOR_PROXY_PATHS</key>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget</string>
+        <key>DOCTOR_GATEWAY_URL</key>
+        <string>http://127.0.0.1:8090</string>
     </dict>
 </dict>
 </plist>
@@ -5770,6 +5783,110 @@ DOCEOF
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
     ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
+fi
+
+# ── 3.13a Assistant API (ical-server.py) ────────────────────────
+#
+# CX-P0A (2026-05-26): without this block, 11 of 13 iOS Companion
+# /api/v1/* endpoints 404 on every customer install since v0.1
+# (Hub status, timeline, people, calendar, suggestions,
+# conversation upload, GDPR Article 17 forget). Doctor on :8089
+# proxies these paths to the loopback-bound assistant API on
+# :8090 via DOCTOR_PROXY_PATHS (rendered into the Doctor plist
+# above).
+#
+# The ical-server.py source lives at ${SCRIPT_DIR}/assistant_api/
+# (the .app build's postBuildScript bundles vendor/cm041/assistant_api/
+# into Contents/Resources/assistant_api/; the tarball build copies
+# it via release.sh + ICAL_SERVER_SOURCES). When neither lands the
+# source we follow the doctor / hub-power / email-ingest skip
+# pattern: warn + carry on. The 11 iOS endpoints stay broken in
+# that case, but install does not hard-fail (Andy may dev-test
+# against a tarball that has not been re-cut since this PR).
+#
+# We bind 127.0.0.1:8090 (loopback only) on purpose:
+#   - Doctor is the single auth boundary (CM019 PR 8 posture);
+#     direct LAN exposure of :8090 would re-introduce a second
+#     externally-reachable port.
+#   - OSTLER_API_PORT=8090 + OSTLER_API_BIND=127.0.0.1 env vars are
+#     consumed by vendor/cm041/assistant_api/ical-server.py's main
+#     block (env-override added in the same PR as this install
+#     phase; pre-fix PORT was hardcoded 8089).
+#
+# Reuse the OSTLER_VENV that already has ostler_security
+# pip-installed (Phase 7). ical-server.py hard-fails at import
+# without ostler_security, and standing up a second venv would
+# duplicate the sqlcipher + cryptography deps for no gain.
+
+progress "Setting up Assistant API (ical-server)" "ical_server_setup"
+
+ICAL_SERVER_DIR="${OSTLER_DIR}/services/ical-server"
+
+if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-server.py" ]]; then
+    info "$MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER"
+
+    # Wipe + recopy so a re-install picks up the latest vendored
+    # source rather than stacking on a stale tree.
+    rm -rf "$ICAL_SERVER_DIR"
+    mkdir -p "$ICAL_SERVER_DIR"
+    cp -R "${SCRIPT_DIR}/assistant_api/." "$ICAL_SERVER_DIR/"
+
+    # Verify ostler_security is importable under OSTLER_VENV (Phase 7
+    # is the install site). Refuse to render the plist if not: an
+    # ical-server that hard-fails on every launchd boot wastes log
+    # space and confuses the diagnostic dashboard.
+    if "$OSTLER_PYTHON" -c "from ostler_security.database import get_db_connection" 2>/dev/null; then
+        mkdir -p "${HOME}/Library/LaunchAgents"
+        ICAL_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
+        cat > "$ICAL_PLIST" <<ICALPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.ical-server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_PYTHON}</string>
+        <string>${ICAL_SERVER_DIR}/ical-server.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${ICAL_SERVER_DIR}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/ical-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/ical-server.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OSTLER_API_PORT</key>
+        <string>8090</string>
+        <key>OSTLER_API_BIND</key>
+        <string>127.0.0.1</string>
+        <key>HOME</key>
+        <string>${HOME}</string>
+    </dict>
+</dict>
+</plist>
+ICALPLISTEOF
+
+        # Use bootstrap on Sequoia+ (load is deprecated). Do NOT
+        # `bootout` first -- per CLAUDE.md a bootout on a customer
+        # GUI session can kick them back to the login screen. The
+        # bootstrap call is idempotent enough for the first-install
+        # path; re-install relies on the uninstaller bootout below.
+        launchctl bootstrap "gui/$(id -u)" "$ICAL_PLIST" 2>/dev/null || \
+            launchctl load "$ICAL_PLIST" 2>/dev/null || \
+            warn "$MSG_WARN_ICAL_SERVER_FAILED"
+        ok "$MSG_OK_ICAL_SERVER_INSTALLED"
+    else
+        warn "$MSG_WARN_ICAL_SERVER_FAILED"
+    fi
+else
+    info "$MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED"
 fi
 
 # ── 3.13b Knowledge service (CM024 Evernote ingest) ─────────────

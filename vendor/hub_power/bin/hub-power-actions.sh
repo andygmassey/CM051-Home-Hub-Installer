@@ -383,7 +383,7 @@ hpa_zeroclaw_catchup_request() {
 # the iOS Companion polls). Start/restart helpers are here for wake paths.
 # ---------------------------------------------------------------------------
 
-HPA_ICAL_LABEL="${HPA_ICAL_LABEL:-com.ical.server}"
+HPA_ICAL_LABEL="${HPA_ICAL_LABEL:-com.ostler.ical-server}"
 
 hpa_ical_ensure_up() {
     local uid
