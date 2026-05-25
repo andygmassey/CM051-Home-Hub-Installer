@@ -185,10 +185,13 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'launchctl kickstart.*com.creativem
 fi
 echo "PASS [case-6]: assist block has all 6 required components"
 
-# ── Case 7 (CX-66 + CX-78c): all catalogue strings present ──────────
+# ── Case 7 (CX-66 + CX-78c + CX-81 B8): all catalogue strings present ──────────
 # CX-78c (DMG #45) retired LINE5 (the "denied -- which is what put it
 # in the list" apology) and added DAEMON_TCC_GRANTED for the new
-# daemon-FDA pre-probe path. Net string count stays at 10.
+# daemon-FDA pre-probe path -- string count was 10.
+# CX-81 B8 (DMG #46+) tightened the dialog to 3 lines and retired LINE4
+# (the "Click Done when you've toggled the switch on" tail). The retired
+# string is folded into LINE3. String count drops to 9.
 for key in MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING \
            MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED \
            MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED \
@@ -197,14 +200,59 @@ for key in MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3 \
-           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON; do
     if ! grep -q "^${key}=" "$STRINGS_FILE"; then
         echo "FAIL [case-7]: catalogue missing $key" >&2
         exit 1
     fi
 done
-echo "PASS [case-7]: all 10 CX-66 + CX-78c catalogue strings present"
+# Negative: LINE4 must NOT be present (retired in CX-81 B8).
+if grep -q "^MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4=" "$STRINGS_FILE"; then
+    echo "FAIL [case-7]: catalogue still carries retired LINE4 key" >&2
+    exit 1
+fi
+echo "PASS [case-7]: all 9 CX-66 + CX-78c + CX-81 B8 catalogue strings present, LINE4 retired"
+
+# ── Case 8 (CX-81 B8): assist dialog uses Ostler app icon, not generic ──
+# The osascript display dialog must NOT hardcode `with icon note` --
+# it must resolve the OstlerInstaller AppIcon.icns at runtime with a
+# `with icon note` fallback only when the icns file is missing.
+ASSIST_DIALOG_BLOCK=$(awk '
+    /CX-81 B8.*DMG #46/ { in_block=1 }
+    in_block && /^                unset _imessage_fda_dialog_msg/ { exit }
+    in_block { print }
+' "$INSTALL_SH")
+if [[ -z "$ASSIST_DIALOG_BLOCK" ]]; then
+    echo "FAIL [case-8]: could not extract CX-81 B8 icon-resolution block" >&2
+    exit 1
+fi
+# Must probe SCRIPT_DIR for AppIcon.icns.
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '\${SCRIPT_DIR}/AppIcon.icns'; then
+    echo "FAIL [case-8]: icon resolution missing \${SCRIPT_DIR}/AppIcon.icns probe" >&2
+    exit 1
+fi
+# Must probe /Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns.
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns'; then
+    echo "FAIL [case-8]: icon resolution missing /Applications fallback probe" >&2
+    exit 1
+fi
+# Must build a `with icon file POSIX file` clause when an icns is found.
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q 'with icon file POSIX file'; then
+    echo "FAIL [case-8]: icon resolution missing POSIX file icon clause" >&2
+    exit 1
+fi
+# Must retain a `with icon note` fallback for dev/CI/headless paths.
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q 'with icon note'; then
+    echo "FAIL [case-8]: icon resolution missing `with icon note` fallback" >&2
+    exit 1
+fi
+# osascript invocation must substitute the resolved icon clause, NOT
+# hardcode `with icon note` after the buttons clause.
+if grep -q 'default button \\\"\${_imessage_fda_button_esc}\\\" with icon note' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: install.sh still hardcodes \`with icon note\` in the osascript dialog" >&2
+    exit 1
+fi
+echo "PASS [case-8]: assist dialog uses Ostler app icon with graceful fallback"
 
 echo ""
-echo "ALL CX-60 + CX-66 IMESSAGE FDA PROBE TESTS PASSED"
+echo "ALL CX-60 + CX-66 + CX-81 B8 IMESSAGE FDA PROBE TESTS PASSED"
