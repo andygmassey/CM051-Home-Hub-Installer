@@ -7314,22 +7314,38 @@ HUB_APP_DEST="/Applications/Ostler.app"
 HUB_APP_SOURCE=""
 HUB_APP_INSTALLED=false
 
-if [[ -d "$HUB_APP_DEST" ]]; then
-    HUB_APP_SOURCE="$HUB_APP_DEST"
-elif [[ -d "${SCRIPT_DIR}/Ostler.app" ]]; then
+# CX-76 (DMG #44, 2026-05-25): when a DMG-bundled Ostler.app is
+# available, prefer it ABSOLUTELY over any pre-existing copy at
+# $HUB_APP_DEST. The previous order set HUB_APP_SOURCE = HUB_APP_DEST
+# whenever /Applications/Ostler.app existed, which left customers
+# running stale binaries across re-installs -- DMG #43 retest landed
+# the CX-72 port fix in a new Tauri bundle, but install.sh skipped
+# the staging step and the old Ostler.app survived. That hid CX-72
+# behind a manual swap. New order: SCRIPT_DIR > parent dir > existing
+# install. The "existing install" fallback only fires for re-runs
+# without a DMG (e.g. install.sh --repair from ~/.ostler/) so we keep
+# verifying the in-place copy rather than failing the customer.
+if [[ -d "${SCRIPT_DIR}/Ostler.app" ]]; then
     HUB_APP_SOURCE="${SCRIPT_DIR}/Ostler.app"
 elif [[ -d "${SCRIPT_DIR}/../Ostler.app" ]]; then
     HUB_APP_SOURCE="${SCRIPT_DIR}/../Ostler.app"
+elif [[ -d "$HUB_APP_DEST" ]]; then
+    HUB_APP_SOURCE="$HUB_APP_DEST"
 fi
 
 if [[ -n "$HUB_APP_SOURCE" ]]; then
     # Stage into /Applications when the source is not already there.
-    # Pre-existing install: remove first so a slimmer bundle does
-    # not leave stale Resources behind. Sudo fallback for the rare
+    # Pre-existing install: kill the running process (so the bundle
+    # is not in use), then remove + copy. Sudo fallback for the rare
     # corporate-imaged Mac where /Applications is admin-owned.
     if [[ "$HUB_APP_SOURCE" != "$HUB_APP_DEST" ]]; then
         info "$(printf "$MSG_INFO_HUB_APP_STAGING" "${HUB_APP_SOURCE}")"
         if [[ -d "$HUB_APP_DEST" ]]; then
+            # CX-76: kill any running Ostler.app instance before
+            # overwriting. Without this the cp/rm races against the
+            # live process and can leave a half-replaced bundle.
+            pkill -f "${HUB_APP_DEST}/Contents/MacOS" 2>/dev/null || true
+            sleep 0.5
             rm -rf "$HUB_APP_DEST" 2>/dev/null || sudo rm -rf "$HUB_APP_DEST" 2>/dev/null || true
         fi
         if ! cp -R "$HUB_APP_SOURCE" "$HUB_APP_DEST" 2>/dev/null; then
