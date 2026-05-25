@@ -81,6 +81,17 @@ struct InstallCompleteView: View {
         // gives the content the room it actually needs, with the hero
         // pinned at the top so it's always the first thing the
         // customer sees on a successful install.
+        //
+        // CX-DMG44 (DMG #44, 2026-05-25): hero is now visible but the
+        // primary CTA buttons (Open Ostler / Open your Wiki) sit at
+        // the bottom of the scroll content and disappear below the
+        // viewport fold on short installer windows. Refactor the
+        // layout: ScrollView on top holding hero + tick list + QR;
+        // a sticky footer outside the ScrollView holding the CTA
+        // buttons. Buttons are now always above the fold regardless
+        // of window size. Studio retest #43 found customers didn't
+        // realise they could scroll to find the buttons.
+        VStack(spacing: 0) {
         ScrollView {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             // Hero: large oxblood check + bold heading. Mirrors the
@@ -149,43 +160,46 @@ struct InstallCompleteView: View {
             // POST http://localhost:8000/admin/paircode.
             pairingSection
 
-            Divider()
-
-            // Primary CTA + secondary. Open the wiki (the customer's
-            // first thing-they-actually-use) and the Ostler Hub.
-            // Reveal-in-Finder lives in the bottom toolbar already so
-            // we don't repeat it here.
-            HStack(spacing: .ostlerSpace2) {
-                Button(action: openOstlerHub) {
-                    HStack(spacing: .ostlerSpace1) {
-                        Image(systemName: "app.dashed")
-                        Text("Open Ostler")
-                    }
-                    .padding(.horizontal, .ostlerSpace3)
-                    .padding(.vertical, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.ostlerOxblood)
-
-                Button(action: openWiki) {
-                    HStack(spacing: .ostlerSpace1) {
-                        Image(systemName: "book.closed")
-                        Text("Open your Wiki")
-                    }
-                    .padding(.horizontal, .ostlerSpace3)
-                    .padding(.vertical, 6)
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-            }
-            .padding(.top, .ostlerSpace2)
-
             Spacer(minLength: .ostlerSpace2)
         }
         .padding(CGFloat.ostlerSpace4)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        }  // end ScrollView
+
+        // CX-DMG44 sticky footer: Primary CTA + secondary live in a
+        // non-scrolling bar pinned to the bottom of the viewport.
+        // Always above the fold regardless of installer window size.
+        // Reveal-in-Finder lives in the bottom toolbar already so we
+        // don't repeat it here.
+        Divider()
+        HStack(spacing: .ostlerSpace2) {
+            Button(action: openOstlerHub) {
+                HStack(spacing: .ostlerSpace1) {
+                    Image(systemName: "app.dashed")
+                    Text("Open Ostler")
+                }
+                .padding(.horizontal, .ostlerSpace3)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.ostlerOxblood)
+
+            Button(action: openWiki) {
+                HStack(spacing: .ostlerSpace1) {
+                    Image(systemName: "book.closed")
+                    Text("Open your Wiki")
+                }
+                .padding(.horizontal, .ostlerSpace3)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.bordered)
+
+            Spacer()
         }
+        .padding(.horizontal, CGFloat.ostlerSpace4)
+        .padding(.vertical, CGFloat.ostlerSpace2)
+        .background(Color.ostlerChassis)
+        }  // end outer VStack
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ostlerChassis)
         .task {
