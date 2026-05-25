@@ -4206,12 +4206,36 @@ TOMLPREAMBLE
     #     via the channel orchestrator. `shell` would need a CLI
     #     subcommand that does not yet exist on the binary.
     #
-    # Only emit when WhatsApp is the configured outbound channel
-    # AND we have a recipient phone. Without those, the cron job
-    # would either fail at every fire (no recipient) or silently
-    # do nothing (channel disabled). When we can't emit, the
-    # next-steps banner tells the customer how to add jobs by
-    # hand later (see Phase 5 banner edits below).
+    # CX-68 (DMG #39, 2026-05-25): deliver briefs via iMessage,
+    # not WhatsApp.
+    #
+    # The customer install path writes a [channels.whatsapp] block
+    # with `enabled = true` but no backend selector (no
+    # session_path / pair_phone / phone_number_id). The daemon's
+    # WhatsAppConfig::backend_type() defaults to "cloud" in that
+    # case, then is_cloud_config() returns false because the Cloud
+    # API creds are missing, and the channel never registers in
+    # the cron-delivery registry. The startup readiness sweep
+    # marks the cron-delivery health component as error after 60s
+    # ("channels not ready after 60s grace: 'whatsapp'"). Even if
+    # the customer pairs WhatsApp Web later, getting that off the
+    # ground requires UX surface we do not have for v1.0
+    # (pair_code display, session_path bootstrap, keepalive cron).
+    #
+    # iMessage already works end-to-end on a fresh install once
+    # the user grants Full Disk Access to the assistant daemon
+    # (CX-60 + CX-66). It is the cleanest default-on delivery
+    # channel for v1.0 briefs.
+    #
+    # Customers who prefer WhatsApp can edit
+    # ${OSTLER_DIR}/assistant-config/config.toml after install:
+    # change channel to "whatsapp" + add session_path / pair_phone
+    # and pair via the Hub UI. A Doctor surface for this is
+    # queued for v1.0.1.
+    #
+    # The brief recipient is the first entry of the user's
+    # allowed_contacts list (their own iMessage address or phone),
+    # which install.sh seeds from the imessage_allowed prompt.
     #
     # tz is set from the wizard-captured USER_TZ so the brief
     # lands at 09:00 customer-local rather than UTC. The schema's
@@ -4219,9 +4243,7 @@ TOMLPREAMBLE
     #
     # best_effort = false (NOT true): a delivery failure surfaces
     # as a hard error in cron history rather than getting swallowed
-    # as a WARN. Andy's existing config used best_effort = true,
-    # which masked the very bug the TNM cron-delivery fix was
-    # written to solve. Per memory/feedback_no_silent_security_fallback.md
+    # as a WARN. Per memory/feedback_no_silent_security_fallback.md
     # new customers default-fail-loud so any regression surfaces
     # in Doctor immediately.
     #
@@ -4231,11 +4253,17 @@ TOMLPREAMBLE
     # so we do not have to spell out "look at yesterday's data"
     # twice. Customers can edit the prompt after install by hand
     # in ${OSTLER_DIR}/assistant-config/config.toml.
-    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
-        _wa_recipient_cron_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && -n "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
+        # Pick the first allowed contact as the brief recipient.
+        # The allowed_contacts list is comma-separated; trim
+        # whitespace around the first entry.
+        _imsg_brief_recipient="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
+        _imsg_brief_recipient="${_imsg_brief_recipient# }"
+        _imsg_brief_recipient="${_imsg_brief_recipient% }"
+        _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery over WhatsApp. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
-        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery over WhatsApp. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
+        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
         echo
@@ -4245,7 +4273,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_morning_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
         echo
         echo "[[cron.jobs]]"
         echo "id = \"evening-wrap\""
@@ -4253,7 +4281,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_evening_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
     fi
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
