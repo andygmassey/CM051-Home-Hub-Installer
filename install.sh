@@ -7006,25 +7006,55 @@ else
             info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
         else
             info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
-            # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
+            # ── CX-78c (DMG #45, 2026-05-25): daemon-TCC pre-probe ──
             #
-            # macOS TCC grants Full Disk Access per-binary; there's
-            # no public API to add a binary programmatically. The
-            # cleanest customer experience we can build on stock
-            # macOS is a guided drag-add: open System Settings to
-            # the Full Disk Access pane, reveal the daemon binary
-            # in Finder so the customer can drag it directly, and
-            # show a modal that blocks install.sh until they're
-            # done. After the modal dismisses, re-probe chat.db.
-            # If readable, write needed=false (Doctor card never
-            # appears). If still not readable, the CX-60 Doctor
-            # card takes over as the persistent reminder.
-            #
-            # Gated on OSTLER_GUI=1: the assist requires the GUI
-            # session (System Settings + Finder + AppleScript
-            # dialog all need a windowed environment).
-            if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-                info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
+            # The chat.db probe above runs as install.sh, which
+            # inherits OstlerInstaller.app's TCC posture — *not*
+            # ostler-assistant's. If the customer granted FDA to
+            # the daemon binary on a previous install but never to
+            # OstlerInstaller.app, the probe returns a false
+            # negative and the assist dialog fires unnecessarily.
+            # Query the system TCC.db directly via sudo to read
+            # the daemon binary's actual auth_value. auth_value 2
+            # means allowed. Best-effort: if sudo prompt would be
+            # needed (cache expired) we silently fall through to
+            # the dialog path; net effect is no worse than the
+            # pre-CX-78c behaviour.
+            _daemon_fda_auth=""
+            if command -v sudo >/dev/null 2>&1; then
+                _daemon_fda_auth="$(
+                    sudo -n sqlite3 \
+                        "/Library/Application Support/com.apple.TCC/TCC.db" \
+                        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client='${OSTLER_DIR}/bin/ostler-assistant' LIMIT 1;" \
+                        2>/dev/null || true
+                )"
+            fi
+            if [[ "$_daemon_fda_auth" == "2" ]]; then
+                _imessage_fda_needed="false"
+                info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
+                launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                unset _daemon_fda_auth
+            else
+                unset _daemon_fda_auth
+                # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
+                #
+                # macOS TCC grants Full Disk Access per-binary; there's
+                # no public API to add a binary programmatically. The
+                # cleanest customer experience we can build on stock
+                # macOS is a guided drag-add: open System Settings to
+                # the Full Disk Access pane, reveal the daemon binary
+                # in Finder so the customer can drag it directly, and
+                # show a modal that blocks install.sh until they're
+                # done. After the modal dismisses, re-probe chat.db.
+                # If readable, write needed=false (Doctor card never
+                # appears). If still not readable, the CX-60 Doctor
+                # card takes over as the persistent reminder.
+                #
+                # Gated on OSTLER_GUI=1: the assist requires the GUI
+                # session (System Settings + Finder + AppleScript
+                # dialog all need a windowed environment).
+                if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+                    info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
 
                 # Open System Settings to the Full Disk Access pane.
                 # The URL scheme is stable on macOS 13+; older macOS
@@ -7046,12 +7076,14 @@ else
                 # Build the message body from per-line catalogue
                 # strings to keep Rule 0.9 happy (no literal \n
                 # in catalogue values).
-                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s\n%s\n%s' \
+                # CX-78c (DMG #45): copy tightened to 4 lines + dropped
+                # the "denied -- which is what put it in the list"
+                # apology. LINE5 was retired with the rewrite.
+                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s\n%s' \
                     "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
                     "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
                     "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE5")"
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4")"
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
                 # osascript -e. Failures (user clicks the close
@@ -7072,7 +7104,7 @@ else
                 sleep 1
                 osascript \
                     -e 'tell application "System Events" to activate' \
-                    -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" with icon caution" \
+                    -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" with icon note" \
                     >/dev/null 2>&1 || true
                 unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
                       _imessage_fda_title_esc _imessage_fda_button_esc
@@ -7107,7 +7139,8 @@ else
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
-            fi
+                fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
+            fi  # closes outer `if daemon-TCC granted / else` (CX-78c)
         fi
     else
         # No chat.db on this Mac at all (e.g. Messages.app never
