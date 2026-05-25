@@ -98,6 +98,7 @@ MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="If a Tailscale window appears, s
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
 MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="Opening System Settings + Finder to walk you through granting Full Disk Access to the assistant..."
 MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
+MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
 MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
 MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Assistant cannot read Messages history yet. The Doctor dashboard will show a card guiding you through System Settings."
@@ -638,13 +639,12 @@ MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enab
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
 
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Full Disk Access"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="macOS just opened the Full Disk Access list."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find ostler-assistant in the list."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Flip its switch on. That is all."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4="We added the entry for you (the daemon registered itself by reading your Messages history once -- denied -- which is what put it in the list)."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE5="Click OK below once you have toggled the switch on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="OK, toggled it on"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Full Disk Access for ostler-assistant"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="ostler-assistant needs Full Disk Access to read your Messages history."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="System Settings is now open at the Full Disk Access list."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Find ostler-assistant in the list and toggle it on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4="Click Done when you've toggled the switch on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.

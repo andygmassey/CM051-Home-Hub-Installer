@@ -185,23 +185,26 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'launchctl kickstart.*com.creativem
 fi
 echo "PASS [case-6]: assist block has all 6 required components"
 
-# ── Case 7 (CX-66): all catalogue strings present ──────────────────
+# ── Case 7 (CX-66 + CX-78c): all catalogue strings present ──────────
+# CX-78c (DMG #45) retired LINE5 (the "denied -- which is what put it
+# in the list" apology) and added DAEMON_TCC_GRANTED for the new
+# daemon-FDA pre-probe path. Net string count stays at 10.
 for key in MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING \
            MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED \
            MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED \
+           MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4 \
-           MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE5 \
            MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON; do
     if ! grep -q "^${key}=" "$STRINGS_FILE"; then
         echo "FAIL [case-7]: catalogue missing $key" >&2
         exit 1
     fi
 done
-echo "PASS [case-7]: all 10 CX-66 catalogue strings present"
+echo "PASS [case-7]: all 10 CX-66 + CX-78c catalogue strings present"
 
 echo ""
 echo "ALL CX-60 + CX-66 IMESSAGE FDA PROBE TESTS PASSED"
