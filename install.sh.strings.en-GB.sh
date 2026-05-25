@@ -640,11 +640,10 @@ MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enab
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
 
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Full Disk Access for ostler-assistant"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="ostler-assistant needs Full Disk Access to read your Messages history."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="System Settings is now open at the Full Disk Access list."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Find ostler-assistant in the list and toggle it on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4="Click Done when you've toggled the switch on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"ostler-assistant\" and turn it on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Click Done when finished."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"

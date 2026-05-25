@@ -7414,11 +7414,14 @@ else
                 # CX-78c (DMG #45): copy tightened to 4 lines + dropped
                 # the "denied -- which is what put it in the list"
                 # apology. LINE5 was retired with the rewrite.
-                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s\n%s' \
+                # CX-81 B8 (DMG #46+): copy tightened again to 3 lines
+                # (LINE4 retired). Title swaps binary name for product
+                # name; LINE2 quotes the binary name so the customer
+                # can pattern-match it in the System Settings list.
+                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
                     "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
                     "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4")"
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
                 # osascript -e. Failures (user clicks the close
@@ -7427,6 +7430,37 @@ else
                 _imessage_fda_dialog_msg_esc="${_imessage_fda_dialog_msg//\"/\\\"}"
                 _imessage_fda_title_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE//\"/\\\"}"
                 _imessage_fda_button_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON//\"/\\\"}"
+                # CX-81 B8 (DMG #46+): replace the generic system "note"
+                # icon (tan square with exclamation mark) with the Ostler
+                # app icon to reinforce trust at the most trust-sensitive
+                # moment of the install. Resolution order:
+                #   1. ${SCRIPT_DIR}/AppIcon.icns -- sibling of install.sh
+                #      inside OstlerInstaller.app/Contents/Resources/.
+                #      Always present in DMG installs.
+                #   2. /Applications/OstlerInstaller.app/Contents/Resources/
+                #      AppIcon.icns -- fallback if SCRIPT_DIR is unusual
+                #      (tarball install with assets stripped).
+                #   3. `with icon note` fallback -- preserves the existing
+                #      sub-optimal-but-functional icon on dev/CI/headless
+                #      paths so a missing icns file never breaks the
+                #      osascript dialog (no silent broken release).
+                _imessage_fda_icon_path=""
+                if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                    _imessage_fda_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+                elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                    _imessage_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+                fi
+                if [[ -n "$_imessage_fda_icon_path" ]]; then
+                    # AppleScript POSIX file paths cannot contain unescaped
+                    # double-quotes; the icns paths above are controlled by
+                    # our own bundle layout so this is paranoia, not a real
+                    # risk, but we escape anyway for symmetry with the other
+                    # _esc variables above.
+                    _imessage_fda_icon_path_esc="${_imessage_fda_icon_path//\"/\\\"}"
+                    _imessage_fda_icon_clause="with icon file POSIX file \"${_imessage_fda_icon_path_esc}\""
+                else
+                    _imessage_fda_icon_clause="with icon note"
+                fi
                 # CX-66 z-order fix: System Settings was opened above, so
                 # without an explicit `activate` the dialog would render
                 # behind it. Wrapping the display dialog inside a
@@ -7439,10 +7473,12 @@ else
                 sleep 1
                 osascript \
                     -e 'tell application "System Events" to activate' \
-                    -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" with icon note" \
+                    -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
                 unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
-                      _imessage_fda_title_esc _imessage_fda_button_esc
+                      _imessage_fda_title_esc _imessage_fda_button_esc \
+                      _imessage_fda_icon_path _imessage_fda_icon_path_esc \
+                      _imessage_fda_icon_clause
 
                 # Re-probe chat.db. The TCC cache for the install.sh
                 # binary (which inherits OstlerInstaller.app's
