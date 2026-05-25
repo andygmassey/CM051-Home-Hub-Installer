@@ -6798,12 +6798,46 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
     else
         ASSISTANT_INSTALL_KEEPALIVE="false"
     fi
-    if OSTLER_INSTALL_ROOT="$OSTLER_ASSISTANT_DIR" \
-       OSTLER_DIR="$OSTLER_DIR" \
-       LOGS_DIR="$LOGS_DIR" \
-       ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
-       INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
-       bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"; then
+
+    # CX-77 (DMG #44, 2026-05-25): wrap the snippet invocation in a
+    # retry loop and tee stderr into install.log. The snippet failed
+    # on auto-run during DMG #43 Studio retest but succeeded when
+    # Andy re-ran the SAME command manually moments later --
+    # consistent with launchctl-bootstrap timing or a transient env
+    # issue. The previous one-shot invocation hid the stderr inside
+    # ostler-assistant.err which the GUI never surfaced, so the
+    # customer saw a bare "See output above" warning with no output
+    # above to look at. Retry 3 times with 2 s gaps, capture stderr
+    # to a temp file we can both tee to install.log and dump into
+    # the warn message on final failure. cwd pinned to
+    # OSTLER_ASSISTANT_DIR; explicit env passthrough.
+    _snippet_stderr=$(mktemp -t ostler-assistant-snippet-stderr.XXXXXX)
+    _snippet_ok=false
+    for _snippet_attempt in 1 2 3; do
+        if (
+            cd "$OSTLER_ASSISTANT_DIR" || exit 1
+            OSTLER_INSTALL_ROOT="$OSTLER_ASSISTANT_DIR" \
+            OSTLER_DIR="$OSTLER_DIR" \
+            LOGS_DIR="$LOGS_DIR" \
+            ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
+            INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
+            bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" 2>"$_snippet_stderr"
+        ); then
+            _snippet_ok=true
+            break
+        fi
+        # Capture stderr from this attempt into install.log so the
+        # GUI log drawer surfaces the failure mode -- not just the
+        # bare "See output above" warning.
+        if [[ -s "$_snippet_stderr" ]]; then
+            info "$(printf "$MSG_INFO_ASSISTANT_SNIPPET_ATTEMPT_FAILED" "${_snippet_attempt}")"
+            sed -e 's/^/    /' "$_snippet_stderr" | head -20
+        fi
+        if [[ "$_snippet_attempt" -lt 3 ]]; then
+            sleep 2
+        fi
+    done
+    if [[ "$_snippet_ok" == "true" ]]; then
         ok "$MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM"
         info "$(printf "$MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR" "${LOGS_DIR}")"
         info "$MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI"
@@ -6814,7 +6848,16 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
         warn "$MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE"
         warn "$MSG_WARN_WIZARD_CONFIG_STAYS_PLACE_BINARY_STAYS"
         warn "$(printf "$MSG_WARN_BASH_INSTALL_SNIPPET_SH" "${OSTLER_ASSISTANT_DIR}")"
+        # Make the err log path visible even on first failure so the
+        # customer (or Andy on a retest) can grep what went wrong.
+        warn "$(printf "$MSG_WARN_ASSISTANT_ERR_LOG_PATH" "${LOGS_DIR}/ostler-assistant.err")"
+        if [[ -s "$_snippet_stderr" ]]; then
+            warn "$MSG_WARN_ASSISTANT_SNIPPET_LAST_STDERR"
+            sed -e 's/^/    /' "$_snippet_stderr" | head -30
+        fi
     fi
+    rm -f "$_snippet_stderr"
+    unset _snippet_stderr _snippet_ok _snippet_attempt
 fi
 
 # ── 3.14e-probe iMessage FDA probe (CX-60) ──────────────────────
