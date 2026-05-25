@@ -882,19 +882,35 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     CLT_INSTALL_TRIGGERED=true
     ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
 
-    # CX-54 (DMG #30, 2026-05-24): customers consistently miss that
-    # they can continue answering installer questions while macOS's
-    # CLT installer downloads in the background -- the dialog steals
-    # focus, the CLT download progress window appears, and customers
-    # wait. Surface a prominent in-window hint AND bounce focus back
-    # to OstlerInstaller after a few seconds so the customer naturally
-    # sees the questions are still there. Studio retest #25 finding.
+    # CX-54 (DMG #30, 2026-05-24) + CX-71 (DMG #44, 2026-05-25):
+    # customers consistently miss that they can continue answering
+    # installer questions while macOS's CLT installer downloads in
+    # the background. CX-54 added a single bounce-back; Studio
+    # retest of DMG #43 found that after the customer clicks Install
+    # on the CLT prompt, macOS's Software Update download-progress
+    # window steals focus again ~10-30 s later, leaving customers
+    # staring at it. CX-71 extends the single bounce to a polling
+    # loop: re-activate OstlerInstaller every 4 s for up to 60 s OR
+    # until the CLT installer process is gone (download finished
+    # OR customer cancelled). Subshell + disown so install.sh main
+    # thread proceeds to the questions phase immediately.
     if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
         info "$MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND"
         (
             sleep 4
-            osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
-                open -a "OstlerInstaller" 2>/dev/null || true
+            _focus_loop_cap=15  # 15 iterations x 4 s = 60 s
+            for _focus_iter in $(seq 1 $_focus_loop_cap); do
+                # Stop looping if the CLT installer is no longer
+                # running -- either it finished its download or the
+                # customer dismissed it. No point bouncing focus
+                # against a window that does not exist.
+                if ! pgrep -f "Install Command Line Developer Tools" >/dev/null 2>&1; then
+                    break
+                fi
+                osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
+                    open -a "OstlerInstaller" 2>/dev/null || true
+                sleep 4
+            done
         ) &
         disown 2>/dev/null || true
     fi
@@ -1097,6 +1113,24 @@ if [[ "${PERMS_OK:-y}" == "n" || "${PERMS_OK:-y}" == "N" ]]; then
 fi
 
 echo ""
+
+# CX-69 (DMG #44, 2026-05-25): Calendar AppleScript permission
+# pre-warm. Later in install (Phase 4 daemon startup + CM048 event
+# extractor) we read calendars via osascript, which fires macOS's
+# Calendar permission prompt for the installer's TCC posture. If
+# that prompt fires mid-install, the customer is deep in spinner
+# territory and misses it. Move the prompt forward to right after
+# PERMS_OK by running a no-op count probe -- the probe value is
+# discarded, the side-effect is the TCC prompt landing in the
+# attention window.
+#
+# Stderr goes to /dev/null; we don't fail install if the probe is
+# denied. The Calendar functionality fails gracefully downstream
+# (CM048 extractor logs an empty-calendar warning, doesn't crash).
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    info "$MSG_INFO_CALENDAR_PERMISSION_PREWARM"
+fi
+osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
 # ── Auto-detect from macOS contact card ────────────────────────────
 
@@ -2541,6 +2575,30 @@ fi
 # before the find-scan moved on. Drop to log-only so the GUI never
 # renders a flash page; the bash terminal output is unaffected.
 gui_log info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
+
+# CX-70 (DMG #44, 2026-05-25): pre-warm the three folder TCC
+# prompts up front with an `ls` probe per folder + a labelled
+# info line before each, so the customer sees three named
+# prompts in sequence rather than three unannounced popups
+# arriving back-to-back during the find scan below. CX-47 already
+# added a combined acknowledge above; CX-70 adds per-prompt
+# labelling so the customer knows which is which.
+#
+# The `ls >/dev/null 2>&1` triggers macOS's TCC prompt for the
+# folder if not already granted. We don't depend on the output --
+# only the side-effect. 0.5 s gaps so successive prompts don't
+# overlap visually.
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    info "$MSG_INFO_FOLDER_PREWARM_DOWNLOADS"
+    ls "${HOME}/Downloads" >/dev/null 2>&1 || true
+    sleep 0.5
+    info "$MSG_INFO_FOLDER_PREWARM_DESKTOP"
+    ls "${HOME}/Desktop" >/dev/null 2>&1 || true
+    sleep 0.5
+    info "$MSG_INFO_FOLDER_PREWARM_DOCUMENTS"
+    ls "${HOME}/Documents" >/dev/null 2>&1 || true
+fi
+
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
