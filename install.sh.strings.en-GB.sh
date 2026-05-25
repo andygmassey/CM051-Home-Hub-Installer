@@ -79,6 +79,7 @@ MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS may ask permission to read your Cale
 MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Click OK."
 MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
 MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
+MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
 MSG_INFO_GIT_CLONE="  git clone %s %s"
 MSG_INFO_GIT_CLONE_2="  git clone %s %s"
 MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"

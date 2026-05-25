@@ -7824,7 +7824,16 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
     # dialog appears unannounced + customers think the installer has
     # gone rogue. Blocking ack means they read it, then know to click
     # Allow on the popup that follows. Suppressed under TTY/CI.
+    #
+    # CX-DMG44 timing separation (DMG #44, 2026-05-25): when the
+    # iMessage FDA assist dialog (line ~6940) closed moments ago,
+    # firing this Automation pre-warn within 200 ms left the
+    # customer flat-staring at two stacked modals. Add a short
+    # cooldown + status line so the transition reads as deliberate
+    # rather than as a second dialog ambushing the user.
     if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        info "$MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION"
+        sleep 3
         _="$(gui_read \
             "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE" \
             acknowledge \
