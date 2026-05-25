@@ -7125,21 +7125,44 @@ else
                 _imessage_fda_title_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE//\"/\\\"}"
                 _imessage_fda_button_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON//\"/\\\"}"
                 # CX-81 B8 (DMG #46+): replace the generic system "note"
-                # icon (tan square with exclamation mark) with the Ostler
-                # app icon to reinforce trust at the most trust-sensitive
-                # moment of the install. Resolution order:
-                #   1. ${SCRIPT_DIR}/AppIcon.icns -- sibling of install.sh
+                # icon (tan square with exclamation mark) with an Ostler
+                # brand icon to reinforce trust at the most trust-sensitive
+                # moment of the install.
+                #
+                # CX-81 B8b: prefer DialogIcon.icns (oxblood circle + white
+                # "O", edge-to-edge canvas) over AppIcon.icns. AppIcon was
+                # designed with internal padding so macOS can apply its
+                # squircle mask on Dock / Launchpad / Finder, but
+                # osascript's `display dialog` does NOT apply that mask.
+                # In dialog context AppIcon's full square canvas shows --
+                # the cream squircle background reads as a visible
+                # bounding-box / "feint square outline" around the marque.
+                # DialogIcon is a dialog-specific .icns where the brand
+                # mark fills the canvas with no padding, so the dialog
+                # renders the oxblood circle cleanly against the dialog
+                # chrome with no halo.
+                #
+                # Resolution order:
+                #   1. ${SCRIPT_DIR}/DialogIcon.icns -- sibling of install.sh
                 #      inside OstlerInstaller.app/Contents/Resources/.
-                #      Always present in DMG installs.
+                #      Always present in DMG installs cut after B8b.
                 #   2. /Applications/OstlerInstaller.app/Contents/Resources/
-                #      AppIcon.icns -- fallback if SCRIPT_DIR is unusual
+                #      DialogIcon.icns -- fallback if SCRIPT_DIR is unusual
                 #      (tarball install with assets stripped).
-                #   3. `with icon note` fallback -- preserves the existing
+                #   3. ${SCRIPT_DIR}/AppIcon.icns + /Applications/.../AppIcon.icns
+                #      -- secondary fallback for any in-flight DMG cut that
+                #      shipped pre-B8b (still better than `with icon note`
+                #      since AppIcon at least carries the product mark).
+                #   4. `with icon note` fallback -- preserves the existing
                 #      sub-optimal-but-functional icon on dev/CI/headless
                 #      paths so a missing icns file never breaks the
                 #      osascript dialog (no silent broken release).
                 _imessage_fda_icon_path=""
-                if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                    _imessage_fda_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+                elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                    _imessage_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+                elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
                     _imessage_fda_icon_path="${SCRIPT_DIR}/AppIcon.icns"
                 elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
                     _imessage_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
