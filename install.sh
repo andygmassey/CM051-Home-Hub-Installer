@@ -1070,19 +1070,55 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 
+# CX-DMG44 (DMG #44, 2026-05-25): upfront briefing on the full set
+# of permission prompts the customer will see during install. The
+# previous block listed three high-level categories which understated
+# what actually fires: nine to ten macOS popups across pre-warm + FDA
+# assist + iMessage Automation, sometimes back-to-back. Customers
+# felt ambushed mid-install. Enumerating up-front lets them
+# anticipate and accept rather than panic.
+#
+# Permission inventory (kept in sync with the actual install flow --
+# update this comment + the printed list together when the prompt
+# count changes):
+#   1. Contacts                       (line ~1140 contact-card read)
+#   2. Calendar                       (CX-69 pre-warm, line ~1117)
+#   3. Reminders                      (CX-46 pre-warm, existing)
+#   4. Downloads folder               (CX-70 pre-warm)
+#   5. Desktop folder                 (CX-70 pre-warm)
+#   6. Documents folder               (CX-70 pre-warm)
+#   7. Full Disk Access -- installer  (FDA-only data sources)
+#   8. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
+#   9. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  10. macOS admin password           (sudo for Homebrew, sleep-disable)
+# Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
+# permission per se, but customer-visible).
+PERMISSIONS_TOTAL=10
+gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
+
 echo ""
 echo -e "  ${BOLD}What Ostler needs from your Mac${NC}"
 echo ""
-echo "  macOS will ask you to approve two permissions. These are"
-echo "  required for Ostler to work:"
+echo "  During the install you will see around ${PERMISSIONS_TOTAL} macOS"
+echo "  permission popups. They come from macOS itself, not from us."
+echo "  Each looks like a small system dialog asking you to allow"
+echo "  access to a specific thing. We'll label each one before it"
+echo "  appears so you know what to expect."
 echo ""
-echo -e "    ${BOLD}Contacts${NC}          Your name + contacts for the knowledge graph"
-echo -e "    ${BOLD}Files & Folders${NC}   Find data exports in your Downloads folder"
+echo "  Required (Ostler will not work without these):"
 echo ""
-echo "  Optional (can set up later):"
+echo -e "    1. ${BOLD}Contacts${NC}              Your name + your address book"
+echo -e "    2. ${BOLD}Calendar${NC}              Meetings + events in your graph"
+echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
+echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
+echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc."
+echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history"
+echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you"
+echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
-echo -e "    ${BOLD}Full Disk Access${NC}  Instant data from Safari, iMessage, Notes,"
-echo "                      Calendar, Photos, Reminders, Mail"
+echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
+echo "  from Apple (Xcode); these are downloaded in the background"
+echo "  so you can keep answering the install questions."
 echo ""
 echo -e "  ${BOLD}One tip before you continue:${NC}"
 echo ""
