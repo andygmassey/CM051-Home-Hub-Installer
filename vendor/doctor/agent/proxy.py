@@ -113,8 +113,19 @@ async def proxy_request(
     gateway_url: Optional[str] = None,
     client: Optional[httpx.AsyncClient] = None,
 ) -> Response:
-    """Forward ``request`` to ``{gateway_url}{path}``, return the
-    upstream response back to the caller.
+    """Forward ``request`` to the gateway at the request's
+    concrete URL path, return the upstream response back to the
+    caller.
+
+    The ``path`` argument is the route template the caller
+    registered (e.g. ``/api/v1/people/{slug}/forget``). It is used
+    only for logging. The actual forwarded URL is built from
+    ``request.url.path`` so that path-parameter routes substitute
+    correctly: a request to ``/api/v1/people/alice/forget``
+    forwards to ``{gateway_url}/api/v1/people/alice/forget`` (not
+    the literal template). This is the CX-P0A fix
+    (2026-05-26): pre-fix the proxy sent the literal template
+    upstream and every path-parameter route 404'd.
 
     The ``gateway_url`` and ``client`` parameters exist for tests
     that need to inject their own destination / mocked transport.
@@ -122,7 +133,9 @@ async def proxy_request(
     defaults.
     """
     upstream_base = (gateway_url or _gateway_base_url()).rstrip("/")
-    upstream_url = upstream_base + path
+    # Forward the concrete request path, not the registered template.
+    # FastAPI puts the substituted path on request.url.path.
+    upstream_url = upstream_base + request.url.path
     query = request.url.query
     if query:
         upstream_url = f"{upstream_url}?{query}"

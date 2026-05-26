@@ -86,6 +86,19 @@ HR015_SOURCES=(
     "THIRD_PARTY_NOTICES.md"
 )
 
+# Vendored CM041 subdirs sourced from CM051's vendor/ tree (the .app
+# build path also reads these; release.sh stages them at the install/
+# root so the tarball install path sees them at ${SCRIPT_DIR}/<dir>/
+# matching the .app's Contents/Resources/<dir>/ layout). CX-P0A
+# (2026-05-26): assistant_api/ contains ical-server.py which install.sh
+# Phase 3.13a copies + launches at 127.0.0.1:8090.
+#
+# Convention: format src_relpath. Each entry is a subdir under
+# ${CM051_DIR}/vendor/cm041/.
+CM051_VENDOR_CM041_SUBDIRS=(
+    "assistant_api"
+)
+
 # Special: copy HR015/contact_syncer/requirements.txt -> install/requirements.txt
 HR015_AGGREGATE_REQUIREMENTS_SRC="contact_syncer/requirements.txt"
 
@@ -214,6 +227,20 @@ for src in "${HR015_SOURCES[@]}"; do
     echo "   + ${src}"
     EXCLUDE_FLAGS=()
     for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
+    rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/"
+done
+
+echo "==> Staging CM041 vendor subdirs from CM051/vendor/cm041/"
+for src in "${CM051_VENDOR_CM041_SUBDIRS[@]}"; do
+    SRC="${CM051_DIR}/vendor/cm041/${src}"
+    [[ -e "${SRC}" ]] || die "missing CM051 vendor source: ${SRC} (run vendor-sync)" 3
+    echo "   + vendor/cm041/${src}"
+    EXCLUDE_FLAGS=()
+    for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
+    # Stage at the install/ root (mirrors the gui/project.yml
+    # postBuildScript which copies vendor/cm041/assistant_api/ to
+    # Contents/Resources/assistant_api/, NOT under a vendor/cm041/
+    # wrapper).
     rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/"
 done
 
