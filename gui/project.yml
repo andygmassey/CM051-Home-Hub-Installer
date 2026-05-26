@@ -652,6 +652,138 @@ targets:
           - $(SRCROOT)/../assistant-agent
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/assistant-agent
+      - name: Bundle wiki-recompile (daily wiki rebuild LaunchAgent)
+        script: |
+          set -euo pipefail
+          # install.sh:5838 probes ${SCRIPT_DIR}/wiki-recompile/INSTALL_SNIPPET.sh
+          # to install the wiki-recompile LaunchAgent (rebuilds the
+          # customer's MkDocs wiki on a daily tick so newly-ingested
+          # data lands in the wiki view). Without this bundle, the
+          # GUI install falls through to either a reuse-existing
+          # branch (only true on a re-install) or an info-log + skip
+          # branch. The customer's wiki then freezes at the first
+          # compile output.
+          #
+          # Source-of-truth: CM051 repo root /wiki-recompile/.
+          # See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F2.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../wiki-recompile"
+          if [ ! -d "${SRC}" ] || [ ! -f "${SRC}/INSTALL_SNIPPET.sh" ]; then
+            echo "ERROR: wiki-recompile/ not found at ${SRC} (need INSTALL_SNIPPET.sh)" >&2
+            echo "       CM051 repo root must contain wiki-recompile/INSTALL_SNIPPET.sh." >&2
+            exit 1
+          fi
+          echo "Bundling wiki-recompile from ${SRC} into Resources/wiki-recompile/"
+          mkdir -p "${DEST}/wiki-recompile"
+          cp -R "${SRC}/"* "${DEST}/wiki-recompile/"
+          /usr/bin/xattr -cr "${DEST}/wiki-recompile" || true
+          chmod 755 "${DEST}/wiki-recompile/INSTALL_SNIPPET.sh"
+        inputFiles:
+          - $(SRCROOT)/../wiki-recompile/INSTALL_SNIPPET.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/wiki-recompile/INSTALL_SNIPPET.sh
+      - name: Bundle legal Python package (consent-string constants)
+        script: |
+          set -euo pipefail
+          # install.sh:1913 probes ${SCRIPT_DIR}/legal/pyproject.toml
+          # to pip-install the legal package into the customer venv.
+          # The package contains the consent-string constants that
+          # ostler_security.consent and the Rust gates import at
+          # runtime when the customer triggers an Article 9 sensitive-
+          # data flow, the WhatsApp channel arm, or voice transcription.
+          # Without this bundle, the GUI install silently skips the
+          # pip install (no warn, no error - the [[ -d ]] gate is
+          # false), and the customer hits ModuleNotFoundError at the
+          # first consent gate, hours after install.
+          #
+          # Source-of-truth: HR015 repo /legal/, vendored into CM051
+          # at vendor/legal/. See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F3.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/legal"
+          if [ ! -d "${SRC}" ] || [ ! -f "${SRC}/pyproject.toml" ]; then
+            echo "ERROR: vendor/legal not found at ${SRC} (need pyproject.toml)" >&2
+            echo "       Re-sync from HR015 /legal/ (see vendor/README.md)." >&2
+            exit 1
+          fi
+          echo "Bundling legal from ${SRC} into Resources/legal/"
+          mkdir -p "${DEST}/legal"
+          cp -R "${SRC}/"* "${DEST}/legal/"
+          # Strip __pycache__ that may have leaked from a developer
+          # checkout - pip-install does not need them and they bloat
+          # the codesigned bundle.
+          find "${DEST}/legal" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+          find "${DEST}/legal" -type f -name "*.pyc" -delete 2>/dev/null || true
+          /usr/bin/xattr -cr "${DEST}/legal" || true
+        inputFiles:
+          - $(SRCROOT)/../vendor/legal/pyproject.toml
+          - $(SRCROOT)/../vendor/legal/consent_strings.py
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/legal/pyproject.toml
+      - name: Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources
+        script: |
+          set -euo pipefail
+          # install.sh:6502 + 6533 probe ${SCRIPT_DIR}/THIRD_PARTY_NOTICES.md
+          # and ${SCRIPT_DIR}/LICENSES/ to install canonical OSS
+          # attribution files into ~/.ostler/. Without the bundle,
+          # the customer's wiki licences page is empty and the
+          # `install.sh --licenses` flag has nothing to print.
+          # Compliance-paperwork concern but not install-blocking.
+          #
+          # Source-of-truth: HR015 repo /LICENSES/ + /THIRD_PARTY_NOTICES.md,
+          # vendored into CM051 at vendor/LICENSES/ + vendor/THIRD_PARTY_NOTICES.md.
+          # See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F7 + F8.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          NOTICES_SRC="${SRCROOT}/../vendor/THIRD_PARTY_NOTICES.md"
+          LICENSES_SRC="${SRCROOT}/../vendor/LICENSES"
+          if [ ! -f "${NOTICES_SRC}" ]; then
+            echo "ERROR: vendor/THIRD_PARTY_NOTICES.md not found at ${NOTICES_SRC}" >&2
+            echo "       Re-sync from HR015 /THIRD_PARTY_NOTICES.md (see vendor/README.md)." >&2
+            exit 1
+          fi
+          if [ ! -d "${LICENSES_SRC}" ]; then
+            echo "ERROR: vendor/LICENSES not found at ${LICENSES_SRC}" >&2
+            echo "       Re-sync from HR015 /LICENSES/ (see vendor/README.md)." >&2
+            exit 1
+          fi
+          echo "Bundling THIRD_PARTY_NOTICES.md + LICENSES/ into Resources/"
+          cp "${NOTICES_SRC}" "${DEST}/THIRD_PARTY_NOTICES.md"
+          mkdir -p "${DEST}/LICENSES"
+          cp -R "${LICENSES_SRC}/"* "${DEST}/LICENSES/"
+          /usr/bin/xattr -cr "${DEST}/LICENSES" "${DEST}/THIRD_PARTY_NOTICES.md" || true
+          chmod 644 "${DEST}/THIRD_PARTY_NOTICES.md"
+        inputFiles:
+          - $(SRCROOT)/../vendor/THIRD_PARTY_NOTICES.md
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/THIRD_PARTY_NOTICES.md
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/LICENSES
+      - name: Bundle scripts/deferred-register-device.sh into Resources/scripts
+        script: |
+          set -euo pipefail
+          # install.sh:4963 probes ${SCRIPT_DIR}/scripts/deferred-register-device.sh
+          # to install the LaunchAgent that retries device registration
+          # against appcast.ostler.ai when the install-time POST fails
+          # (Wi-Fi blip, Worker briefly down). Without this bundle,
+          # the LaunchAgent loads but exits immediately on missing-file.
+          # Belt-and-braces fallback; primary registration is during
+          # install via the GUI's task #340 path.
+          #
+          # Source-of-truth: CM051 repo /scripts/deferred-register-device.sh.
+          # See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F9.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../scripts/deferred-register-device.sh"
+          if [ ! -f "${SRC}" ]; then
+            echo "ERROR: scripts/deferred-register-device.sh not found at ${SRC}" >&2
+            exit 1
+          fi
+          echo "Bundling scripts/deferred-register-device.sh into Resources/scripts/"
+          mkdir -p "${DEST}/scripts"
+          cp "${SRC}" "${DEST}/scripts/deferred-register-device.sh"
+          chmod 755 "${DEST}/scripts/deferred-register-device.sh"
+          /usr/bin/xattr -cr "${DEST}/scripts" || true
+        inputFiles:
+          - $(SRCROOT)/../scripts/deferred-register-device.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/deferred-register-device.sh
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail

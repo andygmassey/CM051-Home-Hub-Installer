@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ostler_legal"
+version = "0.1.0"
+description = "Versioned consent-wording constants for Ostler v0.1."
+readme = "../legal/README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Creative Machines Limited" },
+]
+# No runtime deps – pure-string constants + dataclass.
+
+# Single-package layout. setuptools sees this pyproject.toml inside
+# the package dir, so we tell it explicitly that "." IS the
+# `legal` package.
+[tool.setuptools]
+packages = ["legal"]
+
+[tool.setuptools.package-dir]
+legal = "."

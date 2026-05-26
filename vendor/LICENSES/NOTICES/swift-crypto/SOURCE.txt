@@ -1,0 +1,4 @@
+Source: https://raw.githubusercontent.com/apple/swift-crypto/main/NOTICE.txt
+Fetched: 2026-04-28
+Upstream repo: https://github.com/apple/swift-crypto
+Reproduced verbatim per Apache 2.0 section 4(d).

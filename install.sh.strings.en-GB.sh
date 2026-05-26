@@ -864,3 +864,32 @@ MSG_INFO_PAIR_IPHONE_HELP="Open the Ostler app on your iPhone and scan this QR c
 MSG_INFO_PAIR_IPHONE_FETCHING="Generating pairing code..."
 MSG_INFO_PAIR_REFRESH="Refresh code"
 MSG_ERR_PAIR_FETCH_FAILED="Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."
+
+# ── Deep-dive audit fixes (CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22) ──
+
+# F1 - assistant-agent bundle missing
+MSG_WARN_ASSISTANT_AGENT_NOT_BUNDLED_LAUNCHAGENT_SKIPPED="assistant-agent not bundled with installer. Daily briefs + WhatsApp keepalive LaunchAgent will not load."
+
+# F2 - wiki-recompile bundle missing (replaces silent info-log fall-through)
+MSG_WARN_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED="Wiki-recompile scripts not bundled with installer. The wiki will not auto-update."
+
+# F3 - legal package missing
+MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED="legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
+
+# F4 - gws (Google Workspace CLI) install
+MSG_OK_GWS_INSTALLED_AT_VERSION_DEST="Google Workspace CLI v%s installed at %s"
+MSG_OK_GWS_ALREADY_INSTALLED_AT_VERSION="Google Workspace CLI v%s already installed, leaving in place"
+MSG_WARN_GWS_UNSUPPORTED_ARCHITECTURE_GMAIL_DEGRADED="Unsupported CPU architecture for Google Workspace CLI; Gmail / Google Calendar features degraded."
+MSG_WARN_CURL_NOT_AVAILABLE_GWS_INSTALL_SKIPPED="curl not available; Google Workspace CLI install skipped. Gmail / Google Calendar features degraded."
+MSG_WARN_GWS_DOWNLOAD_FAILED_URL="Could not download Google Workspace CLI from %s"
+MSG_WARN_GWS_SHA256_MISMATCH_EXPECTED_GOT="Google Workspace CLI SHA256 mismatch (expected %s, got %s). Aborting install of this binary."
+MSG_WARN_GWS_ARCHIVE_EXTRACT_FAILED="Google Workspace CLI archive could not be extracted."
+MSG_WARN_GWS_INSTALLED_BUT_VERSION_PROBE_FAILED="Google Workspace CLI installed at %s but the --version probe failed."
+
+# F5 - ical-query.sh wrapper
+MSG_OK_ICAL_QUERY_WRAPPER_INSTALLED_AT="iCloud / CalDAV calendar bridge installed at %s"
+MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="iCloud / CalDAV calendar bridge at %s is not executable. Calendar will return no events."
+
+# F9 - deferred-register-device script missing
+MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh not bundled with installer. Device-registration retry on next network is disabled."
+

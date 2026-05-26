@@ -52,6 +52,44 @@ What is NOT included:
 
 See PR #116. Source of truth: `HR015 - Gaming PC/ostler_fda/`.
 
+### `legal/`
+
+Vendored 2026-05-22 (deep-dive audit F3). Source of truth:
+`HR015 - Gaming PC/legal/`. Pure-Python package; consent-string
+constants used by `ostler_security.consent` + the Rust gates at
+runtime. Pip-installed into the customer's Hub venv at install time.
+
+What is included: `__init__.py`, `consent_strings.py`,
+`check_wording.py`, `pyproject.toml`, `BETA_NDA.md`, `README.md`.
+What is NOT included: `__pycache__/`, `tests/`.
+
+Without this vendored copy the GUI install path silently skips the
+pip install and the customer hits `ModuleNotFoundError` at the first
+Article 9 / WhatsApp / voice consent gate.
+
+### `LICENSES/` + `THIRD_PARTY_NOTICES.md`
+
+Vendored 2026-05-22 (deep-dive audit F7 + F8). Source of truth:
+`HR015 - Gaming PC/LICENSES/` and `HR015 - Gaming PC/THIRD_PARTY_NOTICES.md`.
+
+Apache 2.0 / MIT / BSD / MPL / Zlib canonical licence texts referenced
+by every third-party component shipped with Ostler. Bundled into
+`OstlerInstaller.app/Contents/Resources/` so install.sh can copy them
+to `~/.ostler/LICENSES/` + `~/.ostler/THIRD_PARTY_NOTICES.md` at
+install time. Customer-facing surface: the wiki licences page +
+`install.sh --licenses` printer.
+
+### `gws` (Google Workspace CLI) -- NOT VENDORED, install-time download
+
+Apache-2.0 official Google binary, downloaded at install time from
+`github.com/googleworkspace/cli/releases/v0.22.5/` with SHA256 pinning.
+The binary is too large to vendor (15-16MB per architecture, two
+architectures), the upstream cadence is high, and Google's own
+release pipeline already signs + notarises the binaries. The
+canonical hashes live inline in `install.sh` Phase 3.10c. See
+the THIRD_PARTY_NOTICES.md entry under "Bundled binaries / runtime
+services".
+
 ### `cm024_knowledge/`
 
 Source of truth: `andygmassey/evernote-knowledge` (the productised

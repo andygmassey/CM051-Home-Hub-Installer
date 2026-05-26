@@ -133,6 +133,16 @@
     "illustration": null,
     "needs_fda": false
   },
+  "gws_install": {
+    "id": "gws_install",
+    "title": "Calendar / Gmail bridge",
+    "subtitle": "Google Workspace CLI + iCloud wrapper",
+    "why": "Ostler talks to your Gmail and Google Calendar via Google's own Workspace CLI (gws) running locally on this Mac, and to iCloud over CalDAV with an app-specific password. Nothing leaves the machine; OAuth happens between the CLI and Google.",
+    "duration_estimate_s": 15,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
   "import_data": {
     "id": "import_data",
     "title": "Importing your data",
