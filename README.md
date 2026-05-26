@@ -28,7 +28,7 @@ The watcher is killed at the start of Phase 4 (so health-check output is not int
 
 ## Status
 
-**Last refreshed: 2026-05-20** (T-2 to v1.0 launch).
+**v1.0.0 launching 2026-05-22** alongside the iOS Companion. Last refreshed 2026-05-21.
 
 - `install.sh` moved out of HR015 into its own project to give it a dedicated UX-iteration runway pre-launch and clear public auditability
 - ~6,600 lines of bash, structured into 4 phases:
@@ -36,13 +36,29 @@ The watcher is killed at the start of Phase 4 (so health-check output is not int
   2. Collect all user input upfront (~2 min)
   3. Unattended install (~10-25 min depending on broadband speed for Docker pulls + Ollama model downloads)
   4. Health check + next steps
-- **Launching 2026-05-22** alongside the iOS Companion
+
+### v1.0 ship features
+
+- **Drag-and-drop licence intake** with paste alternative + mailto fallback banner if a licence is not yet on the machine
+- **Single-app DMG layout** with `Ostler.app` bundled inside the installer
+- **Sudo gate (Option B)** keeping privileged steps narrowly scoped
+- **TCC permission handling** for Full Disk Access, Calendar, Contacts, and Reminders
+- **PII redactor** on diagnostic exports so support bundles ship without leaking customer data
+- **Channel configurator** at the end of install: interactive wizard for the OoTB ZeroClaw channels (Telegram, Discord, Slack, iMessage, Apple Mail, WhatsApp, Gmail, Google Workspace, Outlook, Matrix, Signal, IRC, and more)
+
+## Install
+
+Customers get the DMG via the Ostler website (after Stripe checkout). The legacy curl bootstrap remains for power users and contributors:
+
+```bash
+curl -fsSL https://ostler.ai/install.sh | bash
+```
 
 ## Active work (see PLAN.md)
 
-- Channel configurator step — interactive wizard at the end of install to configure all OoTB ZeroClaw channels (Telegram, Discord, Slack, iMessage, Apple Mail, WhatsApp, Gmail, Google Workspace, Outlook, Matrix, Signal, IRC, etc.)
-- OAuth local-callback flow for Gmail / Google Workspace / Outlook
+- OAuth local-callback polish for Gmail / Google Workspace / Outlook
 - Nice TUI (gum / dialog / custom) to replace raw prompts
+- Continued UX iteration based on launch-day feedback
 
 ## Hub power policy (MacBook-as-Hub)
 
@@ -98,6 +114,6 @@ rm -rf ~/.ostler/hub-power
 ## Security / privacy rules
 
 1. Never commit credentials, API keys, tokens, or real-person data.
-2. The installer is user-facing public code — every line is auditable.
+2. The installer is user-facing public code; every line is auditable.
 3. Pre-commit hook at `.git/hooks/pre-commit` (symlinked from HR015's shared `.githooks/pre-commit`) scans for PII + secret leaks.
 4. Real-person test data goes in `fixtures_private/` (gitignored) only.
