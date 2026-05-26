@@ -114,6 +114,12 @@ final class StepCatalog {
         "ostler_hub_app",
         "ostler_remotecapture",
         "hydrate_graph",
+        // CX-86 Gap A + Gap C: hydrate_browsing fires as a separate
+        // progress emission BETWEEN hydrate_graph (B1/B2/CX-85's
+        // contacts + calendar + email + whatsapp drainer) and
+        // wiki_compile. Streams Safari + Chrome history through the
+        // gateway with needs_reprocessing=true.
+        "hydrate_browsing",
         "wiki_compile",
         "health_check",
     ]

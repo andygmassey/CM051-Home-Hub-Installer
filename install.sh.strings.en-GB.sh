@@ -762,3 +762,17 @@ MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install 
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background – your wiki will fill in over the next hour."
 
+# Browser history hydration strings (CX-86 Gap A + Gap C)
+# Used by install.sh's hydrate_browsing step. The progress call
+# is a SEPARATE STEP_BEGIN (id = hydrate_browsing) that sits
+# between hydrate_graph and wiki_compile. Counts come from
+# ingest_browser_history's --json output (sent, skipped_sensitive).
+# Privacy: no URLs / titles / domains in any string here -- the
+# customer sees counts and the gateway blocklist's "skipped" tally.
+MSG_HYDRATE_BROWSING_STARTED="Importing your browsing history – your visits stay on this Mac"
+MSG_HYDRATE_BROWSING_DONE="Imported %s pages of browsing history"
+MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE="Skipped %s pages flagged as sensitive (banking, medical, etc.)"
+MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-run later from Settings."
+MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
+
