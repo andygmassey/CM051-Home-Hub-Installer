@@ -41,7 +41,12 @@ from pathlib import Path
 # Events the brief flags as "soft" -- emission with no GUI case arm is
 # acceptable (logged as a NOTE, not a fail).  Documented in the
 # progress_emitter.sh header block.
-SOFT_UNKNOWN_OK: set[str] = {"MAIL_ACCOUNTS_FOUND"}
+# - MAIL_ACCOUNTS_FOUND: CX-81 B2 marker, install.sh telemetry only.
+# - STEP: CX-81 B8 permissions-briefing marker; install.sh emits one
+#   STEP event before the customer-facing TCC briefing block (NOT a
+#   STEP_BEGIN sidebar advance). GUI falls through to .unknown; the
+#   briefing text surfaces via subsequent echo lines on the log pane.
+SOFT_UNKNOWN_OK: set[str] = {"MAIL_ACCOUNTS_FOUND", "STEP"}
 
 
 def _strip_swift_comments(source: str) -> str:
