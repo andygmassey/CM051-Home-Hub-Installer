@@ -8036,22 +8036,27 @@ fi
 # phone anywhere, encrypted end-to-end, with no public exposure.
 # Free for personal use up to 100 devices. Skipping this step is fine
 # if you never use Ostler's companion away from home Wi-Fi.
+#
+# CX-81 Tailscale step (2026-05-26):
+#   - Dedicated full-screen GUI view (TailscaleConnectView.swift) with
+#     two big buttons + collapsible mini-FAQ, dispatched from
+#     OnboardingQuestionView when prompt id is "tailscale_connect".
+#   - STEP_BEGIN emission so the sidebar progress shows a dedicated row.
+#   - Root-cause fix: was `open -gj -a Tailscale` (LAUNCH HIDDEN) so
+#     the sign-in window never appeared for first-time users. Now
+#     `open -a Tailscale` brings the window to the foreground.
+#   - Periodic 30-second progress updates inside the 180-second
+#     IP-detection loop so the customer sees the installer is alive.
+#   - Post-write .env verification (grep) so a silent persist failure
+#     no longer leaves the iOS Companion unreachable.
+
+progress "Connect your iPhone and Watch" "tailscale_connect"
 
 OSTLER_TAILSCALE_IP=""
 
-echo ""
-echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo -e "  ${BOLD}Tailscale (recommended for iOS / Watch companion)${NC}"
-echo ""
-echo "  Tailscale gives this Mac a stable private IP your phone can"
-echo "  reach from anywhere -- encrypted, no public exposure, free for"
-echo "  personal use. Without it, the iOS companion only works on"
-echo "  your home Wi-Fi."
-echo ""
-TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" yesno "Y" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "" "tailscale_confirm")"
+TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
 
-if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; then
+if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
         brew install --cask tailscale 2>/dev/null && \
@@ -8061,10 +8066,18 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
     fi
 
-    # Open the Tailscale app -- first launch prompts for sign-in. Subsequent
-    # launches noop. Wait for it to come up.
+    # Open the Tailscale app -- first launch prompts for sign-in.
+    # CX-81 Tailscale step root-cause fix (2026-05-26):
+    # was `open -gj -a Tailscale` where `-g` skips foreground and
+    # `-j` launches HIDDEN -- the sign-in window never appeared for
+    # customers who had never signed into Tailscale on this Mac.
+    # `open -a Tailscale` brings the app to the foreground so the
+    # sign-in window is actually visible. For already-signed-in
+    # customers, this just brings the menu-bar app forward briefly,
+    # which is acceptable.
     if [[ -d "/Applications/Tailscale.app" ]]; then
-        open -gj -a Tailscale 2>/dev/null || true
+        info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
+        open -a Tailscale 2>/dev/null || true
         sleep 3
     fi
 
@@ -8078,9 +8091,6 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
     fi
 
     if [[ -n "$TS_CLI" ]]; then
-        # Wait up to 60s for the user to sign in (Tailscale.app shows a sign-in
-        # window or menu-bar item). Once authenticated, `tailscale ip --4`
-        # prints the IPv4 address.
         # 180s window: a non-technical user reading the prompt, switching
         # to the GUI, completing OAuth (Apple/Google/Microsoft sign-in
         # with possible 2FA), and returning easily eats 2-3 minutes.
@@ -8089,11 +8099,19 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
         info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
         info "$MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH"
         TS_WAIT=0
+        # Periodic progress update threshold: emit at 30s/60s/90s/120s/150s
+        # so the customer sees the installer is alive while they finish
+        # the OAuth dance in the Tailscale window.
+        TS_NEXT_TICK=30
         while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
             OSTLER_TAILSCALE_IP=$("$TS_CLI" ip --4 2>/dev/null | head -1 || true)
             if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
                 sleep 3
                 TS_WAIT=$((TS_WAIT + 3))
+                if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
+                    info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
+                    TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
+                fi
             fi
         done
 
@@ -8119,14 +8137,25 @@ if [[ "${TAILSCALE_CONFIRM:-y}" != "n" && "${TAILSCALE_CONFIRM:-y}" != "N" ]]; t
                 else
                     echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
                 fi
+                # CX-81 Tailscale step verify (2026-05-26): grep the
+                # written value back so a silent persist failure (e.g.
+                # .env permission flip, partial mv) is caught rather
+                # than leaving the iOS Companion unreachable.
+                if grep -q "^OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" "$ENV_FILE"; then
+                    ok "$MSG_OK_TAILSCALE_ENV_PERSISTED"
+                else
+                    warn "$MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED"
+                fi
             fi
         else
-            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_60"
+            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
             warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
         fi
     else
         warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
     fi
+else
+    info "$MSG_INFO_TAILSCALE_SKIPPED"
 fi
 
 # ── 3.16 Wiki -- first compile and serve ─────────────────────────────

@@ -253,5 +253,23 @@
     "health_check_label": "Health check",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki"
+  },
+
+  "tailscale_connect": {
+    "_meta": "CX-81 Tailscale step (2026-05-26): dedicated full-screen 'Connect your iPhone and Watch' view rendered by TailscaleConnectView.swift, dispatched from OnboardingQuestionView when prompt.id == 'tailscale_connect'. Pairs with install.sh §3.15 STEP_BEGIN of the same id. Two big buttons (setup / skip) plus a collapsible mini-FAQ.",
+    "heading": "Connect your iPhone and Watch",
+    "strap": "RECOMMENDED",
+    "body": "Tailscale gives this Mac a stable private address that your iPhone and Watch can reach from anywhere – encrypted, with no public exposure, free for personal use.\n\nWithout it, the Ostler app on your iPhone can only reach this Mac when you're on home Wi-Fi.",
+    "setup_button": "Set up Tailscale (recommended)",
+    "setup_button_sub": "Takes about a minute – we'll open Tailscale and wait while you sign in.",
+    "skip_button": "Skip – set up later",
+    "skip_button_sub": "You can come back to this from Settings any time.",
+    "faq_heading": "Questions about Tailscale",
+    "faq_what_q": "What is Tailscale?",
+    "faq_what_a": "Tailscale is a free service that creates a small private network between your own devices. Your iPhone, Watch and this Mac get private addresses that only they can use. Nothing is exposed to the public internet.",
+    "faq_secure_q": "Is it secure?",
+    "faq_secure_a": "Yes. All traffic between your devices is end-to-end encrypted with WireGuard. Tailscale itself can never read your data – it only helps your devices find each other.",
+    "faq_later_q": "Can I add it later?",
+    "faq_later_a": "Yes. You can run the installer again with --repair, or open Settings inside Ostler and turn Tailscale on then."
   }
 }
