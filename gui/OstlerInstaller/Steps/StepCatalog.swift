@@ -108,6 +108,7 @@ final class StepCatalog {
         "knowledge_setup",
         "hub_power",
         "email_ingest",
+        "imessage_bridge",
         "wiki_recompile_agent",
         "ostler_assistant",
         "ostler_hub_app",

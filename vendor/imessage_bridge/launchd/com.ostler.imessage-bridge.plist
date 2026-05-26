@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler iMessage bridge LaunchAgent.
+
+        Polls the running macOS user's ~/Library/Messages/chat.db for
+        new inbound messages and appends them as JSON-lines to
+        /Users/Shared/imessage-bridge/inbox.jsonl. The assistant
+        (ostler-assistant) reads + drains that file every poll cycle.
+
+        Pieces:
+          1. bridge.py is the producer (HR015 imessage-bridge/bin/).
+          2. CM051 install.sh stages bridge.py to $OSTLER_DIR/bin/
+             and renders this plist with placeholders replaced.
+          3. ostler-assistant is the reader; see
+             crates/zeroclaw-channels/src/imessage.rs.
+
+        Placeholders rendered at install time:
+          OSTLER_BIN     -> $OSTLER_DIR/bin
+          OSTLER_HOME    -> $HOME (used as working directory)
+          OSTLER_LOGS    -> $LOGS_DIR (~/.ostler/logs by default)
+          OSTLER_PYTHON  -> python3 interpreter path
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.ostler.imessage-bridge</string>
+
+    <!--
+        bridge.py reads chat.db and writes inbox.jsonl. The script
+        is staged at OSTLER_BIN/bridge.py by CM051's installer.
+        Long-running poll loop; not invoked per tick.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>OSTLER_PYTHON</string>
+        <string>OSTLER_BIN/bridge.py</string>
+        <string>--interval</string>
+        <string>30</string>
+    </array>
+
+    <!--
+        Long-running daemon. KeepAlive restarts the script if it exits
+        unexpectedly (chat.db permission loss, Python crash). RunAtLoad
+        starts it as soon as the LaunchAgent loads (post-install or
+        login).
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!--
+        Throttle restarts so a crash loop does not hammer the system.
+        10 seconds between restarts is more than enough headroom for
+        chat.db to become readable again after a permission flip.
+    -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!--
+        Sane working directory: the script is absolute-path safe but
+        $HOME-relative resolution still works from here.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. The installer creates the
+        directory. Doctor surfaces these logs so the operator can see
+        whether the bridge is healthy without spelunking launchctl.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/imessage-bridge.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/imessage-bridge.err</string>
+
+    <!--
+        Background priority. iMessage poll is not latency-critical and
+        we do not want it competing with foreground work for I/O on
+        the user's daily-driver Mac.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

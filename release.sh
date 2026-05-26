@@ -86,6 +86,7 @@ HR015_SOURCES=(
     "meeting_syncer"
     "identity_resolver"
     "email-ingest"
+    "imessage-bridge"
     "doctor"
     "legal"
     "LICENSES"

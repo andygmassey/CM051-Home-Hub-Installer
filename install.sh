@@ -5603,6 +5603,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/nu
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
@@ -5619,6 +5621,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
@@ -6523,6 +6526,83 @@ if [[ -n "$_mail_probe_failure_line" ]]; then
 fi
 unset _mail_probe_failure_line
 info "CX-35 checkpoint: exiting Mail content probe block cleanly"
+
+# ── 3.14c iMessage bridge LaunchAgent (assistant-user replies) ──
+#
+# Long-running LaunchAgent that polls the macOS user's
+# ~/Library/Messages/chat.db for new inbound iMessages and appends
+# them as JSON-lines to /Users/Shared/imessage-bridge/inbox.jsonl.
+# The assistant (ostler-assistant) reads + drains that file every
+# poll cycle to receive iMessages addressed to the assistant Apple
+# ID. Without this LaunchAgent the consumer in
+# crates/zeroclaw-channels/src/imessage.rs sees a file that never
+# exists and assistant-user iMessage replies silently fail.
+#
+# Source: HR015's imessage-bridge/ directory (sibling of
+# email-ingest/). Same bundle / clone fallback chain as 3.14a above
+# so a productised install (tarball with assets) and a dev install
+# (clone HR015) both work. Comes AFTER the FDA grant phase (3.7) so
+# the bridge can actually read chat.db on the first tick.
+
+progress "$MSG_INFO_IMESSAGE_BRIDGE_STARTED" "imessage_bridge"
+
+IMESSAGE_BRIDGE_DIR="${OSTLER_DIR}/imessage-bridge"
+IMESSAGE_BRIDGE_SNIPPET=""
+IMESSAGE_BRIDGE_SOURCE=""
+
+if [[ -d "${SCRIPT_DIR}/imessage-bridge" && -f "${SCRIPT_DIR}/imessage-bridge/INSTALL_SNIPPET.sh" ]]; then
+    IMESSAGE_BRIDGE_SNIPPET="${SCRIPT_DIR}/imessage-bridge/INSTALL_SNIPPET.sh"
+    IMESSAGE_BRIDGE_SOURCE="bundled"
+    mkdir -p "$IMESSAGE_BRIDGE_DIR"
+    cp -R "${SCRIPT_DIR}/imessage-bridge/"* "$IMESSAGE_BRIDGE_DIR/"
+    ok "$MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_BUNDLED_WITH_INSTALLER"
+elif [[ -f "${IMESSAGE_BRIDGE_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    IMESSAGE_BRIDGE_SNIPPET="${IMESSAGE_BRIDGE_DIR}/INSTALL_SNIPPET.sh"
+    IMESSAGE_BRIDGE_SOURCE="existing"
+elif [[ -z "$HUB_POWER_REPO" ]]; then
+    # No bundled vendor copy AND no override repo. For productised
+    # customer installs this is the regression case (.app shipped
+    # without the imessage-bridge vendor). Soft-warn unless the
+    # dev/CI plaintext escape hatch is set: the bridge is required
+    # for the assistant-user reply surface, but the rest of Ostler
+    # is functional without it. Mirror email-ingest's plaintext
+    # escape hatch.
+    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+        warn "$MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
+        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
+    else
+        warn "$MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
+    fi
+else
+    IMESSAGE_BRIDGE_TMP="$(mktemp -d)"
+    IMESSAGE_BRIDGE_CLONE_LOG="$(mktemp -t ostler-imessage-bridge-clone.XXXXXX.log)"
+    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$IMESSAGE_BRIDGE_TMP" 2>"$IMESSAGE_BRIDGE_CLONE_LOG" \
+       && [[ -d "$IMESSAGE_BRIDGE_TMP/imessage-bridge" ]]; then
+        mkdir -p "$IMESSAGE_BRIDGE_DIR"
+        cp -R "$IMESSAGE_BRIDGE_TMP/imessage-bridge/"* "$IMESSAGE_BRIDGE_DIR/"
+        rm -rf "$IMESSAGE_BRIDGE_TMP"
+        rm -f "$IMESSAGE_BRIDGE_CLONE_LOG"
+        IMESSAGE_BRIDGE_SNIPPET="${IMESSAGE_BRIDGE_DIR}/INSTALL_SNIPPET.sh"
+        IMESSAGE_BRIDGE_SOURCE="cloned"
+        ok "$(printf "$MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_CLONED_FROM" "${HUB_POWER_REPO}")"
+    else
+        rm -rf "$IMESSAGE_BRIDGE_TMP"
+        rm -f "$IMESSAGE_BRIDGE_CLONE_LOG"
+        warn "$MSG_WARN_IMESSAGE_BRIDGE_FAILED"
+    fi
+fi
+
+if [[ -n "$IMESSAGE_BRIDGE_SNIPPET" && -f "$IMESSAGE_BRIDGE_SNIPPET" ]]; then
+    if OSTLER_INSTALL_ROOT="$IMESSAGE_BRIDGE_DIR" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       OSTLER_PYTHON="${EMAIL_INGEST_VENV_PYTHON:-${PYTHON3_BIN:-python3}}" \
+       bash "$IMESSAGE_BRIDGE_SNIPPET"; then
+        ok "$MSG_OK_IMESSAGE_BRIDGE_INSTALLED"
+    else
+        warn "$MSG_WARN_IMESSAGE_BRIDGE_FAILED"
+    fi
+fi
 
 # ── 3.14d Wiki recompile LaunchAgent (daily wiki rebuild) ───────
 #
