@@ -268,6 +268,12 @@ def _identifier_exists(id_uri: str) -> bool:
 _SOURCE_PREDICATE = {
     "calendar": "pwg:lastContactCalendar",
     "imessage": "pwg:lastContactIMessage",
+    # WhatsApp T1 (DM) + T2 (group) both write to the same predicate.
+    # The pwg:contactSourceTier triple on the identifier carries the
+    # tier-context tag so the wiki renderer + future Marvin retrieval
+    # can distinguish DM-level signals from group-membership signals
+    # without splitting the freshness signal across two predicates.
+    "whatsapp": "pwg:lastContactWhatsApp",
 }
 
 
@@ -311,6 +317,184 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
         _sparql_update(sparql)
     except Exception as e:
         logger.debug("Could not update last_contact: %s", e)
+
+
+# ── WhatsApp historical ingestion (CX-85) ─────────────────────────
+#
+# Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
+# the full classifier docstring):
+#
+#   T1 -- DM:               Person + lastContactWhatsApp +
+#                           contactSourceTier "whatsapp_dm".
+#                           confidence 1.0 implicit (no triple).
+#   T2 -- intimate/active:  Per-member Person + lastContactWhatsApp +
+#                           contactSourceTier "whatsapp_group_intimate" or
+#                           "whatsapp_group_active" + pwg:confidence 0.7.
+#   T3 -- large + passive:  SKIP. No triples emitted. No Person nodes
+#                           created. Group is invisible to the graph.
+#
+# Schema additions introduced here (set a precedent for future
+# non-DM sources):
+#
+#   pwg:confidence            xsd:float, 0.0-1.0. Absence -> 1.0 implicit.
+#   pwg:contactSourceTier     xsd:string, one of the three literals above.
+#                             Attached to the PersonIdentifier so a single
+#                             contact may legitimately accumulate
+#                             multiple tier tags across re-runs (DM + group
+#                             membership). The wiki renderer picks the
+#                             highest-confidence tag when surfacing.
+
+def ingest_whatsapp(fda_dir: Path) -> dict:
+    """Ingest WhatsApp chats (T1 DMs + T2 groups) into the people graph.
+
+    Reads whatsapp_history's JSON output, filters out T3 (already
+    dropped at extract time by ``conversation_stats`` but we
+    double-check at ingest time so a re-run on a stale file does
+    not poison the graph), and emits per-tier triples for each
+    participant.
+
+    The DELETE-INSERT-WHERE-FILTER pattern in ``_update_last_contact``
+    makes the lastContactWhatsApp upsert atomic + idempotent. The
+    Person + Identifier inserts use the same "if not exists" pattern
+    as ingest_imessage; re-running this ingest is safe.
+    """
+    chats_file = fda_dir / "whatsapp_conversations.json"
+    if not chats_file.exists():
+        logger.info("No WhatsApp data to ingest")
+        return {"status": "skipped", "reason": "no data"}
+
+    chats = json.loads(chats_file.read_text())
+    people_created = 0
+    people_enriched = 0
+    tier_t1 = 0
+    tier_t2_intimate = 0
+    tier_t2_active = 0
+    tier_t3_skipped = 0
+
+    for chat in chats:
+        tier = chat.get("tier", "")
+        if tier == "whatsapp_skipped":
+            tier_t3_skipped += 1
+            continue
+
+        last_msg = chat.get("last_message")
+
+        # Tier-specific participant list. T1 puts the DM partner in
+        # `participants`; T2 puts the active group members.
+        participants = chat.get("participants") or []
+        confidence = chat.get("confidence", 1.0)
+
+        if tier == "whatsapp_dm":
+            tier_t1 += 1
+        elif tier == "whatsapp_group_intimate":
+            tier_t2_intimate += 1
+        elif tier == "whatsapp_group_active":
+            tier_t2_active += 1
+        else:
+            # Unknown tier -- skip + warn rather than emit triples
+            # with a tier literal the wiki renderer cannot interpret.
+            logger.warning("WhatsApp chat with unknown tier %r; skipping", tier)
+            continue
+
+        for participant in participants:
+            if not participant:
+                continue
+
+            person_id = _person_id_from_identifier(participant)
+            uri = _person_uri(person_id)
+            exists = _person_exists(uri)
+
+            if not exists:
+                # JIDs from WhatsApp are always phone-rooted
+                # (e.g. "<phone_e164>@s.whatsapp.net"). Stripping the
+                # suffix gives the E.164-shaped local-part the wiki
+                # uses as the displayName until enriched by other
+                # sources (contact_syncer, CM046 email signatures, etc.).
+                display = participant.split("@", 1)[0] if "@" in participant else participant
+                triples = [
+                    f"<{uri}> a pwg:Person",
+                    f'<{uri}> pwg:displayName "{_escape(display)}"',
+                    f'<{uri}> pwg:contactType "person"',
+                    f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+                    f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                    f'<{uri}> pwg:source "whatsapp_fda"',
+                ]
+                id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                triples.extend([
+                    f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+                    f"<{id_uri}> a pwg:PersonIdentifier",
+                    f'<{id_uri}> pwg:identifierType "phone"',
+                    f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                    f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
+                    f'<{id_uri}> pwg:contactSourceTier "{tier}"',
+                ])
+                # T2 carries an explicit confidence; T1's 1.0 is
+                # implicit (no triple emitted, matching the dispatch's
+                # "absence == 1.0 implicitly" contract).
+                if tier != "whatsapp_dm":
+                    triples.append(
+                        f'<{id_uri}> pwg:confidence "{confidence}"^^xsd:float'
+                    )
+
+                sparql = (
+                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                    "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+                )
+                _sparql_update(sparql)
+                people_created += 1
+            else:
+                # Person already exists (probably from contact_syncer,
+                # iMessage, or a prior tier of this same WhatsApp run).
+                # Add the WhatsApp identifier + tier tag if not already
+                # present. We deliberately do NOT downgrade an existing
+                # higher-confidence tier -- the SPARQL layer tolerates
+                # multiple contactSourceTier values, and the wiki
+                # renderer picks the highest one.
+                id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                if not _identifier_exists(id_uri):
+                    triples = [
+                        f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+                        f"<{id_uri}> a pwg:PersonIdentifier",
+                        f'<{id_uri}> pwg:identifierType "phone"',
+                        f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                        f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
+                        f'<{id_uri}> pwg:contactSourceTier "{tier}"',
+                    ]
+                    if tier != "whatsapp_dm":
+                        triples.append(
+                            f'<{id_uri}> pwg:confidence "{confidence}"^^xsd:float'
+                        )
+                    sparql = (
+                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                        "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+                    )
+                    _sparql_update(sparql)
+                    people_enriched += 1
+
+            # Always upsert lastContactWhatsApp regardless of person
+            # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
+            # in _update_last_contact ensures older timestamps never
+            # overwrite newer ones, so this is safe to call from any
+            # tier's loop.
+            if last_msg:
+                _update_last_contact(uri, last_msg, "whatsapp")
+
+    logger.info(
+        "WhatsApp: %d people created, %d enriched (t1=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d)",
+        people_created, people_enriched,
+        tier_t1, tier_t2_intimate, tier_t2_active, tier_t3_skipped,
+    )
+    return {
+        "status": "ok",
+        "people_created": people_created,
+        "people_enriched": people_enriched,
+        "tier_t1_dm_chats": tier_t1,
+        "tier_t2_intimate_chats": tier_t2_intimate,
+        "tier_t2_active_chats": tier_t2_active,
+        "tier_t3_skipped_chats": tier_t3_skipped,
+    }
 
 
 # ── Calendar attendee ingestion ───────────────────────────────────
@@ -515,6 +699,7 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
 
     for name, func in [
         ("imessage", ingest_imessage),
+        ("whatsapp", ingest_whatsapp),
         ("calendar", ingest_calendar),
         ("photos", ingest_photos_people),
         ("apple_mail", ingest_mail_contacts),

@@ -743,3 +743,16 @@ MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT="No recent email to read. You can add 
 MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING="Email reader not ready yet. You can add a Mail account in Apple Mail and re-run later."
 MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES="Email is still loading in the background – your wiki will fill in over the next hour."
 
+# WhatsApp hydration strings (CX-85)
+# Used by install.sh's hydrate_whatsapp step, inserted inside the
+# hydrate_graph sub-phase between the email block and the wiki
+# recompile message. Counts come from pwg-whatsapp-history's --json
+# output (people_added). Three-tier model: T1 DM + T2 intimate +
+# T2 active are ingested; T3 large + passive is skipped invisibly.
+MSG_HYDRATE_WHATSAPP_STARTED="Reading your WhatsApp history – your messages stay on this Mac"
+MSG_HYDRATE_WHATSAPP_DONE="Found %s people in your WhatsApp chats"
+MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No WhatsApp chats to read. You can re-run later from Settings."
+MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install it from the Mac App Store and re-run from Settings."
+MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background – your wiki will fill in over the next hour."
+
