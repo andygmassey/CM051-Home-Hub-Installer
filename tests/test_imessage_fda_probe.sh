@@ -213,10 +213,16 @@ if grep -q "^MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE4=" "$STRINGS_FILE"; then
 fi
 echo "PASS [case-7]: all 9 CX-66 + CX-78c + CX-81 B8 catalogue strings present, LINE4 retired"
 
-# ── Case 8 (CX-81 B8): assist dialog uses Ostler app icon, not generic ──
+# ── Case 8 (CX-81 B8 + B8b): assist dialog uses Ostler dialog icon, not generic ──
 # The osascript display dialog must NOT hardcode `with icon note` --
-# it must resolve the OstlerInstaller AppIcon.icns at runtime with a
-# `with icon note` fallback only when the icns file is missing.
+# it must resolve an Ostler-branded .icns at runtime with a
+# `with icon note` fallback only when no icns file is present.
+#
+# B8b refinement: the PREFERRED icon is DialogIcon.icns (oxblood circle
+# + white "O", edge-to-edge canvas, no internal padding). DialogIcon
+# probes come FIRST in the resolution order. AppIcon.icns probes are
+# retained as a secondary fallback to keep in-flight DMG cuts that
+# shipped pre-B8b from regressing to the generic system note icon.
 ASSIST_DIALOG_BLOCK=$(awk '
     /CX-81 B8.*DMG #46/ { in_block=1 }
     in_block && /^                unset _imessage_fda_dialog_msg/ { exit }
@@ -226,14 +232,39 @@ if [[ -z "$ASSIST_DIALOG_BLOCK" ]]; then
     echo "FAIL [case-8]: could not extract CX-81 B8 icon-resolution block" >&2
     exit 1
 fi
-# Must probe SCRIPT_DIR for AppIcon.icns.
-if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '\${SCRIPT_DIR}/AppIcon.icns'; then
-    echo "FAIL [case-8]: icon resolution missing \${SCRIPT_DIR}/AppIcon.icns probe" >&2
+# Must probe SCRIPT_DIR for DialogIcon.icns FIRST (B8b: preferred icon).
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '\${SCRIPT_DIR}/DialogIcon.icns'; then
+    echo "FAIL [case-8]: icon resolution missing \${SCRIPT_DIR}/DialogIcon.icns probe (B8b)" >&2
     exit 1
 fi
-# Must probe /Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns.
+# Must probe /Applications/.../Resources/DialogIcon.icns as the B8b
+# tarball-stripped fallback.
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns'; then
+    echo "FAIL [case-8]: icon resolution missing /Applications DialogIcon fallback probe (B8b)" >&2
+    exit 1
+fi
+# Must retain AppIcon.icns probes as secondary fallback (B8 -> B8b
+# transition safety net: in-flight DMG cuts).
+if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '\${SCRIPT_DIR}/AppIcon.icns'; then
+    echo "FAIL [case-8]: icon resolution missing \${SCRIPT_DIR}/AppIcon.icns secondary fallback" >&2
+    exit 1
+fi
 if ! printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -q '/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns'; then
-    echo "FAIL [case-8]: icon resolution missing /Applications fallback probe" >&2
+    echo "FAIL [case-8]: icon resolution missing /Applications AppIcon.icns secondary fallback" >&2
+    exit 1
+fi
+# DialogIcon probes must be ORDERED BEFORE AppIcon probes -- the line
+# number of the first DialogIcon match must be less than the first
+# AppIcon match. This locks the B8b preference order against future
+# accidental reshuffles.
+DIALOG_LINE=$(printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -n 'DialogIcon.icns' | head -1 | cut -d: -f1)
+APPICON_LINE=$(printf '%s\n' "$ASSIST_DIALOG_BLOCK" | grep -n 'AppIcon.icns' | head -1 | cut -d: -f1)
+if [[ -z "$DIALOG_LINE" || -z "$APPICON_LINE" ]]; then
+    echo "FAIL [case-8]: could not measure DialogIcon vs AppIcon ordering" >&2
+    exit 1
+fi
+if (( DIALOG_LINE >= APPICON_LINE )); then
+    echo "FAIL [case-8]: DialogIcon.icns probe ($DIALOG_LINE) must precede AppIcon.icns probe ($APPICON_LINE) per B8b preference order" >&2
     exit 1
 fi
 # Must build a `with icon file POSIX file` clause when an icns is found.
@@ -252,7 +283,27 @@ if grep -q 'default button \\\"\${_imessage_fda_button_esc}\\\" with icon note' 
     echo "FAIL [case-8]: install.sh still hardcodes \`with icon note\` in the osascript dialog" >&2
     exit 1
 fi
-echo "PASS [case-8]: assist dialog uses Ostler app icon with graceful fallback"
+echo "PASS [case-8]: assist dialog prefers DialogIcon.icns, falls back to AppIcon.icns then 'with icon note'"
+
+# ── Case 9 (CX-81 B8b): DialogIcon.icns asset is bundled ──
+# The DialogIcon.icns must exist at gui/OstlerInstaller/Resources/
+# so the project.yml resources block bundles it into the .app at
+# Contents/Resources/DialogIcon.icns. Without this the install.sh
+# probe falls back to AppIcon (the bug B8b is paying down) or
+# `with icon note` (worse).
+DIALOG_ICNS="${REPO_ROOT}/gui/OstlerInstaller/Resources/DialogIcon.icns"
+if [[ ! -f "$DIALOG_ICNS" ]]; then
+    echo "FAIL [case-9]: DialogIcon.icns missing at $DIALOG_ICNS" >&2
+    exit 1
+fi
+# Validate the file actually parses as a macOS icon container by
+# checking the magic. `file` returns "Mac OS X icon" for a well-formed
+# .icns (any rep type).
+if ! file "$DIALOG_ICNS" 2>/dev/null | grep -q "Mac OS X icon"; then
+    echo "FAIL [case-9]: DialogIcon.icns is not a valid macOS icon container" >&2
+    exit 1
+fi
+echo "PASS [case-9]: DialogIcon.icns asset bundled + parses as valid .icns"
 
 echo ""
-echo "ALL CX-60 + CX-66 + CX-81 B8 IMESSAGE FDA PROBE TESTS PASSED"
+echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b IMESSAGE FDA PROBE TESTS PASSED"
