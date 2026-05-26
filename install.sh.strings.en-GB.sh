@@ -776,3 +776,14 @@ MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
 
+# CX-84: iMessage hydration. Fires as a separate progress emission
+# between hydrate_browsing and wiki_compile. Counts come from
+# ingest_imessage's return dict (people_created + people_enriched).
+# Privacy: no phone numbers / handles / message text in any string
+# here -- the customer sees people-count totals only.
+MSG_HYDRATE_IMESSAGE_STARTED="Reading your iMessage history – your messages stay on this Mac"
+MSG_HYDRATE_IMESSAGE_DONE="Found %s people in your iMessage history"
+MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA="No iMessage history to read. You can re-run later from Settings."
+MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background – your wiki will fill in over the next hour."
+

@@ -214,7 +214,11 @@ def run_all(
     if "imessage" in sources:
         try:
             from .imessage import extract_conversations, conversation_stats
-            conversations = extract_conversations(since_days=365)
+            # CX-84: operator override for chat.db backfill window
+            # (e.g. customer with a long iMessage history may want 5y).
+            # Same shape as OSTLER_BROWSER_BACKFILL_DAYS (CX-86).
+            imsg_backfill_days = int(os.environ.get("OSTLER_IMESSAGE_BACKFILL_DAYS", "365"))
+            conversations = extract_conversations(since_days=imsg_backfill_days)
             stats = conversation_stats(conversations)
 
             (output_dir / "imessage_conversations.json").write_text(
