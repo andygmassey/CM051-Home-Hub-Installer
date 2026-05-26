@@ -7711,6 +7711,124 @@ fi
 unset _HYDRATE_EMAIL_VENV _HYDRATE_EMAIL_PY _HYDRATE_EMAIL_BIN
 unset _HYDRATE_EMAIL_MBOX_DIR _HYDRATE_OXIGRAPH_EMAIL
 
+# WhatsApp hydration (CX-85) ---------------------------------------
+#
+# Reads the macOS WhatsApp Desktop client's local ChatStorage.sqlite
+# and classifies each chat into one of three tiers:
+#
+#   T1 DM:                 1:1 chat. Ingest the DM partner + lastContactWhatsApp.
+#                          Confidence 1.0 implicit. Source tier "whatsapp_dm".
+#   T2 intimate-or-active: group with < 10 participants OR engaged in 90d
+#                          (>= 20 user-sent OR >= 2% relative ratio).
+#                          Ingest all active members + lastContactWhatsApp.
+#                          Confidence 0.7 explicit. Tier "whatsapp_group_*".
+#   T3 large-passive:      group with >= 10 participants AND below both
+#                          engagement floors. SKIP -- no Person nodes,
+#                          no triples, invisible to the graph.
+#
+# Threshold lock-ins (Andy 2026-05-26): intimate cutoff < 10, window 90d,
+# abs floor >= 20 user-sent, rel floor >= 0.02 (2%), T2 confidence 0.7,
+# T3 = complete skip. See ostler_fda/whatsapp_history.py for full docstring.
+#
+# Same 90s wall-clock cap as hydrate_email (Q6 forward-look). On
+# timeout we emit MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES and let
+# any subsequent run (Doctor-triggered rescan, future hourly tick)
+# finish the job. The customer's wiki still gets contacts + calendar
+# (B1) + email (B2) plus whatever WhatsApp landed in the 90s window.
+#
+# Behaviour on edge cases:
+#   - email-ingest venv not set up / ostler_fda missing -> emit
+#     MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING, continue.
+#   - WhatsApp Desktop not installed / ChatStorage.sqlite missing
+#     -> emit MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP, continue.
+#   - 90s timeout -> emit MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES.
+#
+# Privacy AC (mirror of B2 AC6): the --json output is counts only --
+# no JIDs, no message bodies, no group names cross the install.sh
+# process boundary. The classifier writes whatsapp_conversations.json
+# under ~/.ostler/imports/fda/ with participant lists (those are
+# customer-local artefacts, never logged off-machine).
+_HYDRATE_WHATSAPP_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
+_HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
+_HYDRATE_OXIGRAPH_WA="${OXIGRAPH_URL:-http://localhost:7878}"
+
+if [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
+    info "$MSG_HYDRATE_WHATSAPP_STARTED"
+
+    # Same timeout picker as hydrate_email (brew coreutils gtimeout
+    # preferred; system timeout fallback; unbounded if neither).
+    _HYDRATE_WHATSAPP_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="gtimeout 90"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_WHATSAPP_TIMEOUT_WRAP="timeout 90"
+    fi
+
+    _HYDRATE_WHATSAPP_LOG=/tmp/ostler-hydrate-whatsapp.log
+    _HYDRATE_WHATSAPP_TIMED_OUT=false
+
+    # Step 1: extract + classify. Writes whatsapp_conversations.json
+    # under ~/.ostler/imports/fda/ for the pwg_ingest step to read.
+    # T3 chats are filtered at the extractor's JSON-write boundary,
+    # so a subsequent ingest cannot accidentally emit T3 triples.
+    _HYDRATE_WHATSAPP_JSON="$(
+        OXIGRAPH_URL="$_HYDRATE_OXIGRAPH_WA" $_HYDRATE_WHATSAPP_TIMEOUT_WRAP \
+        "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.whatsapp_history \
+            --json \
+            --since-days 365 \
+            2>>"$_HYDRATE_WHATSAPP_LOG" \
+        | tail -n 1
+    )"
+    rc=$?
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_WHATSAPP_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_WHATSAPP_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES"
+    else
+        # Step 2: ingest the JSON into Oxigraph. pwg_ingest.main() runs
+        # every ingest_* for which a JSON file exists; since only
+        # whatsapp_conversations.json was just written, only
+        # ingest_whatsapp will do work. Other ingests return their
+        # "no data" skip status without touching Oxigraph.
+        "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.pwg_ingest \
+            --fda-dir "${OSTLER_DIR}/imports/fda" \
+            >>"$_HYDRATE_WHATSAPP_LOG" 2>&1 || true
+
+        # Parse people_added for the customer-facing message. The CLI
+        # contract guarantees this field exists in --json output.
+        _HYDRATE_WHATSAPP_COUNT="$(
+            printf '%s' "$_HYDRATE_WHATSAPP_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("people_added", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_WHATSAPP_COUNT="${_HYDRATE_WHATSAPP_COUNT:-0}"
+
+        if [[ "$_HYDRATE_WHATSAPP_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_WHATSAPP_DONE" "$_HYDRATE_WHATSAPP_COUNT")"
+        else
+            info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS"
+        fi
+    fi
+
+    unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
+    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP
+    unset _HYDRATE_WHATSAPP_LOG
+elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
+    info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
+else
+    info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP"
+fi
+
+unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
+unset _HYDRATE_OXIGRAPH_WA
+
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY
 unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
 unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT

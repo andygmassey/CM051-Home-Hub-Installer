@@ -51,7 +51,7 @@ DEFAULT_SOURCES = frozenset({
     "apple_mail",
 })
 
-ALL_SOURCES = DEFAULT_SOURCES | {"photos_faces", "google_takeout"}
+ALL_SOURCES = DEFAULT_SOURCES | {"photos_faces", "google_takeout", "whatsapp_history"}
 
 
 def _resolve_enabled_sources(
@@ -199,6 +199,57 @@ def run_all(
             logger.warning("[warn] iMessage: %s", e)
     else:
         summary["sources"]["imessage"] = {"status": "disabled_by_user"}
+
+    # ── WhatsApp historical (CX-85) ─────────────────────────────────
+    # Opt-in only: default OFF per the Q3b sign-off (more sensitive
+    # than iMessage; third-party app + ToS friction). Customer
+    # enables via the Phase 2 picker tickbox `whatsapp_history`.
+    # T3 chats are filtered out at JSON-write time so a downstream
+    # ingest cannot accidentally emit T3 triples on a stale file.
+    if "whatsapp_history" in sources:
+        try:
+            from .whatsapp_history import (
+                extract_conversations as _wa_extract,
+                conversation_stats as _wa_stats,
+                chat_to_dict as _wa_to_dict,
+                TIER_T3_SKIP,
+            )
+            chats = _wa_extract(since_days=365)
+            stats = _wa_stats(chats)
+
+            # Drop T3 chats before writing the JSON -- they contain
+            # nothing the ingest layer should act on, and persisting
+            # them creates ambiguity for re-runs ("is this an empty
+            # T3 record or a real chat that lost participants?").
+            ingestible = [c for c in chats if c.tier != TIER_T3_SKIP]
+            (output_dir / "whatsapp_conversations.json").write_text(
+                json.dumps([_wa_to_dict(c) for c in ingestible], indent=2)
+            )
+
+            summary["sources"]["whatsapp_history"] = {
+                "status": "ok",
+                **stats,
+            }
+            logger.info(
+                "[ok] WhatsApp: t1_dm=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d, people_added=%d",
+                stats.get("tier_t1_dm_chats", 0),
+                stats.get("tier_t2_intimate_chats", 0),
+                stats.get("tier_t2_active_chats", 0),
+                stats.get("tier_t3_skipped_chats", 0),
+                stats.get("people_added", 0),
+            )
+
+        except PermissionError:
+            summary["sources"]["whatsapp_history"] = {"status": "no_fda"}
+            logger.info("[skip] WhatsApp: Full Disk Access not granted")
+        except FileNotFoundError:
+            summary["sources"]["whatsapp_history"] = {"status": "not_found"}
+            logger.info("[skip] WhatsApp: ChatStorage.sqlite not found (install WhatsApp Desktop)")
+        except Exception as e:
+            summary["sources"]["whatsapp_history"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] WhatsApp: %s", e)
+    else:
+        summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
 
     # ── Apple Notes ─────────────────────────────────────────────────
     if "apple_notes" in sources:
