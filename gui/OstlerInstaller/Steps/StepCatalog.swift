@@ -104,6 +104,7 @@ final class StepCatalog {
         "cm048_setup",
         "import_data",
         "doctor_setup",
+        "ical_server_setup",
         "knowledge_setup",
         "hub_power",
         "email_ingest",
