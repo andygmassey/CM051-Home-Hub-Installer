@@ -7833,6 +7833,122 @@ unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY
 unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
 unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 
+# Browser hydration (CX-86 Gap A + Gap C) --------------------------
+#
+# Streams safari_history.json + chrome_history.json (written by the
+# Phase 3 FDA extract_all step) through the CM019 gateway. The
+# gateway writes to the `safari_history` Qdrant collection (renamed
+# from `safari_browsing` in CX-86 Gap B) so the CM044 wiki Browsing
+# page populates with the customer's visits.
+#
+# Bearer auth: token from ~/.ostler/secrets/service_token (written
+# by the install.sh auth_tokens phase earlier). Blocklist (Q3
+# sign-off): banking / medical / etc. URLs are rejected with HTTP
+# 422 and counted as "skipped_sensitive". needs_reprocessing=true
+# (Q2 sign-off): backfilled rows land with empty topics/category;
+# the gateway's background enrichment tick chews through them.
+#
+# Same 90s wall-clock cap as hydrate_email + hydrate_whatsapp. On
+# timeout we emit MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES and
+# let the agent finish.
+#
+# Privacy AC mirror B2 + CX-85: the --json output is counts only,
+# pinned by the privacy contract test in HR015 #134. No URLs, no
+# titles, no domain names cross the install.sh process boundary.
+
+progress "Hydrating your browsing history" "hydrate_browsing"
+
+_HYDRATE_BROWSING_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_HYDRATE_BROWSING_PY="${_HYDRATE_BROWSING_VENV}/bin/python"
+_HYDRATE_BROWSING_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_HYDRATE_BROWSING_SAFARI="${_HYDRATE_BROWSING_FDA_DIR}/safari_history.json"
+_HYDRATE_BROWSING_CHROME="${_HYDRATE_BROWSING_FDA_DIR}/chrome_history.json"
+
+if [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
+   { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
+    info "$MSG_HYDRATE_BROWSING_STARTED"
+
+    _HYDRATE_BROWSING_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_BROWSING_TIMEOUT_WRAP="gtimeout 90"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_BROWSING_TIMEOUT_WRAP="timeout 90"
+    fi
+
+    _HYDRATE_BROWSING_LOG=/tmp/ostler-hydrate-browsing.log
+    _HYDRATE_BROWSING_TIMED_OUT=false
+
+    # Stream the JSON through ingest_browser_history. Inline python
+    # invocation lets us call ingest_browser_history directly so we
+    # don't trigger the other ingest_* functions in ingest_all
+    # (which would re-emit triples the per-source hydrate_* blocks
+    # already wrote). Output is the counts-only JSON pinned by
+    # HR015 #134's privacy contract test.
+    _HYDRATE_BROWSING_JSON="$(
+        $_HYDRATE_BROWSING_TIMEOUT_WRAP \
+        "$_HYDRATE_BROWSING_PY" -c "
+import json
+from pathlib import Path
+from ostler_fda.pwg_ingest import ingest_browser_history
+result = ingest_browser_history(Path('${_HYDRATE_BROWSING_FDA_DIR}'))
+print(json.dumps(result))
+" 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
+    )"
+    rc=$?
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_BROWSING_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_BROWSING_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES"
+    elif [[ -n "$_HYDRATE_BROWSING_JSON" ]]; then
+        # Parse 'sent' for the customer-facing count. The JSON keys
+        # are pinned by the HR015 #134 privacy contract test, so
+        # this parse is stable across releases.
+        _HYDRATE_BROWSING_SENT="$(
+            printf '%s' "$_HYDRATE_BROWSING_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("sent", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_BROWSING_SKIPPED="$(
+            printf '%s' "$_HYDRATE_BROWSING_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("skipped_sensitive", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_BROWSING_SENT="${_HYDRATE_BROWSING_SENT:-0}"
+        _HYDRATE_BROWSING_SKIPPED="${_HYDRATE_BROWSING_SKIPPED:-0}"
+        if [[ "$_HYDRATE_BROWSING_SENT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_BROWSING_DONE" "$_HYDRATE_BROWSING_SENT")"
+            if [[ "$_HYDRATE_BROWSING_SKIPPED" -gt 0 ]]; then
+                info "$(printf "$MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE" "$_HYDRATE_BROWSING_SKIPPED")"
+            fi
+        else
+            info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+        fi
+    else
+        info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    fi
+
+    unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
+    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
+    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
+elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
+    info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
+else
+    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+fi
+
+unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
+unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROME
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"

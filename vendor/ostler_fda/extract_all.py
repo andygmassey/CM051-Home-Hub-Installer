@@ -51,7 +51,7 @@ DEFAULT_SOURCES = frozenset({
     "apple_mail",
 })
 
-ALL_SOURCES = DEFAULT_SOURCES | {"photos_faces", "google_takeout", "whatsapp_history"}
+ALL_SOURCES = DEFAULT_SOURCES | {"photos_faces", "google_takeout", "whatsapp_history", "chrome_history"}
 
 
 def _resolve_enabled_sources(
@@ -136,6 +136,49 @@ def run_all(
             logger.warning("[warn] Safari History: %s", e)
     else:
         summary["sources"]["safari_history"] = {"status": "disabled_by_user"}
+
+    # ── Chrome History (CX-86 Gap C) ────────────────────────────────
+    # Opt-in only -- default OFF, same shape as whatsapp_history.
+    # JSON shape matches safari_history so the pwg_ingest.
+    # ingest_browser_history() consumer reads both with one code path.
+    if "chrome_history" in sources:
+        try:
+            from .chrome_history import (
+                extract_history as _chrome_extract,
+                top_domains as _chrome_top,
+                to_timeline_entries as _chrome_timeline,
+            )
+            backfill_days = int(os.environ.get("OSTLER_BROWSER_BACKFILL_DAYS", "365"))
+            chrome_entries = _chrome_extract(since_days=backfill_days)
+            chrome_domains = _chrome_top(chrome_entries, limit=100)
+
+            (output_dir / "chrome_history.json").write_text(
+                json.dumps(_chrome_timeline(chrome_entries), indent=2, default=str)
+            )
+            (output_dir / "chrome_domains.json").write_text(
+                json.dumps([asdict(d) for d in chrome_domains], indent=2, default=str)
+            )
+            summary["sources"]["chrome_history"] = {
+                "status": "ok",
+                "visits": len(chrome_entries),
+                "unique_domains": len(chrome_domains),
+                "top_3": [d.domain for d in chrome_domains[:3]],
+            }
+            logger.info(
+                "[ok] Chrome: %d visits across %d domains",
+                len(chrome_entries), len(chrome_domains),
+            )
+        except PermissionError:
+            summary["sources"]["chrome_history"] = {"status": "no_fda"}
+            logger.info("[skip] Chrome History: Full Disk Access not granted")
+        except FileNotFoundError:
+            summary["sources"]["chrome_history"] = {"status": "not_found"}
+            logger.info("[skip] Chrome History: Chrome not installed")
+        except Exception as e:
+            summary["sources"]["chrome_history"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] Chrome History: %s", e)
+    else:
+        summary["sources"]["chrome_history"] = {"status": "disabled_by_user"}
 
     # ── Safari Bookmarks ────────────────────────────────────────────
     if "safari_bookmarks" in sources:

@@ -675,6 +675,157 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     return {"status": "ok", "people_created": people_created}
 
 
+# ── Browser history ingestion (CX-86 Gap A) ───────────────────────
+#
+# Streams safari_history.json + chrome_history.json (written by
+# extract_all.py) through the CM019 gateway's POST /api/safari/ingest
+# endpoint. The gateway writes to the `safari_history` Qdrant
+# collection (renamed from `safari_browsing` in Gap B), where the
+# CM044 wiki Browsing page reads from.
+#
+# Auth: Bearer token from ~/.ostler/secrets/service_token. Blocklist
+# (Q3 sign-off): banking / medical / etc. URLs are rejected by the
+# gateway with HTTP 422 and counted as "skipped_sensitive".
+# needs_reprocessing=true (Q2 sign-off): backfilled rows land in
+# Qdrant with empty topics/category; gateway background tick enriches.
+#
+# Privacy AC mirror B2 + CX-85: stdout payload contains counts only.
+# No URLs, titles, or domain names cross the install.sh boundary.
+
+_GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8765/api/safari/ingest"
+_SERVICE_TOKEN_PATH = Path.home() / ".ostler" / "secrets" / "service_token"
+
+
+def _read_service_token() -> Optional[str]:
+    """Read the Bearer token install.sh's auth_tokens phase wrote."""
+    try:
+        return _SERVICE_TOKEN_PATH.read_text(encoding="utf-8").strip() or None
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def ingest_browser_history(fda_dir: Path, gateway_url: Optional[str] = None) -> dict:
+    """Stream browser history JSON to the gateway.
+
+    Reads safari_history.json + chrome_history.json from ``fda_dir``,
+    POSTs each entry to ``POST /api/safari/ingest`` with Bearer auth
+    and ``needs_reprocessing: true``. Counts ok / skipped (HTTP 422
+    blocklist) / errored. Returns a counts-only dict.
+    """
+    endpoint = gateway_url or os.environ.get(
+        "OSTLER_GATEWAY_URL", _GATEWAY_ENDPOINT_DEFAULT,
+    )
+
+    payload_entries: list[dict] = []
+    safari_count = 0
+    chrome_count = 0
+    for filename, label in [
+        ("safari_history.json", "safari_history"),
+        ("chrome_history.json", "chrome_history"),
+    ]:
+        path = fda_dir / filename
+        if not path.exists():
+            continue
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Could not read %s: %s; skipping that source.",
+                filename, type(exc).__name__,
+            )
+            continue
+        if not isinstance(entries, list):
+            logger.warning("%s root is not a list; skipping.", filename)
+            continue
+        payload_entries.extend(entries)
+        if label == "safari_history":
+            safari_count = len(entries)
+        else:
+            chrome_count = len(entries)
+
+    if not payload_entries:
+        logger.info("No browser history to ingest.")
+        return {
+            "status": "no_data",
+            "total": 0,
+            "sent": 0,
+            "skipped_sensitive": 0,
+            "errored": 0,
+            "safari_entries": 0,
+            "chrome_entries": 0,
+        }
+
+    token = _read_service_token()
+    if not token:
+        logger.warning(
+            "No service token at %s; the gateway requires Bearer auth.",
+            _SERVICE_TOKEN_PATH,
+        )
+        return {
+            "status": "no_token",
+            "total": len(payload_entries),
+            "sent": 0,
+            "skipped_sensitive": 0,
+            "errored": 0,
+            "safari_entries": safari_count,
+            "chrome_entries": chrome_count,
+        }
+
+    sent = 0
+    skipped_sensitive = 0
+    errored = 0
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=30.0) as client:
+        for entry in payload_entries:
+            payload = {
+                "url": entry.get("url"),
+                "title": entry.get("title"),
+                "timestamp": entry.get("timestamp"),
+                "device": entry.get("source", "unknown"),
+                "needs_reprocessing": True,
+            }
+            if not payload["url"]:
+                errored += 1
+                continue
+            try:
+                resp = client.post(endpoint, json=payload, headers=headers)
+            except (httpx.RequestError, httpx.HTTPError) as exc:
+                if errored < 5:
+                    logger.warning(
+                        "gateway POST failed (%s); continuing batch.",
+                        type(exc).__name__,
+                    )
+                errored += 1
+                continue
+
+            if resp.status_code in (200, 201, 202):
+                sent += 1
+            elif resp.status_code == 422:
+                skipped_sensitive += 1
+            else:
+                errored += 1
+
+    logger.info(
+        "Browser history ingest: %d sent, %d skipped (sensitive), "
+        "%d errored across %d Safari + %d Chrome entries.",
+        sent, skipped_sensitive, errored,
+        safari_count, chrome_count,
+    )
+    return {
+        "status": "ok",
+        "total": len(payload_entries),
+        "sent": sent,
+        "skipped_sensitive": skipped_sensitive,
+        "errored": errored,
+        "safari_entries": safari_count,
+        "chrome_entries": chrome_count,
+    }
+
+
 # ── Master runner ─────────────────────────────────────────────────
 
 def ingest_all(fda_dir: Optional[Path] = None) -> dict:
@@ -703,6 +854,7 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
         ("calendar", ingest_calendar),
         ("photos", ingest_photos_people),
         ("apple_mail", ingest_mail_contacts),
+        ("browser_history", ingest_browser_history),
     ]:
         try:
             results[name] = func(fda_dir)
