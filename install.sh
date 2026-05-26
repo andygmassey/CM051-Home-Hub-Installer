@@ -881,6 +881,39 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
 
     CLT_INSTALL_TRIGGERED=true
     ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
+
+    # CX-54 (DMG #30, 2026-05-24) + CX-71 (DMG #44, 2026-05-25):
+    # customers consistently miss that they can continue answering
+    # installer questions while macOS's CLT installer downloads in
+    # the background. CX-54 added a single bounce-back; Studio
+    # retest of DMG #43 found that after the customer clicks Install
+    # on the CLT prompt, macOS's Software Update download-progress
+    # window steals focus again ~10-30 s later, leaving customers
+    # staring at it. CX-71 extends the single bounce to a polling
+    # loop: re-activate OstlerInstaller every 4 s for up to 60 s OR
+    # until the CLT installer process is gone (download finished
+    # OR customer cancelled). Subshell + disown so install.sh main
+    # thread proceeds to the questions phase immediately.
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        info "$MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND"
+        (
+            sleep 4
+            _focus_loop_cap=15  # 15 iterations x 4 s = 60 s
+            for _focus_iter in $(seq 1 $_focus_loop_cap); do
+                # Stop looping if the CLT installer is no longer
+                # running -- either it finished its download or the
+                # customer dismissed it. No point bouncing focus
+                # against a window that does not exist.
+                if ! pgrep -f "Install Command Line Developer Tools" >/dev/null 2>&1; then
+                    break
+                fi
+                osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
+                    open -a "OstlerInstaller" 2>/dev/null || true
+                sleep 4
+            done
+        ) &
+        disown 2>/dev/null || true
+    fi
 else
     ok "$MSG_OK_GIT_AVAILABLE"
 fi
@@ -1037,19 +1070,55 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 
+# CX-DMG44 (DMG #44, 2026-05-25): upfront briefing on the full set
+# of permission prompts the customer will see during install. The
+# previous block listed three high-level categories which understated
+# what actually fires: nine to ten macOS popups across pre-warm + FDA
+# assist + iMessage Automation, sometimes back-to-back. Customers
+# felt ambushed mid-install. Enumerating up-front lets them
+# anticipate and accept rather than panic.
+#
+# Permission inventory (kept in sync with the actual install flow --
+# update this comment + the printed list together when the prompt
+# count changes):
+#   1. Contacts                       (line ~1140 contact-card read)
+#   2. Calendar                       (CX-69 pre-warm, line ~1117)
+#   3. Reminders                      (CX-46 pre-warm, existing)
+#   4. Downloads folder               (CX-70 pre-warm)
+#   5. Desktop folder                 (CX-70 pre-warm)
+#   6. Documents folder               (CX-70 pre-warm)
+#   7. Full Disk Access -- installer  (FDA-only data sources)
+#   8. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
+#   9. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  10. macOS admin password           (sudo for Homebrew, sleep-disable)
+# Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
+# permission per se, but customer-visible).
+PERMISSIONS_TOTAL=10
+gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
+
 echo ""
 echo -e "  ${BOLD}What Ostler needs from your Mac${NC}"
 echo ""
-echo "  macOS will ask you to approve two permissions. These are"
-echo "  required for Ostler to work:"
+echo "  During the install you will see around ${PERMISSIONS_TOTAL} macOS"
+echo "  permission popups. They come from macOS itself, not from us."
+echo "  Each looks like a small system dialog asking you to allow"
+echo "  access to a specific thing. We'll label each one before it"
+echo "  appears so you know what to expect."
 echo ""
-echo -e "    ${BOLD}Contacts${NC}          Your name + contacts for the knowledge graph"
-echo -e "    ${BOLD}Files & Folders${NC}   Find data exports in your Downloads folder"
+echo "  Required (Ostler will not work without these):"
 echo ""
-echo "  Optional (can set up later):"
+echo -e "    1. ${BOLD}Contacts${NC}              Your name + your address book"
+echo -e "    2. ${BOLD}Calendar${NC}              Meetings + events in your graph"
+echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
+echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
+echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc."
+echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history"
+echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you"
+echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
-echo -e "    ${BOLD}Full Disk Access${NC}  Instant data from Safari, iMessage, Notes,"
-echo "                      Calendar, Photos, Reminders, Mail"
+echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
+echo "  from Apple (Xcode); these are downloaded in the background"
+echo "  so you can keep answering the install questions."
 echo ""
 echo -e "  ${BOLD}One tip before you continue:${NC}"
 echo ""
@@ -1080,6 +1149,24 @@ if [[ "${PERMS_OK:-y}" == "n" || "${PERMS_OK:-y}" == "N" ]]; then
 fi
 
 echo ""
+
+# CX-69 (DMG #44, 2026-05-25): Calendar AppleScript permission
+# pre-warm. Later in install (Phase 4 daemon startup + CM048 event
+# extractor) we read calendars via osascript, which fires macOS's
+# Calendar permission prompt for the installer's TCC posture. If
+# that prompt fires mid-install, the customer is deep in spinner
+# territory and misses it. Move the prompt forward to right after
+# PERMS_OK by running a no-op count probe -- the probe value is
+# discarded, the side-effect is the TCC prompt landing in the
+# attention window.
+#
+# Stderr goes to /dev/null; we don't fail install if the probe is
+# denied. The Calendar functionality fails gracefully downstream
+# (CM048 extractor logs an empty-calendar warning, doesn't crash).
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    info "$MSG_INFO_CALENDAR_PERMISSION_PREWARM"
+fi
+osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
 # ── Auto-detect from macOS contact card ────────────────────────────
 
@@ -1902,6 +1989,80 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         CHANNEL_EMAIL_USERNAME=""
         CHANNEL_EMAIL_FROM=""
         CHANNEL_EMAIL_PASSWORD=""
+
+        # CX-37 (DMG #30, 2026-05-24): early Mail-account probe.
+        # Previously the "no Mail accounts -> open Internet Accounts"
+        # prompt fired during Phase 4 (email_ingest step), interrupting
+        # the "you can walk away now" promise with a 5-10s wait for the
+        # operator to answer + a System Settings dialog mid-install.
+        # Move the prompt to the questions phase so by the time Phase 4
+        # runs, accounts are configured. Probe + remediation only --
+        # the pipeline_signals.json sidecar write stays in Phase 4.
+        #
+        # CX-57 (DMG #32, 2026-05-24): the CX-37 probe block was
+        # killing the installer at exit 1 right after the customer
+        # answered email_custom_imap in Studio retest #27. Bash
+        # `set -euo pipefail` makes the probe's `find | sort | tail`
+        # pipeline + `grep -c '<key>' || echo 0` fallback fragile in
+        # weird ways:
+        #   - grep -c "no match" returns "0" + exit 1; the `|| echo 0`
+        #     then APPENDS another "0", so the captured value can be
+        #     "0\n0", which `[[ -eq 0 ]]` rejects as a syntax error.
+        #   - file-system permission denials inside command sub can
+        #     poison the outer pipeline status under pipefail.
+        # Wrap the entire probe in `set +e` so any sub-step failure is
+        # contained -- the worst case is we skip the early prompt and
+        # the Phase 4 fallback fires anyway. Also drop the grep
+        # entirely in favour of a `tr -dc '0-9' | head -c10` digit
+        # filter so the count value is always a clean integer or 0.
+        # Tracer log markers bracket the block so the next retest can
+        # pinpoint a regression instantly.
+        gui_log info "CX-37 probe: entering"
+        set +e
+        if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+           && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+           && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
+            _early_mail_accounts=0
+            _early_mail_v_dir=""
+            if [[ -d "${HOME}/Library/Mail" ]]; then
+                _early_mail_v_dir=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
+            fi
+            if [[ -n "$_early_mail_v_dir" && -f "${_early_mail_v_dir}/MailData/Accounts.plist" ]]; then
+                # Sanitise to a clean integer -- `tr -dc 0-9` drops
+                # everything that is not a digit, `head -c10` caps to
+                # a max-10-digit value so a malformed plist can never
+                # poison the `-eq 0` arithmetic compare downstream.
+                _early_mail_accounts_raw="$(grep -c '<key>AccountName</key>' "${_early_mail_v_dir}/MailData/Accounts.plist" 2>/dev/null)"
+                _early_mail_accounts="$(printf '%s' "${_early_mail_accounts_raw:-0}" | tr -dc '0-9' | head -c10)"
+                [[ -z "$_early_mail_accounts" ]] && _early_mail_accounts=0
+                unset _early_mail_accounts_raw
+            fi
+            gui_log info "CX-37 probe: v_dir=[${_early_mail_v_dir}] accounts=[${_early_mail_accounts}]"
+            if [[ "$_early_mail_accounts" -eq 0 ]] 2>/dev/null; then
+                _early_mail_answer="$(gui_read \
+                    "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
+                    yesno \
+                    "Y" \
+                    "$MSG_PROMPT_MAIL_NOT_CONNECTED_HELP" \
+                    "" \
+                    "mail_not_connected")"
+                case "${_early_mail_answer:-n}" in
+                    y|Y|yes|YES|Yes)
+                        ok "$MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS"
+                        open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                        ;;
+                    *)
+                        ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
+                        ;;
+                esac
+                unset _early_mail_answer
+            fi
+            MAIL_PROMPT_SHOWN_EARLY=1
+            export MAIL_PROMPT_SHOWN_EARLY
+            unset _early_mail_accounts _early_mail_v_dir
+        fi
+        set -e
+        gui_log info "CX-37 probe: exiting"
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -1919,16 +2080,31 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     # Build a human-friendly summary that reflects whichever paths
     # are enabled. Apple Mail FDA has no host / username; custom
     # IMAP carries the existing username + host info.
+    #
+    # CX-57 (DMG #32, 2026-05-24): bracket with tracer logs + use a
+    # plain joiner instead of `IFS=' + ' read <<<` so a single
+    # malformed entry can't poison the entire email channel summary.
+    # Same belt-and-braces shape as the CX-37 probe above.
+    gui_log info "CX-57 email-summary: entering"
     _email_summary_parts=()
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
         _email_summary_parts+=("Apple Mail (FDA)")
     fi
     if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
-        _email_summary_parts+=("${CHANNEL_EMAIL_USERNAME} via ${CHANNEL_EMAIL_IMAP_HOST}")
+        _email_summary_parts+=("${CHANNEL_EMAIL_USERNAME:-?} via ${CHANNEL_EMAIL_IMAP_HOST:-?}")
     fi
-    IFS=' + ' read -r _email_summary_joined <<< "${_email_summary_parts[*]}"
+    _email_summary_joined=""
+    for _email_part in "${_email_summary_parts[@]}"; do
+        if [[ -z "$_email_summary_joined" ]]; then
+            _email_summary_joined="$_email_part"
+        else
+            _email_summary_joined="${_email_summary_joined} + ${_email_part}"
+        fi
+    done
+    [[ -z "$_email_summary_joined" ]] && _email_summary_joined="Apple Mail (FDA)"
     ok "$(printf "$MSG_OK_EMAIL_CHANNEL_FOLDER" "${_email_summary_joined}" "${CHANNEL_EMAIL_IMAP_FOLDER}")"
-    unset _email_summary_parts _email_summary_joined
+    unset _email_summary_parts _email_summary_joined _email_part
+    gui_log info "CX-57 email-summary: exiting"
 fi
 
 if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
@@ -2413,12 +2589,52 @@ DETECTED_EXPORTS=()
 # prompt.
 info "$MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING"
 
+# CX-47 (DMG #30, 2026-05-24): elevate the 3-folder-prompt warning
+# from a transient info line to a blocking acknowledge gui_read. The
+# previous info() rendered for ~200ms then scrolled away, so customers
+# hit the three Downloads/Desktop/Documents TCC popups without warning
+# and didn't know what they were. Blocking ack lets them read + click
+# Continue knowing what's about to happen. Suppressed under TTY/CI.
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    _="$(gui_read \
+        "$MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE" \
+        acknowledge \
+        "" \
+        "$MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING" \
+        "" \
+        "gdpr_scan_incoming_ack")"
+fi
+
 # Scan common locations for recognisable GDPR export files.
 # Studio retest #7 finding #13 (Image #53): the previous `info`
 # emit here rendered as a ~200ms transient status page in the GUI
 # before the find-scan moved on. Drop to log-only so the GUI never
 # renders a flash page; the bash terminal output is unaffected.
 gui_log info "$MSG_INFO_SCANNING_GDPR_DATA_EXPORTS"
+
+# CX-70 (DMG #44, 2026-05-25): pre-warm the three folder TCC
+# prompts up front with an `ls` probe per folder + a labelled
+# info line before each, so the customer sees three named
+# prompts in sequence rather than three unannounced popups
+# arriving back-to-back during the find scan below. CX-47 already
+# added a combined acknowledge above; CX-70 adds per-prompt
+# labelling so the customer knows which is which.
+#
+# The `ls >/dev/null 2>&1` triggers macOS's TCC prompt for the
+# folder if not already granted. We don't depend on the output --
+# only the side-effect. 0.5 s gaps so successive prompts don't
+# overlap visually.
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    info "$MSG_INFO_FOLDER_PREWARM_DOWNLOADS"
+    ls "${HOME}/Downloads" >/dev/null 2>&1 || true
+    sleep 0.5
+    info "$MSG_INFO_FOLDER_PREWARM_DESKTOP"
+    ls "${HOME}/Desktop" >/dev/null 2>&1 || true
+    sleep 0.5
+    info "$MSG_INFO_FOLDER_PREWARM_DOCUMENTS"
+    ls "${HOME}/Documents" >/dev/null 2>&1 || true
+fi
+
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
@@ -3996,7 +4212,23 @@ TOMLPREAMBLE
         echo "]"
     fi
 
-    if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
+    # CX-61 (DMG #36, 2026-05-24): only write the assistant daemon's
+    # [channels.email] section when CUSTOM IMAP is the chosen source.
+    # Apple Mail FDA path is drained independently by the
+    # email-ingest LaunchAgent (HR015 mbox reader); the daemon's
+    # channel adds nothing in Apple-Mail-only mode, and its health
+    # endpoint mis-reports "not-ready" against an empty IMAP config
+    # (Studio retest #28 cosmetic). Skipping the section entirely
+    # makes the daemon's channel state honest. Customer can still
+    # opt into custom IMAP later by re-running the installer and
+    # answering yes to the Custom IMAP prompt.
+    _email_section_active=false
+    if [[ "$CHANNEL_EMAIL_ENABLED" == true \
+          && "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
+        _email_section_active=true
+    fi
+
+    if [[ "$_email_section_active" == true ]]; then
         # Escape any embedded double quotes in email fields so a
         # provider hostname with weird characters can't break the
         # TOML.
@@ -4035,6 +4267,7 @@ TOMLPREAMBLE
         echo "from_address = \"$(_esc "$CHANNEL_EMAIL_FROM")\""
         echo "allowed_senders = []"
     fi
+    unset _email_section_active
 
     if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         # Web mode (wa-rs). Pair-code linking happens at runtime
@@ -4070,6 +4303,15 @@ TOMLPREAMBLE
     # ZeroClaw rejecting the admin token. See sister PR HR015 #63.
     echo
     echo "[gateway]"
+    # CX-59 (DMG #34, 2026-05-24): pin the gateway port to 8000.
+    # Without an explicit `port =` here, zeroclaw's binary default
+    # of 42617 wins, and Ostler.app's polling, the installer's
+    # success-screen pairing QR fetch (CX-56), and CM031's iOS
+    # pairing flow ALL hit localhost:8000 and get "connection
+    # refused" forever. Caught in Studio retest #29 2026-05-24
+    # after the CX-58 assistant-agent bundling fix surfaced the
+    # daemon successfully but on the wrong port.
+    echo "port = 8000"
     echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
 
     # Wire the assistant's web_search tool to the bundled Vane
@@ -4109,12 +4351,36 @@ TOMLPREAMBLE
     #     via the channel orchestrator. `shell` would need a CLI
     #     subcommand that does not yet exist on the binary.
     #
-    # Only emit when WhatsApp is the configured outbound channel
-    # AND we have a recipient phone. Without those, the cron job
-    # would either fail at every fire (no recipient) or silently
-    # do nothing (channel disabled). When we can't emit, the
-    # next-steps banner tells the customer how to add jobs by
-    # hand later (see Phase 5 banner edits below).
+    # CX-68 (DMG #39, 2026-05-25): deliver briefs via iMessage,
+    # not WhatsApp.
+    #
+    # The customer install path writes a [channels.whatsapp] block
+    # with `enabled = true` but no backend selector (no
+    # session_path / pair_phone / phone_number_id). The daemon's
+    # WhatsAppConfig::backend_type() defaults to "cloud" in that
+    # case, then is_cloud_config() returns false because the Cloud
+    # API creds are missing, and the channel never registers in
+    # the cron-delivery registry. The startup readiness sweep
+    # marks the cron-delivery health component as error after 60s
+    # ("channels not ready after 60s grace: 'whatsapp'"). Even if
+    # the customer pairs WhatsApp Web later, getting that off the
+    # ground requires UX surface we do not have for v1.0
+    # (pair_code display, session_path bootstrap, keepalive cron).
+    #
+    # iMessage already works end-to-end on a fresh install once
+    # the user grants Full Disk Access to the assistant daemon
+    # (CX-60 + CX-66). It is the cleanest default-on delivery
+    # channel for v1.0 briefs.
+    #
+    # Customers who prefer WhatsApp can edit
+    # ${OSTLER_DIR}/assistant-config/config.toml after install:
+    # change channel to "whatsapp" + add session_path / pair_phone
+    # and pair via the Hub UI. A Doctor surface for this is
+    # queued for v1.0.1.
+    #
+    # The brief recipient is the first entry of the user's
+    # allowed_contacts list (their own iMessage address or phone),
+    # which install.sh seeds from the imessage_allowed prompt.
     #
     # tz is set from the wizard-captured USER_TZ so the brief
     # lands at 09:00 customer-local rather than UTC. The schema's
@@ -4122,9 +4388,7 @@ TOMLPREAMBLE
     #
     # best_effort = false (NOT true): a delivery failure surfaces
     # as a hard error in cron history rather than getting swallowed
-    # as a WARN. Andy's existing config used best_effort = true,
-    # which masked the very bug the TNM cron-delivery fix was
-    # written to solve. Per memory/feedback_no_silent_security_fallback.md
+    # as a WARN. Per memory/feedback_no_silent_security_fallback.md
     # new customers default-fail-loud so any regression surfaces
     # in Doctor immediately.
     #
@@ -4134,11 +4398,17 @@ TOMLPREAMBLE
     # so we do not have to spell out "look at yesterday's data"
     # twice. Customers can edit the prompt after install by hand
     # in ${OSTLER_DIR}/assistant-config/config.toml.
-    if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
-        _wa_recipient_cron_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && -n "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
+        # Pick the first allowed contact as the brief recipient.
+        # The allowed_contacts list is comma-separated; trim
+        # whitespace around the first entry.
+        _imsg_brief_recipient="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
+        _imsg_brief_recipient="${_imsg_brief_recipient# }"
+        _imsg_brief_recipient="${_imsg_brief_recipient% }"
+        _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery over WhatsApp. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
-        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery over WhatsApp. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
+        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
         echo
@@ -4148,7 +4418,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_morning_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
         echo
         echo "[[cron.jobs]]"
         echo "id = \"evening-wrap\""
@@ -4156,7 +4426,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_evening_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"whatsapp\", to = \"${_wa_recipient_cron_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
     fi
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
@@ -4705,7 +4975,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site:0.1.1
+    image: ghcr.io/ostler-ai/ostler-wiki-site:0.1
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -4740,7 +5010,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler:0.1.1
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler:0.1
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -6489,7 +6759,14 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
     #
     # Suppressed when OSTLER_GUI is unset (TTY / CI / curl|bash) so
     # tests and headless re-runs don't block on input.
-    if [[ "$MAIL_ACCOUNTS_FOUND" -eq 0 ]] && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    # CX-37 (DMG #30, 2026-05-24): skip the Phase 4 prompt if the
+    # earlier Phase 2 prompt already asked. MAIL_PROMPT_SHOWN_EARLY is
+    # set by the Apple-Mail-branch probe in the questions phase --
+    # asking twice mid-install would be a worse experience than asking
+    # once early.
+    if [[ "$MAIL_ACCOUNTS_FOUND" -eq 0 ]] \
+       && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+       && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
         _mail_remediation_answer="$(gui_read \
             "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
             yesno \
@@ -6721,9 +6998,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.1})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.2})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.1}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.2}"
 # Customer-facing distribution. Binary first published to
 # ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
 # was lifted by GitHub support (ticket #4347825).
@@ -6755,7 +7032,36 @@ ASSISTANT_TMPDIR="$(mktemp -d)"
 
 ASSISTANT_BINARY_INSTALLED=false
 
-if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+# CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
+# Resources/assistant-agent/bin/ over the GitHub release download.
+# The bundled binary is built from the same commit that defines the
+# DMG signing + notarisation posture, so version skew between the
+# customer's daemon and the rest of the install is impossible. The
+# DMG bundling also makes the install network-independent for the
+# critical-path binary (a customer with flaky DNS / GitHub outage /
+# Tailscale rerouting still gets a working daemon).
+#
+# Falls through to the curl path if the bundled binary is absent
+# (older DMGs predating this bundling, or a corrupted install
+# extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
+# forces the curl path even when bundled is present -- used in CI
+# to exercise the customer-network code path.
+ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
+if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] && [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    mkdir -p "${OSTLER_DIR}/bin"
+    cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # DMG-extracted binaries inherit the quarantine xattr from the
+    # mount; clear it so the LaunchAgent can launch without a
+    # right-click-and-Allow ceremony. The DMG itself was already
+    # Gatekeeper-cleared by the customer at install time, so this
+    # is not a security downgrade (mirrors the post-tarball
+    # quarantine clear in the curl path below).
+    xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+    ASSISTANT_BINARY_INSTALLED=true
+elif curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
    && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
 
     # Verify SHA-256. Phase B writes the sidecar as
@@ -6921,12 +7227,46 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
     else
         ASSISTANT_INSTALL_KEEPALIVE="false"
     fi
-    if OSTLER_INSTALL_ROOT="$OSTLER_ASSISTANT_DIR" \
-       OSTLER_DIR="$OSTLER_DIR" \
-       LOGS_DIR="$LOGS_DIR" \
-       ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
-       INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
-       bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh"; then
+
+    # CX-77 (DMG #44, 2026-05-25): wrap the snippet invocation in a
+    # retry loop and tee stderr into install.log. The snippet failed
+    # on auto-run during DMG #43 Studio retest but succeeded when
+    # Andy re-ran the SAME command manually moments later --
+    # consistent with launchctl-bootstrap timing or a transient env
+    # issue. The previous one-shot invocation hid the stderr inside
+    # ostler-assistant.err which the GUI never surfaced, so the
+    # customer saw a bare "See output above" warning with no output
+    # above to look at. Retry 3 times with 2 s gaps, capture stderr
+    # to a temp file we can both tee to install.log and dump into
+    # the warn message on final failure. cwd pinned to
+    # OSTLER_ASSISTANT_DIR; explicit env passthrough.
+    _snippet_stderr=$(mktemp -t ostler-assistant-snippet-stderr.XXXXXX)
+    _snippet_ok=false
+    for _snippet_attempt in 1 2 3; do
+        if (
+            cd "$OSTLER_ASSISTANT_DIR" || exit 1
+            OSTLER_INSTALL_ROOT="$OSTLER_ASSISTANT_DIR" \
+            OSTLER_DIR="$OSTLER_DIR" \
+            LOGS_DIR="$LOGS_DIR" \
+            ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
+            INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
+            bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" 2>"$_snippet_stderr"
+        ); then
+            _snippet_ok=true
+            break
+        fi
+        # Capture stderr from this attempt into install.log so the
+        # GUI log drawer surfaces the failure mode -- not just the
+        # bare "See output above" warning.
+        if [[ -s "$_snippet_stderr" ]]; then
+            info "$(printf "$MSG_INFO_ASSISTANT_SNIPPET_ATTEMPT_FAILED" "${_snippet_attempt}")"
+            sed -e 's/^/    /' "$_snippet_stderr" | head -20
+        fi
+        if [[ "$_snippet_attempt" -lt 3 ]]; then
+            sleep 2
+        fi
+    done
+    if [[ "$_snippet_ok" == "true" ]]; then
         ok "$MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM"
         info "$(printf "$MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR" "${LOGS_DIR}")"
         info "$MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI"
@@ -6937,8 +7277,287 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
         warn "$MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE"
         warn "$MSG_WARN_WIZARD_CONFIG_STAYS_PLACE_BINARY_STAYS"
         warn "$(printf "$MSG_WARN_BASH_INSTALL_SNIPPET_SH" "${OSTLER_ASSISTANT_DIR}")"
+        # Make the err log path visible even on first failure so the
+        # customer (or Andy on a retest) can grep what went wrong.
+        warn "$(printf "$MSG_WARN_ASSISTANT_ERR_LOG_PATH" "${LOGS_DIR}/ostler-assistant.err")"
+        if [[ -s "$_snippet_stderr" ]]; then
+            warn "$MSG_WARN_ASSISTANT_SNIPPET_LAST_STDERR"
+            sed -e 's/^/    /' "$_snippet_stderr" | head -30
+        fi
     fi
+    rm -f "$_snippet_stderr"
+    unset _snippet_stderr _snippet_ok _snippet_attempt
 fi
+
+# ── 3.14e-probe iMessage FDA probe (CX-60) ──────────────────────
+#
+# After the assistant LaunchAgent has had a chance to start, probe
+# whether the daemon binary can read ~/Library/Messages/chat.db.
+# macOS TCC grants Full Disk Access per-binary; the FDA the customer
+# granted to OstlerInstaller.app does NOT transfer to the
+# ostler-assistant binary that the LaunchAgent runs.
+#
+# Strategy: attempt a read-only sqlite3 open of chat.db from inside
+# install.sh. install.sh inherits OstlerInstaller.app's TCC posture,
+# which is the closest unprivileged proxy we have for whether FDA is
+# granted to anything on this Mac. False positives (probe succeeds,
+# daemon still can't read) are tolerable -- the Doctor card's live
+# auto-dismiss probe (status_collector + diagnostic_rules.
+# check_imessage_fda) re-evaluates on every refresh and clears the
+# card if the live state is healthy.
+#
+# We write the result to pipeline_signals.json so the Doctor card
+# only appears post-install (no false positives on fresh installs
+# of older builds that lack this probe). The writer call uses the
+# additive --imessage-fda-needed flag and preserves the mail half.
+#
+# Best-effort: any failure in this block leaves install.sh trucking
+# on. Doctor falls back to its safe-default "no card" path.
+
+info "$MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN"
+set +e  # CX-60: probe is best-effort; never kill the install from here
+_imessage_fda_probe_failure_line=""
+
+if [[ "${ASSISTANT_BINARY_INSTALLED:-false}" != "true" ]]; then
+    info "$MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON"
+else
+    _imessage_chat_db_path="${HOME}/Library/Messages/chat.db"
+    _imessage_fda_needed="true"  # conservative default
+
+    # Brief grace period: even with the LaunchAgent loaded, the
+    # daemon's iMessage channel needs a moment to attempt its first
+    # chat.db open. The probe itself is independent (install.sh
+    # opens chat.db directly), but waiting briefly avoids a noisy
+    # log entry from racing the LaunchAgent.
+    sleep 2
+
+    if [[ -f "$_imessage_chat_db_path" ]]; then
+        # sqlite3 ships with macOS. URI mode + ro lets us probe
+        # without locking the database against Messages.app.
+        if sqlite3 -readonly \
+                "file:${_imessage_chat_db_path}?mode=ro" \
+                "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+            _imessage_fda_needed="false"
+            info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
+        else
+            info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
+            # ── CX-78c (DMG #45, 2026-05-25): daemon-TCC pre-probe ──
+            #
+            # The chat.db probe above runs as install.sh, which
+            # inherits OstlerInstaller.app's TCC posture — *not*
+            # ostler-assistant's. If the customer granted FDA to
+            # the daemon binary on a previous install but never to
+            # OstlerInstaller.app, the probe returns a false
+            # negative and the assist dialog fires unnecessarily.
+            # Query the system TCC.db directly via sudo to read
+            # the daemon binary's actual auth_value. auth_value 2
+            # means allowed. Best-effort: if sudo prompt would be
+            # needed (cache expired) we silently fall through to
+            # the dialog path; net effect is no worse than the
+            # pre-CX-78c behaviour.
+            _daemon_fda_auth=""
+            if command -v sudo >/dev/null 2>&1; then
+                _daemon_fda_auth="$(
+                    sudo -n sqlite3 \
+                        "/Library/Application Support/com.apple.TCC/TCC.db" \
+                        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client='${OSTLER_DIR}/bin/ostler-assistant' LIMIT 1;" \
+                        2>/dev/null || true
+                )"
+            fi
+            if [[ "$_daemon_fda_auth" == "2" ]]; then
+                _imessage_fda_needed="false"
+                info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
+                launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                unset _daemon_fda_auth
+            else
+                unset _daemon_fda_auth
+                # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
+                #
+                # macOS TCC grants Full Disk Access per-binary; there's
+                # no public API to add a binary programmatically. The
+                # cleanest customer experience we can build on stock
+                # macOS is a guided drag-add: open System Settings to
+                # the Full Disk Access pane, reveal the daemon binary
+                # in Finder so the customer can drag it directly, and
+                # show a modal that blocks install.sh until they're
+                # done. After the modal dismisses, re-probe chat.db.
+                # If readable, write needed=false (Doctor card never
+                # appears). If still not readable, the CX-60 Doctor
+                # card takes over as the persistent reminder.
+                #
+                # Gated on OSTLER_GUI=1: the assist requires the GUI
+                # session (System Settings + Finder + AppleScript
+                # dialog all need a windowed environment).
+                if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+                    info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
+
+                # Open System Settings to the Full Disk Access pane.
+                # The URL scheme is stable on macOS 13+; older macOS
+                # falls back to Privacy & Security top-level which
+                # is acceptable. The 2>/dev/null swallows the rare
+                # "scheme not registered" warning on stripped builds.
+                open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+
+                # Reveal the daemon binary in Finder so the customer
+                # can drag it directly into System Settings without
+                # navigating to ~/.ostler/bin/ themselves. The -R
+                # flag selects the file in the parent folder.
+                open -R "${OSTLER_DIR}/bin/ostler-assistant" 2>/dev/null || true
+
+                # Modal that blocks install.sh until the customer
+                # dismisses it. The osascript dialog is reliable
+                # in the Phase 4 context (we're already running
+                # under user UI session via OstlerInstaller.app).
+                # Build the message body from per-line catalogue
+                # strings to keep Rule 0.9 happy (no literal \n
+                # in catalogue values).
+                # CX-78c (DMG #45): copy tightened to 4 lines + dropped
+                # the "denied -- which is what put it in the list"
+                # apology. LINE5 was retired with the rewrite.
+                # CX-81 B8 (DMG #46+): copy tightened again to 3 lines
+                # (LINE4 retired). Title swaps binary name for product
+                # name; LINE2 quotes the binary name so the customer
+                # can pattern-match it in the System Settings list.
+                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                # Escape any embedded double-quotes for the
+                # AppleScript string literal. Then pass through
+                # osascript -e. Failures (user clicks the close
+                # widget instead of OK) are swallowed -- the
+                # re-probe below settles the question regardless.
+                _imessage_fda_dialog_msg_esc="${_imessage_fda_dialog_msg//\"/\\\"}"
+                _imessage_fda_title_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE//\"/\\\"}"
+                _imessage_fda_button_esc="${MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON//\"/\\\"}"
+                # CX-81 B8 (DMG #46+): replace the generic system "note"
+                # icon (tan square with exclamation mark) with the Ostler
+                # app icon to reinforce trust at the most trust-sensitive
+                # moment of the install. Resolution order:
+                #   1. ${SCRIPT_DIR}/AppIcon.icns -- sibling of install.sh
+                #      inside OstlerInstaller.app/Contents/Resources/.
+                #      Always present in DMG installs.
+                #   2. /Applications/OstlerInstaller.app/Contents/Resources/
+                #      AppIcon.icns -- fallback if SCRIPT_DIR is unusual
+                #      (tarball install with assets stripped).
+                #   3. `with icon note` fallback -- preserves the existing
+                #      sub-optimal-but-functional icon on dev/CI/headless
+                #      paths so a missing icns file never breaks the
+                #      osascript dialog (no silent broken release).
+                _imessage_fda_icon_path=""
+                if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                    _imessage_fda_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+                elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                    _imessage_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+                fi
+                if [[ -n "$_imessage_fda_icon_path" ]]; then
+                    # AppleScript POSIX file paths cannot contain unescaped
+                    # double-quotes; the icns paths above are controlled by
+                    # our own bundle layout so this is paranoia, not a real
+                    # risk, but we escape anyway for symmetry with the other
+                    # _esc variables above.
+                    _imessage_fda_icon_path_esc="${_imessage_fda_icon_path//\"/\\\"}"
+                    _imessage_fda_icon_clause="with icon file POSIX file \"${_imessage_fda_icon_path_esc}\""
+                else
+                    _imessage_fda_icon_clause="with icon note"
+                fi
+                # CX-66 z-order fix: System Settings was opened above, so
+                # without an explicit `activate` the dialog would render
+                # behind it. Wrapping the display dialog inside a
+                # `tell application "System Events"` block + activate
+                # brings the modal to the front of every other window
+                # so the customer can't miss it. We also pause briefly
+                # before display to let System Settings finish its
+                # window animation -- racing a half-rendered Settings
+                # pane was the original z-order risk.
+                sleep 1
+                osascript \
+                    -e 'tell application "System Events" to activate' \
+                    -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
+                    >/dev/null 2>&1 || true
+                unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
+                      _imessage_fda_title_esc _imessage_fda_button_esc \
+                      _imessage_fda_icon_path _imessage_fda_icon_path_esc \
+                      _imessage_fda_icon_clause
+
+                # Re-probe chat.db. The TCC cache for the install.sh
+                # binary (which inherits OstlerInstaller.app's
+                # posture) doesn't reflect grants made to the
+                # ostler-assistant binary -- but for the customer's
+                # downstream experience, what matters is whether
+                # the daemon binary itself can read chat.db on its
+                # next LaunchAgent restart. We can't probe that
+                # directly from this process. Best signal: if
+                # install.sh's own probe of chat.db now succeeds
+                # (it inherited OstlerInstaller.app's FDA, which
+                # was almost certainly the binary the customer just
+                # added in System Settings AS WELL), that's a strong
+                # heuristic that the daemon binary also has FDA.
+                # Imperfect; the Doctor card's live re-probe
+                # (status_collector + check_imessage_fda) gives the
+                # ground truth on next refresh.
+                sleep 2
+                if sqlite3 -readonly \
+                        "file:${_imessage_chat_db_path}?mode=ro" \
+                        "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+                    _imessage_fda_needed="false"
+                    info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
+                    # Kick the assistant LaunchAgent to pick up the
+                    # new FDA grant. launchctl kickstart -k restarts
+                    # the agent without un/re-loading, so the new
+                    # TCC posture takes effect immediately.
+                    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                else
+                    info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
+                fi
+                fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
+            fi  # closes outer `if daemon-TCC granted / else` (CX-78c)
+        fi
+    else
+        # No chat.db on this Mac at all (e.g. Messages.app never
+        # signed in to iMessage). Card would be a false positive --
+        # default to false so it stays quiet.
+        _imessage_fda_needed="false"
+        info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
+    fi
+
+    # Re-resolve the writer + sidecar path. The mail-content probe
+    # already mkdir'd PIPELINE_SIGNALS_DIR earlier in Phase 3, but
+    # that scope unset the variables. Resolve fresh + idempotently.
+    _imessage_pipeline_dir="${OSTLER_DIR}/state"
+    _imessage_pipeline_file="${_imessage_pipeline_dir}/pipeline_signals.json"
+    mkdir -p "$_imessage_pipeline_dir" \
+        || _imessage_fda_probe_failure_line="mkdir state dir"
+
+    _imessage_writer=""
+    if [[ -n "${OSTLER_PIPELINE_SIGNALS_WRITER:-}" \
+          && -f "${OSTLER_PIPELINE_SIGNALS_WRITER}" ]]; then
+        _imessage_writer="${OSTLER_PIPELINE_SIGNALS_WRITER}"
+    elif [[ -f "${SCRIPT_DIR}/lib/write_pipeline_signals.py" ]]; then
+        _imessage_writer="${SCRIPT_DIR}/lib/write_pipeline_signals.py"
+    elif [[ -f "${HOME}/.ostler/lib/write_pipeline_signals.py" ]]; then
+        _imessage_writer="${HOME}/.ostler/lib/write_pipeline_signals.py"
+    fi
+
+    if [[ -n "$_imessage_writer" ]]; then
+        if ! python3 "$_imessage_writer" \
+                --output "$_imessage_pipeline_file" \
+                --imessage-fda-needed "$_imessage_fda_needed"; then
+            warn "$MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED"
+        fi
+    else
+        warn "$MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED"
+    fi
+
+    unset _imessage_chat_db_path _imessage_fda_needed \
+          _imessage_pipeline_dir _imessage_pipeline_file _imessage_writer
+fi
+
+set -e
+if [[ -n "$_imessage_fda_probe_failure_line" ]]; then
+    warn "iMessage FDA probe: non-fatal failure at: $_imessage_fda_probe_failure_line"
+fi
+unset _imessage_fda_probe_failure_line
 
 fi  # end Apple Silicon guard
 
@@ -6994,7 +7613,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.0}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.1}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
@@ -7236,22 +7855,38 @@ HUB_APP_DEST="/Applications/Ostler.app"
 HUB_APP_SOURCE=""
 HUB_APP_INSTALLED=false
 
-if [[ -d "$HUB_APP_DEST" ]]; then
-    HUB_APP_SOURCE="$HUB_APP_DEST"
-elif [[ -d "${SCRIPT_DIR}/Ostler.app" ]]; then
+# CX-76 (DMG #44, 2026-05-25): when a DMG-bundled Ostler.app is
+# available, prefer it ABSOLUTELY over any pre-existing copy at
+# $HUB_APP_DEST. The previous order set HUB_APP_SOURCE = HUB_APP_DEST
+# whenever /Applications/Ostler.app existed, which left customers
+# running stale binaries across re-installs -- DMG #43 retest landed
+# the CX-72 port fix in a new Tauri bundle, but install.sh skipped
+# the staging step and the old Ostler.app survived. That hid CX-72
+# behind a manual swap. New order: SCRIPT_DIR > parent dir > existing
+# install. The "existing install" fallback only fires for re-runs
+# without a DMG (e.g. install.sh --repair from ~/.ostler/) so we keep
+# verifying the in-place copy rather than failing the customer.
+if [[ -d "${SCRIPT_DIR}/Ostler.app" ]]; then
     HUB_APP_SOURCE="${SCRIPT_DIR}/Ostler.app"
 elif [[ -d "${SCRIPT_DIR}/../Ostler.app" ]]; then
     HUB_APP_SOURCE="${SCRIPT_DIR}/../Ostler.app"
+elif [[ -d "$HUB_APP_DEST" ]]; then
+    HUB_APP_SOURCE="$HUB_APP_DEST"
 fi
 
 if [[ -n "$HUB_APP_SOURCE" ]]; then
     # Stage into /Applications when the source is not already there.
-    # Pre-existing install: remove first so a slimmer bundle does
-    # not leave stale Resources behind. Sudo fallback for the rare
+    # Pre-existing install: kill the running process (so the bundle
+    # is not in use), then remove + copy. Sudo fallback for the rare
     # corporate-imaged Mac where /Applications is admin-owned.
     if [[ "$HUB_APP_SOURCE" != "$HUB_APP_DEST" ]]; then
         info "$(printf "$MSG_INFO_HUB_APP_STAGING" "${HUB_APP_SOURCE}")"
         if [[ -d "$HUB_APP_DEST" ]]; then
+            # CX-76: kill any running Ostler.app instance before
+            # overwriting. Without this the cp/rm races against the
+            # live process and can leave a half-replaced bundle.
+            pkill -f "${HUB_APP_DEST}/Contents/MacOS" 2>/dev/null || true
+            sleep 0.5
             rm -rf "$HUB_APP_DEST" 2>/dev/null || sudo rm -rf "$HUB_APP_DEST" 2>/dev/null || true
         fi
         if ! cp -R "$HUB_APP_SOURCE" "$HUB_APP_DEST" 2>/dev/null; then
@@ -8106,6 +8741,19 @@ cleanup_battery_watch
 
 step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 
+# CX-48 (DMG #29, 2026-05-24): also fire gui_step_begin so the
+# sidebar's `health_check` row flips from empty-circle to spinning,
+# then to ok-check when the trailing gui_step_end at the script's
+# tail closes it. Pre-fix the row stayed at "○" for the entire
+# Phase 4 (`step` only sets the phase title, not the per-step state)
+# then jumped straight to "Done" -- confusing because the customer
+# sees the row never visibly complete.
+if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
+    gui_step_end ok
+fi
+__OSTLER_STEP_ID="health_check"
+gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
+
 HEALTHY=true
 
 if curl -sf http://localhost:6333/healthz &>/dev/null; then
@@ -8177,6 +8825,30 @@ fi
 # point probing a permission the customer has not consented to.
 
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+    # CX-55 (DMG #30, 2026-05-24): pre-warn the customer that the
+    # next step will trigger macOS's "OstlerInstaller wants to control
+    # Messages" Automation permission dialog. Without warning, the
+    # dialog appears unannounced + customers think the installer has
+    # gone rogue. Blocking ack means they read it, then know to click
+    # Allow on the popup that follows. Suppressed under TTY/CI.
+    #
+    # CX-DMG44 timing separation (DMG #44, 2026-05-25): when the
+    # iMessage FDA assist dialog (line ~6940) closed moments ago,
+    # firing this Automation pre-warn within 200 ms left the
+    # customer flat-staring at two stacked modals. Add a short
+    # cooldown + status line so the transition reads as deliberate
+    # rather than as a second dialog ambushing the user.
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        info "$MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION"
+        sleep 3
+        _="$(gui_read \
+            "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE" \
+            acknowledge \
+            "" \
+            "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP" \
+            "" \
+            "imessage_automation_incoming_ack")"
+    fi
     info "$MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY"
 
     IMESSAGE_POSTURE_DIR="${OSTLER_DIR}/imessage-posture"
@@ -8334,6 +9006,17 @@ fi
 # passphrase. Same Keychain-save flow as before.
 
 if [[ -n "$RECOVERY_KEY" ]]; then
+    # CX-53 (DMG ship, 2026-05-24): emit a structured RECOVERY_KEY
+    # marker for the GUI installer BEFORE rendering anything to the
+    # TTY. The Swift coordinator pulls the value into a dedicated
+    # @Published property and renders a RecoveryKeyView sheet with
+    # Copy / Save PDF / Print + confirm-checkbox controls; the TTY
+    # path keeps the YELLOW BOLD echo below for terminal customers.
+    # We DELIBERATELY do NOT emit a LOG marker carrying the recovery
+    # key value -- LOG markers land in the GUI Log drawer (visible
+    # to anyone the customer hands the laptop to). The RECOVERY_KEY
+    # marker bypasses logLines on the Swift side.
+    gui_emit RECOVERY_KEY "value=$RECOVERY_KEY"
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""

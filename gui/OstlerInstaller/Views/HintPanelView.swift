@@ -14,6 +14,50 @@ struct HintPanelView: View {
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        // CX-49 (DMG #30, 2026-05-24): when the install finishes ok,
+        // swap the generic "Quick sanity pass" Health Check placeholder
+        // out for a proper affirmative completion view. Customers in
+        // Studio retest #24/#25 explicitly asked for a confirmed positive
+        // check + summary in the main window when everything is done.
+        // The fail-state path continues to fall through to the existing
+        // step-and-error rendering below.
+        if coordinator.finished == .ok {
+            InstallCompleteView()
+                .environmentObject(coordinator)
+                // CX-53 (DMG ship, 2026-05-24): when install.sh has
+                // emitted a RECOVERY_KEY marker AND the customer has
+                // not yet acknowledged it, stack the RecoveryKeyView
+                // sheet on top of the InstallCompleteView. The sheet
+                // is modal so the customer must click Continue (after
+                // ticking the saved-it confirm box) to dismiss it.
+                // We drive isPresented from a derived binding so a
+                // late-arriving RECOVERY_KEY marker re-opens the
+                // sheet automatically.
+                .sheet(isPresented: Binding(
+                    get: {
+                        (coordinator.recoveryKey?.isEmpty == false)
+                            && !coordinator.recoveryKeyAcknowledged
+                    },
+                    set: { _ in
+                        // Dismissal is driven by the Continue button
+                        // inside the sheet (which sets
+                        // recoveryKeyAcknowledged = true). We ignore
+                        // attempts to set isPresented externally
+                        // (e.g. macOS escape-key dismissal) so the
+                        // customer cannot accidentally skip past the
+                        // reveal without confirming.
+                    }
+                )) {
+                    RecoveryKeyView()
+                        .environmentObject(coordinator)
+                }
+        } else {
+            mainBody
+        }
+    }
+
+    @ViewBuilder
+    private var mainBody: some View {
         let meta = StepCatalog.shared.meta(for: coordinator.currentStepId ?? "")
 
         VStack(alignment: .leading, spacing: .ostlerSpace4) {

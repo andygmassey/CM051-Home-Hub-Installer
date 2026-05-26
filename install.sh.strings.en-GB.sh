@@ -75,6 +75,11 @@ MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="Full Disk Access detected �
 MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR exports detected but import pipeline not yet available."
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR-export import will be available when the pipeline ships."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="About to scan Downloads, Desktop, and Documents for AI exports (Google Takeout, Meta downloads, LinkedIn, etc.) you may have saved. macOS will show three folder-access prompts – please allow each one. It takes about 5-10 seconds in total. Nothing is moved or copied during the scan; we only check what is there."
+MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS may ask permission to read your Calendar. Allow it so Ostler can build the meetings + events part of your knowledge graph. (Calendar data stays on this machine.)"
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Click OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
+MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
 MSG_INFO_GIT_CLONE="  git clone %s %s"
 MSG_INFO_GIT_CLONE_2="  git clone %s %s"
 MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
@@ -90,6 +95,14 @@ MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub power scripts not bundled with 
 MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installer; using vendored source."
 MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; iOS Companion endpoints will be limited."
 MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="If a Tailscale window appears, sign in with Apple / Google / Microsoft."
+MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
+MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="Opening System Settings + Finder to walk you through granting Full Disk Access to the assistant..."
+MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
+MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
+MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
+MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
+MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Assistant cannot read Messages history yet. The Doctor dashboard will show a card guiding you through System Settings."
+MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON="Assistant LaunchAgent did not load; skipping the iMessage Full Disk Access probe."
 MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE="Import-Evernote UI in Doctor will surface a 'service unavailable'"
 MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="Import pipeline not bundled with installer."
 MSG_INFO_INSTALLING_CM042="Installing Ostler RemoteCapture v%s (call + meeting transcription)..."
@@ -132,6 +145,7 @@ MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP="No GDPR exports found in Downl
 MSG_INFO_OPENING_CHROME_WEB_STORE="Opening Chrome Web Store: %s"
 MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING="ostler-assistant binary not installed; skipping doctor probe"
 MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY="ostler-assistant doctor: deferred (daemon may still be"
+MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="Using ostler-assistant binary bundled in this DMG (offline-capable install path)."
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge installed in venv."
@@ -412,6 +426,7 @@ MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_2="  The installer .app appea
 MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_3="  in Contents/Resources/hub-power/. Battery-aware throttling will not be installed; the rest of the install will continue."
 MSG_WARN_ICAL_SERVER_FAILED="Could not start Assistant API; iOS Companion endpoints will be limited until the next install run."
 MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE="  - Image pull failed (network, disk space, or registry timeout)"
+MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Could not write iMessage FDA signal to pipeline_signals.json. The Doctor dashboard may not auto-show the Full Disk Access card."
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="IMAP host is empty – try again."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage Automation permission: not granted (-1743)."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="iMessage Automation permission: probe inconclusive."
@@ -452,7 +467,10 @@ MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="or re-run the installer and pick a 
 MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="or running ahead of Phase B's release pipeline. Re-run the installer once the"
 MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor reported %s error(s)."
 MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK="ostler-assistant extracted but --version check failed."
-MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE="Ostler assistant LaunchAgent install failed. See output above."
+MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE="Ostler assistant LaunchAgent install failed after 3 attempts. Diagnostic output above + below."
+MSG_INFO_ASSISTANT_SNIPPET_ATTEMPT_FAILED="Ostler assistant LaunchAgent install attempt %s failed; retrying."
+MSG_WARN_ASSISTANT_ERR_LOG_PATH="Full daemon stderr at: %s"
+MSG_WARN_ASSISTANT_SNIPPET_LAST_STDERR="Last snippet stderr:"
 MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY="ostler-assistant v%s is Apple Silicon only (detected: %s)."
 MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE="  ostler-import %s --user-name \"%s\" --verbose"
 MSG_WARN_OSTLER_WIKI_COMPILER_IMAGE_NOT_YET="  - ostler-wiki-compiler image not yet pullable (registry not wired)"
@@ -622,6 +640,12 @@ MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enab
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
 MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +44 7700 900123. Digits and a leading + only – no spaces, brackets or dashes."
 
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"ostler-assistant\" and turn it on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Click Done when finished."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
+
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.
 
@@ -787,3 +811,50 @@ MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA="No iMessage history to read. You can re-ru
 MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background – your wiki will fill in over the next hour."
 
+# CX-47 (DMG #30, 2026-05-24): elevated pre-warn banner for the three
+# folder-access TCC prompts triggered by the GDPR-export scan.
+MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE="Three folder-access prompts coming up"
+
+# CX-54 (DMG #30, 2026-05-24): in-window hint surfaced after macOS's
+# Command Line Tools install dialog steals focus. Customers consistently
+# miss that the questions phase continues in the background.
+MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="The Command Line Tools dialog has appeared in front of this window – click Install on it, then come back here (or wait a few seconds, we'll bring this window back to the front for you). Tools download in the background while you carry on answering the questions below; nothing here is blocked."
+
+# CX-55 (DMG #30, 2026-05-24): pre-warn for the iMessage Automation
+# permission prompt that macOS shows when we probe Messages.app for
+# the install-time TCC posture snapshot.
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE="Permission needed: iMessage Automation"
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="Ostler will now ask macOS for permission to talk to Messages.app. macOS will show a popup saying \"OstlerInstaller wants access to control Messages\" – click Allow so the assistant can send and receive iMessages on your behalf. Without this permission iMessage messages will silently never leave the box. This is a one-time grant; you can change it later in System Settings > Privacy & Security > Automation."
+
+# CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet shown in the
+# main GUI window after install completes. The TTY path already echoes
+# the key in YELLOW BOLD at install.sh:7580; the GUI path needs the
+# same surface so customers don't end up locked out if their Keychain
+# ever wobbles. install.sh emits a structured RECOVERY_KEY marker that
+# the Swift coordinator parses into a dedicated @Published property
+# (not into logLines, where it would leak into the Log drawer). The
+# RecoveryKeyView renders the value in monospace with Copy / Save PDF /
+# Print buttons + a confirm checkbox + Continue.
+MSG_INFO_RECOVERY_KEY_REVEALED_TITLE="Your recovery key"
+MSG_INFO_RECOVERY_KEY_REVEALED_BODY="Write this down or print it now. It's the only way back in if you lose your passphrase AND your Keychain becomes inaccessible. Ostler cannot recover it for you – the key never leaves this Mac and is not stored on any server."
+MSG_INFO_RECOVERY_KEY_REVEALED_CONFIRM="I've saved this somewhere safe"
+MSG_INFO_RECOVERY_KEY_REVEALED_COPY="Copy to clipboard"
+MSG_INFO_RECOVERY_KEY_REVEALED_SAVE_PDF="Save as PDF..."
+MSG_INFO_RECOVERY_KEY_REVEALED_PRINT="Print..."
+MSG_INFO_RECOVERY_KEY_REVEALED_CONTINUE="Continue"
+MSG_INFO_RECOVERY_KEY_PDF_DEFAULT_FILENAME="Ostler Recovery Key.pdf"
+MSG_INFO_RECOVERY_KEY_PRINT_JOB_TITLE="Ostler Recovery Key"
+MSG_OK_RECOVERY_KEY_COPIED_TO_CLIPBOARD="Recovery key copied to clipboard"
+MSG_OK_RECOVERY_KEY_SAVED_AS_PDF="Recovery key saved to %s"
+
+# CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR shown on the
+# install-complete screen. The Hub gateway exposes a §3.3 pair-code
+# envelope at POST http://localhost:8000/admin/paircode (no auth
+# needed on localhost). The GUI fetches the envelope, renders it as
+# a 256x256 QR with an oxblood border, and offers a Refresh button.
+# CM031 iOS app scans the QR + decodes the envelope.
+MSG_INFO_PAIR_IPHONE_TITLE="Pair your iPhone"
+MSG_INFO_PAIR_IPHONE_HELP="Open the Ostler app on your iPhone and scan this QR code to link it to this Hub. You can also pair later from the Hub's Settings menu."
+MSG_INFO_PAIR_IPHONE_FETCHING="Generating pairing code..."
+MSG_INFO_PAIR_REFRESH="Refresh code"
+MSG_ERR_PAIR_FETCH_FAILED="Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."

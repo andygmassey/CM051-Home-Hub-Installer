@@ -70,8 +70,35 @@ struct SidebarView: View {
             // footer panel so the Steps/Done summary doesn't visually
             // merge into the scroll list above. Matches the right-pane
             // dividing line, gives the footer its own visual frame.
-            Divider()
+            // CX-45 (DMG #29, 2026-05-24): horizontal-pad the divider
+            // by the same ostlerSpace3 used by the brand block + footer
+            // so its right end aligns with the sidebar's vertical
+            // dividing line on the right (was edge-to-edge, looked off).
+            // CX-45-refine (DMG #29, 2026-05-24): once the install
+            // has finished, the footer collapses to just the "Done"
+            // label and the divider above it has nothing to bracket --
+            // hide it entirely in the terminal state.
+            if coordinator.finished == nil {
+                Divider()
+                    .padding(.horizontal, .ostlerSpace3)
+            }
 
+            // CX-65 (DMG #36, 2026-05-24): footer block carries the
+            // "Step X of Y" counter mid-install, or the "Done" stamp
+            // on completion. Three polish items from Studio retest
+            // #28:
+            //   - "Done" was rendering at .ostlerCaption (~11pt) which
+            //     looked too small alongside the .ostlerH1 sidebar
+            //     brand-mark above. Bumped to .ostlerBody with the
+            //     semibold weight so it carries the visual weight of
+            //     a terminal state.
+            //   - Step counter + progress bar had zero top-padding,
+            //     so the "Step X of Y" line crowded into the divider
+            //     above with no breathing room. Added .ostlerSpace2
+            //     top padding on the active-install branch.
+            //   - The sidebarSpace1 spacing between counter + bar
+            //     stays as-is; the issue was the block-level top
+            //     padding, not the inner pair.
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
                 if let finished = coordinator.finished {
                     // F5 polish 2026-05-22: drop the duplicate Failed/Done
@@ -83,7 +110,8 @@ struct SidebarView: View {
                     if finished == .ok {
                         Label("Done", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(Color.ostlerForest)
-                            .font(.ostlerCaption)
+                            .font(.custom(Font.OstlerFontName.bodySemi,
+                                          size: 14, relativeTo: .body))
                     } else {
                         EmptyView()
                     }
@@ -106,6 +134,7 @@ struct SidebarView: View {
                         .font(.ostlerStrap)
                         .tracking(1.2)
                         .foregroundStyle(Color.ostlerInkSubdued)
+                        .padding(.top, .ostlerSpace2)
                     ProgressView(value: Double(coordinator.currentStepIdx),
                                  total: Double(max(coordinator.totalSteps, 1)))
                         .progressViewStyle(.linear)

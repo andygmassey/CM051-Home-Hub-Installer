@@ -221,5 +221,37 @@
     "help_touch_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",
     "help_optic_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",
     "help_password_or_watch": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+  },
+
+  "recovery_key_reveal": {
+    "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",
+    "heading": "Your recovery key",
+    "body": "Write this down or print it now. It's the only way back in if you lose your passphrase AND your Keychain becomes inaccessible. Ostler cannot recover it for you – the key never leaves this Mac and is not stored on any server.",
+    "confirm_label": "I've saved this somewhere safe",
+    "copy_button": "Copy to clipboard",
+    "save_pdf_button": "Save as PDF...",
+    "print_button": "Print...",
+    "continue_button": "Continue",
+    "pdf_default_filename": "Ostler Recovery Key.pdf",
+    "print_job_title": "Ostler Recovery Key",
+    "copied_announcement": "Recovery key copied to clipboard"
+  },
+
+  "pair_iphone": {
+    "_meta": "CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR section rendered between the service tick list and the CTA buttons on InstallCompleteView. The Hub gateway exposes POST http://localhost:8000/admin/paircode (no auth needed on localhost) which returns a §3.3 envelope JSON; we render that JSON string as a 256x256 QR with an oxblood border. CM031 iOS app scans the QR + decodes the envelope.",
+    "title": "Pair your iPhone",
+    "help": "Open the Ostler app on your iPhone and scan this QR code to link it to this Hub. You can also pair later from the Hub's Settings menu.",
+    "fetching": "Generating pairing code...",
+    "refresh_button": "Refresh code",
+    "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."
+  },
+
+  "install_complete": {
+    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the per-service health-check tick list; CTAs sit in the sticky footer.",
+    "heading": "You're all set",
+    "subheading": "Ostler is running on this Mac. Everything you need is set up; you can close this window.",
+    "health_check_label": "Health check",
+    "open_ostler_button": "Open Ostler",
+    "open_wiki_button": "Open your Wiki"
   }
 }

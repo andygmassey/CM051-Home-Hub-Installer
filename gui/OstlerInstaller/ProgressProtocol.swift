@@ -34,6 +34,16 @@ enum InstallerEvent: Equatable {
     case phase(id: String, title: String)
     case needsFDA(probe: String, reason: String)
     case needsSudo(reason: String)
+    /// CX-53 (DMG ship, 2026-05-24): install.sh emits a structured
+    /// RECOVERY_KEY marker carrying the value the customer must save
+    /// to get back in if they lose both their passphrase AND their
+    /// Keychain entry. The coordinator routes the value to a
+    /// dedicated @Published property (NOT into logLines, which is
+    /// rendered in the Log drawer visible to anyone the customer
+    /// hands the Mac to). The RecoveryKeyView sheet renders the
+    /// value with Copy / Save PDF / Print buttons + a confirm
+    /// checkbox.
+    case recoveryKey(value: String)
     /// CX-17 (2026-05-23): when install.sh's `fail_with_code` fires,
     /// the DONE marker carries a `code=ERR-NN-COMPONENT-SHORTREASON`
     /// keyword so the GUI can surface the code on the failure banner
@@ -175,6 +185,13 @@ struct ProgressDecoder {
                 status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,
                 errorCode: code
             )
+        case "RECOVERY_KEY":
+            // CX-53: parse the structured recovery-key marker
+            // emitted by install.sh after setup_passphrase. The value
+            // is single-shot (one fire per install) and surfaces in
+            // the GUI as a sheet with Copy / Save PDF / Print
+            // controls.
+            return .recoveryKey(value: kv["value"] ?? "")
         default:
             return .unknown(raw: raw)
         }
