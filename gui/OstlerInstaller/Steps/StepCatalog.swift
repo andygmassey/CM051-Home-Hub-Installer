@@ -113,6 +113,14 @@ final class StepCatalog {
         "ostler_assistant",
         "ostler_hub_app",
         "ostler_remotecapture",
+        // CX-81 Tailscale step (2026-05-26): dedicated "Connect your
+        // iPhone and Watch" full-screen view + STEP_BEGIN so the
+        // sidebar shows the row from launch. install.sh §3.15 emits
+        // the matching `progress "Connect your iPhone and Watch"
+        // "tailscale_connect"` before the gui_read PROMPT. Lives
+        // between ostler_remotecapture and hydrate_graph to match
+        // install.sh §3.15 position (between §3.14g and §3.16).
+        "tailscale_connect",
         "hydrate_graph",
         // CX-86 Gap A + Gap C: hydrate_browsing fires as a separate
         // progress emission BETWEEN hydrate_graph (B1/B2/CX-85's

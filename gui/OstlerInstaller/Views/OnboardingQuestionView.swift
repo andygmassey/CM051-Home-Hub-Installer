@@ -76,6 +76,31 @@ struct OnboardingQuestionView: View {
 
     @ViewBuilder
     private func renderQuestion(_ q: DisplayedQuestion) -> some View {
+        // CX-81 Tailscale step (2026-05-26): the "Connect your iPhone
+        // and Watch" prompt gets a dedicated full-screen view instead
+        // of the standard header + Picker + Continue row. Same shape
+        // as fda_preset's custom segmented control, but the whole
+        // question body is replaced rather than just the input
+        // control, because the value of the screen comes from the
+        // explainer + FAQ disclosures, not a tightly-clustered control.
+        if q.prompt.id == "tailscale_connect" {
+            TailscaleConnectView(
+                question: q,
+                onSubmit: { value in
+                    choiceValue = value
+                    submit(q)
+                }
+            )
+            .onAppear { seed(from: q) }
+            .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
+            .onChange(of: q.isReview) { _, _ in seed(from: q) }
+        } else {
+            standardQuestionBody(q)
+        }
+    }
+
+    @ViewBuilder
+    private func standardQuestionBody(_ q: DisplayedQuestion) -> some View {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             header(q)
 
@@ -869,7 +894,12 @@ struct OnboardingQuestionView: View {
     }
 }
 
-private struct DisplayedQuestion: Equatable {
+// Module-internal so sibling views (e.g. TailscaleConnectView from
+// CX-81 Tailscale step) can accept a DisplayedQuestion in their
+// public initialiser. The struct itself carries no security-sensitive
+// state -- it is a render-time projection of an already-public prompt
+// plus three local flags.
+struct DisplayedQuestion: Equatable {
     let prompt: InstallerCoordinator.PendingPrompt
     let index: Int
     let priorAnswer: String?

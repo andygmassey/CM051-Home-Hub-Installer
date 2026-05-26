@@ -59,6 +59,7 @@
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
 		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
+		C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E1974AECCE8C351193A5257 /* DialogIcon.icns */; };
 		C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */; };
 		CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FF342212E569C1E337355B /* CaffeinateManager.swift */; };
 		CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */; };
@@ -79,6 +80,7 @@
 		F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 524B76726D10373975055BD0 /* GatewayClient.swift */; };
 		F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */; };
 		FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */; };
+		FF3C80CAFC5353E7C36C2631 /* TailscaleConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E69616403717DA4E9247AC /* TailscaleConnectView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -133,11 +135,13 @@
 		7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareFingerprint.swift; sourceTree = "<group>"; };
 		7EC2E5CA6E396F6D43EF3FED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistenceTests.swift; sourceTree = "<group>"; };
+		88E69616403717DA4E9247AC /* TailscaleConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailscaleConnectView.swift; sourceTree = "<group>"; };
 		88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressDecoderTests.swift; sourceTree = "<group>"; };
 		8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroView.swift; sourceTree = "<group>"; };
 		8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OstlerInstallerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressProtocol.swift; sourceTree = "<group>"; };
 		9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkifyHelpTextTests.swift; sourceTree = "<group>"; };
+		9E1974AECCE8C351193A5257 /* DialogIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DialogIcon.icns; sourceTree = "<group>"; };
 		9EA7B9285055EFB24937AA9A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifier.swift; sourceTree = "<group>"; };
 		A7BB29D9449120BC392EE586 /* JetBrainsMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Medium.ttf"; sourceTree = "<group>"; };
@@ -202,6 +206,7 @@
 				8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */,
 				F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */,
 				D93788700DA6F1729EFEB460 /* SidebarView.swift */,
+				88E69616403717DA4E9247AC /* TailscaleConnectView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -326,6 +331,7 @@
 		FE9676D0B0AB2FB88EC5C6C6 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				9E1974AECCE8C351193A5257 /* DialogIcon.icns */,
 				648CD2F16A53E31F71B7BD82 /* HintCopy.json */,
 				143B97F50F4AF5CC13BFCECB /* ViewCopy.json */,
 				1E843E2C679DF062FF8BC1D6 /* Fonts */,
@@ -369,8 +375,10 @@
 				C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */,
 				ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */,
 				9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */,
-				8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */,
+				67A22DB55E8A84F7D0AF3AAE /* Bundle CM041 PWG People Graph (contact_syncer + meeting_syncer + identity_resolver + assistant_api) into Resources */,
 				37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */,
+				2BE665C74BE61DE6E12496F9 /* Bundle CM021 PWG Email Intelligence (pwg-email-ingest CLI) into Resources */,
+				A960ED2414DB9CC1D912777E /* Bundle imessage-bridge LaunchAgent + producer into Resources */,
 				E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */,
 				0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */,
 			);
@@ -430,6 +438,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1C0CC5EED1EDDEDE6E62BDCD /* Assets.xcassets in Resources */,
+				C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */,
 				6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */,
 				1C7B2F24D57A40800C9D9BE3 /* IBMPlexSans-Medium.ttf in Resources */,
 				66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */,
@@ -486,6 +495,26 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
 		};
+		2BE665C74BE61DE6E12496F9 /* Bundle CM021 PWG Email Intelligence (pwg-email-ingest CLI) into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm021",
+			);
+			name = "Bundle CM021 PWG Email Intelligence (pwg-email-ingest CLI) into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm021",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# CX-83: CM021 is the canonical email-ingest substrate. It\n# ships the pwg-email-ingest console script that the\n# vendor/email_ingest/bin/email-ingest-tick.sh LaunchAgent\n# has been calling on every hourly tick since shipping.\n# Until this lift the CLI was a phantom -- tick.sh ran\n# `command -v pwg-email-ingest`, found nothing, exited 127\n# on every tick. The hourly mail ingestion has never run\n# on a customer install.\n#\n# CRITICAL bundle layout: cm021 (NOT vendor/cm021) at the\n# Resources root. install.sh resolves the source via\n# `${SCRIPT_DIR}/cm021/pyproject.toml`, matching the\n# ostler_fda + cm048_pipeline conventions.\n#\n# Naming-collision note: CM021 (email-intelligence repo) is\n# the email-ingest substrate. CM046 (PWG-Email-Intelligence\n# repo) is research-only (signature mining, header mining,\n# relationship scoring) and stays out of the v1.0 customer\n# build. Every future agent will hit this confusion -- the\n# CM021 / CM046 split is intentional.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm021\"\nif [ ! -d \"${VENDOR_ROOT}\" ]; then\n  echo \"error: vendor/cm021/ missing.\" >&2\n  echo \"       Expected: ${VENDOR_ROOT}\" >&2\n  echo \"       Re-sync from the CM021 email-intelligence repo.\" >&2\n  exit 1\nfi\nif [ ! -f \"${VENDOR_ROOT}/pyproject.toml\" ]; then\n  echo \"error: vendor/cm021/pyproject.toml missing.\" >&2\n  echo \"       The CLI install pip-installs from this path; without\" >&2\n  echo \"       the manifest the install.sh hydrate_email step degrades\" >&2\n  echo \"       to MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING.\" >&2\n  exit 1\nfi\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-tree rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/cm021\"\nmkdir -p \"${DEST}/cm021\"\ncp -R \"${VENDOR_ROOT}/pyproject.toml\" \"${DEST}/cm021/pyproject.toml\"\ncp -R \"${VENDOR_ROOT}/src\"            \"${DEST}/cm021/src\"\n/usr/bin/xattr -cr \"${DEST}/cm021\"\n";
+		};
 		37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -525,7 +554,7 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# CX-19 (launch blocker, 2026-05-23). Studio retest #14 against\n# DMG #16 caught a phase-ordering bug that lands on every fresh\n# customer Mac: install.sh runs `python3 --version` early in\n# the QUESTIONS phase; on a stock macOS 15 install that hits\n# the /usr/bin/python3 Apple stub which fires the \"Install\n# Command Line Tools\" GUI dialog and returns non-zero. The\n# subsequent `brew install python@3.11` fallback also fails\n# because Homebrew has not been installed yet.\n#\n# Fix: bundle a portable Python 3.11 inside the .app via\n# python-build-standalone (the same upstream uv / ruff / mise /\n# Posit consume). install.sh prefers the bundled binary at\n# ${SCRIPT_DIR}/python/bin/python3.11 over any system python3,\n# so the customer install never depends on CLT or Homebrew\n# being present for the venv work.\n#\n# The Makefile target `download-python` (in gui/Makefile)\n# downloads + SHA-256-verifies the tarball into\n# ${BUILD_DIR}/python-bundle.tar.gz before xcodebuild runs.\n# If you are invoking xcodebuild by hand (rare), run\n# `make -C gui download-python` first.\n#\n# Apple Silicon only for v1.0 (the aarch64-apple-darwin\n# install_only flavor). Intel Mac support deferred to v1.0.1.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n# The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.\n# When `make ship` is the entry point, BUILD_DIR defaults to\n# /tmp/ostler-installer-build-andy. When xcodebuild runs from\n# Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.\nPYTHON_TARBALL=\"\"\nfor candidate in \\\n    \"/tmp/ostler-installer-build-andy/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/../build/python-bundle.tar.gz\" \\\n    \"${SRCROOT}/build/python-bundle.tar.gz\"; do\n    if [ -f \"$candidate\" ]; then\n        PYTHON_TARBALL=\"$candidate\"\n        break\n    fi\ndone\nif [ -z \"$PYTHON_TARBALL\" ]; then\n    echo \"ERROR: python-build-standalone tarball missing.\" >&2\n    echo \"       Run 'make -C gui download-python' before building.\" >&2\n    echo \"       Searched:\" >&2\n    echo \"         /tmp/ostler-installer-build-andy/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/../build/python-bundle.tar.gz\" >&2\n    echo \"         ${SRCROOT}/build/python-bundle.tar.gz\" >&2\n    exit 1\nfi\necho \"Bundling python-build-standalone from ${PYTHON_TARBALL} into Resources/python/\"\n# Wipe any prior extraction so re-runs are idempotent and we never\n# ship a hybrid tree from two different upstream releases.\nrm -rf \"${DEST}/python\"\nmkdir -p \"${DEST}/python\"\n# --strip-components=1 drops the upstream \"python/\" wrapper dir.\ntar -xzf \"$PYTHON_TARBALL\" -C \"${DEST}/python\" --strip-components=1\n# Strip __pycache__ from the standard library before codesign.\n# python-build-standalone ships pre-compiled .pyc files; they are\n# not signable, and codesign --deep refuses to traverse them when\n# the parent dir lands as a \"code resource\". CPython regenerates\n# them lazily at first import. Mirror of the cm024_knowledge /\n# cm048_pipeline patterns below.\nfind \"${DEST}/python\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/python\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Verify the binary landed at the expected path. install.sh\n# specifically tests `[[ -x ${SCRIPT_DIR}/python/bin/python3.11 ]]`\n# so a layout drift in upstream would silently degrade us back\n# to the system-python path (which is the failure shape we are\n# paying down). Refuse to ship a misshapen bundle.\nif [ ! -x \"${DEST}/python/bin/python3.11\" ]; then\n    echo \"ERROR: python3.11 binary not found at\" >&2\n    echo \"       ${DEST}/python/bin/python3.11 after extraction.\" >&2\n    echo \"       Upstream tarball layout may have changed.\" >&2\n    exit 1\nfi\n# Belt-and-braces xattr strip on the destination.\n/usr/bin/xattr -cr \"${DEST}/python\" || true\n";
 		};
-		8B212FDD503AEE6AABE388D8 /* Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources */ = {
+		67A22DB55E8A84F7D0AF3AAE /* Bundle CM041 PWG People Graph (contact_syncer + meeting_syncer + identity_resolver + assistant_api) into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -534,14 +563,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Bundle CM041 PWG People Graph (contact_syncer + assistant_api) into Resources";
+			name = "Bundle CM041 PWG People Graph (contact_syncer + meeting_syncer + identity_resolver + assistant_api) into Resources";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n# The CM041 PWG People Graph repo ships two productised assets:\n#   - contact_syncer/  Python package, runs the GDPR import\n#                      pipeline. install.sh §3.10 looks for it\n#                      at \"${SCRIPT_DIR}/contact_syncer\" (i.e.\n#                      Contents/Resources/contact_syncer/ when\n#                      install.sh runs from inside the .app),\n#                      copies it to ${OSTLER_DIR}/import-pipeline/,\n#                      and invokes\n#                      .venv/bin/python -m contact_syncer.import_all.\n#   - assistant_api/   ical-server.py (the local API on :8089)\n#                      + its companion docs. Installed by a\n#                      later install.sh phase that wires it\n#                      as a launchd agent.\n#\n# CRITICAL bundle layout: both subdirs MUST live at the\n# Resources root (NOT under a vendor/cm041/ wrapper) because\n# install.sh's path checks (lines 4196 onward + 4245) hard-code\n# the unwrapped paths. Don't introduce a vendor/cm041/ subdir\n# at install-time; copy the CONTENTS of vendor/cm041/ directly.\n#\n# `cp -R` without -p so source xattrs (com.apple.provenance,\n# com.apple.macl on Sonoma+) don't propagate into the .app\n# bundle. The subsequent \"Strip xattrs\" phase is a belt-and-\n# braces second pass over the whole bundle.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm041\"\nif [ ! -d \"${VENDOR_ROOT}/contact_syncer\" ] || [ ! -d \"${VENDOR_ROOT}/assistant_api\" ]; then\n  echo \"error: vendor/cm041/ missing contact_syncer/ or assistant_api/.\" >&2\n  echo \"       Expected: ${VENDOR_ROOT}/contact_syncer + ${VENDOR_ROOT}/assistant_api\" >&2\n  echo \"       Re-sync from the CM041 PWG People Graph repo.\" >&2\n  exit 1\nfi\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-syncer rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/contact_syncer\" \"${DEST}/assistant_api\"\ncp -R \"${VENDOR_ROOT}/contact_syncer\" \"${DEST}/contact_syncer\"\ncp -R \"${VENDOR_ROOT}/assistant_api\"  \"${DEST}/assistant_api\"\n/usr/bin/xattr -cr \"${DEST}/contact_syncer\" \"${DEST}/assistant_api\"\n# ical-server.py is executable on the operator instance via\n# `python ical-server.py`, not chmod +x, so we don't toggle\n# the mode here. requirements.txt + .env.example land 644.\n";
+			shellScript = "set -euo pipefail\n# The CM041 PWG People Graph repo ships four productised assets:\n#   - contact_syncer/      Python package, runs the GDPR import\n#                          pipeline + the install-time iCloud\n#                          contacts hydration (CX-81 B1).\n#                          install.sh phases look for it at\n#                          \"${SCRIPT_DIR}/contact_syncer\" and\n#                          invoke .venv/bin/python -m\n#                          contact_syncer.import_all (GDPR) or\n#                          contact_syncer.syncer --vcf (B1).\n#   - meeting_syncer/      Python package, runs install-time\n#                          calendar backfill (CX-81 B1). Added\n#                          alongside contact_syncer on\n#                          2026-05-26 so the customer's Hub\n#                          launches with a populated Timeline.\n#                          Invoked as .venv/bin/python -m\n#                          meeting_syncer.syncer --days 90.\n#   - identity_resolver/   Shared Python helper imported by\n#                          BOTH syncers (sys.path hack inside\n#                          syncer.py expects it as a sibling\n#                          package at runtime). Vendored on\n#                          2026-05-26 to unblock B1; the\n#                          existing customer install never hit\n#                          the import path (contact_syncer.\n#                          import_all doesn't touch it), so\n#                          this surfaces a latent\n#                          ImportError as well as wiring B1.\n#   - assistant_api/       ical-server.py (the local API on\n#                          :8089) + its companion docs.\n#                          Installed by a later install.sh\n#                          phase that wires it as a launchd\n#                          agent.\n#\n# CRITICAL bundle layout: every subdir MUST live at the\n# Resources root (NOT under a vendor/cm041/ wrapper) because\n# install.sh's path checks hard-code the unwrapped paths.\n# Don't introduce a vendor/cm041/ subdir at install-time;\n# copy the CONTENTS of vendor/cm041/ directly. The\n# identity_resolver sibling layout is what\n# contact_syncer.syncer + meeting_syncer.syncer expect at\n# runtime via their `_PARENT_DIR` sys.path hack.\n#\n# `cp -R` without -p so source xattrs (com.apple.provenance,\n# com.apple.macl on Sonoma+) don't propagate into the .app\n# bundle. The subsequent \"Strip xattrs\" phase is a belt-and-\n# braces second pass over the whole bundle.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm041\"\nfor sub in contact_syncer meeting_syncer identity_resolver assistant_api; do\n  if [ ! -d \"${VENDOR_ROOT}/${sub}\" ]; then\n    echo \"error: vendor/cm041/${sub}/ missing.\" >&2\n    echo \"       Expected: ${VENDOR_ROOT}/${sub}\" >&2\n    echo \"       Re-sync from the CM041 PWG People Graph repo.\" >&2\n    exit 1\n  fi\ndone\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-syncer rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/contact_syncer\" \"${DEST}/meeting_syncer\" \"${DEST}/identity_resolver\" \"${DEST}/assistant_api\"\ncp -R \"${VENDOR_ROOT}/contact_syncer\"    \"${DEST}/contact_syncer\"\ncp -R \"${VENDOR_ROOT}/meeting_syncer\"    \"${DEST}/meeting_syncer\"\ncp -R \"${VENDOR_ROOT}/identity_resolver\" \"${DEST}/identity_resolver\"\ncp -R \"${VENDOR_ROOT}/assistant_api\"     \"${DEST}/assistant_api\"\n/usr/bin/xattr -cr \"${DEST}/contact_syncer\" \"${DEST}/meeting_syncer\" \"${DEST}/identity_resolver\" \"${DEST}/assistant_api\"\n# ical-server.py is executable on the operator instance via\n# `python ical-server.py`, not chmod +x, so we don't toggle\n# the mode here. requirements.txt + .env.example land 644.\n";
 		};
 		9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -582,6 +611,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/doctor/agent\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling Doctor agent from ${SRC} into Resources/doctor/agent/\"\n  mkdir -p \"${DEST}/doctor/agent\"\n  cp -R \"${SRC}/\" \"${DEST}/doctor/agent/\"\n  /usr/bin/xattr -cr \"${DEST}/doctor\" || true\nelse\n  echo \"ERROR: vendor/doctor/agent not found at ${SRC}\" >&2\n  exit 1\nfi\n";
+		};
+		A960ED2414DB9CC1D912777E /* Bundle imessage-bridge LaunchAgent + producer into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/imessage_bridge",
+			);
+			name = "Bundle imessage-bridge LaunchAgent + producer into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/imessage-bridge",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/imessage_bridge\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling imessage_bridge from ${SRC} into Resources/imessage-bridge/\"\n  mkdir -p \"${DEST}/imessage-bridge\"\n  # install.sh 3.14c looks for ${SCRIPT_DIR}/imessage-bridge/INSTALL_SNIPPET.sh\n  # so the bundled directory MUST be named imessage-bridge (hyphen),\n  # matching the source directory name in HR015.\n  cp -R \"${SRC}/\"* \"${DEST}/imessage-bridge/\"\n  /usr/bin/xattr -cr \"${DEST}/imessage-bridge\" || true\n  chmod 755 \"${DEST}/imessage-bridge/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/imessage-bridge/bin/bridge.py\" 2>/dev/null || true\nelse\n  echo \"ERROR: vendor/imessage_bridge not found at ${SRC}\" >&2\n  exit 1\nfi\n";
 		};
 		B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -745,6 +794,7 @@
 				FD38E03D6747678A211F1814 /* SelfRelocator.swift in Sources */,
 				8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */,
 				2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */,
+				FF3C80CAFC5353E7C36C2631 /* TailscaleConnectView.swift in Sources */,
 				9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
