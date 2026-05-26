@@ -22,7 +22,7 @@ import SwiftUI
 
 extension Color {
     /// Build a Color from a 24-bit hex literal so the palette below reads
-    /// 1:1 with the .css source (e.g., `#8B1F1F` → `Color(hex: 0x8B1F1F)`).
+    /// 1:1 with the .css source (e.g., `#7A1F1F` → `Color(hex: 0x7A1F1F)`).
     fileprivate init(hex: UInt32, opacity: Double = 1.0) {
         let r = Double((hex >> 16) & 0xFF) / 255.0
         let g = Double((hex >>  8) & 0xFF) / 255.0
@@ -41,7 +41,7 @@ extension Color {
     static let ostlerInkSubdued   = Color(hex: 0x14120E, opacity: 0.50)
 
     // Accents
-    static let ostlerOxblood      = Color(hex: 0x8B1F1F)  // --accent
+    static let ostlerOxblood      = Color(hex: 0x7A1F1F)  // --accent
     static let ostlerOxbloodHover = Color(hex: 0x6E1717)  // --accent-hover
     static let ostlerOxbloodWarm  = Color(hex: 0xA82A2A)  // --accent-warm
     static let ostlerInkBlue      = Color(hex: 0x1E2C52)  // --accent-2
@@ -53,7 +53,7 @@ extension Color {
     static let ostlerHairlineFaint = Color(hex: 0x14120E, opacity: 0.08)
 
     // Soft accent fills (selection, focus, hover-on-light)
-    static let ostlerOxbloodSoft   = Color(hex: 0x8B1F1F, opacity: 0.12)
+    static let ostlerOxbloodSoft   = Color(hex: 0x7A1F1F, opacity: 0.12)
     static let ostlerInkBlueSoft   = Color(hex: 0x1E2C52, opacity: 0.10)
 }
 
