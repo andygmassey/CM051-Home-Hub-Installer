@@ -525,7 +525,7 @@ verify-dmg-contents:
 	fi; \
 	RES="$$MOUNT/$(APP_NAME).app/Contents/Resources"; \
 	MISSING=""; \
-	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline contact_syncer email-ingest; do \
+	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline contact_syncer meeting_syncer identity_resolver email-ingest; do \
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \

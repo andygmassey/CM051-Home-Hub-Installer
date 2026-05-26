@@ -711,3 +711,17 @@ MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale lets you reach the assistant secure
 MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain?"
 MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS Keychain for safekeeping."
 
+# Hydration phase strings (CX-81 B1)
+# Used by install.sh's hydrate_graph sub-phase (immediately before
+# wiki_compile). Customer-facing counts come from the syncers' own
+# JSON output, never from a fixed founder-instance number.
+MSG_HYDRATE_TITLE="Hydrating your graph"
+MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
+MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
+MSG_HYDRATE_CALENDAR_STARTED="Backfilling your calendar for the last 90 days"
+MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
+MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki – this takes 2 to 5 minutes"
+MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
+MSG_HYDRATE_SKIPPED_NO_CONTACTS="No iCloud contacts to import. You can add this later from Settings."
+MSG_HYDRATE_SKIPPED_NO_EVENTS="No calendar events in the last 90 days. You can backfill later from Settings."
+

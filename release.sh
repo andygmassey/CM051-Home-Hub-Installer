@@ -77,6 +77,8 @@ HR015_SOURCES=(
     "ostler_fda"
     "hub-power"
     "contact_syncer"
+    "meeting_syncer"
+    "identity_resolver"
     "email-ingest"
     "doctor"
     "legal"

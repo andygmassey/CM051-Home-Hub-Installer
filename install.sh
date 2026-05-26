@@ -4875,6 +4875,15 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # Pipeline is bundled with the installer
     mkdir -p "$PIPELINE_DIR"
     cp -R "${SCRIPT_DIR}/contact_syncer" "$PIPELINE_DIR/"
+    # CX-81 B1 (2026-05-26): meeting_syncer + identity_resolver join
+    # contact_syncer in the bundled set so install.sh's hydrate_graph
+    # sub-phase (added at the same time, see Phase 3.X below) can run
+    # both. identity_resolver is a sibling package both syncer.py
+    # files import via a sys.path hack -- without it the
+    # contact_syncer.syncer + meeting_syncer.syncer entry points
+    # raise ImportError at install time.
+    [[ -d "${SCRIPT_DIR}/meeting_syncer" ]] && cp -R "${SCRIPT_DIR}/meeting_syncer" "$PIPELINE_DIR/"
+    [[ -d "${SCRIPT_DIR}/identity_resolver" ]] && cp -R "${SCRIPT_DIR}/identity_resolver" "$PIPELINE_DIR/"
     [[ -f "${SCRIPT_DIR}/requirements.txt" ]] && cp "${SCRIPT_DIR}/requirements.txt" "$PIPELINE_DIR/"
     ok "$MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER"
     HAS_PIPELINE=true
@@ -7188,6 +7197,113 @@ fi
 # warn-logs and continues -- the data layer (Phase 3.8) is already
 # up, so the user has everything except the wiki UI. Piece 1's PR
 # body documents the pre-built-vs-build-at-install decision.
+
+# ── 3.X HYDRATE GRAPH (CX-81 B1) ──────────────────────────────────
+#
+# Populate the personal graph from local Apple-side sources BEFORE
+# the first wiki compile so the customer's Hub opens onto a wiki
+# with People + Timeline already populated (not empty).
+#
+# Two parallel-safe imports:
+#   1. Contacts -- from the iCloud Contacts vCard export written
+#      earlier (${OSTLER_DIR}/imports/icloud-contacts.vcf). The
+#      contact_syncer.syncer CLI was extended (CX-81 B1 / CM041 PR
+#      #30) with a --vcf <path> flag plus a single-line JSON status
+#      emitter on stdout. install.sh parses ``.imported`` for the
+#      customer-visible count.
+#   2. Calendar -- via the ical-server (already running by this
+#      phase: Phase 3.8 brought up the graph DBs + Phase 3.X-1
+#      started the assistant_api launchd agent). meeting_syncer
+#      backfills the last 90 days of events with attendees.
+#
+# Behaviour on edge cases (per CX-81 B1 AC4):
+#   - vcf missing / empty -> emit MSG_HYDRATE_SKIPPED_NO_CONTACTS,
+#     continue. Install does NOT fail.
+#   - ical-server unreachable / zero events -> emit
+#     MSG_HYDRATE_SKIPPED_NO_EVENTS, continue.
+#   - syncer raises -> log the failure, continue. The wiki_compile
+#     that follows still runs and emits a skeleton wiki.
+#
+# Privacy: both syncers are local-only. No network calls leave the
+# customer's Mac. Contact data + calendar data are read locally
+# (vCard file + localhost ical-server) and written locally
+# (Oxigraph at :7878, Qdrant at :6333). No telemetry of volumes.
+
+progress "Hydrating your graph from iCloud" "hydrate_graph"
+
+_HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
+_HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
+_HYDRATE_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
+_HYDRATE_PIPELINE_PY="${PIPELINE_DIR}/.venv/bin/python"
+
+# Contact hydration ------------------------------------------------
+if [[ -s "$_HYDRATE_VCF" ]] && [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+    info "$MSG_HYDRATE_CONTACTS_STARTED"
+    # contact_syncer.syncer --vcf emits a single-line JSON status on
+    # stdout when it finishes. Progress lines go to stderr so the
+    # final stdout line is parseable.
+    _HYDRATE_CONTACTS_JSON="$(
+        cd "$PIPELINE_DIR" && \
+        "$_HYDRATE_PIPELINE_PY" -m contact_syncer.syncer \
+            --vcf "$_HYDRATE_VCF" \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>/tmp/ostler-hydrate-contacts.log \
+        | tail -n 1
+    )" || _HYDRATE_CONTACTS_JSON=""
+    _HYDRATE_CONTACTS_COUNT="$(
+        printf '%s' "$_HYDRATE_CONTACTS_JSON" \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("imported", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+    )"
+    _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
+    if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
+        ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
+    else
+        info "$MSG_HYDRATE_SKIPPED_NO_CONTACTS"
+    fi
+else
+    info "$MSG_HYDRATE_SKIPPED_NO_CONTACTS"
+fi
+
+# Calendar hydration -----------------------------------------------
+if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+    info "$MSG_HYDRATE_CALENDAR_STARTED"
+    _HYDRATE_CALENDAR_JSON="$(
+        cd "$PIPELINE_DIR" && \
+        "$_HYDRATE_PIPELINE_PY" -m meeting_syncer.syncer \
+            --days 90 \
+            --api-url "$_HYDRATE_API" \
+            --graph-endpoint "$_HYDRATE_OXIGRAPH" \
+            --json 2>>/tmp/ostler-hydrate-calendar.log \
+        | tail -n 1
+    )" || _HYDRATE_CALENDAR_JSON=""
+    _HYDRATE_CALENDAR_COUNT="$(
+        printf '%s' "$_HYDRATE_CALENDAR_JSON" \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("imported", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+    )"
+    _HYDRATE_CALENDAR_COUNT="${_HYDRATE_CALENDAR_COUNT:-0}"
+    if [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
+        ok "$(printf "$MSG_HYDRATE_CALENDAR_DONE" "$_HYDRATE_CALENDAR_COUNT")"
+    else
+        info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
+    fi
+else
+    info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
+fi
+
+unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY
+unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
+unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
+
+info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
 
