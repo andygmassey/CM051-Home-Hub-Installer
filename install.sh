@@ -7949,6 +7949,117 @@ fi
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
 unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROME
 
+# iMessage hydration (CX-84) ---------------------------------------
+#
+# Reads imessage_conversations.json (written by the Phase 3 FDA
+# extract_all step when "imessage" is in OSTLER_FDA_SOURCES) and
+# emits Person + lastContactIMessage triples into Oxigraph. Only
+# the people-count is surfaced to the customer -- no handles, phone
+# numbers, or message text leaves the local process.
+#
+# Same 90s wall-clock cap as the other hydrate_* blocks. On timeout
+# we emit MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES and let the
+# hourly tick (or Doctor-triggered rescan) finish whatever was
+# still pending.
+#
+# Backfill window: extract_all.py honours OSTLER_IMESSAGE_BACKFILL_DAYS
+# (default 365). The JSON has already been written at fda_extract
+# time, so this block just walks the JSON -- no env reach-through
+# is needed here.
+#
+# Behaviour on edge cases:
+#   - email-ingest venv not present / ostler_fda missing -> emit
+#     MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING, continue.
+#   - imessage_conversations.json missing or empty (FDA denied at
+#     extract time, or user un-ticked iMessage) -> emit
+#     MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA, continue.
+#   - 90s timeout -> emit MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES.
+#
+# Privacy AC (mirror of B2/CX-85/CX-86): the ingest_imessage return
+# dict is counts-only (status / people_created / people_enriched);
+# install.sh sums the two created+enriched counts for the customer
+# message and never logs any participant identifiers.
+
+progress "Hydrating iMessage contacts" "hydrate_imessage"
+
+_HYDRATE_IMESSAGE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_HYDRATE_IMESSAGE_PY="${_HYDRATE_IMESSAGE_VENV}/bin/python"
+_HYDRATE_IMESSAGE_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_HYDRATE_IMESSAGE_JSON_FILE="${_HYDRATE_IMESSAGE_FDA_DIR}/imessage_conversations.json"
+
+if [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
+    info "$MSG_HYDRATE_IMESSAGE_STARTED"
+
+    _HYDRATE_IMESSAGE_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="gtimeout 90"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_IMESSAGE_TIMEOUT_WRAP="timeout 90"
+    fi
+
+    _HYDRATE_IMESSAGE_LOG=/tmp/ostler-hydrate-imessage.log
+    _HYDRATE_IMESSAGE_TIMED_OUT=false
+
+    # Inline python so we only run ingest_imessage and don't
+    # re-emit triples for whatsapp / browser_history / etc whose
+    # JSON also lives in the same fda_dir. Mirrors hydrate_browsing's
+    # invocation shape (CX-86 #181).
+    _HYDRATE_IMESSAGE_JSON_OUT="$(
+        $_HYDRATE_IMESSAGE_TIMEOUT_WRAP \
+        "$_HYDRATE_IMESSAGE_PY" -c "
+import json
+from pathlib import Path
+from ostler_fda.pwg_ingest import ingest_imessage
+result = ingest_imessage(Path('${_HYDRATE_IMESSAGE_FDA_DIR}'))
+print(json.dumps(result))
+" 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
+    )"
+    rc=$?
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_IMESSAGE_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_IMESSAGE_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES"
+    elif [[ -n "$_HYDRATE_IMESSAGE_JSON_OUT" ]]; then
+        # ingest_imessage returns people_created + people_enriched.
+        # Sum the two for the customer-facing count -- both forms
+        # represent "this person now shows iMessage on their wiki
+        # card" (enriched = pre-existing Person from B1/B2 gaining
+        # an iMessage identifier; created = brand-new contact who
+        # only exists in chat.db).
+        _HYDRATE_IMESSAGE_COUNT="$(
+            printf '%s' "$_HYDRATE_IMESSAGE_JSON_OUT" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("people_created", 0)) + int(d.get("people_enriched", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_IMESSAGE_COUNT="${_HYDRATE_IMESSAGE_COUNT:-0}"
+
+        if [[ "$_HYDRATE_IMESSAGE_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_IMESSAGE_DONE" "$_HYDRATE_IMESSAGE_COUNT")"
+        else
+            info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+        fi
+    else
+        info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+    fi
+
+    unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
+    unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
+    unset _HYDRATE_IMESSAGE_LOG
+elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
+    info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
+else
+    info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+fi
+
+unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
+unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"

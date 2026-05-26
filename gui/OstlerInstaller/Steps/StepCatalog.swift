@@ -120,6 +120,12 @@ final class StepCatalog {
         // wiki_compile. Streams Safari + Chrome history through the
         // gateway with needs_reprocessing=true.
         "hydrate_browsing",
+        // CX-84: hydrate_imessage fires after hydrate_browsing and
+        // before wiki_compile. Reads imessage_conversations.json
+        // (written by fda_extract) and walks it through
+        // ingest_imessage to emit Person + lastContactIMessage
+        // triples. Counts-only stdout, no participant identifiers.
+        "hydrate_imessage",
         "wiki_compile",
         "health_check",
     ]
