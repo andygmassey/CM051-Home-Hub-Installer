@@ -39,6 +39,12 @@ set -euo pipefail
 
 CM051_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HR015_DIR="${CM051_DIR}/../HR015 - Gaming PC"
+# CM021 ships pwg-email-ingest. Sibling-located alongside HR015 + CM051
+# in the operator's working tree. Override via --cm021 if you keep it
+# elsewhere. The release.sh stages CM021_SOURCES into INSTALL_DIR/cm021/
+# so install.sh's hydrate_email step can pip-install it into the
+# email-ingest venv.
+CM021_DIR="${CM051_DIR}/../CM021 - Email Intelligence"
 DIST_DIR="${CM051_DIR}/dist"
 STAGE_DIR=""
 VERSION=""
@@ -97,6 +103,14 @@ HR015_SOURCES=(
 # ${CM051_DIR}/vendor/cm041/.
 CM051_VENDOR_CM041_SUBDIRS=(
     "assistant_api"
+)
+
+# Files / dirs sourced from CM021. Format: src_relpath. Staged under
+# INSTALL_DIR/cm021/ as a single namespaced subdir; install.sh's
+# hydrate_email step looks for ${SCRIPT_DIR}/cm021/pyproject.toml.
+CM021_SOURCES=(
+    "src"
+    "pyproject.toml"
 )
 
 # Special: copy HR015/contact_syncer/requirements.txt -> install/requirements.txt
@@ -184,6 +198,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --version)            VERSION="$2"; shift 2 ;;
         --hr015)              HR015_DIR="$2"; shift 2 ;;
+        --cm021)              CM021_DIR="$2"; shift 2 ;;
         --verify)             DO_VERIFY=1; shift ;;
         --dry-run)            DO_DRY_RUN=1; shift ;;
         --diff-against-tag)   DIFF_AGAINST_TAG="$2"; shift 2 ;;
@@ -198,6 +213,7 @@ done
 
 [[ -z "${VERSION}" ]] && die "--version is required" 1
 [[ -d "${HR015_DIR}" ]] || die "--hr015 path not found: ${HR015_DIR}" 3
+[[ -d "${CM021_DIR}" ]] || die "--cm021 path not found: ${CM021_DIR}" 3
 
 # -----------------------------------------------------------------------------
 # Stage
@@ -242,6 +258,17 @@ for src in "${CM051_VENDOR_CM041_SUBDIRS[@]}"; do
     # Contents/Resources/assistant_api/, NOT under a vendor/cm041/
     # wrapper).
     rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/"
+done
+
+echo "==> Staging from CM021 (${CM021_DIR})"
+mkdir -p "${INSTALL_DIR}/cm021"
+for src in "${CM021_SOURCES[@]}"; do
+    SRC="${CM021_DIR}/${src}"
+    [[ -e "${SRC}" ]] || die "missing CM021 source: ${SRC}" 3
+    echo "   + cm021/${src}"
+    EXCLUDE_FLAGS=()
+    for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
+    rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/cm021/"
 done
 
 echo "==> Aggregating requirements.txt from HR015/${HR015_AGGREGATE_REQUIREMENTS_SRC}"

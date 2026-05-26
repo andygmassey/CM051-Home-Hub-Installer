@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pwg-email-intelligence"
+version = "0.1.0"
+description = "Email intelligence pipeline for PWG. Provides the pwg-email-ingest CLI used by the Ostler hub email-ingest LaunchAgent."
+requires-python = ">=3.10"
+dependencies = [
+    # httpx: Oxigraph SPARQL UPDATE client used by src/cli.py.
+    "httpx>=0.24",
+    # beautifulsoup4: required by src/parsers/mbox_parser.py (the slow
+    # mailbox-library parser, eagerly imported by src/parsers/__init__.py).
+    # cli.py uses the fast streaming parser instead, but the package
+    # init chain still touches mbox_parser at import time, so bs4
+    # must be installable in the email-ingest venv.
+    "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+pwg-email-ingest = "src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

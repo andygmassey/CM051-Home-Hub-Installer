@@ -6309,6 +6309,49 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         fi
         EMAIL_INGEST_VENV_PYTHON=""
     fi
+
+    # CX-83: also install CM021 (pwg-email-intelligence) into the
+    # same venv. CM021 provides the `pwg-email-ingest` console
+    # script that vendor/email_ingest/bin/email-ingest-tick.sh has
+    # been calling since shipping. Until this lift, that command
+    # was a phantom: tick.sh ran `command -v pwg-email-ingest`,
+    # found nothing, exited 127 every hourly tick. So the hourly
+    # mail ingestion has never run on a customer install.
+    #
+    # Source path mirrors OSTLER_FDA_SRC: productised path is
+    # ${SCRIPT_DIR}/cm021 (staged by gui/project.yml postBuildScript),
+    # dev path is ${SCRIPT_DIR}/../vendor/cm021.
+    #
+    # Failure here is non-fatal: the email-ingest venv keeps the
+    # ostler_fda emitter, so the customer's mbox files still land
+    # under ~/.ostler/imports/email/ on each hourly tick. They just
+    # don't get ingested into Oxigraph. Doctor's backfill-progress
+    # diagnostic surfaces this.
+    if [[ -n "$EMAIL_INGEST_VENV_PYTHON" ]]; then
+        CM021_SRC=""
+        if [[ -d "${SCRIPT_DIR}/cm021" && -f "${SCRIPT_DIR}/cm021/pyproject.toml" ]]; then
+            CM021_SRC="${SCRIPT_DIR}/cm021"
+        elif [[ -d "${SCRIPT_DIR}/../vendor/cm021" && -f "${SCRIPT_DIR}/../vendor/cm021/pyproject.toml" ]]; then
+            CM021_SRC="${SCRIPT_DIR}/../vendor/cm021"
+        fi
+
+        if [[ -n "$CM021_SRC" ]]; then
+            if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$CM021_SRC" 2>/tmp/ostler-cm021-pip.log; then
+                ok "$MSG_OK_PWG_EMAIL_INGEST_INSTALLED"
+            else
+                warn "$MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST"
+                if [[ -s /tmp/ostler-cm021-pip.log ]]; then
+                    sed -e 's/^/    /' /tmp/ostler-cm021-pip.log | tail -5
+                fi
+                # Don't unset EMAIL_INGEST_VENV_PYTHON -- the
+                # LaunchAgent still gets the ostler_fda emitter,
+                # just no ingest leg.
+            fi
+        else
+            warn "$MSG_WARN_CM021_SOURCE_NOT_FOUND"
+        fi
+        unset CM021_SRC
+    fi
 else
     warn "$MSG_WARN_OSTLER_FDA_SOURCE_NOT_FOUND_EMAIL_INGEST"
     EMAIL_INGEST_VENV_PYTHON=""
@@ -7472,6 +7515,121 @@ except Exception:
 else
     info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
 fi
+
+# Email hydration --------------------------------------------------
+#
+# Pulls the last 30 days of correspondents from Apple Mail into the
+# People graph as a one-shot install-time tick. Without this the
+# customer waits up to 60 minutes for the hourly LaunchAgent to
+# fire its first run; with it the wiki shows recent correspondents
+# within ~5 minutes of install completion.
+#
+# Wall-clock cap (90s) keeps the install moving on accounts with
+# huge mailboxes. If the cap is hit we emit
+# MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES and let the hourly agent
+# finish the crawl. The customer still gets contacts + calendar
+# (B1) plus whatever email landed in the 90s window.
+#
+# Behaviour on edge cases (per CX-81 B2 + B1 AC4):
+#   - email-ingest venv not set up / pwg-email-ingest missing ->
+#     emit MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING, continue.
+#   - mbox emit produces no messages (empty mailbox / FDA pending)
+#     -> emit MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT, continue.
+#   - 90s timeout -> emit MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES,
+#     continue. The hourly tick takes it from there.
+#
+# Privacy AC6: pwg-email-ingest's --json output is counts only.
+# Subjects, bodies, and from-addresses never cross the install.sh
+# process boundary.
+_HYDRATE_EMAIL_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_HYDRATE_EMAIL_PY="${_HYDRATE_EMAIL_VENV}/bin/python"
+_HYDRATE_EMAIL_BIN="${_HYDRATE_EMAIL_VENV}/bin/pwg-email-ingest"
+_HYDRATE_EMAIL_MBOX_DIR="${OSTLER_DIR}/imports/email"
+_HYDRATE_OXIGRAPH_EMAIL="${OXIGRAPH_URL:-http://localhost:7878}"
+
+if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
+    info "$MSG_HYDRATE_EMAIL_STARTED"
+
+    # Pick a timeout wrapper. brew coreutils ships gtimeout; some
+    # toolchains ship plain `timeout`. If neither is present we
+    # run unbounded -- on a fresh install with a small backfill
+    # window the FDA emit is fast enough that the absence rarely
+    # bites in practice.
+    _HYDRATE_EMAIL_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout 90"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout 90"
+    fi
+
+    mkdir -p "$_HYDRATE_EMAIL_MBOX_DIR"
+    _HYDRATE_EMAIL_MBOX="${_HYDRATE_EMAIL_MBOX_DIR}/install-time-$(date +%Y%m%dT%H%M%S).mbox.txt"
+    _HYDRATE_EMAIL_TIMED_OUT=false
+    _HYDRATE_EMAIL_LOG=/tmp/ostler-hydrate-email.log
+
+    # Step 1: drain Apple Mail into a fresh mbox. ostler_fda is
+    # pip-installed in the email-ingest venv by Phase 3.X above.
+    if OSTLER_HOME="$HOME" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
+       "$_HYDRATE_EMAIL_PY" -m ostler_fda.apple_mail_mbox \
+           --emit-mbox "$_HYDRATE_EMAIL_MBOX" \
+           --backfill-days 30 \
+           --backfill-chunk-days 30 \
+           >>"$_HYDRATE_EMAIL_LOG" 2>&1; then
+        :
+    else
+        rc=$?
+        # gtimeout returns 124 (signalled SIGTERM) or 137 (signalled
+        # SIGKILL) when the cap is hit. Any other non-zero is a real
+        # emit failure (e.g. FDA permission denied).
+        if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+            _HYDRATE_EMAIL_TIMED_OUT=true
+        fi
+    fi
+
+    if [[ "$_HYDRATE_EMAIL_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES"
+    elif [[ -s "$_HYDRATE_EMAIL_MBOX" ]]; then
+        # Step 2: ingest the mbox into Oxigraph. The CLI's --json
+        # output is counts only; install.sh parses people_extracted
+        # for the customer-facing OK line.
+        _HYDRATE_EMAIL_JSON="$(
+            "$_HYDRATE_EMAIL_BIN" mbox "$_HYDRATE_EMAIL_MBOX" \
+                --backfill-days 30 \
+                --graph-endpoint "$_HYDRATE_OXIGRAPH_EMAIL" \
+                --json 2>>"$_HYDRATE_EMAIL_LOG" \
+            | tail -n 1
+        )" || _HYDRATE_EMAIL_JSON=""
+        _HYDRATE_EMAIL_COUNT="$(
+            printf '%s' "$_HYDRATE_EMAIL_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("people_extracted", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNT:-0}"
+        if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
+        else
+            info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+        fi
+        # Tidy: the install-time mbox is one-shot. The hourly
+        # LaunchAgent writes to its own date-bucketed filenames so
+        # there is no collision risk; deleting just keeps disk clean.
+        rm -f "$_HYDRATE_EMAIL_MBOX"
+    else
+        info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+    fi
+
+    unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
+    unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
+else
+    info "$MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING"
+fi
+
+unset _HYDRATE_EMAIL_VENV _HYDRATE_EMAIL_PY _HYDRATE_EMAIL_BIN
+unset _HYDRATE_EMAIL_MBOX_DIR _HYDRATE_OXIGRAPH_EMAIL
 
 unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY
 unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT

@@ -268,6 +268,7 @@ MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED="ostler-assistant v%s staged at %s (sign
 MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED="ostler-assistant v%s staged at %s (unsigned)"
 MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089="Ostler Doctor running at http://localhost:8089/doctor"
 MSG_OK_OSTLER_FDA_INSTALLED_VENV="  Apple Mail reader installed."
+MSG_OK_PWG_EMAIL_INGEST_INSTALLED="  Email ingestion engine installed."
 MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL="ostler-import, ostler-fda, and ostler-uninstall commands installed"
 MSG_OK_OXIGRAPH_HEALTHY="Oxigraph healthy"
 MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Passphrase noted. It will encrypt your databases during Phase 3."
@@ -456,6 +457,8 @@ MSG_WARN_PHASE_3_TAKES_10_15_MINUTES="Phase 3 takes 10-15 minutes of Docker + Ol
 MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL="  pip install failed; conversation memory engine will not be available."
 MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL="  pip install failed; email-ingest will fall back to system python (may also fail at runtime)."
 MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL="  pip install failed; ostler-knowledge will not be available."
+MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST="  pip install failed; email ingestion engine not available. The hourly LaunchAgent will still emit mbox files but cannot ingest them into the graph until this is repaired."
+MSG_WARN_CM021_SOURCE_NOT_FOUND="CM021 (email ingestion engine) source not found in app bundle; hourly LaunchAgent will emit mbox files without ingesting them."
 MSG_WARN_OSTLER_FDA_SOURCE_NOT_FOUND_EMAIL_INGEST="ostler_fda source not found in app bundle; email-ingest LaunchAgent will fall back to system python at runtime."
 MSG_WARN_PIP_SAID="pip said:"
 MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL="Plug into AC power for the full install."
@@ -728,4 +731,15 @@ MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki – this takes 2 to 5 minutes"
 MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
 MSG_HYDRATE_SKIPPED_NO_CONTACTS="No iCloud contacts to import. You can add this later from Settings."
 MSG_HYDRATE_SKIPPED_NO_EVENTS="No calendar events in the last 90 days. You can backfill later from Settings."
+
+# Email hydration strings (CX-81 B2 + CX-83)
+# Used by install.sh's hydrate_email step, inserted inside the
+# hydrate_graph sub-phase between the calendar block and the wiki
+# recompile message. Counts come from pwg-email-ingest's --json
+# output, never from a fixed founder-instance number.
+MSG_HYDRATE_EMAIL_STARTED="Reading the last month of email – your emails stay on this Mac"
+MSG_HYDRATE_EMAIL_DONE="Found %s people in your recent email"
+MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT="No recent email to read. You can add a Mail account in Apple Mail and re-run later."
+MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING="Email reader not ready yet. You can add a Mail account in Apple Mail and re-run later."
+MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES="Email is still loading in the background – your wiki will fill in over the next hour."
 

@@ -531,6 +531,56 @@ targets:
           - $(SRCROOT)/../vendor/email_ingest
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/email-ingest
+      - name: Bundle CM021 PWG Email Intelligence (pwg-email-ingest CLI) into Resources
+        script: |
+          set -euo pipefail
+          # CX-83: CM021 is the canonical email-ingest substrate. It
+          # ships the pwg-email-ingest console script that the
+          # vendor/email_ingest/bin/email-ingest-tick.sh LaunchAgent
+          # has been calling on every hourly tick since shipping.
+          # Until this lift the CLI was a phantom -- tick.sh ran
+          # `command -v pwg-email-ingest`, found nothing, exited 127
+          # on every tick. The hourly mail ingestion has never run
+          # on a customer install.
+          #
+          # CRITICAL bundle layout: cm021 (NOT vendor/cm021) at the
+          # Resources root. install.sh resolves the source via
+          # `${SCRIPT_DIR}/cm021/pyproject.toml`, matching the
+          # ostler_fda + cm048_pipeline conventions.
+          #
+          # Naming-collision note: CM021 (email-intelligence repo) is
+          # the email-ingest substrate. CM046 (PWG-Email-Intelligence
+          # repo) is research-only (signature mining, header mining,
+          # relationship scoring) and stays out of the v1.0 customer
+          # build. Every future agent will hit this confusion -- the
+          # CM021 / CM046 split is intentional.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          VENDOR_ROOT="${SRCROOT}/../vendor/cm021"
+          if [ ! -d "${VENDOR_ROOT}" ]; then
+            echo "error: vendor/cm021/ missing." >&2
+            echo "       Expected: ${VENDOR_ROOT}" >&2
+            echo "       Re-sync from the CM021 email-intelligence repo." >&2
+            exit 1
+          fi
+          if [ ! -f "${VENDOR_ROOT}/pyproject.toml" ]; then
+            echo "error: vendor/cm021/pyproject.toml missing." >&2
+            echo "       The CLI install pip-installs from this path; without" >&2
+            echo "       the manifest the install.sh hydrate_email step degrades" >&2
+            echo "       to MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING." >&2
+            exit 1
+          fi
+          # Remove any stale prior copy. Build phases run incrementally
+          # so without this step a vendor-tree rename or delete would
+          # leave the old tree in place.
+          rm -rf "${DEST}/cm021"
+          mkdir -p "${DEST}/cm021"
+          cp -R "${VENDOR_ROOT}/pyproject.toml" "${DEST}/cm021/pyproject.toml"
+          cp -R "${VENDOR_ROOT}/src"            "${DEST}/cm021/src"
+          /usr/bin/xattr -cr "${DEST}/cm021"
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm021
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm021
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
