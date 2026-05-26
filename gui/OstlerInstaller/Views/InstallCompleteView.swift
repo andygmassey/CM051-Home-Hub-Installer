@@ -106,11 +106,11 @@ struct InstallCompleteView: View {
                         .font(.ostlerStrap)
                         .tracking(1.6)
                         .foregroundStyle(Color.ostlerInkMuted)
-                    Text("You're all set")
+                    Text(ViewCopy.shared.string(for: "install_complete.heading"))
                         .font(.ostlerH1)
                         .tracking(-0.4)
                         .foregroundStyle(Color.ostlerInk)
-                    Text("Ostler is running on this Mac. Everything you need is set up; you can close this window.")
+                    Text(ViewCopy.shared.string(for: "install_complete.subheading"))
                         .font(.ostlerBodyLg)
                         .foregroundStyle(Color.ostlerInkMuted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -123,7 +123,7 @@ struct InstallCompleteView: View {
             // Per-service summary. Reads from logLines so the panel
             // reflects the actual probes (not a hardcoded list).
             VStack(alignment: .leading, spacing: .ostlerSpace1) {
-                Text("Health check")
+                Text(ViewCopy.shared.string(for: "install_complete.health_check_label"))
                     .font(.ostlerStrap)
                     .tracking(1.2)
                     .foregroundStyle(Color.ostlerInkMuted)
@@ -176,7 +176,7 @@ struct InstallCompleteView: View {
             Button(action: openOstlerHub) {
                 HStack(spacing: .ostlerSpace1) {
                     Image(systemName: "app.dashed")
-                    Text("Open Ostler")
+                    Text(ViewCopy.shared.string(for: "install_complete.open_ostler_button"))
                 }
                 .padding(.horizontal, .ostlerSpace3)
                 .padding(.vertical, 6)
@@ -187,7 +187,7 @@ struct InstallCompleteView: View {
             Button(action: openWiki) {
                 HStack(spacing: .ostlerSpace1) {
                     Image(systemName: "book.closed")
-                    Text("Open your Wiki")
+                    Text(ViewCopy.shared.string(for: "install_complete.open_wiki_button"))
                 }
                 .padding(.horizontal, .ostlerSpace3)
                 .padding(.vertical, 6)

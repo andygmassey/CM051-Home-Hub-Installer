@@ -244,5 +244,14 @@
     "fetching": "Generating pairing code...",
     "refresh_button": "Refresh code",
     "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."
+  },
+
+  "install_complete": {
+    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the per-service health-check tick list; CTAs sit in the sticky footer.",
+    "heading": "You're all set",
+    "subheading": "Ostler is running on this Mac. Everything you need is set up; you can close this window.",
+    "health_check_label": "Health check",
+    "open_ostler_button": "Open Ostler",
+    "open_wiki_button": "Open your Wiki"
   }
 }
