@@ -4898,17 +4898,94 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     if [[ "$FDA_GRANTED" == false ]]; then
         warn "$MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL"
         warn "$MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM"
-        echo ""
-        echo "  To grant Full Disk Access:"
-        echo "    1. Open System Settings > Privacy & Security > Full Disk Access"
-        echo "    2. Click + and add Terminal (or whichever terminal you ran this in)"
-        echo "    3. Toggle it ON"
-        echo "    4. Re-run the installer"
-        echo ""
-        echo "  Continuing without FDA – Ostler will work, just with less data"
-        echo "  (no iMessage / Mail history; just contacts / calendars / GDPR exports)."
-        echo ""
-    else
+
+        # DMG #48c launch-blocker fix (2026-05-27): fire the FDA grant
+        # dialog HERE, before run_all() runs the extractor below.
+        # Pre-fix, the installer's FDA dialog only fired via the
+        # iMessage assist path much later (~Phase 4 health_check), so
+        # this extraction step ran without FDA and every macOS-DB
+        # source (safari_history, imessage, apple_notes,
+        # safari_bookmarks) failed with "unable to open database
+        # file". Mirroring the CX-66 iMessage assist shape: open
+        # System Settings to the FDA pane, present a blocking
+        # osascript modal that returns when the customer clicks Done,
+        # then re-probe. If granted, the extractor downstream runs
+        # with full FDA. Gated on OSTLER_GUI=1; TTY-only installs
+        # fall through to the previous text-only message.
+        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
+            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+
+            _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
+                "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
+            _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
+            _installer_fda_title_esc="${MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE//\"/\\\"}"
+            _installer_fda_button_esc="${MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON//\"/\\\"}"
+
+            # Use the same DialogIcon resolution as CX-81 B8b.
+            _installer_fda_icon_path=""
+            if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _installer_fda_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _installer_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _installer_fda_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _installer_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            fi
+            if [[ -n "$_installer_fda_icon_path" ]]; then
+                _installer_fda_icon_path_esc="${_installer_fda_icon_path//\"/\\\"}"
+                _installer_fda_icon_clause="with icon file POSIX file \"${_installer_fda_icon_path_esc}\""
+            else
+                _installer_fda_icon_clause="with icon note"
+            fi
+
+            # Pause briefly to let System Settings finish its window
+            # animation before raising the modal, then activate +
+            # display so the dialog renders in front of Settings
+            # (same z-order fix as CX-66).
+            sleep 1
+            osascript \
+                -e 'tell application "System Events" to activate' \
+                -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
+                >/dev/null 2>&1 || true
+            unset _installer_fda_msg _installer_fda_msg_esc \
+                  _installer_fda_title_esc _installer_fda_button_esc \
+                  _installer_fda_icon_path _installer_fda_icon_path_esc \
+                  _installer_fda_icon_clause
+
+            # Re-probe. macOS refreshes the TCC posture for the
+            # caller binary as soon as the user toggles it on, so a
+            # direct probe of one of the FDA-gated paths returns
+            # the live state without needing to re-exec.
+            sleep 2
+            for probe in "${FDA_PROBE_PATHS[@]}"; do
+                if [[ -r "$probe" ]] || ls "$probe" >/dev/null 2>&1; then
+                    FDA_GRANTED=true
+                    break
+                fi
+            done
+            if [[ "$FDA_GRANTED" == true ]]; then
+                info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
+            else
+                info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
+            fi
+        else
+            echo ""
+            echo "  To grant Full Disk Access:"
+            echo "    1. Open System Settings > Privacy & Security > Full Disk Access"
+            echo "    2. Click + and add Terminal (or whichever terminal you ran this in)"
+            echo "    3. Toggle it ON"
+            echo "    4. Re-run the installer"
+            echo ""
+            echo "  Continuing without FDA - Ostler will work, just with less data"
+            echo "  (no iMessage / Mail history; just contacts / calendars / GDPR exports)."
+            echo ""
+        fi
+    fi
+    if [[ "$FDA_GRANTED" == true ]]; then
         info "$MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION"
     fi
     echo ""
@@ -7581,7 +7658,10 @@ fi
 # Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
 # are env-overridable so an enterprise fork or pre-release smoke
 # can point at a different release without editing install.sh.
-# Defaults track ostler-ai/ostler-assistant v0.3.0.
+# Default tracks the last-known-good upstream release. If a future
+# bump (e.g. v0.4.2 not yet published) raises 404, the inline
+# fallback below retries against ASSISTANT_FALLBACK_VERSION so the
+# install completes on the proven-good binary.
 #
 # Open question: there is no zeroclaw subcommand for "encrypt the
 # plaintext password the wizard just wrote" -- the secrets store
@@ -7590,9 +7670,14 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.2})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.1})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.2}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.1}"
+# Hard-coded last-known-good release. The fallback path below
+# retries against this version if the primary URL returns 404 /
+# non-200, so a missing tag never strands the customer on an
+# un-installable Hub.
+ASSISTANT_FALLBACK_VERSION="0.4.1"
 # Customer-facing distribution. Binary first published to
 # ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
 # was lifted by GitHub support (ticket #4347825).
@@ -7613,9 +7698,14 @@ if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
     ASSISTANT_BINARY_INSTALLED=false
 else
 
-ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
-ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
-ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+_ostler_assistant_set_urls() {
+    OSTLER_ASSISTANT_VERSION="$1"
+    ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
+    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
+    ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+}
+
+_ostler_assistant_set_urls "${OSTLER_ASSISTANT_VERSION}"
 
 # ASSISTANT_TMPDIR is declared in the Phase 3 composite_cleanup
 # block; this allocator sets it. composite_cleanup will rm -rf
@@ -7639,6 +7729,32 @@ ASSISTANT_BINARY_INSTALLED=false
 # forces the curl path even when bundled is present -- used in CI
 # to exercise the customer-network code path.
 ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
+
+# Try the primary download URL, then fall back once to
+# ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
+# activates when (a) the bundled binary path is not taken and
+# (b) the primary URL returns non-200. v0.4.2 of ostler-assistant
+# was never published to ostler-ai/ostler-installer (default bumped
+# in error pre-DMG#48; caught on a clean Studio install). If the
+# primary URL 404s, the install still completes on a proven-good
+# binary rather than stranding the customer at the launch step.
+_assistant_download_ok=false
+if [[ -n "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] || [[ ! -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+    if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+       && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+        _assistant_download_ok=true
+    elif [[ "${OSTLER_ASSISTANT_VERSION}" != "${ASSISTANT_FALLBACK_VERSION}" ]]; then
+        warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
+        warn "Retrying with last-known-good v${ASSISTANT_FALLBACK_VERSION}..."
+        _ostler_assistant_set_urls "${ASSISTANT_FALLBACK_VERSION}"
+        rm -f "$ASSISTANT_TMPDIR"/*
+        if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+           && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+            _assistant_download_ok=true
+        fi
+    fi
+fi
+
 if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] && [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
     info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
     mkdir -p "${OSTLER_DIR}/bin"
@@ -7653,8 +7769,7 @@ if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] && [[ -x "$ASSISTANT_BUNDLED_
     xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
     ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
     ASSISTANT_BINARY_INSTALLED=true
-elif curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
-   && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+elif [[ "$_assistant_download_ok" == "true" ]]; then
 
     # Verify SHA-256. Phase B writes the sidecar as
     # `<hex>  <filename>` (shasum default). Recompute against
@@ -9911,10 +10026,11 @@ echo "     AI model:      ${AI_MODEL}"
 echo "     Duration:      ${INSTALL_MINS}m ${INSTALL_SECS}s"
 echo ""
 
-# Subscription pricing hint -- surfaces the GBP 9.99/mo post-trial
+# Subscription pricing hint -- surfaces the $9.99 USD/mo post-trial
 # pricing so the customer is never surprised when their first 30
 # days expire and the iOS Companion offers a subscription. Routed
 # through info() so it lands in both the TTY log and the GUI sidebar.
+# USD is canonical for v1.0 launch (locked 2026-05-27).
 info "$MSG_INFO_SUBSCRIPTION_PRICING_HINT"
 echo ""
 
