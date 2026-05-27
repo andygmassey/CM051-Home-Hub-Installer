@@ -1570,6 +1570,62 @@ def api_ingest_ios(payload):
         return {"error": str(exc)}, 500
 
 
+def api_subscription_receipt(payload):
+    """Accept a StoreKit receipt push from the iOS Companion (G1).
+
+    Payload shape (from CM031's SubscriptionService): ``{"receipt_b64":
+    "<base64 receipt>", "expires_at": "<ISO-8601 datetime>"}``.
+
+    On a valid body the handler persists state via
+    ``subscription_gate.refresh_from_companion`` and replies with the
+    resulting status dict (``{"status": "active|grace|inactive"}``).
+
+    Apple-restraint posture: the Hub never forwards the receipt to
+    Apple's verifyReceipt endpoint. Server-side StoreKit 2 validation is
+    the Companion's responsibility; the Hub trusts the paired-channel
+    handshake (see install-time pairing) and uses the receipt only as a
+    support breadcrumb in the on-disk state file.
+
+    Returns (body, status_code) for the do_POST dispatcher.
+    """
+    # subscription_gate is lazily imported so missing-helper installs (or
+    # very old vendor snapshots) cannot break unrelated POST routes at
+    # module load time.
+    try:
+        # The vendored module sits alongside ical-server.py; the do_POST
+        # dispatcher runs with the assistant_api/ directory on sys.path
+        # already (because the file imports sibling modules elsewhere).
+        import subscription_gate  # type: ignore[import-not-found]
+    except ImportError as exc:
+        return {"error": f"subscription_gate unavailable: {exc}"}, 500
+
+    if not isinstance(payload, dict):
+        return {"error": "body must be a JSON object"}, 400
+
+    receipt_b64 = payload.get("receipt_b64")
+    expires_at = payload.get("expires_at")
+
+    if not isinstance(receipt_b64, str) or not receipt_b64.strip():
+        return {"error": "receipt_b64 must be a non-empty string"}, 400
+
+    if not isinstance(expires_at, str) or not expires_at.strip():
+        return {"error": "expires_at must be an ISO-8601 string"}, 400
+
+    # Validate expires_at parses as ISO-8601. Mirrors the parse rule used
+    # by subscription_gate._parse_iso so we 400 before writing state.
+    try:
+        datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return {"error": "expires_at is not a valid ISO-8601 datetime"}, 400
+
+    try:
+        subscription_gate.refresh_from_companion(receipt_b64, expires_at)
+        status = subscription_gate.state_dict().get("status", "inactive")
+        return {"status": status}, 200
+    except Exception as exc:
+        return {"error": f"refresh failed: {exc}"}, 500
+
+
 # ── Hub health helpers ───────────────────────────────────────────────
 # Each helper returns a (key, result_dict) tuple so the parallel runner
 # can fan out work and collect named results. Every helper is wrapped in
@@ -2621,6 +2677,22 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        if parsed.path == "/api/v1/subscription/receipt":
+            # G1 (2026-05-27): iOS Companion pushes a fresh StoreKit
+            # receipt after every transaction success / restore + on
+            # every app foreground. The Hub's subscription_gate (G0,
+            # PR #190) persists the state for ongoing-intelligence
+            # pipelines to consult via is_active_or_grace().
+            try:
+                result, status = api_subscription_receipt(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -2635,7 +2707,7 @@ if __name__ == "__main__":
     # LAN exposure for dev or for users who don't want Tailscale.
     BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
     print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
-    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/hub/health, /api/v1/recording/active, POST /api/v1/ingest/ios, POST /api/v1/people/{slug}/forget, /health")
+    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/hub/health, /api/v1/recording/active, POST /api/v1/ingest/ios, POST /api/v1/subscription/receipt, POST /api/v1/people/{slug}/forget, /health")
     if BIND_HOST == "0.0.0.0":
         print(
             "WARNING: OSTLER_API_BIND=0.0.0.0 exposes the Assistant API on "
