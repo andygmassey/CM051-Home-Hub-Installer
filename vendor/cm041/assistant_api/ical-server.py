@@ -102,7 +102,7 @@ import uuid
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Port is env-overridable so the customer-install path can bind
 # this service to a different port (8090) and let Doctor's
@@ -1219,7 +1219,10 @@ def people_stale(months=3, limit=5):
             "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
             "last_contact": p.get("last_contact", ""),
             "months_since_contact": months_since,
-            "organization": p.get("organization", ""),
+            # F-2 (2026-05-27): emit `organisation` (en-GB) to match the iOS
+            # Reconnect strip's subtitle decoder. The RHS still reads the
+            # Qdrant payload's American-spelled key (set upstream by CM041).
+            "organisation": p.get("organization", ""),
         })
     contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
     return {"contacts": contacts[:limit]}
@@ -1531,6 +1534,10 @@ def api_ingest_ios(payload):
         return {"error": "body must be a JSON object"}, 400
 
     items = payload.get("items")
+    if items is None:
+        # Alias for iOS PWGUploadService.UploadBatch, which sends `points`.
+        # Wire-shape contract (F-10b, 2026-05-27): server accepts either key.
+        items = payload.get("points")
     if not isinstance(items, list):
         return {"error": "items must be an array"}, 400
 
@@ -1550,7 +1557,15 @@ def api_ingest_ios(payload):
         }
         with open(path, "w", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
-        return {"ok": True, "batch_id": batch_id, "item_count": len(items), "path": path}, 200
+        # `accepted` mirrors `item_count` for the iOS UploadResult decoder
+        # (F-10, 2026-05-27). Keep both keys for downstream compatibility.
+        return {
+            "ok": True,
+            "batch_id": batch_id,
+            "item_count": len(items),
+            "accepted": len(items),
+            "path": path,
+        }, 200
     except Exception as exc:
         return {"error": str(exc)}, 500
 
@@ -1563,10 +1578,15 @@ def api_ingest_ios(payload):
 
 
 def _read_sync_marker(path):
-    """Read an ISO-8601 UTC timestamp from a marker file.
+    """Read raw stripped contents from a marker file.
 
     Returns the stripped contents if the file exists and is readable,
     otherwise None. Never raises.
+
+    NOTE: this helper is intentionally permissive – it is also used by
+    `_hub_queue_depth()` which writes integer text, not ISO-8601. For
+    callers that want an ISO-8601 timestamp specifically, use
+    `_read_iso8601_marker()` which validates + normalises the value.
     """
     try:
         if path.exists():
@@ -1574,6 +1594,32 @@ def _read_sync_marker(path):
             return text or None
     except Exception:
         return None
+    return None
+
+
+def _read_iso8601_marker(path):
+    """Read and validate an ISO-8601 UTC timestamp from a marker file.
+
+    F-3 (2026-05-27): hardens the iOS-facing health surface against
+    malformed marker contents. A garbled marker file now returns None
+    rather than leaking an unparseable string back to the Companion
+    (which would then fail JSON-decoding into Date).
+
+    Returns a normalised "%Y-%m-%dT%H:%M:%SZ" string on success, or
+    None if the file is missing, empty, unreadable, or contains a value
+    that is not a recognised ISO-8601 form. Never raises.
+    """
+    raw = _read_sync_marker(path)
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y%m%dT%H%M%S"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return None
 
 
@@ -1842,7 +1888,7 @@ def _hub_check_caldav():
     Absence of a marker is treated as unhealthy but not an error – fresh
     installs have never synced.
     """
-    ts = _read_sync_marker(CALDAV_LAST_REFRESH_FILE)
+    ts = _read_iso8601_marker(CALDAV_LAST_REFRESH_FILE)
     if ts:
         return {"healthy": True, "last_refresh": ts}
     return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
@@ -1965,7 +2011,9 @@ def api_hub_health():
     except Exception:
         queue_depth = 0
 
-    last_sync = _read_sync_marker(LAST_SYNC_FILE)
+    # F-3 (2026-05-27): validate + normalise so the Companion never gets a
+    # garbled timestamp string back from /api/v1/hub/health.
+    last_sync = _read_iso8601_marker(LAST_SYNC_FILE)
 
     # Derive hub_status from service health + queue depth.
     all_healthy = all(s.get("healthy") for s in services.values())
@@ -2342,7 +2390,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 result = api_timeline(days=days)
             except Exception as exc:
-                result = {"items": [], "days": days, "count": 0,
+                # `entries` mirrors `items` per the iOS ServerTimelineResponse
+                # decoder (F-1, 2026-05-27). Without it the Companion drops
+                # straight to its hard-error path instead of the soft-degraded
+                # empty state.
+                result = {"items": [], "entries": [], "days": days, "count": 0,
                           "degraded": True, "reason": str(exc), "error": str(exc)}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
