@@ -95,13 +95,19 @@ for key in \
     echo "PASS: ${key} defined + referenced"
 done
 
-# ── British-English check: GBP not bare £ in pricing hint ──────
+# ── USD-canonical check: pricing hint must use USD, no GBP/£ ──
+# Locked 2026-05-27 (project_pricing_v1_0_locked_2026-05-27): USD is
+# canonical for v1.0; GBP / £ must not appear in customer copy.
 pricing=$(grep '^MSG_INFO_SUBSCRIPTION_PRICING_HINT=' "$STRINGS_FILE")
-if ! echo "$pricing" | grep -q 'GBP 9.99'; then
-    echo "FAIL [i18n]: pricing hint must use 'GBP 9.99' (British English, terminal-safe)" >&2
+if ! echo "$pricing" | grep -q '9.99 USD'; then
+    echo "FAIL [i18n]: pricing hint must use '9.99 USD' (USD-canonical v1.0)" >&2
     exit 1
 fi
-echo "PASS: pricing hint uses GBP 9.99"
+if echo "$pricing" | LC_ALL=C grep -qE 'GBP|\xc2\xa3'; then
+    echo "FAIL [i18n]: pricing hint must not contain GBP or £ (USD-canonical v1.0)" >&2
+    exit 1
+fi
+echo "PASS: pricing hint uses 9.99 USD"
 
 # ── No-em-dash check on G2 strings ─────────────────────────────
 for key in \
