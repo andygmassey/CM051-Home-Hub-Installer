@@ -9724,6 +9724,39 @@ else
     fi
 fi
 
+# ── First-month-free subscription activation (G2) ─────────────────
+#
+# The GUI verified the customer's Ed25519-signed licence file before
+# exec'ing this script (see the "Licence / activation check" block
+# higher up + LicenseVerifier.swift). By the time we reach this
+# point install.sh has run to completion against a verified licence,
+# so this is the canonical "after licence verification succeeds"
+# mount point in the post-install lifecycle. Wire the customer's Hub
+# to 30 days of Ostler Pro for free per the G0 subscription_gate
+# contract (PR #190) -- single source of truth for whether ongoing
+# intelligence runs.
+#
+# Fail-open posture: if the Python call fails for ANY reason
+# (vendored helper missing, state dir not writable, disk full), the
+# install MUST continue. The customer can re-activate via the iOS
+# Companion once paired. We never block a legitimate customer on a
+# subscription-state write failure.
+info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+if python3 -c "
+import sys, os
+sys.path.insert(0, os.path.join('${SCRIPT_DIR}', 'vendor', 'cm041', 'assistant_api'))
+from subscription_gate import activate_first_month_free
+from datetime import datetime, timezone
+activate_first_month_free(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+" 2>&1; then
+    ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+else
+    # NON-FATAL: install continues. Customer can re-activate via
+    # Companion later. Per fail-open: never block install on
+    # subscription-state write failure.
+    warn "$MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL"
+fi
+
 # ── Summary ────────────────────────────────────────────────────────
 
 INSTALL_END=$(date +%s)
@@ -9754,6 +9787,13 @@ echo "     AI model:      ${AI_MODEL}"
 [[ -n "$EXPORTS_DIR" ]] && echo "     GDPR import:   Processed from ${EXPORTS_DIR}"
 [[ "${FDA_OK:-0}" -gt 0 ]] && echo "     Instant data:  ${FDA_OK} macOS source(s) extracted"
 echo "     Duration:      ${INSTALL_MINS}m ${INSTALL_SECS}s"
+echo ""
+
+# Subscription pricing hint -- surfaces the GBP 9.99/mo post-trial
+# pricing so the customer is never surprised when their first 30
+# days expire and the iOS Companion offers a subscription. Routed
+# through info() so it lands in both the TTY log and the GUI sidebar.
+info "$MSG_INFO_SUBSCRIPTION_PRICING_HINT"
 echo ""
 
 # ── Next steps ─────────────────────────────────────────────────────
