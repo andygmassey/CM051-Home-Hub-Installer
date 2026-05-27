@@ -46,6 +46,7 @@ from dashboard_components import (
     render_consent_status,
     render_observability_posture,
     render_security_posture,
+    render_subscription_banner,
 )
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
@@ -666,6 +667,11 @@ def render_dashboard(
     # bundled wording-hash drifts from stored hash (renewal needed).
     consent_section = render_consent_status()
 
+    # Subscription state (Ostler Pro). Reads ``~/.ostler/state/subscription_state.json``
+    # written by subscription_gate.py. Apple-restraint posture: never red.
+    # Empty string on a brand-new install pre-license-verification.
+    subscription_section = render_subscription_banner()
+
     # Build findings
     findings_html = ""
     for f in findings:
@@ -1217,6 +1223,8 @@ def render_dashboard(
         {observability_section}
 
         {consent_section}
+
+        {subscription_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>

@@ -541,3 +541,121 @@ def render_consent_status() -> str:
         <div class="section-title">Consent (A7+A8 records)</div>
         <div class="status-grid">{tiles}</div>
     </div>"""
+
+
+# ── Subscription tile (Ostler Pro state) ──────────────────────────────
+
+
+def _read_subscription_state() -> dict:
+    """Read the subscription state file Doctor needs to render the tile.
+
+    Loose-coupled to ``subscription_gate.py``: Doctor reads the JSON
+    directly so it can render even if the helper module is missing,
+    moved, or its parent directory has not been created yet (e.g. very
+    early in install.sh, or in a CI environment where the assistant_api
+    surface is not vendored alongside Doctor).
+
+    On any read error -- file missing, parent dir missing, JSON corrupt
+    -- returns a safe default. Doctor surfaces "Inactive" rather than
+    refusing to render.
+    """
+    import json
+    import os
+    from pathlib import Path
+
+    override = os.environ.get("OSTLER_SUBSCRIPTION_STATE")
+    if override:
+        path = Path(override)
+    else:
+        path = Path.home() / ".ostler" / "state" / "subscription_state.json"
+
+    if not path.exists():
+        return {"status": "inactive", "source": "default"}
+    try:
+        raw = path.read_text()
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            return {"status": "inactive", "source": "default"}
+        return parsed
+    except (OSError, json.JSONDecodeError):
+        return {"status": "inactive", "source": "default"}
+
+
+def render_subscription_banner() -> str:
+    """Render the Ostler Pro subscription state tile.
+
+    Apple-restraint language: never "your data is locked" -- always
+    "ongoing intelligence paused". The customer's existing data stays
+    accessible regardless of state (Obsidian vault, exports). Only
+    new ingestion + brief composition + Reminders push pause.
+
+    Colour posture:
+
+    - **Green** when ``status == active`` (subscription valid).
+    - **Amber** when ``status == grace`` (post-lapse grace window).
+    - **Muted** when ``status == inactive`` (intelligence paused).
+
+    Never red: cancelling a subscription is a legitimate customer
+    action, not an error.
+
+    Returns the empty string when the state file is missing AND no
+    ``last_validated_at`` has ever been written, so a brand-new
+    install pre-license-verification does not render an empty tile.
+    """
+    state = _read_subscription_state()
+    status = state.get("status", "inactive")
+    source = state.get("source", "default")
+
+    # Pre-install: state file does not exist yet AND no Companion
+    # contact has ever been recorded. Render nothing rather than a
+    # confusing "Inactive" tile on first launch.
+    if source == "default" and not state.get("last_validated_at"):
+        return ""
+
+    if status == "active":
+        colour = "#5cb579"
+        icon = "&#10003;"
+        expires = state.get("expires_at")
+        if expires:
+            # Strip the Z + time portion for the customer-facing line
+            # (we only show the date; the JSON has the full timestamp).
+            human_expires = expires.split("T")[0]
+            headline = f"Active &middot; expires {_html_escape(human_expires)}"
+        else:
+            headline = "Active"
+        if source == "first_month_free":
+            detail = "First 30 days included with Hub purchase. Subscribe via the iOS Companion to extend."
+        else:
+            detail = "Ostler Pro active &middot; ongoing intelligence is running."
+    elif status == "grace":
+        colour = "#d4a052"
+        icon = "&#9888;"
+        grace_end = state.get("grace_period_end")
+        if grace_end:
+            human_grace = grace_end.split("T")[0]
+            headline = f"Grace period &middot; resumes pause on {_html_escape(human_grace)}"
+        else:
+            headline = "Grace period"
+        detail = "Reactivate via the iOS Companion to keep ongoing intelligence running past the grace window."
+    else:  # inactive
+        colour = "rgba(236,232,221,0.40)"
+        icon = "&#9675;"
+        headline = "Inactive &middot; ongoing intelligence paused"
+        detail = (
+            "Your existing wiki, conversations, and exports remain accessible. "
+            "Reactivate via the iOS Companion to resume new ingestion."
+        )
+
+    return f"""
+    <div class="section" id="subscriptionSection">
+        <div class="section-title">Subscription</div>
+        <div class="status-grid">
+            <div class="status-card">
+                <div class="status-indicator" style="background:{colour}">{icon}</div>
+                <div class="status-info">
+                    <div class="status-name">Ostler Pro &middot; {headline}</div>
+                    <div class="status-detail">{detail}</div>
+                </div>
+            </div>
+        </div>
+    </div>"""
