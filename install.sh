@@ -372,6 +372,56 @@ USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
 # follow-up PR once the brief's zoning question is resolved.
 USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 
+# ── DMG #48 install transcript ────────────────────────────────────
+#
+# Studio retest of DMG #47 (2026-05-27): the install GUI flowed
+# all the way to "end" but `which brew`, `which colima`, `which
+# tailscale` were all "not found", AND no `${LOGS_DIR}/install*.log`
+# existed on disk. Customer + support had zero diagnostic trail to
+# work with. Tee everything emitted from this point forward into
+# ${INSTALL_LOG} so the next failure leaves a paper trail.
+#
+# Why so early: Phase 3.1 Homebrew install is the most-likely
+# failure axis and lives at line ~3613. We want the install.log to
+# capture context BEFORE it. So we mkdir + tee up here, just after
+# the path definitions, before any of the heavy lifting.
+#
+# Implementation: a backgrounded `tee` subprocess fed via a FIFO
+# would be cleaner but adds a trap for cleanup. The simpler
+# `exec > >(tee -a ...) 2>&1` pattern uses bash process substitution
+# and survives `set -e` because it is part of a redirection list,
+# not a foreground command. The tee output appends so a re-run
+# extends the transcript rather than clobbering forensic state from
+# the previous failed run.
+mkdir -p "${LOGS_DIR}" 2>/dev/null || true
+INSTALL_LOG="${LOGS_DIR}/install.log"
+# Tee unbuffered (stdbuf -oL) so the GUI's `tail -f` style log
+# viewer sees lines immediately rather than 4KB-buffered.
+if [[ -w "${LOGS_DIR}" ]]; then
+    {
+        echo ""
+        echo "=== install.sh run $(date -u +"%Y-%m-%dT%H:%M:%SZ") (DMG #48 transcript) ==="
+        echo "USER=$(id -un) (uid=$(id -u))"
+        echo "ARCH=$(uname -m)"
+        echo "OSTLER_GUI=${OSTLER_GUI:-0}"
+        echo "PATH=${PATH}"
+        echo "SCRIPT_DIR not yet resolved (set later in the prelude)"
+        echo "============================================================"
+    } >> "${INSTALL_LOG}"
+    # Redirect future stdout+stderr through tee so both the customer's
+    # terminal / GUI window AND ${INSTALL_LOG} get every byte.
+    exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1
+else
+    # Fallback when ~/.ostler/logs is not writeable (defensive: a
+    # caller already restricted permissions). Still try /tmp so we
+    # have SOMETHING on disk. Mention the fallback in the
+    # customer log so support sees it.
+    INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
+    echo "WARN: ${LOGS_DIR} is not writeable; install.log falling back to ${INSTALL_LOG}" >&2
+    exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1
+fi
+export INSTALL_LOG
+
 # ── SCRIPT_DIR resolution (tarball / dev / curl|bash bootstrap) ───
 #
 # The installer copies bundled assets (ostler_security/, ostler_fda/,
@@ -3710,6 +3760,23 @@ else
     ok "$MSG_OK_HOMEBREW_INSTALLED"
 fi
 
+# ── DMG #48 post-Homebrew verification ─────────────────────────────
+#
+# Studio retest of DMG #47 (2026-05-27) silently flowed past this
+# point even though /opt/homebrew/bin/brew did not exist on disk.
+# Walk the post-condition byte-by-byte per
+# [[feedback-silent-bail-regression-test-shape]]: a future regression
+# (e.g. CX-25 tarball install partial-success, sudo cache eviction
+# mid-curl, network drop) MUST stop the install here rather than
+# leave colima/tailscale/ollama to silent-no-op downstream.
+if ! [[ -x /opt/homebrew/bin/brew ]]; then
+    fail_with_code "ERR-04-DMG48-HOMEBREW-MISSING-AFTER-INSTALL" \
+        "$(printf "$MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL" "${BREW_INSTALL_LOG:-$INSTALL_LOG}")"
+fi
+if ! command -v brew &>/dev/null; then
+    fail_with_code "ERR-04-DMG48-HOMEBREW-NOT-ON-PATH" "$MSG_FAIL_HOMEBREW_NOT_ON_PATH"
+fi
+
 # ── 3.2 Docker ─────────────────────────────────────────────────────
 
 progress "Starting Docker" "docker_install"
@@ -3726,6 +3793,18 @@ else
         # Re-eval Homebrew PATH so newly installed commands are found
         if [[ -x /opt/homebrew/bin/brew ]]; then
             eval "$(/opt/homebrew/bin/brew shellenv)"
+        fi
+        # DMG #48 silent-bail hardening: brew install can exit 0 even
+        # when a formula fails to deploy its binary (tap conflict,
+        # symlink clash, network drop mid-pour). Walk the
+        # post-condition byte-by-byte.
+        if ! command -v colima &>/dev/null; then
+            fail_with_code "ERR-06-DMG48-COLIMA-MISSING-AFTER-BREW" \
+                "$(printf "$MSG_FAIL_COLIMA_MISSING_AFTER_BREW" "$INSTALL_LOG")"
+        fi
+        if ! command -v docker &>/dev/null; then
+            fail_with_code "ERR-06-DMG48-DOCKER-CLI-MISSING-AFTER-BREW" \
+                "$(printf "$MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW" "$INSTALL_LOG")"
         fi
         ok "$MSG_OK_COLIMA_DOCKER_CLI_INSTALLED"
     fi
@@ -3850,6 +3929,12 @@ else
     # available; brew services is the formula's native equivalent).
     info "$MSG_INFO_INSTALLING_OLLAMA"
     brew install ollama
+    # DMG #48 silent-bail hardening: verify ollama binary is on PATH
+    # before declaring the formula installed.
+    if ! command -v ollama &>/dev/null; then
+        fail_with_code "ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW" \
+            "$(printf "$MSG_FAIL_OLLAMA_MISSING_AFTER_BREW" "$INSTALL_LOG")"
+    fi
     ok "$MSG_OK_OLLAMA_INSTALLED"
 fi
 
@@ -4461,6 +4546,14 @@ progress "Encrypting your databases" "encrypt_db"
 if ! brew list sqlcipher &>/dev/null 2>&1; then
     info "$MSG_INFO_INSTALLING_SQLCIPHER"
     brew install sqlcipher
+    # DMG #48 silent-bail hardening: verify sqlcipher binary is on
+    # PATH before continuing. ostler_security pysqlcipher3 build
+    # later in the install depends on it; a silent miss here turns
+    # into a confusing pip-install error 200 lines downstream.
+    if ! command -v sqlcipher &>/dev/null; then
+        fail_with_code "ERR-08-DMG48-SQLCIPHER-MISSING-AFTER-BREW" \
+            "$(printf "$MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW" "$INSTALL_LOG")"
+    fi
 fi
 
 # Venv was created in Phase 2 for ostler_security install.
@@ -8548,9 +8641,22 @@ TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setu
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
-        brew install --cask tailscale 2>/dev/null && \
-            ok "$MSG_OK_TAILSCALE_INSTALLED" || \
+        # DMG #48 silent-bail hardening: previous code swallowed brew
+        # stderr via `2>/dev/null && ... || warn`, so a tailscale-cask
+        # install failure on a fresh Mac silently warned + carried on,
+        # leaving the iOS Companion unreachable. Fail loudly if
+        # /Applications/Tailscale.app is missing after the brew step.
+        # We still tolerate brew's non-zero exit if the .app landed
+        # (some cask versions exit non-zero on minor symlink issues).
+        if brew install --cask tailscale 2>&1; then
+            ok "$MSG_OK_TAILSCALE_INSTALLED"
+        else
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
+        fi
+        if [[ ! -d "/Applications/Tailscale.app" ]]; then
+            fail_with_code "ERR-15-DMG48-TAILSCALE-INSTALL-FAILED" \
+                "$(printf "$MSG_FAIL_TAILSCALE_INSTALL_FAILED" "$INSTALL_LOG")"
+        fi
     else
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
     fi
