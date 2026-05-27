@@ -31,6 +31,12 @@
 
 set -euo pipefail
 
+# LaunchAgents inherit only the bare system PATH. Belt-and-braces:
+# the plist sets EnvironmentVariables.PATH too, but a stale or
+# manually-installed plist without the block would still resolve
+# docker through this prepend.
+export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
+
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 
 log() {

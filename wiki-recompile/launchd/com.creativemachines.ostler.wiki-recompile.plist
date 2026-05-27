@@ -39,6 +39,20 @@
     </array>
 
     <!--
+        PATH for docker resolution. LaunchAgents do not inherit
+        the user's shell PATH, so `docker` (Docker Desktop at
+        /usr/local/bin/docker, or Colima at /opt/homebrew/bin/docker
+        on Apple Silicon) is invisible without this. Without the
+        block the tick exits 127 every day and the wiki freezes at
+        the install-time snapshot.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!--
         Daily (86400 seconds). Open question for Andy: drop to
         hourly (3600s) if the wiki should reflect new emails and
         conversations within the hour rather than next day.
