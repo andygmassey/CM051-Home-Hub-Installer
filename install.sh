@@ -4844,6 +4844,18 @@ PY
 fi
 
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
+#
+# FDA_ASSIST_TRIGGER (DMG #48d, 2026-05-28): the assist block at lines
+# ~4915-4988 below MUST fire BEFORE the Python run_all() invocation at
+# the bottom of this step opens any FDA-gated SQLite DB. Ordering
+# invariant: FDA_ASSIST_TRIGGER marker appears in install.sh BEFORE the
+# `progress "Extracting data from your Mac"` line and BEFORE the
+# `from ostler_fda.extract_all import run_all` heredoc. The regression
+# test at tests/test_fda_assist_ordering.sh locks this at CI level
+# (DMG #48c's broken probe at lines ~4892-4897 returned false-positive
+# FDA_GRANTED=true on every fresh Mac, silently skipping the assist;
+# the read-probe at lines ~4901-4937 below replaces that with an honest
+# first-byte read of Safari/Messages/Mail DBs that genuinely need FDA).
 
 progress "Extracting data from your Mac (the instant bit)" "fda_extract"
 
@@ -4879,22 +4891,62 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     info "$MSG_INFO_READING_SAFARI_IMESSAGE_NOTES_CALENDAR_PHOTOS"
     info "$MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO"
     echo ""
-    # macOS does NOT prompt for Full Disk Access from a terminal-launched
-    # script – it silently denies. Probe by trying to read a file that
-    # only succeeds with FDA, and walk the user through the manual grant
-    # if denied. This was the #1 silent-failure UX issue in the install
-    # audit (~2026-05-01).
+    # FDA_ASSIST_TRIGGER (DMG #48d, 2026-05-28): the FDA assist below
+    # MUST fire BEFORE the Python extractor at run_all() reads any
+    # FDA-gated SQLite DB. DMG #48c's heuristic ([[ -r ~/Library/Mail ]]
+    # || ls ~/Library/Application Support/com.apple.TCC/TCC.db) was a
+    # false-positive trap: ~/Library/Mail is a user-owned directory that
+    # passes -r even without FDA, and `ls` on a file only needs read on
+    # the parent dir (not the file itself). The previous heuristic
+    # therefore returned FDA_GRANTED=true on every fresh customer Mac,
+    # the assist block at lines ~4915-4974 was skipped, and the
+    # extractor ran without FDA -- producing "unable to open database
+    # file" for safari_history, imessage, apple_notes and apple_mail
+    # and an empty wiki post-install. Studio install log 2026-05-28
+    # showed exactly this shape: "Full Disk Access detected" at log
+    # line 606 followed by FDA grant 463 lines later at line 1083,
+    # after extraction had already completed with zero data.
+    #
+    # Real probe: attempt to actually read the FIRST BYTE of an
+    # FDA-gated SQLite DB. macOS TCC denies open() on these paths
+    # without FDA, so `head -c 1` returns non-zero and the probe is
+    # honest about the posture. Safari + Messages are the canonical
+    # FDA-gated user files; both must succeed for FDA_GRANTED=true.
+    # If either DB is missing on this Mac (user has never opened
+    # Safari / Messages), we fall back to a Mail-history probe which
+    # is also FDA-gated, and finally to the assist if no probe
+    # succeeded -- prompting the user once is the safe default.
+    _fda_read_probe() {
+        # Returns 0 if the first byte of $1 can be read, 1 otherwise.
+        # Uses `head -c 1` because it returns EPERM-equivalent
+        # non-zero exit on TCC denial, unlike `[[ -r ]]` and `ls`
+        # which only check directory-entry permissions.
+        [[ -e "$1" ]] && head -c 1 "$1" >/dev/null 2>&1
+    }
     FDA_PROBE_PATHS=(
-        "$HOME/Library/Mail"
-        "$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+        "$HOME/Library/Safari/History.db"
+        "$HOME/Library/Messages/chat.db"
+        "$HOME/Library/Mail/V10/MailData/Envelope Index"
     )
-    FDA_GRANTED=false
+    FDA_PROBE_TRIED=0
+    FDA_PROBE_SUCCEEDED=0
     for probe in "${FDA_PROBE_PATHS[@]}"; do
-        if [[ -r "$probe" ]] || ls "$probe" >/dev/null 2>&1; then
-            FDA_GRANTED=true
-            break
+        [[ -e "$probe" ]] || continue
+        FDA_PROBE_TRIED=$((FDA_PROBE_TRIED + 1))
+        if _fda_read_probe "$probe"; then
+            FDA_PROBE_SUCCEEDED=$((FDA_PROBE_SUCCEEDED + 1))
         fi
     done
+    # Conservative posture: only believe FDA is granted when at least
+    # one probe attempt was made AND every attempted probe succeeded.
+    # If no probe path exists (clean Mac, no Safari / Messages / Mail
+    # ever opened), default to false so the assist fires once -- a
+    # spurious prompt is recoverable; missing extraction is not.
+    if [[ $FDA_PROBE_TRIED -gt 0 && $FDA_PROBE_SUCCEEDED -eq $FDA_PROBE_TRIED ]]; then
+        FDA_GRANTED=true
+    else
+        FDA_GRANTED=false
+    fi
     if [[ "$FDA_GRANTED" == false ]]; then
         warn "$MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL"
         warn "$MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM"
@@ -4959,14 +5011,22 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # Re-probe. macOS refreshes the TCC posture for the
             # caller binary as soon as the user toggles it on, so a
             # direct probe of one of the FDA-gated paths returns
-            # the live state without needing to re-exec.
+            # the live state without needing to re-exec. Use the
+            # same honest read-probe as the initial check so a false
+            # positive cannot creep back in.
             sleep 2
+            FDA_REPROBE_TRIED=0
+            FDA_REPROBE_SUCCEEDED=0
             for probe in "${FDA_PROBE_PATHS[@]}"; do
-                if [[ -r "$probe" ]] || ls "$probe" >/dev/null 2>&1; then
-                    FDA_GRANTED=true
-                    break
+                [[ -e "$probe" ]] || continue
+                FDA_REPROBE_TRIED=$((FDA_REPROBE_TRIED + 1))
+                if _fda_read_probe "$probe"; then
+                    FDA_REPROBE_SUCCEEDED=$((FDA_REPROBE_SUCCEEDED + 1))
                 fi
             done
+            if [[ $FDA_REPROBE_TRIED -gt 0 && $FDA_REPROBE_SUCCEEDED -eq $FDA_REPROBE_TRIED ]]; then
+                FDA_GRANTED=true
+            fi
             if [[ "$FDA_GRANTED" == true ]]; then
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
             else
