@@ -395,8 +395,23 @@ USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 # the previous failed run.
 mkdir -p "${LOGS_DIR}" 2>/dev/null || true
 INSTALL_LOG="${LOGS_DIR}/install.log"
-# Tee unbuffered (stdbuf -oL) so the GUI's `tail -f` style log
-# viewer sees lines immediately rather than 4KB-buffered.
+# Tee unbuffered so the GUI's `tail -f` style log viewer sees lines
+# immediately rather than 4KB-buffered. macOS has no `stdbuf` natively
+# (it's part of GNU coreutils, available via `brew install coreutils`
+# as `gstdbuf`), and on a fresh customer Mac brew is installed downstream
+# of this block. Probe stdbuf > gstdbuf > plain tee. If we fall back to
+# plain tee the install still works; the GUI log just streams in larger
+# chunks until brew + coreutils are on PATH.
+_ostler_select_tee_cmd() {
+    if command -v stdbuf >/dev/null 2>&1; then
+        echo "stdbuf -oL tee"
+    elif command -v gstdbuf >/dev/null 2>&1; then
+        echo "gstdbuf -oL tee"
+    else
+        echo "tee"
+    fi
+}
+_OSTLER_TEE_CMD="$(_ostler_select_tee_cmd)"
 if [[ -w "${LOGS_DIR}" ]]; then
     {
         echo ""
@@ -405,12 +420,13 @@ if [[ -w "${LOGS_DIR}" ]]; then
         echo "ARCH=$(uname -m)"
         echo "OSTLER_GUI=${OSTLER_GUI:-0}"
         echo "PATH=${PATH}"
+        echo "TEE_CMD=${_OSTLER_TEE_CMD}"
         echo "SCRIPT_DIR not yet resolved (set later in the prelude)"
         echo "============================================================"
     } >> "${INSTALL_LOG}"
     # Redirect future stdout+stderr through tee so both the customer's
     # terminal / GUI window AND ${INSTALL_LOG} get every byte.
-    exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1
+    exec > >(${_OSTLER_TEE_CMD} -a "${INSTALL_LOG}") 2>&1
 else
     # Fallback when ~/.ostler/logs is not writeable (defensive: a
     # caller already restricted permissions). Still try /tmp so we
@@ -418,7 +434,7 @@ else
     # customer log so support sees it.
     INSTALL_LOG="/tmp/ostler-install-$(date +%s).log"
     echo "WARN: ${LOGS_DIR} is not writeable; install.log falling back to ${INSTALL_LOG}" >&2
-    exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1
+    exec > >(${_OSTLER_TEE_CMD} -a "${INSTALL_LOG}") 2>&1
 fi
 export INSTALL_LOG
 
