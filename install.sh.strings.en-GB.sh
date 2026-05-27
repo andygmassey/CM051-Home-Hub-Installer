@@ -138,6 +138,7 @@ MSG_INFO_MAC_MINI_STUDIO_DEPLOYMENTS_ARE_UNAFFECTED="Mac Mini / Studio deploymen
 MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC="Mac-side data (iMessage, Safari, etc.) was extracted above."
 MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI="Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
 MSG_INFO_MANUAL_RUN_BASH_BIN_EMAIL_INGEST="Manual run: bash %s/bin/email-ingest-tick.sh"
+MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED="Skipping com.ostler.meeting-brief-sender install (v1.0.1 feature; endpoints not yet shipped)."
 MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED="message when the feature flag is later flipped on."
 MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI="Need help? Email support@ostler.ai. We aim to reply within 2 working days."
 MSG_INFO_MKDIR_P_CP_R_TMP_HUB="  mkdir -p %s && cp -R /tmp/hub-power-src/hub-power/* %s/"
