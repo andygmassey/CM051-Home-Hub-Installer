@@ -605,6 +605,24 @@ MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is require
 MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only. Linux support coming soon."
 MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 10 minutes. Run 'xcode-select --install' manually, accept the dialog, then re-run this installer."
 
+# ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
+#    `launch/TNM_BRIEF_dmg48_three_blockers_2026-05-27.md` in the
+#    HR015 repo):
+#    each "brew install X" step now verifies the post-condition (X is on
+#    PATH or the expected binary exists) and fail_with_code's loudly if
+#    not. Studio retest of DMG #47 silently dropped brew/colima/tailscale
+#    despite the GUI flowing to "end". The strings below back the new
+#    fail_with_code callsites. Reference codes use ERR-NN-DMG48-PKG-MISSING
+#    so they sort next to each other in the support catalogue. ──
+MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL="Homebrew install reported success but /opt/homebrew/bin/brew is missing. Check %s for the full transcript. Recovery: open Terminal and run '/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"' then re-run the installer."
+MSG_FAIL_HOMEBREW_NOT_ON_PATH="Homebrew is installed at /opt/homebrew/bin/brew but the 'brew' command is not on PATH after shellenv eval. Open a fresh Terminal and re-run the installer."
+MSG_FAIL_COLIMA_MISSING_AFTER_BREW="'brew install colima docker docker-compose' reported success but colima is not on PATH. Check %s for Homebrew failures. Recovery: open Terminal and run 'brew install colima docker docker-compose' manually, then re-run the installer."
+MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW="'brew install colima docker docker-compose' reported success but the docker CLI is not on PATH. Check %s. Recovery: 'brew install docker' manually then re-run the installer."
+MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="'brew install ollama' reported success but ollama is not on PATH. Check %s. Recovery: 'brew install ollama' manually then re-run the installer."
+MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW="'brew install sqlcipher' reported success but sqlcipher is not on PATH. Check %s. Recovery: 'brew install sqlcipher' manually then re-run the installer."
+MSG_FAIL_TAILSCALE_INSTALL_FAILED="'brew install --cask tailscale' did not produce /Applications/Tailscale.app. Check %s. Recovery: download Tailscale from https://tailscale.com/download/macos and drag it into /Applications, then re-run the installer."
+MSG_FAIL_PYTHON311_MISSING_AFTER_BREW="'brew install python@3.11' reported success but the python3.11 binary is missing at /opt/homebrew/opt/python@3.11/bin/python3.11. Check %s. Recovery: 'brew reinstall python@3.11' then re-run the installer."
+
 # ── Prompts (gui_read titles + help text) ──
 #
 # Customer-facing questions the user reads during setup. Each prompt
