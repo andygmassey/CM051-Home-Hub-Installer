@@ -5891,7 +5891,15 @@ ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 # email channels. The bin script reuses the daily-brief delivery
 # code path on the ostler-assistant side via the assistant's
 # announcement REST API (no Rust changes required in v1.0).
+#
+# Feature-flagged OFF for v1.0: the Hub endpoint
+# /api/v1/meeting/upcoming and the assistant's /announce target
+# do not exist yet. The agent would silently exit 0 on every poll
+# and never deliver a brief. v1.0.1 will ship both endpoints and
+# flip INSTALL_MEETING_BRIEF_LAUNCHAGENT=true.
 
+INSTALL_MEETING_BRIEF_LAUNCHAGENT="${INSTALL_MEETING_BRIEF_LAUNCHAGENT:-false}"
+if [ "$INSTALL_MEETING_BRIEF_LAUNCHAGENT" = "true" ]; then
 cat > "${OSTLER_DIR}/bin/ostler-meeting-brief-sender" <<'BRIEFEOF'
 #!/usr/bin/env bash
 # Poll the Hub's pre-meeting brief endpoint and ship unsent briefs
@@ -6097,6 +6105,9 @@ MBSPLIST
 launchctl bootstrap "gui/$(id -u)" "$BRIEF_PLIST" 2>/dev/null || \
     launchctl load "$BRIEF_PLIST" 2>/dev/null || true
 ok "$MSG_OK_MEETING_BRIEF_SENDER_INSTALLED"
+else
+    info "$MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED"
+fi
 
 # ── Deferred device-registration retry ─────────────────────────────
 #
