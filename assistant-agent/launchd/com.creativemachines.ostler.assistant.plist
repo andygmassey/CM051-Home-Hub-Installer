@@ -13,10 +13,18 @@
         time; daemon semantics are unchanged.
 
         The installer renders the placeholders below at install time:
-          OSTLER_BIN              -> $OSTLER_DIR/bin
+          OSTLER_BIN              -> $OSTLER_DIR/OstlerAssistant.app/Contents/MacOS
           OSTLER_HOME             -> $HOME
           OSTLER_LOGS             -> $LOGS_DIR
           OSTLER_ASSISTANT_CONFIG -> $OSTLER_DIR/assistant-config
+
+        OSTLER_BIN points at the .app bundle's MacOS dir (v0.4.3+
+        shape) instead of the legacy ~/.ostler/bin/. The bundle
+        wrapper exists so macOS TCC + Activity Monitor + the FDA
+        grant dialog render the Ostler v4 oxblood squircle next
+        to the daemon. Runtime semantics are unchanged: launchd
+        loads Contents/MacOS/ostler-assistant directly, the
+        bundle wrapper does not affect the daemon's process model.
 
         ZEROCLAW_WORKSPACE points the binary at Phase D's config
         directory. The config-dir resolver short-circuits to the
@@ -33,6 +41,13 @@
         daemon subcommand spins up the long-running runtime
         (gateway + channels + heartbeat + scheduler). See
         ostler-ai/ostler-assistant src/main.rs Commands::Daemon.
+
+        OSTLER_BIN expands to the inner-bundle MacOS dir
+        (v0.4.3+) so launchd invokes
+        OstlerAssistant.app/Contents/MacOS/ostler-assistant.
+        macOS TCC sees the parent .app bundle ID (read from
+        Info.plist CFBundleIdentifier) and renders the daemon
+        with the Ostler v4 icon in System Settings.
     -->
     <key>ProgramArguments</key>
     <array>

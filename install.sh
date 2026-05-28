@@ -1735,7 +1735,7 @@ case "$CHANNEL_CHOICE" in
     1) CHANNEL_IMESSAGE_ENABLED=true ;;
     2) CHANNEL_EMAIL_ENABLED=true ;;
     3|"") CHANNEL_IMESSAGE_ENABLED=true; CHANNEL_EMAIL_ENABLED=true ;;
-    4) info "Skipping channel setup. Run later: ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive" ;;
+    4) info "Skipping channel setup. Run later: ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive" ;;
     5)
         CHANNEL_IMESSAGE_ENABLED=true
         CHANNEL_EMAIL_ENABLED=true
@@ -7730,13 +7730,24 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.1})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.3})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.1}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.3}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an
 # un-installable Hub.
+#
+# v0.4.3+ ships the daemon as OstlerAssistant.app in the release
+# tarball (instead of a bare Mach-O at the tar root) so macOS TCC
+# can read the bundle's Info.plist + Resources/icon.icns and
+# render the Ostler v4 oxblood squircle next to the Full Disk
+# Access entry. The extraction + path logic below detects which
+# shape the tarball ships and stages both correctly, so the same
+# install.sh works against a fallback v0.4.1 tarball (bare
+# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
+# never published per task #507 -- the version was burned on a
+# pre-release dry-run.
 ASSISTANT_FALLBACK_VERSION="0.4.1"
 # Customer-facing distribution. Binary first published to
 # ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
@@ -7744,7 +7755,24 @@ ASSISTANT_FALLBACK_VERSION="0.4.1"
 OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-installer}"
 OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
-ASSISTANT_BINARY="${OSTLER_DIR}/bin/ostler-assistant"
+# .app bundle path (v0.4.3+ shape). The bundle wrapper carries
+# CFBundleIconFile + icon.icns, so macOS TCC and Activity Monitor
+# render the Ostler v4 oxblood squircle next to the daemon.
+ASSISTANT_APP_BUNDLE="${OSTLER_DIR}/OstlerAssistant.app"
+# Inner Mach-O path: the LaunchAgent and `ostler-assistant doctor`
+# / `setup channels` / etc. invocations target this directly.
+# Whether the tarball shipped as a bare binary (legacy v0.4.1
+# shape) or as an .app bundle (v0.4.3+ shape), this variable
+# always points at an executable Mach-O after the staging logic
+# below.
+ASSISTANT_BINARY="${ASSISTANT_APP_BUNDLE}/Contents/MacOS/ostler-assistant"
+# Legacy bare-binary path. Kept here for the fallback-to-v0.4.1
+# code path further down: if the tarball does not contain an .app
+# bundle (older release), the binary lands at this path instead
+# and ASSISTANT_BINARY is rewritten to point here. Quoted symbol
+# `_LEGACY_` makes a grep for `bin/ostler-assistant` easy if a
+# future migration wants to flatten the dual-shape support.
+ASSISTANT_BINARY_LEGACY="${OSTLER_DIR}/bin/ostler-assistant"
 
 # Apple Silicon only. The Phase B release workflow does
 # not produce an x86_64 build (customer Macs are arm64 by the
@@ -7775,7 +7803,7 @@ ASSISTANT_TMPDIR="$(mktemp -d)"
 ASSISTANT_BINARY_INSTALLED=false
 
 # CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
-# Resources/assistant-agent/bin/ over the GitHub release download.
+# Resources/assistant-agent/ over the GitHub release download.
 # The bundled binary is built from the same commit that defines the
 # DMG signing + notarisation posture, so version skew between the
 # customer's daemon and the rest of the install is impossible. The
@@ -7783,23 +7811,46 @@ ASSISTANT_BINARY_INSTALLED=false
 # critical-path binary (a customer with flaky DNS / GitHub outage /
 # Tailscale rerouting still gets a working daemon).
 #
-# Falls through to the curl path if the bundled binary is absent
+# Falls through to the curl path if no bundled artefact is present
 # (older DMGs predating this bundling, or a corrupted install
 # extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
 # forces the curl path even when bundled is present -- used in CI
 # to exercise the customer-network code path.
+#
+# v0.4.3+ shape: the DMG bundles OstlerAssistant.app at
+# assistant-agent/OstlerAssistant.app/. Legacy DMGs bundled a bare
+# binary at assistant-agent/bin/ostler-assistant. Probe for the
+# .app first (preferred), then fall back to the bare-binary path.
+# Both paths are then staged into ~/.ostler/OstlerAssistant.app/
+# downstream (the bare-binary shape gets wrapped in a minimal .app
+# locally so the TCC icon works regardless of which shape the
+# operator's DMG was cut from).
+ASSISTANT_BUNDLED_APP="${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app"
 ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
+
+# Determine whether a bundled artefact (.app or bare bin) is
+# present in the DMG. The .app shape is preferred (v0.4.3+); the
+# bare-binary shape stays supported for older DMGs.
+_assistant_bundled_shape=""
+if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]]; then
+    if [[ -x "${ASSISTANT_BUNDLED_APP}/Contents/MacOS/ostler-assistant" ]]; then
+        _assistant_bundled_shape="app"
+    elif [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+        _assistant_bundled_shape="bin"
+    fi
+fi
 
 # Try the primary download URL, then fall back once to
 # ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
-# activates when (a) the bundled binary path is not taken and
-# (b) the primary URL returns non-200. v0.4.2 of ostler-assistant
-# was never published to ostler-ai/ostler-installer (default bumped
-# in error pre-DMG#48; caught on a clean Studio install). If the
-# primary URL 404s, the install still completes on a proven-good
-# binary rather than stranding the customer at the launch step.
+# activates when (a) no bundled artefact is present in the DMG
+# and (b) the primary URL returns non-200. v0.4.2 of
+# ostler-assistant was never published to ostler-ai/ostler-installer
+# (default bumped in error pre-DMG#48; caught on a clean Studio
+# install). If the primary URL 404s, the install still completes
+# on a proven-good binary rather than stranding the customer at
+# the launch step.
 _assistant_download_ok=false
-if [[ -n "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] || [[ ! -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+if [[ -z "$_assistant_bundled_shape" ]]; then
     if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
        && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
         _assistant_download_ok=true
@@ -7815,19 +7866,105 @@ if [[ -n "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] || [[ ! -x "$ASSISTANT_BUNDLE
     fi
 fi
 
-if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]] && [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+if [[ "$_assistant_bundled_shape" == "app" ]]; then
+    # DMG bundled the v0.4.3+ shape: an .app bundle. Copy the
+    # whole bundle tree to ~/.ostler/OstlerAssistant.app/. ditto
+    # preserves Apple-specific filesystem metadata (extended
+    # attributes, ACLs, signature resources) that a plain cp -R
+    # can occasionally strip on edge filesystems; this matters
+    # because a signed bundle's _CodeSignature dir is part of the
+    # signature envelope.
     info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
-    mkdir -p "${OSTLER_DIR}/bin"
+    rm -rf "$ASSISTANT_APP_BUNDLE"
+    mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
+    ditto "$ASSISTANT_BUNDLED_APP" "$ASSISTANT_APP_BUNDLE"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # Clear quarantine from the whole bundle tree. The DMG itself
+    # was already Gatekeeper-cleared by the customer at install
+    # time, so this is not a security downgrade. -r recurses so
+    # the inner Mach-O + the Resources/icon.icns both lose the
+    # quarantine flag.
+    xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_APP_BUNDLE}")"
+    ASSISTANT_BINARY_INSTALLED=true
+elif [[ "$_assistant_bundled_shape" == "bin" ]]; then
+    # DMG bundled the legacy bare-binary shape. Stage the binary
+    # into the .app bundle structure locally so the TCC icon
+    # surface stays consistent regardless of which DMG cut the
+    # customer is installing from. The local-wrap uses the same
+    # Info.plist + icon.icns shipped in the DMG Resources/ so the
+    # customer sees the Ostler v4 icon in System Settings even on
+    # an older daemon build.
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    rm -rf "$ASSISTANT_APP_BUNDLE"
+    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
     cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
     chmod 0755 "$ASSISTANT_BINARY"
-    # DMG-extracted binaries inherit the quarantine xattr from the
-    # mount; clear it so the LaunchAgent can launch without a
-    # right-click-and-Allow ceremony. The DMG itself was already
-    # Gatekeeper-cleared by the customer at install time, so this
-    # is not a security downgrade (mirrors the post-tarball
-    # quarantine clear in the curl path below).
-    xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
-    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+    # Synthesise a minimal Info.plist for the locally-wrapped
+    # bundle. The bundle ID matches the daemon's TCC client
+    # identifier so a future v0.4.3+ upgrade preserves the FDA
+    # grant. CFBundleIconFile=icon + the icns copied below give
+    # macOS what it needs to render the Ostler v4 mark.
+    cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ostler-assistant</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.ostler.assistant</string>
+    <key>CFBundleName</key>
+    <string>Ostler Assistant</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ostler</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
+</dict>
+</plist>
+INFOPLISTEOF
+    # Copy the v4 oxblood squircle icns into the bundle.
+    # Resolution order matches the FDA dialog icon path used
+    # downstream: prefer the DMG's Resources, then fall back to
+    # the installed-app Resources/ if the operator ran an unusual
+    # SCRIPT_DIR path. If neither is present we leave
+    # CFBundleIconFile dangling -- macOS falls back to the
+    # generic icon, which is the same outcome as not wrapping;
+    # better than failing the install over a missing icns.
+    _local_wrap_icon_src=""
+    if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+        _local_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
+    elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+        _local_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
+    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+    fi
+    if [[ -n "$_local_wrap_icon_src" ]]; then
+        cp "$_local_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+        chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+    fi
+    unset _local_wrap_icon_src
+    # Clear quarantine from the freshly-staged bundle.
+    xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_APP_BUNDLE}")"
     ASSISTANT_BINARY_INSTALLED=true
 elif [[ "$_assistant_download_ok" == "true" ]]; then
 
@@ -7849,9 +7986,87 @@ elif [[ "$_assistant_download_ok" == "true" ]]; then
         exit 1
     fi
 
-    mkdir -p "${OSTLER_DIR}/bin"
-    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "${OSTLER_DIR}/bin"; then
-        chmod 0755 "$ASSISTANT_BINARY"
+    # Extract the tarball into a private staging dir first so we
+    # can inspect the shape (bare binary vs .app bundle) before
+    # committing to a final layout. v0.4.3+ tarballs contain
+    # OstlerAssistant.app at the tar root; legacy v0.4.1
+    # tarballs contain a bare ostler-assistant binary. The
+    # release-pipeline rename plan is described in the
+    # companion ostler-assistant PR (Path A).
+    _assistant_extract_dir="$(mktemp -d)"
+    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "$_assistant_extract_dir"; then
+        if [[ -d "$_assistant_extract_dir/OstlerAssistant.app" ]]; then
+            # v0.4.3+ shape: tarball contained OstlerAssistant.app
+            # at the root. Stage it into ~/.ostler/.
+            rm -rf "$ASSISTANT_APP_BUNDLE"
+            mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
+            ditto "$_assistant_extract_dir/OstlerAssistant.app" "$ASSISTANT_APP_BUNDLE"
+        elif [[ -f "$_assistant_extract_dir/ostler-assistant" ]]; then
+            # Legacy v0.4.1 shape: tarball contained a bare
+            # binary. Wrap it in a minimal .app locally so the
+            # TCC icon surface stays consistent regardless of
+            # which release the customer is installing.
+            rm -rf "$ASSISTANT_APP_BUNDLE"
+            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
+            cp "$_assistant_extract_dir/ostler-assistant" "$ASSISTANT_BINARY"
+            cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ostler-assistant</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.ostler.assistant</string>
+    <key>CFBundleName</key>
+    <string>Ostler Assistant</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ostler</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
+</dict>
+</plist>
+INFOPLISTEOF
+            _curl_wrap_icon_src=""
+            if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _curl_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _curl_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            fi
+            if [[ -n "$_curl_wrap_icon_src" ]]; then
+                cp "$_curl_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+                chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+            fi
+            unset _curl_wrap_icon_src
+        else
+            # Tarball shape we don't understand. Leave
+            # ASSISTANT_APP_BUNDLE absent; the Mach-O check below
+            # will mark it corrupt + skip the launch agent.
+            warn "Tarball at $ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME contained neither OstlerAssistant.app nor a bare ostler-assistant binary at the root."
+            warn "Skipping LaunchAgent install. Re-download once the release pipeline is back online."
+        fi
+        rm -rf "$_assistant_extract_dir"
+        chmod 0755 "$ASSISTANT_BINARY" 2>/dev/null || true
 
         # Three-state binary check. The SHA-256 verification
         # earlier in this section already caught a tampered
@@ -7916,12 +8131,15 @@ elif [[ "$_assistant_download_ok" == "true" ]]; then
                 # quarantine xattr lets the LaunchAgent run
                 # without the user having to right-click + Allow
                 # in Privacy & Security on first launch.
-                # Operator-installed daemons under ~/.ostler/bin
-                # are explicitly trusted by the install they
-                # just authorised; quarantine adds friction
-                # without buying anything beyond what FileVault
-                # and the SHA verify above already cover.
-                xattr -d com.apple.quarantine "$ASSISTANT_BINARY" 2>/dev/null || true
+                # Operator-installed daemons under
+                # ~/.ostler/OstlerAssistant.app are explicitly
+                # trusted by the install they just authorised;
+                # quarantine adds friction without buying
+                # anything beyond what FileVault and the SHA
+                # verify above already cover. -r recurses so the
+                # inner Mach-O + Resources/icon.icns both lose
+                # the xattr.
+                xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
                 ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
                 info "$MSG_INFO_QUARANTINE_XATTR_CLEARED_ONCE_DEVELOPER_ID"
                 info "$MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP"
@@ -7978,9 +8196,25 @@ ASSISTANT_TMPDIR=""
 # Stage the assistant-agent INSTALL_SNIPPET assets even when the
 # binary download failed. The snippet refuses to run without the
 # binary, but a later manual stage just needs to source it.
+#
+# v0.4.3+ shape: the DMG may bundle OstlerAssistant.app under
+# assistant-agent/. That bundle was already staged into
+# ~/.ostler/OstlerAssistant.app/ above, so we skip it here to
+# avoid a redundant ~20MB copy under assistant-agent/. Same for
+# the legacy bin/ directory if a customer is installing from an
+# older DMG that still bundled the bare binary there. Everything
+# else (INSTALL_SNIPPET.sh + launchd/) is needed at the
+# ~/.ostler/assistant-agent/ path.
 if [[ -d "${SCRIPT_DIR}/assistant-agent" && -f "${SCRIPT_DIR}/assistant-agent/INSTALL_SNIPPET.sh" ]]; then
     mkdir -p "$OSTLER_ASSISTANT_DIR"
-    cp -R "${SCRIPT_DIR}/assistant-agent/"* "$OSTLER_ASSISTANT_DIR/"
+    # rsync -a --exclude lets us cherry-pick what gets copied
+    # without writing a per-file enumeration. rsync ships with
+    # macOS so no extra dependency.
+    rsync -a \
+        --exclude='OstlerAssistant.app' \
+        --exclude='bin' \
+        "${SCRIPT_DIR}/assistant-agent/" \
+        "$OSTLER_ASSISTANT_DIR/"
 else
     # Surface a missing-bundle warning so a future buried-failure
     # retest catches the gap. Without this assets stage, the LaunchAgent
@@ -8119,21 +8353,31 @@ else
             # The chat.db probe above runs as install.sh, which
             # inherits OstlerInstaller.app's TCC posture — *not*
             # ostler-assistant's. If the customer granted FDA to
-            # the daemon binary on a previous install but never to
+            # the daemon on a previous install but never to
             # OstlerInstaller.app, the probe returns a false
             # negative and the assist dialog fires unnecessarily.
             # Query the system TCC.db directly via sudo to read
-            # the daemon binary's actual auth_value. auth_value 2
-            # means allowed. Best-effort: if sudo prompt would be
+            # the daemon's actual auth_value. auth_value 2 means
+            # allowed. Best-effort: if sudo prompt would be
             # needed (cache expired) we silently fall through to
             # the dialog path; net effect is no worse than the
             # pre-CX-78c behaviour.
+            #
+            # v0.4.3+ shape: the daemon is launched from inside
+            # OstlerAssistant.app/Contents/MacOS/, so macOS TCC
+            # keys the client column by the bundle identifier
+            # (ai.ostler.assistant) -- the same value the bundle
+            # declares in Info.plist CFBundleIdentifier. We
+            # check both the bundle-ID form (v0.4.3+) AND the
+            # legacy bare-binary path (in case a customer still
+            # has an old FDA grant against the bare-binary
+            # client). Either form returning 2 means "granted".
             _daemon_fda_auth=""
             if command -v sudo >/dev/null 2>&1; then
                 _daemon_fda_auth="$(
                     sudo -n sqlite3 \
                         "/Library/Application Support/com.apple.TCC/TCC.db" \
-                        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client='${OSTLER_DIR}/bin/ostler-assistant' LIMIT 1;" \
+                        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
                         2>/dev/null || true
                 )"
             fi
@@ -8171,11 +8415,16 @@ else
                 # "scheme not registered" warning on stripped builds.
                 open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
-                # Reveal the daemon binary in Finder so the customer
-                # can drag it directly into System Settings without
-                # navigating to ~/.ostler/bin/ themselves. The -R
-                # flag selects the file in the parent folder.
-                open -R "${OSTLER_DIR}/bin/ostler-assistant" 2>/dev/null || true
+                # Reveal the daemon .app bundle in Finder so the
+                # customer can drag it directly into System
+                # Settings without navigating to ~/.ostler/
+                # themselves. The -R flag selects the bundle in
+                # the parent folder; macOS Finder renders the
+                # bundle with the Ostler v4 icon (read from
+                # OstlerAssistant.app/Contents/Resources/icon.icns)
+                # so the customer sees the product mark from the
+                # moment Finder opens.
+                open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
 
                 # Modal that blocks install.sh until the customer
                 # dismisses it. The osascript dialog is reliable
@@ -10176,14 +10425,14 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ||
         echo "     1. On your phone: WhatsApp > Settings > Linked Devices >"
         echo "        Link a Device > Link with phone number instead"
         echo "     2. On this Mac, run:"
-        echo -e "        ${BOLD}${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive whatsapp${NC}"
+        echo -e "        ${BOLD}${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive whatsapp${NC}"
         echo "     3. Enter the 8-digit code shown by the assistant into"
         echo "        the WhatsApp app on your phone."
     fi
 elif [[ -n "${CHANNEL_CHOICE:-}" && "$CHANNEL_CHOICE" == "4" ]]; then
     echo ""
     echo "  No channels configured. Set one up later via:"
-    echo "     ${OSTLER_DIR}/bin/ostler-assistant setup channels --interactive"
+    echo "     ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive"
 fi
 
 # iMessage Automation permission banner. Silent on

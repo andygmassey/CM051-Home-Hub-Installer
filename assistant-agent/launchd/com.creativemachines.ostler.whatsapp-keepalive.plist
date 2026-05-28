@@ -29,10 +29,16 @@
         do not hit the same silent drops.
 
         The installer renders the placeholders below at install time:
-          OSTLER_BIN              -> $OSTLER_DIR/bin
+          OSTLER_BIN              -> $OSTLER_DIR/OstlerAssistant.app/Contents/MacOS
           OSTLER_HOME             -> $HOME (used as working directory)
           OSTLER_LOGS             -> $LOGS_DIR
           OSTLER_ASSISTANT_CONFIG -> $OSTLER_DIR/assistant-config
+
+        OSTLER_BIN points at the .app bundle's inner MacOS dir
+        (v0.4.3+ shape). Same binary as the legacy
+        ~/.ostler/bin/ostler-assistant path; the .app wrapper
+        gives TCC + Activity Monitor the bundle metadata they
+        need to render the Ostler v4 icon.
 
         ZEROCLAW_WORKSPACE points the binary at the same config
         the daemon uses, so `channel doctor` exercises exactly the
