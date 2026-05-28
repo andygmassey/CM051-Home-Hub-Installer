@@ -106,7 +106,16 @@ def run_all(
     if "safari_history" in sources:
         try:
             from .safari_history import extract_history, top_domains, to_timeline_entries
-            entries = extract_history(since_days=365)
+            # #48g historical backfill (CX-86): 5-year default at
+            # install time. The single hardcoded `since_days=365`
+            # silently truncated browsing history to 12 months even
+            # when the customer was a 5-year Safari user. Operator
+            # override via OSTLER_SAFARI_BACKFILL_DAYS mirrors the
+            # OSTLER_IMESSAGE_BACKFILL_DAYS + OSTLER_BROWSER_BACKFILL_DAYS
+            # shape so install.sh can pass one number for all three
+            # browsing sources if needed.
+            safari_backfill_days = int(os.environ.get("OSTLER_SAFARI_BACKFILL_DAYS", "365"))
+            entries = extract_history(since_days=safari_backfill_days)
             domains = top_domains(entries, limit=100)
 
             timeline = to_timeline_entries(entries)
@@ -261,7 +270,13 @@ def run_all(
                 chat_to_dict as _wa_to_dict,
                 TIER_T3_SKIP,
             )
-            chats = _wa_extract(since_days=365)
+            # #48g historical backfill (CX-85): 5-year default at
+            # install time. The hardcoded `since_days=365` silently
+            # capped intimate-or-active WhatsApp groups at 12 months
+            # even when the customer was a 5-year user. Operator
+            # override via OSTLER_WHATSAPP_BACKFILL_DAYS.
+            wa_backfill_days = int(os.environ.get("OSTLER_WHATSAPP_BACKFILL_DAYS", "365"))
+            chats = _wa_extract(since_days=wa_backfill_days)
             stats = _wa_stats(chats)
 
             # Drop T3 chats before writing the JSON -- they contain

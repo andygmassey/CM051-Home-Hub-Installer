@@ -83,3 +83,10 @@ gui/**/Packages/
 # durable distribution channel; this bundling is the offline-capable
 # fallback that ships in DMG Resources. CX-79b (2026-05-25).
 assistant-agent/bin/
+# CX-88 (DMG #48g, 2026-05-29): make stage-daemon fetches the v0.4.4 daemon
+# tarball from the private ostler-ai/ostler-assistant release and extracts
+# the .app bundle here. Bundle phase in gui/project.yml copies it into
+# OstlerInstaller.app/Contents/Resources/assistant-agent/OstlerAssistant.app/
+# at xcodebuild time. NOT tracked in source -- the tarball is recreated
+# on every `make ship` run.
+assistant-agent/OstlerAssistant.app/

@@ -112,7 +112,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    ostler_fda, contact_syncer, hub-power, doctor, third-party"
     echo "    notices); under curl|bash we download the tarball, extract"
     echo "    it, and re-exec from inside."
-    echo "    Default: https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
+    echo "    Default: https://github.com/ostler-ai/ostler-releases/releases/latest/download/install.tar.gz"
     echo ""
     echo "  OSTLER_INSTALLER_TARBALL_SHA256"
     echo "    Expected SHA-256 (hex) of the install tarball. The download"
@@ -349,14 +349,203 @@ if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
 fi
 
 # ── Paths ──────────────────────────────────────────────────────────
+#
+# CX-87 (DMG #48g, 2026-05-29): two-stage engine-zone layout. All
+# pre-FDA writes land in OSTLER_PRELAUNCH_DIR (a /tmp staging tree
+# whose layout mirrors ~/.ostler/ exactly). After the FDA grant
+# flow completes successfully (the re-probe returns FDA_GRANTED=true)
+# the staging tree is atomic-renamed onto ~/.ostler/ and the path
+# variables are re-bound to the final location. Everything after
+# FDA grant therefore writes directly to ~/.ostler/ as before.
+#
+# Why: macOS Full Disk Access can fire a "Quit & Reopen" dialog
+# when the user toggles the FDA switch for OstlerInstaller.app. If
+# install.sh has already written .env / service_token / config.toml /
+# .installer-tree-created to ~/.ostler/ before that point, the
+# relaunched installer sees a half-populated engine zone and the
+# Phase-2 reuse detection (line ~1100) silently auto-skips Phase 2.
+# The install then bails after config_save without doing wiki /
+# Ostler.app / pair-register / QR.
+#
+# Routing every pre-FDA write through a PID-stamped staging tree
+# means the relaunched installer (fresh PID, fresh staging dir,
+# empty ~/.ostler/) walks the questions normally instead of
+# silently bailing.
+#
+# License.json is deliberately NOT staged -- the GUI's
+# LicensePersistence writes it to ~/.ostler/license/license.json
+# before install.sh starts, so the customer doesn't have to re-drop
+# the licence after Quit & Reopen.  ~/.ostler/license/ existing
+# alone does NOT trigger Phase-2 skip (that gate checks for
+# ${CONFIG_DIR}/.env, which IS in the staging tree).
+#
+# Cleanup: composite_cleanup wipes the staging tree on any
+# non-success exit so a half-populated staging dir doesn't
+# accumulate in /tmp.
 
-OSTLER_DIR="${HOME}/.ostler"
-DATA_DIR="${OSTLER_DIR}/data"
-CONFIG_DIR="${OSTLER_DIR}/config"
-LOGS_DIR="${OSTLER_DIR}/logs"
-SECURITY_DIR="${OSTLER_DIR}/security-module"
-SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
-PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+OSTLER_FINAL_DIR="${HOME}/.ostler"
+OSTLER_PRELAUNCH_DIR="${OSTLER_PRELAUNCH_DIR:-/tmp/ostler-prelaunch-$$}"
+
+# _ostler_set_paths $target_root rebinds OSTLER_DIR + every
+# derived path variable to the supplied root. Called twice in the
+# install lifecycle:
+#   1. Here, immediately with OSTLER_PRELAUNCH_DIR.
+#   2. After the FDA grant re-probe succeeds, with OSTLER_FINAL_DIR.
+# Keeping the assignments in one place means future path additions
+# only need to be added below + in the staging tree creation, not
+# scattered across the script.
+_ostler_set_paths() {
+    OSTLER_DIR="$1"
+    DATA_DIR="${OSTLER_DIR}/data"
+    CONFIG_DIR="${OSTLER_DIR}/config"
+    # LOGS_DIR follows the staging tree on purpose: the install log
+    # is the forensic trail and should match whatever tree the rest
+    # of the install state lives in. On a successful install the
+    # whole tree gets renamed onto ~/.ostler/ so the log ends up at
+    # the canonical location anyway. On a failed install the
+    # composite_cleanup trap dumps a copy of the log to
+    # /tmp/ostler-install-failsafe-$$.log before removing the
+    # staging dir, so support has a copy even after cleanup.
+    LOGS_DIR="${OSTLER_DIR}/logs"
+    SECURITY_DIR="${OSTLER_DIR}/security-module"
+    SECURITY_CONFIG_DIR="${OSTLER_DIR}/security"
+    PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+    USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
+    # CX-87 (DMG #48g): derived path vars assigned BEFORE the FDA
+    # grant flow and read AFTER promotion -- must be rebound here
+    # too. FDA_DIR is the canonical example: line ~2658 sets it
+    # against the staging path; line ~5349 reads it after promotion.
+    # Without this rebind the Python heredoc would sys.path.insert
+    # a /tmp/ostler-prelaunch-<old-pid>/fda-module that no longer
+    # exists (the mv moved its contents into ~/.ostler/fda-module).
+    # SECRETS_DIR + OSTLER_ENV_FILE + ASSISTANT_CONFIG_DIR are also
+    # set pre-FDA and read post-FDA; included here for the same
+    # reason. ASSISTANT_BINARY follows from ASSISTANT_APP_BUNDLE
+    # which itself follows from OSTLER_DIR.
+    FDA_DIR="${OSTLER_DIR}/fda-module"
+    SECRETS_DIR="${OSTLER_DIR}/secrets"
+    OSTLER_ENV_FILE="${OSTLER_DIR}/.env"
+    ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
+    ASSISTANT_APP_BUNDLE="${OSTLER_DIR}/OstlerAssistant.app"
+    ASSISTANT_BINARY="${ASSISTANT_APP_BUNDLE}/Contents/MacOS/ostler-assistant"
+    ASSISTANT_BINARY_LEGACY="${OSTLER_DIR}/bin/ostler-assistant"
+    OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
+    CHAT_ADMIN_TOKEN_FILE="${SECRETS_DIR}/zeroclaw_admin_token"
+    SERVICE_TOKEN_FILE="${SECRETS_DIR}/service_token"
+    # Python venv lives at $OSTLER_DIR/.venv. Created during the
+    # encrypt_db step (pre-FDA), used heavily after FDA grant for the
+    # Python heredocs in the FDA extraction + hydrate steps.
+    OSTLER_VENV="${OSTLER_DIR}/.venv"
+    OSTLER_PIP="${OSTLER_VENV}/bin/pip"
+    OSTLER_PYTHON="${OSTLER_VENV}/bin/python3"
+}
+
+_ostler_set_paths "$OSTLER_PRELAUNCH_DIR"
+
+# Pre-create the staging tree so the first writes downstream
+# (LOGS_DIR mkdir at ~line 396) land in a writable location.
+mkdir -p "$OSTLER_PRELAUNCH_DIR"
+chmod 700 "$OSTLER_PRELAUNCH_DIR"
+
+# Mirror any pre-existing ~/.ostler/license/ into the staging tree
+# so install.sh paths that read license.json find it where they
+# expect. The licence file itself stays at ~/.ostler/license/ (the
+# GUI's LicensePersistence wrote it there); we only symlink so a
+# staging-tree relative reference resolves.
+if [[ -d "${OSTLER_FINAL_DIR}/license" ]]; then
+    ln -sfn "${OSTLER_FINAL_DIR}/license" "${OSTLER_PRELAUNCH_DIR}/license"
+fi
+
+# CX-87 (DMG #48g, 2026-05-29): defined early so the Phase-2 re-run
+# branch (~line 1237) can call it BEFORE the trap registration at
+# the top of Phase 3 (composite_cleanup section). The trap-side
+# OSTLER_PRELAUNCH_PROMOTED guard is also declared early below so
+# the function and the trap share the same scope. The cleanup
+# stanza inside composite_cleanup itself is registered with the
+# trap; if a future split moves the trap up here, both halves
+# stay symmetric.
+OSTLER_PRELAUNCH_PROMOTED=false
+
+# Atomic-promote the pre-FDA staging tree onto ~/.ostler/. Called
+# once per install lifecycle, idempotent on re-call.
+#
+# Contract:
+#   - If the staging tree is already promoted (idempotent re-call),
+#     no-op.
+#   - If ~/.ostler/ does not exist, walks staging-tree top-level +
+#     mv each entry across (per-entry atomic rename).
+#   - If ~/.ostler/ already exists (license.json was written by the
+#     GUI's LicensePersistence into ~/.ostler/license/ before
+#     install.sh started, so this is the normal v1.0 case), we walk
+#     each top-level entry in the staging tree, rm + mv into
+#     ~/.ostler/. The license/ symlink in the staging tree resolves
+#     back to ~/.ostler/license/ already, so we deliberately skip it
+#     to avoid replacing the real directory with a self-referential
+#     symlink.
+#   - After the promotion: rebind every path variable to ~/.ostler/
+#     so subsequent install.sh writes land at the canonical
+#     location, set OSTLER_PRELAUNCH_PROMOTED=true so the cleanup
+#     trap stops trying to wipe a path that no longer exists, and
+#     wipe the now-empty staging dir.
+#
+# Why not a single mv even when ~/.ostler/ exists: macOS `mv` of a
+# directory onto an existing directory errors out (it expects the
+# target to be absent). We could remove the target first, but that
+# would unlink the GUI-written licence file and the customer would
+# have to re-drop the .json. Walking the staging tree top-level
+# instead keeps the licence intact while still doing one rename
+# per child (atomic per-entry, which is the property we need).
+_ostler_promote_prelaunch_tree() {
+    if [[ "$OSTLER_PRELAUNCH_PROMOTED" == "true" ]]; then
+        return 0
+    fi
+    if [[ -z "${OSTLER_PRELAUNCH_DIR:-}" ]] || [[ ! -d "$OSTLER_PRELAUNCH_DIR" ]]; then
+        return 0
+    fi
+    if [[ "$OSTLER_PRELAUNCH_DIR" == "$OSTLER_FINAL_DIR" ]]; then
+        # Belt and braces: a future env-var override that pointed
+        # the staging tree at ~/.ostler/ directly should never end
+        # up in a self-rename here.
+        OSTLER_PRELAUNCH_PROMOTED=true
+        return 0
+    fi
+
+    mkdir -p "$OSTLER_FINAL_DIR"
+    chmod 700 "$OSTLER_FINAL_DIR" 2>/dev/null || true
+
+    # Walk top-level entries in the staging tree and move them
+    # into ~/.ostler/. Hidden entries (starting with .) included.
+    local entry name
+    for entry in "$OSTLER_PRELAUNCH_DIR"/* "$OSTLER_PRELAUNCH_DIR"/.[!.]* "$OSTLER_PRELAUNCH_DIR"/..?*; do
+        [[ -e "$entry" ]] || continue
+        name="$(basename "$entry")"
+        # Skip the license symlink we set up at startup -- the real
+        # licence dir already lives at ${OSTLER_FINAL_DIR}/license/.
+        if [[ "$name" == "license" ]] && [[ -L "$entry" ]]; then
+            continue
+        fi
+        # If the target already exists (e.g. the customer is
+        # re-running install.sh over a previous incomplete install),
+        # prefer the freshly-written staging-tree entry. rm + mv
+        # is not atomic across the two operations but the only
+        # observable window is one in which a reader sees the
+        # target absent, which is the same window mv -f handles
+        # internally on macOS for files (but not directories).
+        if [[ -e "${OSTLER_FINAL_DIR}/${name}" ]]; then
+            rm -rf "${OSTLER_FINAL_DIR}/${name}"
+        fi
+        mv "$entry" "${OSTLER_FINAL_DIR}/${name}"
+    done
+
+    # Wipe the now-empty staging dir (it should only contain the
+    # license symlink at this point, if at all).
+    rm -rf "$OSTLER_PRELAUNCH_DIR" 2>/dev/null || true
+
+    # Rebind every path variable to the canonical location so
+    # subsequent install.sh writes land at ~/.ostler/.
+    _ostler_set_paths "$OSTLER_FINAL_DIR"
+    OSTLER_PRELAUNCH_PROMOTED=true
+}
 
 # Two-zone layout: ~/Documents/Ostler/ holds the customer's
 # generated content (wiki MDs, call transcripts, daily briefs,
@@ -366,7 +555,6 @@ PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 # default; the customer is asked whether to keep it. See
 # /tmp/tnm_brief_two_zone_architecture_2026-05-02.md (Gap 4).
 USER_FACING_ROOT="${HOME}/Documents/Ostler"
-USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
 # Ordered list of subdirs created under ${USER_FACING_ROOT}.
 # Conversations/ is intentionally absent for now; it lands in a
 # follow-up PR once the brief's zoning question is resolved.
@@ -462,10 +650,12 @@ export INSTALL_LOG
 #
 # Override the tarball URL with OSTLER_INSTALLER_TARBALL_URL.
 # The default points at the GitHub Release artifact on the public
-# ostler-ai/ostler-installer mirror (versioned, signed, free, standard
-# pattern). Cloudflare Pages serving a static tarball was considered
-# but loses versioning + signing; GitHub Release is the long-term home.
-DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
+# ostler-ai/ostler-releases mirror (versioned, signed, free, standard
+# pattern). Customer-shipping releases were consolidated under
+# ostler-ai/ostler-releases on 2026-05-29; see CX-88. Cloudflare
+# Pages serving a static tarball was considered but loses versioning
+# + signing; GitHub Release is the long-term home.
+DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-releases/releases/latest/download/install.tar.gz"
 INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
 # SHA-256 of the bootstrap tarball. Updated at release time alongside
@@ -1097,13 +1287,23 @@ fi
 #  PHASE 2: COLLECT ALL USER INPUT (~2 minutes)
 # ══════════════════════════════════════════════════════════════════════
 
-# Re-run detection: if config exists, skip Phase 2 entirely
+# Re-run detection: if config exists from a prior COMPLETE install,
+# offer to skip Phase 2 entirely.
+#
+# CX-87 (DMG #48g, 2026-05-29): probe the FINAL location
+# ${OSTLER_FINAL_DIR}/config/.env -- NOT ${CONFIG_DIR}/.env which
+# now points at the per-PID staging tree and is empty on every
+# fresh process. The previous probe shape would silently fail to
+# detect a prior install (always-false) AND, prior to the staging
+# tree fix, silently TRIGGER on a half-populated pre-FDA staging
+# state from the same process (which is the bug that produced the
+# auto-bail after config_save).
 SKIP_PHASE2=false
 FV_ENABLED=false
-if [[ -f "${CONFIG_DIR}/.env" ]]; then
+if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]]; then
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
-    # Source existing config
-    set -a; source "${CONFIG_DIR}/.env"; set +a
+    # Source existing config from the canonical location.
+    set -a; source "${OSTLER_FINAL_DIR}/config/.env"; set +a
     USER_NAME="${USER_NAME:-}"
     USER_ID="${USER_ID:-}"
     ASSISTANT_NAME="${ASSISTANT_NAME:-}"
@@ -1116,8 +1316,8 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
         FV_ENABLED=true
     fi
     # Check if iCloud contacts were previously exported
-    if [[ -f "${OSTLER_DIR}/imports/icloud-contacts.vcf" ]]; then
-        EXPORTS_DIR="${OSTLER_DIR}/imports"
+    if [[ -f "${OSTLER_FINAL_DIR}/imports/icloud-contacts.vcf" ]]; then
+        EXPORTS_DIR="${OSTLER_FINAL_DIR}/imports"
     fi
     SKIP_PHASE2=true
 
@@ -1127,8 +1327,34 @@ if [[ -f "${CONFIG_DIR}/.env" ]]; then
     echo "  Timezone:   ${USER_TZ}"
     echo ""
     REUSE="$(gui_read "$MSG_PROMPT_REUSE_SETTINGS_TITLE" yesno "" "" "" "reuse_settings")"
-    if [[ "${REUSE:-y}" == "n" || "${REUSE:-y}" == "N" ]]; then
-        SKIP_PHASE2=false
+    # CX-87 (DMG #48g, 2026-05-29): an empty REUSE answer is treated
+    # as "n" (walk Phase 2 fresh), NOT "y". Pre-fix, the default
+    # branched the other way: ${REUSE:-y} fell through to "y" when
+    # the FIFO closed mid-prompt (which is exactly what happens
+    # when macOS fires the FDA Quit & Reopen flow part-way through
+    # the questions phase, ripping the prompt-pipe out from under
+    # gui_read). The fall-through silently SKIP_PHASE2=true'd and
+    # the install bailed after the config_save step. Forcing
+    # explicit "y" before we reuse means an empty / pipe-closed
+    # answer always walks the questions, which is the safer
+    # default: re-typing settings beats a half-installed Ostler.
+    case "${REUSE:-}" in
+        y|Y|yes|Yes|YES)
+            SKIP_PHASE2=true
+            ;;
+        *)
+            SKIP_PHASE2=false
+            ;;
+    esac
+    # CX-87 (DMG #48g, 2026-05-29): when re-running on a Mac with a
+    # prior complete install, promote the staging tree onto
+    # ~/.ostler/ immediately. There is no Quit & Reopen risk on a
+    # re-run (FDA was granted on the previous install and the TCC
+    # entry survives), so the staging-tree-for-pre-FDA-writes
+    # scaffold isn't needed. The promote function is idempotent on
+    # an empty staging tree.
+    if [[ "$SKIP_PHASE2" == "true" ]]; then
+        _ostler_promote_prelaunch_tree
     fi
 fi
 
@@ -2883,15 +3109,38 @@ if [[ -d "${HOME}/Library/Mail" ]]; then
     fi
 fi
 
+# #48g historical backfill (CX-84/85/86): auto-detect the optional
+# third-party sources so the picker can include them when the customer
+# actually has the app installed. Without these probes WhatsApp +
+# Chrome remain dead code: the FDA extractor only fires when the source
+# is in OSTLER_FDA_SOURCES, and the source was never offered.
+#
+# Heuristics (file-existence only -- no FDA at this point, that is
+# granted later in Phase 3 just before extract_all runs):
+#   WhatsApp Desktop: the Mac App Store build writes its sqlite to
+#       ~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite
+#   Chrome: any Chrome / Chromium profile writes a History sqlite to
+#       ~/Library/Application Support/Google/Chrome/Default/History
+HAS_WHATSAPP_DESKTOP=false
+if [[ -f "${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite" ]]; then
+    HAS_WHATSAPP_DESKTOP=true
+fi
+HAS_CHROME=false
+if [[ -f "${HOME}/Library/Application Support/Google/Chrome/Default/History" ]]; then
+    HAS_CHROME=true
+fi
+
 cat <<MENU
 
   Three presets, or pick each one yourself:
 
     [1] Recommended  Safari history + bookmarks, Notes, Calendar,
-                     Reminders. Fast, privacy-friendly defaults.
+                     Reminders, iMessage, Apple Mail. The everyday
+                     sources -- privacy-friendly, all local.
 
-    [2] Everything   The above + iMessage, Apple Mail, Photos events
-                     (NOT face recognition). Slower, more depth.
+    [2] Everything   The above + WhatsApp + Chrome (if installed),
+                     Photos events (NOT face recognition). Slower,
+                     more depth.
 
     [3] Customise    Pick each source individually.
 
@@ -2907,8 +3156,27 @@ PRESET="$(gui_read "$MSG_PROMPT_FDA_PRESET_TITLE" choice "recommended" "$MSG_PRO
 PRESET=${PRESET:-recommended}
 
 # Default sets
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders"
-EVERYTHING="${RECOMMENDED},imessage,apple_mail,photos_metadata"
+#
+# #48g (2026-05-29): RECOMMENDED now includes imessage + apple_mail so it
+# matches the customer-facing copy at MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED
+# ("Includes Apple Mail, Contacts, Calendar, Notes, Messages, Reminders,
+# and Safari history"). Pre-fix the strings file promised those sources
+# but the bash var did not include them, so install completed with the
+# wiki empty of iMessage + email-correspondent data on every install.
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
+
+# EVERYTHING adds whatsapp_history + chrome_history conditionally -- the
+# extractors throw FileNotFoundError if the source DB is missing, so it
+# is safe to list them, but skipping the listing when the app isn't
+# installed keeps the post-install summary honest ("Found 0 WhatsApp
+# people" reads as a bug; not listing the source reads as fine).
+EVERYTHING="${RECOMMENDED},photos_metadata"
+if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
+    EVERYTHING="${EVERYTHING},whatsapp_history"
+fi
+if [[ "$HAS_CHROME" == true ]]; then
+    EVERYTHING="${EVERYTHING},chrome_history"
+fi
 
 case "$PRESET" in
     1|recommended)
@@ -2941,15 +3209,30 @@ case "$PRESET" in
         _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
-        echo ""
-        echo "  Personal correspondence (default off -- third-party content):"
-        _ask_source "imessage"         "iMessage                " N
+        _ask_source "imessage"         "iMessage                " Y
         if [[ "$HAS_APPLE_MAIL_GMAIL" == true ]]; then
-            _ask_source "apple_mail" "Apple Mail (incl. Gmail)" N
+            _ask_source "apple_mail" "Apple Mail (incl. Gmail) " Y
         else
-            _ask_source "apple_mail" "Apple Mail              " N
+            _ask_source "apple_mail" "Apple Mail               " Y
         fi
-        _ask_source "photos_metadata"  "Photos events (no faces)" N
+        echo ""
+        echo "  Third-party apps (default on if the app is installed):"
+        # WhatsApp Desktop + Chrome are off-by-default unless the app
+        # was detected at section 9.5 entry. The extractor returns
+        # FileNotFoundError if you tick the box without the app, so a
+        # mistaken tick is recoverable; we just don't push the customer
+        # to tick what is dead-on-arrival.
+        if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
+            _ask_source "whatsapp_history" "WhatsApp Desktop history  " Y
+        else
+            _ask_source "whatsapp_history" "WhatsApp Desktop history  " N
+        fi
+        if [[ "$HAS_CHROME" == true ]]; then
+            _ask_source "chrome_history"   "Chrome history            " Y
+        else
+            _ask_source "chrome_history"   "Chrome history            " N
+        fi
+        _ask_source "photos_metadata"  "Photos events (no faces)  " N
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -2963,6 +3246,25 @@ case "$PRESET" in
         OSTLER_FDA_SOURCES="$RECOMMENDED"
         ;;
 esac
+
+# #48g: auto-add the third-party sources to RECOMMENDED too when their
+# app is installed. The customer who picked Recommended did NOT see a
+# WhatsApp / Chrome tickbox; the only signal is "the app exists on
+# this Mac". The opt-out path is the Customise preset.
+#
+# Rationale (Andy 2026-05-29): the wiki being empty post-install is a
+# customer-trust killer. If you have WhatsApp Desktop installed, you
+# almost certainly want your WhatsApp contacts in your People graph;
+# the install-time FDA-grant moment is the one chance to capture them
+# without an extra UI flow. Same logic for Chrome.
+if [[ "$PRESET" == "recommended" || "$PRESET" == "1" ]]; then
+    if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
+        OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES},whatsapp_history"
+    fi
+    if [[ "$HAS_CHROME" == true ]]; then
+        OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES},chrome_history"
+    fi
+fi
 
 # If a Takeout import was confirmed in section 9.4, add google_takeout
 # to the enabled sources list. Done AFTER the case so it covers all
@@ -3401,6 +3703,12 @@ SUDO_KEEPALIVE_PID=""
 PHASE3_BATTERY_WATCH_PID=""
 ASSISTANT_TMPDIR=""
 TAILSCALE_TMP_ENV=""
+# OSTLER_PRELAUNCH_PROMOTED was declared early (near the OSTLER_DIR
+# definitions at the top of the script) so the Phase-2 re-run branch
+# could call _ostler_promote_prelaunch_tree before this trap was
+# registered. The cleanup stanza below reads it; we deliberately do
+# NOT redeclare here to avoid clobbering a "true" value the Phase-2
+# branch may already have set.
 
 composite_cleanup() {
     if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
@@ -3419,8 +3727,29 @@ composite_cleanup() {
         rm -f "$TAILSCALE_TMP_ENV"
         TAILSCALE_TMP_ENV=""
     fi
+    # CX-87 (DMG #48g): wipe the pre-FDA staging tree if we are
+    # exiting before the promotion step ran. If a staging-tree
+    # install log exists, copy it to a failsafe location first so
+    # support has a paper trail even after cleanup. The failsafe
+    # path is /tmp-anchored + PID-stamped so concurrent installs
+    # do not collide, and survives the cleanup because we don't
+    # touch it after the copy.
+    if [[ "$OSTLER_PRELAUNCH_PROMOTED" != "true" \
+       && -n "${OSTLER_PRELAUNCH_DIR:-}" \
+       && -d "$OSTLER_PRELAUNCH_DIR" ]]; then
+        if [[ -f "${OSTLER_PRELAUNCH_DIR}/logs/install.log" ]]; then
+            cp "${OSTLER_PRELAUNCH_DIR}/logs/install.log" \
+               "/tmp/ostler-install-failsafe-$$.log" 2>/dev/null || true
+        fi
+        rm -rf "$OSTLER_PRELAUNCH_DIR" 2>/dev/null || true
+    fi
 }
 trap composite_cleanup EXIT
+# _ostler_promote_prelaunch_tree is defined early (near the path
+# variable setup at the top of this script) so the Phase-2 re-run
+# branch can call it before this trap is registered. See the
+# block under the "Atomic-promote the pre-FDA staging tree" comment
+# above the path-variable setup.
 
 # Refresh the sudo timestamp every 60s while this script runs, so a long
 # Phase 3 (e.g. slow ollama pull) does not silently expire it. Under
@@ -4944,6 +5273,12 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # spurious prompt is recoverable; missing extraction is not.
     if [[ $FDA_PROBE_TRIED -gt 0 && $FDA_PROBE_SUCCEEDED -eq $FDA_PROBE_TRIED ]]; then
         FDA_GRANTED=true
+        # CX-87 (DMG #48g): FDA was already granted (customer is
+        # re-running on a Mac where they granted it previously, or
+        # has just relaunched after a Quit & Reopen). Promote the
+        # pre-FDA staging tree onto ~/.ostler/ so the rest of the
+        # install writes to the canonical location.
+        _ostler_promote_prelaunch_tree
     else
         FDA_GRANTED=false
     fi
@@ -4965,6 +5300,46 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         # with full FDA. Gated on OSTLER_GUI=1; TTY-only installs
         # fall through to the previous text-only message.
         if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+            # CX-87 (DMG #48g, 2026-05-29): pre-warn modal before the
+            # FDA grant flow. Same shape as the CX-47
+            # (Downloads/Desktop/Documents) and CX-55 (iMessage
+            # Automation) pre-warns. The crucial guidance is the
+            # "Quit & Reopen" hint -- macOS will fire that dialog
+            # straight after the customer toggles FDA on for
+            # OstlerInstaller.app, and a click on Later silently
+            # breaks the grant for the current process.
+            info "$MSG_INFO_INSTALLER_FDA_PREWARN"
+            _prewarn_msg="$(printf '%s\n\n%s\n\n%s' \
+                "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1" \
+                "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2" \
+                "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3")"
+            _prewarn_msg_esc="${_prewarn_msg//\"/\\\"}"
+            _prewarn_title_esc="${MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE//\"/\\\"}"
+            _prewarn_button_esc="${MSG_PROMPT_INSTALLER_FDA_PREWARN_BUTTON//\"/\\\"}"
+            _prewarn_icon_path=""
+            if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _prewarn_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _prewarn_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _prewarn_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _prewarn_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            fi
+            if [[ -n "$_prewarn_icon_path" ]]; then
+                _prewarn_icon_path_esc="${_prewarn_icon_path//\"/\\\"}"
+                _prewarn_icon_clause="with icon file POSIX file \"${_prewarn_icon_path_esc}\""
+            else
+                _prewarn_icon_clause="with icon note"
+            fi
+            osascript \
+                -e 'tell application "System Events" to activate' \
+                -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
+                >/dev/null 2>&1 || true
+            unset _prewarn_msg _prewarn_msg_esc _prewarn_title_esc \
+                  _prewarn_button_esc _prewarn_icon_path \
+                  _prewarn_icon_path_esc _prewarn_icon_clause
+
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
             open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
@@ -5032,6 +5407,12 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             else
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
             fi
+            # CX-87 (DMG #48g): promote the staging tree onto
+            # ~/.ostler/ now that the FDA grant flow is behind us
+            # (grant accepted OR declined; both paths past the
+            # Quit & Reopen risk window). The rest of the install
+            # writes to the canonical location.
+            _ostler_promote_prelaunch_tree
         else
             echo ""
             echo "  To grant Full Disk Access:"
@@ -5045,6 +5426,13 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             echo ""
         fi
     fi
+    # CX-87 (DMG #48g): catch-all promotion of the staging tree.
+    # The branches above call _ostler_promote_prelaunch_tree from
+    # within their happy paths; this idempotent re-call guarantees
+    # we promote even on the TTY-no-GUI path and on any future
+    # branch that skips the inner promote. The function returns
+    # immediately if OSTLER_PRELAUNCH_PROMOTED is already true.
+    _ostler_promote_prelaunch_tree
     if [[ "$FDA_GRANTED" == true ]]; then
         info "$MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION"
     fi
@@ -5058,9 +5446,31 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # was invisible and the user got the bland "no FDA sources
     # available" message. Audit ref
     # /tmp/silent_fail_audit_2026-05-04.md HIGH-1.
+    # #48g (2026-05-29): set 5-year backfill windows so the
+    # install-time extract pulls a meaningful customer history, not
+    # just 12 months. The 5-year cap is the explicit ceiling from the
+    # spec: older data is rare on a primary Mac and inflates install
+    # runtime. Customer can backfill further from Doctor later.
+    #
+    # OSTLER_IMESSAGE_BACKFILL_DAYS: read by extract_all.py
+    # OSTLER_BROWSER_BACKFILL_DAYS:  read by extract_all.py (chrome arm)
+    # OSTLER_SAFARI_BACKFILL_DAYS:   new env var, hard-coded extract
+    #                                 (safari_history.py reads it now)
+    # OSTLER_WHATSAPP_BACKFILL_DAYS: new env var, hard-coded extract
+    #                                 (whatsapp_history extract_all
+    #                                  branch reads it now)
+    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
+
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
+                 OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS}" \
+                 OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
+                 OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
+                 OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -5153,6 +5563,11 @@ else
     # empty ~/.ostler/imports/fda/.
     info "$MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING"
     info "$MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT"
+    # CX-87 (DMG #48g): even though we skipped the FDA grant flow
+    # entirely, the staging tree needs to be promoted to ~/.ostler/
+    # for the rest of the install to write to the canonical
+    # location. Idempotent.
+    _ostler_promote_prelaunch_tree
 fi
 
 # ── 3.8 Docker services ───────────────────────────────────────────
@@ -7735,10 +8150,24 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.4}"
 # never published per task #507 -- the version was burned on a
 # pre-release dry-run.
 ASSISTANT_FALLBACK_VERSION="0.4.1"
-# Customer-facing distribution. Binary first published to
-# ostler-ai/ostler-installer 2026-05-03 after the org-level new-account hold
-# was lifted by GitHub support (ticket #4347825).
-OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-installer}"
+# Customer-facing distribution.
+#
+# CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
+# release repo ostler-ai/ostler-releases, NOT the private source
+# repo ostler-ai/ostler-assistant (which 404s for every customer).
+# Tags are component-prefixed: the daemon release tag is `hub-vX.Y.Z`
+# (not bare `vX.Y.Z`) so a single release repo can host multiple
+# component release streams. Pre-fix the install.sh default pointed
+# at the source repo, which is private + would 404 on every clean
+# install whose bundled-daemon tarball was missing (silent-warn-skip
+# pattern caught 2026-05-29).
+#
+# The primary install path is the bundled-in-DMG tarball at
+# ${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app (see CX-79b
+# below). This URL is the recovery-only fallback for customers
+# whose DMG is corrupted or whose extraction step dropped the
+# bundled payload.
+OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-releases}"
 OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
 # .app bundle path (v0.4.3+ shape). The bundle wrapper carries
@@ -7775,7 +8204,11 @@ else
 _ostler_assistant_set_urls() {
     OSTLER_ASSISTANT_VERSION="$1"
     ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
-    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
+    # CX-88 (2026-05-29): tag is `hub-vX.Y.Z` -- the release repo at
+    # ostler-ai/ostler-releases uses component-prefixed tags so it can
+    # host multiple release streams (hub, remote-capture, iOS, etc.)
+    # under one repository.
+    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
     ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
 }
 
@@ -9236,12 +9669,91 @@ fi
 
 progress "Hydrating your graph from iCloud" "hydrate_graph"
 
+# #48g historical backfill idempotency (CX-84/85/86, 2026-05-29).
+# Each per-source hydrate_* block drops a sentinel file once it
+# completes (success or no-data both count -- the customer choice was
+# honoured + we ran the path). A subsequent install.sh re-run skips
+# the hydrate block when the sentinel is fresh, so the customer's
+# graph is not double-emitted with a second copy of every Person
+# triple. The sentinel TTL is 7 days so a manual "redo my install"
+# (rare) still picks up new data; the Doctor source-repair flow
+# bypasses install.sh entirely.
+_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
+mkdir -p "$_HYDRATE_SENTINEL_DIR"
+
+# Returns 0 if the sentinel for $1 is present + fresher than 7 days.
+# Use as: if _hydrate_sentinel_fresh imessage; then continue; fi
+_hydrate_sentinel_fresh() {
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/$1.done"
+    [[ -f "$sentinel" ]] || return 1
+    # macOS stat: -f%m yields unix mtime
+    local mtime now age
+    mtime=$(stat -f%m "$sentinel" 2>/dev/null || echo 0)
+    now=$(date +%s)
+    age=$((now - mtime))
+    # 7 days = 604800s. Sentinel older than that -> re-run.
+    [[ "$age" -lt 604800 ]]
+}
+
+# Records the sentinel + a single-line JSON payload with whatever the
+# hydrate step produced (count, status, etc). The payload is
+# customer-local; we never log its contents off-machine.
+# Use as: _hydrate_sentinel_record imessage '{"people":123,"status":"ok"}'
+_hydrate_sentinel_record() {
+    local source="$1"
+    local payload="${2:-}"
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    {
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=%s\n' "$source"
+        if [[ -n "$payload" ]]; then
+            printf 'payload=%s\n' "$payload"
+        fi
+    } > "$sentinel"
+}
+
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
 _HYDRATE_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
 _HYDRATE_PIPELINE_PY="${PIPELINE_DIR}/.venv/bin/python"
 
+# CX-92/93/94 (DMG #48g, 2026-05-29): historical-data backfill windows.
+# Pre-fix the calendar pulled 90 days and the email pulled 30 days,
+# so a customer with multi-year mail / calendar history saw an
+# almost-empty wiki on install completion + a long tail of "Doctor
+# is still backfilling" warnings for weeks afterwards. Bumping to
+# 5 years gets the customer onto a fully-populated wiki within the
+# install window. The values are env-overridable so a customer with
+# a constrained / slow Mac can still narrow the window from the
+# install command line. 5 years = 1825 days as a constant so we
+# don't drift on leap years.
+OSTLER_HYDRATE_BACKFILL_DAYS="${OSTLER_HYDRATE_BACKFILL_DAYS:-1825}"
+
 # Contact hydration ------------------------------------------------
+#
+# CX-93 (DMG #48g): re-export from Contacts.app at hydrate time as
+# well as at the Phase-2 me-card capture. On a fresh Mac the
+# Phase-2 export can run BEFORE iCloud finishes the first contact
+# sync (Phase 2 is the very first thing that happens; iCloud sync
+# can take 30-90 seconds after sign-in). By the time we get to
+# hydrate (post-FDA, post-encrypt, post-Docker bring-up = several
+# minutes later), iCloud has typically caught up. Re-exporting here
+# means the customer's local AB + freshly-synced iCloud contacts
+# BOTH land in the import. If the Phase-2 vcf already has content
+# we keep it -- this is purely additive.
+if [[ ! -s "$_HYDRATE_VCF" ]]; then
+    info "$MSG_HYDRATE_CONTACTS_REEXPORT"
+    mkdir -p "$(dirname "$_HYDRATE_VCF")"
+    osascript -e "
+tell application \"Contacts\"
+    set vcfData to vcard of every person
+    set fp to POSIX file \"${_HYDRATE_VCF}\"
+    set fRef to open for access fp with write permission
+    write vcfData to fRef
+    close access fRef
+end tell" 2>/dev/null || true
+fi
+
 if [[ -s "$_HYDRATE_VCF" ]] && [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CONTACTS_STARTED"
     # contact_syncer.syncer --vcf emits a single-line JSON status on
@@ -9267,19 +9779,30 @@ except Exception:
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
     else
-        info "$MSG_HYDRATE_SKIPPED_NO_CONTACTS"
+        warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
     fi
 else
-    info "$MSG_HYDRATE_SKIPPED_NO_CONTACTS"
+    # No iCloud / no local AB. Surface a warn (not a silent info)
+    # so the customer + Doctor see it. Re-run from Settings later
+    # once iCloud finishes its first sync.
+    warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
 fi
 
 # Calendar hydration -----------------------------------------------
+#
+# CX-92 (DMG #48g): backfill window bumped from 90 days to 5 years
+# (1825 days). meeting_syncer pulls events with attendees via the
+# localhost ical-server which reads EventKit (covers both iCloud
+# calendars + any account added to System Settings > Internet
+# Accounts). A 5-year window catches the customer's career-relevant
+# meetings + recurring annual events; the 90-day window only saw
+# the last quarter.
 if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CALENDAR_STARTED"
     _HYDRATE_CALENDAR_JSON="$(
         cd "$PIPELINE_DIR" && \
         "$_HYDRATE_PIPELINE_PY" -m meeting_syncer.syncer \
-            --days 90 \
+            --days "$OSTLER_HYDRATE_BACKFILL_DAYS" \
             --api-url "$_HYDRATE_API" \
             --graph-endpoint "$_HYDRATE_OXIGRAPH" \
             --json 2>>/tmp/ostler-hydrate-calendar.log \
@@ -9306,24 +9829,27 @@ fi
 
 # Email hydration --------------------------------------------------
 #
-# Pulls the last 30 days of correspondents from Apple Mail into the
-# People graph as a one-shot install-time tick. Without this the
-# customer waits up to 60 minutes for the hourly LaunchAgent to
-# fire its first run; with it the wiki shows recent correspondents
-# within ~5 minutes of install completion.
+# CX-94 (DMG #48g, 2026-05-29): backfill window bumped from 30 days
+# to 5 years (1825 days). Pulls correspondents from Apple Mail
+# into the People graph as a one-shot install-time tick. Without
+# this the customer waits up to 60 minutes for the hourly
+# LaunchAgent to fire its first run; with it the wiki shows
+# correspondents within ~5 minutes of install completion.
 #
-# Wall-clock cap (90s) keeps the install moving on accounts with
-# huge mailboxes. If the cap is hit we emit
+# Wall-clock cap (180s, doubled from the pre-CX-94 90s) keeps the
+# install moving on huge mailboxes. If the cap is hit we emit
 # MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES and let the hourly agent
 # finish the crawl. The customer still gets contacts + calendar
-# (B1) plus whatever email landed in the 90s window.
+# (B1) plus whatever email landed in the time window. The hourly
+# LaunchAgent inherits OSTLER_BACKFILL_DAYS via Phase 3.X above and
+# will pick up the rest progressively.
 #
 # Behaviour on edge cases (per CX-81 B2 + B1 AC4):
 #   - email-ingest venv not set up / pwg-email-ingest missing ->
 #     emit MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING, continue.
 #   - mbox emit produces no messages (empty mailbox / FDA pending)
 #     -> emit MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT, continue.
-#   - 90s timeout -> emit MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES,
+#   - 180s timeout -> emit MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES,
 #     continue. The hourly tick takes it from there.
 #
 # Privacy AC6: pwg-email-ingest's --json output is counts only.
@@ -9345,9 +9871,9 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     # bites in practice.
     _HYDRATE_EMAIL_TIMEOUT_WRAP=""
     if command -v gtimeout >/dev/null 2>&1; then
-        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout 90"
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="gtimeout 180"
     elif command -v timeout >/dev/null 2>&1; then
-        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout 90"
+        _HYDRATE_EMAIL_TIMEOUT_WRAP="timeout 180"
     fi
 
     mkdir -p "$_HYDRATE_EMAIL_MBOX_DIR"
@@ -9357,10 +9883,14 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
 
     # Step 1: drain Apple Mail into a fresh mbox. ostler_fda is
     # pip-installed in the email-ingest venv by Phase 3.X above.
+    # CX-94: backfill window now $OSTLER_HYDRATE_BACKFILL_DAYS (5y default).
+    # Chunk size kept at 30d so the apple_mail_mbox reader can stream
+    # progress + recover from a per-chunk failure without restarting
+    # the whole multi-year scan.
     if OSTLER_HOME="$HOME" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
        "$_HYDRATE_EMAIL_PY" -m ostler_fda.apple_mail_mbox \
            --emit-mbox "$_HYDRATE_EMAIL_MBOX" \
-           --backfill-days 30 \
+           --backfill-days "$OSTLER_HYDRATE_BACKFILL_DAYS" \
            --backfill-chunk-days 30 \
            >>"$_HYDRATE_EMAIL_LOG" 2>&1; then
         :
@@ -9382,7 +9912,7 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
         # for the customer-facing OK line.
         _HYDRATE_EMAIL_JSON="$(
             "$_HYDRATE_EMAIL_BIN" mbox "$_HYDRATE_EMAIL_MBOX" \
-                --backfill-days 30 \
+                --backfill-days "$OSTLER_HYDRATE_BACKFILL_DAYS" \
                 --graph-endpoint "$_HYDRATE_OXIGRAPH_EMAIL" \
                 --json 2>>"$_HYDRATE_EMAIL_LOG" \
             | tail -n 1
@@ -9461,7 +9991,9 @@ _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 _HYDRATE_OXIGRAPH_WA="${OXIGRAPH_URL:-http://localhost:7878}"
 
-if [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
+if _hydrate_sentinel_fresh "whatsapp"; then
+    info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS"
+elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_STARTED"
 
     # Same timeout picker as hydrate_email (brew coreutils gtimeout
@@ -9525,6 +10057,10 @@ except Exception:
         fi
     fi
 
+    # #48g sentinel record: dedupes re-runs within a 7-day window. The
+    # payload is a counts-only snapshot; never logged off-machine.
+    _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
     unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP
     unset _HYDRATE_WHATSAPP_LOG
@@ -9532,6 +10068,10 @@ elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP"
+    # Record the sentinel even for "no app" so re-runs don't re-probe;
+    # if the customer installs WhatsApp Desktop later, they re-trigger
+    # via Doctor's source-repair flow, not by re-running install.sh.
+    _hydrate_sentinel_record "whatsapp" "status=no_app"
 fi
 
 unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
@@ -9572,7 +10112,9 @@ _HYDRATE_BROWSING_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_BROWSING_SAFARI="${_HYDRATE_BROWSING_FDA_DIR}/safari_history.json"
 _HYDRATE_BROWSING_CHROME="${_HYDRATE_BROWSING_FDA_DIR}/chrome_history.json"
 
-if [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
+if _hydrate_sentinel_fresh "browsing"; then
+    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
     info "$MSG_HYDRATE_BROWSING_STARTED"
 
@@ -9645,6 +10187,9 @@ except Exception:
         info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
     fi
 
+    # #48g sentinel record: dedupes re-runs within a 7-day window.
+    _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
@@ -9652,6 +10197,7 @@ elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "browsing" "status=no_data"
 fi
 
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
@@ -9695,7 +10241,9 @@ _HYDRATE_IMESSAGE_PY="${_HYDRATE_IMESSAGE_VENV}/bin/python"
 _HYDRATE_IMESSAGE_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_IMESSAGE_JSON_FILE="${_HYDRATE_IMESSAGE_FDA_DIR}/imessage_conversations.json"
 
-if [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
+if _hydrate_sentinel_fresh "imessage"; then
+    info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_STARTED"
 
     _HYDRATE_IMESSAGE_TIMEOUT_WRAP=""
@@ -9756,6 +10304,9 @@ except Exception:
         info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
     fi
 
+    # #48g sentinel record: dedupes re-runs within a 7-day window.
+    _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
     unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
     unset _HYDRATE_IMESSAGE_LOG
@@ -9763,6 +10314,7 @@ elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "imessage" "status=no_data"
 fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
