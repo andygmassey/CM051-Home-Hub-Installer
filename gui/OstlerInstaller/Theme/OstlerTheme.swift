@@ -42,7 +42,7 @@ extension Color {
 
     // Accents
     static let ostlerOxblood      = Color(hex: 0x7A1F1F)  // --accent
-    static let ostlerOxbloodHover = Color(hex: 0x6E1717)  // --accent-hover
+    static let ostlerOxbloodHover = Color(hex: 0x5E1717)  // --accent-hover
     static let ostlerOxbloodWarm  = Color(hex: 0xA82A2A)  // --accent-warm
     static let ostlerInkBlue      = Color(hex: 0x1E2C52)  // --accent-2
     static let ostlerForest       = Color(hex: 0x2C4A2C)  // --accent-3
