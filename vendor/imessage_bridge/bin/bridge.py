@@ -87,21 +87,54 @@ def _convert_mac_timestamp(raw: int) -> int:
     return int(raw) + MAC_EPOCH_OFFSET
 
 
-def _load_last_rowid(state_path: Path) -> int:
-    """Read the last-emitted ROWID from state.json, or 0 if first run."""
+def _load_last_rowid(state_path: Path) -> Optional[int]:
+    """Read the last-emitted ROWID from state.json.
+
+    Returns ``None`` when state.json is missing or unreadable so the
+    caller can clamp to the current MAX(ROWID). Returning 0 on first
+    run causes the producer to dump the ENTIRE chat.db history into
+    inbox.jsonl, which on the consumer side translates to the
+    assistant trying to reply to every historical message
+    (self-talk loop observed 2026-05-28).
+    """
     if not state_path.exists():
-        return 0
+        return None
     try:
         with state_path.open("r", encoding="utf-8") as fp:
             data = json.load(fp)
         rowid = data.get("last_rowid", 0)
         if not isinstance(rowid, int) or rowid < 0:
-            logger.warning("state.json last_rowid not a non-negative int; resetting to 0")
-            return 0
+            logger.warning("state.json last_rowid not a non-negative int; clamping to current max")
+            return None
         return rowid
     except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("state.json unreadable (%s); resetting to 0", exc.__class__.__name__)
+        logger.warning(
+            "state.json unreadable (%s); clamping to current max",
+            exc.__class__.__name__,
+        )
+        return None
+
+
+def _current_max_rowid(conn: sqlite3.Connection) -> int:
+    """Read MAX(ROWID) from message table (0 when empty / unreadable).
+
+    Used to clamp first-run state so the producer never replays the
+    whole history. Inbound-only filter (is_from_me=0) matches the
+    listener's high-water-mark semantics in imessage.rs.
+    """
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(MAX(ROWID), 0) FROM message WHERE is_from_me = 0"
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        logger.warning(
+            "chat.db MAX(ROWID) query failed: %s; clamping to 0",
+            exc.__class__.__name__,
+        )
         return 0
+    if row is None:
+        return 0
+    return int(row[0])
 
 
 def _save_last_rowid(state_path: Path, rowid: int) -> None:
@@ -231,6 +264,13 @@ def poll_once(
 
     Pure function over the filesystem state, no global side effects
     beyond inbox.jsonl + state.json. Used by tests directly.
+
+    First-run semantics: when state.json is missing or unreadable the
+    high-water mark is clamped to ``MAX(ROWID)`` of the current chat.db
+    rather than 0. Without this clamp the producer dumps the entire
+    chat.db history into inbox.jsonl (LIMIT 500 per tick), which the
+    consumer-side assistant then replies to message-by-message
+    (self-talk loop observed 2026-05-28).
     """
     inbox_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -239,6 +279,14 @@ def poll_once(
     if conn is None:
         return 0
     try:
+        if last_rowid is None:
+            # First run (or unreadable state). Clamp to current max so
+            # we only emit messages received AFTER bridge.py started,
+            # not the customer's entire chat.db history.
+            clamped = _current_max_rowid(conn)
+            _save_last_rowid(state_path, clamped)
+            logger.info("first run: clamped to current MAX(ROWID)")
+            return 0
         records = fetch_new_messages(conn, after_rowid=last_rowid)
     finally:
         conn.close()

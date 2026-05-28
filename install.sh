@@ -7526,82 +7526,68 @@ fi
 unset _mail_probe_failure_line
 info "CX-35 checkpoint: exiting Mail content probe block cleanly"
 
-# ── 3.14c iMessage bridge LaunchAgent (assistant-user replies) ──
+# ── 3.14c iMessage bridge LaunchAgent (DISABLED in single-machine v1.0) ──
 #
-# Long-running LaunchAgent that polls the macOS user's
-# ~/Library/Messages/chat.db for new inbound iMessages and appends
-# them as JSON-lines to /Users/Shared/imessage-bridge/inbox.jsonl.
-# The assistant (ostler-assistant) reads + drains that file every
-# poll cycle to receive iMessages addressed to the assistant Apple
-# ID. Without this LaunchAgent the consumer in
-# crates/zeroclaw-channels/src/imessage.rs sees a file that never
-# exists and assistant-user iMessage replies silently fail.
+# Status: DISABLED for v1.0 customer installs (single-machine
+# architecture per memory/feedback_single_machine_architecture.md).
 #
-# Source: HR015's imessage-bridge/ directory (sibling of
-# email-ingest/). Same bundle / clone fallback chain as 3.14a above
-# so a productised install (tarball with assets) and a dev install
-# (clone HR015) both work. Comes AFTER the FDA grant phase (3.7) so
-# the bridge can actually read chat.db on the first tick.
+# Background: bridge.py was added 2026-04-01 for Andy's personal
+# DUAL-USER deployment on the Mac Mini, where the assistant ran as
+# a separate macOS user (different chat.db). The bridge polled the
+# *assistant* user's chat.db and shuttled inbound messages to the
+# assistant runtime via /Users/Shared/imessage-bridge/inbox.jsonl.
+#
+# In v1.0 customer installs the assistant runs under the SAME macOS
+# user as everything else (single-machine architecture). The Rust
+# listener in crates/zeroclaw-channels/src/imessage.rs already polls
+# ~/Library/Messages/chat.db directly. Running bridge.py on the same
+# user is duplicative AND triggers a self-talk loop:
+#
+#   1. bridge.py and the listener both see every new inbound message
+#      => assistant generates 2 replies per inbound (visible doubling).
+#   2. On first install, bridge.py's state.json is missing => it
+#      starts at last_rowid = 0 and dumps the ENTIRE chat.db history
+#      (LIMIT 500 per 30s tick) into inbox.jsonl. The listener then
+#      tries to reply to every historical inbound. Mass-send of old
+#      conversation lines, observed 2026-05-28 as the "Marvin talking
+#      to itself" symptom across two threads on Andy's number (one
+#      cleanly contact-matched, one labelled with Apple's "Maybe:"
+#      contact-disambiguation prefix).
+#
+# Fix: skip the LaunchAgent install AND actively bootout / remove any
+# stale agent + bin + state from a previous install. The Rust listener
+# remains functional because it reads chat.db directly. The bridge
+# code path is also gated OFF by default in the Rust listener under
+# OSTLER_IMESSAGE_BRIDGE_INBOX_ENABLE=1 (see ostler-assistant PR).
+#
+# If a future split-identity install brings back a separate assistant
+# user, the bridge.py vendor still exists at vendor/imessage_bridge/
+# and can be re-wired then. Do NOT delete the vendor directory in
+# this PR; just stop installing the LaunchAgent.
 
 progress "$MSG_INFO_IMESSAGE_BRIDGE_STARTED" "imessage_bridge"
 
-IMESSAGE_BRIDGE_DIR="${OSTLER_DIR}/imessage-bridge"
-IMESSAGE_BRIDGE_SNIPPET=""
-IMESSAGE_BRIDGE_SOURCE=""
+# Defensive cleanup: if a previous installer ran the bridge LaunchAgent,
+# unload it and remove the rendered plist + staged producer + state +
+# inbox so we do not leave a duplicate poller running on the customer's
+# Mac after they upgrade through this fix.
+_imb_label="com.ostler.imessage-bridge"
+_imb_domain="gui/$(id -u)"
+launchctl bootout "${_imb_domain}/${_imb_label}" 2>/dev/null \
+    || launchctl unload "${HOME}/Library/LaunchAgents/${_imb_label}.plist" 2>/dev/null \
+    || true
+rm -f "${HOME}/Library/LaunchAgents/${_imb_label}.plist"
+rm -f "${OSTLER_DIR}/bin/bridge.py"
+rm -f /Users/Shared/imessage-bridge/inbox.jsonl
+rm -f /Users/Shared/imessage-bridge/state.json
+rm -f /Users/Shared/imessage-bridge/state.json.tmp
 
-if [[ -d "${SCRIPT_DIR}/imessage-bridge" && -f "${SCRIPT_DIR}/imessage-bridge/INSTALL_SNIPPET.sh" ]]; then
-    IMESSAGE_BRIDGE_SNIPPET="${SCRIPT_DIR}/imessage-bridge/INSTALL_SNIPPET.sh"
-    IMESSAGE_BRIDGE_SOURCE="bundled"
-    mkdir -p "$IMESSAGE_BRIDGE_DIR"
-    cp -R "${SCRIPT_DIR}/imessage-bridge/"* "$IMESSAGE_BRIDGE_DIR/"
-    ok "$MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_BUNDLED_WITH_INSTALLER"
-elif [[ -f "${IMESSAGE_BRIDGE_DIR}/INSTALL_SNIPPET.sh" ]]; then
-    IMESSAGE_BRIDGE_SNIPPET="${IMESSAGE_BRIDGE_DIR}/INSTALL_SNIPPET.sh"
-    IMESSAGE_BRIDGE_SOURCE="existing"
-elif [[ -z "$HUB_POWER_REPO" ]]; then
-    # No bundled vendor copy AND no override repo. For productised
-    # customer installs this is the regression case (.app shipped
-    # without the imessage-bridge vendor). Soft-warn unless the
-    # dev/CI plaintext escape hatch is set: the bridge is required
-    # for the assistant-user reply surface, but the rest of Ostler
-    # is functional without it. Mirror email-ingest's plaintext
-    # escape hatch.
-    if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
-        warn "$MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
-        warn "$MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED"
-    else
-        warn "$MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT"
-    fi
-else
-    IMESSAGE_BRIDGE_TMP="$(mktemp -d)"
-    IMESSAGE_BRIDGE_CLONE_LOG="$(mktemp -t ostler-imessage-bridge-clone.XXXXXX.log)"
-    if git clone --quiet --depth 1 "$HUB_POWER_REPO" "$IMESSAGE_BRIDGE_TMP" 2>"$IMESSAGE_BRIDGE_CLONE_LOG" \
-       && [[ -d "$IMESSAGE_BRIDGE_TMP/imessage-bridge" ]]; then
-        mkdir -p "$IMESSAGE_BRIDGE_DIR"
-        cp -R "$IMESSAGE_BRIDGE_TMP/imessage-bridge/"* "$IMESSAGE_BRIDGE_DIR/"
-        rm -rf "$IMESSAGE_BRIDGE_TMP"
-        rm -f "$IMESSAGE_BRIDGE_CLONE_LOG"
-        IMESSAGE_BRIDGE_SNIPPET="${IMESSAGE_BRIDGE_DIR}/INSTALL_SNIPPET.sh"
-        IMESSAGE_BRIDGE_SOURCE="cloned"
-        ok "$(printf "$MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_CLONED_FROM" "${HUB_POWER_REPO}")"
-    else
-        rm -rf "$IMESSAGE_BRIDGE_TMP"
-        rm -f "$IMESSAGE_BRIDGE_CLONE_LOG"
-        warn "$MSG_WARN_IMESSAGE_BRIDGE_FAILED"
-    fi
-fi
+# Sanity: an empty /Users/Shared/imessage-bridge/ is harmless. Do not
+# rmdir the directory because earlier installs may have set perms on
+# it and a future split-identity install will recreate it.
 
-if [[ -n "$IMESSAGE_BRIDGE_SNIPPET" && -f "$IMESSAGE_BRIDGE_SNIPPET" ]]; then
-    if OSTLER_INSTALL_ROOT="$IMESSAGE_BRIDGE_DIR" \
-       OSTLER_DIR="$OSTLER_DIR" \
-       LOGS_DIR="$LOGS_DIR" \
-       OSTLER_PYTHON="${EMAIL_INGEST_VENV_PYTHON:-${PYTHON3_BIN:-python3}}" \
-       bash "$IMESSAGE_BRIDGE_SNIPPET"; then
-        ok "$MSG_OK_IMESSAGE_BRIDGE_INSTALLED"
-    else
-        warn "$MSG_WARN_IMESSAGE_BRIDGE_FAILED"
-    fi
-fi
+info "iMessage bridge LaunchAgent disabled in v1.0 single-machine mode"
+ok "iMessage handled directly by assistant chat.db poller (no bridge)"
 
 # ── 3.14d Wiki recompile LaunchAgent (daily wiki rebuild) ───────
 #
