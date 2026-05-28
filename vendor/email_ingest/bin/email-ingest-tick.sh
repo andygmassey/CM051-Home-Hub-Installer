@@ -28,7 +28,7 @@
 #   OSTLER_DIR         (default ~/.ostler) -- artefact root
 #   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
 #   OSTLER_PYTHON      (default python3)   -- python interpreter
-#   OSTLER_BACKFILL_DAYS (default 365)     -- first-tick clamp
+#   OSTLER_BACKFILL_DAYS (default 1825)    -- first-tick clamp
 #   OSTLER_BACKFILL_CHUNK_DAYS (default 30) -- backward-sweep chunk
 #
 # British English throughout.
@@ -37,14 +37,18 @@ set -euo pipefail
 
 # Resolve config with sensible defaults so a manual run (e.g. "what
 # would the LaunchAgent do?") works without env-var ceremony.
-# 365 + 30 ship the two-checkpoint progressive-backfill model from
-# Andy's #48 review (2026-05-01): tick 1 covers the last year;
-# subsequent ticks crawl 30 more days back per tick until the whole
-# mailbox is covered, then forward-only forever.
+# CX-94 (DMG #48g, 2026-05-29): default backfill bumped from 365
+# (1 year) to 1825 (5 years) so a fresh customer install lands on
+# a wiki populated with their full multi-year correspondence.
+# The 30-day chunk size is unchanged -- the apple_mail_mbox reader
+# stream-processes per chunk + the LaunchAgent's checkpoint state
+# survives across ticks so a slow first-run progressively catches
+# up over a handful of hourly ticks rather than blocking the
+# install on the full multi-year scan.
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 OSTLER_HOME="${OSTLER_HOME:-$HOME}"
 OSTLER_PYTHON="${OSTLER_PYTHON:-python3}"
-OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-365}"
+OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-1825}"
 OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
 
 # Where to drop the hourly mbox. One file per hour means a re-run

@@ -90,7 +90,7 @@ MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools needed. macOS will ask for permission to install – look for a small grey dialog (if you don't see it, press Cmd+Tab or check your Dock). Click Install. The tools download in the background while you answer the questions below."
 MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still waiting for Command Line Tools (elapsed: %ss)..."
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Waiting for Command Line Tools to finish installing (almost there)..."
-MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run clamped to last 90 days."
+MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the last 5 years of mail."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
 MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="AC-only hub (no battery detected), skipping hub-power LaunchAgent."
 MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub power scripts not bundled with installer."
@@ -680,6 +680,20 @@ MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="System Settings is open at Full Disk Acce
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2="Find \"OstlerInstaller\" in the list and turn it on."
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3="Click Done when finished and Ostler will read your Safari history, Notes, iMessages and Mail."
 MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON="Done"
+
+# CX-87 (DMG #48g, 2026-05-29): pre-warn before the FDA grant flow.
+# Matches the shape of the CX-47 (Downloads/Desktop/Documents) and
+# CX-55 (iMessage Automation) pre-warns. The crucial guidance is the
+# "Quit & Reopen" hint -- without it the customer reads the macOS
+# dialog as a choice and clicks Later, which silently breaks the FDA
+# grant for OstlerInstaller.app and lands the install at the
+# extraction step with no Safari / Mail / iMessage access.
+MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE="Next: Full Disk Access for the installer"
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1="Next, macOS will ask you to grant Full Disk Access to OstlerInstaller."
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2="After you toggle the switch on, macOS will pop up a dialog asking you to choose 'Quit & Reopen' or 'Later'."
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3="Click Quit & Reopen. The installer will relaunch itself and continue from this step automatically."
+MSG_PROMPT_INSTALLER_FDA_PREWARN_BUTTON="OK"
+MSG_INFO_INSTALLER_FDA_PREWARN="Briefing you on the Full Disk Access grant flow..."
 MSG_INFO_INSTALLER_FDA_ASSIST_OPENING="Opening System Settings so you can grant Full Disk Access to the installer..."
 MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED="Full Disk Access granted to the installer. Reading Safari, Notes, iMessages and Mail next."
 MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED="Full Disk Access still not granted. Continuing without it; you can re-run the installer later to extract Safari / Notes / iMessages."
@@ -793,12 +807,21 @@ MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS 
 MSG_HYDRATE_TITLE="Hydrating your graph"
 MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
 MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
-MSG_HYDRATE_CALENDAR_STARTED="Backfilling your calendar for the last 90 days"
+# CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
+# days to 5 years -- customer copy updated to match the new behaviour.
+MSG_HYDRATE_CALENDAR_STARTED="Backfilling your calendar for the last 5 years"
 MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
 MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki – this takes 2 to 5 minutes"
 MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
+# CX-93 (DMG #48g, 2026-05-29): split the "no contacts" copy. The old
+# string blamed iCloud, which was misleading on a local-AB-only Mac.
+# REEXPORT covers the hydrate-time re-attempt; EMPTY_LOCAL_AND_ICLOUD
+# is what surfaces when both the Phase-2 me-card export and the
+# hydrate-time re-export came back empty (no iCloud + empty local AB).
+MSG_HYDRATE_CONTACTS_REEXPORT="iCloud may still be syncing your contacts – re-exporting now to pick up anything that just landed."
+MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD="No contacts found in your Contacts app (local or iCloud). Add some to Contacts and re-run from Settings."
 MSG_HYDRATE_SKIPPED_NO_CONTACTS="No iCloud contacts to import. You can add this later from Settings."
-MSG_HYDRATE_SKIPPED_NO_EVENTS="No calendar events in the last 90 days. You can backfill later from Settings."
+MSG_HYDRATE_SKIPPED_NO_EVENTS="No calendar events in the last 5 years. You can backfill later from Settings."
 
 # Email hydration strings (CX-81 B2 + CX-83)
 # Used by install.sh's hydrate_email step, inserted inside the
