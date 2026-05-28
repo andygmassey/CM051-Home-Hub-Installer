@@ -752,9 +752,9 @@ MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file direc
 
 MSG_PROMPT_FDA_PRESET_TITLE="Which Mac sources should Ostler learn from?"
 MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – choose deliberately if you want them."
-MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended – Includes Apple Mail, Contacts, Calendar, Notes, Messages, Reminders, and Safari history. Excludes Photos face-recognition data and any third-party export archives (you can add those at the previous step)."
-MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything – Recommended + Photos people-clusters (face recognition) + Safari bookmarks + Google Takeout (Gmail / Calendar / Contacts). Excludes nothing native; third-party exports still go through the previous step."
-MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise – Pick each source on the next screen. Sensitive sources stay off until you tick them."
+MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended. Includes Apple Mail, Contacts, Calendar, Notes, Messages, Reminders, Safari history, and Safari bookmarks. WhatsApp Desktop history and Chrome history are added automatically when the app is installed. Excludes Photos face-recognition data and any third-party export archives."
+MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything. Recommended + Photos events (no face recognition). Photos face recognition stays off until you tick it deliberately."
+MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise. Pick each source on the next screen. Sensitive sources stay off until you tick them."
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
 

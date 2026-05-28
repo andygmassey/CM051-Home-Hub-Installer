@@ -692,7 +692,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
 # Privacy AC mirror B2 + CX-85: stdout payload contains counts only.
 # No URLs, titles, or domain names cross the install.sh boundary.
 
-_GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8765/api/safari/ingest"
+# #48g historical backfill (CX-86): the customer-install gateway binds
+# 127.0.0.1:8000 (locked at CX-59 / DMG #34, 2026-05-24). The previous
+# default of :8765 was the dev-only port the gateway used pre-launch;
+# leaving it as a fallback meant every install where OSTLER_GATEWAY_URL
+# was not explicitly set would silently fail to ingest browsing history
+# (connection refused -> errored++, sent=0). install.sh's hydrate_browsing
+# step does NOT set OSTLER_GATEWAY_URL today, so the :8765 default was
+# the runtime path on every customer Mac.
+_GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8000/api/safari/ingest"
 _SERVICE_TOKEN_PATH = Path.home() / ".ostler" / "secrets" / "service_token"
 
 

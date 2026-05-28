@@ -2883,15 +2883,38 @@ if [[ -d "${HOME}/Library/Mail" ]]; then
     fi
 fi
 
+# #48g historical backfill (CX-84/85/86): auto-detect the optional
+# third-party sources so the picker can include them when the customer
+# actually has the app installed. Without these probes WhatsApp +
+# Chrome remain dead code: the FDA extractor only fires when the source
+# is in OSTLER_FDA_SOURCES, and the source was never offered.
+#
+# Heuristics (file-existence only -- no FDA at this point, that is
+# granted later in Phase 3 just before extract_all runs):
+#   WhatsApp Desktop: the Mac App Store build writes its sqlite to
+#       ~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite
+#   Chrome: any Chrome / Chromium profile writes a History sqlite to
+#       ~/Library/Application Support/Google/Chrome/Default/History
+HAS_WHATSAPP_DESKTOP=false
+if [[ -f "${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite" ]]; then
+    HAS_WHATSAPP_DESKTOP=true
+fi
+HAS_CHROME=false
+if [[ -f "${HOME}/Library/Application Support/Google/Chrome/Default/History" ]]; then
+    HAS_CHROME=true
+fi
+
 cat <<MENU
 
   Three presets, or pick each one yourself:
 
     [1] Recommended  Safari history + bookmarks, Notes, Calendar,
-                     Reminders. Fast, privacy-friendly defaults.
+                     Reminders, iMessage, Apple Mail. The everyday
+                     sources -- privacy-friendly, all local.
 
-    [2] Everything   The above + iMessage, Apple Mail, Photos events
-                     (NOT face recognition). Slower, more depth.
+    [2] Everything   The above + WhatsApp + Chrome (if installed),
+                     Photos events (NOT face recognition). Slower,
+                     more depth.
 
     [3] Customise    Pick each source individually.
 
@@ -2907,8 +2930,27 @@ PRESET="$(gui_read "$MSG_PROMPT_FDA_PRESET_TITLE" choice "recommended" "$MSG_PRO
 PRESET=${PRESET:-recommended}
 
 # Default sets
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders"
-EVERYTHING="${RECOMMENDED},imessage,apple_mail,photos_metadata"
+#
+# #48g (2026-05-29): RECOMMENDED now includes imessage + apple_mail so it
+# matches the customer-facing copy at MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED
+# ("Includes Apple Mail, Contacts, Calendar, Notes, Messages, Reminders,
+# and Safari history"). Pre-fix the strings file promised those sources
+# but the bash var did not include them, so install completed with the
+# wiki empty of iMessage + email-correspondent data on every install.
+RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
+
+# EVERYTHING adds whatsapp_history + chrome_history conditionally -- the
+# extractors throw FileNotFoundError if the source DB is missing, so it
+# is safe to list them, but skipping the listing when the app isn't
+# installed keeps the post-install summary honest ("Found 0 WhatsApp
+# people" reads as a bug; not listing the source reads as fine).
+EVERYTHING="${RECOMMENDED},photos_metadata"
+if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
+    EVERYTHING="${EVERYTHING},whatsapp_history"
+fi
+if [[ "$HAS_CHROME" == true ]]; then
+    EVERYTHING="${EVERYTHING},chrome_history"
+fi
 
 case "$PRESET" in
     1|recommended)
@@ -2941,15 +2983,30 @@ case "$PRESET" in
         _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
-        echo ""
-        echo "  Personal correspondence (default off -- third-party content):"
-        _ask_source "imessage"         "iMessage                " N
+        _ask_source "imessage"         "iMessage                " Y
         if [[ "$HAS_APPLE_MAIL_GMAIL" == true ]]; then
-            _ask_source "apple_mail" "Apple Mail (incl. Gmail)" N
+            _ask_source "apple_mail" "Apple Mail (incl. Gmail) " Y
         else
-            _ask_source "apple_mail" "Apple Mail              " N
+            _ask_source "apple_mail" "Apple Mail               " Y
         fi
-        _ask_source "photos_metadata"  "Photos events (no faces)" N
+        echo ""
+        echo "  Third-party apps (default on if the app is installed):"
+        # WhatsApp Desktop + Chrome are off-by-default unless the app
+        # was detected at section 9.5 entry. The extractor returns
+        # FileNotFoundError if you tick the box without the app, so a
+        # mistaken tick is recoverable; we just don't push the customer
+        # to tick what is dead-on-arrival.
+        if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
+            _ask_source "whatsapp_history" "WhatsApp Desktop history  " Y
+        else
+            _ask_source "whatsapp_history" "WhatsApp Desktop history  " N
+        fi
+        if [[ "$HAS_CHROME" == true ]]; then
+            _ask_source "chrome_history"   "Chrome history            " Y
+        else
+            _ask_source "chrome_history"   "Chrome history            " N
+        fi
+        _ask_source "photos_metadata"  "Photos events (no faces)  " N
         echo ""
         echo "  Special-category data (default off -- explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
@@ -2963,6 +3020,25 @@ case "$PRESET" in
         OSTLER_FDA_SOURCES="$RECOMMENDED"
         ;;
 esac
+
+# #48g: auto-add the third-party sources to RECOMMENDED too when their
+# app is installed. The customer who picked Recommended did NOT see a
+# WhatsApp / Chrome tickbox; the only signal is "the app exists on
+# this Mac". The opt-out path is the Customise preset.
+#
+# Rationale (Andy 2026-05-29): the wiki being empty post-install is a
+# customer-trust killer. If you have WhatsApp Desktop installed, you
+# almost certainly want your WhatsApp contacts in your People graph;
+# the install-time FDA-grant moment is the one chance to capture them
+# without an extra UI flow. Same logic for Chrome.
+if [[ "$PRESET" == "recommended" || "$PRESET" == "1" ]]; then
+    if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
+        OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES},whatsapp_history"
+    fi
+    if [[ "$HAS_CHROME" == true ]]; then
+        OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES},chrome_history"
+    fi
+fi
 
 # If a Takeout import was confirmed in section 9.4, add google_takeout
 # to the enabled sources list. Done AFTER the case so it covers all
@@ -5058,9 +5134,31 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # was invisible and the user got the bland "no FDA sources
     # available" message. Audit ref
     # /tmp/silent_fail_audit_2026-05-04.md HIGH-1.
+    # #48g (2026-05-29): set 5-year backfill windows so the
+    # install-time extract pulls a meaningful customer history, not
+    # just 12 months. The 5-year cap is the explicit ceiling from the
+    # spec: older data is rare on a primary Mac and inflates install
+    # runtime. Customer can backfill further from Doctor later.
+    #
+    # OSTLER_IMESSAGE_BACKFILL_DAYS: read by extract_all.py
+    # OSTLER_BROWSER_BACKFILL_DAYS:  read by extract_all.py (chrome arm)
+    # OSTLER_SAFARI_BACKFILL_DAYS:   new env var, hard-coded extract
+    #                                 (safari_history.py reads it now)
+    # OSTLER_WHATSAPP_BACKFILL_DAYS: new env var, hard-coded extract
+    #                                 (whatsapp_history extract_all
+    #                                  branch reads it now)
+    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
+
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
+                 OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS}" \
+                 OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
+                 OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
+                 OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -9236,6 +9334,49 @@ fi
 
 progress "Hydrating your graph from iCloud" "hydrate_graph"
 
+# #48g historical backfill idempotency (CX-84/85/86, 2026-05-29).
+# Each per-source hydrate_* block drops a sentinel file once it
+# completes (success or no-data both count -- the customer choice was
+# honoured + we ran the path). A subsequent install.sh re-run skips
+# the hydrate block when the sentinel is fresh, so the customer's
+# graph is not double-emitted with a second copy of every Person
+# triple. The sentinel TTL is 7 days so a manual "redo my install"
+# (rare) still picks up new data; the Doctor source-repair flow
+# bypasses install.sh entirely.
+_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
+mkdir -p "$_HYDRATE_SENTINEL_DIR"
+
+# Returns 0 if the sentinel for $1 is present + fresher than 7 days.
+# Use as: if _hydrate_sentinel_fresh imessage; then continue; fi
+_hydrate_sentinel_fresh() {
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/$1.done"
+    [[ -f "$sentinel" ]] || return 1
+    # macOS stat: -f%m yields unix mtime
+    local mtime now age
+    mtime=$(stat -f%m "$sentinel" 2>/dev/null || echo 0)
+    now=$(date +%s)
+    age=$((now - mtime))
+    # 7 days = 604800s. Sentinel older than that -> re-run.
+    [[ "$age" -lt 604800 ]]
+}
+
+# Records the sentinel + a single-line JSON payload with whatever the
+# hydrate step produced (count, status, etc). The payload is
+# customer-local; we never log its contents off-machine.
+# Use as: _hydrate_sentinel_record imessage '{"people":123,"status":"ok"}'
+_hydrate_sentinel_record() {
+    local source="$1"
+    local payload="${2:-}"
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    {
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=%s\n' "$source"
+        if [[ -n "$payload" ]]; then
+            printf 'payload=%s\n' "$payload"
+        fi
+    } > "$sentinel"
+}
+
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
 _HYDRATE_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
@@ -9461,7 +9602,9 @@ _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 _HYDRATE_OXIGRAPH_WA="${OXIGRAPH_URL:-http://localhost:7878}"
 
-if [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
+if _hydrate_sentinel_fresh "whatsapp"; then
+    info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS"
+elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_STARTED"
 
     # Same timeout picker as hydrate_email (brew coreutils gtimeout
@@ -9525,6 +9668,10 @@ except Exception:
         fi
     fi
 
+    # #48g sentinel record: dedupes re-runs within a 7-day window. The
+    # payload is a counts-only snapshot; never logged off-machine.
+    _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
     unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP
     unset _HYDRATE_WHATSAPP_LOG
@@ -9532,6 +9679,10 @@ elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP"
+    # Record the sentinel even for "no app" so re-runs don't re-probe;
+    # if the customer installs WhatsApp Desktop later, they re-trigger
+    # via Doctor's source-repair flow, not by re-running install.sh.
+    _hydrate_sentinel_record "whatsapp" "status=no_app"
 fi
 
 unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
@@ -9572,7 +9723,9 @@ _HYDRATE_BROWSING_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_BROWSING_SAFARI="${_HYDRATE_BROWSING_FDA_DIR}/safari_history.json"
 _HYDRATE_BROWSING_CHROME="${_HYDRATE_BROWSING_FDA_DIR}/chrome_history.json"
 
-if [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
+if _hydrate_sentinel_fresh "browsing"; then
+    info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
    { [[ -s "$_HYDRATE_BROWSING_SAFARI" ]] || [[ -s "$_HYDRATE_BROWSING_CHROME" ]]; }; then
     info "$MSG_HYDRATE_BROWSING_STARTED"
 
@@ -9645,6 +9798,9 @@ except Exception:
         info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
     fi
 
+    # #48g sentinel record: dedupes re-runs within a 7-day window.
+    _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
@@ -9652,6 +9808,7 @@ elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "browsing" "status=no_data"
 fi
 
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
@@ -9695,7 +9852,9 @@ _HYDRATE_IMESSAGE_PY="${_HYDRATE_IMESSAGE_VENV}/bin/python"
 _HYDRATE_IMESSAGE_FDA_DIR="${OSTLER_DIR}/imports/fda"
 _HYDRATE_IMESSAGE_JSON_FILE="${_HYDRATE_IMESSAGE_FDA_DIR}/imessage_conversations.json"
 
-if [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
+if _hydrate_sentinel_fresh "imessage"; then
+    info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_STARTED"
 
     _HYDRATE_IMESSAGE_TIMEOUT_WRAP=""
@@ -9756,6 +9915,9 @@ except Exception:
         info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
     fi
 
+    # #48g sentinel record: dedupes re-runs within a 7-day window.
+    _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
     unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
     unset _HYDRATE_IMESSAGE_LOG
@@ -9763,6 +9925,7 @@ elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
 else
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "imessage" "status=no_data"
 fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
