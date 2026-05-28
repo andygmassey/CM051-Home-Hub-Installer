@@ -671,7 +671,7 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, 
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"ostler-assistant\" and turn it on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" and turn it on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Click Done when finished."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 

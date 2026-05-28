@@ -9,10 +9,19 @@
 #
 # The binary itself is installed by section 3.14e of install.sh
 # BEFORE this snippet is sourced (download tarball, verify SHA-256,
-# extract to $OSTLER_DIR/bin/ostler-assistant). This snippet is the
-# launchctl half of the install -- mirrors the email-ingest and
-# wiki-recompile snippets so the install integration looks
-# symmetric across LaunchAgents.
+# extract OstlerAssistant.app to $OSTLER_DIR/OstlerAssistant.app/).
+# The inner Mach-O lives at
+# $OSTLER_DIR/OstlerAssistant.app/Contents/MacOS/ostler-assistant.
+# This snippet is the launchctl half of the install -- mirrors
+# the email-ingest and wiki-recompile snippets so the install
+# integration looks symmetric across LaunchAgents.
+#
+# v0.4.3+ shape: the daemon is wrapped in OstlerAssistant.app so
+# macOS TCC + Activity Monitor render the Ostler v4 icon. The
+# launchd plist points OSTLER_BIN at the inner MacOS dir; the
+# runtime semantics are identical to the legacy bare-binary
+# shape (launchd execs the Mach-O directly; the bundle wrapper
+# exists for metadata surfaces, not for process model).
 #
 # Inputs (set by the installer before sourcing):
 #   OSTLER_INSTALL_ROOT      absolute path to the installed
@@ -57,7 +66,13 @@ LOGS_DIR="${LOGS_DIR:-$OSTLER_DIR/logs}"
 ASSISTANT_CONFIG_DIR="${ASSISTANT_CONFIG_DIR:-$OSTLER_DIR/assistant-config}"
 
 ASSISTANT_PLIST_SRC="$ASSISTANT_INSTALL_ROOT/launchd/com.creativemachines.ostler.assistant.plist"
-ASSISTANT_BINARY="$OSTLER_DIR/bin/ostler-assistant"
+# v0.4.3+ shape: the daemon binary lives inside the .app
+# bundle. Resolve the inner MacOS dir + the binary path here so
+# the placeholder substitution + executable check below both
+# operate on the new layout.
+ASSISTANT_APP_BUNDLE="$OSTLER_DIR/OstlerAssistant.app"
+ASSISTANT_MACOS_DIR="$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+ASSISTANT_BINARY="$ASSISTANT_MACOS_DIR/ostler-assistant"
 
 if [ ! -f "$ASSISTANT_PLIST_SRC" ]; then
     echo "ostler-assistant install: plist not found at $ASSISTANT_PLIST_SRC" >&2
@@ -67,9 +82,9 @@ fi
 if [ ! -x "$ASSISTANT_BINARY" ]; then
     echo "ostler-assistant install: binary not staged at $ASSISTANT_BINARY" >&2
     echo "                          Section 3.14e of install.sh should have downloaded" >&2
-    echo "                          and extracted the v0.1 release tarball before this" >&2
+    echo "                          and extracted the release tarball before this" >&2
     echo "                          snippet was sourced. Re-run the installer or stage" >&2
-    echo "                          the binary manually before retrying." >&2
+    echo "                          the .app bundle manually before retrying." >&2
     exit 1
 fi
 
@@ -87,7 +102,7 @@ USER_LAUNCH_AGENTS="$ASSISTANT_HOME_RESOLVED/Library/LaunchAgents"
 mkdir -p "$USER_LAUNCH_AGENTS"
 RENDERED_PLIST="$USER_LAUNCH_AGENTS/com.creativemachines.ostler.assistant.plist"
 
-esc_bin="$(printf '%s' "$OSTLER_DIR/bin"               | sed 's/[&/\]/\\&/g')"
+esc_bin="$(printf '%s' "$ASSISTANT_MACOS_DIR"          | sed 's/[&/\]/\\&/g')"
 esc_home="$(printf '%s' "$ASSISTANT_HOME_RESOLVED"     | sed 's/[&/\]/\\&/g')"
 esc_logs="$(printf '%s' "$LOGS_DIR"                    | sed 's/[&/\]/\\&/g')"
 esc_assistant_cfg="$(printf '%s' "$ASSISTANT_CONFIG_DIR" | sed 's/[&/\]/\\&/g')"
