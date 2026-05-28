@@ -2,30 +2,27 @@
 #
 # test_vendor_import.sh
 #
-# Byte-walking regression test for the WSA-018 iMessage bridge vendor.
-# Refuses the exact silent-fail shape that has bitten every customer
-# install since shipping: the assistant-user iMessage reply path
-# (ostler-assistant consumer in crates/zeroclaw-channels/src/imessage.rs)
-# reads from /Users/Shared/imessage-bridge/inbox.jsonl, but the producer
-# (bridge.py) was never written to disk during install, so the consumer
-# polled a file that never existed.
+# Byte-walking regression test for the iMessage bridge vendor.
 #
-# What the failure looks like (PRE-FIX, must never recur):
-#   1. vendor/imessage_bridge/bin/bridge.py missing -> nothing to stage
-#   2. vendor/imessage_bridge/launchd/com.ostler.imessage-bridge.plist
-#      missing -> nothing for INSTALL_SNIPPET.sh to render
-#   3. INSTALL_SNIPPET.sh missing -> install.sh skips the whole block
-#   4. install.sh missing the 3.14c block -> snippet never sourced
-#   5. release.sh HR015_SOURCES does not include imessage-bridge ->
-#      vendor never lands in the install tarball
-#   6. gui/project.yml does not bundle vendor/imessage_bridge into
-#      Resources/imessage-bridge -> .app ships without the producer
-#   7. gui/Makefile verify-dmg-contents does not check imessage-bridge
-#      -> a silent vendor drop reaches a notarised DMG
+# v1.0 STATUS (2026-05-28): the bridge LaunchAgent is DISABLED in
+# single-machine customer installs. The vendor remains on disk so a
+# future split-identity deployment can re-wire it.
 #
-# All seven axes must be wired. The test refuses any regression on any
-# one of them per locked memory feedback_silent_bail_regression_test
-# _shape.
+# The 2026-05-28 fix to a Marvin self-talk loop changed the install
+# semantics from "actively register the LaunchAgent" to "actively
+# bootout + remove any stale LaunchAgent from a previous install".
+# This test refuses regression on both shapes:
+#
+#   - Forward direction (we MUST keep): vendor files exist + read-only
+#     SQLite + is_from_me=0 filter + first-run MAX(ROWID) clamp.
+#   - Anti-regression (we MUST NOT relapse): install.sh 3.14c phase
+#     does NOT register the LaunchAgent. Bridge is opt-in only via a
+#     future split-identity install.
+#
+# Companion guard: ostler-assistant's poll_bridge_inbox is gated by
+# OSTLER_IMESSAGE_BRIDGE_INBOX_ENABLE=1 (default OFF). Both gates
+# must remain off in lockstep so a customer never sees doubled
+# inbound message processing.
 
 set -euo pipefail
 
@@ -133,21 +130,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Axis 4: install.sh has the 3.14c bridge install block
+# Axis 4: install.sh has the 3.14c bridge DISABLE block (single-machine v1.0)
 # ---------------------------------------------------------------------------
+#
+# 2026-05-28 self-talk fix: install.sh used to register the bridge
+# LaunchAgent here. We now REFUSE to register it because the bridge.py
+# producer + the Rust listener BOTH poll the same chat.db on a
+# single-machine install, producing doubled inbound processing AND
+# (on first install) a full history replay self-talk loop.
+#
+# The 3.14c block must still EXIST in install.sh (so a stale legacy
+# LaunchAgent from a previous install gets booted out + removed) but
+# it must NOT call IMESSAGE_BRIDGE_SNIPPET / launchctl bootstrap on
+# com.ostler.imessage-bridge.
 
 INSTALL_SH="$REPO_ROOT/install.sh"
 if [[ ! -f "$INSTALL_SH" ]]; then
     failure "install.sh missing -- cannot verify 3.14c wiring"
 else
     if ! grep -q '3.14c iMessage bridge LaunchAgent' "$INSTALL_SH" 2>/dev/null; then
-        failure "install.sh missing the 3.14c phase header -- bridge install was never wired"
+        failure "install.sh missing the 3.14c phase header -- legacy bootout block was dropped"
     fi
-    if ! grep -q 'IMESSAGE_BRIDGE_SNIPPET' "$INSTALL_SH" 2>/dev/null; then
-        failure "install.sh does not source IMESSAGE_BRIDGE_SNIPPET -- the install block is a no-op"
+    # Forward direction: must bootout any stale LaunchAgent so existing
+    # installs lose the duplicate poller on upgrade.
+    if ! grep -q 'com.ostler.imessage-bridge' "$INSTALL_SH" 2>/dev/null; then
+        failure "install.sh does not reference com.ostler.imessage-bridge label -- bootout cannot land"
     fi
-    if ! grep -q 'imessage-bridge' "$INSTALL_SH" 2>/dev/null; then
-        failure "install.sh does not reference imessage-bridge directory"
+    # Anti-regression: must NOT actively register the LaunchAgent.
+    # IMESSAGE_BRIDGE_SNIPPET is the variable name the legacy install
+    # used. If it ever comes back, the self-talk loop comes with it.
+    if grep -q 'IMESSAGE_BRIDGE_SNIPPET' "$INSTALL_SH" 2>/dev/null; then
+        failure "install.sh references IMESSAGE_BRIDGE_SNIPPET -- bridge LaunchAgent registration must not return in single-machine v1.0"
+    fi
+    if grep -E 'launchctl bootstrap.*imessage-bridge' "$INSTALL_SH" 2>/dev/null; then
+        failure "install.sh calls launchctl bootstrap on imessage-bridge -- bridge LaunchAgent registration must not return in single-machine v1.0"
     fi
 fi
 
