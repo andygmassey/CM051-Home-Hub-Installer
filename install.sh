@@ -10041,7 +10041,17 @@ fi
 info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
 if python3 -c "
 import sys, os
-sys.path.insert(0, os.path.join('${SCRIPT_DIR}', 'vendor', 'cm041', 'assistant_api'))
+# The .app build (gui/project.yml postBuildScript L487-514) intentionally
+# strips the 'vendor/cm041/' wrapper and bundles assistant_api/ directly
+# at SCRIPT_DIR root, matching the ical-server staging convention at
+# install.sh L6886. Tarball / dev-tree runs still ship the wrapper, so we
+# try the bundled path first, then fall back to the dev layout.
+_bundled = os.path.join('${SCRIPT_DIR}', 'assistant_api')
+_dev = os.path.join('${SCRIPT_DIR}', 'vendor', 'cm041', 'assistant_api')
+for _p in (_bundled, _dev):
+    if os.path.isdir(_p):
+        sys.path.insert(0, _p)
+        break
 from subscription_gate import activate_first_month_free
 from datetime import datetime, timezone
 activate_first_month_free(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
