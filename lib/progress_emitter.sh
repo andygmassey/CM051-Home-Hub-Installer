@@ -140,6 +140,9 @@ gui_step_end() {
 #   $4  help_text         (optional, hint copy)
 #   $5  choices_csv       (optional, for kind=choice)
 #   $6  prompt_id         (optional, stable id; defaults to slugified title)
+#   $7  error_text        (optional, surfaced as a banner above the
+#                          input on the GUI side; used by validation
+#                          retry loops -- see CX-97 below)
 #
 # The answer is echoed on stdout, so callers can do:
 #
@@ -147,6 +150,16 @@ gui_step_end() {
 #
 # stderr is used for any TTY echo so command substitution doesn't
 # swallow the user-visible prompt.
+#
+# CX-97 (DMG #48g+1, 2026-05-29): the optional $7 error_text arg lets
+# a validation-retry loop (e.g. recovery_passphrase mismatch, email
+# password mismatch) surface a clear oxblood banner above the prompt
+# input ON THE SAME RE-EMITTED PROMPT ID. The GUI's seenPromptIds
+# de-dupe already prevents the X counter from advancing on a re-emit,
+# AND the coordinator restores X to the prompt's original index, so
+# the customer sees: SAME question number, SAME prompt, with a clear
+# "didn't match" banner instead of an apparently-new question that
+# fell out of the sky.
 
 gui_read() {
     local title="$1"
@@ -155,6 +168,7 @@ gui_read() {
     local help_text="${4:-}"
     local choices_csv="${5:-}"
     local id="${6:-}"
+    local error_text="${7:-}"
 
     # Slugify a default id from the title if none provided.
     if [[ -z "$id" ]]; then
@@ -167,6 +181,7 @@ gui_read() {
         [[ -n "$default_value" ]] && args+=("default=$default_value")
         [[ -n "$help_text" ]]     && args+=("help=$help_text")
         [[ -n "$choices_csv" ]]   && args+=("choices=$choices_csv")
+        [[ -n "$error_text" ]]    && args+=("error=$error_text")
         gui_emit PROMPT "${args[@]}"
 
         # Read one line from the GUI fd. `read -u` accepts a numeric

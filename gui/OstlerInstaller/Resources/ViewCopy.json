@@ -145,6 +145,13 @@
     "back_tooltip_default": "Review previous answers. Editing is disabled in this version; cancel and re-run the installer to revise.",
     "yes_label": "Yes",
     "no_label": "No",
+    "_meta_yes_no_per_prompt_overrides": "CX-96 (DMG #48g+1, 2026-05-29): per-prompt-id overrides for the yes/no toggle's row label. The OnboardingQuestionView.yesLabel(_:) lookup tries onboarding_question.yes_label_per_prompt.<prompt_id> first and falls back to the generic onboarding_question.yes_label when absent. reuse_settings is the customer-facing 'use my previous answers' branch on the re-run path, where the generic Yes/No is too cryptic.",
+    "yes_label_per_prompt": {
+      "reuse_settings": "Use my previous answers"
+    },
+    "no_label_per_prompt": {
+      "reuse_settings": "Start over from the first question"
+    },
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",

@@ -29,7 +29,14 @@ enum InstallerEvent: Equatable {
     case pct(step: String, pct: Int)
     case log(level: String, msg: String)
     case warn(step: String, msg: String)
-    case prompt(id: String, kind: PromptKind, title: String, defaultValue: String?, help: String?, choices: [String])
+    /// CX-97 (DMG #48g+1, 2026-05-29): `error` field surfaces a
+    /// validation-retry banner above the prompt input on the GUI
+    /// side. Populated by install.sh's mismatch loops
+    /// (recovery_passphrase + email_password) so the customer sees a
+    /// clear "didn't match" cue on the re-emitted prompt rather than
+    /// the prompt apparently appearing again from nowhere. Nil on
+    /// the happy path; tab/CR/LF stripped at emit time by gui_emit.
+    case prompt(id: String, kind: PromptKind, title: String, defaultValue: String?, help: String?, choices: [String], error: String?)
     case stepEnd(id: String, status: StepStatus, elapsedSeconds: Int)
     case phase(id: String, title: String)
     case needsFDA(probe: String, reason: String)
@@ -159,13 +166,21 @@ struct ProgressDecoder {
                 .split(separator: ",")
                 .map { String($0).trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
+            // CX-97 (DMG #48g+1, 2026-05-29): treat empty error= the
+            // same as missing -- install.sh's secret-mismatch loops
+            // pass an empty string on the first attempt and a
+            // populated string on the retry, so the GUI's banner
+            // condition is simply "is the error non-nil and non-empty".
+            let rawError = kv["error"]
+            let normalisedError: String? = (rawError?.isEmpty ?? true) ? nil : rawError
             return .prompt(
                 id: kv["id"] ?? "prompt",
                 kind: kind,
                 title: kv["title"] ?? "?",
                 defaultValue: kv["default"],
                 help: kv["help"],
-                choices: choices
+                choices: choices,
+                error: normalisedError
             )
         case "STEP_END":
             return .stepEnd(

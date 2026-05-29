@@ -1326,7 +1326,26 @@ if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]]; then
     echo "  Assistant:  ${ASSISTANT_NAME}"
     echo "  Timezone:   ${USER_TZ}"
     echo ""
-    REUSE="$(gui_read "$MSG_PROMPT_REUSE_SETTINGS_TITLE" yesno "" "" "" "reuse_settings")"
+    # CX-96 (DMG #48g+1, 2026-05-29): the reuse-settings prompt landed
+    # bare ("Continue with these settings?") with no explanation that
+    # the customer's previous answers (name / assistant / timezone /
+    # country code / channels / etc.) will be auto-reused. Andy on the
+    # DMG #48g Studio retest: "the user will get pissed off when it
+    # reopens and they *appear* to be doing the same stuff over again
+    # -- we need to be more upfront that the previous answers will be
+    # used". Build a help body that combines the static explainer copy
+    # with a one-line summary of the three values install.sh has
+    # already restored from ${OSTLER_FINAL_DIR}/config/.env so the
+    # customer can see at a glance what is about to be reused.
+    _reuse_summary="$(printf "$MSG_PROMPT_REUSE_SETTINGS_SUMMARY_FORMAT" \
+        "${USER_NAME}" \
+        "${ASSISTANT_NAME}" \
+        "${USER_TZ}")"
+    _reuse_help="${MSG_PROMPT_REUSE_SETTINGS_HELP}
+
+${_reuse_summary}"
+    REUSE="$(gui_read "$MSG_PROMPT_REUSE_SETTINGS_TITLE" yesno "y" "$_reuse_help" "" "reuse_settings")"
+    unset _reuse_summary _reuse_help
     # CX-87 (DMG #48g, 2026-05-29): an empty REUSE answer is treated
     # as "n" (walk Phase 2 fresh), NOT "y". Pre-fix, the default
     # branched the other way: ${REUSE:-y} fell through to "y" when
@@ -2259,18 +2278,30 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # so a typo doesn't silently lock the assistant out of email.
         # This loop fires ONLY for custom IMAP -- we never ask a
         # customer for a cloud-provider password.
+        #
+        # CX-97 (DMG #48g+1, 2026-05-29): same shape as the
+        # recovery_passphrase mismatch loop above -- surface the
+        # mismatch via gui_read's $7 error_text arg so the GUI shows
+        # a clear oxblood banner above the SAME re-emitted prompt
+        # instead of silently re-asking. The X counter dedupe +
+        # promptIdToIndex restore on the GUI side keep the question
+        # number pinned to where the customer actually is in the flow.
+        _email_pass_error=""
+        _email_confirm_error=""
         while true; do
             echo ""
-            CHANNEL_EMAIL_PASSWORD="$(gui_read "$MSG_PROMPT_EMAIL_PASSWORD_TITLE" secret "" "$MSG_PROMPT_EMAIL_PASSWORD_HELP" "" "email_password")"
+            CHANNEL_EMAIL_PASSWORD="$(gui_read "$MSG_PROMPT_EMAIL_PASSWORD_TITLE" secret "" "$MSG_PROMPT_EMAIL_PASSWORD_HELP" "" "email_password" "$_email_pass_error")"
             echo ""
-            _email_confirm_input="$(gui_read "$MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE" secret "" "" "" "email_password_confirm")"
+            _email_confirm_input="$(gui_read "$MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE" secret "" "" "" "email_password_confirm" "$_email_confirm_error")"
             echo ""
             if [[ "$CHANNEL_EMAIL_PASSWORD" == "$_email_confirm_input" && -n "$CHANNEL_EMAIL_PASSWORD" ]]; then
                 break
             fi
             warn "$MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY"
+            _email_pass_error="$MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY"
+            _email_confirm_error="$MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY"
         done
-        unset _email_confirm_input
+        unset _email_confirm_input _email_pass_error _email_confirm_error
     else
         # Apple-Mail-only path. No IMAP credentials are collected;
         # HR015's email-ingest LaunchAgent reads from Apple Mail's
@@ -2773,18 +2804,31 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
     echo ""
     echo "  $MSG_INFO_RECOVERY_PASSPHRASE_INTRO"
     echo ""
-    RP_ERROR=""
+    # CX-97 (DMG #48g+1, 2026-05-29): pass mismatch / too-short /
+    # required errors via gui_read's new $7 error_text arg so the GUI
+    # renders a clear oxblood banner ABOVE the input on the SAME
+    # re-emitted prompt, rather than burying the warn() text into the
+    # help body. Re-emit of the same prompt id keeps the X counter
+    # pinned (seenPromptIds dedupe) AND restores X to the prompt's
+    # original index (promptIdToIndex map) so the customer sees the
+    # same question number with a clear "didn't match" cue, not an
+    # apparently-new question.
+    #
+    # RP_ERROR carries the LAST failure reason. We split it into
+    # two slots so the help body stays clean static copy + the
+    # error banner gets its own surfaced run:
+    #   - RP_PASS_ERROR -> passes back to the recovery_passphrase
+    #     prompt on retry (e.g. required, too short).
+    #   - RP_CONFIRM_ERROR -> passes back to the
+    #     recovery_passphrase_confirm prompt on mismatch.
+    RP_PASS_ERROR=""
+    RP_CONFIRM_ERROR=""
     while true; do
         rp_help="$MSG_PROMPT_RECOVERY_PASSPHRASE_HELP"
-        if [[ -n "$RP_ERROR" ]]; then
-            rp_help="⚠️  ${RP_ERROR}
-
-${rp_help}"
-        fi
-        RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$rp_help" "" "recovery_passphrase")"
+        RECOVERY_PASSPHRASE="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE" secret "" "$rp_help" "" "recovery_passphrase" "$RP_PASS_ERROR")"
         echo ""
         if [[ -z "$RECOVERY_PASSPHRASE" ]]; then
-            RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED"
+            RP_PASS_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED"
             warn "$MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED"
             continue
         fi
@@ -2795,22 +2839,32 @@ ${rp_help}"
         # validate_passphrase_strength's diceware path.
         if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
             warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
-            RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+            RP_PASS_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
             unset RECOVERY_PASSPHRASE
             continue
         fi
+        # First-pass succeeded; clear the password-side error before
+        # we walk forward to confirmation.
+        RP_PASS_ERROR=""
 
         rpc_help="$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP"
-        RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$rpc_help" "" "recovery_passphrase_confirm")"
+        RP_CONFIRM="$(gui_read "$MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE" secret "" "$rpc_help" "" "recovery_passphrase_confirm" "$RP_CONFIRM_ERROR")"
         echo ""
         if [[ "$RECOVERY_PASSPHRASE" != "$RP_CONFIRM" ]]; then
             warn "$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
-            RP_ERROR="$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
+            # Both prompts re-emit on mismatch -- surface the same
+            # banner on the passphrase prompt (so the customer types
+            # it again knowing it didn't match) AND on the confirm
+            # prompt (in case the customer happened to mis-type the
+            # confirm, not the original).
+            RP_PASS_ERROR="$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
+            RP_CONFIRM_ERROR="$MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN"
             unset RP_CONFIRM
             continue
         fi
         unset RP_CONFIRM
-        RP_ERROR=""
+        RP_PASS_ERROR=""
+        RP_CONFIRM_ERROR=""
         ok "$MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3"
         break
     done
