@@ -1107,6 +1107,29 @@ _accountsdb_path() {
     printf '%s' "${HOME}/Library/Accounts/Accounts4.sqlite"
 }
 
+# CX-103 (DMG #48k, 2026-05-29): Accounts4.sqlite is gated by Full
+# Disk Access on Sequoia. On a fresh install where the customer has
+# not yet granted FDA to OstlerInstaller.app, sqlite3 returns
+# "authorization denied" and our `2>/dev/null` mask collapses the
+# probe to "0 accounts" -- mis-firing the "Mail not connected"
+# prompt at Studio retest of DMG #48j. _has_fda probes the same
+# file with stderr captured + grepped for the TCC denial signature
+# so the caller can distinguish "FDA missing" from "no accounts".
+# Returns 0 if FDA is granted (or path missing -- nothing to probe).
+# Returns 1 if FDA is denied. Never raises.
+_has_fda() {
+    local db
+    db="$(_accountsdb_path)"
+    [[ -f "$db" ]] || return 0
+    local err
+    err="$(sqlite3 "file:${db}?mode=ro" -bail "SELECT 1 LIMIT 1" 2>&1 >/dev/null)" || true
+    if [[ "$err" == *"authorization denied"* ]] \
+       || [[ "$err" == *"unable to open database"* ]]; then
+        return 1
+    fi
+    return 0
+}
+
 # Returns the number of mail-capable accounts the customer has
 # configured in System Settings -> Internet Accounts. Counts only
 # top-level account rows (ZAUTHENTICATIONTYPE != 'parent') for the
@@ -2824,6 +2847,20 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         # pinpoint a regression instantly.
         gui_log info "CX-37 probe: entering"
         set +e
+        # CX-103 (DMG #48k, 2026-05-29): FDA may not yet be granted
+        # at question phase. Without FDA, Accounts4.sqlite reads fail
+        # with TCC "authorization denied" -- the `2>/dev/null` mask
+        # collapses to "0 accounts", which mis-fires the "Mail not
+        # connected" prompt for every customer whose first install
+        # has not pre-granted FDA. Skip the early prompt entirely if
+        # we cannot read source-of-truth. The Phase 4 email_ingest
+        # probe runs AFTER FDA is granted and produces the correct
+        # count for downstream pipeline_signals.json.
+        if ! _has_fda; then
+            gui_log info "CX-103: skipping early Mail probe -- FDA not yet granted (Phase 4 probe will run after grant)"
+            MAIL_PROMPT_SHOWN_EARLY=1
+            export MAIL_PROMPT_SHOWN_EARLY
+        fi
         if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
            && [[ "${OSTLER_GUI:-0}" == "1" ]] \
            && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
@@ -10100,21 +10137,26 @@ TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setu
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
-        # DMG #48 silent-bail hardening: previous code swallowed brew
-        # stderr via `2>/dev/null && ... || warn`, so a tailscale-cask
-        # install failure on a fresh Mac silently warned + carried on,
-        # leaving the iOS Companion unreachable. Fail loudly if
-        # /Applications/Tailscale.app is missing after the brew step.
-        # We still tolerate brew's non-zero exit if the .app landed
-        # (some cask versions exit non-zero on minor symlink issues).
+        # CX-105 (DMG #48k, 2026-05-29): Tailscale install via
+        # `brew install --cask` fails on fresh Macs because the
+        # CX-25 manual-tarball Homebrew install path leaves brew
+        # as "shallow or no git repository", which breaks cask
+        # tap resolution. Tailscale is recoverable: the iOS
+        # Companion works on the local LAN without it, and the
+        # customer can install Tailscale from tailscale.com any
+        # time. Convert the fail-loud to warn-and-continue so the
+        # rest of the install can complete; surface a clear next
+        # step rather than blocking shipping. Proper fix in v1.0.1
+        # (replace tarball brew with git-clone or skip brew for
+        # this step entirely).
         if brew install --cask tailscale 2>&1; then
             ok "$MSG_OK_TAILSCALE_INSTALLED"
         else
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
         fi
         if [[ ! -d "/Applications/Tailscale.app" ]]; then
-            fail_with_code "ERR-15-DMG48-TAILSCALE-INSTALL-FAILED" \
-                "$(printf "$MSG_FAIL_TAILSCALE_INSTALL_FAILED" "$INSTALL_LOG")"
+            warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
+            OSTLER_TAILSCALE_SKIPPED=1
         fi
     else
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
