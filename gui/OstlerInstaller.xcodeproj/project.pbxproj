@@ -57,6 +57,7 @@
 		A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */; };
 		A4DFFC3D202122DC0660BDB5 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF64A6B46A3BD66D6097C846 /* App.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
+		AE5770E86DC6801E981B117E /* CanonicalSupportEmailTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D04A708493A8483E4B53E33 /* CanonicalSupportEmailTest.swift */; };
 		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
 		C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E1974AECCE8C351193A5257 /* DialogIcon.icns */; };
@@ -138,6 +139,7 @@
 		88E69616403717DA4E9247AC /* TailscaleConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailscaleConnectView.swift; sourceTree = "<group>"; };
 		88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressDecoderTests.swift; sourceTree = "<group>"; };
 		8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroView.swift; sourceTree = "<group>"; };
+		8D04A708493A8483E4B53E33 /* CanonicalSupportEmailTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalSupportEmailTest.swift; sourceTree = "<group>"; };
 		8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OstlerInstallerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressProtocol.swift; sourceTree = "<group>"; };
 		9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkifyHelpTextTests.swift; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 			children = (
 				40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */,
 				FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */,
+				8D04A708493A8483E4B53E33 /* CanonicalSupportEmailTest.swift */,
 				FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */,
 				3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */,
 				4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */,
@@ -891,6 +894,7 @@
 			files = (
 				32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */,
 				A2AF7698B580747649FC9363 /* BiometricProbeTests.swift in Sources */,
+				AE5770E86DC6801E981B117E /* CanonicalSupportEmailTest.swift in Sources */,
 				297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */,
 				41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */,
 				1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */,

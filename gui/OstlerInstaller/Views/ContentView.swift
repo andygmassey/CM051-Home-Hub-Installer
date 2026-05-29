@@ -690,7 +690,7 @@ private struct AdminAccessRequiredView: View {
 
 /// Shown when the Worker rejected the registration with a terminal
 /// (non-cap) reason: licence not found, revoked, or malformed. The
-/// install is refused; the user is pointed at hello@ostler.ai.
+/// install is refused; the user is pointed at support@ostler.ai.
 private struct DeviceRegistrationErrorView: View {
     let reason: String
 

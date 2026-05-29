@@ -787,7 +787,7 @@ final class InstallerCoordinator: ObservableObject {
             )
             OstlerLog.fingerprint.error("compute returned nil -- IOPlatformUUID/serial unavailable")
             registrationGate = .fatal(
-                reason: "This Mac could not be uniquely identified. Please email hello@ostler.ai for help."
+                reason: "This Mac could not be uniquely identified. Please email support@ostler.ai for help."
             )
             return
         }
@@ -830,19 +830,19 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: "error", msg: "Worker reports licence not found.")
             OstlerLog.fingerprint.error("result=licenceNotFound")
             registrationGate = .fatal(
-                reason: "Your licence is not recognised by our server. Please email hello@ostler.ai."
+                reason: "Your licence is not recognised by our server. Please email support@ostler.ai."
             )
         case .revoked:
             appendLog(level: "error", msg: "Worker reports licence revoked / refunded.")
             OstlerLog.fingerprint.error("result=revoked")
             registrationGate = .fatal(
-                reason: "Your licence is no longer valid. Please email hello@ostler.ai."
+                reason: "Your licence is no longer valid. Please email support@ostler.ai."
             )
         case .badRequest(let reason):
             appendLog(level: "error", msg: "Worker rejected the registration: \(reason)")
             OstlerLog.fingerprint.error("result=badRequest reason=\(reason, privacy: .public)")
             registrationGate = .fatal(
-                reason: "Your licence file was rejected by our server (\(reason)). Please email hello@ostler.ai."
+                reason: "Your licence file was rejected by our server (\(reason)). Please email support@ostler.ai."
             )
         case .networkFailure(let message):
             appendLog(
