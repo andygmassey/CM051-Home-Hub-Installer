@@ -632,7 +632,9 @@ MSG_FAIL_PYTHON311_MISSING_AFTER_BREW="'brew install python@3.11' reported succe
 # use printf %s placeholders for runtime values (e.g. detected
 # country code, detected timezone).
 
-MSG_PROMPT_REUSE_SETTINGS_TITLE="Continue with these settings?"
+MSG_PROMPT_REUSE_SETTINGS_TITLE="We found your previous answers"
+MSG_PROMPT_REUSE_SETTINGS_HELP="We detected an earlier install attempt on this Mac. The questions you already answered (name, assistant name, timezone, country code, channels, and so on) will be reused so you do not have to re-enter them. Pick Yes to continue from where you left off, or No to walk through the questions again from the start."
+MSG_PROMPT_REUSE_SETTINGS_SUMMARY_FORMAT="Previous answers we found: name = %s, assistant = %s, timezone = %s."
 
 MSG_PROMPT_PERMS_OK_TITLE="Ready to continue?"
 MSG_PROMPT_PERMS_OK_HELP="macOS will prompt for Contacts and Files & Folders access. Optional Full Disk Access can be granted later."

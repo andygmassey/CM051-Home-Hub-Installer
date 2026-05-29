@@ -154,6 +154,43 @@ struct OnboardingQuestionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // CX-97 (DMG #48g+1, 2026-05-29): install.sh's secret-
+            // confirm loops (recovery_passphrase, email_password) pass
+            // a mismatch message via gui_read's $7 error_text arg,
+            // which surfaces here as a clear oxblood banner ABOVE the
+            // input field on the re-emitted prompt. Pre-fix the only
+            // signal was a warn() into the LogDrawer (hidden by
+            // default) so the customer saw the same prompt apparently
+            // re-appear with no explanation. We render it in the
+            // primary banner slot rather than the (smaller, caption-
+            // sized) validation-error slot below the field so it
+            // gets the visual weight a mismatch deserves.
+            if let promptError = q.prompt.error, !promptError.isEmpty, !q.isReview {
+                HStack(alignment: .top, spacing: .ostlerSpace2) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color.ostlerOxblood)
+                        .padding(.top, 2)
+                    Text(promptError)
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerOxblood)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                }
+                .padding(.horizontal, .ostlerSpace3)
+                .padding(.vertical, .ostlerSpace2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.ostlerOxbloodSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.ostlerOxblood.opacity(0.55), lineWidth: 1)
+                )
+                .accessibilityLabel(Text(promptError))
+            }
+
             inputField(q)
 
             if let err = validationError, !q.isReview {
@@ -873,6 +910,26 @@ struct OnboardingQuestionView: View {
 
     private func yesLabel(_ q: DisplayedQuestion) -> String {
         let value = q.isReview ? yesValue(q.priorAnswer ?? "") : yesnoValue
+        // CX-96 (DMG #48g+1, 2026-05-29): per-prompt-id yes/no label
+        // override so a yesno prompt can render a meaningful action
+        // verb (e.g. reuse_settings -> "Use my previous answers" /
+        // "Start over from the first question") instead of the
+        // generic "Yes" / "No". Lookup pattern:
+        //   onboarding_question.yes_label_per_prompt.<prompt_id>
+        //   onboarding_question.no_label_per_prompt.<prompt_id>
+        // The `_per_prompt` segment sidesteps the JSON-key collision
+        // that would arise if we tried to nest a dict under the same
+        // name as the string `yes_label` / `no_label` slot above.
+        // ViewCopy.string(for:) returns the dotted key itself on a
+        // miss, so we fall through to the generic key when the
+        // per-prompt override is not catalogued.
+        let perPromptKey = value
+            ? "onboarding_question.yes_label_per_prompt.\(q.prompt.id)"
+            : "onboarding_question.no_label_per_prompt.\(q.prompt.id)"
+        let perPromptLabel = ViewCopy.shared.string(for: perPromptKey)
+        if perPromptLabel != perPromptKey {
+            return perPromptLabel
+        }
         let key = value ? "onboarding_question.yes_label"
                         : "onboarding_question.no_label"
         return ViewCopy.shared.string(for: key)

@@ -179,6 +179,18 @@ final class InstallerCoordinator: ObservableObject {
     /// instead of staying pinned to "Question N", producing the
     /// "Q9 off-by-one" Studio retest #8 flagged.
     private var seenPromptIds: Set<String> = []
+    /// Map of prompt id -> the X (currentQuestionIndex) value the
+    /// prompt was first displayed at. CX-97 fix (DMG #48g+1,
+    /// 2026-05-29): when install.sh re-emits an EARLIER prompt
+    /// (e.g. recovery_passphrase after recovery_passphrase_confirm
+    /// landed a mismatch), the seenPromptIds dedupe correctly stops
+    /// X from advancing, but pre-fix X stayed at the LATEST seen
+    /// value -- so the customer saw "Question 15: Choose your
+    /// passphrase" even though that was originally Q14. The
+    /// promptIdToIndex map lets us restore X to the prompt's
+    /// original index so the header re-aligns with the prompt body
+    /// on re-emit.
+    private var promptIdToIndex: [String: Int] = [:]
     @Published var totalQuestionCount: Int? = nil
     @Published var answerHistory: [AnsweredQuestion] = []
     /// When set, the OnboardingQuestionView renders the matching
@@ -342,6 +354,13 @@ final class InstallerCoordinator: ObservableObject {
         let defaultValue: String?
         let help: String?
         let choices: [String]
+        /// CX-97 (DMG #48g+1, 2026-05-29): validation-retry error
+        /// surfaced as an oxblood banner above the prompt input on
+        /// the re-emitted prompt (e.g. "Passphrases don't match.
+        /// Try again."). install.sh's secret-confirm loops populate
+        /// this via gui_read's $7 error_text arg. Nil on the happy
+        /// path / first display.
+        let error: String?
     }
 
     /// One committed answer in the onboarding flow. Captured when
@@ -1421,10 +1440,11 @@ final class InstallerCoordinator: ObservableObject {
         case .warn(_, let msg):
             appendLog(level: "warn", msg: msg)
             OstlerLog.subprocess.warning("event WARN msg=\(msg, privacy: .public)")
-        case .prompt(let id, let kind, let title, let defaultValue, let help, let choices):
+        case .prompt(let id, let kind, let title, let defaultValue, let help, let choices, let error):
             pendingPrompt = PendingPrompt(
                 id: id, kind: kind, title: title,
-                defaultValue: defaultValue, help: help, choices: choices
+                defaultValue: defaultValue, help: help, choices: choices,
+                error: error
             )
             // CX-14 D4 fix (2026-05-23): only advance X for the
             // FIRST appearance of a given prompt id. install.sh's
@@ -1434,9 +1454,22 @@ final class InstallerCoordinator: ObservableObject {
             // questions the customer has actually committed to,
             // surfacing as Studio retest #8's "Q9 off-by-one". Back
             // review tracking remains untouched (its own index).
+            //
+            // CX-97 fix (DMG #48g+1, 2026-05-29): on FIRST display
+            // record the prompt's index in promptIdToIndex; on a
+            // re-emit RESTORE X to that recorded index. Pre-fix, X
+            // stayed pinned at the latest-seen value, so re-emitting
+            // an EARLIER prompt (e.g. recovery_passphrase after
+            // recovery_passphrase_confirm fired a mismatch) left the
+            // header showing the LATER question number with the
+            // EARLIER prompt's title -- the "adds +1 to the question
+            // number" complaint Andy filed on the DMG #48g retest.
             if !seenPromptIds.contains(id) {
                 seenPromptIds.insert(id)
                 currentQuestionIndex += 1
+                promptIdToIndex[id] = currentQuestionIndex
+            } else if let originalIndex = promptIdToIndex[id] {
+                currentQuestionIndex = originalIndex
             }
             // If the customer is in a Back review when a new prompt
             // arrives, drop them back into the live view -- the
@@ -1446,7 +1479,7 @@ final class InstallerCoordinator: ObservableObject {
             // prompt and the stale "Reading your contacts..." copy
             // would just clutter the screen.
             preInstallStatus = nil
-            OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public) x=\(self.currentQuestionIndex, privacy: .public) y=\(self.totalQuestionCount ?? -1, privacy: .public)")
+            OstlerLog.subprocess.info("event PROMPT id=\(id, privacy: .public) kind=\(kind.rawValue, privacy: .public) title=\(title, privacy: .public) hasDefault=\(defaultValue != nil, privacy: .public) choices=\(choices.count, privacy: .public) hasError=\(error != nil, privacy: .public) x=\(self.currentQuestionIndex, privacy: .public) y=\(self.totalQuestionCount ?? -1, privacy: .public)")
         case .stepEnd(let id, let status, let elapsed):
             completedSteps.append(CompletedStep(
                 id: id,

@@ -228,7 +228,8 @@ struct TailscaleConnectView: View {
         title: "Connect your iPhone and Watch",
         defaultValue: "setup",
         help: nil,
-        choices: ["setup", "skip"]
+        choices: ["setup", "skip"],
+        error: nil
     )
     let q = DisplayedQuestion(
         prompt: prompt,
