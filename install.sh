@@ -1070,6 +1070,282 @@ else
 fi
 unset _ostler_emitter_candidate
 
+# ── Three-state data-source detection (CX-100, CX-101) ────────────
+#
+# Per launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
+# Apple's "configured" and "populated" are two different states for
+# every iCloud-synced data source. Configuring an account in System
+# Settings -> Internet Accounts writes ~/Library/Accounts/Accounts4.sqlite;
+# populating the local derived store (Mail's *.emlx tree, Calendar.sqlitedb
+# row count, Contacts' *.abcddb) requires the corresponding app to have
+# run and synced. Old probes conflated the two and reported "0 accounts"
+# whenever the local store was empty, even when 2 accounts existed in
+# Accounts4.sqlite. This silently broke every install where the customer
+# configured iCloud but hadn't opened Mail / Contacts / Calendar yet.
+#
+# These helpers split the probe in two:
+#   - _accountsdb_count_mail / _accountsdb_count_calendar / _accountsdb_count_contacts
+#     count source-of-truth rows in Accounts4.sqlite for each data class.
+#     They tolerate schema variation across macOS versions (best-effort
+#     SQL with || echo 0 fallback) and return a clean integer on stdout.
+#   - _store_populated_mail / _store_populated_calendar / _store_populated_contacts
+#     check whether the local derived store has any rows / files yet.
+#     Returns 0 (true) if populated, 1 (false) otherwise.
+#
+# Combined the two probes give a three-state classification:
+#   accountsdb=0  -> state 1 (no source configured)        -> skip, configurable later
+#   accountsdb>0, store empty -> state 2 (configured, not synced) -> prompt + wait + poll
+#   accountsdb>0, store ok    -> state 3 (configured + populated) -> hydrate
+#
+# Three-state probe helpers
+# -------------------------
+# All Accounts4.sqlite reads use `:memory:` attach trick to avoid
+# accidentally write-locking the live database. sqlite3 file:?mode=ro
+# is the read-only form; even with that, defensively redirect stderr.
+
+_accountsdb_path() {
+    printf '%s' "${HOME}/Library/Accounts/Accounts4.sqlite"
+}
+
+# Returns the number of mail-capable accounts the customer has
+# configured in System Settings -> Internet Accounts. Counts only
+# top-level account rows (ZAUTHENTICATIONTYPE != 'parent') for the
+# account types that actually carry mail capability. AppleAccount =
+# iCloud (Mail dataclass enabled at AppleID level); the explicit
+# IMAP / Google / Yahoo / Hotmail / Exchange types cover the rest.
+#
+# Echoes a clean integer on stdout. On any sqlite3 / schema failure
+# echoes 0. Never raises.
+_accountsdb_count_mail() {
+    local db
+    db="$(_accountsdb_path)"
+    [[ -f "$db" ]] || { printf '0'; return 0; }
+    local n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail "
+        SELECT COUNT(*) FROM ZACCOUNT a
+        JOIN ZACCOUNTTYPE t ON a.ZACCOUNTTYPE = t.Z_PK
+        WHERE t.ZIDENTIFIER IN (
+            'com.apple.account.IMAP',
+            'com.apple.account.IMAPMail',
+            'com.apple.account.Hotmail',
+            'com.apple.account.Google',
+            'com.apple.account.Yahoo',
+            'com.apple.account.Exchange',
+            'com.apple.account.AppleAccount',
+            'com.apple.account.MobileMe',
+            'com.apple.account.iCloud'
+        )
+        AND (a.ZAUTHENTICATIONTYPE IS NULL OR a.ZAUTHENTICATIONTYPE != 'parent')
+        AND COALESCE(a.ZACTIVE, 1) = 1
+    " 2>/dev/null)" || n=0
+    # Sanitise to clean integer (drop anything non-digit, cap to 10
+    # digits) so a malformed return cannot poison arithmetic compare.
+    printf '%s' "${n:-0}" | tr -dc '0-9' | head -c10
+}
+
+# Returns the count of CalDAV-capable accounts. iCloud appears via
+# AppleAccount top-level. Google / Yahoo / Exchange / direct CalDAV
+# all carry CalDAV dataclass.
+_accountsdb_count_calendar() {
+    local db
+    db="$(_accountsdb_path)"
+    [[ -f "$db" ]] || { printf '0'; return 0; }
+    local n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail "
+        SELECT COUNT(*) FROM ZACCOUNT a
+        JOIN ZACCOUNTTYPE t ON a.ZACCOUNTTYPE = t.Z_PK
+        WHERE t.ZIDENTIFIER IN (
+            'com.apple.account.CalDAV',
+            'com.apple.account.CalDAVLegacy',
+            'com.apple.account.Google',
+            'com.apple.account.Yahoo',
+            'com.apple.account.Exchange',
+            'com.apple.account.AppleAccount',
+            'com.apple.account.MobileMe',
+            'com.apple.account.iCloud',
+            'com.apple.account.SubscribedCalendar'
+        )
+        AND (a.ZAUTHENTICATIONTYPE IS NULL OR a.ZAUTHENTICATIONTYPE != 'parent')
+        AND COALESCE(a.ZACTIVE, 1) = 1
+    " 2>/dev/null)" || n=0
+    printf '%s' "${n:-0}" | tr -dc '0-9' | head -c10
+}
+
+# Returns the count of CardDAV-capable accounts. Google / Exchange /
+# direct CardDAV cover the rest. iCloud appears via AppleAccount.
+_accountsdb_count_contacts() {
+    local db
+    db="$(_accountsdb_path)"
+    [[ -f "$db" ]] || { printf '0'; return 0; }
+    local n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail "
+        SELECT COUNT(*) FROM ZACCOUNT a
+        JOIN ZACCOUNTTYPE t ON a.ZACCOUNTTYPE = t.Z_PK
+        WHERE t.ZIDENTIFIER IN (
+            'com.apple.account.CardDAV',
+            'com.apple.account.CardDAVLegacy',
+            'com.apple.account.Google',
+            'com.apple.account.Yahoo',
+            'com.apple.account.Exchange',
+            'com.apple.account.AppleAccount',
+            'com.apple.account.MobileMe',
+            'com.apple.account.iCloud'
+        )
+        AND (a.ZAUTHENTICATIONTYPE IS NULL OR a.ZAUTHENTICATIONTYPE != 'parent')
+        AND COALESCE(a.ZACTIVE, 1) = 1
+    " 2>/dev/null)" || n=0
+    printf '%s' "${n:-0}" | tr -dc '0-9' | head -c10
+}
+
+# ── Local-store population probes ─────────────────────────────────
+#
+# Returns 0 if the local store has at least one populated artefact,
+# 1 otherwise. These probes use existence-of-content checks rather
+# than existence-of-directory checks (which the old install.sh
+# pre-launch gate used and which mis-classified state-2 macs as
+# state-3).
+
+# Mail: any non-zero-byte .emlx, OR a populated Envelope Index.
+_store_populated_mail() {
+    local v_dir
+    v_dir=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
+    [[ -z "$v_dir" ]] && return 1
+    # Any .emlx file in the tree means Mail.app has pulled at least
+    # one message. -print -quit short-circuits at the first hit.
+    if find "$v_dir" -type f -name '*.emlx' -size +0c -print -quit 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    # Fallback: Envelope Index sqlite with rows. The file exists once
+    # Mail.app has opened, but it's only populated after first sync.
+    local envelope="$v_dir/MailData/Envelope Index"
+    if [[ -f "$envelope" ]]; then
+        local n
+        n="$(sqlite3 "file:${envelope}?mode=ro" -bail \
+            "SELECT COUNT(*) FROM messages LIMIT 1" 2>/dev/null || echo 0)"
+        n="${n:-0}"
+        [[ "$n" =~ ^[0-9]+$ ]] || n=0
+        [[ "$n" -gt 0 ]] && return 0
+    fi
+    return 1
+}
+
+# Calendar: Calendar Cache row count > 0 OR any *.calendar dir with a
+# .ics file inside. macOS Sequoia 15.x writes to ~/Library/Calendars/
+# Calendar Cache; older macOS uses Calendar.sqlitedb. Both checked.
+_store_populated_calendar() {
+    local cal_dir="${HOME}/Library/Calendars"
+    [[ -d "$cal_dir" ]] || return 1
+    local cache="$cal_dir/Calendar Cache"
+    local sqlitedb="$cal_dir/Calendar.sqlitedb"
+    local probe_db=""
+    [[ -f "$cache" ]] && probe_db="$cache"
+    [[ -z "$probe_db" && -f "$sqlitedb" ]] && probe_db="$sqlitedb"
+    if [[ -n "$probe_db" ]]; then
+        local n
+        n="$(sqlite3 "file:${probe_db}?mode=ro" -bail \
+            "SELECT COUNT(*) FROM CalendarItem LIMIT 1" 2>/dev/null || echo 0)"
+        n="${n:-0}"
+        [[ "$n" =~ ^[0-9]+$ ]] || n=0
+        [[ "$n" -gt 0 ]] && return 0
+    fi
+    # Fallback: any .ics under any .calendar bundle
+    if find "$cal_dir" -maxdepth 3 -type f -name '*.ics' -print -quit 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    return 1
+}
+
+# Contacts: any non-empty *.abcddb (per-source SQLite store) under
+# ~/Library/Application Support/AddressBook/Sources/.
+_store_populated_contacts() {
+    local src_dir="${HOME}/Library/Application Support/AddressBook/Sources"
+    [[ -d "$src_dir" ]] || return 1
+    if find "$src_dir" -name 'AddressBook-v22.abcddb' -size +0c -print -quit 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    # Older macOS variants
+    if find "$src_dir" -name '*.abcddb' -size +0c -print -quit 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    return 1
+}
+
+# ── Wait-for-populate helper (state-2 prompt) ────────────────────
+#
+# Emits a state-2 wait prompt for a given source. The customer is
+# asked to open the relevant Apple app; the installer then polls the
+# local-store probe for up to OSTLER_HYDRATE_POPULATE_WAIT_S seconds
+# (default 60). If the customer clicks Continue early the wait
+# unblocks immediately. If the timeout expires with no population,
+# falls through with a "We didn't detect sync" info line and the
+# hydrate step proceeds best-effort.
+#
+# Args:
+#   $1 source slug ("mail" | "calendar" | "contacts")
+#   $2 displayed app name ("Apple Mail" | "Calendar" | "Contacts")
+#   $3 system-settings deep-link (optional, opens Internet Accounts
+#      or the app itself)
+#   $4 prompt title key (catalogue-keyed)
+#   $5 prompt help key (catalogue-keyed)
+#
+# Returns 0 if the local store became populated during the wait,
+# 1 if the timeout expired without population.
+_three_state_wait_for_populate() {
+    local source="$1"
+    local app_name="$2"
+    local app_deeplink="$3"
+    local title_str="$4"
+    local help_str="$5"
+
+    local timeout_s="${OSTLER_HYDRATE_POPULATE_WAIT_S:-60}"
+    local poll_interval_s="${OSTLER_HYDRATE_POPULATE_POLL_S:-3}"
+
+    # Offer to open the app for them. If they say no, still poll --
+    # they might open it themselves.
+    local open_app_answer
+    open_app_answer="$(gui_read \
+        "$title_str" \
+        yesno \
+        "y" \
+        "$help_str" \
+        "" \
+        "open_${source}_to_populate")"
+
+    case "${open_app_answer:-y}" in
+        y|Y|yes|YES|Yes)
+            if [[ -n "$app_deeplink" ]]; then
+                open "$app_deeplink" 2>/dev/null || true
+            else
+                open -a "$app_name" 2>/dev/null || true
+            fi
+            ;;
+        *)
+            # Customer declined. Skip the wait entirely; state-2
+            # stays unresolved and the hydrate step records an
+            # accurate "not populated yet" status. Doctor follows
+            # up later.
+            return 1
+            ;;
+    esac
+
+    # Poll the local-store probe. Time-cap at $timeout_s.
+    local elapsed=0
+    local probe_fn="_store_populated_${source}"
+    info "$(printf "$MSG_INFO_WAITING_FOR_APP_TO_POPULATE" "${app_name}" "${timeout_s}")"
+    while [[ "$elapsed" -lt "$timeout_s" ]]; do
+        if "$probe_fn"; then
+            ok "$(printf "$MSG_OK_APP_HAS_POPULATED" "${app_name}")"
+            return 0
+        fi
+        sleep "$poll_interval_s"
+        elapsed=$((elapsed + poll_interval_s))
+    done
+
+    # Timeout. Surface a graceful fallback, install continues.
+    info "$(printf "$MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING" "${app_name}")"
+    return 1
+}
+
 # ── External resources (overridable via env vars) ──────────────────
 #
 # Both URLs default to empty in the productised installer. The
@@ -2551,22 +2827,17 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
            && [[ "${OSTLER_GUI:-0}" == "1" ]] \
            && [[ -z "${MAIL_PROMPT_SHOWN_EARLY:-}" ]]; then
-            _early_mail_accounts=0
-            _early_mail_v_dir=""
-            if [[ -d "${HOME}/Library/Mail" ]]; then
-                _early_mail_v_dir=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1)
-            fi
-            if [[ -n "$_early_mail_v_dir" && -f "${_early_mail_v_dir}/MailData/Accounts.plist" ]]; then
-                # Sanitise to a clean integer -- `tr -dc 0-9` drops
-                # everything that is not a digit, `head -c10` caps to
-                # a max-10-digit value so a malformed plist can never
-                # poison the `-eq 0` arithmetic compare downstream.
-                _early_mail_accounts_raw="$(grep -c '<key>AccountName</key>' "${_early_mail_v_dir}/MailData/Accounts.plist" 2>/dev/null)"
-                _early_mail_accounts="$(printf '%s' "${_early_mail_accounts_raw:-0}" | tr -dc '0-9' | head -c10)"
-                [[ -z "$_early_mail_accounts" ]] && _early_mail_accounts=0
-                unset _early_mail_accounts_raw
-            fi
-            gui_log info "CX-37 probe: v_dir=[${_early_mail_v_dir}] accounts=[${_early_mail_accounts}]"
+            # CX-100 (DMG #48j, 2026-05-29): early probe now reads
+            # Accounts4.sqlite source-of-truth instead of the Mail.app
+            # derived Accounts.plist. The old derived read returned 0
+            # on every Mac where the customer had configured iCloud
+            # in System Settings but had not opened Mail.app yet --
+            # which mis-fired the "no mail accounts connected"
+            # prompt during Phase 2. See the same comment block at
+            # the Phase 4 Mail probe (search for "CX-100 checkpoint").
+            _early_mail_accounts="$(_accountsdb_count_mail)"
+            _early_mail_accounts="${_early_mail_accounts:-0}"
+            gui_log info "CX-100 probe: accountsdb mail count=[${_early_mail_accounts}]"
             if [[ "$_early_mail_accounts" -eq 0 ]] 2>/dev/null; then
                 _early_mail_answer="$(gui_read \
                     "$MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE" \
@@ -2588,7 +2859,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
             fi
             MAIL_PROMPT_SHOWN_EARLY=1
             export MAIL_PROMPT_SHOWN_EARLY
-            unset _early_mail_accounts _early_mail_v_dir
+            unset _early_mail_accounts
         fi
         set -e
         gui_log info "CX-37 probe: exiting"
@@ -5449,16 +5720,40 @@ fi
 progress "Extracting data from your Mac (the instant bit)" "fda_extract"
 
 if [[ "$HAS_FDA_MODULE" == true ]]; then
-    # Pre-launch apps to trigger iCloud sync ONLY if their databases are
-    # missing. Calendar, Reminders, Notes, and Mail each create their data
-    # store on first launch; if it already exists (re-run, or user has
-    # used the app before), opening the app is unnecessary and intrusive.
-    # -gj flags: open in background, hidden -- no window steal on first run.
+    # CX-101 (DMG #48j, 2026-05-29): pre-launch gate now checks
+    # POPULATION not EXISTENCE. The pre-CX-101 gate checked whether the
+    # directory existed, but `~/Library/Calendars/` and `~/Library/Mail/V*/`
+    # can exist as EMPTY scaffolding from a prior install / first-launch-
+    # then-quit event without the local store containing any actual
+    # data. On Andy's Studio the directories existed (Mail.app had been
+    # briefly opened then closed, never adding accounts), so the gate
+    # skipped pre-launch -- which meant the rest of the install
+    # proceeded against EMPTY iCloud-not-yet-synced stores. New rule:
+    # if the source-of-truth Accounts4.sqlite shows accounts configured
+    # but the local derived store is empty, force a pre-launch so the
+    # app starts syncing. If accounts are 0, no benefit to opening the
+    # app -- the customer has nothing to sync yet.
     APPS_TO_OPEN=()
-    [[ ! -d "$HOME/Library/Calendars" ]] && APPS_TO_OPEN+=("Calendar")
+    # Calendar: open if CalDAV / iCloud calendar account exists AND
+    # local Calendar Cache / Calendar.sqlitedb is empty.
+    if ! _store_populated_calendar && [[ "$(_accountsdb_count_calendar)" -gt 0 ]]; then
+        APPS_TO_OPEN+=("Calendar")
+    fi
+    # Mail: open if mail account exists AND no .emlx / Envelope Index
+    # rows yet. The _store_populated_mail helper covers both.
+    if ! _store_populated_mail && [[ "$(_accountsdb_count_mail)" -gt 0 ]]; then
+        APPS_TO_OPEN+=("Mail")
+    fi
+    # Contacts: open if CardDAV / iCloud contacts exist AND no
+    # populated .abcddb yet.
+    if ! _store_populated_contacts && [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
+        APPS_TO_OPEN+=("Contacts")
+    fi
+    # Reminders + Notes still use existence checks; they're system
+    # apps (no Accounts4.sqlite source row) and their stores create
+    # on first launch from iCloud. CX-101 leaves these as-is for v1.0.
     [[ ! -d "$HOME/Library/Group Containers/group.com.apple.reminders" ]] && APPS_TO_OPEN+=("Reminders")
     [[ ! -f "$HOME/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite" ]] && APPS_TO_OPEN+=("Notes")
-    [[ ! -d "$HOME/Library/Mail" ]] && APPS_TO_OPEN+=("Mail")
 
     if [[ ${#APPS_TO_OPEN[@]} -gt 0 ]]; then
         info "$(printf "$MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN" "${APPS_TO_OPEN[*]}")"
@@ -8086,31 +8381,42 @@ MAIL_ACCOUNTS_FOUND=0
 MAIL_HAS_FETCHED="false"
 APPLE_MAIL_VERSION_DIR=""
 
-# Mail.app stores per-version data under ~/Library/Mail/V<N>/.
-# Pick the highest version number (most recent macOS / Mail.app).
-info "CX-35 checkpoint: pre Mail.app version dir find"
+# CX-100 (DMG #48j, 2026-05-29): Mail account count now reads
+# ~/Library/Accounts/Accounts4.sqlite (source of truth written by
+# accountsd when the customer adds an account in System Settings
+# -> Internet Accounts) instead of ~/Library/Mail/V<N>/MailData/
+# Accounts.plist (derived store, only materialised after Mail.app
+# has been launched and synced). The old probe silently returned
+# 0 on every clean install where the customer configured iCloud
+# but had not opened Mail.app yet -- which on Andy's Studio
+# triggered the "Apple Mail does not appear to hold any local
+# messages" copy + the wrong "no mail accounts" flow downstream,
+# despite Internet Accounts holding 2 active mail accounts.
+#
+# The MAIL_HAS_FETCHED probe (.emlx walk / Envelope Index) is the
+# load-bearing "has Mail.app actually pulled anything?" signal --
+# kept as-is, but split from account count so the three-state
+# classification (state 1 vs state 2 vs state 3) becomes possible.
+info "CX-100 checkpoint: pre Mail.app version dir find"
 if [[ -d "${HOME}/Library/Mail" ]]; then
     APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1) || _mail_probe_failure_line="find Mail/V* dir"
 fi
-info "CX-35 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
+info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 
-if [[ -n "$APPLE_MAIL_VERSION_DIR" && -d "$APPLE_MAIL_VERSION_DIR" ]]; then
-    # Account count is informational only. We accept rough over-counting
-    # (CalDAV calendars sometimes appear under MailAccounts, drafts-only
-    # accounts) per the 2026-05-17 findings; the load-bearing signal for
-    # the banner is mail_has_fetched, not the count.
-    ACCOUNTS_PLIST="${APPLE_MAIL_VERSION_DIR}/MailData/Accounts.plist"
-    if [[ -f "$ACCOUNTS_PLIST" ]]; then
-        # <key>AccountName</key> appears once per account dict. Tolerant
-        # of false positives by design.
-        MAIL_ACCOUNTS_FOUND=$(grep -c '<key>AccountName</key>' "$ACCOUNTS_PLIST" 2>/dev/null || echo 0)
-    fi
+# Source-of-truth account count via Accounts4.sqlite. Falls back to
+# 0 on schema variation / missing db; the count is informational
+# only, but unlike the old Accounts.plist read, this returns the
+# truth on a clean iCloud-signed-in Mac whether or not Mail.app
+# has ever opened.
+MAIL_ACCOUNTS_FOUND="$(_accountsdb_count_mail)"
+MAIL_ACCOUNTS_FOUND="${MAIL_ACCOUNTS_FOUND:-0}"
+info "CX-100 checkpoint: Accounts4.sqlite mail accounts = ${MAIL_ACCOUNTS_FOUND}"
 
-    # "Has Mail.app ever pulled a message?" -- any non-empty
-    # InboxCache.plist under the version dir is sufficient.
-    if find "$APPLE_MAIL_VERSION_DIR" -name 'InboxCache.plist' -size +0c -print 2>/dev/null | head -1 | grep -q .; then
-        MAIL_HAS_FETCHED="true"
-    fi
+# Has Mail.app actually pulled a message yet? Reuse the three-state
+# helper so the same answer drives the install-time banner AND the
+# state-2 wait-for-populate prompt below.
+if _store_populated_mail; then
+    MAIL_HAS_FETCHED="true"
 fi
 
 # Sidecar -- atomic write, 0600 perms. Preserves first_ingest_complete_ts
@@ -8137,12 +8443,46 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
         --has-fetched "$MAIL_HAS_FETCHED"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
+    # CX-100 three-state copy: accounts==0 -> state 1 (no source);
+    # accounts>0 + fetched -> state 3 (synced); accounts>0 + not
+    # fetched -> state 2 (configured but not pulled yet -- the case
+    # the old install collapsed into "no local messages").
     if [[ "$MAIL_HAS_FETCHED" == "true" ]]; then
         info "$MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST"
+    elif [[ "$MAIL_ACCOUNTS_FOUND" -gt 0 ]]; then
+        info "$(printf "$MSG_INFO_MAIL_CONFIGURED_BUT_NOT_FETCHED" "${MAIL_ACCOUNTS_FOUND}")"
     else
         info "$MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD"
     fi
     gui_emit MAIL_ACCOUNTS_FOUND "count=${MAIL_ACCOUNTS_FOUND}" "has_fetched=${MAIL_HAS_FETCHED}"
+
+    # CX-100 state-2 wait-for-populate prompt. When accounts > 0
+    # AND Mail.app has not pulled anything yet, offer to open Mail
+    # and wait while it syncs. Suppressed if GUI is off (TTY / CI)
+    # so headless tests don't block. If the customer declines OR
+    # the wait times out, we fall through to the existing
+    # "configured but empty" copy + Doctor follow-up.
+    if [[ "$MAIL_ACCOUNTS_FOUND" -gt 0 ]] \
+       && [[ "$MAIL_HAS_FETCHED" != "true" ]] \
+       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        _open_mail_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${MAIL_ACCOUNTS_FOUND}")"
+        if _three_state_wait_for_populate \
+            "mail" \
+            "Apple Mail" \
+            "" \
+            "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE" \
+            "$_open_mail_help"; then
+            # Wait succeeded -- update MAIL_HAS_FETCHED + re-write
+            # the sidecar so Doctor sees the new state too.
+            MAIL_HAS_FETCHED="true"
+            python3 "$_pipeline_writer" \
+                --output "$PIPELINE_SIGNALS_FILE" \
+                --accounts "$MAIL_ACCOUNTS_FOUND" \
+                --has-fetched "$MAIL_HAS_FETCHED" || true
+            gui_emit MAIL_ACCOUNTS_FOUND "count=${MAIL_ACCOUNTS_FOUND}" "has_fetched=${MAIL_HAS_FETCHED}"
+        fi
+        unset _open_mail_help
+    fi
 
     # Interactive remediation prompt when Apple Mail has zero accounts
     # connected on this Mac. The existing detection writes
@@ -10004,6 +10344,37 @@ OSTLER_HYDRATE_BACKFILL_DAYS="${OSTLER_HYDRATE_BACKFILL_DAYS:-1825}"
 if [[ ! -s "$_HYDRATE_VCF" ]]; then
     info "$MSG_HYDRATE_CONTACTS_REEXPORT"
     mkdir -p "$(dirname "$_HYDRATE_VCF")"
+
+    # CX-101 (DMG #48j, 2026-05-29): state-2 wait + non-swallowing
+    # stderr capture. The old code piped osascript stderr to
+    # /dev/null + appended || true, so a Contacts Automation TCC
+    # denial AND a "Contacts hasn't synced yet" empty-store result
+    # were both indistinguishable from genuine "no contacts".
+    # Three improvements:
+    #   1. Pre-prompt offer to open Contacts.app if accounts are
+    #      configured but the local AB is empty (state 2).
+    #   2. Capture osascript stderr into /tmp log file so the install
+    #      log records the actual error.
+    #   3. After the osascript fails, classify the error: TCC denial
+    #      (-1743 / errAEEventNotPermitted) -> state-denied copy;
+    #      empty store -> state-pending copy.
+    _hydrate_contacts_accounts="$(_accountsdb_count_contacts)"
+    _hydrate_contacts_accounts="${_hydrate_contacts_accounts:-0}"
+    if [[ "$_hydrate_contacts_accounts" -gt 0 ]] \
+       && ! _store_populated_contacts \
+       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        _open_contacts_help="$(printf "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP" "${_hydrate_contacts_accounts}")"
+        _three_state_wait_for_populate \
+            "contacts" \
+            "Contacts" \
+            "" \
+            "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE" \
+            "$_open_contacts_help" || true
+        unset _open_contacts_help
+    fi
+
+    _CONTACTS_STDERR="/tmp/ostler-hydrate-contacts-osascript.stderr"
+    : > "$_CONTACTS_STDERR"
     osascript -e "
 tell application \"Contacts\"
     set vcfData to vcard of every person
@@ -10011,7 +10382,16 @@ tell application \"Contacts\"
     set fRef to open for access fp with write permission
     write vcfData to fRef
     close access fRef
-end tell" 2>/dev/null || true
+end tell" 2>"$_CONTACTS_STDERR" || true
+
+    # If osascript wrote a known TCC-denial marker into stderr, set a
+    # flag so the downstream hydrate result picks the right copy.
+    # macOS denial codes: -1743 (Not authorised), errAEEventNotPermitted.
+    _CONTACTS_TCC_DENIED=false
+    if grep -qE 'Not authori[sz]ed|-1743|errAEEventNotPermitted' \
+        "$_CONTACTS_STDERR" 2>/dev/null; then
+        _CONTACTS_TCC_DENIED=true
+    fi
 fi
 
 if [[ -s "$_HYDRATE_VCF" ]] && [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
@@ -10038,35 +10418,129 @@ except Exception:
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
+    elif [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
+        # Contacts Automation TCC denied -- the customer either
+        # declined the Automation prompt or the prompt has not
+        # appeared yet. Tell them how to grant it.
+        warn "$MSG_HYDRATE_CONTACTS_DENIED"
+    elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
+        # State 2 -- accounts configured but local AB empty.
+        warn "$MSG_HYDRATE_CONTACTS_PENDING"
     else
+        # State 1 -- no contacts source configured at all.
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
     fi
 else
-    # No iCloud / no local AB. Surface a warn (not a silent info)
-    # so the customer + Doctor see it. Re-run from Settings later
-    # once iCloud finishes its first sync.
-    warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
+    # No vcf written OR pipeline venv missing. Classify between
+    # TCC denial and genuinely empty using the same probe shape.
+    if [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
+        warn "$MSG_HYDRATE_CONTACTS_DENIED"
+    elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
+        warn "$MSG_HYDRATE_CONTACTS_PENDING"
+    else
+        warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
+    fi
 fi
+unset _CONTACTS_STDERR _CONTACTS_TCC_DENIED _hydrate_contacts_accounts
 
 # Calendar hydration -----------------------------------------------
 #
-# CX-92 (DMG #48g): backfill window bumped from 90 days to 5 years
-# (1825 days). meeting_syncer pulls events with attendees via the
-# localhost ical-server which reads EventKit (covers both iCloud
-# calendars + any account added to System Settings > Internet
-# Accounts). A 5-year window catches the customer's career-relevant
-# meetings + recurring annual events; the 90-day window only saw
-# the last quarter.
+# CX-101 (DMG #48j, 2026-05-29): SWITCHED FROM meeting_syncer ->
+# CalDAV path TO FDA path (ostler_fda.calendar + pwg_ingest.
+# ingest_calendar). The old meeting_syncer path went via the
+# localhost ical-server which invoked ~/.zeroclaw/ical-query.sh
+# against caldav.icloud.com using OSTLER_ICLOUD_USER +
+# OSTLER_ICLOUD_APP_PASSWORD -- env vars install.sh NEVER captures.
+# Consequence: every clean install with default config hit the
+# wrapper's "creds missing, exit 0 empty" branch, meeting_syncer
+# parsed zero events, and the customer's wiki Calendar page was
+# empty by design. Diagnostic: launch/DIAGNOSTIC_hydrate_empty_2026-05-29.md.
+#
+# The FDA path is the same shape as iMessage hydrate (which works):
+# the FDA extractor (Phase 3.7) reads the local ~/Library/Calendars/
+# Calendar Cache DB and writes calendar_events.json under ~/.ostler/
+# imports/fda/. pwg_ingest.ingest_calendar() consumes that JSON +
+# emits Person triples per attendee + lastContactCalendar markers.
+# No CalDAV app-password needed; Calendar.app's local cache covers
+# every account configured in System Settings -> Internet Accounts.
+#
+# Three-state handling matches the Mail/Contacts shape. If
+# Accounts4.sqlite shows calendar accounts but the local cache is
+# empty, we offer to open Calendar.app and wait while iCloud syncs
+# before reading the cache. Per
+# launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
+#
+# OSTLER_HYDRATE_BACKFILL_DAYS (5 years default) controls the
+# extract_events since_days. The Phase 3.7 extract_all run used
+# since_days=365 (snappy first onboarding); here at hydrate time
+# we want the full backfill window so the wiki populates with the
+# customer's full calendar history. We re-run the extractor inline
+# with the longer window, overwriting the existing JSON.
 if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CALENDAR_STARTED"
+
+    # State-2 wait: if accounts configured but cache empty, offer to
+    # open Calendar.app and poll for population (up to 60s default).
+    _hydrate_cal_accounts="$(_accountsdb_count_calendar)"
+    _hydrate_cal_accounts="${_hydrate_cal_accounts:-0}"
+    if [[ "$_hydrate_cal_accounts" -gt 0 ]] \
+       && ! _store_populated_calendar \
+       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        _open_cal_help="$(printf "$MSG_PROMPT_OPEN_CALENDAR_TO_POPULATE_HELP" "${_hydrate_cal_accounts}")"
+        _three_state_wait_for_populate \
+            "calendar" \
+            "Calendar" \
+            "" \
+            "$MSG_PROMPT_OPEN_CALENDAR_TO_POPULATE_TITLE" \
+            "$_open_cal_help" || true
+        unset _open_cal_help
+    fi
+
+    # Re-extract calendar events with the full backfill window. The
+    # Phase 3.7 run wrote calendar_events.json with since_days=365;
+    # here we overwrite with the 5-year window so the hydrate
+    # consumer sees full history. The OSTLER_FDA_OUTPUT_DIR env
+    # var threads through to the writer.
+    OSTLER_FDA_OUTPUT_DIR="${OSTLER_DIR}/imports/fda" \
+    "$_HYDRATE_PIPELINE_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log || true
+import json, os, sys
+from pathlib import Path
+out_dir = Path(os.environ["OSTLER_FDA_OUTPUT_DIR"])
+out_dir.mkdir(parents=True, exist_ok=True)
+try:
+    from ostler_fda.calendar import extract_events
+    from dataclasses import asdict
+    events = extract_events(since_days=${OSTLER_HYDRATE_BACKFILL_DAYS}, future_days=30)
+    (out_dir / "calendar_events.json").write_text(
+        json.dumps([asdict(e) for e in events], indent=2, default=str)
+    )
+    print(json.dumps({"status": "ok", "events": len(events)}))
+except PermissionError as e:
+    print(json.dumps({"status": "no_fda", "error": str(e)}))
+except FileNotFoundError as e:
+    print(json.dumps({"status": "not_found", "error": str(e)}))
+except Exception as e:
+    print(json.dumps({"status": "error", "error": str(e)}))
+EOF
+
+    # Ingest the JSON into Oxigraph via the existing pwg_ingest path.
+    # ingest_calendar reads calendar_events.json and emits triples
+    # per attendee. The return dict has {events_processed,
+    # unique_attendees} which we surface as "Imported %s events".
     _HYDRATE_CALENDAR_JSON="$(
-        cd "$PIPELINE_DIR" && \
-        "$_HYDRATE_PIPELINE_PY" -m meeting_syncer.syncer \
-            --days "$OSTLER_HYDRATE_BACKFILL_DAYS" \
-            --api-url "$_HYDRATE_API" \
-            --graph-endpoint "$_HYDRATE_OXIGRAPH" \
-            --json 2>>/tmp/ostler-hydrate-calendar.log \
-        | tail -n 1
+        "$_HYDRATE_PIPELINE_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
+import json, os, sys
+from pathlib import Path
+os.environ.setdefault("OXIGRAPH_URL", "$_HYDRATE_OXIGRAPH")
+try:
+    from ostler_fda.pwg_ingest import ingest_calendar
+    result = ingest_calendar(Path("${OSTLER_DIR}/imports/fda"))
+    # Normalise output to {imported: N} for the parser below.
+    imported = int(result.get("events_processed", 0) or 0)
+    print(json.dumps({"imported": imported, **result}, default=str))
+except Exception as e:
+    print(json.dumps({"imported": 0, "status": "error", "error": str(e)}))
+EOF
     )" || _HYDRATE_CALENDAR_JSON=""
     _HYDRATE_CALENDAR_COUNT="$(
         printf '%s' "$_HYDRATE_CALENDAR_JSON" \
@@ -10080,9 +10554,15 @@ except Exception:
     _HYDRATE_CALENDAR_COUNT="${_HYDRATE_CALENDAR_COUNT:-0}"
     if [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CALENDAR_DONE" "$_HYDRATE_CALENDAR_COUNT")"
+    elif [[ "$_hydrate_cal_accounts" -gt 0 ]]; then
+        # State 2 -- accounts configured but cache empty (wait-for-
+        # populate either declined or timed out).
+        info "$MSG_HYDRATE_CALENDAR_PENDING"
     else
+        # State 1 -- no calendar accounts configured at all.
         info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
     fi
+    unset _hydrate_cal_accounts
 else
     info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
 fi
