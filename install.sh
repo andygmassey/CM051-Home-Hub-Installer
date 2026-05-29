@@ -545,6 +545,147 @@ _ostler_promote_prelaunch_tree() {
     # subsequent install.sh writes land at ~/.ostler/.
     _ostler_set_paths "$OSTLER_FINAL_DIR"
     OSTLER_PRELAUNCH_PROMOTED=true
+
+    # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
+    #
+    # `python -m venv` bakes the absolute creation path into the
+    # shebang of every script in bin/ (pip, pip3, pip3.11, console
+    # scripts like ostler-consent / ostler-recovery) and into
+    # pyvenv.cfg's `command = ...` line. When the venv was created
+    # inside ${OSTLER_PRELAUNCH_DIR}/.venv (Phase 2 line ~2605 or
+    # Phase 3.6 line ~4906) and we just mv'd it to
+    # ${OSTLER_FINAL_DIR}/.venv, every shebang now points at a
+    # /tmp/ostler-prelaunch-<old-pid>/.venv/bin/python3.X that
+    # macOS deleted with the staging tree (rm -rf above).
+    #
+    # The symptom is ERR-09 on the customer's next pip invocation
+    # (Phase 3.6 sqlcipher3 at line ~4930, or any re-run that hits
+    # $OSTLER_PIP), because the kernel resolves the shebang before
+    # exec'ing the script:
+    #   bad interpreter: /tmp/ostler-prelaunch-4490/.venv/bin/python3.11:
+    #                    no such file or directory
+    #
+    # Studio retest of DMG #48g (2026-05-29) caught this; the
+    # customer-reported pip shebang was literally
+    #   #!/tmp/ostler-prelaunch-4490/.venv/bin/python3.11
+    # against a venv at ${HOME}/.ostler/.venv that mv had relocated.
+    #
+    # Fix: detect stale shebang, nuke + recreate the venv at the
+    # final location, then reinstall the Phase-2 packages
+    # (ostler_security + legal) so post-promote use sites
+    # (lines ~5070 region.py, ~5102 consent_cli, ~7314 ical-server)
+    # keep importing cleanly. Phase 3.6 re-installs sqlcipher3 /
+    # cryptography itself via the idempotent `[[ ! -d ]]` check at
+    # line ~4906, so we don't need to handle those here.
+    _ostler_repair_venv_after_promote
+}
+
+# CX-95 (DMG #48g+, 2026-05-29): repair venv shebangs after promote.
+# Idempotent helper called from _ostler_promote_prelaunch_tree above.
+# Safe to call when no venv exists (no-op). Safe to call when venv
+# was created at the final location (shebang check finds no drift,
+# no rebuild).
+_ostler_repair_venv_after_promote() {
+    local venv_dir="${OSTLER_FINAL_DIR}/.venv"
+    local pip_path="${venv_dir}/bin/pip"
+    [[ -d "$venv_dir" ]] || return 0
+
+    # Detect stale shebang. If $venv_dir/bin/pip exists, read the
+    # first line and check whether it points at a python3 that
+    # actually exists. A live shebang is "#!<absolute-path>", and
+    # the path must resolve to an executable file. Anything else
+    # means we need to rebuild.
+    local needs_rebuild=false
+    if [[ -f "$pip_path" ]]; then
+        local shebang_line interp
+        shebang_line="$(head -n 1 "$pip_path" 2>/dev/null)"
+        if [[ "$shebang_line" =~ ^\#\!([^[:space:]]+) ]]; then
+            interp="${BASH_REMATCH[1]}"
+            if [[ ! -x "$interp" ]]; then
+                needs_rebuild=true
+            fi
+        else
+            # No parseable shebang -> something is wrong; rebuild.
+            needs_rebuild=true
+        fi
+    else
+        # venv directory exists but pip is missing -> incomplete or
+        # corrupted venv. Rebuild defensively.
+        needs_rebuild=true
+    fi
+
+    if [[ "$needs_rebuild" != "true" ]]; then
+        return 0
+    fi
+
+    # Need PYTHON3_BIN to recreate. It's set during the Phase 2.99
+    # python check (~line 2540). If we're called before that (e.g.
+    # the SKIP_PHASE2 re-run path at line ~1357 calls us before
+    # Phase 2.99 fires), fall back to system python3. The fallback
+    # is best-effort: if PYTHON3_BIN truly isn't available the venv
+    # rebuild fails and Phase 3.6 line ~4906 retries the create.
+    local python_bin="${PYTHON3_BIN:-}"
+    if [[ -z "$python_bin" ]]; then
+        # Prefer the .app's bundled python3.11 -- customer installs
+        # always have this. Then brew kegs, then PATH. SCRIPT_DIR is
+        # the installer root (signed .app Contents/Resources or
+        # dev-mode sibling clone), set during the bootstrap prelude.
+        if [[ -n "${SCRIPT_DIR:-}" && -x "${SCRIPT_DIR}/python/bin/python3.11" ]]; then
+            python_bin="${SCRIPT_DIR}/python/bin/python3.11"
+        elif [[ -x "/opt/homebrew/opt/python@3.11/bin/python3.11" ]]; then
+            python_bin="/opt/homebrew/opt/python@3.11/bin/python3.11"
+        elif [[ -x "/usr/local/opt/python@3.11/bin/python3.11" ]]; then
+            python_bin="/usr/local/opt/python@3.11/bin/python3.11"
+        elif command -v python3 &>/dev/null; then
+            python_bin="$(command -v python3)"
+        else
+            # No python available yet. Leave the stale venv alone --
+            # Phase 3.6 will re-fail visibly and the customer can
+            # retry once Homebrew lands python@3.11.
+            return 0
+        fi
+    fi
+
+    rm -rf "$venv_dir"
+    if ! "$python_bin" -m venv "$venv_dir" 2>/dev/null; then
+        # Venv recreate failed. Leave the dir absent so Phase 3.6
+        # surfaces the failure visibly via its own error path.
+        return 0
+    fi
+
+    # Reinstall the packages that Phase 2 + Phase 3.6 put into the
+    # pre-promote venv, so post-promote import sites + deployed
+    # LaunchAgents keep working:
+    #
+    #   ostler_security -- needed at lines ~5070 / ~5102 / ~7314 +
+    #                      by every deployed service at runtime
+    #                      (ical-server, whatsapp-bridge, cm048 ingest)
+    #   legal           -- consent-string constants used by
+    #                      ostler_security.consent + the Rust gates
+    #   sqlcipher3      -- ostler_security.database falls back to
+    #                      plaintext sqlite without this; the
+    #                      deployed services rely on encrypted DBs
+    #                      to honour the install-time
+    #                      "data-encrypted-at-rest" promise.
+    #   cryptography    -- transitive dep of ostler_security; the
+    #                      wheel install above re-resolves it from
+    #                      pip's local cache.
+    #
+    # All three are pip-cached binary wheels (sqlcipher3 ships
+    # macosx_11_0_arm64 wheels for cp310/cp311/cp312); reinstall is
+    # sub-second offline once pip's local wheel cache is warm. We
+    # let pip choose between fresh download + cache hit silently.
+    # Any failure here is non-fatal (Phase 3.6 retries sqlcipher3
+    # at line ~4930, the import sites have graceful fallbacks); the
+    # post-promote venv is at least syntactically valid even on a
+    # partial reinstall.
+    if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
+        "${venv_dir}/bin/pip" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/dev/null || true
+    fi
+    if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
+        "${venv_dir}/bin/pip" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || true
+    fi
+    "${venv_dir}/bin/pip" install --quiet "sqlcipher3>=0.6.0,<0.7.0" 2>/dev/null || true
 }
 
 # Two-zone layout: ~/Documents/Ostler/ holds the customer's
