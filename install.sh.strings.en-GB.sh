@@ -836,6 +836,37 @@ MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT="No recent email to read. You can add 
 MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING="Email reader not ready yet. You can add a Mail account in Apple Mail and re-run later."
 MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES="Email is still loading in the background – your wiki will fill in over the next hour."
 
+# Three-state data-source UX strings (CX-100, CX-101)
+# Per launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
+# Each Apple-app-backed source has three states: not configured at all,
+# configured but the local store has not populated yet, and configured
+# + populated. The installer detects which state the customer is in
+# and surfaces the right copy.
+
+# State 2 prompts -- "open the app and we will wait" -- per source.
+MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE="Open Apple Mail so it can start syncing?"
+MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP="You have %s mail account(s) configured, but Apple Mail has not pulled any messages yet. We can open Mail.app now and wait while it syncs."
+MSG_PROMPT_OPEN_CALENDAR_TO_POPULATE_TITLE="Open Calendar so it can start syncing?"
+MSG_PROMPT_OPEN_CALENDAR_TO_POPULATE_HELP="You have %s calendar account(s) configured, but Calendar.app has no events stored yet. We can open Calendar now and wait while it syncs from iCloud."
+MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE="Open Contacts so it can start syncing?"
+MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP="You have %s contacts account(s) configured, but Contacts.app has no entries stored yet. We can open Contacts now and wait while it syncs from iCloud."
+
+# Wait + populate poll-loop strings
+MSG_INFO_WAITING_FOR_APP_TO_POPULATE="Waiting for %s to start syncing (up to %s seconds)."
+MSG_OK_APP_HAS_POPULATED="%s has populated its local store. Carrying on."
+MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING="We did not detect %s sync within the wait window. Carrying on; you can re-run hydration from Settings later."
+
+# Three-state-aware copy for the three sources. These replace the
+# old binary "no data" copy that conflated states 1 and 2.
+MSG_INFO_MAIL_CONFIGURED_BUT_NOT_FETCHED="Apple Mail accounts visible: %s. Open Mail.app once so it can start pulling messages."
+MSG_INFO_CALENDAR_CONFIGURED_BUT_NOT_FETCHED="Calendar accounts visible: %s. Open Calendar.app once so it can sync your events."
+MSG_INFO_CONTACTS_CONFIGURED_BUT_NOT_FETCHED="Contacts accounts visible: %s. Open Contacts.app once so it can sync your address book."
+
+# Account-detection denial / sync-pending split for hydrate copy
+MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts app. macOS may have asked for Automation permission and been declined - check System Settings > Privacy & Security > Automation and ensure OstlerInstaller has access to Contacts."
+MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
+MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
+
 # WhatsApp hydration strings (CX-85)
 # Used by install.sh's hydrate_whatsapp step, inserted inside the
 # hydrate_graph sub-phase between the email block and the wiki

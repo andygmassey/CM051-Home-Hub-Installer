@@ -84,13 +84,39 @@ echo "PASS: probe block extracted ($(wc -l < "$PROBE") lines)"
 DRIVER="${WORK}/driver.sh"
 cat > "$DRIVER" <<'DRIVER_EOF'
 #!/usr/bin/env bash
-set -euo pipefail
+# `set -eo pipefail` (no -u): the probe block references MSG_*
+# catalogue variables that are normally sourced by install.sh's
+# strings_load(); the test runs the probe in isolation so the
+# strings are unset. The probe's printf calls tolerate empty
+# MSG_* values (the customer string is just blank), so we mirror
+# that contract here by NOT enabling nounset.
+set -eo pipefail
 
 # Helpers the probe references. No-op stubs that capture state for
 # assertions.
 info()     { echo "[info] $*"; }
 warn()     { echo "[warn] $*" >&2; }
 gui_emit() { echo "[emit] $*"; }
+ok()       { echo "[ok] $*"; }
+
+# CX-100 added two helper probes the install.sh block now uses:
+#   _accountsdb_count_mail  -- account count via Accounts4.sqlite
+#   _store_populated_mail   -- "Mail.app has pulled at least one message?"
+# Both are read inside the extracted probe block. The driver supplies
+# stubs that read environment variables so each scenario can dictate
+# the answer.
+_accountsdb_count_mail() {
+    printf '%s' "${STUB_MAIL_ACCOUNTS:-0}"
+}
+_store_populated_mail() {
+    [[ "${STUB_MAIL_POPULATED:-false}" == "true" ]]
+}
+# The three-state wait-for-populate helper is conditional on
+# OSTLER_GUI=1; the test runs without it so this stub is never
+# actually called, but provide it for safety.
+_three_state_wait_for_populate() { return 1; }
+# The probe writes ~/.ostler/state/pipeline_signals.json via a
+# python writer; we leave that path real (it ships with the repo).
 
 # These are defined elsewhere in install.sh; the probe assumes them.
 SCRIPT_DIR="$1"
@@ -104,11 +130,20 @@ source "$1"
 DRIVER_EOF
 chmod +x "$DRIVER"
 
-# ── Scenario 1: no ~/Library/Mail at all ─────────────────────────
+# CX-100 (2026-05-29): scenarios drive the probe via the stubbed
+# _accountsdb_count_mail + _store_populated_mail helpers (set via
+# STUB_MAIL_ACCOUNTS + STUB_MAIL_POPULATED env vars), not by
+# fixturing ~/Library/Mail. The old fixture shape (Accounts.plist
+# with N AccountName entries) was the load-bearing source pre-CX-100
+# and is now irrelevant -- Accounts4.sqlite is the truth.
+
+# ── Scenario 1: zero accounts configured ─────────────────────────
 S1_HOME="${WORK}/s1_home"
 mkdir -p "$S1_HOME"
 S1_OSTLER="${WORK}/s1_ostler"
-HOME="$S1_HOME" bash "$DRIVER" "$REPO_ROOT" "$S1_OSTLER" "$PROBE" >/dev/null 2>&1
+HOME="$S1_HOME" \
+    STUB_MAIL_ACCOUNTS=0 STUB_MAIL_POPULATED=false \
+    bash "$DRIVER" "$REPO_ROOT" "$S1_OSTLER" "$PROBE" >/dev/null 2>&1
 S1_OUT="${S1_OSTLER}/state/pipeline_signals.json"
 if [[ ! -f "$S1_OUT" ]]; then
     echo "FAIL [s1]: probe did not write sidecar in the no-Mail case" >&2
@@ -121,35 +156,18 @@ assert data["mail_accounts_found"] == 0, data
 assert data["mail_has_fetched"] is False, data
 assert isinstance(data["install_completed_ts"], int), data
 PY
-echo "PASS [s1]: no Mail dir -> count=0, has_fetched=false"
+echo "PASS [s1]: no Mail accounts (state 1) -> count=0, has_fetched=false"
 
-# ── Scenario 2: Accounts.plist with 2 accounts, empty InboxCache ─
+# ── Scenario 2: state 2 -- 2 accounts configured, not populated ─
+# This is the CX-100 case: Accounts4.sqlite knows about 2 mail
+# accounts but Mail.app has never pulled a message yet. Old probe
+# returned 0 here; CX-100 returns 2 + has_fetched=false.
 S2_HOME="${WORK}/s2_home"
-mkdir -p "$S2_HOME/Library/Mail/V10/MailData"
-cat > "$S2_HOME/Library/Mail/V10/MailData/Accounts.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0">
-<dict>
-  <key>MailAccounts</key>
-  <array>
-    <dict>
-      <key>AccountName</key>
-      <string>alice@example.com</string>
-    </dict>
-    <dict>
-      <key>AccountName</key>
-      <string>bob@example.com</string>
-    </dict>
-  </array>
-</dict>
-</plist>
-PLIST
-# Empty (0-byte) InboxCache.plist so has_fetched stays false.
-mkdir -p "$S2_HOME/Library/Mail/V10/SomeMailbox.mbox"
-: > "$S2_HOME/Library/Mail/V10/SomeMailbox.mbox/InboxCache.plist"
-
+mkdir -p "$S2_HOME"
 S2_OSTLER="${WORK}/s2_ostler"
-HOME="$S2_HOME" bash "$DRIVER" "$REPO_ROOT" "$S2_OSTLER" "$PROBE" >/dev/null 2>&1
+HOME="$S2_HOME" \
+    STUB_MAIL_ACCOUNTS=2 STUB_MAIL_POPULATED=false \
+    bash "$DRIVER" "$REPO_ROOT" "$S2_OSTLER" "$PROBE" >/dev/null 2>&1
 S2_OUT="${S2_OSTLER}/state/pipeline_signals.json"
 python3 - "$S2_OUT" <<'PY'
 import json, sys
@@ -157,30 +175,15 @@ data = json.load(open(sys.argv[1]))
 assert data["mail_accounts_found"] == 2, data
 assert data["mail_has_fetched"] is False, data
 PY
-echo "PASS [s2]: 2 accounts, empty InboxCache -> count=2, has_fetched=false"
+echo "PASS [s2]: 2 accounts configured (state 2) -> count=2, has_fetched=false"
 
-# ── Scenario 3: non-empty InboxCache.plist -> has_fetched=true ───
+# ── Scenario 3: state 3 -- 1 account configured + populated ─────
 S3_HOME="${WORK}/s3_home"
-mkdir -p "$S3_HOME/Library/Mail/V10/MailData"
-cat > "$S3_HOME/Library/Mail/V10/MailData/Accounts.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0">
-<dict>
-  <key>MailAccounts</key>
-  <array>
-    <dict>
-      <key>AccountName</key>
-      <string>alice@example.com</string>
-    </dict>
-  </array>
-</dict>
-</plist>
-PLIST
-mkdir -p "$S3_HOME/Library/Mail/V10/Inbox.mbox"
-printf 'cached-marker' > "$S3_HOME/Library/Mail/V10/Inbox.mbox/InboxCache.plist"
-
+mkdir -p "$S3_HOME"
 S3_OSTLER="${WORK}/s3_ostler"
-HOME="$S3_HOME" bash "$DRIVER" "$REPO_ROOT" "$S3_OSTLER" "$PROBE" >/dev/null 2>&1
+HOME="$S3_HOME" \
+    STUB_MAIL_ACCOUNTS=1 STUB_MAIL_POPULATED=true \
+    bash "$DRIVER" "$REPO_ROOT" "$S3_OSTLER" "$PROBE" >/dev/null 2>&1
 S3_OUT="${S3_OSTLER}/state/pipeline_signals.json"
 python3 - "$S3_OUT" <<'PY'
 import json, sys
@@ -188,7 +191,7 @@ data = json.load(open(sys.argv[1]))
 assert data["mail_accounts_found"] == 1, data
 assert data["mail_has_fetched"] is True, data
 PY
-echo "PASS [s3]: non-empty InboxCache.plist -> has_fetched=true"
+echo "PASS [s3]: 1 account configured + populated (state 3) -> count=1, has_fetched=true"
 
 echo ""
 echo "ALL MAIL CONTENT PROBE TESTS PASSED"
