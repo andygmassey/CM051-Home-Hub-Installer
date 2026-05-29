@@ -90,13 +90,20 @@ if ! printf '%s' "$CAL_BLOCK" | grep -qE 'ingest_calendar|pwg_ingest'; then
     failure "Calendar hydration block does not reference ingest_calendar / pwg_ingest -- FDA path missing"
 fi
 
-# Axis 3: OSTLER_HYDRATE_BACKFILL_DAYS is used as the since_days
-# parameter (so customer gets the 5-year window, not the 1-year
-# extract_all default).
-if ! printf '%s' "$CAL_BLOCK" | grep -qE 'OSTLER_HYDRATE_BACKFILL_DAYS'; then
-    failure "Calendar hydration block does not pass OSTLER_HYDRATE_BACKFILL_DAYS"
+# Axis 3 (CX-106, DMG #48l, 2026-05-29): OSTLER_HYDRATE_CALENDAR_DAYS
+# is used as the since_days parameter. Pre-CX-106 this axis required
+# OSTLER_HYDRATE_BACKFILL_DAYS (5 years) but Studio retest of DMG #48k
+# showed multi-year calendar reads blowing the 180s install-time
+# wall-clock cap. CX-106 introduces a dedicated install-time window
+# (90 days default) while the +12h fda-rerun LaunchAgent walks the
+# 5-year history asynchronously. Either the new install-time var or
+# the legacy 5-year var counts -- the contract is "the calendar
+# hydration block uses a documented env var for since_days", not a
+# specific name.
+if ! printf '%s' "$CAL_BLOCK" | grep -qE 'OSTLER_HYDRATE_CALENDAR_DAYS|OSTLER_HYDRATE_BACKFILL_DAYS'; then
+    failure "Calendar hydration block does not pass a documented backfill-days env var"
 fi
-if ! printf '%s' "$CAL_BLOCK" | grep -qE 'since_days=.{0,30}OSTLER_HYDRATE_BACKFILL_DAYS'; then
+if ! printf '%s' "$CAL_BLOCK" | grep -qE 'since_days=.{0,30}OSTLER_HYDRATE_(CALENDAR|BACKFILL)_DAYS'; then
     failure "Calendar hydration block does not plumb backfill days to extract_events since_days"
 fi
 

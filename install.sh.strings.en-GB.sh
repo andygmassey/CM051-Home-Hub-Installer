@@ -440,6 +440,7 @@ MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Could not write iMessage FDA si
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="IMAP host is empty – try again."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage Automation permission: not granted (-1743)."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="iMessage Automation permission: probe inconclusive."
+MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="Opening System Settings > Privacy & Security > Automation. Tick the Messages row for OstlerInstaller (or Terminal) to wire iMessage delivery up."
 MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="iMessage needs at least one allowed contact. Try again or"
 MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO="Import pipeline not available (private repo - beta testers only)."
 MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="Import pipeline not bundled with installer. Hard-fail bypassed."
@@ -811,9 +812,17 @@ MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
 MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
 # CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
 # days to 5 years -- customer copy updated to match the new behaviour.
-MSG_HYDRATE_CALENDAR_STARTED="Backfilling your calendar for the last 5 years"
+MSG_HYDRATE_CALENDAR_STARTED="Loading your last 90 days of calendar (longer history backfills in the background)"
 MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
 MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki – this takes 2 to 5 minutes"
+
+# CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.
+# Synchronous Qdrant-readiness gate between hydrate_* and wiki_compile
+# so the customer sees real wiki content at install completion.
+MSG_INITIAL_HYDRATE_QDRANT_BEFORE="Checking your search index (%s collections detected)"
+MSG_INITIAL_HYDRATE_BROWSER_RETRY="Loading your browsing history into the search index"
+MSG_INITIAL_HYDRATE_QDRANT_READY="Search index ready (%s collections)"
+MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED="Search index will populate in the background after install completes"
 MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
 # CX-93 (DMG #48g, 2026-05-29): split the "no contacts" copy. The old
 # string blamed iCloud, which was misleading on a local-AB-only Mac.
@@ -830,7 +839,7 @@ MSG_HYDRATE_SKIPPED_NO_EVENTS="No calendar events in the last 5 years. You can b
 # hydrate_graph sub-phase between the calendar block and the wiki
 # recompile message. Counts come from pwg-email-ingest's --json
 # output, never from a fixed founder-instance number.
-MSG_HYDRATE_EMAIL_STARTED="Reading the last month of email – your emails stay on this Mac"
+MSG_HYDRATE_EMAIL_STARTED="Reading your last 90 days of email – your emails stay on this Mac (longer history backfills in the background)"
 MSG_HYDRATE_EMAIL_DONE="Found %s people in your recent email"
 MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT="No recent email to read. You can add a Mail account in Apple Mail and re-run later."
 MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING="Email reader not ready yet. You can add a Mail account in Apple Mail and re-run later."
@@ -853,6 +862,7 @@ MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP="You have %s contacts account(s) confi
 
 # Wait + populate poll-loop strings
 MSG_INFO_WAITING_FOR_APP_TO_POPULATE="Waiting for %s to start syncing (up to %s seconds)."
+MSG_INFO_WAITING_FOR_APP_HEARTBEAT="Still waiting on %s sync (%ss elapsed, %ss remaining). iCloud's first sync can take a few minutes on a fresh sign-in."
 MSG_OK_APP_HAS_POPULATED="%s has populated its local store. Carrying on."
 MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING="We did not detect %s sync within the wait window. Carrying on; you can re-run hydration from Settings later."
 

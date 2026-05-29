@@ -1281,16 +1281,34 @@ _store_populated_calendar() {
 # Contacts: any non-empty *.abcddb (per-source SQLite store) under
 # ~/Library/Application Support/AddressBook/Sources/.
 _store_populated_contacts() {
+    # CX-107 (DMG #48l, 2026-05-29): switched from byte-size-only probe to
+    # row-count probe. The pre-fix path returned true for an empty
+    # schema-only abcddb (sqlite creates the file at ~12 KB before any
+    # rows exist), so a freshly-signed-in iCloud customer who had not
+    # yet opened Contacts.app got mis-classified as state-3 (populated)
+    # and the state-2 wait prompt never fired. The new probe attaches
+    # ZABCDRECORD read-only and counts >= 1 row before declaring the
+    # store populated. Falls back to byte-size when ZABCDRECORD is
+    # missing (older macOS variants) so we never wrongly downgrade a
+    # populated mac to state-2.
     local src_dir="${HOME}/Library/Application Support/AddressBook/Sources"
     [[ -d "$src_dir" ]] || return 1
-    if find "$src_dir" -name 'AddressBook-v22.abcddb' -size +0c -print -quit 2>/dev/null | grep -q .; then
-        return 0
+    local db
+    db="$(find "$src_dir" -name 'AddressBook-v22.abcddb' -size +0c -print -quit 2>/dev/null)"
+    if [[ -z "$db" ]]; then
+        db="$(find "$src_dir" -name '*.abcddb' -size +0c -print -quit 2>/dev/null)"
     fi
-    # Older macOS variants
-    if find "$src_dir" -name '*.abcddb' -size +0c -print -quit 2>/dev/null | grep -q .; then
-        return 0
+    [[ -z "$db" ]] && return 1
+    local n
+    n="$(sqlite3 "file:${db}?mode=ro" -bail \
+        "SELECT COUNT(*) FROM ZABCDRECORD LIMIT 1" 2>/dev/null || echo "")"
+    if [[ -n "$n" ]] && [[ "$n" =~ ^[0-9]+$ ]]; then
+        [[ "$n" -gt 0 ]] && return 0
+        return 1
     fi
-    return 1
+    # ZABCDRECORD missing -- older macOS. Fall back to the byte-size
+    # probe (which only mis-fires on Sequoia-style empty schemas).
+    return 0
 }
 
 # ── Wait-for-populate helper (state-2 prompt) ────────────────────
@@ -1320,7 +1338,15 @@ _three_state_wait_for_populate() {
     local title_str="$4"
     local help_str="$5"
 
-    local timeout_s="${OSTLER_HYDRATE_POPULATE_WAIT_S:-60}"
+    # CX-108 (DMG #48l, 2026-05-29): default wait bumped from 60s to
+    # 180s. Studio retest of DMG #48k showed 60s expired before iCloud
+    # finished a fresh Calendar sync (sync took ~70-80s on Andy's box
+    # with 5 years of events). 180s covers the vast majority of fresh
+    # syncs; customers on slow uplinks can extend further via the env
+    # var. Still bounded -- we will not block the install indefinitely.
+    # Same value used for Contacts state-2 wait now CX-107 lets the
+    # probe fire honestly.
+    local timeout_s="${OSTLER_HYDRATE_POPULATE_WAIT_S:-180}"
     local poll_interval_s="${OSTLER_HYDRATE_POPULATE_POLL_S:-3}"
 
     # Offer to open the app for them. If they say no, still poll --
@@ -1352,9 +1378,14 @@ _three_state_wait_for_populate() {
     esac
 
     # Poll the local-store probe. Time-cap at $timeout_s.
+    # CX-108 (DMG #48l, 2026-05-29): emit a progress heartbeat every
+    # 30s so the customer sees something during the longer 180s wait.
+    # Without this the GUI sidebar sits silent for three minutes and
+    # the customer assumes the installer has hung.
     local elapsed=0
     local probe_fn="_store_populated_${source}"
     info "$(printf "$MSG_INFO_WAITING_FOR_APP_TO_POPULATE" "${app_name}" "${timeout_s}")"
+    local next_heartbeat=30
     while [[ "$elapsed" -lt "$timeout_s" ]]; do
         if "$probe_fn"; then
             ok "$(printf "$MSG_OK_APP_HAS_POPULATED" "${app_name}")"
@@ -1362,6 +1393,12 @@ _three_state_wait_for_populate() {
         fi
         sleep "$poll_interval_s"
         elapsed=$((elapsed + poll_interval_s))
+        if [[ "$elapsed" -ge "$next_heartbeat" ]] && [[ "$elapsed" -lt "$timeout_s" ]]; then
+            local remaining=$((timeout_s - elapsed))
+            info "$(printf "$MSG_INFO_WAITING_FOR_APP_HEARTBEAT" \
+                "${app_name}" "${elapsed}" "${remaining}")"
+            next_heartbeat=$((next_heartbeat + 30))
+        fi
     done
 
     # Timeout. Surface a graceful fallback, install continues.
@@ -8503,9 +8540,16 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
        && [[ "$MAIL_HAS_FETCHED" != "true" ]] \
        && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
         _open_mail_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${MAIL_ACCOUNTS_FOUND}")"
+        # CX-110 (DMG #48l, 2026-05-29): pass "Mail" not "Apple Mail" to
+        # the LaunchServices `open -a` path. LaunchServices fuzzy-matches
+        # "Apple Mail" today on Sequoia but the canonical app bundle name
+        # is "Mail.app", and future macOS versions may tighten the fuzzy-
+        # match against the on-disk name. Customer-facing copy still
+        # reads "Apple Mail" via the prompt help string -- only the open
+        # -a argument changes.
         if _three_state_wait_for_populate \
             "mail" \
-            "Apple Mail" \
+            "Mail" \
             "" \
             "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE" \
             "$_open_mail_help"; then
@@ -10518,6 +10562,15 @@ unset _CONTACTS_STDERR _CONTACTS_TCC_DENIED _hydrate_contacts_accounts
 # we want the full backfill window so the wiki populates with the
 # customer's full calendar history. We re-run the extractor inline
 # with the longer window, overwriting the existing JSON.
+#
+# CX-106 (DMG #48l, 2026-05-29): for CALENDAR specifically we keep
+# the install-time window at 90 days. The hourly fda-rerun
+# LaunchAgent (scheduled +12h at Phase 3.7) walks the 5-year window
+# in the background. Studio retest of DMG #48k showed customers
+# with multi-year calendar history hitting silent timeouts on the
+# install-time path because the Calendar Cache query was scanning
+# years of recurring-event expansions inside the 180s wall-clock cap.
+OSTLER_HYDRATE_CALENDAR_DAYS="${OSTLER_HYDRATE_CALENDAR_DAYS:-90}"
 if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CALENDAR_STARTED"
 
@@ -10552,7 +10605,7 @@ out_dir.mkdir(parents=True, exist_ok=True)
 try:
     from ostler_fda.calendar import extract_events
     from dataclasses import asdict
-    events = extract_events(since_days=${OSTLER_HYDRATE_BACKFILL_DAYS}, future_days=30)
+    events = extract_events(since_days=${OSTLER_HYDRATE_CALENDAR_DAYS}, future_days=30)
     (out_dir / "calendar_events.json").write_text(
         json.dumps([asdict(e) for e in events], indent=2, default=str)
     )
@@ -10637,6 +10690,19 @@ fi
 # Privacy AC6: pwg-email-ingest's --json output is counts only.
 # Subjects, bodies, and from-addresses never cross the install.sh
 # process boundary.
+# CX-106 (DMG #48l, 2026-05-29): install-time email window is narrowed
+# to 90 days. The pre-CX-106 path used the full 5-year backfill window
+# here -- which on a busy mailbox blew the 180s wall-clock cap every
+# time, leaving the customer with ZERO email people in the wiki at
+# install completion. 90 days is enough to surface the customer's
+# recent correspondents (the "is this thing working?" check) while
+# staying well inside the timeout. The hourly email-ingest LaunchAgent
+# (Phase 3.14, line ~8207) walks the rest of the 5-year history in
+# the background -- the wiki backfills progressively over the first
+# few hours rather than blocking install completion. Override:
+# OSTLER_HYDRATE_EMAIL_DAYS=365 ./install.sh for a longer first pull.
+OSTLER_HYDRATE_EMAIL_DAYS="${OSTLER_HYDRATE_EMAIL_DAYS:-90}"
+
 _HYDRATE_EMAIL_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _HYDRATE_EMAIL_PY="${_HYDRATE_EMAIL_VENV}/bin/python"
 _HYDRATE_EMAIL_BIN="${_HYDRATE_EMAIL_VENV}/bin/pwg-email-ingest"
@@ -10672,7 +10738,7 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     if OSTLER_HOME="$HOME" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
        "$_HYDRATE_EMAIL_PY" -m ostler_fda.apple_mail_mbox \
            --emit-mbox "$_HYDRATE_EMAIL_MBOX" \
-           --backfill-days "$OSTLER_HYDRATE_BACKFILL_DAYS" \
+           --backfill-days "$OSTLER_HYDRATE_EMAIL_DAYS" \
            --backfill-chunk-days 30 \
            >>"$_HYDRATE_EMAIL_LOG" 2>&1; then
         :
@@ -10694,7 +10760,7 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
         # for the customer-facing OK line.
         _HYDRATE_EMAIL_JSON="$(
             "$_HYDRATE_EMAIL_BIN" mbox "$_HYDRATE_EMAIL_MBOX" \
-                --backfill-days "$OSTLER_HYDRATE_BACKFILL_DAYS" \
+                --backfill-days "$OSTLER_HYDRATE_EMAIL_DAYS" \
                 --graph-endpoint "$_HYDRATE_OXIGRAPH_EMAIL" \
                 --json 2>>"$_HYDRATE_EMAIL_LOG" \
             | tail -n 1
@@ -11102,6 +11168,133 @@ fi
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
 
+# ══════════════════════════════════════════════════════════════════════
+# initial_hydrate (CX-106, DMG #48l, 2026-05-29)
+# ──────────────────────────────────────────────────────────────────────
+# Synchronous "first-load" sweep that guarantees the customer's
+# wiki has at least SOME real content (not just scaffolding) before
+# wiki_compile runs. The per-source hydrate_* blocks above each
+# write to Oxigraph (graph triples); they DO NOT guarantee that
+# Qdrant collections exist. Without Qdrant collections the Ostler.app
+# Hub readiness probe never flips green and the customer stares at
+# "Hub starting up..." indefinitely.
+#
+# What this step does:
+#   1. Probes Qdrant /collections. If at least one collection exists,
+#      we trust the per-source hydrate_* runs above and short-circuit.
+#   2. If Qdrant is empty, re-runs ostler_fda.pwg_ingest.
+#      ingest_browser_history (which POSTs through the gateway, which
+#      writes to Qdrant). The Safari history JSON is the most reliable
+#      Qdrant-populating source -- almost every Mac has months of
+#      Safari history and 4,000+ visits is typical.
+#   3. Polls Qdrant /collections again after the ingest to confirm
+#      at least one collection landed. Time-capped (90s) so a busted
+#      gateway never blocks install.
+#   4. Emits explicit log markers (CX106_QDRANT_*, CX106_BROWSER_*) the
+#      GUI sidebar parses to surface the step's state to the customer.
+#
+# Total install-time delta: 0-90s depending on gateway responsiveness.
+# Healthy gateway + already-populated Qdrant short-circuits in <1s.
+# This is a noticeable but acceptable extension to the install runtime;
+# the alternative is shipping with "Hub starting up..." indefinite as
+# customer-facing first-impression UX, which is unshippable for v1.0.
+progress "Loading your data into Ostler" "initial_hydrate"
+
+_INITIAL_HYDRATE_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_INITIAL_HYDRATE_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_INITIAL_HYDRATE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_INITIAL_HYDRATE_PY="${_INITIAL_HYDRATE_VENV}/bin/python"
+_INITIAL_HYDRATE_LOG=/tmp/ostler-initial-hydrate.log
+: >"$_INITIAL_HYDRATE_LOG"
+
+# Probe Qdrant collections count. The /collections endpoint returns
+# {"result": {"collections": [{...}, ...]}, ...} on a healthy Qdrant.
+# Counts-only -- no name leakage off-machine.
+_initial_hydrate_qdrant_count() {
+    local raw count
+    raw="$(curl -sf -m 5 "${_INITIAL_HYDRATE_QDRANT}/collections" 2>/dev/null || true)"
+    if [[ -z "$raw" ]]; then
+        printf '0'
+        return 0
+    fi
+    count="$(printf '%s' "$raw" \
+        | python3 -c 'import json,sys
+try:
+    d = json.loads(sys.stdin.read())
+    print(len((d.get("result") or {}).get("collections") or []))
+except Exception:
+    print(0)' 2>/dev/null)"
+    count="${count:-0}"
+    [[ "$count" =~ ^[0-9]+$ ]] || count=0
+    printf '%s' "$count"
+}
+
+_INITIAL_HYDRATE_COLLECTIONS_BEFORE="$(_initial_hydrate_qdrant_count)"
+gui_emit CX106_QDRANT_BEFORE "count=${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}"
+info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
+
+# Re-run the gateway-driven browser history ingest if Qdrant is empty.
+# The first hydrate_browsing call (line ~10889) may have raced ahead
+# of the gateway's first-collection setup; this is the deliberate retry
+# inside install completion, with a long enough timeout that a slow
+# gateway start (Docker image cold-start, first-request JIT) does not
+# silently leave Qdrant empty.
+if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
+   && [[ -x "$_INITIAL_HYDRATE_PY" ]] \
+   && { [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/safari_history.json" ]] \
+        || [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/chrome_history.json" ]]; }; then
+    info "$MSG_INITIAL_HYDRATE_BROWSER_RETRY"
+
+    _INITIAL_HYDRATE_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _INITIAL_HYDRATE_TIMEOUT_WRAP="gtimeout 90"
+    elif command -v timeout >/dev/null 2>&1; then
+        _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
+    fi
+
+    $_INITIAL_HYDRATE_TIMEOUT_WRAP \
+    "$_INITIAL_HYDRATE_PY" -c "
+import json
+from pathlib import Path
+from ostler_fda.pwg_ingest import ingest_browser_history
+try:
+    result = ingest_browser_history(Path('${_INITIAL_HYDRATE_FDA_DIR}'))
+    print(json.dumps(result))
+except Exception as exc:
+    print(json.dumps({'status': 'error', 'error': str(exc).__class__.__name__}))
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+
+    # Poll Qdrant for up to 30s while the gateway writes through. The
+    # first POST creates the collection lazily, so the count flips from
+    # 0 to >=1 only after the first successful upsert is committed.
+    _INITIAL_HYDRATE_POLL_ELAPSED=0
+    while [[ "$_INITIAL_HYDRATE_POLL_ELAPSED" -lt 30 ]]; do
+        if [[ "$(_initial_hydrate_qdrant_count)" -gt 0 ]]; then
+            break
+        fi
+        sleep 2
+        _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
+    done
+    unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP
+fi
+
+_INITIAL_HYDRATE_COLLECTIONS_AFTER="$(_initial_hydrate_qdrant_count)"
+gui_emit CX106_QDRANT_AFTER "count=${_INITIAL_HYDRATE_COLLECTIONS_AFTER}"
+
+if [[ "$_INITIAL_HYDRATE_COLLECTIONS_AFTER" -gt 0 ]]; then
+    ok "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_READY" "${_INITIAL_HYDRATE_COLLECTIONS_AFTER}")"
+else
+    # Qdrant still empty -- Hub readiness will be deferred to first-run
+    # background ingest. Doctor will pick it up and surface the gap.
+    # We do NOT fail install here; the rest of the system is fine and
+    # the wiki + LaunchAgents continue to work.
+    info "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED"
+fi
+
+unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
+unset _INITIAL_HYDRATE_VENV _INITIAL_HYDRATE_PY _INITIAL_HYDRATE_LOG
+unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
@@ -11336,6 +11529,23 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             warn "$MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743"
             warn "$MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL"
             warn "$MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER"
+            # CX-112 (DMG #48l, 2026-05-29): surface a clear post-install
+            # nudge in GUI installs so the customer is not left guessing
+            # whether iMessage is wired up. The Phase 4 health-check ran
+            # tcc-denied silently before -- only the warn lines above
+            # appeared, with no actionable next step. Now we open the
+            # Automation pane directly and emit a structured GUI marker
+            # so the install completion screen can render a "iMessage
+            # isn't connected -- grant access" callout. v1.0.1 will
+            # add a non-blocking "Grant now" modal here; for v1.0 we
+            # stop short of an extra modal so we don't risk regressing
+            # the install completion flow this close to launch.
+            if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+                open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation" \
+                    >/dev/null 2>&1 || true
+                gui_emit IMESSAGE_TCC_DENIED "status=denied" "remediation=automation_pane"
+                info "$MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED"
+            fi
             ;;
         check-failed)
             {

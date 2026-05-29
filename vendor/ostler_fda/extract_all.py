@@ -417,7 +417,14 @@ def run_all(
             summary["sources"]["calendar"] = {"status": "no_fda"}
             logger.info("[skip] Calendar: Full Disk Access not granted")
         except FileNotFoundError:
+            # CX-109 (DMG #48l, 2026-05-29): pre-fix this branch wrote
+            # status but emitted NO log line, so the install summary
+            # showed every other source's [ok]/[skip] EXCEPT Calendar.
+            # Customers saw Calendar silently missing from the readout
+            # with no indication of why. Always emit a [skip] line so
+            # the FDA section is impossible to read as a silent fail.
             summary["sources"]["calendar"] = {"status": "not_found"}
+            logger.info("[skip] Calendar: cache not found (Calendar.app has not synced yet)")
         except Exception as e:
             summary["sources"]["calendar"] = {"status": "error", "error": str(e)}
             logger.warning("[warn] Calendar: %s", e)
