@@ -395,7 +395,15 @@ def run_all(
     else:
         summary["sources"]["photos"] = {"status": "disabled_by_user"}
 
-    # ── Calendar ────────────────────────────────────────────────────
+    # CX-109 (DMG #48k retest): every branch through the Calendar
+    # block now emits exactly one [ok] or [skip] line. The old code
+    # had two silent axes (FileNotFoundError, disabled-by-user else)
+    # plus one [warn] axis that the install.sh summary grep for
+    # ^\[ok\] / ^\[skip\] skipped over, so Calendar disappeared from
+    # the per-source roll-up even when the announce line at
+    # install.sh:5812 listed it. Generic exceptions now log [skip]
+    # with the class name + a truncated message so the failure shape
+    # is grep-greppable and the silent-fail audit invariant holds.
     if "calendar" in sources:
         try:
             from .calendar import extract_events, meeting_contacts
@@ -418,11 +426,17 @@ def run_all(
             logger.info("[skip] Calendar: Full Disk Access not granted")
         except FileNotFoundError:
             summary["sources"]["calendar"] = {"status": "not_found"}
+            logger.info("[skip] Calendar: Calendar database not found")
         except Exception as e:
             summary["sources"]["calendar"] = {"status": "error", "error": str(e)}
-            logger.warning("[warn] Calendar: %s", e)
+            logger.info(
+                "[skip] Calendar: %s: %s",
+                type(e).__name__,
+                str(e)[:120],
+            )
     else:
         summary["sources"]["calendar"] = {"status": "disabled_by_user"}
+        logger.info("[skip] Calendar: disabled by user")
 
     # ── Reminders ───────────────────────────────────────────────────
     if "reminders" in sources:

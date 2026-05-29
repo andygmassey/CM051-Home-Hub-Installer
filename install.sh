@@ -1278,18 +1278,34 @@ _store_populated_calendar() {
     return 1
 }
 
-# Contacts: any non-empty *.abcddb (per-source SQLite store) under
-# ~/Library/Application Support/AddressBook/Sources/.
+# Contacts: at least one *.abcddb (per-source SQLite store) under
+# ~/Library/Application Support/AddressBook/Sources/ that actually
+# carries a row in the ZABCDRECORD contacts table. CX-107 (DMG #48k
+# retest): the old probe used a non-zero-byte file check, but a
+# fresh iCloud-only Mac writes a populated SQLite schema with zero
+# contact rows -- so the file exists, is non-empty, but holds no
+# contacts. That false-positive masked State-2 (accounts configured,
+# store empty) and the install fell through to "configured but
+# empty" without ever firing the open-Contacts.app prompt. Mirrors
+# the _store_populated_mail content-axis check (Envelope Index row
+# count vs file existence) introduced in PR #212.
 _store_populated_contacts() {
     local src_dir="${HOME}/Library/Application Support/AddressBook/Sources"
     [[ -d "$src_dir" ]] || return 1
-    if find "$src_dir" -name 'AddressBook-v22.abcddb' -size +0c -print -quit 2>/dev/null | grep -q .; then
-        return 0
-    fi
-    # Older macOS variants
-    if find "$src_dir" -name '*.abcddb' -size +0c -print -quit 2>/dev/null | grep -q .; then
-        return 0
-    fi
+    local db
+    # Iterate every abcddb under Sources/<account-id>/ and short-
+    # circuit on the first one that reports a non-zero contact row
+    # count. Sources/ holds one subdir per CardDAV / iCloud / etc.
+    # account; an empty top-level subdir is normal on first launch.
+    while IFS= read -r db; do
+        [[ -f "$db" ]] || continue
+        local n
+        n="$(sqlite3 "file:${db}?mode=ro" -bail \
+            "SELECT COUNT(*) FROM ZABCDRECORD LIMIT 1" 2>/dev/null || echo 0)"
+        n="${n:-0}"
+        [[ "$n" =~ ^[0-9]+$ ]] || n=0
+        [[ "$n" -gt 0 ]] && return 0
+    done < <(find "$src_dir" -name '*.abcddb' 2>/dev/null)
     return 1
 }
 
@@ -1305,7 +1321,7 @@ _store_populated_contacts() {
 #
 # Args:
 #   $1 source slug ("mail" | "calendar" | "contacts")
-#   $2 displayed app name ("Apple Mail" | "Calendar" | "Contacts")
+#   $2 displayed app name ("Mail" | "Calendar" | "Contacts")
 #   $3 system-settings deep-link (optional, opens Internet Accounts
 #      or the app itself)
 #   $4 prompt title key (catalogue-keyed)
@@ -1320,8 +1336,17 @@ _three_state_wait_for_populate() {
     local title_str="$4"
     local help_str="$5"
 
-    local timeout_s="${OSTLER_HYDRATE_POPULATE_WAIT_S:-60}"
+    # CX-108 (DMG #48k retest): default bumped from 60s to 180s. Studio
+    # Calendar sync took ~90s on a fresh iCloud-only account; the old
+    # 60s default expired before population and the customer landed on
+    # a scaffold-only wiki. 180s now covers the median case + leaves
+    # operator override via OSTLER_HYDRATE_POPULATE_WAIT_S intact.
+    local timeout_s="${OSTLER_HYDRATE_POPULATE_WAIT_S:-180}"
     local poll_interval_s="${OSTLER_HYDRATE_POPULATE_POLL_S:-3}"
+    # Heartbeat marker so the customer sees the install is alive
+    # during the long wait. Re-fires every 30s elapsed.
+    local heartbeat_interval_s=30
+    local last_heartbeat_s=0
 
     # Offer to open the app for them. If they say no, still poll --
     # they might open it themselves.
@@ -1362,6 +1387,13 @@ _three_state_wait_for_populate() {
         fi
         sleep "$poll_interval_s"
         elapsed=$((elapsed + poll_interval_s))
+        # CX-108 heartbeat: every 30s, reassure the customer that the
+        # install is still alive and waiting on the sync.
+        if [[ $((elapsed - last_heartbeat_s)) -ge "$heartbeat_interval_s" \
+              && "$elapsed" -lt "$timeout_s" ]]; then
+            info "$(printf "$MSG_INFO_APP_POPULATE_STILL_WAITING" "${app_name}" "${elapsed}" "${timeout_s}")"
+            last_heartbeat_s="$elapsed"
+        fi
     done
 
     # Timeout. Surface a graceful fallback, install continues.
@@ -8505,7 +8537,7 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         _open_mail_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${MAIL_ACCOUNTS_FOUND}")"
         if _three_state_wait_for_populate \
             "mail" \
-            "Apple Mail" \
+            "Mail" \
             "" \
             "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE" \
             "$_open_mail_help"; then

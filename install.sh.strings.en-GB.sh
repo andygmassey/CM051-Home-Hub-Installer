@@ -853,6 +853,7 @@ MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP="You have %s contacts account(s) confi
 
 # Wait + populate poll-loop strings
 MSG_INFO_WAITING_FOR_APP_TO_POPULATE="Waiting for %s to start syncing (up to %s seconds)."
+MSG_INFO_APP_POPULATE_STILL_WAITING="Still syncing your %s... %ss of %ss elapsed."
 MSG_OK_APP_HAS_POPULATED="%s has populated its local store. Carrying on."
 MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING="We did not detect %s sync within the wait window. Carrying on; you can re-run hydration from Settings later."
 
