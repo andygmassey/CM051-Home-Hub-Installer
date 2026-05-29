@@ -1428,6 +1428,64 @@ fi
 #  PHASE 2: COLLECT ALL USER INPUT (~2 minutes)
 # ══════════════════════════════════════════════════════════════════════
 
+# ── CX-98 (DMG #48h, 2026-05-29): unconditional Phase-2 defaults ──
+#
+# Every variable assigned ONLY inside the SKIP_PHASE2=false block
+# below (line ~1521 to ~2642) AND read AFTER that block is a
+# latent set -u bomb when reuse_settings=yes. The Studio retest of
+# DMG #48h tripped CHANNEL_IMESSAGE_ENABLED at line ~4823
+# (config_save TOML writer) because the user took the reuse path
+# and the channels-questions block (which holds the initialiser
+# at line ~2099) never ran.
+#
+# Andy on the DMG #48h retest log:
+#   /Applications/OstlerInstaller.app/Contents/Resources/install.sh:
+#     line 4823: CHANNEL_IMESSAGE_ENABLED: unbound variable
+#
+# Defend by initialising every "read outside / assigned inside"
+# variable HERE, before the reuse/skip branch is taken. The
+# questions block at line ~2099 overwrites these defaults when
+# walked; on the reuse path the defaults persist and the TOML
+# writer correctly emits NO [channels] section (which matches
+# Phase-2-was-never-walked: no channels configured yet).
+#
+# See feedback memory: writer-reader-contracts-can-silent-fail.
+# Audit shape per silent-bail-regression-test-shape: walk the
+# config-writer block byte-by-byte under set -u and assert no
+# unbound-variable trips. See tests/test_cx98_*.sh.
+
+# Channel flags + per-channel fields. Drives the [channels.*]
+# emitter at lines ~4823-4928 and the welcome-screen rendering
+# at lines ~10647 + ~11131-11144 + ~11165.
+CHANNEL_CHOICE=""
+CHANNEL_IMESSAGE_ENABLED=false
+CHANNEL_EMAIL_ENABLED=false
+CHANNEL_WHATSAPP_ENABLED=false
+CHANNEL_WHATSAPP_CONSENT_ACCEPTED=false
+CHANNEL_WHATSAPP_RECIPIENT=""
+CHANNEL_IMESSAGE_ALLOWED=""
+CHANNEL_EMAIL_USERNAME=""
+CHANNEL_EMAIL_PASSWORD=""
+CHANNEL_EMAIL_FROM=""
+CHANNEL_EMAIL_IMAP_HOST=""
+CHANNEL_EMAIL_IMAP_PORT=993
+CHANNEL_EMAIL_SMTP_HOST=""
+CHANNEL_EMAIL_SMTP_PORT=587
+CHANNEL_EMAIL_IMAP_FOLDER=""
+CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
+CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
+WA_CONSENT=""
+
+# Region + ISO + source. Read at line ~3498 (EU branch entry),
+# ~5265 (region-persist Python heredoc), ~5300 (consent_cli
+# --region arg). Originally assigned at lines 1952-2008 inside
+# the wrap. Defaults match the "default_eu" fallback at line
+# 2004-2005 so the EU branch lights up by default -- which is
+# the safer side to err on for GDPR consent recording.
+OSTLER_REGION="eu"
+OSTLER_REGION_ISO="ZZ"
+OSTLER_REGION_SOURCE="default_eu"
+
 # Re-run detection: if config exists from a prior COMPLETE install,
 # offer to skip Phase 2 entirely.
 #
@@ -1439,9 +1497,20 @@ fi
 # tree fix, silently TRIGGER on a half-populated pre-FDA staging
 # state from the same process (which is the bug that produced the
 # auto-bail after config_save).
+#
+# CX-98 (DMG #48h+1, 2026-05-29): tighten the trigger further by
+# requiring the .env to contain a real USER_ID= line, not just
+# exist. A partial / truncated .env from a crashed prior install
+# could otherwise mis-trigger reuse, and the customer would get a
+# half-populated config with no Phase-2 walk to repair it. The
+# pre-FDA licence write at ${OSTLER_FINAL_DIR}/license/license.json
+# does NOT trigger reuse on its own; the config writer at line
+# ~4525 is the only path that writes the .env and it writes
+# USER_ID="..." as its first non-comment line.
 SKIP_PHASE2=false
 FV_ENABLED=false
-if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]]; then
+if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]] \
+   && grep -q '^USER_ID=' "${OSTLER_FINAL_DIR}/config/.env" 2>/dev/null; then
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
     # Source existing config from the canonical location.
     set -a; source "${OSTLER_FINAL_DIR}/config/.env"; set +a
@@ -2096,26 +2165,22 @@ CHANNEL_CHOICE="$(gui_read "$MSG_PROMPT_CHANNEL_CHOICE_TITLE" choice "3" "$MSG_P
 CHANNEL_CHOICE=${CHANNEL_CHOICE:-3}
 
 # Normalise into per-channel boolean flags for the config writer.
-CHANNEL_IMESSAGE_ENABLED=false
-CHANNEL_EMAIL_ENABLED=false
-CHANNEL_WHATSAPP_ENABLED=false
-CHANNEL_WHATSAPP_CONSENT_ACCEPTED=false
-CHANNEL_WHATSAPP_RECIPIENT=""
-CHANNEL_IMESSAGE_ALLOWED=""
-CHANNEL_EMAIL_USERNAME=""
-CHANNEL_EMAIL_PASSWORD=""
-CHANNEL_EMAIL_FROM=""
-CHANNEL_EMAIL_IMAP_HOST=""
-CHANNEL_EMAIL_IMAP_PORT=993
-CHANNEL_EMAIL_SMTP_HOST=""
-CHANNEL_EMAIL_SMTP_PORT=587
-CHANNEL_EMAIL_IMAP_FOLDER=""
-# Multi-source flags (HR015 task #209 / TNM 2026-05-16). Apple Mail
-# via FDA is the recommended path; custom IMAP+SMTP is reserved for
-# genuinely self-hosted mailboxes. Defaults match the post-PU9 yes/no
-# pair below: Apple Mail on, custom IMAP off, settled by the prompts.
-CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
-CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
+#
+# CX-98 (DMG #48h+1, 2026-05-29): the defaults that were inline
+# here pre-CX-98 (CHANNEL_*_ENABLED=false + the empty strings +
+# the 993/587 IMAP/SMTP ports + the Apple-Mail / custom-IMAP
+# pair) are now set UNCONDITIONALLY at the top of Phase 2 before
+# the SKIP_PHASE2 branch -- search for "CX-98 (DMG #48h" near
+# line ~1445. The reuse-settings path skips this whole questions
+# block, and without the pre-branch initialiser the config_save
+# step at line ~4823 trips set -u on CHANNEL_IMESSAGE_ENABLED.
+# Re-stating the inline defaults here would be redundant; the
+# case/if branches below still overwrite them based on the
+# customer's CHANNEL_CHOICE answer.
+#
+# WA_CONSENT (line ~5337 reader) and OSTLER_REGION* (lines ~3498,
+# ~5265, ~5300 readers) were also lifted unconditional; same
+# rationale, same git blame.
 
 case "$CHANNEL_CHOICE" in
     1) CHANNEL_IMESSAGE_ENABLED=true ;;
