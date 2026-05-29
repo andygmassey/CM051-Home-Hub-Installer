@@ -130,12 +130,55 @@ PYTHON_BUNDLE_PLATFORM ?= aarch64-apple-darwin-install_only
 PYTHON_BUNDLE_URL      := https://github.com/astral-sh/python-build-standalone/releases/download/$(word 2,$(subst +, ,$(PYTHON_BUNDLE_VERSION)))/cpython-$(PYTHON_BUNDLE_VERSION)-$(PYTHON_BUNDLE_PLATFORM).tar.gz
 PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 
+# ---------------------------------------------------------------------------
+# CX-88 (DMG #48g, 2026-05-29): bundled ostler-assistant daemon tarball.
+#
+# install.sh's daemon-install path tries the bundled DMG payload first
+# (Contents/Resources/assistant-agent/OstlerAssistant.app/) and only
+# falls back to a GitHub fetch when the bundled artefact is missing.
+# Customer-shipping releases live at ostler-ai/ostler-releases with the
+# component-prefixed tag `hub-vX.Y.Z` (locked 2026-05-29 02:45 HKT). The
+# source repo ostler-ai/ostler-assistant is private + must never appear
+# in a public-curl release URL. The bundled path is the load-bearing
+# one for v1.0 and this target ships the v0.4.4 daemon inside the DMG.
+#
+# Local-archive fallback: this target prefers a pre-staged tarball at
+# $$HOME/.ostler-release-artefacts/$(DAEMON_TARBALL_NAME) before any
+# network fetch. The signing operator caches verified release builds
+# there manually (rotation: keep the last two), so a `make ship` run
+# does not strand on the public release being unpublished yet.
+#
+# Auth fallback (only reached if local cache + release-artefacts dir
+# are both empty): `gh release download` if available, else curl with
+# $GH_TOKEN. Once the hub-v0.4.4 release is public + readable without
+# auth (token refresh pending), the gh/curl paths are no-auth fetches.
+#
+# Pinned version: tracks DAEMON_VERSION below. To bump, change
+# DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
+# verify the fetch + checksum still pass.
+# ---------------------------------------------------------------------------
+DAEMON_VERSION       ?= 0.4.4
+DAEMON_REPO          ?= ostler-ai/ostler-releases
+DAEMON_TARGET        ?= aarch64-apple-darwin
+DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
+DAEMON_TARBALL_CACHE := $(BUILD_DIR)/$(DAEMON_TARBALL_NAME)
+# Component-prefixed tag: hub-vX.Y.Z, NOT bare vX.Y.Z. The release repo
+# hosts multiple component streams (hub, remote-capture, iOS, etc.)
+# under one repository, so the prefix is load-bearing.
+DAEMON_RELEASE_TAG   := hub-v$(DAEMON_VERSION)
+DAEMON_RELEASE_URL   := https://github.com/$(DAEMON_REPO)/releases/download/$(DAEMON_RELEASE_TAG)/$(DAEMON_TARBALL_NAME)
+# Local-archive fallback location: the signing operator keeps verified
+# release builds in $$HOME/.ostler-release-artefacts/ so `make ship`
+# can complete without the public release being live yet. Path is
+# evaluated at recipe-run time so $$HOME expands correctly.
+DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
+
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
-        sign-python-bundle
+        sign-python-bundle download-daemon stage-daemon
 
 all: debug
 
@@ -222,6 +265,141 @@ download-python:
 	    exit 1; \
 	fi; \
 	printf '[OK] python-build-standalone verified: %s\n' "$$ACTUAL"
+
+# ---------------------------------------------------------------------------
+# CX-88 (DMG #48g): obtain the ostler-assistant daemon tarball and cache
+# it under $(BUILD_DIR). Idempotent: re-runs skip work when the cached
+# tarball is present (we trust the GitHub release artefact as source of
+# truth + verify the version-string fingerprint at stage-daemon time).
+#
+# Lookup order:
+#   1. $(DAEMON_TARBALL_CACHE) -- already cached in this BUILD_DIR
+#   2. $(DAEMON_LOCAL_CACHE_DIR) -- operator-staged verified releases
+#      at $$HOME/.ostler-release-artefacts/. Lets `make ship` complete
+#      even when the public release at $(DAEMON_REPO)/$(DAEMON_RELEASE_TAG)
+#      is not yet published (typical on signing-day before the release
+#      workflow has finished).
+#   3. `gh release download` -- uses active gh-auth account
+#   4. curl + $$GH_TOKEN -- CI / scripted path
+# ---------------------------------------------------------------------------
+download-daemon:
+	@mkdir -p "$(BUILD_DIR)"; \
+	if [ -f "$(DAEMON_TARBALL_CACHE)" ]; then \
+	    printf '[STEP] ostler-assistant cache hit: %s\n' "$(DAEMON_TARBALL_CACHE)"; \
+	elif [ -f "$(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME)" ]; then \
+	    printf '[STEP] ostler-assistant local-cache hit: %s\n' "$(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME)"; \
+	    cp "$(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME)" "$(DAEMON_TARBALL_CACHE)"; \
+	    if [ -f "$(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME).sha256" ]; then \
+	        cp "$(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME).sha256" "$(DAEMON_TARBALL_CACHE).sha256"; \
+	    fi; \
+	else \
+	    printf '\n[STEP] Fetching ostler-assistant %s from %s\n' "$(DAEMON_RELEASE_TAG)" "$(DAEMON_REPO)"; \
+	    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
+	        if ! gh release download "$(DAEMON_RELEASE_TAG)" \
+	                --repo "$(DAEMON_REPO)" \
+	                --pattern "$(DAEMON_TARBALL_NAME)" \
+	                --dir "$(BUILD_DIR)" \
+	                --clobber; then \
+	            echo "ERROR: gh release download failed for $(DAEMON_RELEASE_TAG)." >&2; \
+	            echo "  Confirm the release is published at:" >&2; \
+	            echo "    https://github.com/$(DAEMON_REPO)/releases/tag/$(DAEMON_RELEASE_TAG)" >&2; \
+	            echo "  Or stage a verified tarball at:" >&2; \
+	            echo "    $(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME)" >&2; \
+	            exit 1; \
+	        fi; \
+	    elif [ -n "$$GH_TOKEN" ]; then \
+	        ASSET_API="https://api.github.com/repos/$(DAEMON_REPO)/releases/tags/$(DAEMON_RELEASE_TAG)"; \
+	        ASSET_ID="$$(curl -fsSL -H "Authorization: Bearer $$GH_TOKEN" -H "Accept: application/vnd.github+json" "$$ASSET_API" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(a["id"] for a in d["assets"] if a["name"]=="$(DAEMON_TARBALL_NAME)"))')"; \
+	        if [ -z "$$ASSET_ID" ]; then \
+	            echo "ERROR: could not resolve asset id for $(DAEMON_TARBALL_NAME) in $(DAEMON_RELEASE_TAG)." >&2; \
+	            exit 1; \
+	        fi; \
+	        curl -fsSL -H "Authorization: Bearer $$GH_TOKEN" -H "Accept: application/octet-stream" \
+	             -o "$(DAEMON_TARBALL_CACHE)" \
+	             "https://api.github.com/repos/$(DAEMON_REPO)/releases/assets/$$ASSET_ID"; \
+	    else \
+	        echo "ERROR: no daemon tarball available." >&2; \
+	        echo "  Stage a verified tarball at $(DAEMON_LOCAL_CACHE_DIR)/$(DAEMON_TARBALL_NAME)" >&2; \
+	        echo "  or install gh + run \`gh auth login\`," >&2; \
+	        echo "  or export GH_TOKEN=<token-with-repo-scope> and retry." >&2; \
+	        exit 1; \
+	    fi; \
+	fi; \
+	if [ ! -s "$(DAEMON_TARBALL_CACHE)" ]; then \
+	    echo "ERROR: $(DAEMON_TARBALL_CACHE) is missing or empty after download." >&2; \
+	    rm -f "$(DAEMON_TARBALL_CACHE)"; \
+	    exit 1; \
+	fi; \
+	printf '[OK] ostler-assistant v%s cached at %s\n' "$(DAEMON_VERSION)" "$(DAEMON_TARBALL_CACHE)"
+
+# ---------------------------------------------------------------------------
+# CX-88 (DMG #48g): extract the cached daemon tarball into
+# ../assistant-agent/OstlerAssistant.app/ so the project.yml bundle phase
+# picks it up at xcodebuild time and copies it into
+# OstlerInstaller.app/Contents/Resources/assistant-agent/OstlerAssistant.app/.
+#
+# install.sh probes that path at section 3.10 (ASSISTANT_BUNDLED_APP) and
+# prefers it over the GitHub curl fallback. With this step wired into
+# the ship target, every DMG carries the daemon and no customer install
+# falls through to the (private-repo, public-fetch-404) recovery path.
+#
+# Fingerprint check: greps the inner Mach-O for the v0.4.4 marker
+# strings (OSTLER_IMESSAGE_BRIDGE_INBOX_ENABLE,
+# OSTLER_IMESSAGE_SELF_HANDLES). If either is missing the wrong
+# tarball is cached + the build fails loudly here rather than on the
+# customer's Mac.
+# ---------------------------------------------------------------------------
+stage-daemon: download-daemon
+	@SRC_DIR="$(CURDIR)/../assistant-agent"; \
+	if [ ! -d "$$SRC_DIR" ]; then \
+	    echo "ERROR: $$SRC_DIR not found." >&2; \
+	    exit 1; \
+	fi; \
+	STAGE_TMP="$(BUILD_DIR)/daemon-extract"; \
+	rm -rf "$$STAGE_TMP"; \
+	mkdir -p "$$STAGE_TMP"; \
+	printf '[STEP] Extracting %s into %s\n' "$(DAEMON_TARBALL_NAME)" "$$STAGE_TMP"; \
+	tar xzf "$(DAEMON_TARBALL_CACHE)" -C "$$STAGE_TMP"; \
+	if [ -d "$$STAGE_TMP/OstlerAssistant.app" ]; then \
+	    DAEMON_PAYLOAD_SRC="$$STAGE_TMP/OstlerAssistant.app"; \
+	    DAEMON_PAYLOAD_DEST="$$SRC_DIR/OstlerAssistant.app"; \
+	    DAEMON_INNER_BIN="$$DAEMON_PAYLOAD_SRC/Contents/MacOS/ostler-assistant"; \
+	elif [ -x "$$STAGE_TMP/ostler-assistant" ]; then \
+	    DAEMON_PAYLOAD_SRC="$$STAGE_TMP/ostler-assistant"; \
+	    DAEMON_PAYLOAD_DEST="$$SRC_DIR/bin/ostler-assistant"; \
+	    mkdir -p "$$SRC_DIR/bin"; \
+	    DAEMON_INNER_BIN="$$DAEMON_PAYLOAD_SRC"; \
+	else \
+	    echo "ERROR: daemon tarball at $(DAEMON_TARBALL_CACHE) contains neither" >&2; \
+	    echo "  OstlerAssistant.app nor a bare ostler-assistant binary at the root." >&2; \
+	    ls -la "$$STAGE_TMP" >&2; \
+	    exit 1; \
+	fi; \
+	if [ ! -x "$$DAEMON_INNER_BIN" ]; then \
+	    echo "ERROR: inner Mach-O missing or non-executable at $$DAEMON_INNER_BIN" >&2; \
+	    exit 1; \
+	fi; \
+	printf '[STEP] Verifying v0.4.4 fingerprint strings in inner Mach-O\n'; \
+	MISSING_STRINGS=""; \
+	for marker in OSTLER_IMESSAGE_BRIDGE_INBOX_ENABLE OSTLER_IMESSAGE_SELF_HANDLES; do \
+	    if ! strings "$$DAEMON_INNER_BIN" 2>/dev/null | grep -q "$$marker"; then \
+	        MISSING_STRINGS="$$MISSING_STRINGS $$marker"; \
+	    fi; \
+	done; \
+	if [ -n "$$MISSING_STRINGS" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: daemon tarball missing v0.4.4 fingerprint markers:$$MISSING_STRINGS" >&2; \
+	    echo "  Either DAEMON_VERSION is wrong or the wrong tarball is cached at" >&2; \
+	    echo "  $(DAEMON_TARBALL_CACHE). Refusing to bundle a daemon that lacks" >&2; \
+	    echo "  these v0.4.4 features in the customer DMG." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[OK] daemon fingerprint markers present\n'; \
+	rm -rf "$$DAEMON_PAYLOAD_DEST"; \
+	cp -R "$$DAEMON_PAYLOAD_SRC" "$$DAEMON_PAYLOAD_DEST"; \
+	chmod +x "$$DAEMON_INNER_BIN" 2>/dev/null || true; \
+	/usr/bin/xattr -cr "$$DAEMON_PAYLOAD_DEST" 2>/dev/null || true; \
+	printf '[OK] Staged daemon v%s at %s\n' "$(DAEMON_VERSION)" "$$DAEMON_PAYLOAD_DEST"
 
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
@@ -539,6 +717,21 @@ verify-dmg-contents:
 	if ! grep -q "releases/download/remote-capture-v" "$$RES/install.sh" 2>/dev/null; then \
 	    INSTALL_SH_OK=0; \
 	fi; \
+	DAEMON_INNER_BIN="$$RES/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
+	if [ ! -x "$$DAEMON_INNER_BIN" ]; then \
+	    DAEMON_INNER_BIN="$$RES/assistant-agent/bin/ostler-assistant"; \
+	fi; \
+	DAEMON_OK=1; \
+	DAEMON_FP_OK=1; \
+	if [ ! -x "$$DAEMON_INNER_BIN" ]; then \
+	    DAEMON_OK=0; \
+	else \
+	    for marker in OSTLER_IMESSAGE_BRIDGE_INBOX_ENABLE OSTLER_IMESSAGE_SELF_HANDLES; do \
+	        if ! strings "$$DAEMON_INNER_BIN" 2>/dev/null | grep -q "$$marker"; then \
+	            DAEMON_FP_OK=0; \
+	        fi; \
+	    done; \
+	fi; \
 	hdiutil detach "$$MOUNT" >/dev/null 2>&1 || true; \
 	if [ -n "$$MISSING" ]; then \
 	    echo "ERROR: DMG payload missing in Resources/:$$MISSING" >&2; \
@@ -559,7 +752,22 @@ verify-dmg-contents:
 	    echo "       of CM051 PR #133. Customer install would 404 on download." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + 10 vendor packages all present"
+	if [ "$$DAEMON_OK" = "0" ]; then \
+	    echo "ERROR: ostler-assistant daemon binary not bundled in DMG Resources/assistant-agent/." >&2; \
+	    echo "       Expected either OstlerAssistant.app/Contents/MacOS/ostler-assistant" >&2; \
+	    echo "       or bin/ostler-assistant. The stage-daemon Makefile step is" >&2; \
+	    echo "       responsible for staging the v$(DAEMON_VERSION) tarball into" >&2; \
+	    echo "       ../assistant-agent/ before xcodebuild runs (CX-88)." >&2; \
+	    exit 1; \
+	fi; \
+	if [ "$$DAEMON_FP_OK" = "0" ]; then \
+	    echo "ERROR: daemon binary inside DMG missing v0.4.4 fingerprint markers" >&2; \
+	    echo "       (OSTLER_IMESSAGE_BRIDGE_INBOX_ENABLE / OSTLER_IMESSAGE_SELF_HANDLES)." >&2; \
+	    echo "       The wrong tarball is bundled; check DAEMON_VERSION and the" >&2; \
+	    echo "       cached tarball at $(DAEMON_TARBALL_CACHE)." >&2; \
+	    exit 1; \
+	fi; \
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + 10 vendor packages + daemon all present"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive
@@ -570,7 +778,7 @@ verify-dmg-contents:
 # regression downstream of check-ostler-app fails before we archive a bad
 # DMG into ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python sparkle-embed release sign-python-bundle package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python stage-daemon sparkle-embed release sign-python-bundle package notarise verify-dmg-contents archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
