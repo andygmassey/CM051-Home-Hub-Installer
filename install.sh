@@ -11261,7 +11261,7 @@ try:
     result = ingest_browser_history(Path('${_INITIAL_HYDRATE_FDA_DIR}'))
     print(json.dumps(result))
 except Exception as exc:
-    print(json.dumps({'status': 'error', 'error': str(exc).__class__.__name__}))
+    print(json.dumps({'status': 'error', 'error': type(exc).__name__}))
 " >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
 
     # Poll Qdrant for up to 30s while the gateway writes through. The

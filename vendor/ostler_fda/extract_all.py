@@ -426,10 +426,22 @@ def run_all(
             summary["sources"]["calendar"] = {"status": "not_found"}
             logger.info("[skip] Calendar: cache not found (Calendar.app has not synced yet)")
         except Exception as e:
-            summary["sources"]["calendar"] = {"status": "error", "error": str(e)}
-            logger.warning("[warn] Calendar: %s", e)
+            # CX-109 (DMG #48l): convert from [warn] to [skip] so the
+            # install.sh roll-up grep for ^\[ok\] / ^\[skip\] counts it.
+            # Pre-fix, generic exceptions emitted [warn] which the grep
+            # skipped over -- a third silent-fail axis on Calendar.
+            summary["sources"]["calendar"] = {
+                "status": "error",
+                "error": "%s: %s" % (type(e).__name__, str(e)[:120]),
+            }
+            logger.info("[skip] Calendar: %s: %s", type(e).__name__, str(e)[:120])
     else:
+        # CX-109 (DMG #48l): emit [skip] for the disabled-by-user branch
+        # too. Pre-fix the else branch wrote status but no log line, so
+        # Calendar disappeared from the per-source readout when the user
+        # had deselected it during onboarding.
         summary["sources"]["calendar"] = {"status": "disabled_by_user"}
+        logger.info("[skip] Calendar: disabled by user")
 
     # ── Reminders ───────────────────────────────────────────────────
     if "reminders" in sources:
