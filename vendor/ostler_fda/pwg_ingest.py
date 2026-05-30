@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,10 +34,20 @@ logger = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
-OLLAMA_URL = os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
+# OLLAMA_HOST is the canonical env var (matches the ollama CLI default).
+# EMBED_OLLAMA_URL is kept as a fallback for legacy callers.
+OLLAMA_URL = (
+    os.getenv("OLLAMA_HOST")
+    or os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
+)
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
 DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
+
+# Batch sizes for vector pipeline. 64 keeps Ollama happy on a 16GB
+# machine; 200 is the Qdrant default tested batch size.
+EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
+QDRANT_UPSERT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
 
 
 # ── Shared utilities (same patterns as contact_syncer) ────────────
@@ -131,6 +142,133 @@ def _embed_text(text: str) -> list[float]:
     return embs[0]
 
 
+def _warn(msg: str) -> None:
+    """Log a non-fatal warning. Goes to stderr with a [warn] prefix so the
+    install.sh log surfaces it but the install does not abort.
+    """
+    print(f"[warn] {msg}", file=sys.stderr)
+    logger.warning(msg)
+
+
+def _ollama_embed_batch(texts: list[str]) -> list[list[float]]:
+    """Batch-embed texts via Ollama ``/api/embed``.
+
+    Ollama supports prompt batching: pass a list under ``input`` and
+    receive a list of vectors back under ``embeddings``. Falls back to
+    a per-text loop if the server rejects the batched payload (older
+    Ollama builds).
+    """
+    if not texts:
+        return []
+    transport = httpx.HTTPTransport(proxy=None)
+    vectors: list[list[float]] = []
+    with httpx.Client(timeout=120.0, transport=transport) as client:
+        for start in range(0, len(texts), EMBED_BATCH_SIZE):
+            chunk = texts[start : start + EMBED_BATCH_SIZE]
+            try:
+                resp = client.post(
+                    f"{OLLAMA_URL}/api/embed",
+                    json={"model": EMBED_MODEL, "input": chunk},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                embs = data.get("embeddings")
+                if embs is None:
+                    # Older Ollama returned a single vector under "embedding".
+                    single = data.get("embedding")
+                    embs = [single] if single is not None else []
+                if len(embs) != len(chunk):
+                    # Length mismatch: degrade to one-at-a-time so we still
+                    # produce vectors for the rest of the batch.
+                    _warn(
+                        f"Ollama returned {len(embs)} vectors for "
+                        f"{len(chunk)} inputs; falling back to per-text"
+                    )
+                    embs = []
+                    for t in chunk:
+                        try:
+                            r2 = client.post(
+                                f"{OLLAMA_URL}/api/embed",
+                                json={"model": EMBED_MODEL, "input": t},
+                            )
+                            r2.raise_for_status()
+                            d2 = r2.json()
+                            v = (
+                                (d2.get("embeddings") or [None])[0]
+                                if d2.get("embeddings")
+                                else d2.get("embedding")
+                            )
+                            embs.append(v or [])
+                        except Exception as inner:
+                            _warn(f"Ollama embed failed for one item: {inner}")
+                            embs.append([])
+                vectors.extend(embs)
+            except Exception as exc:
+                _warn(
+                    f"Ollama embed batch failed (chunk start={start}, "
+                    f"size={len(chunk)}): {exc}"
+                )
+                # Pad with empty vectors so caller can keep index alignment.
+                vectors.extend([[] for _ in chunk])
+    return vectors
+
+
+def _qdrant_upsert_people(persons: list[dict]) -> int:
+    """Batch-upsert person points into the Qdrant people collection.
+
+    Each entry in ``persons`` should be a dict with keys:
+    ``id`` (UUID string), ``vector`` (list[float], 768 floats), and
+    ``payload`` (dict). Points are flushed in chunks of
+    ``QDRANT_UPSERT_BATCH_SIZE`` (default 200) to keep individual
+    requests under Qdrant's body limit.
+
+    Returns the number of points the server acknowledged. Errors are
+    logged via :func:`_warn` and the function continues to the next
+    chunk: a half-failed batch is still partial progress.
+    """
+    if not persons:
+        return 0
+    # Skip entries whose embedding produced an empty vector (Ollama
+    # failure upstream). Qdrant rejects zero-length vectors with a
+    # cryptic 400; better to drop and warn.
+    valid = [p for p in persons if p.get("vector")]
+    dropped = len(persons) - len(valid)
+    if dropped:
+        _warn(
+            f"Skipping {dropped} person points with empty vectors "
+            "(Ollama embed failure upstream)"
+        )
+    if not valid:
+        return 0
+
+    upserted = 0
+    transport = httpx.HTTPTransport(proxy=None)
+    url = f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/upsert"
+    with httpx.Client(timeout=60.0, transport=transport) as client:
+        for start in range(0, len(valid), QDRANT_UPSERT_BATCH_SIZE):
+            chunk = valid[start : start + QDRANT_UPSERT_BATCH_SIZE]
+            body = {
+                "points": [
+                    {
+                        "id": p["id"],
+                        "vector": p["vector"],
+                        "payload": p["payload"],
+                    }
+                    for p in chunk
+                ]
+            }
+            try:
+                resp = client.put(url, json=body, params={"wait": "true"})
+                resp.raise_for_status()
+                upserted += len(chunk)
+            except Exception as exc:
+                _warn(
+                    f"Qdrant upsert failed (chunk start={start}, "
+                    f"size={len(chunk)}): {exc}"
+                )
+    return upserted
+
+
 def _person_id_from_identifier(identifier: str) -> str:
     """Generate a stable person ID from a phone number or email."""
     clean = identifier.strip().lower()
@@ -157,6 +295,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
     conversations = json.loads(conversations_file.read_text())
     people_created = 0
     people_enriched = 0
+
+    # Vector queue: each entry is the data needed to embed + upsert one
+    # person into Qdrant after the Oxigraph writes succeed. Keyed by
+    # person_uri so we de-dupe participants that appear in multiple
+    # conversations.
+    qdrant_queue: dict[str, dict] = {}
 
     for convo in conversations:
         participants = convo.get("participants", [])
@@ -227,14 +371,66 @@ def ingest_imessage(fda_dir: Path) -> dict:
             if last_msg and msg_count > 0:
                 _update_last_contact(uri, last_msg, "imessage")
 
+            # Queue this person for Qdrant. Keep the freshest last_msg
+            # seen across conversations so the vector payload matches
+            # the freshness signal we wrote to Oxigraph.
+            slot = qdrant_queue.get(uri)
+            existing_last = slot.get("last_contact_date") if slot else None
+            best_last = last_msg if last_msg else existing_last
+            if slot:
+                slot["last_contact_date"] = best_last or slot.get("last_contact_date")
+            else:
+                qdrant_queue[uri] = {
+                    "person_id": person_id,
+                    "person_uri": uri,
+                    "display_name": participant,
+                    "slug": person_id,
+                    "last_contact_date": best_last,
+                }
+
+    # Vector-search side of the write. Non-fatal: any failure here is
+    # logged via _warn and swallowed so the install does not abort and
+    # the RDF path remains the source of truth for the wiki.
+    qdrant_people_upserted = 0
+    if qdrant_queue:
+        try:
+            queue_list = list(qdrant_queue.values())
+            texts = [item["display_name"] for item in queue_list]
+            vectors = _ollama_embed_batch(texts)
+            now_iso = datetime.now(timezone.utc).isoformat()
+            points: list[dict] = []
+            for item, vec in zip(queue_list, vectors):
+                point_id = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, item["person_uri"])
+                )
+                payload = {
+                    "slug": item["slug"],
+                    "displayName": item["display_name"],
+                    "display_name": item["display_name"],
+                    "person_id": item["person_id"],
+                    "person_uri": item["person_uri"],
+                    "oxigraph_uri": item["person_uri"],
+                    "source": "imessage",
+                    "contact_type": "person",
+                    "privacy_level": DEFAULT_PRIVACY,
+                    "last_contact_date": item.get("last_contact_date"),
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                }
+                points.append({"id": point_id, "vector": vec, "payload": payload})
+            qdrant_people_upserted = _qdrant_upsert_people(points)
+        except Exception as exc:
+            _warn(f"iMessage vector-search write failed: {exc}")
+
     logger.info(
-        "iMessage: %d people created, %d enriched",
-        people_created, people_enriched,
+        "iMessage: %d people created, %d enriched, %d upserted to Qdrant",
+        people_created, people_enriched, qdrant_people_upserted,
     )
     return {
         "status": "ok",
         "people_created": people_created,
         "people_enriched": people_enriched,
+        "qdrant_people_upserted": qdrant_people_upserted,
     }
 
 
@@ -268,12 +464,6 @@ def _identifier_exists(id_uri: str) -> bool:
 _SOURCE_PREDICATE = {
     "calendar": "pwg:lastContactCalendar",
     "imessage": "pwg:lastContactIMessage",
-    # WhatsApp T1 (DM) + T2 (group) both write to the same predicate.
-    # The pwg:contactSourceTier triple on the identifier carries the
-    # tier-context tag so the wiki renderer + future Marvin retrieval
-    # can distinguish DM-level signals from group-membership signals
-    # without splitting the freshness signal across two predicates.
-    "whatsapp": "pwg:lastContactWhatsApp",
 }
 
 
@@ -317,184 +507,6 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
         _sparql_update(sparql)
     except Exception as e:
         logger.debug("Could not update last_contact: %s", e)
-
-
-# ── WhatsApp historical ingestion (CX-85) ─────────────────────────
-#
-# Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
-# the full classifier docstring):
-#
-#   T1 -- DM:               Person + lastContactWhatsApp +
-#                           contactSourceTier "whatsapp_dm".
-#                           confidence 1.0 implicit (no triple).
-#   T2 -- intimate/active:  Per-member Person + lastContactWhatsApp +
-#                           contactSourceTier "whatsapp_group_intimate" or
-#                           "whatsapp_group_active" + pwg:confidence 0.7.
-#   T3 -- large + passive:  SKIP. No triples emitted. No Person nodes
-#                           created. Group is invisible to the graph.
-#
-# Schema additions introduced here (set a precedent for future
-# non-DM sources):
-#
-#   pwg:confidence            xsd:float, 0.0-1.0. Absence -> 1.0 implicit.
-#   pwg:contactSourceTier     xsd:string, one of the three literals above.
-#                             Attached to the PersonIdentifier so a single
-#                             contact may legitimately accumulate
-#                             multiple tier tags across re-runs (DM + group
-#                             membership). The wiki renderer picks the
-#                             highest-confidence tag when surfacing.
-
-def ingest_whatsapp(fda_dir: Path) -> dict:
-    """Ingest WhatsApp chats (T1 DMs + T2 groups) into the people graph.
-
-    Reads whatsapp_history's JSON output, filters out T3 (already
-    dropped at extract time by ``conversation_stats`` but we
-    double-check at ingest time so a re-run on a stale file does
-    not poison the graph), and emits per-tier triples for each
-    participant.
-
-    The DELETE-INSERT-WHERE-FILTER pattern in ``_update_last_contact``
-    makes the lastContactWhatsApp upsert atomic + idempotent. The
-    Person + Identifier inserts use the same "if not exists" pattern
-    as ingest_imessage; re-running this ingest is safe.
-    """
-    chats_file = fda_dir / "whatsapp_conversations.json"
-    if not chats_file.exists():
-        logger.info("No WhatsApp data to ingest")
-        return {"status": "skipped", "reason": "no data"}
-
-    chats = json.loads(chats_file.read_text())
-    people_created = 0
-    people_enriched = 0
-    tier_t1 = 0
-    tier_t2_intimate = 0
-    tier_t2_active = 0
-    tier_t3_skipped = 0
-
-    for chat in chats:
-        tier = chat.get("tier", "")
-        if tier == "whatsapp_skipped":
-            tier_t3_skipped += 1
-            continue
-
-        last_msg = chat.get("last_message")
-
-        # Tier-specific participant list. T1 puts the DM partner in
-        # `participants`; T2 puts the active group members.
-        participants = chat.get("participants") or []
-        confidence = chat.get("confidence", 1.0)
-
-        if tier == "whatsapp_dm":
-            tier_t1 += 1
-        elif tier == "whatsapp_group_intimate":
-            tier_t2_intimate += 1
-        elif tier == "whatsapp_group_active":
-            tier_t2_active += 1
-        else:
-            # Unknown tier -- skip + warn rather than emit triples
-            # with a tier literal the wiki renderer cannot interpret.
-            logger.warning("WhatsApp chat with unknown tier %r; skipping", tier)
-            continue
-
-        for participant in participants:
-            if not participant:
-                continue
-
-            person_id = _person_id_from_identifier(participant)
-            uri = _person_uri(person_id)
-            exists = _person_exists(uri)
-
-            if not exists:
-                # JIDs from WhatsApp are always phone-rooted
-                # (e.g. "<phone_e164>@s.whatsapp.net"). Stripping the
-                # suffix gives the E.164-shaped local-part the wiki
-                # uses as the displayName until enriched by other
-                # sources (contact_syncer, CM046 email signatures, etc.).
-                display = participant.split("@", 1)[0] if "@" in participant else participant
-                triples = [
-                    f"<{uri}> a pwg:Person",
-                    f'<{uri}> pwg:displayName "{_escape(display)}"',
-                    f'<{uri}> pwg:contactType "person"',
-                    f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
-                    f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
-                    f'<{uri}> pwg:source "whatsapp_fda"',
-                ]
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
-                triples.extend([
-                    f"<{uri}> pwg:hasIdentifier <{id_uri}>",
-                    f"<{id_uri}> a pwg:PersonIdentifier",
-                    f'<{id_uri}> pwg:identifierType "phone"',
-                    f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
-                    f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
-                    f'<{id_uri}> pwg:contactSourceTier "{tier}"',
-                ])
-                # T2 carries an explicit confidence; T1's 1.0 is
-                # implicit (no triple emitted, matching the dispatch's
-                # "absence == 1.0 implicitly" contract).
-                if tier != "whatsapp_dm":
-                    triples.append(
-                        f'<{id_uri}> pwg:confidence "{confidence}"^^xsd:float'
-                    )
-
-                sparql = (
-                    "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
-                    "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
-                )
-                _sparql_update(sparql)
-                people_created += 1
-            else:
-                # Person already exists (probably from contact_syncer,
-                # iMessage, or a prior tier of this same WhatsApp run).
-                # Add the WhatsApp identifier + tier tag if not already
-                # present. We deliberately do NOT downgrade an existing
-                # higher-confidence tier -- the SPARQL layer tolerates
-                # multiple contactSourceTier values, and the wiki
-                # renderer picks the highest one.
-                id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
-                if not _identifier_exists(id_uri):
-                    triples = [
-                        f"<{uri}> pwg:hasIdentifier <{id_uri}>",
-                        f"<{id_uri}> a pwg:PersonIdentifier",
-                        f'<{id_uri}> pwg:identifierType "phone"',
-                        f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
-                        f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
-                        f'<{id_uri}> pwg:contactSourceTier "{tier}"',
-                    ]
-                    if tier != "whatsapp_dm":
-                        triples.append(
-                            f'<{id_uri}> pwg:confidence "{confidence}"^^xsd:float'
-                        )
-                    sparql = (
-                        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-                        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
-                        "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
-                    )
-                    _sparql_update(sparql)
-                    people_enriched += 1
-
-            # Always upsert lastContactWhatsApp regardless of person
-            # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
-            # in _update_last_contact ensures older timestamps never
-            # overwrite newer ones, so this is safe to call from any
-            # tier's loop.
-            if last_msg:
-                _update_last_contact(uri, last_msg, "whatsapp")
-
-    logger.info(
-        "WhatsApp: %d people created, %d enriched (t1=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d)",
-        people_created, people_enriched,
-        tier_t1, tier_t2_intimate, tier_t2_active, tier_t3_skipped,
-    )
-    return {
-        "status": "ok",
-        "people_created": people_created,
-        "people_enriched": people_enriched,
-        "tier_t1_dm_chats": tier_t1,
-        "tier_t2_intimate_chats": tier_t2_intimate,
-        "tier_t2_active_chats": tier_t2_active,
-        "tier_t3_skipped_chats": tier_t3_skipped,
-    }
 
 
 # ── Calendar attendee ingestion ───────────────────────────────────
@@ -675,165 +687,6 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     return {"status": "ok", "people_created": people_created}
 
 
-# ── Browser history ingestion (CX-86 Gap A) ───────────────────────
-#
-# Streams safari_history.json + chrome_history.json (written by
-# extract_all.py) through the CM019 gateway's POST /api/safari/ingest
-# endpoint. The gateway writes to the `safari_history` Qdrant
-# collection (renamed from `safari_browsing` in Gap B), where the
-# CM044 wiki Browsing page reads from.
-#
-# Auth: Bearer token from ~/.ostler/secrets/service_token. Blocklist
-# (Q3 sign-off): banking / medical / etc. URLs are rejected by the
-# gateway with HTTP 422 and counted as "skipped_sensitive".
-# needs_reprocessing=true (Q2 sign-off): backfilled rows land in
-# Qdrant with empty topics/category; gateway background tick enriches.
-#
-# Privacy AC mirror B2 + CX-85: stdout payload contains counts only.
-# No URLs, titles, or domain names cross the install.sh boundary.
-
-# #48g historical backfill (CX-86): the customer-install gateway binds
-# 127.0.0.1:8000 (locked at CX-59 / DMG #34, 2026-05-24). The previous
-# default of :8765 was the dev-only port the gateway used pre-launch;
-# leaving it as a fallback meant every install where OSTLER_GATEWAY_URL
-# was not explicitly set would silently fail to ingest browsing history
-# (connection refused -> errored++, sent=0). install.sh's hydrate_browsing
-# step does NOT set OSTLER_GATEWAY_URL today, so the :8765 default was
-# the runtime path on every customer Mac.
-_GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8000/api/safari/ingest"
-_SERVICE_TOKEN_PATH = Path.home() / ".ostler" / "secrets" / "service_token"
-
-
-def _read_service_token() -> Optional[str]:
-    """Read the Bearer token install.sh's auth_tokens phase wrote."""
-    try:
-        return _SERVICE_TOKEN_PATH.read_text(encoding="utf-8").strip() or None
-    except (OSError, FileNotFoundError):
-        return None
-
-
-def ingest_browser_history(fda_dir: Path, gateway_url: Optional[str] = None) -> dict:
-    """Stream browser history JSON to the gateway.
-
-    Reads safari_history.json + chrome_history.json from ``fda_dir``,
-    POSTs each entry to ``POST /api/safari/ingest`` with Bearer auth
-    and ``needs_reprocessing: true``. Counts ok / skipped (HTTP 422
-    blocklist) / errored. Returns a counts-only dict.
-    """
-    endpoint = gateway_url or os.environ.get(
-        "OSTLER_GATEWAY_URL", _GATEWAY_ENDPOINT_DEFAULT,
-    )
-
-    payload_entries: list[dict] = []
-    safari_count = 0
-    chrome_count = 0
-    for filename, label in [
-        ("safari_history.json", "safari_history"),
-        ("chrome_history.json", "chrome_history"),
-    ]:
-        path = fda_dir / filename
-        if not path.exists():
-            continue
-        try:
-            entries = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning(
-                "Could not read %s: %s; skipping that source.",
-                filename, type(exc).__name__,
-            )
-            continue
-        if not isinstance(entries, list):
-            logger.warning("%s root is not a list; skipping.", filename)
-            continue
-        payload_entries.extend(entries)
-        if label == "safari_history":
-            safari_count = len(entries)
-        else:
-            chrome_count = len(entries)
-
-    if not payload_entries:
-        logger.info("No browser history to ingest.")
-        return {
-            "status": "no_data",
-            "total": 0,
-            "sent": 0,
-            "skipped_sensitive": 0,
-            "errored": 0,
-            "safari_entries": 0,
-            "chrome_entries": 0,
-        }
-
-    token = _read_service_token()
-    if not token:
-        logger.warning(
-            "No service token at %s; the gateway requires Bearer auth.",
-            _SERVICE_TOKEN_PATH,
-        )
-        return {
-            "status": "no_token",
-            "total": len(payload_entries),
-            "sent": 0,
-            "skipped_sensitive": 0,
-            "errored": 0,
-            "safari_entries": safari_count,
-            "chrome_entries": chrome_count,
-        }
-
-    sent = 0
-    skipped_sensitive = 0
-    errored = 0
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    with httpx.Client(timeout=30.0) as client:
-        for entry in payload_entries:
-            payload = {
-                "url": entry.get("url"),
-                "title": entry.get("title"),
-                "timestamp": entry.get("timestamp"),
-                "device": entry.get("source", "unknown"),
-                "needs_reprocessing": True,
-            }
-            if not payload["url"]:
-                errored += 1
-                continue
-            try:
-                resp = client.post(endpoint, json=payload, headers=headers)
-            except (httpx.RequestError, httpx.HTTPError) as exc:
-                if errored < 5:
-                    logger.warning(
-                        "gateway POST failed (%s); continuing batch.",
-                        type(exc).__name__,
-                    )
-                errored += 1
-                continue
-
-            if resp.status_code in (200, 201, 202):
-                sent += 1
-            elif resp.status_code == 422:
-                skipped_sensitive += 1
-            else:
-                errored += 1
-
-    logger.info(
-        "Browser history ingest: %d sent, %d skipped (sensitive), "
-        "%d errored across %d Safari + %d Chrome entries.",
-        sent, skipped_sensitive, errored,
-        safari_count, chrome_count,
-    )
-    return {
-        "status": "ok",
-        "total": len(payload_entries),
-        "sent": sent,
-        "skipped_sensitive": skipped_sensitive,
-        "errored": errored,
-        "safari_entries": safari_count,
-        "chrome_entries": chrome_count,
-    }
-
-
 # ── Master runner ─────────────────────────────────────────────────
 
 def ingest_all(fda_dir: Optional[Path] = None) -> dict:
@@ -858,11 +711,9 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
 
     for name, func in [
         ("imessage", ingest_imessage),
-        ("whatsapp", ingest_whatsapp),
         ("calendar", ingest_calendar),
         ("photos", ingest_photos_people),
         ("apple_mail", ingest_mail_contacts),
-        ("browser_history", ingest_browser_history),
     ]:
         try:
             results[name] = func(fda_dir)
