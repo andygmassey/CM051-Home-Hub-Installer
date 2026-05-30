@@ -6333,6 +6333,19 @@ services:
       - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}
+      # CX-115: Cross-container service URLs. The compiler runs inside
+      # Docker; localhost (its default) resolves to the container itself,
+      # not the host. Without these overrides the compiler hits ECONNREFUSED
+      # on every Ollama/Oxigraph/Qdrant call and silently skips People,
+      # Topics, Organizations, dashboard, etc. host.docker.internal:host-gateway
+      # is the macOS/Colima recipe used by the vane service below.
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - OXIGRAPH_URL=http://host.docker.internal:7878
+      - QDRANT_URL=http://host.docker.internal:6333
+      - PWG_GATEWAY_URL=http://host.docker.internal:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # Local AI web search (Vane). Replaces the cloud-search dependency
   # that comparable assistants offload to Perplexity / Google. The
@@ -6391,6 +6404,50 @@ cd "$OSTLER_DIR"
 # with its own error surface.
 docker compose up -d qdrant oxigraph redis
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
+
+# ── 3.8a Pre-create Qdrant collections (CX-115c) ──────────────────
+#
+# The wiki compiler hard-fails (Phase 1 FAILED -> wiki has no
+# People/Topics/Organizations pages) when it queries Qdrant for a
+# collection that does not yet exist (404 from points/scroll).
+# On a fresh install no ingest pipeline has run yet, so every
+# collection the wiki compiler asks about is missing.
+#
+# Fix: pre-create empty collections so 404s become empty 200s. The
+# wiki compiler then renders person pages from Oxigraph RDF and the
+# Hub flips out of "Hub starting up" within seconds.
+#
+# Vector dim 768 matches nomic-embed-text (the default embedding
+# model already pulled by ai_models step below).
+_qdrant_create_collection() {
+    local name="$1"
+    curl -s -X PUT "http://localhost:6333/collections/${name}" \
+        -H "Content-Type: application/json" \
+        -d '{"vectors":{"size":768,"distance":"Cosine"}}' \
+        -m 10 -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000"
+}
+# Wait briefly for Qdrant to accept connections.
+QDRANT_READY=0
+for _ in 1 2 3 4 5 6 7 8 9 10 ; do
+    if curl -sf -o /dev/null -m 2 "http://localhost:6333/collections" 2>/dev/null ; then
+        QDRANT_READY=1
+        break
+    fi
+    sleep 1
+done
+if [[ "$QDRANT_READY" == "1" ]]; then
+    for col in people safari_history safari_bookmarks conversations evernote_knowledge preferences ; do
+        CODE=$(_qdrant_create_collection "$col")
+        # 200 = created, 409 = already exists (fine), other = log + continue
+        case "$CODE" in
+            200|201|409) : ;;  # success or already-exists
+            *) warn "Qdrant collection ${col} create returned HTTP ${CODE} (non-fatal)" ;;
+        esac
+    done
+    ok "Qdrant collections initialised (search index ready before first hydrate)"
+else
+    warn "Qdrant did not become reachable in 10 s; skipping collection pre-create (wiki may render with missing pages until first ingest)"
+fi
 
 # ── 3.8b Local web search (Vane) ──────────────────────────────────
 #
@@ -11311,7 +11368,16 @@ mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"
-if docker compose --profile compile run --rm wiki-compiler 2>&1 | tail -10; then
+# CX-115 (2026-05-30): pass --no-llm on the first-run compile. With
+# 373+ Persons in Oxigraph (typical fresh customer install -- iMessage
+# + Contacts + Calendar all populated), the per-Person LLM enrichment
+# pass on Ollama takes ~30 s each and the compile hangs for hours,
+# leaving the customer with an empty wiki + a stuck Hub for the rest
+# of the evening. The structural wiki (person pages, navigation,
+# categories, links) lands in seconds without --no-llm; the LLM-
+# generated summaries land on the next daily wiki-recompile tick
+# (background) where minutes-per-page is acceptable.
+if docker compose --profile compile run --rm wiki-compiler --no-llm 2>&1 | tail -10; then
     if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
         ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
@@ -11869,7 +11935,7 @@ echo "     AI model:      ${AI_MODEL}"
 [[ "$FV_ENABLED" == true ]] && echo "     FileVault:     Enabled"
 [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" ]] && echo "     Encryption:    passkey-wrapped DEK (Touch ID)"
 [[ ! -f "${SECURITY_CONFIG_DIR}/passkey.json" && -f "${SECURITY_CONFIG_DIR}/keychain.json" ]] && echo "     Encryption:    passphrase-wrapped DEK (recovery passphrase)"
-[[ -n "$CONTACT_COUNT" && "$CONTACT_COUNT" -gt 0 ]] && echo "     Contacts:      ${CONTACT_COUNT} exported from iCloud"
+[[ -n "${CONTACT_COUNT:-}" && "${CONTACT_COUNT:-0}" -gt 0 ]] && echo "     Contacts:      ${CONTACT_COUNT} exported from iCloud"
 [[ -n "$EXPORTS_DIR" ]] && echo "     GDPR import:   Processed from ${EXPORTS_DIR}"
 [[ "${FDA_OK:-0}" -gt 0 ]] && echo "     Instant data:  ${FDA_OK} macOS source(s) extracted"
 echo "     Duration:      ${INSTALL_MINS}m ${INSTALL_SECS}s"

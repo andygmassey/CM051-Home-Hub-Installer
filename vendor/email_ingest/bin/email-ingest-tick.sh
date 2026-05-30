@@ -96,10 +96,25 @@ fi
 # pwg-email-ingest is CM046's CLI entry point. It threads + cleans
 # the mbox and writes per-conversation state directories that CM048
 # then promotes into Qdrant + Oxigraph + the conversation MDs.
-PWG_EMAIL_INGEST="${PWG_EMAIL_INGEST:-pwg-email-ingest}"
+#
+# CX-115g (2026-05-30): under the LaunchAgent, PATH is the default
+# system PATH (/usr/bin:/bin:...), which does not include the
+# email-ingest venv bin where pwg-email-ingest actually lives. The
+# install never symlinks the CLI into /usr/local/bin either, so
+# `pwg-email-ingest` is unresolvable and the tick exits 127 every
+# hour. Derive the venv-local path from OSTLER_PYTHON (which IS
+# correctly set to the venv python via plist EnvironmentVariables)
+# so the CLI is reachable without depending on PATH.
+if [ -z "${PWG_EMAIL_INGEST:-}" ]; then
+    if [ -n "${OSTLER_PYTHON:-}" ] && [ -x "$(dirname "$OSTLER_PYTHON")/pwg-email-ingest" ]; then
+        PWG_EMAIL_INGEST="$(dirname "$OSTLER_PYTHON")/pwg-email-ingest"
+    else
+        PWG_EMAIL_INGEST="pwg-email-ingest"
+    fi
+fi
 
-if ! command -v "$PWG_EMAIL_INGEST" >/dev/null 2>&1; then
-    log "ERROR: $PWG_EMAIL_INGEST is not on PATH. CM046 not installed?"
+if [ ! -x "$PWG_EMAIL_INGEST" ] && ! command -v "$PWG_EMAIL_INGEST" >/dev/null 2>&1; then
+    log "ERROR: $PWG_EMAIL_INGEST is not executable or on PATH. CM046 not installed?"
     log "       The mbox at $MBOX is preserved; re-run after install."
     exit 127
 fi
