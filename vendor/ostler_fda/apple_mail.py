@@ -115,19 +115,13 @@ def extract_messages(
     # Mail stores dates as Unix timestamps (not Mac epoch)
     cutoff = datetime.now(timezone.utc).timestamp() - (since_days * 86400)
 
-    # Sonoma/Sequoia schema (V10): messages.subject + messages.sender are
-    # INTEGER foreign keys, NOT text. Resolve via JOIN to the subjects /
-    # addresses lookup tables. The sender FK points at addresses.ROWID
-    # on Sequoia (15+); some older builds route via a senders table that
-    # itself references addresses. We try the direct join first, then a
-    # two-hop fallback, then degrade to the raw integer so we still
-    # return rows rather than silently producing zero.
+    # Try Sonoma/Sequoia schema first (V10)
     try:
         rows = conn.execute("""
             SELECT
                 m.ROWID as msg_rowid,
-                COALESCE(s.subject, '') as subject,
-                COALESCE(sa.address, '') as sender,
+                m.subject,
+                m.sender as sender,
                 m.date_sent,
                 m.date_received,
                 m.read as is_read,
@@ -135,89 +129,52 @@ def extract_messages(
                 m.message_id,
                 mb.url as mailbox_url
             FROM messages m
-            LEFT JOIN subjects s ON m.subject = s.ROWID
-            LEFT JOIN addresses sa ON m.sender = sa.ROWID
             LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
             WHERE m.date_received > ?
             ORDER BY m.date_received DESC
             LIMIT ?
         """, (cutoff, limit)).fetchall()
     except sqlite3.OperationalError:
-        # Older schema variant: try two-hop via senders -> addresses.
+        # Try alternative schema
         try:
             rows = conn.execute("""
                 SELECT
-                    m.ROWID as msg_rowid,
-                    COALESCE(s.subject, '') as subject,
-                    COALESCE(sa.address, '') as sender,
-                    m.date_sent,
-                    m.date_received,
-                    m.read as is_read,
-                    m.flagged as is_flagged,
-                    m.message_id,
-                    mb.url as mailbox_url
-                FROM messages m
-                LEFT JOIN subjects s ON m.subject = s.ROWID
-                LEFT JOIN senders se ON m.sender = se.ROWID
-                LEFT JOIN addresses sa ON se.contact_identifier = sa.address
-                LEFT JOIN mailboxes mb ON m.mailbox = mb.ROWID
-                WHERE m.date_received > ?
-                ORDER BY m.date_received DESC
+                    ROWID as msg_rowid,
+                    subject,
+                    sender,
+                    date_sent,
+                    date_received,
+                    read as is_read,
+                    flagged as is_flagged,
+                    message_id,
+                    NULL as mailbox_url
+                FROM messages
+                WHERE date_received > ?
+                ORDER BY date_received DESC
                 LIMIT ?
             """, (cutoff, limit)).fetchall()
-        except sqlite3.OperationalError:
-            # Final fallback: legacy schema with text columns.
-            try:
-                rows = conn.execute("""
-                    SELECT
-                        ROWID as msg_rowid,
-                        subject,
-                        sender,
-                        date_sent,
-                        date_received,
-                        read as is_read,
-                        flagged as is_flagged,
-                        message_id,
-                        NULL as mailbox_url
-                    FROM messages
-                    WHERE date_received > ?
-                    ORDER BY date_received DESC
-                    LIMIT ?
-                """, (cutoff, limit)).fetchall()
-            except sqlite3.OperationalError as e:
-                logger.error("Mail schema not recognised: %s", e)
-                conn.close()
-                return []
+        except sqlite3.OperationalError as e:
+            logger.error("Mail schema not recognised: %s", e)
+            conn.close()
+            return []
 
-    # Get recipients from the addresses table. Sequoia recipients schema
-    # uses recipients.message + recipients.address (both INTEGER fks),
-    # not recipients.message_id + recipients.address_id. We try both.
-    recipient_map: dict[int, list[str]] = {}
-    recip_rows = []
+    # Get recipients from the addresses table
+    recipient_map: dict[str, list[str]] = {}
     try:
         recip_rows = conn.execute("""
-            SELECT r.message as msg_rowid, a.address, a.comment as name
+            SELECT r.message_id, a.address, a.comment as name
             FROM recipients r
-            JOIN addresses a ON r.address = a.ROWID
+            JOIN addresses a ON r.address_id = a.ROWID
         """).fetchall()
+        for rr in recip_rows:
+            mid = rr["message_id"]
+            if mid not in recipient_map:
+                recipient_map[mid] = []
+            addr = rr["address"] or rr["name"] or ""
+            if addr:
+                recipient_map[mid].append(addr)
     except sqlite3.OperationalError:
-        try:
-            recip_rows = conn.execute("""
-                SELECT r.message_id as msg_rowid, a.address, a.comment as name
-                FROM recipients r
-                JOIN addresses a ON r.address_id = a.ROWID
-            """).fetchall()
-        except sqlite3.OperationalError:
-            recip_rows = []  # Schema unknown; recipients drop, messages still flow.
-    for rr in recip_rows:
-        try:
-            mid = rr["msg_rowid"]
-        except (KeyError, IndexError):
-            continue
-        recipient_map.setdefault(mid, [])
-        addr = rr["address"] or rr["name"] or ""
-        if addr:
-            recipient_map[mid].append(addr)
+        pass  # Recipients table may differ across versions
 
     conn.close()
 

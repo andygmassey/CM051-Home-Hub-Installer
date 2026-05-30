@@ -674,7 +674,7 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, 
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" and turn it on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"OstlerAssistant\" in the list and switch it on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Click Done when finished."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 
@@ -798,7 +798,9 @@ MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
 MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
 
 MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Set up the secure link to your iPhone"
-MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Ostler on your iPhone needs a private way to reach this Mac. We use Tailscale (tailscale.com), a trusted private networking tool used by GitHub, Mozilla, and many engineering teams, to create an encrypted private link between your devices. No public exposure, no shared servers. The next step installs Tailscale and walks you through signing in. macOS will show several Tailscale system prompts asking you to approve a network extension and grant permissions – those come from Tailscale itself, not from Ostler. Accept them to continue."
+MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Ostler on your iPhone needs a private way to reach this Mac. We use Tailscale (tailscale.com), a trusted private networking tool used by GitHub, Mozilla, and many engineering teams, to create an encrypted private link between your devices. No public exposure, no shared servers. The next step installs Tailscale and walks you through signing in.
+
+macOS will show several Tailscale system prompts asking you to approve a network extension and grant permissions – those come from Tailscale itself, not from Ostler. Accept them to continue."
 
 MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain?"
 MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS Keychain for safekeeping."

@@ -106,16 +106,7 @@ def run_all(
     if "safari_history" in sources:
         try:
             from .safari_history import extract_history, top_domains, to_timeline_entries
-            # #48g historical backfill (CX-86): 5-year default at
-            # install time. The single hardcoded `since_days=365`
-            # silently truncated browsing history to 12 months even
-            # when the customer was a 5-year Safari user. Operator
-            # override via OSTLER_SAFARI_BACKFILL_DAYS mirrors the
-            # OSTLER_IMESSAGE_BACKFILL_DAYS + OSTLER_BROWSER_BACKFILL_DAYS
-            # shape so install.sh can pass one number for all three
-            # browsing sources if needed.
-            safari_backfill_days = int(os.environ.get("OSTLER_SAFARI_BACKFILL_DAYS", "365"))
-            entries = extract_history(since_days=safari_backfill_days)
+            entries = extract_history(since_days=365)
             domains = top_domains(entries, limit=100)
 
             timeline = to_timeline_entries(entries)
@@ -147,9 +138,11 @@ def run_all(
         summary["sources"]["safari_history"] = {"status": "disabled_by_user"}
 
     # ── Chrome History (CX-86 Gap C) ────────────────────────────────
-    # Opt-in only -- default OFF, same shape as whatsapp_history.
-    # JSON shape matches safari_history so the pwg_ingest.
-    # ingest_browser_history() consumer reads both with one code path.
+    # Opt-in only -- default OFF, mirrors the WhatsApp opt-in pattern.
+    # Customer enables via Phase 2 picker (`chrome_history` tickbox).
+    # Same JSON shape + filename convention as safari_history so the
+    # pwg_ingest.ingest_browser_history() consumer reads both with one
+    # code path.
     if "chrome_history" in sources:
         try:
             from .chrome_history import (
@@ -171,6 +164,9 @@ def run_all(
                 "status": "ok",
                 "visits": len(chrome_entries),
                 "unique_domains": len(chrome_domains),
+                # Match safari_history's summary contract: top-3 domains
+                # are useful for the install summary screen and don't
+                # leak URL paths.
                 "top_3": [d.domain for d in chrome_domains[:3]],
             }
             logger.info(
@@ -270,13 +266,7 @@ def run_all(
                 chat_to_dict as _wa_to_dict,
                 TIER_T3_SKIP,
             )
-            # #48g historical backfill (CX-85): 5-year default at
-            # install time. The hardcoded `since_days=365` silently
-            # capped intimate-or-active WhatsApp groups at 12 months
-            # even when the customer was a 5-year user. Operator
-            # override via OSTLER_WHATSAPP_BACKFILL_DAYS.
-            wa_backfill_days = int(os.environ.get("OSTLER_WHATSAPP_BACKFILL_DAYS", "365"))
-            chats = _wa_extract(since_days=wa_backfill_days)
+            chats = _wa_extract(since_days=365)
             stats = _wa_stats(chats)
 
             # Drop T3 chats before writing the JSON -- they contain
@@ -417,31 +407,12 @@ def run_all(
             summary["sources"]["calendar"] = {"status": "no_fda"}
             logger.info("[skip] Calendar: Full Disk Access not granted")
         except FileNotFoundError:
-            # CX-109 (DMG #48l, 2026-05-29): pre-fix this branch wrote
-            # status but emitted NO log line, so the install summary
-            # showed every other source's [ok]/[skip] EXCEPT Calendar.
-            # Customers saw Calendar silently missing from the readout
-            # with no indication of why. Always emit a [skip] line so
-            # the FDA section is impossible to read as a silent fail.
             summary["sources"]["calendar"] = {"status": "not_found"}
-            logger.info("[skip] Calendar: cache not found (Calendar.app has not synced yet)")
         except Exception as e:
-            # CX-109 (DMG #48l): convert from [warn] to [skip] so the
-            # install.sh roll-up grep for ^\[ok\] / ^\[skip\] counts it.
-            # Pre-fix, generic exceptions emitted [warn] which the grep
-            # skipped over -- a third silent-fail axis on Calendar.
-            summary["sources"]["calendar"] = {
-                "status": "error",
-                "error": "%s: %s" % (type(e).__name__, str(e)[:120]),
-            }
-            logger.info("[skip] Calendar: %s: %s", type(e).__name__, str(e)[:120])
+            summary["sources"]["calendar"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] Calendar: %s", e)
     else:
-        # CX-109 (DMG #48l): emit [skip] for the disabled-by-user branch
-        # too. Pre-fix the else branch wrote status but no log line, so
-        # Calendar disappeared from the per-source readout when the user
-        # had deselected it during onboarding.
         summary["sources"]["calendar"] = {"status": "disabled_by_user"}
-        logger.info("[skip] Calendar: disabled by user")
 
     # ── Reminders ───────────────────────────────────────────────────
     if "reminders" in sources:

@@ -83,70 +83,48 @@ def extract_people(
 
     conn.row_factory = sqlite3.Row
 
-    # macOS 26+ renamed the ZDETECTEDFACE foreign keys:
-    #   ZPERSON  -> ZPERSONFORFACE
-    #   ZASSET   -> ZASSETFORFACE
-    # Probe the new schema first, fall back to the macOS 14-15 names,
-    # then to the legacy ZGENERICASSET shape from older systems.
     try:
-        # macOS 26+ (Tahoe): ZPERSONFORFACE / ZASSETFORFACE
+        # ZPERSON table contains face clusters with optional names
+        # ZDETECTEDFACE links faces to assets (photos)
+        # ZASSET contains photo metadata (date, location)
         rows = conn.execute("""
             SELECT
                 p.ZFULLNAME as name,
                 p.ZTYPE as person_type,
-                COUNT(DISTINCT df.ZASSETFORFACE) as photo_count,
+                COUNT(DISTINCT df.ZASSET) as photo_count,
                 MIN(a.ZDATECREATED) as first_seen,
                 MAX(a.ZDATECREATED) as last_seen
             FROM ZPERSON p
-            JOIN ZDETECTEDFACE df ON df.ZPERSONFORFACE = p.Z_PK
-            JOIN ZASSET a ON a.Z_PK = df.ZASSETFORFACE
+            JOIN ZDETECTEDFACE df ON df.ZPERSON = p.Z_PK
+            JOIN ZASSET a ON a.Z_PK = df.ZASSET
             WHERE p.ZFULLNAME IS NOT NULL
               AND p.ZFULLNAME != ''
             GROUP BY p.Z_PK
             ORDER BY photo_count DESC
         """).fetchall()
     except sqlite3.OperationalError as e:
-        logger.debug("macOS 26+ Photos schema failed: %s", e)
+        logger.debug("Primary Photos schema failed: %s", e)
+        # Try alternative schema (older macOS versions use different table names)
         try:
-            # macOS 14-15 (Sonoma/Sequoia): ZPERSON / ZASSET
             rows = conn.execute("""
                 SELECT
-                    p.ZFULLNAME as name,
-                    p.ZTYPE as person_type,
+                    p.ZDISPLAYNAME as name,
+                    1 as person_type,
                     COUNT(DISTINCT df.ZASSET) as photo_count,
                     MIN(a.ZDATECREATED) as first_seen,
                     MAX(a.ZDATECREATED) as last_seen
                 FROM ZPERSON p
                 JOIN ZDETECTEDFACE df ON df.ZPERSON = p.Z_PK
-                JOIN ZASSET a ON a.Z_PK = df.ZASSET
-                WHERE p.ZFULLNAME IS NOT NULL
-                  AND p.ZFULLNAME != ''
+                JOIN ZGENERICASSET a ON a.Z_PK = df.ZASSET
+                WHERE p.ZDISPLAYNAME IS NOT NULL
+                  AND p.ZDISPLAYNAME != ''
                 GROUP BY p.Z_PK
                 ORDER BY photo_count DESC
             """).fetchall()
-        except sqlite3.OperationalError as e2:
-            logger.debug("macOS 14-15 Photos schema failed: %s", e2)
-            # Legacy schema: ZGENERICASSET + ZDISPLAYNAME
-            try:
-                rows = conn.execute("""
-                    SELECT
-                        p.ZDISPLAYNAME as name,
-                        1 as person_type,
-                        COUNT(DISTINCT df.ZASSET) as photo_count,
-                        MIN(a.ZDATECREATED) as first_seen,
-                        MAX(a.ZDATECREATED) as last_seen
-                    FROM ZPERSON p
-                    JOIN ZDETECTEDFACE df ON df.ZPERSON = p.Z_PK
-                    JOIN ZGENERICASSET a ON a.Z_PK = df.ZASSET
-                    WHERE p.ZDISPLAYNAME IS NOT NULL
-                      AND p.ZDISPLAYNAME != ''
-                    GROUP BY p.Z_PK
-                    ORDER BY photo_count DESC
-                """).fetchall()
-            except sqlite3.OperationalError:
-                logger.error("Photos schema not recognised on this macOS version")
-                conn.close()
-                return []
+        except sqlite3.OperationalError:
+            logger.error("Photos schema not recognised on this macOS version")
+            conn.close()
+            return []
 
     conn.close()
 
@@ -211,61 +189,30 @@ def extract_photo_events(
         datetime.now(timezone.utc).timestamp() - (since_days * 86400)
     ) - MAC_EPOCH_OFFSET
 
-    # Schema probe identical to extract_people: macOS 26+ FK names
-    # first (ZASSETFORFACE / ZPERSONFORFACE), then macOS 14-15
-    # (ZASSET / ZPERSON), then the very-old ZGENERICASSET layout.
-    rows = None
     try:
-        # macOS 26+ (Tahoe). ZREVERSELOCATIONDATA moved out of ZASSET
-        # into ZADDITIONALASSETATTRIBUTES; we drop location_data here
-        # rather than add another join (location parsing is a v1.0.1
-        # follow-on anyway, TODO at line 252).
+        # Get photos with their people and locations
         query = """
             SELECT
                 a.ZDATECREATED as date,
                 a.ZLATITUDE as lat,
                 a.ZLONGITUDE as lon,
-                NULL as location_data,
+                a.ZREVERSELOCATIONDATA as location_data,
                 GROUP_CONCAT(DISTINCT p.ZFULLNAME) as people
             FROM ZASSET a
-            LEFT JOIN ZDETECTEDFACE df ON df.ZASSETFORFACE = a.Z_PK
-            LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSONFORFACE
+            LEFT JOIN ZDETECTEDFACE df ON df.ZASSET = a.Z_PK
+            LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
             WHERE a.ZDATECREATED > ?
               AND a.ZTRASHEDSTATE = 0
         """
         if with_people_only:
             query += " AND p.ZFULLNAME IS NOT NULL"
+
         query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
+
         rows = conn.execute(query, (cutoff_mac,)).fetchall()
-    except sqlite3.OperationalError as e:
-        logger.debug("macOS 26+ photo events schema failed: %s", e)
-
-    if rows is None:
+    except sqlite3.OperationalError:
+        # Try with ZGENERICASSET (older macOS) and ZDISPLAYNAME
         try:
-            # macOS 14-15 (Sonoma/Sequoia)
-            query = """
-                SELECT
-                    a.ZDATECREATED as date,
-                    a.ZLATITUDE as lat,
-                    a.ZLONGITUDE as lon,
-                    a.ZREVERSELOCATIONDATA as location_data,
-                    GROUP_CONCAT(DISTINCT p.ZFULLNAME) as people
-                FROM ZASSET a
-                LEFT JOIN ZDETECTEDFACE df ON df.ZASSET = a.Z_PK
-                LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
-                WHERE a.ZDATECREATED > ?
-                  AND a.ZTRASHEDSTATE = 0
-            """
-            if with_people_only:
-                query += " AND p.ZFULLNAME IS NOT NULL"
-            query += " GROUP BY a.Z_PK ORDER BY a.ZDATECREATED DESC"
-            rows = conn.execute(query, (cutoff_mac,)).fetchall()
-        except sqlite3.OperationalError as e:
-            logger.debug("macOS 14-15 photo events schema failed: %s", e)
-
-    if rows is None:
-        try:
-            # Legacy ZGENERICASSET layout
             query = """
                 SELECT
                     a.ZDATECREATED as date,
@@ -285,8 +232,8 @@ def extract_photo_events(
             rows = conn.execute(query, (cutoff_mac,)).fetchall()
         except sqlite3.OperationalError as e:
             logger.error("Photo events schema not recognised: %s", e)
-            conn.close()
-            return []
+        conn.close()
+        return []
 
     conn.close()
 

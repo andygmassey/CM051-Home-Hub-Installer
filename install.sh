@@ -10288,7 +10288,19 @@ progress "Connect your iPhone and Watch" "tailscale_connect"
 
 OSTLER_TAILSCALE_IP=""
 
-TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+# CX-106 (DMG #48l, 2026-05-30): prompt id is "tailscale_connect"
+# (not "tailscale_confirm"). The GUI's OnboardingQuestionView routes
+# "tailscale_connect" to the dedicated full-screen TailscaleConnectView
+# (two big buttons, no "Question N" header). The stale "tailscale_confirm"
+# id fell through to the standard question body, which rendered a wrong
+# "Question 2" header on the reuse-settings path: that path skips the
+# whole Phase 2 questions block (SKIP_PHASE2=true), so the GUI's
+# monotonic question counter has only seen "reuse_settings" before this
+# prompt, landing it at index 2 even though §3.15 is much later in the
+# flow. Using the id the GUI already special-cases (and that §3.15's
+# STEP marker on the line above already emits) removes the misleading
+# number entirely. The setup,skip choice contract is identical.
+TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_connect")"
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
