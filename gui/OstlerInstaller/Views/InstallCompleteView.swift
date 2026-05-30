@@ -70,6 +70,19 @@ struct InstallCompleteView: View {
         ]
     }
 
+    // SUCCESS-UX (2026-05-30): on a fully-healthy install the customer
+    // does not need to read a service-by-service dump -- they need to
+    // know what's happening now (background wiki build) and what to do
+    // next (get the iOS app + pair). The per-service tick list is only
+    // worth surfacing when one or more probes came back as a warning,
+    // i.e. a partial start the customer might want to keep an eye on.
+    // The fail path (install.sh never reached DONE) is handled entirely
+    // by InstallFailedBannerView + InstallFailedBodyView upstream; this
+    // view only ever renders when coordinator.finished == .ok.
+    private var allServicesHealthy: Bool {
+        serviceChecks.allSatisfy { $0.status == .ok }
+    }
+
     var body: some View {
         // CX-64 (DMG #36, 2026-05-24): wrap the body in a ScrollView so
         // the hero never gets clipped above the viewport when the
@@ -120,34 +133,16 @@ struct InstallCompleteView: View {
 
             Divider()
 
-            // Per-service summary. Reads from logLines so the panel
-            // reflects the actual probes (not a hardcoded list).
-            VStack(alignment: .leading, spacing: .ostlerSpace1) {
-                Text(ViewCopy.shared.string(for: "install_complete.health_check_label"))
-                    .font(.ostlerStrap)
-                    .tracking(1.2)
-                    .foregroundStyle(Color.ostlerInkMuted)
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(serviceChecks) { check in
-                        HStack(spacing: .ostlerSpace2) {
-                            Image(systemName: check.status == .ok
-                                  ? "checkmark.circle.fill"
-                                  : "exclamationmark.triangle.fill")
-                                .foregroundStyle(check.status == .ok
-                                                 ? Color.ostlerForest
-                                                 : Color.ostlerOxbloodWarm)
-                                .frame(width: 18)
-                            Text(check.label)
-                                .font(.ostlerBody)
-                                .foregroundStyle(Color.ostlerInk)
-                            Spacer()
-                            Text(check.status == .ok ? "OK" : "see log")
-                                .font(.ostlerCaption)
-                                .foregroundStyle(Color.ostlerInkSubdued)
-                        }
-                    }
-                }
-                .padding(.vertical, .ostlerSpace1)
+            // SUCCESS-UX (2026-05-30): on a fully-healthy install show
+            // the calm "what happens now / what to do next" copy. The
+            // per-service health-check tick list is relegated to the
+            // partial path (allServicesHealthy == false) so a problem
+            // install stays diagnosable while a clean one reads as a
+            // simple, reassuring summary.
+            if allServicesHealthy {
+                nextStepsSection
+            } else {
+                partialServicesSection
             }
 
             Divider()
@@ -208,6 +203,103 @@ struct InstallCompleteView: View {
             // disappear, and guards against double-fires if the
             // view rebuilds for an unrelated reason.
             await fetchPairCode()
+        }
+    }
+
+    // ── SUCCESS-UX next steps (fully-healthy install) ─────────────
+
+    // Calm, plain-text next-steps block. No glowing-callout / icon-in-
+    // rounded-rect admonition styling: just a strap label + body copy +
+    // a labelled App Store CTA, matching the surrounding panel idiom.
+    @ViewBuilder
+    private var nextStepsSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace2) {
+            Text(ViewCopy.shared.string(for: "install_complete.next_steps_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+
+            // 1. What's happening now: background wiki build.
+            Text(ViewCopy.shared.string(for: "install_complete.next_steps_building"))
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInk)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // 2. Get the iOS app: heading + help line + App Store CTA.
+            VStack(alignment: .leading, spacing: .ostlerSpace1) {
+                Text(ViewCopy.shared.string(for: "install_complete.next_steps_ios_label"))
+                    .font(.ostlerBodyLg)
+                    .foregroundStyle(Color.ostlerInk)
+                Text(ViewCopy.shared.string(for: "install_complete.next_steps_ios_help"))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: openAppStore) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "apple.logo")
+                        Text(ViewCopy.shared.string(for: "install_complete.next_steps_ios_button"))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.top, 2)
+            }
+
+            // 4. Reassuring close-and-check-back-later line. (Step 3,
+            // "pair your iPhone", is the pairingSection QR below.)
+            Text(ViewCopy.shared.string(for: "install_complete.next_steps_reassurance"))
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, .ostlerSpace1)
+    }
+
+    // ── Partial install: keep the per-service health detail ───────
+
+    // Shown only when one or more service probes came back as a
+    // warning. A short framing note plus the original per-service tick
+    // list so the customer (and support) can see exactly which service
+    // was still settling. Reads from logLines so the panel reflects the
+    // actual probes, not a hardcoded list.
+    @ViewBuilder
+    private var partialServicesSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace1) {
+            Text(ViewCopy.shared.string(for: "install_complete.health_check_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+
+            Text(ViewCopy.shared.string(for: "install_complete.partial_note"))
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 4)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(serviceChecks) { check in
+                    HStack(spacing: .ostlerSpace2) {
+                        Image(systemName: check.status == .ok
+                              ? "checkmark.circle.fill"
+                              : "exclamationmark.triangle.fill")
+                            .foregroundStyle(check.status == .ok
+                                             ? Color.ostlerForest
+                                             : Color.ostlerOxbloodWarm)
+                            .frame(width: 18)
+                        Text(check.label)
+                            .font(.ostlerBody)
+                            .foregroundStyle(Color.ostlerInk)
+                        Spacer()
+                        Text(check.status == .ok ? "OK" : "see log")
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerInkSubdued)
+                    }
+                }
+            }
+            .padding(.vertical, .ostlerSpace1)
         }
     }
 
@@ -361,6 +453,16 @@ struct InstallCompleteView: View {
 
     private func openWiki() {
         if let url = URL(string: "http://localhost:8044") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // SUCCESS-UX (2026-05-30): open the Ostler iOS App Store listing.
+    // URL routes through the ViewCopy catalogue so it's editable without
+    // a rebuild (ostler.ai/ios redirects to the live App Store listing).
+    private func openAppStore() {
+        let urlString = ViewCopy.shared.string(for: "install_complete.next_steps_ios_url")
+        if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
         }
     }

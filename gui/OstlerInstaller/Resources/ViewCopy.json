@@ -254,10 +254,18 @@
   },
 
   "install_complete": {
-    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the per-service health-check tick list; CTAs sit in the sticky footer.",
+    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the next-steps copy; CTAs sit in the sticky footer. SUCCESS-UX (2026-05-30): when every service probe is healthy the screen shows the friendly next_steps_* copy instead of the per-service health-check tick list. The tick list is only shown when one or more probes came back as a warning, so a partial install stays diagnosable. health_check_label is reused for the partial-install heading.",
     "heading": "You're all set",
-    "subheading": "Ostler is running on this Mac. Everything you need is set up; you can close this window.",
-    "health_check_label": "Health check",
+    "subheading": "Ostler is installed and running on this Mac. You can close this window whenever you like.",
+    "health_check_label": "Service status",
+    "next_steps_label": "What happens now",
+    "next_steps_building": "Ostler is building your personal knowledge base in the background. Your wiki will fill in over the next several minutes to a couple of hours as it reads through your data. It keeps working even after you close this installer.",
+    "next_steps_ios_label": "Get the iOS app",
+    "next_steps_ios_help": "Download Ostler from the App Store on your iPhone to take your wiki, people and reminders with you.",
+    "next_steps_ios_button": "Get Ostler on the App Store",
+    "next_steps_ios_url": "https://ostler.ai/ios",
+    "next_steps_reassurance": "There's nothing else you need to do. Close the installer whenever you like and open your wiki later to watch it grow.",
+    "partial_note": "Most of Ostler is up. One or more services were still settling when we checked. They often come up on their own within a few minutes; the detail below shows what to keep an eye on.",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki"
   },
