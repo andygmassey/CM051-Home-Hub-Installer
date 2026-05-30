@@ -317,35 +317,54 @@ class ContactSyncer:
         def _log(msg: str) -> None:
             print(msg, file=sys.stderr)
 
-        if not os.path.isfile(vcf_path):
-            _log(f"vCard file not found: {vcf_path}")
-            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
-
-        try:
-            with open(vcf_path, "r", encoding="utf-8") as fh:
-                text = fh.read()
-        except Exception as exc:
-            _log(f"Could not read vCard file: {exc}")
-            return {
-                "imported": 0,
-                "skipped": 0,
-                "errors": [{"stage": "read", "error": str(exc)}],
-                "deleted": 0,
-            }
-
-        if not text.strip():
-            _log("vCard file is empty.")
-            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+        text = ""
+        if os.path.isfile(vcf_path):
+            try:
+                with open(vcf_path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+            except Exception as exc:
+                _log(f"Could not read vCard file: {exc}")
+                # Don't bail: still try the abcddb fallback below so a
+                # broken vcf path doesn't strand the customer with zero
+                # contacts when the on-disk AddressBook has thousands.
+                text = ""
+        else:
+            _log(f"vCard file not found: {vcf_path}; will try AddressBook fallback.")
 
         # Split the concatenated multi-vCard file. iCloud's export glues
         # BEGIN:VCARD ... END:VCARD blocks together with no separator
         # other than the newline before the next BEGIN.
         vcard_pattern = re.compile(r"BEGIN:VCARD.*?END:VCARD", re.DOTALL)
-        vcard_texts = vcard_pattern.findall(text)
+        vcard_texts = vcard_pattern.findall(text) if text.strip() else []
         total = len(vcard_texts)
-        _log(f"Found {total} vCards in {vcf_path}.")
+        if total > 0:
+            _log(f"Found {total} vCards in {vcf_path}.")
+
+        # Fallback: read directly from ~/Library/Application Support/
+        # AddressBook/Sources/<UUID>/AddressBook-v22.abcddb. The osascript
+        # vcf export the installer runs ahead of this step can produce
+        # an empty file (no error code) when Contacts.app TCC hasn't
+        # been granted to osascript even though Contacts data exists
+        # locally. Reading the abcddb sqlite directly bypasses the
+        # AppleEvent route and only needs Full Disk Access, which is
+        # already required for the Mail / Calendar / iMessage paths.
+        # macOS 15+ stores per-account contact stores under Sources/
+        # (one UUID dir per account); the top-level AddressBook-v22.abcddb
+        # only holds the local-only "On My Mac" address book and is
+        # typically near-empty on iCloud-only customers.
+        if total == 0:
+            try:
+                abcddb_vcards = self._read_abcddb_as_vcards()
+            except Exception as exc:
+                _log(f"AddressBook fallback failed: {exc}")
+                abcddb_vcards = []
+            if abcddb_vcards:
+                vcard_texts = abcddb_vcards
+                total = len(vcard_texts)
+                _log(f"Found {total} contacts in AddressBook (fallback path).")
 
         if total == 0:
+            _log("No vCards in file and AddressBook fallback returned 0.")
             return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
 
         counts = {"person": 0, "business": 0, "unclassified": 0, "errors": 0}
@@ -431,6 +450,218 @@ class ContactSyncer:
         }
 
     # -- helpers --------------------------------------------------------------
+
+    def _read_abcddb_as_vcards(self) -> List[str]:
+        """Read every populated AddressBook-v22.abcddb under ~/Library
+        and synthesise minimal vCard 3.0 text per record so the existing
+        vcard_parser path can ingest them.
+
+        On macOS 15+ the iCloud account writes its contacts under
+        ~/Library/Application Support/AddressBook/Sources/<UUID>/
+        AddressBook-v22.abcddb. The top-level AddressBook-v22.abcddb
+        only holds the local-only "On My Mac" address book and is
+        usually near-empty (e.g. 2 rows on a fresh iCloud customer
+        whose 2400 contacts live entirely under Sources/).
+
+        Each ZABCDRECORD row has first/middle/last name, organisation,
+        title, email addresses, phone numbers, postal addresses, and a
+        UID. We pull those into vCard form. Anything we can't read is
+        skipped silently so one corrupt source doesn't strand the rest.
+        """
+        import glob
+        import sqlite3 as _sqlite3
+        from pathlib import Path
+
+        ab_root = Path.home() / "Library" / "Application Support" / "AddressBook"
+        if not ab_root.exists():
+            return []
+
+        # Collect every abcddb. Walk Sources/ subdirs in addition to
+        # the top-level file so per-account stores are unioned.
+        db_paths: List[Path] = []
+        top = ab_root / "AddressBook-v22.abcddb"
+        if top.is_file() and top.stat().st_size > 0:
+            db_paths.append(top)
+        sources = ab_root / "Sources"
+        if sources.is_dir():
+            for p in sorted(sources.glob("*/AddressBook-v22.abcddb")):
+                if p.is_file() and p.stat().st_size > 0:
+                    db_paths.append(p)
+
+        if not db_paths:
+            return []
+
+        vcards: List[str] = []
+        for db_path in db_paths:
+            try:
+                conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                conn.row_factory = _sqlite3.Row
+            except _sqlite3.OperationalError as exc:
+                logger.warning("Cannot open %s: %s", db_path, exc)
+                continue
+            try:
+                # ZABCDRECORD columns vary across macOS versions; some
+                # builds split birthday into year/month/day, others
+                # store a single ZBIRTHDAY date. Detect what is
+                # actually present before building the query so we
+                # never blow up the whole DB read for one missing col.
+                avail = set()
+                try:
+                    info = conn.execute(
+                        "PRAGMA table_info(ZABCDRECORD)"
+                    ).fetchall()
+                    avail = {row["name"] for row in info}
+                except _sqlite3.OperationalError as exc:
+                    logger.warning("PRAGMA failed on %s: %s", db_path, exc)
+                    conn.close()
+                    continue
+                if "Z_PK" not in avail or "ZUNIQUEID" not in avail:
+                    logger.warning("ZABCDRECORD missing core cols in %s", db_path)
+                    conn.close()
+                    continue
+
+                def _col(name: str, alias: str) -> str:
+                    return f"{name} as {alias}" if name in avail else f"NULL as {alias}"
+
+                sel = ", ".join([
+                    _col("ZUNIQUEID", "uid"),
+                    _col("ZFIRSTNAME", "first"),
+                    _col("ZMIDDLENAME", "middle"),
+                    _col("ZLASTNAME", "last"),
+                    _col("ZORGANIZATION", "org"),
+                    _col("ZJOBTITLE", "title"),
+                    _col("ZNOTE", "note"),
+                    _col("ZBIRTHDAYYEAR", "birth_year"),
+                    _col("ZBIRTHDAYMONTH", "birth_month"),
+                    _col("ZBIRTHDAYDAY", "birth_day"),
+                    _col("ZBIRTHDAY", "birth_day_only"),
+                    _col("Z_PK", "pk"),
+                ])
+                try:
+                    rows = conn.execute(
+                        f"SELECT {sel} FROM ZABCDRECORD"
+                    ).fetchall()
+                except _sqlite3.OperationalError as exc:
+                    logger.warning("ZABCDRECORD read failed in %s: %s", db_path, exc)
+                    conn.close()
+                    continue
+
+                # Pre-fetch emails + phones + addresses for all rows
+                # in this DB, then group by parent PK. One pass each
+                # rather than N queries.
+                emails_by_pk: Dict[int, List[str]] = {}
+                try:
+                    for er in conn.execute(
+                        "SELECT ZOWNER as pk, ZADDRESS as addr FROM ZABCDEMAILADDRESS"
+                    ).fetchall():
+                        if er["addr"]:
+                            emails_by_pk.setdefault(er["pk"], []).append(str(er["addr"]))
+                except _sqlite3.OperationalError:
+                    pass
+
+                phones_by_pk: Dict[int, List[str]] = {}
+                try:
+                    for pr in conn.execute(
+                        "SELECT ZOWNER as pk, ZFULLNUMBER as num FROM ZABCDPHONENUMBER"
+                    ).fetchall():
+                        if pr["num"]:
+                            phones_by_pk.setdefault(pr["pk"], []).append(str(pr["num"]))
+                except _sqlite3.OperationalError:
+                    pass
+
+                def _s(v) -> str:
+                    if v is None:
+                        return ""
+                    try:
+                        return str(v).strip()
+                    except Exception:
+                        return ""
+
+                for r in rows:
+                    pk = r["pk"]
+                    first = _s(r["first"])
+                    middle = _s(r["middle"])
+                    last = _s(r["last"])
+                    org = _s(r["org"])
+                    title = _s(r["title"])
+                    note = _s(r["note"])
+                    uid = _s(r["uid"])
+
+                    name_parts = [p for p in (first, middle, last) if p]
+                    fn = " ".join(name_parts) or org
+                    if not fn:
+                        continue  # Skip rows with no displayable identity.
+
+                    lines = ["BEGIN:VCARD", "VERSION:3.0"]
+                    lines.append(f"FN:{fn}")
+                    # N: Last;First;Middle;;
+                    lines.append(f"N:{last};{first};{middle};;")
+                    if org:
+                        lines.append(f"ORG:{org}")
+                    if title:
+                        lines.append(f"TITLE:{title}")
+                    for em in emails_by_pk.get(pk, []):
+                        lines.append(f"EMAIL;TYPE=INTERNET:{em}")
+                    for ph in phones_by_pk.get(pk, []):
+                        lines.append(f"TEL:{ph}")
+                    if note:
+                        # vCard NOTE wants newlines escaped.
+                        escaped = note.replace("\\", "\\\\").replace("\n", "\\n")
+                        lines.append(f"NOTE:{escaped}")
+                    try:
+                        by = r["birth_year"]
+                        bm = r["birth_month"]
+                        bd = r["birth_day"]
+                    except (KeyError, IndexError):
+                        by = bm = bd = None
+                    if by and bm and bd:
+                        try:
+                            lines.append(
+                                f"BDAY:{int(by):04d}-{int(bm):02d}-{int(bd):02d}"
+                            )
+                        except (TypeError, ValueError):
+                            pass
+                    else:
+                        # Alternative schema: ZBIRTHDAY single
+                        # NSDate (Cocoa epoch 2001-01-01).
+                        try:
+                            raw = r["birth_day_only"]
+                        except (KeyError, IndexError):
+                            raw = None
+                        if raw:
+                            try:
+                                from datetime import datetime as _dt, timedelta as _td
+                                cocoa = _dt(2001, 1, 1) + _td(seconds=float(raw))
+                                lines.append(
+                                    f"BDAY:{cocoa.year:04d}-{cocoa.month:02d}-{cocoa.day:02d}"
+                                )
+                            except (TypeError, ValueError):
+                                pass
+                    if uid:
+                        lines.append(f"UID:{uid}")
+                    lines.append("END:VCARD")
+                    vcards.append("\n".join(lines))
+            except Exception as exc:
+                logger.warning("Failed to read contacts from %s: %s", db_path, exc)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        # Dedup across source DBs by UID. Without this, contacts that
+        # appear in both the local-only AddressBook and an iCloud Source
+        # would import twice.
+        seen_uids: set = set()
+        deduped: List[str] = []
+        for vc in vcards:
+            m = re.search(r"^UID:(.+)$", vc, re.MULTILINE)
+            key = (m.group(1).strip() if m else vc[:200])
+            if key in seen_uids:
+                continue
+            seen_uids.add(key)
+            deduped.append(vc)
+        return deduped
 
     def _build_description(
         self, parsed: Dict[str, Any], facts: Optional[List[str]] = None

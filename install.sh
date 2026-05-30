@@ -1252,17 +1252,47 @@ _store_populated_mail() {
     return 1
 }
 
-# Calendar: Calendar Cache row count > 0 OR any *.calendar dir with a
-# .ics file inside. macOS Sequoia 15.x writes to ~/Library/Calendars/
-# Calendar Cache; older macOS uses Calendar.sqlitedb. Both checked.
+# Calendar: CalendarItem row count > 0 OR any *.calendar dir with a
+# .ics file inside.
+#
+# CX-106b (DMG #48n, 2026-05-30): macOS 15 (Sequoia) + macOS 26 (Tahoe)
+# moved the live Calendar.sqlitedb under Group Containers. The pre-fix
+# probe checked only ~/Library/Calendars/{Calendar Cache,Calendar.sqlitedb}.
+# On Sequoia that path holds a 0-byte placeholder "Calendar Cache"
+# file and no Calendar.sqlitedb at all; on Tahoe the directory only
+# holds the "Calendar Sync Changes" subdir. Both probes returned 1
+# (empty) for every customer with a fully-populated calendar, which
+# forced state-2 wait + APPS_TO_OPEN+="Calendar" on every install and
+# made the hydrate step think no calendar data existed.
+#
+# Real probe path on Sequoia 15.6.1 + Tahoe 26.4.1 (verified 2026-05-30):
+#   ~/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb
+#
+# Probe order: new Group Containers DB first, legacy Calendars dir
+# DBs second, .ics fallback last. Same return contract (0 = populated,
+# 1 = empty). All sqlite3 errors swallowed and routed to /dev/null so
+# a missing CalendarItem table on an unknown macOS variant degrades
+# to "fall through to next fallback" rather than dirtying stdout.
 _store_populated_calendar() {
-    local cal_dir="${HOME}/Library/Calendars"
-    [[ -d "$cal_dir" ]] || return 1
-    local cache="$cal_dir/Calendar Cache"
-    local sqlitedb="$cal_dir/Calendar.sqlitedb"
     local probe_db=""
-    [[ -f "$cache" ]] && probe_db="$cache"
-    [[ -z "$probe_db" && -f "$sqlitedb" ]] && probe_db="$sqlitedb"
+
+    # New path (Sequoia 15+ / Tahoe 26+).
+    local gc_db="${HOME}/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb"
+    if [[ -f "$gc_db" ]] && [[ -s "$gc_db" ]]; then
+        probe_db="$gc_db"
+    fi
+
+    # Legacy fallbacks (Sonoma 14 and earlier).
+    local legacy_dir="${HOME}/Library/Calendars"
+    local legacy_cache="$legacy_dir/Calendar Cache"
+    local legacy_sqlitedb="$legacy_dir/Calendar.sqlitedb"
+    if [[ -z "$probe_db" ]] && [[ -f "$legacy_cache" ]] && [[ -s "$legacy_cache" ]]; then
+        probe_db="$legacy_cache"
+    fi
+    if [[ -z "$probe_db" ]] && [[ -f "$legacy_sqlitedb" ]] && [[ -s "$legacy_sqlitedb" ]]; then
+        probe_db="$legacy_sqlitedb"
+    fi
+
     if [[ -n "$probe_db" ]]; then
         local n
         n="$(sqlite3 "file:${probe_db}?mode=ro" -bail \
@@ -1271,8 +1301,12 @@ _store_populated_calendar() {
         [[ "$n" =~ ^[0-9]+$ ]] || n=0
         [[ "$n" -gt 0 ]] && return 0
     fi
-    # Fallback: any .ics under any .calendar bundle
-    if find "$cal_dir" -maxdepth 3 -type f -name '*.ics' -print -quit 2>/dev/null | grep -q .; then
+
+    # Fallback: any .ics under any .calendar bundle in the legacy dir.
+    # Pre-Sequoia Calendar.app wrote per-event .ics files here; newer
+    # macOS versions don't, but the probe is cheap and safe.
+    if [[ -d "$legacy_dir" ]] && \
+       find "$legacy_dir" -maxdepth 3 -type f -name '*.ics' -print -quit 2>/dev/null | grep -q .; then
         return 0
     fi
     return 1
@@ -6656,6 +6690,25 @@ if [[ "$HAS_PIPELINE" == true ]]; then
             fail_with_code "ERR-14-PIPELINE-PIP" "$MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED"
         fi
         ln -sf "${CONFIG_DIR}/.env" contact_syncer/.env 2>/dev/null || true
+
+        # CX-117 (2026-05-30): drop a .pth file into the venv that points
+        # at ~/.ostler/fda-module/ so the bundled ostler_fda package is
+        # importable from this venv's python. Without it, hydrate_calendar
+        # / hydrate_photos / hydrate_mail_contacts all silently fail with
+        # ModuleNotFoundError (each wrapped in try/except, prints empty
+        # JSON, customer sees "0 events / 0 photos / 0 contacts" despite
+        # having events/photos/contacts on their Mac). The fda-module
+        # directory is staged at Phase 3.X (`fda_extract` step) which runs
+        # BEFORE this step in the install sequence, so the path always
+        # exists by the time the .pth file is read. Mirrors the
+        # `sys.path.insert(0, '${FDA_DIR}')` shim in ostler-fda CLI at
+        # line ~7128.
+        _SITE_PACKAGES="$(.venv/bin/python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])' 2>/dev/null || echo "")"
+        if [[ -n "$_SITE_PACKAGES" && -d "$_SITE_PACKAGES" ]]; then
+            printf '%s\n' "${OSTLER_DIR}/fda-module" > "${_SITE_PACKAGES}/ostler_fda.pth"
+        fi
+        unset _SITE_PACKAGES
+
         ok "$MSG_OK_IMPORT_PIPELINE_READY"
     fi
 fi
@@ -10238,24 +10291,76 @@ TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setu
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
-        # CX-105 (DMG #48k, 2026-05-29): Tailscale install via
-        # `brew install --cask` fails on fresh Macs because the
-        # CX-25 manual-tarball Homebrew install path leaves brew
-        # as "shallow or no git repository", which breaks cask
-        # tap resolution. Tailscale is recoverable: the iOS
-        # Companion works on the local LAN without it, and the
-        # customer can install Tailscale from tailscale.com any
-        # time. Convert the fail-loud to warn-and-continue so the
-        # rest of the install can complete; surface a clear next
-        # step rather than blocking shipping. Proper fix in v1.0.1
-        # (replace tarball brew with git-clone or skip brew for
-        # this step entirely).
-        if brew install --cask tailscale 2>&1; then
+        # CX-106 (DMG #48l, 2026-05-30): Tailscale install via
+        # `brew install --cask` fails on the customer install path
+        # because brew shells out to `/usr/bin/sudo -u root -E ...
+        # /usr/sbin/installer -pkg ...` from a child Ruby process
+        # that cannot see the install.sh sudo cache, and the GUI
+        # subprocess has no TTY for sudo to prompt on. brew prints:
+        #   sudo: a terminal is required to read the password;
+        #   either use the -S option to read from standard input
+        #   or configure an askpass helper
+        # The CX-105 brew-as-cask fail-loud-to-warn cleanup was
+        # correct in spirit but masked the real bug. CX-106 fix:
+        # bypass brew entirely. Download the official Tailscale
+        # .pkg straight from pkgs.tailscale.com and run the .pkg
+        # installer.
+        #
+        # CX-106b (DMG #48n, 2026-05-30): the original CX-106 used
+        # `sudo -n installer -pkg` and relied on a sudo cache the
+        # GUI install path never warms. Under OSTLER_GUI=1 the
+        # parent .app's AuthorizationHelper deliberately does NOT
+        # seed install.sh's sudo timestamp (Sequoia sudo 1.9.x
+        # tuple-keyed timestamps no longer accept the touch-based
+        # seed). Result: `sudo -n` fails immediately, the warn
+        # fires, and the customer's iOS Companion has no remote
+        # path to the Hub. Fix: escalate via osascript's `with
+        # administrator privileges` which surfaces a native macOS
+        # admin dialog in-process. TTY-mode installs (rare) fall
+        # back to the warmed SUDO_KEEPALIVE cache via `sudo -n`.
+        #
+        # Tailscale stays "nice to have" -- any failure logs and
+        # continues; iOS Companion works on local LAN without it.
+        TS_PKG_URL="https://pkgs.tailscale.com/stable/Tailscale-latest-macos.pkg"
+        TS_PKG_PATH="${TMPDIR:-/tmp}/ostler-tailscale-install.pkg"
+        TS_LOG_PATH="${TMPDIR:-/tmp}/ostler-tailscale-install.log"
+        TS_INSTALLED=0
+        if curl -fsSL --connect-timeout 10 --max-time 120 \
+                -o "$TS_PKG_PATH" "$TS_PKG_URL" 2>>"$TS_LOG_PATH"; then
+            # GUI path: escalate via osascript so macOS surfaces a
+            # native admin dialog without a TTY. TTY/CLI path: use
+            # the warmed sudo cache from SUDO_KEEPALIVE (line 4400).
+            if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+                # osascript single-quote shell escape: replace each
+                # ' inside the script body with '\'' so the outer
+                # single-quotes in the AppleScript literal stay
+                # balanced. Path is /tmp-anchored so no whitespace
+                # or shell metachars in practice, but escape anyway.
+                _ts_pkg_escaped="${TS_PKG_PATH//\'/\'\\\'\'}"
+                _ts_cmd="/usr/sbin/installer -pkg '${_ts_pkg_escaped}' -target /"
+                if /usr/bin/osascript \
+                        -e "do shell script \"${_ts_cmd}\" with administrator privileges with prompt \"Ostler needs administrator access to install Tailscale (used to reach your Hub from your iPhone).\"" \
+                        >>"$TS_LOG_PATH" 2>&1; then
+                    TS_INSTALLED=1
+                else
+                    warn "Tailscale installer step failed (admin prompt declined or installer error) -- see $TS_LOG_PATH"
+                fi
+                unset _ts_pkg_escaped _ts_cmd
+            else
+                if sudo -n installer -pkg "$TS_PKG_PATH" -target / \
+                        >>"$TS_LOG_PATH" 2>&1; then
+                    TS_INSTALLED=1
+                else
+                    warn "Tailscale installer step failed -- see $TS_LOG_PATH"
+                fi
+            fi
+        else
+            warn "Tailscale download failed -- see $TS_LOG_PATH"
+        fi
+        rm -f "$TS_PKG_PATH" 2>/dev/null || true
+        if [[ $TS_INSTALLED -eq 1 && -d "/Applications/Tailscale.app" ]]; then
             ok "$MSG_OK_TAILSCALE_INSTALLED"
         else
-            warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
-        fi
-        if [[ ! -d "/Applications/Tailscale.app" ]]; then
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
             OSTLER_TAILSCALE_SKIPPED=1
         fi
@@ -10917,6 +11022,10 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     # under ~/.ostler/imports/fda/ for the pwg_ingest step to read.
     # T3 chats are filtered at the extractor's JSON-write boundary,
     # so a subsequent ingest cannot accidentally emit T3 triples.
+    # CX-116 (2026-05-30): wrap the command substitution in
+    # `|| _HYDRATE_WHATSAPP_JSON=""` so set -e + pipefail does not
+    # kill install.sh if the extractor exits non-zero (missing
+    # ostler_fda module, ChatStorage.sqlite locked, etc.).
     _HYDRATE_WHATSAPP_JSON="$(
         OXIGRAPH_URL="$_HYDRATE_OXIGRAPH_WA" $_HYDRATE_WHATSAPP_TIMEOUT_WRAP \
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.whatsapp_history \
@@ -10924,7 +11033,7 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
             --since-days 365 \
             2>>"$_HYDRATE_WHATSAPP_LOG" \
         | tail -n 1
-    )"
+    )" || _HYDRATE_WHATSAPP_JSON=""
     rc=$?
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_WHATSAPP_TIMED_OUT=true
@@ -11039,16 +11148,27 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
     # (which would re-emit triples the per-source hydrate_* blocks
     # already wrote). Output is the counts-only JSON pinned by
     # HR015 #134's privacy contract test.
+    # CX-116 (2026-05-30): wrap the import in try/except + the command
+    # substitution in `|| _HYDRATE_BROWSING_JSON=""` so the script does
+    # not die when ingest_browser_history is missing from pwg_ingest.py.
+    # Set -e + pipefail + an unwrapped assignment is what killed the
+    # script at hydrate_browsing in Studio retest #M (DMG #48m).
+    # ingest_browser_history is a v1.0.1 follow-on (CX-86); v1.0 ships
+    # safari/chrome history JSON on disk under ~/.ostler/imports/fda/
+    # but does not yet load it into Qdrant.
     _HYDRATE_BROWSING_JSON="$(
         $_HYDRATE_BROWSING_TIMEOUT_WRAP \
         "$_HYDRATE_BROWSING_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_browser_history
-result = ingest_browser_history(Path('${_HYDRATE_BROWSING_FDA_DIR}'))
-print(json.dumps(result))
+try:
+    from ostler_fda.pwg_ingest import ingest_browser_history
+    result = ingest_browser_history(Path('${_HYDRATE_BROWSING_FDA_DIR}'))
+    print(json.dumps(result))
+except Exception as exc:
+    print(json.dumps({'status': 'error', 'error': type(exc).__name__, 'sent': 0, 'skipped_sensitive': 0}))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
-    )"
+    )" || _HYDRATE_BROWSING_JSON=""
     rc=$?
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_BROWSING_TIMED_OUT=true
@@ -11165,16 +11285,24 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
     # re-emit triples for whatsapp / browser_history / etc whose
     # JSON also lives in the same fda_dir. Mirrors hydrate_browsing's
     # invocation shape (CX-86 #181).
+    # CX-116 (2026-05-30): wrap the import + call in try/except + the
+    # command substitution in `|| _HYDRATE_IMESSAGE_JSON_OUT=""` so the
+    # script does not die if ingest_imessage raises (missing module,
+    # malformed JSON, Oxigraph unreachable). Mirrors hydrate_browsing's
+    # CX-116 hardening shape.
     _HYDRATE_IMESSAGE_JSON_OUT="$(
         $_HYDRATE_IMESSAGE_TIMEOUT_WRAP \
         "$_HYDRATE_IMESSAGE_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_imessage
-result = ingest_imessage(Path('${_HYDRATE_IMESSAGE_FDA_DIR}'))
-print(json.dumps(result))
+try:
+    from ostler_fda.pwg_ingest import ingest_imessage
+    result = ingest_imessage(Path('${_HYDRATE_IMESSAGE_FDA_DIR}'))
+    print(json.dumps(result))
+except Exception as exc:
+    print(json.dumps({'status': 'error', 'error': type(exc).__name__, 'people_created': 0, 'people_enriched': 0}))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
-    )"
+    )" || _HYDRATE_IMESSAGE_JSON_OUT=""
     rc=$?
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_IMESSAGE_TIMED_OUT=true
@@ -11309,12 +11437,21 @@ if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
         _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
     fi
 
+    # CX-116 (2026-05-30): pull the import INSIDE the try block. The
+    # pre-fix code put `from ostler_fda.pwg_ingest import ingest_browser_history`
+    # OUTSIDE the try, so an ImportError raised at module-load time
+    # (ingest_browser_history is a v1.0.1 follow-on; ships missing from
+    # the v1.0 pwg_ingest.py) crashed before the except clause could
+    # catch it. The `|| true` on the outer pipeline saved us THIS time
+    # because this is a bare statement (not an assignment), but the
+    # consistent shape across every hydrate_* + initial_hydrate is to
+    # keep imports inside try/except for resilience to v1.0.x churn.
     $_INITIAL_HYDRATE_TIMEOUT_WRAP \
     "$_INITIAL_HYDRATE_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_browser_history
 try:
+    from ostler_fda.pwg_ingest import ingest_browser_history
     result = ingest_browser_history(Path('${_INITIAL_HYDRATE_FDA_DIR}'))
     print(json.dumps(result))
 except Exception as exc:
