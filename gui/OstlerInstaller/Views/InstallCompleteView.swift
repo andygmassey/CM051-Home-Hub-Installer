@@ -120,34 +120,18 @@ struct InstallCompleteView: View {
 
             Divider()
 
-            // Per-service summary. Reads from logLines so the panel
-            // reflects the actual probes (not a hardcoded list).
-            VStack(alignment: .leading, spacing: .ostlerSpace1) {
-                Text(ViewCopy.shared.string(for: "install_complete.health_check_label"))
-                    .font(.ostlerStrap)
-                    .tracking(1.2)
-                    .foregroundStyle(Color.ostlerInkMuted)
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(serviceChecks) { check in
-                        HStack(spacing: .ostlerSpace2) {
-                            Image(systemName: check.status == .ok
-                                  ? "checkmark.circle.fill"
-                                  : "exclamationmark.triangle.fill")
-                                .foregroundStyle(check.status == .ok
-                                                 ? Color.ostlerForest
-                                                 : Color.ostlerOxbloodWarm)
-                                .frame(width: 18)
-                            Text(check.label)
-                                .font(.ostlerBody)
-                                .foregroundStyle(Color.ostlerInk)
-                            Spacer()
-                            Text(check.status == .ok ? "OK" : "see log")
-                                .font(.ostlerCaption)
-                                .foregroundStyle(Color.ostlerInkSubdued)
-                        }
-                    }
-                }
-                .padding(.vertical, .ostlerSpace1)
+            // CX-120 (DMG #48s, 2026-05-30): on the green path (all
+            // health probes OK) replace the per-service tick list with
+            // a what-happens-next panel. The checklist was useful as a
+            // diagnostic but most customers don't need it — the real
+            // estate is better spent telling them where their data
+            // lands, that hydration takes time, and how to get the
+            // iOS app. The checklist still renders when any probe is
+            // .warn so the customer can spot trouble.
+            if serviceChecks.allSatisfy({ $0.status == .ok }) {
+                whatsNextSection
+            } else {
+                healthCheckList
             }
 
             Divider()
@@ -208,6 +192,117 @@ struct InstallCompleteView: View {
             // disappear, and guards against double-fires if the
             // view rebuilds for an unrelated reason.
             await fetchPairCode()
+        }
+    }
+
+    // ── CX-120 what-happens-next (green-path replacement) ─────────────
+
+    @ViewBuilder
+    private var whatsNextSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(ViewCopy.shared.string(for: "install_complete.whats_next_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+
+            whatsNextItem(
+                icon: "clock.badge",
+                titleKey: "install_complete.whats_next_hydration_title",
+                bodyKey: "install_complete.whats_next_hydration_body"
+            )
+
+            whatsNextItem(
+                icon: "iphone",
+                titleKey: "install_complete.whats_next_ios_title",
+                bodyKey: "install_complete.whats_next_ios_body",
+                cta: (
+                    titleKey: "install_complete.whats_next_ios_button",
+                    action: openAppStorePlaceholder
+                )
+            )
+
+            whatsNextItem(
+                icon: "folder",
+                titleKey: "install_complete.whats_next_files_title",
+                bodyKey: "install_complete.whats_next_files_body"
+            )
+        }
+        .padding(.vertical, .ostlerSpace1)
+    }
+
+    @ViewBuilder
+    private func whatsNextItem(
+        icon: String,
+        titleKey: String,
+        bodyKey: String,
+        cta: (titleKey: String, action: () -> Void)? = nil
+    ) -> some View {
+        HStack(alignment: .top, spacing: .ostlerSpace2) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(Color.ostlerOxblood)
+                .frame(width: 22, alignment: .center)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ViewCopy.shared.string(for: titleKey))
+                    .font(.ostlerH2)
+                    .foregroundStyle(Color.ostlerInk)
+                Text(ViewCopy.shared.string(for: bodyKey))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let cta {
+                    Button(action: cta.action) {
+                        Text(ViewCopy.shared.string(for: cta.titleKey))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// CX-120 placeholder: until the iOS app is live on the App Store,
+    /// the "Download" button opens the marketing page instead. Swap to
+    /// the real itms-apps:// deep-link once App Store Connect approves
+    /// the binary.
+    private func openAppStorePlaceholder() {
+        if let url = URL(string: "https://ostler.ai/ios") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @ViewBuilder
+    private var healthCheckList: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace1) {
+            Text(ViewCopy.shared.string(for: "install_complete.health_check_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(serviceChecks) { check in
+                    HStack(spacing: .ostlerSpace2) {
+                        Image(systemName: check.status == .ok
+                              ? "checkmark.circle.fill"
+                              : "exclamationmark.triangle.fill")
+                            .foregroundStyle(check.status == .ok
+                                             ? Color.ostlerForest
+                                             : Color.ostlerOxbloodWarm)
+                            .frame(width: 18)
+                        Text(check.label)
+                            .font(.ostlerBody)
+                            .foregroundStyle(Color.ostlerInk)
+                        Spacer()
+                        Text(check.status == .ok ? "OK" : "see log")
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerInkSubdued)
+                    }
+                }
+            }
+            .padding(.vertical, .ostlerSpace1)
         }
     }
 

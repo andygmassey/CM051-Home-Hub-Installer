@@ -254,10 +254,18 @@
   },
 
   "install_complete": {
-    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the per-service health-check tick list; CTAs sit in the sticky footer.",
+    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the what-happens-next panel (which shows on a clean install) or the health-check tick list (which shows on warn). CTAs sit in the sticky footer. CX-120 (DMG #48s, 2026-05-30): swap-out of the always-visible health-check list for a what-happens-next section on the green-path; checklist still renders on warn so the customer can spot trouble.",
     "heading": "You're all set",
-    "subheading": "Ostler is running on this Mac. Everything you need is set up; you can close this window.",
+    "subheading": "Ostler is running on this Mac. The rest of this page is a quick guide to what happens next.",
     "health_check_label": "Health check",
+    "whats_next_label": "What happens next",
+    "whats_next_hydration_title": "Your wiki is still building",
+    "whats_next_hydration_body": "Ostler is reading your local mail, calendar, contacts and messages right now. Your wiki, search and assistant get more useful as more data lands. Most of the heavy lifting finishes in the first 15 to 30 minutes; some sources (full mail history, older calendars) keep filling in over the next few hours in the background.",
+    "whats_next_ios_title": "Get Ostler on your iPhone",
+    "whats_next_ios_body": "Download the Ostler app on the App Store to chat with your assistant, ask about people you know, and capture quick notes from anywhere. Use the QR code below to pair this Mac.",
+    "whats_next_ios_button": "Download on the App Store",
+    "whats_next_files_title": "Find your data on disk",
+    "whats_next_files_body": "Open ~/Documents/Ostler in Finder for plain-text copies of your meeting notes, briefs and conversation summaries.",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki"
   },

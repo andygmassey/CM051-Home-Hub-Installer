@@ -9549,55 +9549,57 @@ else
     sleep 2
 
     if [[ -f "$_imessage_chat_db_path" ]]; then
-        # sqlite3 ships with macOS. URI mode + ro lets us probe
-        # without locking the database against Messages.app.
-        if sqlite3 -readonly \
-                "file:${_imessage_chat_db_path}?mode=ro" \
-                "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+        # ── CX-118 (DMG #48s, 2026-05-30): daemon FDA is the only gate ──
+        #
+        # Earlier builds ran a chat.db sqlite3 probe FIRST and treated
+        # success as proof the daemon had FDA. That was wrong by design:
+        # install.sh inherits OstlerInstaller.app's TCC posture, so the
+        # probe succeeded whenever the installer had FDA — even on a
+        # fresh Mac where the daemon binary had zero TCC grants. Effect:
+        # the assist dialog never fired, daemon couldn't read chat.db,
+        # iMessage channel restarted every 60s forever, customer's wiki
+        # only ever ingested iMessage-derived people. Confirmed on
+        # Studio retest of #48r (15:05:57 install reported "Assistant
+        # can read Messages history" while daemon log showed continuous
+        # "unable to open database file" errors).
+        #
+        # Fix: query the system TCC.db directly for the DAEMON's actual
+        # auth_value. That's the only check that tests the daemon's
+        # posture, not the installer's. If sudo cache is expired the
+        # check is inconclusive — in that case we ALWAYS show the
+        # assist dialog (better than silently shipping a broken Hub).
+        #
+        # v0.4.3+ shape: the daemon is launched from inside
+        # OstlerAssistant.app/Contents/MacOS/, so macOS TCC keys the
+        # client column by the bundle identifier (ai.ostler.assistant)
+        # — the same value the bundle declares in Info.plist
+        # CFBundleIdentifier. We check both the bundle-ID form
+        # (v0.4.3+) AND the legacy bare-binary path (in case a
+        # customer still has an old FDA grant against the bare-binary
+        # client). Either form returning 2 means "granted".
+        _daemon_fda_auth=""
+        if command -v sudo >/dev/null 2>&1; then
+            _daemon_fda_auth="$(
+                sudo -n sqlite3 \
+                    "/Library/Application Support/com.apple.TCC/TCC.db" \
+                    "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
+                    2>/dev/null || true
+            )"
+        fi
+        if [[ "$_daemon_fda_auth" == "2" ]]; then
             _imessage_fda_needed="false"
-            info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
+            info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
+            launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+            unset _daemon_fda_auth
         else
+            unset _daemon_fda_auth
             info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
-            # ── CX-78c (DMG #45, 2026-05-25): daemon-TCC pre-probe ──
-            #
-            # The chat.db probe above runs as install.sh, which
-            # inherits OstlerInstaller.app's TCC posture — *not*
-            # ostler-assistant's. If the customer granted FDA to
-            # the daemon on a previous install but never to
-            # OstlerInstaller.app, the probe returns a false
-            # negative and the assist dialog fires unnecessarily.
-            # Query the system TCC.db directly via sudo to read
-            # the daemon's actual auth_value. auth_value 2 means
-            # allowed. Best-effort: if sudo prompt would be
-            # needed (cache expired) we silently fall through to
-            # the dialog path; net effect is no worse than the
-            # pre-CX-78c behaviour.
-            #
-            # v0.4.3+ shape: the daemon is launched from inside
-            # OstlerAssistant.app/Contents/MacOS/, so macOS TCC
-            # keys the client column by the bundle identifier
-            # (ai.ostler.assistant) -- the same value the bundle
-            # declares in Info.plist CFBundleIdentifier. We
-            # check both the bundle-ID form (v0.4.3+) AND the
-            # legacy bare-binary path (in case a customer still
-            # has an old FDA grant against the bare-binary
-            # client). Either form returning 2 means "granted".
-            _daemon_fda_auth=""
-            if command -v sudo >/dev/null 2>&1; then
-                _daemon_fda_auth="$(
-                    sudo -n sqlite3 \
-                        "/Library/Application Support/com.apple.TCC/TCC.db" \
-                        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
-                        2>/dev/null || true
-                )"
-            fi
-            if [[ "$_daemon_fda_auth" == "2" ]]; then
-                _imessage_fda_needed="false"
-                info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
-                launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
-                unset _daemon_fda_auth
-            else
-                unset _daemon_fda_auth
+            # ── CX-78c (DMG #45, 2026-05-25): legacy structural marker ──
+            # Originally this block was the fallback after a chat.db
+            # sqlite3 probe. CX-118 promoted the TCC.db check to be
+            # the primary gate; the assist dialog below is now the
+            # default path whenever the daemon isn't confirmed granted.
+            if true; then
                 # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
                 #
                 # macOS TCC grants Full Disk Access per-binary; there's
@@ -10642,7 +10644,41 @@ end tell" 2>"$_CONTACTS_STDERR" || true
     fi
 fi
 
-if [[ -s "$_HYDRATE_VCF" ]] && [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+# CX-121 (DMG #48s, 2026-05-30): always call the syncer.
+#
+# Earlier builds gated on `[[ -s "$_HYDRATE_VCF" ]]` — if the osascript
+# Contacts export wrote NO content, the syncer was NEVER invoked and
+# the customer's wiki ended up with zero contacts. This is exactly
+# what bit Studio retest of #48r: the osascript failed with -600
+# ("Contacts got an error: Application isn't running") on a clean
+# Mac where Contacts.app hadn't been launched yet. install.sh fell
+# through to the "PENDING" copy and told the customer to open
+# Contacts and re-run from Settings — even though the local
+# AddressBook stores at ~/Library/Application Support/AddressBook/
+# Sources/<UUID>/AddressBook-v22.abcddb held all 2,418 of the
+# customer's contacts, fully synced from iCloud, ready to harvest.
+#
+# Fix: always call contact_syncer.syncer if the pipeline venv exists.
+# The syncer's _read_abcddb_as_vcards() fallback opens those sqlite
+# stores directly and synthesises vCards from ZABCDRECORD — no
+# osascript, no Contacts.app dependency. If the VCF is empty (or
+# the file doesn't exist), the syncer falls back to abcddb. If the
+# abcddb is also empty, the syncer reports 0 and we fall through to
+# the same PENDING / DENIED / EMPTY classification as before.
+#
+# osascript stays in place as a "best-effort first pass" — when it
+# works (Contacts.app already running, TCC granted) it produces
+# pre-formatted vCards and the syncer uses them. When it fails, we
+# proceed instead of dead-ending.
+if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+    # Ensure the VCF path exists even if osascript wrote nothing,
+    # so contact_syncer.syncer --vcf has a valid path to open. An
+    # empty file triggers the abcddb fallback inside the syncer.
+    if [[ ! -e "$_HYDRATE_VCF" ]]; then
+        mkdir -p "$(dirname "$_HYDRATE_VCF")"
+        : > "$_HYDRATE_VCF"
+    fi
+
     info "$MSG_HYDRATE_CONTACTS_STARTED"
     # contact_syncer.syncer --vcf emits a single-line JSON status on
     # stdout when it finishes. Progress lines go to stderr so the
@@ -10667,20 +10703,20 @@ except Exception:
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
     elif [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
-        # Contacts Automation TCC denied -- the customer either
-        # declined the Automation prompt or the prompt has not
-        # appeared yet. Tell them how to grant it.
+        # Contacts Automation TCC denied AND abcddb fallback also
+        # produced 0. Tell the customer how to grant Automation.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        # State 2 -- accounts configured but local AB empty.
+        # State 2 — accounts configured but local AB AND abcddb empty.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
     else
-        # State 1 -- no contacts source configured at all.
+        # State 1 — no contacts source configured at all.
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
     fi
 else
-    # No vcf written OR pipeline venv missing. Classify between
-    # TCC denial and genuinely empty using the same probe shape.
+    # Pipeline venv missing — nothing we can do here. Classify between
+    # TCC denial, accounts-but-empty, and genuinely no-source so the
+    # log line at least matches what the customer needs to know.
     if [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then

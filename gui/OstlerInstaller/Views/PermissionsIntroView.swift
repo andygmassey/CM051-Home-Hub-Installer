@@ -107,8 +107,22 @@ struct PermissionsIntroView: View {
 
                 Spacer()
 
-                Button(ViewCopy.shared.string(for: "permissions_prewarm.intro_grant_button")) {
+                Button {
                     coordinator.beginPermissionsPrewarm()
+                } label: {
+                    HStack(spacing: CGFloat.ostlerSpace2) {
+                        // CX-119 (DMG #48s, 2026-05-30): visible feedback while the
+                        // prewarm sequence runs. Each TCC prompt is async and the
+                        // chain takes several seconds; the disable-only state from
+                        // earlier builds made the pause feel dead. ProgressView
+                        // inside the label gives a continuous spinner the customer
+                        // can read as "still working".
+                        if coordinator.permissionsIntroState == .requesting {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(ViewCopy.shared.string(for: "permissions_prewarm.intro_grant_button"))
+                    }
                 }
                 .buttonStyle(.ostlerPrimary)
                 .keyboardShortcut(.defaultAction)

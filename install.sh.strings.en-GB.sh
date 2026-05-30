@@ -797,8 +797,8 @@ MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
 MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
 MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
 
-MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Connect your iPhone and Watch"
-MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale gives this Mac a stable private address your iPhone and Watch can reach from anywhere – encrypted, with no public exposure."
+MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Set up the secure link to your iPhone"
+MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Ostler on your iPhone needs a private way to reach this Mac. We use Tailscale (tailscale.com), a trusted private networking tool used by GitHub, Mozilla, and many engineering teams, to create an encrypted private link between your devices. No public exposure, no shared servers. The next step installs Tailscale and walks you through signing in. macOS will show several Tailscale system prompts asking you to approve a network extension and grant permissions – those come from Tailscale itself, not from Ostler. Accept them to continue."
 
 MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain?"
 MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS Keychain for safekeeping."
