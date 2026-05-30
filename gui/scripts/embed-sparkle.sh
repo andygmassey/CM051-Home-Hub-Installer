@@ -111,7 +111,16 @@ fi
 mkdir -p "$FRAMEWORKS_DIR"
 note "Installing Sparkle.framework into ${FRAMEWORKS_DIR}/"
 rm -rf "${FRAMEWORKS_DIR}/Sparkle.framework"
-cp -R "$SPARKLE_FRAMEWORK_SRC" "${FRAMEWORKS_DIR}/Sparkle.framework"
+# CX-115 (2026-05-30): ditto --noextattr --norsrc is the macOS-
+# canonical way to copy a bundle without inheriting xattrs from the
+# source. cp -R preserves com.apple.FinderInfo + com.apple.fileprovider
+# .fpfs#P metadata that Sparkle's release tarball ships on Updater.app,
+# XPC services, and .nib bundles, which then makes codesign --deep
+# refuse with "resource fork, Finder information, or similar detritus
+# not allowed". ditto produces a structurally identical tree with
+# zero xattrs anywhere (verified: 12 lines under cp -R, 0 lines under
+# ditto, on Sparkle 2.x).
+ditto --noextattr --norsrc "$SPARKLE_FRAMEWORK_SRC" "${FRAMEWORKS_DIR}/Sparkle.framework"
 
 # ── Patch Info.plist ──────────────────────────────────────────
 plist_set() {
@@ -130,6 +139,20 @@ note "Writing SUEnableAutomaticChecks=${SU_ENABLE_AUTO_CHECKS}"
 plist_set "SUEnableAutomaticChecks" bool   "$SU_ENABLE_AUTO_CHECKS"
 note "Writing SUAutomaticallyUpdate=${SU_AUTOMATICALLY_UPDATE}"
 plist_set "SUAutomaticallyUpdate"   bool   "$SU_AUTOMATICALLY_UPDATE"
+
+# ── Strip extended attributes (defence in depth) ──────────────
+# CX-115 (2026-05-30): Even with ditto above, the parent Ostler.app
+# bundle itself may carry com.apple.FinderInfo + com.apple.fileprovider
+# .fpfs#P from the upstream Tauri build. `xattr -cr` does NOT recurse
+# INTO bundle directories (.app, .framework, .xpc, .nib are dirs with
+# a bundle bit; xattr's own recursion stops at the boundary). The
+# find pipeline below traverses every file and directory underneath
+# the .app and clears xattrs from each one. Belt-and-braces with the
+# ditto copy above.
+find "$APP_PATH" \( -type f -o -type d \) -print0 2>/dev/null | \
+    xargs -0 -I{} xattr -c "{}" 2>/dev/null || true
+# Final pass on the bundle root itself (xattr -c on the .app dir).
+xattr -c "$APP_PATH" 2>/dev/null || true
 
 # ── Re-sign ───────────────────────────────────────────────────
 # Sign nested framework first so the outer --deep pass picks up a
