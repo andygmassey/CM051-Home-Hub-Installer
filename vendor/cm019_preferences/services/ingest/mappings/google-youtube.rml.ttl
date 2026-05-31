@@ -1,0 +1,124 @@
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# RML Mapping for Google Takeout YouTube Watch History
+# Input: watch-history.json from Google Takeout
+
+<#WatchEventMapping>
+    rml:logicalSource [
+        rml:source "watch-history.json" ;
+        rml:referenceFormulation ql:JSONPath ;
+        rml:iterator "$[*]"
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/watch/{time}" ;
+        rr:class pwg:WatchEvent
+    ] ;
+
+    # Video title (with "Watched " prefix removed)
+    rr:predicateObjectMap [
+        rr:predicate pwg:title ;
+        rr:objectMap [
+            rml:reference "title"
+        ]
+    ] ;
+
+    # Video URL
+    rr:predicateObjectMap [
+        rr:predicate pwg:titleUrl ;
+        rr:objectMap [
+            rml:reference "titleUrl"
+        ]
+    ] ;
+
+    # Watch timestamp
+    rr:predicateObjectMap [
+        rr:predicate pwg:watchTime ;
+        rr:objectMap [
+            rml:reference "time" ;
+            rr:datatype xsd:dateTime
+        ]
+    ] ;
+
+    # Data source
+    rr:predicateObjectMap [
+        rr:predicate pwg:dataSource ;
+        rr:objectMap [
+            rr:constant "google_takeout"
+        ]
+    ] ;
+
+    # Category (YouTube)
+    rr:predicateObjectMap [
+        rr:predicate pwg:category ;
+        rr:objectMap [
+            rr:constant "video"
+        ]
+    ] ;
+
+    # Link to video entity
+    rr:predicateObjectMap [
+        rr:predicate pwg:hasVideo ;
+        rr:objectMap [
+            rr:parentTriplesMap <#VideoMapping>
+        ]
+    ] .
+
+# Video entity mapping
+<#VideoMapping>
+    rml:logicalSource [
+        rml:source "watch-history.json" ;
+        rml:referenceFormulation ql:JSONPath ;
+        rml:iterator "$[*]"
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/video/{titleUrl}" ;
+        rr:class pwg:Video
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate rdfs:label ;
+        rr:objectMap [
+            rml:reference "title"
+        ]
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate pwg:url ;
+        rr:objectMap [
+            rml:reference "titleUrl"
+        ]
+    ] .
+
+# Channel mapping from subtitles array
+<#ChannelMapping>
+    rml:logicalSource [
+        rml:source "watch-history.json" ;
+        rml:referenceFormulation ql:JSONPath ;
+        rml:iterator "$[*].subtitles[*]"
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/channel/{url}" ;
+        rr:class pwg:YouTubeChannel
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate rdfs:label ;
+        rr:objectMap [
+            rml:reference "name"
+        ]
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate pwg:channelUrl ;
+        rr:objectMap [
+            rml:reference "url"
+        ]
+    ] .

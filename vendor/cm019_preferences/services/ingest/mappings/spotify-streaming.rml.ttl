@@ -1,0 +1,120 @@
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# RML Mapping for Spotify Streaming History
+# Input: StreamingHistory.json from Spotify data export
+
+<#StreamingEventMapping>
+    rml:logicalSource [
+        rml:source "StreamingHistory.json" ;
+        rml:referenceFormulation ql:JSONPath ;
+        rml:iterator "$[*]"
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/listen/{endTime}_{trackName}" ;
+        rr:class pwg:ListeningEvent
+    ] ;
+
+    # Track name
+    rr:predicateObjectMap [
+        rr:predicate pwg:trackName ;
+        rr:objectMap [
+            rml:reference "trackName"
+        ]
+    ] ;
+
+    # Artist name
+    rr:predicateObjectMap [
+        rr:predicate pwg:artistName ;
+        rr:objectMap [
+            rml:reference "artistName"
+        ]
+    ] ;
+
+    # Milliseconds played
+    rr:predicateObjectMap [
+        rr:predicate pwg:msPlayed ;
+        rr:objectMap [
+            rml:reference "msPlayed" ;
+            rr:datatype xsd:integer
+        ]
+    ] ;
+
+    # End time
+    rr:predicateObjectMap [
+        rr:predicate pwg:endTime ;
+        rr:objectMap [
+            rml:reference "endTime" ;
+            rr:datatype xsd:dateTime
+        ]
+    ] ;
+
+    # Data source
+    rr:predicateObjectMap [
+        rr:predicate pwg:dataSource ;
+        rr:objectMap [
+            rr:constant "spotify"
+        ]
+    ] ;
+
+    # Link to track entity
+    rr:predicateObjectMap [
+        rr:predicate pwg:hasTrack ;
+        rr:objectMap [
+            rr:template "https://pwg.dev/data/track/{trackName}_{artistName}" ;
+            rr:termType rr:IRI
+        ]
+    ] .
+
+# Track entity mapping
+<#TrackMapping>
+    rml:logicalSource [
+        rml:source "StreamingHistory.json" ;
+        rml:referenceFormulation ql:JSONPath ;
+        rml:iterator "$[*]"
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/track/{trackName}_{artistName}" ;
+        rr:class pwg:Track
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate rdfs:label ;
+        rr:objectMap [
+            rml:reference "trackName"
+        ]
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate pwg:hasArtist ;
+        rr:objectMap [
+            rr:template "https://pwg.dev/data/artist/{artistName}" ;
+            rr:termType rr:IRI
+        ]
+    ] .
+
+# Artist entity mapping
+<#ArtistMapping>
+    rml:logicalSource [
+        rml:source "StreamingHistory.json" ;
+        rml:referenceFormulation ql:JSONPath ;
+        rml:iterator "$[*]"
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/artist/{artistName}" ;
+        rr:class pwg:Artist
+    ] ;
+
+    rr:predicateObjectMap [
+        rr:predicate rdfs:label ;
+        rr:objectMap [
+            rml:reference "artistName"
+        ]
+    ] .

@@ -1,0 +1,60 @@
+# Ostler vendored CM019 preferences ingest -- runtime dependencies
+#
+# Source of truth: CM019 services/ingest/requirements.txt, TRIMMED to the
+# ingest CLI path that the installer's hydrate_preferences step actually runs
+# (`python -m services.ingest.src.cli ingest-dir|ingest-email`). Every entry
+# below was confirmed as a real import reachable from that CLI; everything the
+# upstream listed for the server / Kafka / ML / enrichment surfaces is dropped
+# because those code paths are never imported when hydrating preferences.
+#
+# Embeddings come from the local Ollama (nomic-embed-text, 768-dim) over HTTP
+# via the vendored vectorizer.py swap -- NOT sentence-transformers -- so the
+# entire torch/transformers/sklearn/nltk stack is gone. See vectorizer.py.
+
+# Config + settings (config.py, enrich models)
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# CLI framework (cli.py). Upstream relied on this resolving transitively;
+# we list it explicitly since nothing else here pulls it in.
+click>=8.1.0
+
+# HTTP: Ollama embed (vectorizer), Oxigraph + Qdrant loaders, RML mapper
+httpx>=0.25.0
+
+# Async file IO -- imported eagerly by ~20 parsers via parsers/__init__.py,
+# so it is a hard import-time dependency of the ingest package.
+aiofiles>=23.2.0
+
+# HTML parsing for the eBay / YouTube / Pinterest parsers. Those parsers call
+# BeautifulSoup(content, "lxml"), so the lxml backend is required, not optional.
+beautifulsoup4>=4.12.0
+lxml>=6.1.0
+
+# Excel parsing for Disney+ GDPR exports (parsers/disney.py). msoffcrypto-tool
+# handles password-protected workbooks.
+openpyxl>=3.1.0
+msoffcrypto-tool>=5.0.0
+
+# Security floor: msoffcrypto-tool pulls in cryptography; keep the Snyk-pinned
+# minimum that still applies to the surviving dependency tree.
+cryptography>=46.0.5
+
+# DROPPED versus upstream services/ingest/requirements.txt, with reasons:
+#   fastapi, uvicorn[standard], python-jose[cryptography]
+#       -> api.py FastAPI server + `from auth import require_auth`; never on
+#          the CLI path. (auth is not even vendored.)
+#   aiokafka            -> kafka_consumer.py; the CLI does not consume Kafka.
+#   sentence-transformers, torch, transformers, nltk, sentencepiece,
+#   scikit-learn, numpy, pillow
+#       -> the ML embedding stack. Replaced by the Ollama HTTP vectorizer.
+#   rdflib, orjson      -> not imported anywhere in the vendored tree (the
+#                          Oxigraph loader talks SPARQL over httpx).
+#   pyshacl, pandas     -> upstream pyproject extras; not imported on the
+#                          ingest CLI path.
+#   python-multipart    -> only api.py form uploads (server surface).
+#   aiohttp, aiolimiter -> services/enrich only; enrichment is not wired for
+#                          v1.0 (the hydrate step runs ingest, not enrich).
+#   requests, urllib3, setuptools, wheel, zipp, filelock
+#       -> Snyk floor pins for the removed ML/transitive tree; no longer
+#          reachable, so not carried over.

@@ -1,0 +1,92 @@
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix pwg: <https://pwg.dev/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# RML Mapping for CSV preference imports
+# Expected CSV columns: subject, type, strength, category, compartment_level, context
+
+<#PreferenceMapping>
+    rml:logicalSource [
+        rml:source "preferences.csv" ;
+        rml:referenceFormulation ql:CSV
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/preference/{subject}" ;
+        rr:class pwg:Preference
+    ] ;
+
+    # Subject/topic of the preference
+    rr:predicateObjectMap [
+        rr:predicate pwg:subject ;
+        rr:objectMap [
+            rml:reference "subject"
+        ]
+    ] ;
+
+    # Preference strength (0.0 to 1.0)
+    rr:predicateObjectMap [
+        rr:predicate pwg:preferenceStrength ;
+        rr:objectMap [
+            rml:reference "strength" ;
+            rr:datatype xsd:decimal
+        ]
+    ] ;
+
+    # Category of the preference
+    rr:predicateObjectMap [
+        rr:predicate pwg:category ;
+        rr:objectMap [
+            rml:reference "category"
+        ]
+    ] ;
+
+    # Compartment level mapping
+    rr:predicateObjectMap [
+        rr:predicate pwg:belongsToCompartment ;
+        rr:objectMap [
+            rr:template "https://pwg.dev/ontology#L{compartment_level}" ;
+            rr:termType rr:IRI
+        ]
+    ] ;
+
+    # Context
+    rr:predicateObjectMap [
+        rr:predicate pwg:hasContext ;
+        rr:objectMap [
+            rr:template "https://pwg.dev/ontology#context_{context}" ;
+            rr:termType rr:IRI
+        ]
+    ] ;
+
+    # Data source marker
+    rr:predicateObjectMap [
+        rr:predicate pwg:dataSource ;
+        rr:objectMap [
+            rr:constant "csv_import"
+        ]
+    ] .
+
+# Preference type classification
+<#PreferenceTypeMapping>
+    rml:logicalSource [
+        rml:source "preferences.csv" ;
+        rml:referenceFormulation ql:CSV
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://pwg.dev/data/preference/{subject}"
+    ] ;
+
+    # Map type field to preference class
+    # This requires conditional logic - simplified version here
+    rr:predicateObjectMap [
+        rr:predicate rdf:type ;
+        rr:objectMap [
+            rr:template "https://pwg.dev/ontology#{type}Preference" ;
+            rr:termType rr:IRI
+        ]
+    ] .

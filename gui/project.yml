@@ -446,6 +446,42 @@ targets:
           - $(SRCROOT)/../vendor/cm048_pipeline
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline
+      - name: Bundle CM019 preferences ingest pipeline into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's hydrate_preferences phase probes
+          # ${SCRIPT_DIR}/cm019_preferences/ to discover the vendored ingest
+          # package, sets up a dedicated venv, and runs
+          # `python -m services.ingest.src.cli ingest-dir|ingest-email`
+          # against QDRANT_COLLECTION=preferences so the Food / Music / Media /
+          # Reading / Apps / Places / Topics wiki pages have data to render.
+          #
+          # For the .app code path, SCRIPT_DIR is Contents/Resources at install
+          # time, so the package must land at Contents/Resources/cm019_preferences/.
+          # Without this bundling the hydrate_preferences probe finds nothing and
+          # those wiki sections stay empty on the customer Mac.
+          #
+          # Same vendoring discipline as cm048_pipeline above; different upstream
+          # (CM019 source-of-truth lives at ../CM019\ -\ Personal\ World\ Graph/).
+          # NOTE: the vendored vectorizer is swapped to the local Ollama embedder
+          # (nomic-embed-text, 768-dim) -- it ships NO torch/sentence-transformers.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm019_preferences"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm019_preferences from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm019_preferences"
+            # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).
+            cp -R "${SRC}/" "${DEST}/cm019_preferences/"
+            /usr/bin/xattr -cr "${DEST}/cm019_preferences" || true
+          else
+            echo "ERROR: vendor/cm019_preferences not found at ${SRC}" >&2
+            echo "       Sync manually from CM019 -- see vendor/README.md." >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm019_preferences
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm019_preferences
       - name: Bundle CM041 PWG People Graph (contact_syncer + meeting_syncer + identity_resolver + assistant_api) into Resources
         script: |
           set -euo pipefail
