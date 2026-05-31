@@ -48,7 +48,14 @@
     "continue_button": "Continue and enter your password",
     "retry_button": "Retry",
     "quit_button": "Quit installer",
-    "osascript_prompt": "Ostler Installer needs administrator access to install required software and keep your Mac awake during setup."
+    "osascript_prompt": "Ostler Installer needs administrator access to install required software and keep your Mac awake during setup.",
+    "requesting_status": "Requesting administrator access. A macOS password dialog will appear in a moment."
+  },
+
+  "install_cancelled": {
+    "heading": "Installation cancelled",
+    "body": "No problem. Nothing was installed on your Mac and nothing was changed. You can run the installer again whenever you're ready.",
+    "quit_button": "Close"
   },
 
   "install_failed_banner": {

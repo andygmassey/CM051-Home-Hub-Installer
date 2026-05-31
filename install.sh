@@ -226,6 +226,7 @@ gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
 gui_done()        { :; }
+gui_cancelled()   { :; }
 gui_active()      { return 1; }
 gui_needs_sudo()  { :; }
 gui_needs_fda()   { :; }
@@ -1068,6 +1069,7 @@ else
     gui_warn()        { :; }
     gui_phase()       { :; }
     gui_done()        { :; }
+    gui_cancelled()   { :; }
     gui_active()      { return 1; }
     gui_needs_sudo()  { :; }
     gui_needs_fda()   { :; }
@@ -1816,6 +1818,26 @@ CHANNEL_EMAIL_APPLE_MAIL_ENABLED=false
 CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=false
 WA_CONSENT=""
 
+# Consent decisions (CX-126). Same CX-98 class as the CHANNEL_* flags
+# above: these three are assigned ONLY inside the Phase-2 consent screen
+# (the "── 10. Consent ──" section ~line 3936, inside the second
+# SKIP_PHASE2==false block) and read again in Phase 3 on the always-run
+# path -- the conversation-feed block dereferences
+# OSTLER_CONSENT_THIRD_PARTY_DECISION at the email body feed (~8832) and
+# the iMessage body feed (~8853). On the reuse path (SKIP_PHASE2=true)
+# the consent screen never runs, so without this hoist `set -u` aborts
+# the install right after email-ingest -- exactly what the Studio
+# clean-wipe reuse run hit (step 19/34, then dead, GUI false-green).
+# Hoisting the empty-string defaults here makes the reuse path skip the
+# body feeds (the safe default for a third-party-data gate: never start
+# ingesting other people's message bodies on a re-run without a
+# re-confirmed consent). The walk path still overwrites these in the
+# consent screen; the persist block inside the same Phase-2 region is
+# unaffected on reuse.
+OSTLER_CONSENT_ARTICLE_9_DECISION=""
+OSTLER_CONSENT_VOICE_EU_DECISION=""
+OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+
 # Region + ISO + source. Read at line ~3498 (EU branch entry),
 # ~5265 (region-persist Python heredoc), ~5300 (consent_cli
 # --region arg). Originally assigned at lines 1952-2008 inside
@@ -2006,6 +2028,7 @@ if [[ "${PERMS_OK:-y}" == "n" || "${PERMS_OK:-y}" == "N" ]]; then
     echo "  creativemachines.ai/ostler/privacy"
     echo ""
     echo "  Re-run the installer when you are ready."
+    gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
     exit 0
 fi
 
@@ -3348,6 +3371,7 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
         echo ""
         echo "  No problem. Nothing has been installed."
         echo "  Re-run the installer when you are ready."
+        gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
         exit 0
     fi
     PASSKEY_PRIMED=true
@@ -3568,11 +3592,17 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
     done < <(find "$search_dir" -maxdepth 3 -name "Connections.csv" 2>/dev/null || true)
 
-    # Facebook: folder containing friends.json or friend_requests_received.json
+    # Facebook: folder containing your_friends.json (2026 export name) or
+    # legacy friends.json. CX-126: the old `-path "*/facebook*"` filter was
+    # dropped -- the current export unzips to `your_facebook_activity/`
+    # (no "facebook" substring), so the filter silently excluded every
+    # real 2026 export from the "found N" display. The filename is
+    # specific enough on its own; maxdepth 5 covers the deeper
+    # your_facebook_activity/connections/friends/ nesting.
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Facebook: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
-    done < <(find "$search_dir" -maxdepth 4 -name "friends.json" -path "*/facebook*" 2>/dev/null || true)
+    done < <(find "$search_dir" -maxdepth 5 \( -name "your_friends.json" -o -name "friends.json" \) 2>/dev/null || true)
 
     # Instagram: followers_and_following directory
     while IFS= read -r f; do
@@ -3586,11 +3616,15 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$f")}"
     done < <(find "$search_dir" -maxdepth 3 -name "*.ics" -size +1k 2>/dev/null | head -3 || true)
 
-    # Twitter: tweet.js in a data directory
+    # Twitter/X: tweets.js (2026 export name) or legacy tweet.js, in a
+    # data/ directory. CX-126: current X exports ship `tweets.js`; the
+    # detector only greps `tweet.js`, so the "found N" display omitted
+    # every current export (the CM019 preferences parser already ingests
+    # both, so this only makes the display + EXPORTS_DIR seeding honest).
     while IFS= read -r f; do
         DETECTED_EXPORTS+=("Twitter/X: $(dirname "$f")")
         EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$(dirname "$f")")}"
-    done < <(find "$search_dir" -maxdepth 4 -name "tweet.js" -path "*/data/*" 2>/dev/null || true)
+    done < <(find "$search_dir" -maxdepth 4 \( -name "tweets.js" -o -name "tweet.js" \) -path "*/data/*" 2>/dev/null || true)
 
     # Google Takeout zip: takeout-YYYYMMDDTHHMMSSZ-N-NNN.zip
     while IFS= read -r f; do
@@ -4002,6 +4036,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
                 echo "  written to your Mac."
                 echo ""
                 echo "  If you change your mind, re-run the installer."
+                gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
                 exit 0
                 ;;
             *)
@@ -4162,6 +4197,7 @@ while true; do
             echo "  written to your Mac."
             echo ""
             echo "  If you change your mind, re-run the installer."
+            gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
             exit 0
             ;;
         *)
@@ -4226,6 +4262,7 @@ while true; do
         echo ""
         echo "  No problem. Nothing has been installed."
         echo "  Re-run the installer when you are ready."
+        gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
         exit 0
     else
         echo ""
@@ -7146,6 +7183,16 @@ chmod +x "$IMPORT_SCRIPT"
 _PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
 _IMPORT_DIRS=()
 [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+# CX-126: the install-time detector (line ~3554) now matches the current
+# 2026 export filenames (your_friends.json, tweets.js), so it seeds
+# EXPORTS_DIR to the actual export directory for every platform -- which
+# the importer then rglobs (bounded to that export dir). An earlier draft
+# of this fix also appended ~/Downloads + ~/Desktop here as a backstop,
+# but that made the importer rglob the ENTIRE Downloads/Desktop trees
+# (unbounded, ~10 patterns, plus a per-dir enrich pass) -- a multi-minute
+# install-time stall on a large Downloads folder, and redundant now that
+# the detector seeds correctly. Reverted: keep the bounded EXPORTS_DIR
+# root only. (Adversarial review finding D, CX-126.)
 if [[ -d "$_PREFS_DROPZONE" ]] \
    && find "$_PREFS_DROPZONE" -type f ! -name '.*' -print -quit 2>/dev/null | grep -q .; then
     _IMPORT_DIRS+=("$_PREFS_DROPZONE")

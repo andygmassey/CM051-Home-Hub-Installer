@@ -289,6 +289,16 @@ gui_done() {
     fi
 }
 
+gui_cancelled() {
+    # CX-126: emit a DONE marker with status=cancelled on the deliberate
+    # user-cancel / consent-decline exit paths. The GUI routes this to a
+    # calm neutral "Installation cancelled" terminal -- NOT the red
+    # failure banner (which is what the no-DONE crash fallback now
+    # renders). Without this, those clean `exit 0` paths reach the GUI
+    # with no DONE marker and get mislabelled as a crash.
+    gui_emit DONE "status=cancelled"
+}
+
 # Surface a sudo-required pause to the GUI. install.sh's existing
 # keepalive loop (line 1553) handles refreshing the timestamp once the
 # initial grant has happened.

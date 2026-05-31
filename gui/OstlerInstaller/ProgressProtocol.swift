@@ -58,6 +58,16 @@ enum InstallerEvent: Equatable {
     /// `errorCode` is `nil` for the success path and for any legacy
     /// `fail "..."` callsite that did not pass through fail_with_code.
     case done(status: StepStatus, errorCode: String?)
+    /// CX-126: install.sh emits `DONE status=cancelled` on the
+    /// deliberate user-cancel / consent-decline `exit 0` paths
+    /// (Article 9 decline, third-party decline, perms=no,
+    /// passkey-cancel, typed-INSTALL cancel). These are NOT failures
+    /// (nothing was installed, by the customer's choice) and must NOT
+    /// render the red failure banner; they get a calm neutral
+    /// "Installation cancelled" terminal. Kept distinct from `.done`
+    /// so StepStatus stays {ok,warn,fail} and the per-step status
+    /// switches are untouched.
+    case cancelled
     /// Non-marker stdout/stderr line from the subprocess. Surfaced in
     /// the Log drawer only when `devModeRawLog` is on; otherwise these
     /// are filtered out so the customer-facing drawer stays curated.
@@ -195,6 +205,13 @@ struct ProgressDecoder {
         case "NEEDS_SUDO":
             return .needsSudo(reason: kv["reason"] ?? "")
         case "DONE":
+            // CX-126: a deliberate user-cancel emits status=cancelled,
+            // which is neither ok nor fail -- route it to its own event
+            // so the GUI shows a neutral "cancelled" terminal, not the
+            // red failure banner.
+            if kv["status"] == "cancelled" {
+                return .cancelled
+            }
             let code = kv["code"].flatMap { $0.isEmpty ? nil : $0 }
             return .done(
                 status: StepStatus(rawValue: kv["status"] ?? "ok") ?? .ok,

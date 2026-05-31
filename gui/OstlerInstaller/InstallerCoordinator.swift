@@ -34,6 +34,13 @@ final class InstallerCoordinator: ObservableObject {
     @Published var needsFDA: NeedsFDA? = nil
     @Published var needsSudo: String? = nil
     @Published var finished: StepStatus? = nil
+    /// CX-126: set true when install.sh emits `DONE status=cancelled`
+    /// on a deliberate user-cancel / consent-decline path. Distinct
+    /// from `finished == .fail` so ContentView can render a calm
+    /// neutral "Installation cancelled" terminal instead of the red
+    /// failure banner. ContentView checks this BEFORE the gated/finished
+    /// branches.
+    @Published var cancelled: Bool = false
     @Published var devModeRawLog: Bool = false
     @Published var error: String? = nil
     /// CX-17 (2026-05-23): stable error code carried on the DONE
@@ -489,6 +496,16 @@ final class InstallerCoordinator: ObservableObject {
         }
         requestingAdmin = true
         needsAdminAcknowledgement = false
+        // CX-126: light the HintPanel spinner the instant the customer
+        // taps Continue. Clearing needsAdminAcknowledgement flips the
+        // view from AdminAccessRequiredView to installLayout, whose
+        // HintPanel only renders its spinner+status when preInstallStatus
+        // is non-empty. The osascript admin dialog has a visible spin-up
+        // wait (longest on the post-FDA Quit&Reopen relaunch path), and
+        // without this only the easily-missed footer dot spins, so the
+        // tap reads as ignored. Subprocess LOG markers overwrite this on
+        // the granted path; the not-granted path clears it below.
+        preInstallStatus = ViewCopy.shared.string(for: "admin_access_required.requesting_status")
         defer { requestingAdmin = false }
 
         let reason = ViewCopy.shared.string(for: "admin_access_required.prompt_reason")
@@ -496,6 +513,7 @@ final class InstallerCoordinator: ObservableObject {
         OstlerLog.lifecycle.info("requestAdminAndLaunch: requesting admin authorisation before subprocess launch")
         let granted = await adminAuthorizationProvider(reason)
         if !granted {
+            preInstallStatus = nil
             needsAdminRetry = true
             error = ViewCopy.shared.string(for: "admin_access_required.retry_message")
             appendLog(level: "warn", msg: "Administrator access not granted -- holding install at retry gate")
@@ -1398,6 +1416,7 @@ final class InstallerCoordinator: ObservableObject {
         case .needsFDA:    key = "needsFDA"
         case .needsSudo:   key = "needsSudo"
         case .done:        key = "done"
+        case .cancelled:   key = "cancelled"
         case .recoveryKey: key = "recoveryKey"
         case .rawLine:     key = "rawLine"
         case .unknown:     key = "unknown"
@@ -1525,6 +1544,15 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: status == .ok ? "info" : "error",
                       msg: "Install finished: \(status.rawValue)\(suffix)")
             OstlerLog.lifecycle.info("event DONE status=\(status.rawValue, privacy: .public) code=\(code ?? "", privacy: .public)")
+        case .cancelled:
+            // CX-126: the customer deliberately cancelled / declined a
+            // consent gate; install.sh exited cleanly having written
+            // nothing. NOT a failure -- render the calm neutral
+            // terminal. Set BEFORE finished stays nil so handleTermination
+            // does not re-interpret the no-`finished` state as a crash.
+            cancelled = true
+            appendLog(level: "info", msg: "Installation cancelled by the user. Nothing was installed.")
+            OstlerLog.lifecycle.info("event DONE status=cancelled -- user cancelled, neutral terminal (CX-126)")
         case .recoveryKey(let value):
             // CX-53 (DMG ship, 2026-05-24): capture the recovery key
             // from install.sh into a dedicated @Published property.
@@ -1562,12 +1590,27 @@ final class InstallerCoordinator: ObservableObject {
 
     private func handleTermination() {
         let exitCode = process?.terminationStatus ?? -1
-        if finished == nil {
-            // Process ended without a DONE marker – surface an error.
-            finished = exitCode == 0 ? .ok : .fail
-            if exitCode != 0 {
-                error = "Installer exited with code \(exitCode) before signalling DONE."
+        if finished == nil && !cancelled {
+            // CX-126: the subprocess terminated WITHOUT ever emitting a
+            // DONE marker. install.sh's contract is that every genuine
+            // finish -- success or failure -- emits `gui_emit DONE`
+            // (success: `gui_done ok` at the tail; failure: via
+            // `fail_with_code`). A termination with no DONE therefore
+            // means the script died mid-flight (e.g. a `set -u` unbound
+            // variable abort), which we MUST treat as a failure
+            // regardless of the OS exit code. Pre-CX-126 this fell back
+            // to `exitCode == 0 ? .ok : .fail`; a `set -u` death that
+            // surfaced as exit 0 (pipeline / wrapper masking) then
+            // rendered the full green "You're all set" success screen
+            // over a half-installed Hub with every health check red --
+            // the single worst first-run outcome. No DONE == not done.
+            finished = .fail
+            if error == nil {
+                error = exitCode == 0
+                    ? "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai."
+                    : "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai."
             }
+            OstlerLog.lifecycle.error("handleTermination: subprocess ended with NO DONE marker (exit \(exitCode, privacy: .public)) -- treating as failure (CX-126)")
         }
         appendLog(level: "info", msg: "Subprocess terminated (exit \(exitCode))")
         OstlerLog.lifecycle.info("subprocess terminated exit=\(exitCode, privacy: .public) finished=\(String(describing: self.finished), privacy: .public)")

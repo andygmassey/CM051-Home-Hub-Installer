@@ -163,7 +163,7 @@ MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  Override the source repo wit
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  Override the source repo with PWG_PIPELINE_REPO=<url> ./install.sh"
 MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
 MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="Phase 3 battery watcher armed (PID %s)"
-MSG_INFO_PLEASE_WAIT_READING_CONTACTS="Reading your address book (large libraries can take 60 to 90 seconds – please don't close the installer)..."
+MSG_INFO_PLEASE_WAIT_READING_CONTACTS="Reading your address book (large libraries can take a couple of minutes – please don't close the installer)..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
 MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY="Probing iMessage Automation permission (read-only)..."
 MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB="Pulling nomic-embed-text (274 MB)..."

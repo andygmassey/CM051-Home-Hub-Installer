@@ -13,6 +13,12 @@ struct ContentView: View {
 
     var body: some View {
         Group {
+            // CX-126: a deliberate user-cancel / consent-decline takes
+            // over the whole window with a calm neutral terminal. Checked
+            // first so it overrides every other gate once install.sh has
+            // emitted DONE status=cancelled.
+            if coordinator.cancelled {
+                InstallCancelledView()
             // CX-17 (2026-05-23): the permissions intro screen lands
             // BEFORE everything else (licence, admin gate, install).
             // The macOS TCC dialogs must fire while the customer is
@@ -20,7 +26,7 @@ struct ContentView: View {
             // walked away to read their welcome email. Once the
             // intro flow is `.complete` or `.skipped` we fall
             // through to the existing licence + admin gates.
-            if !coordinator.permissionsPrewarmFinished {
+            } else if !coordinator.permissionsPrewarmFinished {
                 PermissionsIntroView()
             } else if coordinator.licenseVerified {
                 gatedContent
@@ -715,6 +721,46 @@ private struct DeviceRegistrationErrorView: View {
             HStack {
                 Spacer()
                 Button(ViewCopy.shared.string(for: "device_registration_error.quit_button")) {
+                    NSApp.terminate(nil)
+                }
+                    .buttonStyle(.ostlerPrimary)
+                    .keyboardShortcut(.defaultAction)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 48)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ostlerChassis)
+    }
+}
+
+/// CX-126: shown when the customer deliberately cancelled / declined a
+/// consent gate and install.sh exited cleanly having written nothing.
+/// This is NOT a failure, so it uses calm ink colours (no oxblood/red,
+/// no "contact support") -- just a neutral acknowledgement + a way out.
+private struct InstallCancelledView: View {
+    var body: some View {
+        VStack(spacing: 24) {
+            HStack(spacing: 12) {
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundColor(.ostlerInkMuted)
+                Text(ViewCopy.shared.string(for: "install_cancelled.heading"))
+                    .font(.ostlerH1)
+                    .foregroundColor(.ostlerInk)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(ViewCopy.shared.string(for: "install_cancelled.body"))
+                .font(.ostlerBody)
+                .foregroundColor(.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack {
+                Spacer()
+                Button(ViewCopy.shared.string(for: "install_cancelled.quit_button")) {
                     NSApp.terminate(nil)
                 }
                     .buttonStyle(.ostlerPrimary)
