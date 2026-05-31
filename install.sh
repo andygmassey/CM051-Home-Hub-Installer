@@ -7213,62 +7213,94 @@ chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 # Create an export watcher script -- scans Downloads for new GDPR exports
 cat > "${OSTLER_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
 #!/usr/bin/env bash
-# Scans ~/Downloads for recognised GDPR export files.
-# Run manually or via launchd (checks every 4 hours).
-set -euo pipefail
+# Scans ~/Downloads for recognised exports and imports them automatically.
+# Runs via launchd. NO Terminal step: on detecting a new export set it
+# invokes the shared ostler-import (CM041 contacts + CM019 preferences)
+# and shows a friendly notification. Re-run safe: ostler-import dedupes
+# (contacts) and upserts by stable id (preferences).
+set -uo pipefail
 
 OSTLER_DIR="${HOME}/.ostler"
 SCAN_STATE="${OSTLER_DIR}/state/scan_state.json"
 DOWNLOADS="${HOME}/Downloads"
+IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
 
 mkdir -p "${OSTLER_DIR}/state"
 
-# Known patterns for each platform's export
+_notify() {
+    # $1 = message, $2 = subtitle
+    osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
+}
+
+# Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
+# names (for a friendly notification). Order people-graph first, then
+# preference exports.
 FOUND=()
+FOUND_LABELS=()
+_add() { [[ -e "$1" ]] && { FOUND+=("$1"); FOUND_LABELS+=("$2"); }; }
 
-# LinkedIn
-for f in "$DOWNLOADS"/Basic_LinkedInDataExport_*/ "$DOWNLOADS"/linkedin_*.zip "$DOWNLOADS"/LinkedInDataExport_*.zip; do
-    [[ -e "$f" ]] && FOUND+=("LinkedIn: $f")
+# People graph (contacts / social)
+for f in "$DOWNLOADS"/Basic_LinkedInDataExport_*/ "$DOWNLOADS"/linkedin_*.zip "$DOWNLOADS"/LinkedInDataExport_*.zip; do _add "$f" "LinkedIn"; done
+for f in "$DOWNLOADS"/facebook-*/ "$DOWNLOADS"/facebook_*.zip; do _add "$f" "Facebook"; done
+for f in "$DOWNLOADS"/instagram-*/ "$DOWNLOADS"/instagram_*.zip; do _add "$f" "Instagram"; done
+for f in "$DOWNLOADS"/takeout-*.zip "$DOWNLOADS"/Takeout/; do _add "$f" "Google"; done
+for f in "$DOWNLOADS"/twitter-*/ "$DOWNLOADS"/twitter-*.zip "$DOWNLOADS"/x-*.zip; do _add "$f" "X"; done
+
+# Preference exports (music / film / shopping)
+for f in "$DOWNLOADS"/my_spotify_data*.zip "$DOWNLOADS"/Spotify*.zip "$DOWNLOADS"/SpotifyExtendedStreamingHistory*.zip; do _add "$f" "Spotify"; done
+for f in "$DOWNLOADS"/netflix-*.zip "$DOWNLOADS"/NetflixViewingHistory*.csv; do _add "$f" "Netflix"; done
+for f in "$DOWNLOADS"/Apple_Media_Services*.zip "$DOWNLOADS"/AppleMediaServices*.zip "$DOWNLOADS"/apple*media*services*.zip; do _add "$f" "Apple"; done
+for f in "$DOWNLOADS"/amazon*.zip "$DOWNLOADS"/"Your Orders"*.zip; do _add "$f" "Amazon"; done
+
+[[ ${#FOUND[@]} -eq 0 ]] && exit 0
+
+# Guard: skip while anything is still downloading -- partial-download
+# markers (Safari .download, Chrome .crdownload, Firefox .part). The
+# next tick retries once the download completes.
+for p in "$DOWNLOADS"/*.download "$DOWNLOADS"/*.crdownload "$DOWNLOADS"/*.part; do
+    [[ -e "$p" ]] && exit 0
 done
 
-# Facebook
-for f in "$DOWNLOADS"/facebook-*/ "$DOWNLOADS"/facebook_*.zip; do
-    [[ -e "$f" ]] && FOUND+=("Facebook: $f")
+# Belt-and-braces: if any found FILE is still growing, wait for next tick.
+for f in "${FOUND[@]}"; do
+    if [[ -f "$f" ]]; then
+        s1=$(stat -f%z "$f" 2>/dev/null || echo 0)
+        sleep 2
+        s2=$(stat -f%z "$f" 2>/dev/null || echo 0)
+        [[ "$s1" != "$s2" ]] && exit 0
+    fi
 done
 
-# Instagram
-for f in "$DOWNLOADS"/instagram-*/ "$DOWNLOADS"/instagram_*.zip; do
-    [[ -e "$f" ]] && FOUND+=("Instagram: $f")
-done
-
-# Google Takeout
-for f in "$DOWNLOADS"/takeout-*.zip "$DOWNLOADS"/Takeout/; do
-    [[ -e "$f" ]] && FOUND+=("Google: $f")
-done
-
-# Twitter
-for f in "$DOWNLOADS"/twitter-*/ "$DOWNLOADS"/twitter-*.zip "$DOWNLOADS"/x-*.zip; do
-    [[ -e "$f" ]] && FOUND+=("Twitter: $f")
-done
-
-if [[ ${#FOUND[@]} -eq 0 ]]; then
+# Dedupe: same export set already imported? (FOUND_HASH in scan_state)
+FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
+if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
     exit 0
 fi
 
-# Check if we have already notified about these (avoid repeat alerts)
-FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
-if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
-    exit 0  # Already notified
+# Importer not installed yet (mid-install race) -- try again next tick.
+[[ -x "$IMPORT_SCRIPT" ]] || exit 0
+
+# Auto-import. ostler-import fans to BOTH pipelines over the whole
+# Downloads folder and is re-run safe.
+_first="${FOUND_LABELS[0]}"
+if [[ ${#FOUND[@]} -gt 1 ]]; then
+    _notify "Ostler found your ${_first} export and $(( ${#FOUND[@]} - 1 )) more, and is adding them to your world." "Importing"
+else
+    _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
 fi
 
-# Show notification
-osascript -e "display notification \"${#FOUND[@]} data export(s) found in Downloads. Open Terminal and run: ostler-import ~/Downloads/\" with title \"Ostler\" subtitle \"GDPR exports ready to import\""
+if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
+    _notify "Your latest export is now part of your world." "Done"
+else
+    _notify "Imported your latest export. Some parts will finish in the background." "Done"
+fi
 
+# Record only after a real import attempt, so a failed/partial run is
+# retried next tick rather than silently marked done.
 echo "$FOUND_HASH" >> "$SCAN_STATE"
 
-# Print details if running interactively
 if [[ -t 1 ]]; then
-    echo "Found ${#FOUND[@]} export(s):"
+    echo "Imported ${#FOUND[@]} export(s):"
     printf '  %s\n' "${FOUND[@]}"
 fi
 SCANEOF
