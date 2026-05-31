@@ -135,6 +135,19 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // CX-106 (2026-05-29): initial_hydrate is a synchronous first-load
+        // sweep emitted between hydrate_imessage and wiki_compile that
+        // guarantees Qdrant has at least one collection before the wiki
+        // compiles. It shipped as a `progress` callsite without a
+        // canonicalOrder entry, so the install.sh<->GUI step-parity contract
+        // test has been red on main since CX-106. Registering it here closes
+        // that drift (the contract test prescribes exactly this fix).
+        //
+        // (hydrate_preferences sits just before this on the conversation-
+        // memory candidate; it is intentionally NOT registered here because
+        // main's install.sh does not emit it yet. The candidate carries
+        // that row.)
+        "initial_hydrate",
         "wiki_compile",
         "health_check",
     ]
