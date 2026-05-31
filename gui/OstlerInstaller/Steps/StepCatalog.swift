@@ -135,6 +135,13 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // Preferences wire (2026-05-31): hydrate_preferences fires after
+        // hydrate_imessage and before wiki_compile. Runs the vendored CM019
+        // ingest + enrich pipeline over any GDPR exports the user dropped in
+        // ~/Documents/Ostler/imports/preferences/, populating the Food /
+        // Music / Media / Reading / Apps / Places / Topics wiki sections.
+        // Counts-only stdout; no item content leaves the local process.
+        "hydrate_preferences",
         "wiki_compile",
         "health_check",
     ]

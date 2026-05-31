@@ -904,6 +904,20 @@ MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
 
+# Preferences wire (2026-05-31): hydrate_preferences fires after
+# hydrate_imessage and before wiki_compile. Runs the vendored CM019
+# ingest + enrich pipeline (Ollama embedder, no torch) over any GDPR
+# exports the user dropped in ~/Documents/Ostler/imports/preferences/.
+# Privacy: enrich's lookup clients call PUBLIC item-metadata APIs only
+# (about the item, never the user); every string here is counts-only.
+MSG_HYDRATE_PREFERENCES_SETUP="Setting up preference enrichment"
+MSG_HYDRATE_PREFERENCES_SETUP_FAILED="Preference enrichment could not be set up. Your preferences pages will fill once it is fixed; the rest of Ostler is unaffected."
+MSG_HYDRATE_PREFERENCES_STARTED="Importing your preferences – everything stays on this Mac"
+MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched %s preferences"
+MSG_HYDRATE_PREFERENCES_SKIPPED_NO_EXPORTS="No preference exports yet. Drop a Spotify, Netflix, or similar export into ~/Documents/Ostler/imports/preferences/ and re-run from Settings."
+MSG_HYDRATE_PREFERENCES_SKIPPED_SETUP_PENDING="Preference enrichment not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_PREFERENCES_SKIPPED_NO_DATA="Preferences were imported recently. You can re-run later from Settings."
+
 # CX-84: iMessage hydration. Fires as a separate progress emission
 # between hydrate_browsing and wiki_compile. Counts come from
 # ingest_imessage's return dict (people_created + people_enriched).
