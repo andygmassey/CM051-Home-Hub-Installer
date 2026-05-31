@@ -107,6 +107,11 @@ final class StepCatalog {
         "doctor_setup",
         "ical_server_setup",
         "knowledge_setup",
+        // Preferences wire (2026-05-31): cm019_setup builds the CM019 ingest +
+        // enrich venv (~/.ostler/services/cm019) that the shared ostler-import
+        // importer, the install-time preferences hydrate, and the export
+        // watcher all run from. Emitted at install.sh phase 3.11b.
+        "cm019_setup",
         "hub_power",
         "email_ingest",
         // whatsapp_bundle: the WhatsApp conversation-memory feed (the
@@ -149,6 +154,14 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // CX-106 (2026-05-29): initial_hydrate is a synchronous first-load
+        // sweep emitted between hydrate_imessage and wiki_compile that
+        // guarantees Qdrant has at least one collection before the wiki
+        // compiles. It shipped as a `progress` callsite without a
+        // canonicalOrder entry, so the install.sh<->GUI step-parity contract
+        // test has been red on main since CX-106. Registering it here closes
+        // that drift (the contract test prescribes exactly this fix).
+        "initial_hydrate",
         "wiki_compile",
         "health_check",
     ]

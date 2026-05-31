@@ -2560,9 +2560,12 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     echo ""
     echo -e "  ${BOLD}WhatsApp connector – please read carefully${NC}"
     echo ""
-    echo "  Ostler can read your WhatsApp messages locally on this Mac so"
-    echo "  you can search and reference them like any other part of your"
-    echo "  life. The messages stay on your Mac. Nothing is sent to us."
+    echo "  Ostler can read the CONTENT of your recent WhatsApp messages"
+    echo "  locally on this Mac - not just who you messaged and when, but"
+    echo "  what was said - so you can search and reference them like any"
+    echo "  other part of your life. It reads recent WhatsApp conversations"
+    echo "  your Mac has synced - typically several months up to about a"
+    echo "  year. The messages stay on your Mac. Nothing is sent to us."
     echo ""
     echo -e "  ${BOLD}Why this is the riskiest of the three channels${NC}"
     echo ""
@@ -3024,9 +3027,14 @@ printf "    %-14s %s\n" "Instagram"      "$(_link 'https://accountscenter.instag
 printf "    %-14s %s\n" "Google"         "$(_link 'https://takeout.google.com/' 'Google Takeout') (Calendar + Contacts)"
 printf "    %-14s %s\n" "Twitter / X"    "$(_link 'https://x.com/settings/download_your_data' 'Request archive')"
 printf "    %-14s %s\n" "WhatsApp"       "Settings > Account > Request Account Info"
+printf "    %-14s %s\n" "Spotify"        "$(_link 'https://www.spotify.com/account/privacy/' 'Request data')"
+printf "    %-14s %s\n" "Netflix"        "$(_link 'https://www.netflix.com/account/getmyinfo' 'Request data')"
+printf "    %-14s %s\n" "Apple"          "$(_link 'https://privacy.apple.com/' 'Request data') (Media Services)"
+printf "    %-14s %s\n" "Amazon"         "$(_link 'https://www.amazon.com/hz/privacy-central/data-requests/preview.html' 'Request data')"
 echo ""
-echo "  When your exports arrive, just download them to your"
-echo "  Downloads folder. Ostler will find them automatically."
+echo "  When your exports arrive, just leave them in your Downloads"
+echo "  folder. Ostler imports them automatically. There is nothing"
+echo "  else for you to do."
 echo ""
 echo "  Skip any you do not use. You can always import more later."
 echo ""
@@ -6976,26 +6984,57 @@ else
     warn "$(printf "$MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT" "$ICAL_WRAPPER")"
 fi
 
-# ── 3.11 Run GDPR import if exports were provided ────────────────
+# ── 3.11 Run GDPR import ─────────────────────────────────────────
+# The install-time import now routes through the shared ostler-import
+# fan-out (CM041 contacts + CM019 preferences). ostler-import must be
+# created first (phase 3.12) and the CM019 venv must exist (phase
+# 3.11b), so the import EXECUTION moved just below them to phase 3.12b.
+# Same pipeline-setup region, same import_data progress step + messaging
+# + guards; only the invocation changed (shared importer, not a direct
+# contact_syncer call) and the preferences drop-zone joined EXPORTS_DIR.
 
-if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]]; then
-    progress "Importing your data (building your knowledge graph)" "import_data"
-    info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
-    cd "$PIPELINE_DIR"
-    if .venv/bin/python -m contact_syncer.import_all \
-        --exports-dir "$EXPORTS_DIR" \
-        --user-name "$USER_NAME" \
-        --verbose 2>&1 | while IFS= read -r line; do
-            echo "  $line"
-        done; then
-        ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
+# ── 3.11b Preference enrichment pipeline (CM019) ─────────────────
+#
+# Sets up the vendored CM019 ingest + enrich pipeline in its OWN venv at
+# ~/.ostler/services/cm019/.venv (Ollama embedder, 768-dim, no torch).
+# This is the venv the shared ostler-import importer (next phase), the
+# install-time preferences hydrate, and the export watcher all run the
+# CLI from. Setup is idempotent (skipped if the venv already exists) and
+# non-fatal: a missing bundle or pip failure degrades to the wiki
+# empty-state, it never aborts the install.
+
+progress "Setting up preference enrichment" "cm019_setup"
+
+CM019_BUNDLE="${SCRIPT_DIR}/cm019_preferences"
+CM019_DIR="${OSTLER_DIR}/services/cm019"
+CM019_VENV="${CM019_DIR}/.venv"
+CM019_PY="${CM019_VENV}/bin/python"
+
+# Always ensure the canonical drop-zone exists so onboarding can point
+# at it and the watcher/hydrate can scan it even before any exports land.
+mkdir -p "${OSTLER_DIR}/imports/preferences"
+
+if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
+    if [[ ! -x "$CM019_PY" ]]; then
+        info "$MSG_CM019_SETUP_STARTED"
+        rm -rf "$CM019_DIR"
+        mkdir -p "$CM019_DIR"
+        cp -R "${CM019_BUNDLE}/" "$CM019_DIR/"
+        "$PYTHON3_BIN" -m venv "$CM019_VENV"
+        "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>/tmp/ostler-cm019-pip.log; then
+            ok "$MSG_CM019_SETUP_DONE"
+        else
+            warn "$MSG_CM019_SETUP_FAILED"
+            if [[ -s /tmp/ostler-cm019-pip.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm019-pip.log | tail -5
+            fi
+        fi
     else
-        warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
-        warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${EXPORTS_DIR}" "${USER_NAME}")"
+        info "$MSG_CM019_SETUP_EXISTS"
     fi
-elif [[ -n "$EXPORTS_DIR" ]]; then
-    info "$MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE"
-    info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
+else
+    info "$MSG_CM019_SETUP_SKIPPED"
 fi
 
 # ── 3.12 ostler-import command ──────────────────────────────────
@@ -7008,38 +7047,141 @@ if [[ -f "${SCRIPT_DIR}/ostler-import.sh" ]]; then
 else
     cat > "$IMPORT_SCRIPT" <<'IMPORTEOF'
 #!/usr/bin/env bash
-set -euo pipefail
+# Ostler shared export importer.
+#
+# Fans one or more export directories to BOTH consumers:
+#   - the people graph   (CM041 contact_syncer.import_all)
+#   - the preference wiki (CM019 ingest-dir + enrich --all -> `preferences`)
+#
+# It is the SINGLE ingest path. Three entry points call it:
+#   1. install.sh's install-time hydrate (Downloads + the drop-zone),
+#   2. the Downloads export watcher (auto-run on detection), and
+#   3. a power-user fallback (run it by hand).
+#
+# Safe to re-run over the same dir: contact_syncer dedupes (identity
+# resolver + DedupDetector) and the CM019 preferences upsert is keyed by
+# stable id, so a second pass is a no-op rather than a duplicate.
+#
+# Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
+# error, so one consumer being unavailable never blocks the other.
+set -uo pipefail
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+CM019_DIR="${OSTLER_DIR}/services/cm019"
+CM019_PY="${CM019_DIR}/.venv/bin/python"
 
-if [[ $# -lt 1 ]]; then
-    echo "Usage: ostler-import <exports-dir> [--user-name \"Name\"] [--verbose]"
-    echo ""
-    echo "Example: ostler-import ~/Downloads/gdpr-exports/ --user-name \"Tom\" --verbose"
+USER_NAME_ARG=""
+USER_ID_ARG=""
+VERBOSE=""
+DIRS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --user-name) USER_NAME_ARG="${2:-}"; shift 2 ;;
+        --user-id)   USER_ID_ARG="${2:-}"; shift 2 ;;
+        --verbose)   VERBOSE="--verbose"; shift ;;
+        -h|--help)
+            echo "Usage: ostler-import <exports-dir> [<exports-dir>...] [--user-name \"Name\"] [--user-id slug] [--verbose]"
+            echo ""
+            echo "Imports GDPR / app exports into both your people graph and your"
+            echo "preferences. Ostler runs this for you automatically; you only need"
+            echo "it by hand to re-import a folder Ostler did not pick up."
+            exit 0 ;;
+        *) DIRS+=("$1"); shift ;;
+    esac
+done
+
+if [[ ${#DIRS[@]} -eq 0 ]]; then
+    echo "Usage: ostler-import <exports-dir> [<exports-dir>...] [--user-name \"Name\"] [--user-id slug] [--verbose]"
     exit 1
 fi
 
-if [[ ! -d "$PIPELINE_DIR/contact_syncer" ]]; then
-    echo "Error: Import pipeline not installed."
-    echo "Re-run the Ostler installer to set it up."
-    exit 1
-fi
-
-if [[ ! -d "$PIPELINE_DIR/.venv" ]]; then
-    echo "Error: Python environment not set up."
-    echo "Re-run the Ostler installer to fix this."
-    exit 1
-fi
-
-cd "$PIPELINE_DIR"
 if [[ -f "${OSTLER_DIR}/config/.env" ]]; then
     set -a; source "${OSTLER_DIR}/config/.env"; set +a
 fi
-.venv/bin/python3 -m contact_syncer.import_all --exports-dir "$1" "${@:2}"
+# CM019 tags points by user slug; prefer an explicit flag, then the
+# installed-user env, then a neutral default.
+CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+rc=0
+for d in "${DIRS[@]}"; do
+    [[ -d "$d" ]] || continue
+
+    # ── People graph (CM041 contacts) ──────────────────────────────
+    if [[ -d "$PIPELINE_DIR/contact_syncer" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+        CS_ARGS=(--exports-dir "$d")
+        [[ -n "$USER_NAME_ARG" ]] && CS_ARGS+=(--user-name "$USER_NAME_ARG")
+        [[ -n "$VERBOSE" ]] && CS_ARGS+=("$VERBOSE")
+        ( cd "$PIPELINE_DIR" && .venv/bin/python3 -m contact_syncer.import_all "${CS_ARGS[@]}" ) || rc=$?
+    fi
+
+    # ── Preference wiki (CM019 ingest + enrich) ────────────────────
+    if [[ -x "$CM019_PY" ]]; then
+        ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
+            "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+        ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
+            "$CM019_PY" -m services.enrich.src.cli enrich --all -u "$CM019_USER" ) || rc=$?
+    fi
+done
+exit $rc
 IMPORTEOF
 fi
 
 chmod +x "$IMPORT_SCRIPT"
+
+# ── 3.12b Install-time import (shared fan-out) ──────────────────
+#
+# Relocated from phase 3.11: the install-time import now runs through
+# the shared ostler-import (just created above) over any exports the
+# customer ALREADY has -- detected in Downloads (EXPORTS_DIR) and/or
+# dropped in the preferences drop-zone -- so the first wiki compile has
+# real content. One pass, both pipelines: CM041 contacts AND CM019
+# preferences. Later arrivals are caught by the Downloads watcher (3.13).
+#
+# Behaviour-preserving for contacts: ostler-import makes the identical
+# contact_syncer.import_all call over the same EXPORTS_DIR; only the
+# invocation is now via the shared importer. Guarded + non-fatal:
+# skips cleanly when there is nothing to import and never aborts the
+# install (ostler-import is set -uo, no -e). Counts-only readback.
+
+_PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
+_IMPORT_DIRS=()
+[[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+if [[ -d "$_PREFS_DROPZONE" ]] \
+   && find "$_PREFS_DROPZONE" -type f ! -name '.*' -print -quit 2>/dev/null | grep -q .; then
+    _IMPORT_DIRS+=("$_PREFS_DROPZONE")
+fi
+
+if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
+    progress "Importing your data (building your knowledge graph)" "import_data"
+    info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
+    if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
+        --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
+        | while IFS= read -r line; do echo "  $line"; done; then
+        ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
+    else
+        warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
+        warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
+    fi
+    # Counts-only preferences readback; no item content leaves the process.
+    _PREFS_POINTS="$(
+        curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("points_count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null
+    )"
+    _PREFS_POINTS="${_PREFS_POINTS:-0}"
+    if [[ "$_PREFS_POINTS" -gt 0 ]]; then
+        ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
+    fi
+    unset _PREFS_POINTS
+elif [[ -n "${EXPORTS_DIR:-}" ]]; then
+    info "$MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE"
+    info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
+fi
+unset _PREFS_DROPZONE _IMPORT_DIRS
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
@@ -7083,62 +7225,94 @@ chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 # Create an export watcher script -- scans Downloads for new GDPR exports
 cat > "${OSTLER_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
 #!/usr/bin/env bash
-# Scans ~/Downloads for recognised GDPR export files.
-# Run manually or via launchd (checks every 4 hours).
-set -euo pipefail
+# Scans ~/Downloads for recognised exports and imports them automatically.
+# Runs via launchd. NO Terminal step: on detecting a new export set it
+# invokes the shared ostler-import (CM041 contacts + CM019 preferences)
+# and shows a friendly notification. Re-run safe: ostler-import dedupes
+# (contacts) and upserts by stable id (preferences).
+set -uo pipefail
 
 OSTLER_DIR="${HOME}/.ostler"
 SCAN_STATE="${OSTLER_DIR}/state/scan_state.json"
 DOWNLOADS="${HOME}/Downloads"
+IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
 
 mkdir -p "${OSTLER_DIR}/state"
 
-# Known patterns for each platform's export
+_notify() {
+    # $1 = message, $2 = subtitle
+    osascript -e "display notification \"$1\" with title \"Ostler\" subtitle \"$2\"" 2>/dev/null || true
+}
+
+# Recognised export shapes. FOUND holds paths; FOUND_LABELS the platform
+# names (for a friendly notification). Order people-graph first, then
+# preference exports.
 FOUND=()
+FOUND_LABELS=()
+_add() { [[ -e "$1" ]] && { FOUND+=("$1"); FOUND_LABELS+=("$2"); }; }
 
-# LinkedIn
-for f in "$DOWNLOADS"/Basic_LinkedInDataExport_*/ "$DOWNLOADS"/linkedin_*.zip "$DOWNLOADS"/LinkedInDataExport_*.zip; do
-    [[ -e "$f" ]] && FOUND+=("LinkedIn: $f")
+# People graph (contacts / social)
+for f in "$DOWNLOADS"/Basic_LinkedInDataExport_*/ "$DOWNLOADS"/linkedin_*.zip "$DOWNLOADS"/LinkedInDataExport_*.zip; do _add "$f" "LinkedIn"; done
+for f in "$DOWNLOADS"/facebook-*/ "$DOWNLOADS"/facebook_*.zip; do _add "$f" "Facebook"; done
+for f in "$DOWNLOADS"/instagram-*/ "$DOWNLOADS"/instagram_*.zip; do _add "$f" "Instagram"; done
+for f in "$DOWNLOADS"/takeout-*.zip "$DOWNLOADS"/Takeout/; do _add "$f" "Google"; done
+for f in "$DOWNLOADS"/twitter-*/ "$DOWNLOADS"/twitter-*.zip "$DOWNLOADS"/x-*.zip; do _add "$f" "X"; done
+
+# Preference exports (music / film / shopping)
+for f in "$DOWNLOADS"/my_spotify_data*.zip "$DOWNLOADS"/Spotify*.zip "$DOWNLOADS"/SpotifyExtendedStreamingHistory*.zip; do _add "$f" "Spotify"; done
+for f in "$DOWNLOADS"/netflix-*.zip "$DOWNLOADS"/NetflixViewingHistory*.csv; do _add "$f" "Netflix"; done
+for f in "$DOWNLOADS"/Apple_Media_Services*.zip "$DOWNLOADS"/AppleMediaServices*.zip "$DOWNLOADS"/apple*media*services*.zip; do _add "$f" "Apple"; done
+for f in "$DOWNLOADS"/amazon*.zip "$DOWNLOADS"/"Your Orders"*.zip; do _add "$f" "Amazon"; done
+
+[[ ${#FOUND[@]} -eq 0 ]] && exit 0
+
+# Guard: skip while anything is still downloading -- partial-download
+# markers (Safari .download, Chrome .crdownload, Firefox .part). The
+# next tick retries once the download completes.
+for p in "$DOWNLOADS"/*.download "$DOWNLOADS"/*.crdownload "$DOWNLOADS"/*.part; do
+    [[ -e "$p" ]] && exit 0
 done
 
-# Facebook
-for f in "$DOWNLOADS"/facebook-*/ "$DOWNLOADS"/facebook_*.zip; do
-    [[ -e "$f" ]] && FOUND+=("Facebook: $f")
+# Belt-and-braces: if any found FILE is still growing, wait for next tick.
+for f in "${FOUND[@]}"; do
+    if [[ -f "$f" ]]; then
+        s1=$(stat -f%z "$f" 2>/dev/null || echo 0)
+        sleep 2
+        s2=$(stat -f%z "$f" 2>/dev/null || echo 0)
+        [[ "$s1" != "$s2" ]] && exit 0
+    fi
 done
 
-# Instagram
-for f in "$DOWNLOADS"/instagram-*/ "$DOWNLOADS"/instagram_*.zip; do
-    [[ -e "$f" ]] && FOUND+=("Instagram: $f")
-done
-
-# Google Takeout
-for f in "$DOWNLOADS"/takeout-*.zip "$DOWNLOADS"/Takeout/; do
-    [[ -e "$f" ]] && FOUND+=("Google: $f")
-done
-
-# Twitter
-for f in "$DOWNLOADS"/twitter-*/ "$DOWNLOADS"/twitter-*.zip "$DOWNLOADS"/x-*.zip; do
-    [[ -e "$f" ]] && FOUND+=("Twitter: $f")
-done
-
-if [[ ${#FOUND[@]} -eq 0 ]]; then
+# Dedupe: same export set already imported? (FOUND_HASH in scan_state)
+FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
+if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
     exit 0
 fi
 
-# Check if we have already notified about these (avoid repeat alerts)
-FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
-if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
-    exit 0  # Already notified
+# Importer not installed yet (mid-install race) -- try again next tick.
+[[ -x "$IMPORT_SCRIPT" ]] || exit 0
+
+# Auto-import. ostler-import fans to BOTH pipelines over the whole
+# Downloads folder and is re-run safe.
+_first="${FOUND_LABELS[0]}"
+if [[ ${#FOUND[@]} -gt 1 ]]; then
+    _notify "Ostler found your ${_first} export and $(( ${#FOUND[@]} - 1 )) more, and is adding them to your world." "Importing"
+else
+    _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
 fi
 
-# Show notification
-osascript -e "display notification \"${#FOUND[@]} data export(s) found in Downloads. Open Terminal and run: ostler-import ~/Downloads/\" with title \"Ostler\" subtitle \"GDPR exports ready to import\""
+if "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1; then
+    _notify "Your latest export is now part of your world." "Done"
+else
+    _notify "Imported your latest export. Some parts will finish in the background." "Done"
+fi
 
+# Record only after a real import attempt, so a failed/partial run is
+# retried next tick rather than silently marked done.
 echo "$FOUND_HASH" >> "$SCAN_STATE"
 
-# Print details if running interactively
 if [[ -t 1 ]]; then
-    echo "Found ${#FOUND[@]} export(s):"
+    echo "Imported ${#FOUND[@]} export(s):"
     printf '  %s\n' "${FOUND[@]}"
 fi
 SCANEOF
@@ -11414,6 +11588,12 @@ fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
+
+# Preferences install-time ingest now runs earlier, at phase 3.12b,
+# through the shared ostler-import fan-out (CM041 contacts + CM019
+# preferences) over Downloads + the drop-zone -- collapsed there so
+# there is one importer and one ingest path, not a second standalone
+# block here. The Downloads watcher (3.13) catches later arrivals.
 
 # ══════════════════════════════════════════════════════════════════════
 # initial_hydrate (CX-106, DMG #48l, 2026-05-29)

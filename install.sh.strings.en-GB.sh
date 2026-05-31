@@ -947,6 +947,22 @@ MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
 
+# Preferences import counts-only confirmation, shown by phase 3.12b after
+# the shared ostler-import fan-out runs. The other hydrate_preferences
+# strings were removed when the standalone block was collapsed into the
+# shared importer; only this done-count line is still referenced.
+# Privacy: enrich's lookup clients call PUBLIC item-metadata APIs only
+# (about the item, never the user); this string is a count.
+MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched %s preferences"
+
+# Preference enrichment pipeline setup (CM019, own venv at
+# ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
+MSG_CM019_SETUP_STARTED="Setting up preference enrichment (one-off)"
+MSG_CM019_SETUP_DONE="Preference enrichment ready"
+MSG_CM019_SETUP_FAILED="Preference enrichment setup did not finish. Your preferences pages fill once it is fixed; the rest of Ostler is unaffected."
+MSG_CM019_SETUP_EXISTS="Preference enrichment already set up"
+MSG_CM019_SETUP_SKIPPED="Preference enrichment pipeline not bundled; skipping for now."
+
 # CX-84: iMessage hydration. Fires as a separate progress emission
 # between hydrate_browsing and wiki_compile. Counts come from
 # ingest_imessage's return dict (people_created + people_enriched).
