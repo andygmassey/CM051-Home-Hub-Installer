@@ -104,6 +104,25 @@ if ! grep -qE 'qdrant_collection:[[:space:]]*str[[:space:]]*=[[:space:]]*Field\(
 fi
 echo "enrich check: enrich config collection=preferences"
 
+# ── Re-ingest idempotency (load-bearing for the export watcher) ─────
+# ParsedPreference.id MUST be a stable, content-derived id, NOT a random
+# uuid4 default. The export watcher re-runs ostler-import over Downloads,
+# so a random id would mint duplicate Qdrant points + RDF triples on every
+# pass. base.py derives the id from (source, source_id|subject, category,
+# type) via uuid5 in __post_init__.
+_BASE="$SCRIPT_DIR/services/ingest/src/parsers/base.py"
+if grep -qE 'id:[[:space:]]*str[[:space:]]*=[[:space:]]*field\(default_factory=lambda:[[:space:]]*str\(uuid\.uuid4' "$_BASE"; then
+    echo "FAIL: ParsedPreference.id still uses a random uuid4 default." >&2
+    echo "      Re-ingest would duplicate preferences; restore the stable" >&2
+    echo "      content-keyed id (uuid5 in __post_init__)." >&2
+    exit 1
+fi
+if ! grep -qE 'uuid\.uuid5\(uuid\.NAMESPACE_URL' "$_BASE"; then
+    echo "FAIL: ParsedPreference.__post_init__ is missing the stable uuid5 id." >&2
+    exit 1
+fi
+echo "idempotency check: ParsedPreference.id is content-keyed (uuid5), not random"
+
 # ── requirements.txt must NOT carry the dropped ML stack ────────────
 # Strip comments first -- the file documents the DROPPED deps in prose.
 REQS_ACTIVE="$(grep -vE '^[[:space:]]*#' "$SCRIPT_DIR/requirements.txt" | grep -vE '^[[:space:]]*$' || true)"
@@ -143,6 +162,11 @@ try:
     assert cfg.settings.embedding_model == "nomic-embed-text", "model != nomic-embed-text"
     assert vec.vectorizer.dimension == 768, "vectorizer.dimension != 768"
     assert ecfg.settings.qdrant_collection == "preferences", "enrich collection != preferences"
+    base = importlib.import_module("services.ingest.src.parsers.base")
+    Pref = base.ParsedPreference
+    p1 = Pref(subject="x", source="s", source_id="k", category="c", preference_type="Like")
+    p2 = Pref(subject="x", source="s", source_id="k", category="c", preference_type="Like")
+    assert p1.id == p2.id and len(p1.id) == 36, "ParsedPreference.id not stable/canonical (re-ingest would duplicate)"
     print("OK")
 except AssertionError as exc:
     print(f"FAIL: vendored value mismatch ({exc})")

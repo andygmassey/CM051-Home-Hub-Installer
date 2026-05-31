@@ -13,7 +13,12 @@ class ParsedPreference:
     """A parsed preference ready for ingestion."""
 
     # Core fields
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    # Default empty so __post_init__ can derive a STABLE, content-keyed id
+    # (see below). A random default would make every re-ingest of the same
+    # export mint new ids -> duplicate Qdrant points + RDF triples, which
+    # breaks the export watcher's re-run-over-Downloads path. A parser may
+    # still pass an explicit id and it is preserved.
+    id: str = ""
     subject: str = ""
     preference_type: str = "Like"  # Like, Dislike, Love, Hate, Neutral
     strength: float = 0.5  # -1.0 to +1.0 (negative=dislike, positive=like)
@@ -39,7 +44,7 @@ class ParsedPreference:
     embedding_text: str = ""
 
     def __post_init__(self):
-        """Generate embedding text if not provided."""
+        """Generate embedding text + a stable content-keyed id if not set."""
         if not self.embedding_text:
             parts = [self.preference_type, self.subject]
             if self.category:
@@ -47,6 +52,23 @@ class ParsedPreference:
             if self.context:
                 parts.append(f"context:{self.context}")
             self.embedding_text = " ".join(parts)
+
+        # Stable id (re-ingest idempotency). Derived from the immutable
+        # content keys so re-importing the same export yields the same id:
+        # the Qdrant upsert + `pwg:pref_<id>` triples become an upsert, not a
+        # duplicate. Prefer the platform's own source_id (most stable) and
+        # fall back to the subject. Two preferences that share all of
+        # (source, key, category, type) ARE the same preference, so the
+        # collision-to-one-id is the intended dedup. An explicitly-passed id
+        # is left untouched.
+        if not self.id:
+            key = "|".join([
+                self.source or "",
+                str(self.source_id) if self.source_id else self.subject,
+                self.category or "",
+                self.preference_type or "",
+            ])
+            self.id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
 
     def to_turtle(self, user_id: str) -> str:
         """Convert to RDF Turtle format."""
