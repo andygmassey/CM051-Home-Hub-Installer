@@ -140,15 +140,8 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
-        // Preferences wire (2026-05-31): hydrate_preferences fires after
-        // hydrate_imessage and before wiki_compile. Runs the vendored CM019
-        // ingest + enrich pipeline over any GDPR exports the user dropped in
-        // ~/Documents/Ostler/imports/preferences/, populating the Food /
-        // Music / Media / Reading / Apps / Places / Topics wiki sections.
-        // Counts-only stdout; no item content leaves the local process.
-        "hydrate_preferences",
         // CX-106 (2026-05-29): initial_hydrate is a synchronous first-load
-        // sweep emitted between hydrate_preferences and wiki_compile that
+        // sweep emitted between hydrate_imessage and wiki_compile that
         // guarantees Qdrant has at least one collection before the wiki
         // compiles. It shipped as a `progress` callsite without a
         // canonicalOrder entry, so the install.sh<->GUI step-parity contract

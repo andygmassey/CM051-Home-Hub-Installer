@@ -6972,27 +6972,14 @@ else
     warn "$(printf "$MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT" "$ICAL_WRAPPER")"
 fi
 
-# ── 3.11 Run GDPR import if exports were provided ────────────────
-
-if [[ -n "$EXPORTS_DIR" && "$HAS_PIPELINE" == true && -d "$PIPELINE_DIR/.venv" ]]; then
-    progress "Importing your data (building your knowledge graph)" "import_data"
-    info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
-    cd "$PIPELINE_DIR"
-    if .venv/bin/python -m contact_syncer.import_all \
-        --exports-dir "$EXPORTS_DIR" \
-        --user-name "$USER_NAME" \
-        --verbose 2>&1 | while IFS= read -r line; do
-            echo "  $line"
-        done; then
-        ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
-    else
-        warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
-        warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${EXPORTS_DIR}" "${USER_NAME}")"
-    fi
-elif [[ -n "$EXPORTS_DIR" ]]; then
-    info "$MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE"
-    info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
-fi
+# ── 3.11 Run GDPR import ─────────────────────────────────────────
+# The install-time import now routes through the shared ostler-import
+# fan-out (CM041 contacts + CM019 preferences). ostler-import must be
+# created first (phase 3.12) and the CM019 venv must exist (phase
+# 3.11b), so the import EXECUTION moved just below them to phase 3.12b.
+# Same pipeline-setup region, same import_data progress step + messaging
+# + guards; only the invocation changed (shared importer, not a direct
+# contact_syncer call) and the preferences drop-zone joined EXPORTS_DIR.
 
 # ── 3.11b Preference enrichment pipeline (CM019) ─────────────────
 #
@@ -7128,6 +7115,61 @@ IMPORTEOF
 fi
 
 chmod +x "$IMPORT_SCRIPT"
+
+# ── 3.12b Install-time import (shared fan-out) ──────────────────
+#
+# Relocated from phase 3.11: the install-time import now runs through
+# the shared ostler-import (just created above) over any exports the
+# customer ALREADY has -- detected in Downloads (EXPORTS_DIR) and/or
+# dropped in the preferences drop-zone -- so the first wiki compile has
+# real content. One pass, both pipelines: CM041 contacts AND CM019
+# preferences. Later arrivals are caught by the Downloads watcher (3.13).
+#
+# Behaviour-preserving for contacts: ostler-import makes the identical
+# contact_syncer.import_all call over the same EXPORTS_DIR; only the
+# invocation is now via the shared importer. Guarded + non-fatal:
+# skips cleanly when there is nothing to import and never aborts the
+# install (ostler-import is set -uo, no -e). Counts-only readback.
+
+_PREFS_DROPZONE="${OSTLER_DIR}/imports/preferences"
+_IMPORT_DIRS=()
+[[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _IMPORT_DIRS+=("$EXPORTS_DIR")
+if [[ -d "$_PREFS_DROPZONE" ]] \
+   && find "$_PREFS_DROPZONE" -type f ! -name '.*' -print -quit 2>/dev/null | grep -q .; then
+    _IMPORT_DIRS+=("$_PREFS_DROPZONE")
+fi
+
+if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
+    progress "Importing your data (building your knowledge graph)" "import_data"
+    info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
+    if "$IMPORT_SCRIPT" "${_IMPORT_DIRS[@]}" \
+        --user-name "$USER_NAME" --user-id "$USER_ID" --verbose 2>&1 \
+        | while IFS= read -r line; do echo "  $line"; done; then
+        ok "$MSG_OK_GDPR_IMPORT_COMPLETE"
+    else
+        warn "$MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN"
+        warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
+    fi
+    # Counts-only preferences readback; no item content leaves the process.
+    _PREFS_POINTS="$(
+        curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("points_count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null
+    )"
+    _PREFS_POINTS="${_PREFS_POINTS:-0}"
+    if [[ "$_PREFS_POINTS" -gt 0 ]]; then
+        ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
+    fi
+    unset _PREFS_POINTS
+elif [[ -n "${EXPORTS_DIR:-}" ]]; then
+    info "$MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE"
+    info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
+fi
+unset _PREFS_DROPZONE _IMPORT_DIRS
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
@@ -11260,130 +11302,11 @@ fi
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
 
-# ══════════════════════════════════════════════════════════════════════
-# hydrate_preferences (preferences wire, 2026-05-31)
-# ──────────────────────────────────────────────────────────────────────
-# Fills the Food / Music / Media / Reading / Apps / Places / Topics wiki
-# sections from the user's preference data, via the vendored CM019
-# ingest + enrich pipeline (bundled at ${SCRIPT_DIR}/cm019_preferences;
-# Ollama embedder, 768-dim, NO torch). Two stages run against the
-# `preferences` Qdrant collection (the one CM044 reads):
-#
-#   1. ingest-dir   : parse any GDPR-style exports the user dropped in
-#                     ~/Documents/Ostler/imports/preferences/.
-#   2. enrich --all : normalise + resolve canonical entities and pull
-#                     PUBLIC item metadata (Wikidata / MusicBrainz /
-#                     OpenLibrary / OpenFoodFacts / Crossref). This is
-#                     the ONE place Ostler makes an outbound call, and
-#                     what leaves is about the item, never the user.
-#
-# Own venv at ~/.ostler/services/cm019/.venv (cm048 convention; keeps
-# the trimmed-dep + freshness contract self-contained). Setup is
-# idempotent -- the venv is created + deps installed only on first run.
-#
-# Guarded + non-fatal: a missing bundle, missing exports, or a pip /
-# ingest failure degrades to the calm per-category empty-state in the
-# wiki (CM044) rather than aborting the install. 90s wall-clock cap per
-# stage, mirroring the other hydrate_* blocks. Counts-only stdout: only
-# the Qdrant points_count is read back, never item content.
-#
-# Sentinel is recorded ONLY after a real ingest (points > 0) so that a
-# user who drops exports AFTER first install and re-runs is not skipped
-# by the 7-day freshness window.
-
-progress "Importing your preferences" "hydrate_preferences"
-
-_CM019_BUNDLE="${SCRIPT_DIR}/cm019_preferences"
-_CM019_DIR="${OSTLER_DIR}/services/cm019"
-_CM019_VENV="${_CM019_DIR}/.venv"
-_CM019_PY="${_CM019_VENV}/bin/python"
-_CM019_IMPORTS="${OSTLER_DIR}/imports/preferences"
-
-# Always ensure the drop-zone exists so the onboarding panel can point
-# at it even before any exports have been added.
-mkdir -p "$_CM019_IMPORTS"
-
-if _hydrate_sentinel_fresh "preferences"; then
-    info "$MSG_HYDRATE_PREFERENCES_SKIPPED_NO_DATA"
-elif [[ -d "$_CM019_BUNDLE" && -f "$_CM019_BUNDLE/requirements.txt" ]]; then
-    # Idempotent venv setup (first run only).
-    if [[ ! -x "$_CM019_PY" ]]; then
-        info "$MSG_HYDRATE_PREFERENCES_SETUP"
-        rm -rf "$_CM019_DIR"
-        mkdir -p "$_CM019_DIR"
-        cp -R "${_CM019_BUNDLE}/" "$_CM019_DIR/"
-        "$PYTHON3_BIN" -m venv "$_CM019_VENV"
-        "$_CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-        if ! "$_CM019_VENV/bin/pip" install --quiet -r "${_CM019_DIR}/requirements.txt" 2>/tmp/ostler-cm019-pip.log; then
-            warn "$MSG_HYDRATE_PREFERENCES_SETUP_FAILED"
-            if [[ -s /tmp/ostler-cm019-pip.log ]]; then
-                sed -e 's/^/    /' /tmp/ostler-cm019-pip.log | tail -5
-            fi
-        fi
-    fi
-
-    # Count droppable export files (any regular non-hidden file).
-    _CM019_EXPORT_COUNT="$(find "$_CM019_IMPORTS" -type f ! -name '.*' 2>/dev/null | wc -l | tr -d ' ')"
-    _CM019_EXPORT_COUNT="${_CM019_EXPORT_COUNT:-0}"
-
-    if [[ -x "$_CM019_PY" ]] && [[ "$_CM019_EXPORT_COUNT" -gt 0 ]]; then
-        info "$MSG_HYDRATE_PREFERENCES_STARTED"
-
-        _CM019_TIMEOUT_WRAP=""
-        if command -v gtimeout >/dev/null 2>&1; then
-            _CM019_TIMEOUT_WRAP="gtimeout 90"
-        elif command -v timeout >/dev/null 2>&1; then
-            _CM019_TIMEOUT_WRAP="timeout 90"
-        fi
-
-        # Stage 1: ingest the dropped exports into `preferences`.
-        ( cd "$_CM019_DIR" && \
-          QDRANT_COLLECTION=preferences \
-          $_CM019_TIMEOUT_WRAP \
-          "$_CM019_PY" -m services.ingest.src.cli ingest-dir "$_CM019_IMPORTS" -u "${USER_ID:-ostler}" \
-        ) >/tmp/ostler-hydrate-prefs-ingest.log 2>&1 || true
-
-        # Stage 2: normalise + enrich with PUBLIC item metadata.
-        ( cd "$_CM019_DIR" && \
-          QDRANT_COLLECTION=preferences \
-          $_CM019_TIMEOUT_WRAP \
-          "$_CM019_PY" -m services.enrich.src.cli enrich --all -u "${USER_ID:-ostler}" \
-        ) >/tmp/ostler-hydrate-prefs-enrich.log 2>&1 || true
-
-        # Counts-only confirmation: how many points the `preferences`
-        # collection holds now. No item content is read.
-        _CM019_POINTS="$(
-            curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
-            | python3 -c 'import json,sys
-try:
-    d=json.loads(sys.stdin.read())
-    print(int(((d.get("result") or {}).get("points_count")) or 0))
-except Exception:
-    print(0)' 2>/dev/null
-        )"
-        _CM019_POINTS="${_CM019_POINTS:-0}"
-        if [[ "$_CM019_POINTS" -gt 0 ]]; then
-            ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_CM019_POINTS")"
-            # Only record the sentinel once real data has landed.
-            _hydrate_sentinel_record "preferences" "points=${_CM019_POINTS}"
-        else
-            info "$MSG_HYDRATE_PREFERENCES_SKIPPED_NO_EXPORTS"
-        fi
-    elif [[ ! -x "$_CM019_PY" ]]; then
-        info "$MSG_HYDRATE_PREFERENCES_SKIPPED_SETUP_PENDING"
-    else
-        # Venv ready, no exports dropped yet -- the common day-one path.
-        # No sentinel so a later re-run (after the user adds exports)
-        # is not skipped by the freshness window. The wiki shows the
-        # calm per-category empty-state until then.
-        info "$MSG_HYDRATE_PREFERENCES_SKIPPED_NO_EXPORTS"
-    fi
-    unset _CM019_EXPORT_COUNT _CM019_TIMEOUT_WRAP _CM019_POINTS
-else
-    info "$MSG_HYDRATE_PREFERENCES_SKIPPED_SETUP_PENDING"
-fi
-
-unset _CM019_BUNDLE _CM019_DIR _CM019_VENV _CM019_PY _CM019_IMPORTS
+# Preferences install-time ingest now runs earlier, at phase 3.12b,
+# through the shared ostler-import fan-out (CM041 contacts + CM019
+# preferences) over Downloads + the drop-zone -- collapsed there so
+# there is one importer and one ingest path, not a second standalone
+# block here. The Downloads watcher (3.13) catches later arrivals.
 
 # ══════════════════════════════════════════════════════════════════════
 # initial_hydrate (CX-106, DMG #48l, 2026-05-29)
