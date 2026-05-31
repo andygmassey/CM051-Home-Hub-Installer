@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler WhatsApp bundle LaunchAgent (HR015 conversation-memory feed).
+
+        This is the four-artefact leg for WHATSAPP conversations. It reads
+        the macOS WhatsApp Desktop store (ChatStorage.sqlite, FDA granted
+        at install) for in-tier chats (T1 DM + T2 intimate/active group)
+        WITH message bodies, renders each chat into a cleaned transcript +
+        CM048 metadata (channel="whatsapp"), and hands each new / updated
+        chat to CM048's pwg-convo processor, which emits the four artefacts
+        under ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+
+        It sits alongside the email-bundle, spoken-bundle, and
+        imessage-bundle agents and shares their wiring shape. It is also
+        separate from the hydrate_whatsapp install sub-phase (people-graph
+        FACTS, metadata only). Distinct label, wrapper, state file, and
+        output, so the feeds never collide. The read is local-file-only
+        against WhatsApp Desktop's already-synced store; it never contacts
+        Meta.
+
+        Pieces:
+          1. whatsapp_source/ is the reader + renderer + dispatcher.
+          2. bin/whatsapp-bundle-tick.sh is the wrapper this agent runs;
+             it drives the module against ChatStorage.sqlite.
+          3. CM051 install.sh copies the wrapper, renders this plist,
+             and calls launchctl bootstrap.
+
+        The installer renders the placeholders at install time:
+          OSTLER_BIN         -> $OSTLER_DIR/bin
+          OSTLER_HOME        -> $HOME (working directory)
+          OSTLER_LOGS        -> $LOGS_DIR (~/.ostler/logs by default)
+          OSTLER_PYTHON_PATH -> the whatsapp-source venv python3
+          PWG_CONVO_CMD      -> absolute pwg-convo invocation
+                                (the CM048 venv python -m src.cli, or
+                                the installed console script)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.whatsapp-bundle</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/whatsapp-bundle-tick.sh</string>
+    </array>
+
+    <!--
+        Fifteen minutes, matching the email-bundle + spoken-bundle +
+        imessage-bundle cadence. The watermark in
+        ~/.ostler/workspace/whatsapp_source_state.json means each tick
+        only dispatches a chat carrying a message newer than the last
+        one bundled.
+    -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <!--
+        RunAtLoad fires once at login / post-install. The wrapper clamps
+        the read window via --since-days (365, "your last year of
+        WhatsApp") so a fresh install does not bundle the entire store in
+        one tick. The wrapper also exits 0 cleanly when ChatStorage.sqlite
+        is absent (WhatsApp Desktop never run), so RunAtLoad never
+        hard-fails the agent on a Mac without WhatsApp Desktop.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/whatsapp-bundle.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/whatsapp-bundle.err</string>
+
+    <!--
+        OSTLER_PYTHON selects the whatsapp-source venv interpreter.
+        PWG_CONVO_CMD tells the dispatcher how to invoke CM048's CLI
+        (rendered to the CM048 venv at install time). Without these the
+        tick falls through to a stock system python with no site-packages,
+        the same launch-blocker shape the email-bundle + spoken-bundle
+        agents guard against.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OSTLER_PYTHON</key>
+        <string>OSTLER_PYTHON_PATH</string>
+        <key>PWG_CONVO_CMD</key>
+        <string>PWG_CONVO_CMD_VALUE</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
