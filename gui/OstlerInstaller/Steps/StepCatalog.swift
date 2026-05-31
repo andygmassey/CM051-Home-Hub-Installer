@@ -142,6 +142,14 @@ final class StepCatalog {
         // Music / Media / Reading / Apps / Places / Topics wiki sections.
         // Counts-only stdout; no item content leaves the local process.
         "hydrate_preferences",
+        // CX-106 (2026-05-29): initial_hydrate is a synchronous first-load
+        // sweep emitted between hydrate_preferences and wiki_compile that
+        // guarantees Qdrant has at least one collection before the wiki
+        // compiles. It shipped as a `progress` callsite without a
+        // canonicalOrder entry, so the install.sh<->GUI step-parity contract
+        // test has been red on main since CX-106. Registering it here closes
+        // that drift (the contract test prescribes exactly this fix).
+        "initial_hydrate",
         "wiki_compile",
         "health_check",
     ]
