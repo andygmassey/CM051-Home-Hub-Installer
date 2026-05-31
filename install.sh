@@ -8421,127 +8421,203 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
     fi
 fi
 
-# ── 3.14c  WhatsApp conversation-memory feed (4-artefact body feed) ──
+# ── 3.14c  Conversation-memory body feeds (4-artefact, shared installer) ──
 #
-# The CONVERSATION-MEMORY leg for WhatsApp, and the gating floor for the
-# whole conversation-memory feature (v1.0.0 GATE). It reads the macOS
-# WhatsApp Desktop store (ChatStorage.sqlite) for in-tier chats WITH
-# message bodies, renders each into a cleaned transcript + CM048
-# metadata, and hands it to pwg-convo, which emits the four artefacts
-# under ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
+# The CONVERSATION-MEMORY feature (v1.0.0 GATE): for each wired human
+# channel, read its local store WITH message bodies, render a cleaned
+# transcript + CM048 metadata, and hand each conversation to pwg-convo,
+# which emits the four artefacts under
+# ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
 #
-# This establishes the shared conversation-bundle scaffolding (dedicated
-# venv + wrapper + plist + PWG_CONVO_CMD wiring) that the iMessage /
-# email / meeting-voice body feeds replicate (step 2).
+# All four feeds (WhatsApp / iMessage / email / meeting-voice) share the
+# same read->render->pwg-convo shape; only the package, module-staging,
+# venv deps, labels and strings differ. _install_conversation_feed is the
+# single shared installer so there are not five hand-maintained copies to
+# drift. Each feed is one gated call below.
 #
-# SEPARATE from the hydrate_whatsapp sub-phase below (people-graph FACTS,
-# metadata only, reuses the email-ingest venv). This feed reads BODIES,
-# has its OWN dedicated venv, distinct label/wrapper/state/output, so the
-# two never collide. The read is local-file-only against WhatsApp
-# Desktop's already-synced store; it never contacts Meta.
+# SEPARATE from the hydrate_* sub-phases (people-graph FACTS, metadata
+# only, shared email-ingest venv). The body feeds read BODIES, each has
+# its OWN dedicated venv, distinct label/wrapper/state/output, so they
+# never collide. Reads are local-file-only; nothing leaves the Mac.
 #
-# Gated on the SAME consent the hydrate sub-phase rides -- reading bodies
-# is strictly more sensitive than metadata, so it never takes a weaker
-# gate. Warn-not-abort throughout (a per-feed failure must never abort
-# the install); the CM048 pwg-convo setup above already hard-guarantees
-# the pipeline exists (ERR-15).
-if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
-    progress "Setting up whatsapp-bundle LaunchAgent (WhatsApp conversation memory)" "whatsapp_bundle"
+# Warn-not-abort throughout: a per-feed failure must never abort the
+# install. The CM048 pwg-convo setup above already hard-guarantees the
+# pipeline exists (ERR-15).
+#
+# _install_conversation_feed <feed_key> <stage_subpath> <venv_deps>
+#   feed_key      whatsapp|imessage|email|spoken. Derives the service dir
+#                 (${OSTLER_DIR}/services/<feed_key>-source), the bundle
+#                 label/wrapper/plist (com.creativemachines.ostler.<feed_key>-bundle),
+#                 the progress step id (<feed_key>_bundle) and the MSG_*
+#                 keys (MSG_{PROGRESS,OK,INFO,WARN}_<UC>_*).
+#   stage_subpath relative path under the service dir to stage the package
+#                 into. Top-level feeds pass "<feed_key>_source"; iMessage
+#                 passes "services/imessage_source" (its module is
+#                 services.imessage_source.pipeline).
+#   venv_deps     space-separated pip deps. The literal "ostler_fda" is
+#                 resolved to the bundled OSTLER_FDA_SRC; every other token
+#                 is a plain pip name (e.g. "pyyaml"). Per-feed: WhatsApp /
+#                 email need ostler_fda; iMessage / spoken do not.
+# The caller owns the gate (channel+consent for WhatsApp; source-present
+# for the others), so this function is gate-agnostic.
+_install_conversation_feed() {
+    local feed_key="$1" stage_subpath="$2" venv_deps="$3"
+    local uc; uc="$(printf '%s' "$feed_key" | tr '[:lower:]' '[:upper:]')"
+    local pkg_dir="${stage_subpath##*/}"
+    local label="com.creativemachines.ostler.${feed_key}-bundle"
+    local wrapper="${feed_key}-bundle-tick.sh"
+    local plist="${label}.plist"
+    local base="${OSTLER_DIR}/services/${feed_key}-source"
+    local venv="${base}/.venv"
+    local venv_python="${venv}/bin/python3"
 
-    WHATSAPP_SOURCE_BASE="${OSTLER_DIR}/services/whatsapp-source"
-    WHATSAPP_SOURCE_PKG="${WHATSAPP_SOURCE_BASE}/whatsapp_source"
-    WHATSAPP_SOURCE_VENV="${WHATSAPP_SOURCE_BASE}/.venv"
-    WHATSAPP_SOURCE_VENV_PYTHON="${WHATSAPP_SOURCE_VENV}/bin/python3"
+    # The caller emits the `progress "..." "<feed_key>_bundle"` step marker
+    # with a LITERAL id (so the install<->GUI contract extractor, a static
+    # parser, sees it and matches StepCatalog.canonicalOrder). This shared
+    # core does everything after the marker. MSG_* keys are derived from
+    # the uppercased feed_key (defined per feed in install.sh.strings.*.sh;
+    # no inline English here, Rule 0.9).
+    local k_ok_src="MSG_OK_${uc}_SOURCE_INSTALLED"
+    local k_warn_src="MSG_WARN_${uc}_SOURCE_FAILED"
+    local k_warn_fda="MSG_WARN_${uc}_SOURCE_SRC_NOT_FOUND"
+    local k_ok_loaded="MSG_OK_${uc}_BUNDLE_LOADED"
+    local k_info_tick="MSG_INFO_${uc}_BUNDLE_TICK"
+    local k_info_logs="MSG_INFO_${uc}_BUNDLE_LOGS"
+    local k_warn_failed="MSG_WARN_${uc}_BUNDLE_FAILED"
+    local k_warn_vendor="MSG_WARN_${uc}_BUNDLE_VENDOR_MISSING"
 
     # 1. Resolve the vendored package (bundled in the .app, or the dev
-    #    checkout's vendor/ tree). No clone fallback: the conversation
-    #    body feeds ship inside the .app; a raw dev install without the
-    #    vendor simply warns and skips (gated feature, never fatal).
-    WHATSAPP_SOURCE_SRC=""
-    if [[ -d "${SCRIPT_DIR}/whatsapp_source" && -f "${SCRIPT_DIR}/whatsapp_source/INSTALL_SNIPPET.sh" ]]; then
-        WHATSAPP_SOURCE_SRC="${SCRIPT_DIR}/whatsapp_source"
-    elif [[ -d "${SCRIPT_DIR}/../vendor/whatsapp_source" && -f "${SCRIPT_DIR}/../vendor/whatsapp_source/INSTALL_SNIPPET.sh" ]]; then
-        WHATSAPP_SOURCE_SRC="${SCRIPT_DIR}/../vendor/whatsapp_source"
+    #    checkout's vendor/ tree). No clone fallback: the body feeds ship
+    #    inside the .app; a raw dev install without the vendor warns and
+    #    skips (gated feature, never fatal). Keyed on the wrapper.
+    local src=""
+    if [[ -f "${SCRIPT_DIR}/${pkg_dir}/bin/${wrapper}" ]]; then
+        src="${SCRIPT_DIR}/${pkg_dir}"
+    elif [[ -f "${SCRIPT_DIR}/../vendor/${pkg_dir}/bin/${wrapper}" ]]; then
+        src="${SCRIPT_DIR}/../vendor/${pkg_dir}"
+    fi
+    if [[ -z "$src" ]]; then
+        warn "${!k_warn_vendor}"
+        return 0
     fi
 
-    if [[ -z "$WHATSAPP_SOURCE_SRC" ]]; then
-        warn "$MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING"
+    # 2. Stage the package under the service dir at stage_subpath so the
+    #    wrapper's SOURCE_DIR (the service dir) is stable and the module
+    #    resolves (top-level for most; services/ namespace for iMessage).
+    local pkg_dest="${base}/${stage_subpath}"
+    rm -rf "${base:?}/${stage_subpath%%/*}"
+    mkdir -p "$pkg_dest"
+    cp -R "${src}/." "$pkg_dest/"
+
+    # 3. Dedicated venv with the feed's deps. Decoupled from the
+    #    email-ingest venv so a single-channel install still works. The
+    #    "ostler_fda" token resolves to the bundled source; others are
+    #    plain pip names. Feeds with no ostler_fda dep carry their own
+    #    reader and only need pyyaml (optional contacts/label map).
+    local fda_src=""
+    if [[ -d "${SCRIPT_DIR}/ostler_fda" && -f "${SCRIPT_DIR}/ostler_fda/pyproject.toml" ]]; then
+        fda_src="${SCRIPT_DIR}/ostler_fda"
+    elif [[ -d "${SCRIPT_DIR}/../vendor/ostler_fda" && -f "${SCRIPT_DIR}/../vendor/ostler_fda/pyproject.toml" ]]; then
+        fda_src="${SCRIPT_DIR}/../vendor/ostler_fda"
+    fi
+    local pip_args=() dep needs_fda=0
+    for dep in $venv_deps; do
+        if [[ "$dep" == "ostler_fda" ]]; then
+            needs_fda=1
+            if [[ -n "$fda_src" ]]; then
+                pip_args+=("$fda_src")
+            fi
+        else
+            pip_args+=("$dep")
+        fi
+    done
+    if [[ "$needs_fda" -eq 1 && -z "$fda_src" ]]; then
+        warn "${!k_warn_fda}"
+        venv_python=""
+    elif [[ "${#pip_args[@]}" -gt 0 ]]; then
+        info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$venv")"
+        mkdir -p "$base"
+        "$PYTHON3_BIN" -m venv "$venv"
+        "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        local pip_log="/tmp/ostler-${feed_key}-source-pip.log"
+        if "$venv/bin/pip" install --quiet "${pip_args[@]}" 2>"$pip_log"; then
+            ok "${!k_ok_src}"
+        else
+            warn "${!k_warn_src}"
+            if [[ -s "$pip_log" ]]; then
+                sed -e 's/^/    /' "$pip_log" | tail -5
+            fi
+            venv_python=""
+        fi
+    fi
+
+    # 4. PWG_CONVO_CMD: the CM048 venv pwg-convo binary (absolute, no PATH
+    #    dependency under launchd). The pipeline appends
+    #    "process <transcript> <metadata>" itself, so this is the bare
+    #    invocation. Falls back to the /usr/local/bin symlink, then PATH.
+    local pwg="${CM048_VENV}/bin/pwg-convo"
+    if [[ ! -x "$pwg" ]]; then
+        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+            pwg="/usr/local/bin/pwg-convo"
+        else
+            pwg="pwg-convo"
+        fi
+    fi
+
+    # 5. Copy the wrapper (sed its SOURCE_DIR placeholder) and render the
+    #    plist (7 placeholders). The wrapper ships otherwise verbatim; the
+    #    plist EnvironmentVariables carry python / pwg-convo / source-dir /
+    #    user-name so the agent never falls through to a bare PATH python.
+    local bin_dir="${OSTLER_DIR}/bin"
+    mkdir -p "$bin_dir" "$LOGS_DIR" "${OSTLER_DIR}/workspace"
+    local esc_base; esc_base="$(printf '%s' "$base" | sed 's/[&/\]/\\&/g')"
+    sed "s/OSTLER_SOURCE_DIR_PLACEHOLDER/$esc_base/g" \
+        "${pkg_dest}/bin/${wrapper}" > "${bin_dir}/${wrapper}"
+    chmod 0755 "${bin_dir}/${wrapper}"
+
+    local la="${HOME}/Library/LaunchAgents"
+    mkdir -p "$la"
+    local rendered="${la}/${plist}"
+    local py_val="${venv_python:-python3}"
+    local e_bin e_home e_logs e_py e_pwg e_user
+    e_bin="$(printf '%s' "$bin_dir" | sed 's/[&/\]/\\&/g')"
+    e_home="$(printf '%s' "$HOME" | sed 's/[&/\]/\\&/g')"
+    e_logs="$(printf '%s' "$LOGS_DIR" | sed 's/[&/\]/\\&/g')"
+    e_py="$(printf '%s' "$py_val" | sed 's/[&/\]/\\&/g')"
+    e_pwg="$(printf '%s' "$pwg" | sed 's/[&/\]/\\&/g')"
+    e_user="$(printf '%s' "${USER_NAME:-You}" | sed 's/[&/\]/\\&/g')"
+    # _VALUE/_PATH-suffixed placeholders before bare ones, so a bare token
+    # is never a substring of a longer placeholder (byte-safe render).
+    sed \
+        -e "s/OSTLER_PYTHON_PATH/$e_py/g" \
+        -e "s/PWG_CONVO_CMD_VALUE/$e_pwg/g" \
+        -e "s/OSTLER_SOURCE_DIR_VALUE/$esc_base/g" \
+        -e "s/OSTLER_USER_DISPLAY_NAME_VALUE/$e_user/g" \
+        -e "s/OSTLER_BIN/$e_bin/g" \
+        -e "s/OSTLER_HOME/$e_home/g" \
+        -e "s/OSTLER_LOGS/$e_logs/g" \
+        "${pkg_dest}/launchd/${plist}" > "$rendered"
+    chmod 0644 "$rendered"
+
+    # 6. Load via launchctl bootstrap (bootout first; not idempotent alone).
+    local domain="gui/$(id -u)"
+    launchctl bootout "${domain}/${label}" 2>/dev/null || true
+    if launchctl bootstrap "$domain" "$rendered"; then
+        ok "${!k_ok_loaded}"
+        info "${!k_info_tick}"
+        info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
     else
-        # 2. Stage the package under services/whatsapp-source/ so the
-        #    wrapper's SOURCE_DIR (the package parent) is stable.
-        rm -rf "$WHATSAPP_SOURCE_PKG"
-        mkdir -p "$WHATSAPP_SOURCE_PKG"
-        cp -R "${WHATSAPP_SOURCE_SRC}/." "$WHATSAPP_SOURCE_PKG/"
-
-        # 3. Dedicated venv with ostler_fda (reader) + pyyaml (contacts /
-        #    label map). Decoupled from the email-ingest venv so a
-        #    WhatsApp-only install (email channel off) still works.
-        WHATSAPP_FDA_SRC=""
-        if [[ -d "${SCRIPT_DIR}/ostler_fda" && -f "${SCRIPT_DIR}/ostler_fda/pyproject.toml" ]]; then
-            WHATSAPP_FDA_SRC="${SCRIPT_DIR}/ostler_fda"
-        elif [[ -d "${SCRIPT_DIR}/../vendor/ostler_fda" && -f "${SCRIPT_DIR}/../vendor/ostler_fda/pyproject.toml" ]]; then
-            WHATSAPP_FDA_SRC="${SCRIPT_DIR}/../vendor/ostler_fda"
-        fi
-
-        if [[ -n "$WHATSAPP_FDA_SRC" ]]; then
-            info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$WHATSAPP_SOURCE_VENV")"
-            mkdir -p "$WHATSAPP_SOURCE_BASE"
-            "$PYTHON3_BIN" -m venv "$WHATSAPP_SOURCE_VENV"
-            "$WHATSAPP_SOURCE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-            if "$WHATSAPP_SOURCE_VENV/bin/pip" install --quiet "$WHATSAPP_FDA_SRC" pyyaml 2>/tmp/ostler-whatsapp-source-pip.log; then
-                ok "$MSG_OK_WHATSAPP_SOURCE_FDA_INSTALLED"
-            else
-                warn "$MSG_WARN_WHATSAPP_SOURCE_FDA_FAILED"
-                if [[ -s /tmp/ostler-whatsapp-source-pip.log ]]; then
-                    sed -e 's/^/    /' /tmp/ostler-whatsapp-source-pip.log | tail -5
-                fi
-                WHATSAPP_SOURCE_VENV_PYTHON=""
-            fi
-        else
-            warn "$MSG_WARN_WHATSAPP_SOURCE_FDA_SRC_NOT_FOUND"
-            WHATSAPP_SOURCE_VENV_PYTHON=""
-        fi
-
-        # 4. PWG_CONVO_CMD: the CM048 venv pwg-convo binary (absolute, no
-        #    PATH dependency under launchd). The pipeline appends
-        #    "process <transcript> <metadata>" itself, so this is the
-        #    bare invocation. Falls back to the /usr/local/bin symlink
-        #    the CM048 setup created, then to PATH lookup.
-        WHATSAPP_PWG_CONVO_CMD="${CM048_VENV}/bin/pwg-convo"
-        if [[ ! -x "$WHATSAPP_PWG_CONVO_CMD" ]]; then
-            if [[ -x "/usr/local/bin/pwg-convo" ]]; then
-                WHATSAPP_PWG_CONVO_CMD="/usr/local/bin/pwg-convo"
-            else
-                WHATSAPP_PWG_CONVO_CMD="pwg-convo"
-            fi
-        fi
-
-        # 5. Install the LaunchAgent via the vendored snippet (subshell;
-        #    its non-zero exit warns, never aborts).
-        WHATSAPP_SNIPPET="${WHATSAPP_SOURCE_PKG}/INSTALL_SNIPPET.sh"
-        if [[ -f "$WHATSAPP_SNIPPET" ]]; then
-            if OSTLER_INSTALL_ROOT="$WHATSAPP_SOURCE_PKG" \
-               OSTLER_DIR="$OSTLER_DIR" \
-               LOGS_DIR="$LOGS_DIR" \
-               OSTLER_VENV_PYTHON="$WHATSAPP_SOURCE_VENV_PYTHON" \
-               OSTLER_WA_SOURCE_DIR="$WHATSAPP_SOURCE_BASE" \
-               OSTLER_WA_PWG_CONVO_CMD="$WHATSAPP_PWG_CONVO_CMD" \
-               OSTLER_WA_USER_NAME="${USER_NAME:-You}" \
-               bash "$WHATSAPP_SNIPPET"; then
-                ok "$MSG_OK_WHATSAPP_BUNDLE_LAUNCHAGENT_LOADED"
-                info "$MSG_INFO_WHATSAPP_BUNDLE_TICK_CLAMPED"
-                info "$(printf "$MSG_INFO_WHATSAPP_BUNDLE_LOGS" "${LOGS_DIR}")"
-            else
-                warn "$MSG_WARN_WHATSAPP_BUNDLE_LAUNCHAGENT_FAILED"
-            fi
-        else
-            warn "$MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING"
-        fi
+        warn "${!k_warn_failed}"
     fi
+}
 
-    unset WHATSAPP_SOURCE_BASE WHATSAPP_SOURCE_PKG WHATSAPP_SOURCE_VENV
-    unset WHATSAPP_SOURCE_VENV_PYTHON WHATSAPP_SOURCE_SRC WHATSAPP_FDA_SRC
-    unset WHATSAPP_PWG_CONVO_CMD WHATSAPP_SNIPPET
+# WhatsApp body feed -- the gating floor. Rides the SAME consent the
+# hydrate sub-phase rides (reading bodies is strictly more sensitive than
+# the metadata the hydrate reads, so never a weaker gate). Needs ostler_fda
+# (its reader reuses ostler_fda.whatsapp_history) plus pyyaml (contacts).
+if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
+    progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
+    _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
