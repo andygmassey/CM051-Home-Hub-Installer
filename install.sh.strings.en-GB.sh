@@ -904,19 +904,13 @@ MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
 
-# Preferences wire (2026-05-31): hydrate_preferences fires after
-# hydrate_imessage and before wiki_compile. Runs the vendored CM019
-# ingest + enrich pipeline (Ollama embedder, no torch) over any GDPR
-# exports the user dropped in ~/Documents/Ostler/imports/preferences/.
+# Preferences import counts-only confirmation, shown by phase 3.12b after
+# the shared ostler-import fan-out runs. The other hydrate_preferences
+# strings were removed when the standalone block was collapsed into the
+# shared importer; only this done-count line is still referenced.
 # Privacy: enrich's lookup clients call PUBLIC item-metadata APIs only
-# (about the item, never the user); every string here is counts-only.
-MSG_HYDRATE_PREFERENCES_SETUP="Setting up preference enrichment"
-MSG_HYDRATE_PREFERENCES_SETUP_FAILED="Preference enrichment could not be set up. Your preferences pages will fill once it is fixed; the rest of Ostler is unaffected."
-MSG_HYDRATE_PREFERENCES_STARTED="Importing your preferences – everything stays on this Mac"
+# (about the item, never the user); this string is a count.
 MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched %s preferences"
-MSG_HYDRATE_PREFERENCES_SKIPPED_NO_EXPORTS="No preference exports yet. Drop a Spotify, Netflix, or similar export into ~/Documents/Ostler/imports/preferences/ and re-run from Settings."
-MSG_HYDRATE_PREFERENCES_SKIPPED_SETUP_PENDING="Preference enrichment not ready yet. You can re-run later from Settings."
-MSG_HYDRATE_PREFERENCES_SKIPPED_NO_DATA="Preferences were imported recently. You can re-run later from Settings."
 
 # Preference enrichment pipeline setup (CM019, own venv at
 # ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
