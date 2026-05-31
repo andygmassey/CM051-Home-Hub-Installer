@@ -13,9 +13,11 @@ class Settings(BaseSettings):
     oxigraph_port: int = Field(default=7878, alias="OXIGRAPH_PORT")
 
     # Qdrant connection (for querying unenriched preferences)
+    # Vendored for the single-Mac install: standardised on the `preferences`
+    # collection that CM044 reads (upstream CM019 default was pwg_preferences).
     qdrant_host: str = Field(default="localhost", alias="QDRANT_HOST")
     qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
-    qdrant_collection: str = Field(default="pwg_preferences", alias="QDRANT_COLLECTION")
+    qdrant_collection: str = Field(default="preferences", alias="QDRANT_COLLECTION")
 
     # API Keys
     tmdb_api_key: Optional[str] = Field(default=None, alias="TMDB_API_KEY")

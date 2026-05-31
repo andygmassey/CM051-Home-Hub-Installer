@@ -41,6 +41,9 @@ for path in \
     services/ingest/src/vectorizer.py \
     services/ingest/src/config.py \
     services/ingest/src/parsers/email.py \
+    services/enrich/src/cli.py \
+    services/enrich/src/enricher.py \
+    services/enrich/src/config.py \
     requirements.txt
 do
     if [ ! -f "$SCRIPT_DIR/$path" ]; then
@@ -90,6 +93,17 @@ if ! grep -qE 'embedding_model:[[:space:]]*str[[:space:]]*=[[:space:]]*Field\(de
 fi
 echo "config check: collection=preferences, embedding_dim=768, model=nomic-embed-text"
 
+# ── enrich service is WIRED on the same collection ──────────────────
+# enrich (normalisation + canonical-entity lookups) reads/writes the same
+# `preferences` collection. Upstream CM019 default was pwg_preferences; a
+# stale re-vendor here would silently enrich the wrong collection.
+if ! grep -qE 'qdrant_collection:[[:space:]]*str[[:space:]]*=[[:space:]]*Field\(default="preferences"' "$SCRIPT_DIR/services/enrich/src/config.py"; then
+    echo "FAIL: services/enrich/src/config.py qdrant_collection is not \"preferences\"." >&2
+    echo "      enrich would normalise/enrich a collection CM044 never reads." >&2
+    exit 1
+fi
+echo "enrich check: enrich config collection=preferences"
+
 # ── requirements.txt must NOT carry the dropped ML stack ────────────
 # Strip comments first -- the file documents the DROPPED deps in prose.
 REQS_ACTIVE="$(grep -vE '^[[:space:]]*#' "$SCRIPT_DIR/requirements.txt" | grep -vE '^[[:space:]]*$' || true)"
@@ -102,6 +116,15 @@ for banned in torch sentence-transformers transformers scikit-learn nltk fastapi
 done
 echo "requirements check: torch/sentence-transformers/server/Kafka stack absent from active deps"
 
+# enrich is wired, so its two light deps MUST be present (no torch).
+for needed in aiohttp aiolimiter; do
+    if ! printf '%s\n' "$REQS_ACTIVE" | grep -qiE "^[[:space:]]*${needed}([[:space:]<>=!~]|$)"; then
+        echo "FAIL: requirements.txt is missing '${needed}' -- enrich is wired and needs it." >&2
+        exit 1
+    fi
+done
+echo "requirements check: enrich deps (aiohttp + aiolimiter) present"
+
 # ── Optional import-time check ──────────────────────────────────────
 # Mirrors how install.sh invokes the CLI
 # ("python -m services.ingest.src.cli ..."). Falls back to inconclusive
@@ -113,10 +136,13 @@ try:
     cfg = importlib.import_module("services.ingest.src.config")
     vec = importlib.import_module("services.ingest.src.vectorizer")
     importlib.import_module("services.ingest.src.pipeline")
+    ecfg = importlib.import_module("services.enrich.src.config")
+    importlib.import_module("services.enrich.src.enricher")
     assert cfg.settings.qdrant_collection == "preferences", "collection != preferences"
     assert cfg.settings.embedding_dim == 768, "embedding_dim != 768"
     assert cfg.settings.embedding_model == "nomic-embed-text", "model != nomic-embed-text"
     assert vec.vectorizer.dimension == 768, "vectorizer.dimension != 768"
+    assert ecfg.settings.qdrant_collection == "preferences", "enrich collection != preferences"
     print("OK")
 except AssertionError as exc:
     print(f"FAIL: vendored value mismatch ({exc})")

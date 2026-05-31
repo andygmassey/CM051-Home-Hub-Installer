@@ -36,6 +36,16 @@ lxml>=6.1.0
 openpyxl>=3.1.0
 msoffcrypto-tool>=5.0.0
 
+# Enrichment service (services/enrich): normalisation + canonical-entity
+# lookups. The lookup clients MAY call PUBLIC item-metadata APIs (Wikidata,
+# MusicBrainz, OpenLibrary, OpenFoodFacts, Crossref, etc.) -- preference
+# enrichment is the ONE place Ostler makes an outbound call, and what leaves
+# is about the item, never the user. Keyed clients (TMDB/YouTube/Foursquare/
+# Google Places) no-op without their API key. These are the only deps enrich
+# adds on top of the ingest set (httpx/bs4/pydantic/click are shared); NO torch.
+aiohttp>=3.9.0
+aiolimiter>=1.1.0
+
 # Security floor: msoffcrypto-tool pulls in cryptography; keep the Snyk-pinned
 # minimum that still applies to the surviving dependency tree.
 cryptography>=46.0.5
