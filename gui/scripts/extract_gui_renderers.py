@@ -46,7 +46,23 @@ from pathlib import Path
 #   STEP event before the customer-facing TCC briefing block (NOT a
 #   STEP_BEGIN sidebar advance). GUI falls through to .unknown; the
 #   briefing text surfaces via subsequent echo lines on the log pane.
-SOFT_UNKNOWN_OK: set[str] = {"MAIL_ACCOUNTS_FOUND", "STEP"}
+# - CX106_QDRANT_BEFORE / CX106_QDRANT_AFTER: CX-106 initial-hydration
+#   diagnostic count markers ("count=N" of Qdrant collections before/after
+#   the synchronous hydrate). Log-pane telemetry only, not a sidebar row;
+#   the GUI intentionally falls through to .unknown.
+# - IMESSAGE_TCC_DENIED: CX-278 iMessage-TCC posture marker
+#   ("status=denied" + remediation hint). install.sh already opens the
+#   Privacy pane and surfaces a customer-facing info() line on the log
+#   pane; the emit is telemetry, not a sidebar row, so the GUI falls
+#   through to .unknown. (Surfaced once CX106_QDRANT was resolved -- it
+#   was masked behind that failure on origin/main.)
+SOFT_UNKNOWN_OK: set[str] = {
+    "MAIL_ACCOUNTS_FOUND",
+    "STEP",
+    "CX106_QDRANT_BEFORE",
+    "CX106_QDRANT_AFTER",
+    "IMESSAGE_TCC_DENIED",
+}
 
 
 def _strip_swift_comments(source: str) -> str:
