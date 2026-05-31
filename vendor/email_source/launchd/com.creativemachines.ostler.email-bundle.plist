@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler email bundle LaunchAgent (HR015 conversation-memory feed).
+
+        This is the four-artefact leg for email. It is SEPARATE from
+        com.creativemachines.ostler.email-ingest (the hourly facts
+        drain). Both read the same Apple Mail store but write different
+        products: the ingest agent writes graph facts via
+        pwg-email-ingest; this agent reads the same .emlx tree, threads
+        it into conversation threads, and hands each new thread to
+        CM048's pwg-convo processor, which emits the four artefacts
+        under ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+
+        Pieces:
+          1. email_source/ is the reader + threader + dispatcher.
+          2. bin/email-bundle-tick.sh is the wrapper this agent runs;
+             it drives the module against the Apple Mail store.
+          3. CM051 install.sh copies the wrapper, renders this plist,
+             and calls launchctl bootstrap.
+
+        The installer renders the placeholders at install time:
+          OSTLER_BIN         -> $OSTLER_DIR/bin
+          OSTLER_HOME        -> $HOME (working directory)
+          OSTLER_LOGS        -> $LOGS_DIR (~/.ostler/logs by default)
+          OSTLER_PYTHON_PATH -> the email-source venv python3
+          PWG_CONVO_CMD      -> absolute pwg-convo invocation
+                                (the CM048 venv python -m src.cli, or
+                                the installed console script)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.email-bundle</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/email-bundle-tick.sh</string>
+    </array>
+
+    <!--
+        Fifteen minutes, matching the iMessage-bundle cadence. Mail
+        arrives less often than iMessage but a quarter-hour keeps
+        recent threads fresh in the assistant's memory without
+        re-walking the .emlx tree too aggressively. The watermark in
+        ~/.ostler/workspace/email_source_state.json means each tick
+        only dispatches a thread carrying a genuinely new message.
+    -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <!--
+        RunAtLoad fires once at login / post-install. The wrapper
+        clamps the read window via --since-days so a fresh install
+        does not try to bundle the user's entire mailbox in one tick.
+        The wrapper also exits 0 cleanly when ~/Library/Mail is
+        absent (Mail never opened), so RunAtLoad never hard-fails the
+        agent on a Mac without Mail.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/email-bundle.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/email-bundle.err</string>
+
+    <!--
+        OSTLER_PYTHON selects the email-source venv interpreter (which
+        has ostler_fda installed for the Apple Mail primitives).
+        PWG_CONVO_CMD tells the dispatcher how to invoke CM048's CLI
+        (rendered to the CM048 venv at install time). Without these the
+        tick falls through to a stock system python with no
+        site-packages -- the same launch-blocker shape the email-ingest
+        agent guards against.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OSTLER_PYTHON</key>
+        <string>OSTLER_PYTHON_PATH</string>
+        <key>PWG_CONVO_CMD</key>
+        <string>PWG_CONVO_CMD_VALUE</string>
+        <!--
+            Rendered by the installer (_install_conversation_feed) so the
+            wrapper ships verbatim: SOURCE_DIR is the package parent the
+            wrapper cd's into; USER_DISPLAY_NAME labels the operator's own
+            messages as "You".
+        -->
+        <key>OSTLER_SOURCE_DIR</key>
+        <string>OSTLER_SOURCE_DIR_VALUE</string>
+        <key>OSTLER_USER_DISPLAY_NAME</key>
+        <string>OSTLER_USER_DISPLAY_NAME_VALUE</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

@@ -7544,7 +7544,8 @@ echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler, ostler-vane)"
 echo "    - Docker volumes (your knowledge graph data + web-search history)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
-echo "    - Doctor, export watcher, hub power, email-ingest, whatsapp-bundle,"
+echo "    - Doctor, export watcher, hub power, email-ingest, conversation feeds"
+echo "      (whatsapp-bundle, email-bundle, spoken-bundle, imessage-bundle),"
 echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
 echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
@@ -7645,6 +7646,12 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-bundle" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-bundle" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.spoken-bundle" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.imessage-bundle" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
@@ -7664,6 +7671,9 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
@@ -8618,6 +8628,37 @@ _install_conversation_feed() {
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
+fi
+
+# Email body feed. Reads OTHER PEOPLE'S message content (Apple Mail's
+# local store), so it is gated on the third-party-data consent (Q14),
+# never source-presence alone -- reading others' bodies is predicated on
+# that acknowledgement (declined wipes ~/.ostler/imports). Needs
+# ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
+if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+    progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
+    _install_conversation_feed email email_source "ostler_fda pyyaml"
+fi
+
+# Meeting / voice body feed. These are the customer's OWN CM042
+# recordings, consented at capture time (CM042 consent_log), so the gate
+# is source-presence (the Transcripts dir), NOT the third-party ack --
+# over-gating own-recordings would be wrong. Self-contained reader
+# (no ostler_fda); pyyaml for the optional contacts/label map.
+if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
+    progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
+    _install_conversation_feed spoken spoken_source "pyyaml"
+fi
+
+# iMessage body feed. Reads OTHER PEOPLE'S message content
+# (~/Library/Messages/chat.db), same sensitivity as WhatsApp/email
+# bodies, so it rides the third-party-data consent, never source-presence
+# alone. Self-contained chat.db reader (no ostler_fda); pyyaml for the
+# optional contacts/label map. Module is services.imessage_source.pipeline,
+# so the package stages under services/ (stage_subpath services/imessage_source).
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+    progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
+    _install_conversation_feed imessage services/imessage_source "pyyaml"
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────

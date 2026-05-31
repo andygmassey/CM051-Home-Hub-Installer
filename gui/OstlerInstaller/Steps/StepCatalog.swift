@@ -116,6 +116,13 @@ final class StepCatalog {
         // feeds for iMessage / email / meeting-voice replicate this
         // pattern (step 2) and slot in alongside.
         "whatsapp_bundle",
+        // The other three conversation-memory body feeds, emitted right
+        // after whatsapp_bundle by the shared _install_conversation_feed
+        // caller (email / meeting-voice / iMessage). Each is gated: email
+        // + iMessage on third-party consent, spoken on source presence.
+        "email_bundle",
+        "spoken_bundle",
+        "imessage_bundle",
         "imessage_bridge",
         "wiki_recompile_agent",
         "ostler_assistant",

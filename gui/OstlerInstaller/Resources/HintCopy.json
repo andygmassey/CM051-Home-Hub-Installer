@@ -204,6 +204,36 @@
     "illustration": null,
     "needs_fda": true
   },
+  "email_bundle": {
+    "id": "email_bundle",
+    "title": "Email conversations",
+    "subtitle": "Conversation memory",
+    "why": "Ostler turns your recent email threads (from Apple Mail's local store) into short summaries, to-dos, clean transcripts and metadata, so you can search and reference them. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": true
+  },
+  "spoken_bundle": {
+    "id": "spoken_bundle",
+    "title": "Meeting and voice conversations",
+    "subtitle": "Conversation memory",
+    "why": "Ostler turns your own recorded meetings and voice notes into short summaries, to-dos, clean transcripts and metadata. These are your own recordings, consented when you captured them. Everything stays on your Mac.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": false
+  },
+  "imessage_bundle": {
+    "id": "imessage_bundle",
+    "title": "iMessage conversations",
+    "subtitle": "Conversation memory",
+    "why": "Ostler turns your recent iMessage conversations (from this Mac's Messages store) into short summaries, to-dos, clean transcripts and metadata, so you can search and reference them. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": true
+  },
   "wiki_recompile_agent": {
     "id": "wiki_recompile_agent",
     "title": "Wiki rebuild scheduler",

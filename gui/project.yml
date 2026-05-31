@@ -307,6 +307,54 @@ targets:
           - $(SRCROOT)/../vendor/whatsapp_source
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whatsapp_source
+      - name: Bundle email_source conversation feed into Resources
+        script: |
+          set -euo pipefail
+          VENDOR_SRC="${SRCROOT}/../vendor/email_source"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/email_source/ is missing." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/email_source"
+          cp -R "${VENDOR_SRC}/." "${DEST}/email_source/"
+          /usr/bin/xattr -cr "${DEST}/email_source"
+        inputFiles:
+          - $(SRCROOT)/../vendor/email_source
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/email_source
+      - name: Bundle spoken_source conversation feed into Resources
+        script: |
+          set -euo pipefail
+          VENDOR_SRC="${SRCROOT}/../vendor/spoken_source"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/spoken_source/ is missing." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/spoken_source"
+          cp -R "${VENDOR_SRC}/." "${DEST}/spoken_source/"
+          /usr/bin/xattr -cr "${DEST}/spoken_source"
+        inputFiles:
+          - $(SRCROOT)/../vendor/spoken_source
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/spoken_source
+      - name: Bundle imessage_source conversation feed into Resources
+        script: |
+          set -euo pipefail
+          VENDOR_SRC="${SRCROOT}/../vendor/imessage_source"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/imessage_source/ is missing." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/imessage_source"
+          cp -R "${VENDOR_SRC}/." "${DEST}/imessage_source/"
+          /usr/bin/xattr -cr "${DEST}/imessage_source"
+        inputFiles:
+          - $(SRCROOT)/../vendor/imessage_source
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/imessage_source
       - name: Bundle Doctor agent into Resources
         script: |
           set -euo pipefail
