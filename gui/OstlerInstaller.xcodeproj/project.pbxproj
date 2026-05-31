@@ -377,6 +377,10 @@
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
+				F54BDEF84C009CE505BC7F56 /* Bundle whatsapp_source conversation feed into Resources */,
+				1F163102D8C7D318C87083D0 /* Bundle email_source conversation feed into Resources */,
+				CBD6E8B35AD4F80C403FFB45 /* Bundle spoken_source conversation feed into Resources */,
+				D55F6B625ACEC9B0E77B5DD5 /* Bundle imessage_source conversation feed into Resources */,
 				A594C4AF71E56E7417E3B57B /* Bundle Doctor agent into Resources */,
 				C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */,
 				ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */,
@@ -505,6 +509,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
+		};
+		1F163102D8C7D318C87083D0 /* Bundle email_source conversation feed into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/email_source",
+			);
+			name = "Bundle email_source conversation feed into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/email_source",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/email_source\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/email_source/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/email_source\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/email_source/\"\n/usr/bin/xattr -cr \"${DEST}/email_source\"\n";
 		};
 		219B529EE4BEFA823868130C /* Bundle CM019 preferences ingest pipeline into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -763,6 +787,46 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# install.sh's Phase 3.14 (Hub power policy) probes\n# ${SCRIPT_DIR}/hub-power/INSTALL_SNIPPET.sh to decide\n# whether to install the hub-power LaunchAgent (battery\n# / AC / sleep / wake throttling for MacBook hubs).\n# When that probe fails the install logs an info line\n# (\"hub-power scripts not bundled with installer\") and\n# silently continues. That is fine on a Mac Mini /\n# Studio (always-on AC, watcher is a no-op anyway), but\n# on a MacBook hub it means the LaunchAgent never lands\n# and the customer's battery drains on the first trip\n# away from the wall.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources\n# at install time, so the package must land at\n# Contents/Resources/hub-power/. Note that the on-disk\n# subdir name is \"hub-power\" (matching what install.sh\n# looks for) even though the vendor subdir is \"hub_power\"\n# (matching the directory naming convention for vendor/).\n#\n# Source of truth: HR015 - Gaming PC/hub-power/. See\n# vendor/hub_power/README.md for the sync convention.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/hub_power\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling hub_power from ${SRC} into Resources/hub-power/\"\n  mkdir -p \"${DEST}/hub-power\"\n  # Copy WITHOUT -p so xattrs do not propagate -- codesign\n  # rejects \"resource fork, Finder information, or similar\n  # detritus\" on the staged bundle.\n  cp -R \"${SRC}/\" \"${DEST}/hub-power/\"\n  # Belt-and-braces xattr strip on the destination.\n  /usr/bin/xattr -cr \"${DEST}/hub-power\" || true\n  # Re-assert executable bits on the shell scripts. The\n  # cp above should preserve them, but a `git checkout`\n  # on a case-insensitive filesystem can occasionally\n  # land without the x-bit.\n  chmod 755 \"${DEST}/hub-power/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/hub-power/bin/\"*.sh\nelse\n  echo \"ERROR: vendor/hub_power not found at ${SRC}\" >&2\n  echo \"       Run 'make vendor-sync' or sync manually from HR015 -- see vendor/hub_power/README.md.\" >&2\n  exit 1\nfi\n";
 		};
+		CBD6E8B35AD4F80C403FFB45 /* Bundle spoken_source conversation feed into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/spoken_source",
+			);
+			name = "Bundle spoken_source conversation feed into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/spoken_source",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/spoken_source\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/spoken_source/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/spoken_source\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/spoken_source/\"\n/usr/bin/xattr -cr \"${DEST}/spoken_source\"\n";
+		};
+		D55F6B625ACEC9B0E77B5DD5 /* Bundle imessage_source conversation feed into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/imessage_source",
+			);
+			name = "Bundle imessage_source conversation feed into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/imessage_source",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/imessage_source\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/imessage_source/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/imessage_source\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/imessage_source/\"\n/usr/bin/xattr -cr \"${DEST}/imessage_source\"\n";
+		};
 		E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -831,6 +895,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Vendor the CM024 Knowledge service (ostler-knowledge CLI)\n# into the signed .app so install.sh Phase 3.13b can pip-\n# install it into the customer venv without a network clone.\n# Pre-2026-05-21 the Knowledge service path was clone-only\n# (PWG_KNOWLEDGE_REPO env override); without an override the\n# install logged \"Knowledge service not installed\" and the\n# Doctor \"Import Evernote\" surface would later show \"service\n# unavailable\" when the feature flag is flipped on.\n#\n# Customer-facing primarily for Evernote import (Doctor UI,\n# feature-flagged OFF at v1.0; flipped on for v1.1). The CLI\n# install path is NOT flag-gated -- the binary is always\n# installed; the flag only controls UI visibility.\n#\n# Mirror of the ostler_security + ostler_fda vendor patterns\n# (PRs #115 + #116).\n#\n# Hard-fail if the vendor dir is missing so a forgotten\n# vendor-sync surfaces at build time, not at install time.\nVENDOR_SRC=\"${SRCROOT}/../vendor/cm024_knowledge\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/cm024_knowledge/ is missing.\" >&2\n    echo \"error: see vendor/README.md for the manual sync recipe.\" >&2\n    echo \"error: the customer-install path pip-installs ostler-knowledge\" >&2\n    echo \"error: from Contents/Resources/cm024_knowledge/. Refusing to build\" >&2\n    echo \"error: a .app that would silently skip the Knowledge service install.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/cm024_knowledge\"\n# Copy WITHOUT -p so we do not preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break\n# codesign). The trailing /. on the source copies the dir\n# contents (not the dir itself) into ${DEST}/cm024_knowledge/.\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/cm024_knowledge/\"\n# Strip any __pycache__ that snuck in from a developer\n# checkout. pip-install does not need them and they bloat\n# the codesigned bundle.\nfind \"${DEST}/cm024_knowledge\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/cm024_knowledge\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n# Belt-and-braces xattr strip on the package (the bundle-\n# wide xattr -cr in the next phase repeats this, but doing\n# it here keeps the per-phase output clean).\n/usr/bin/xattr -cr \"${DEST}/cm024_knowledge\"\n";
+		};
+		F54BDEF84C009CE505BC7F56 /* Bundle whatsapp_source conversation feed into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/whatsapp_source",
+			);
+			name = "Bundle whatsapp_source conversation feed into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whatsapp_source",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh's WhatsApp conversation-memory feed (the gating\n# floor for conversation memory) probes\n# ${SCRIPT_DIR}/whatsapp_source/INSTALL_SNIPPET.sh to install\n# the four-artefact body feed LaunchAgent. Without this bundle\n# step the feed silently skips on a productised install.\nVENDOR_SRC=\"${SRCROOT}/../vendor/whatsapp_source\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/whatsapp_source/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/whatsapp_source\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/whatsapp_source/\"\n/usr/bin/xattr -cr \"${DEST}/whatsapp_source\"\n";
 		};
 		F91168F12AE17E931B5752D1 /* Bundle wiki-recompile (daily wiki rebuild LaunchAgent) */ = {
 			isa = PBXShellScriptBuildPhase;
