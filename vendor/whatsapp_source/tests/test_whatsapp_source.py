@@ -485,13 +485,16 @@ def test_operator_contact_label_family_rides_through(chatdb, tmp_path):
 # artefacts, and that an L3 chat skips the gist arm while still landing
 # the bundle on disk.
 
-# Opt-in real-CM048 end-to-end. Point OSTLER_CM048_ROOT at a CM048 checkout
-# to exercise the live writer; absent (the default), the e2e arm skips. Kept
-# free of any operator-specific absolute path so this vendored test ships
-# clean (Rule 4: env-var-driven placeholders, never a real home dir).
+# Opt-in CM048 e2e arm: point OSTLER_CM048_ROOT at a local CM048 checkout to
+# exercise the real writer. Defaults to a non-PII placeholder so no developer
+# home path ships in the source (operator-pii-scan clean); the arm simply
+# skips when the path does not resolve.
 _CM048_ROOT = Path(
-    os.environ.get("OSTLER_CM048_ROOT", "/nonexistent/cm048-conversation-processing")
-).expanduser()
+    os.environ.get(
+        "OSTLER_CM048_ROOT",
+        str(Path.home() / "Projects" / "cm048-conversation-processing"),
+    )
+)
 
 
 def _import_cm048_writer():
