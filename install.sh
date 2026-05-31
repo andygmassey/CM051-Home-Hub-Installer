@@ -697,9 +697,13 @@ _ostler_repair_venv_after_promote() {
 # /tmp/tnm_brief_two_zone_architecture_2026-05-02.md (Gap 4).
 USER_FACING_ROOT="${HOME}/Documents/Ostler"
 # Ordered list of subdirs created under ${USER_FACING_ROOT}.
-# Conversations/ is intentionally absent for now; it lands in a
-# follow-up PR once the brief's zoning question is resolved.
-USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
+# Conversations/ holds the four-artefact conversation-memory bundles
+# (summary + todos + transcript + metadata) that CM048's pwg-convo
+# emits for every wired human channel -- WhatsApp first (the gating
+# floor), then iMessage / email / meeting-voice. The bundle feeds
+# write under ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
+# (AI Conversations live in a SEPARATE tree, added in v1.0.1.)
+USER_TREE_SUBDIRS=("Wiki" "Conversations" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 
 # ── DMG #48 install transcript ────────────────────────────────────
 #
@@ -7540,8 +7544,8 @@ echo "    - Docker containers (ostler-qdrant, ostler-oxigraph, ostler-redis,"
 echo "      ostler-wiki-site, ostler-wiki-compiler, ostler-vane)"
 echo "    - Docker volumes (your knowledge graph data + web-search history)"
 echo "    - Ostler directory (~/.ostler, except power.conf)"
-echo "    - Doctor, export watcher, hub power, email-ingest, wiki-recompile,"
-echo "      assistant, and RemoteCapture launchd services"
+echo "    - Doctor, export watcher, hub power, email-ingest, whatsapp-bundle,"
+echo "      wiki-recompile, assistant, and RemoteCapture launchd services"
 echo "    - /Applications/Ostler RemoteCapture.app"
 echo "    - /Applications/Ostler.app"
 echo "    - Ostler commands from PATH"
@@ -7639,6 +7643,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/nu
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-bundle" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
@@ -7657,6 +7663,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
@@ -8412,6 +8419,129 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
         warn "$MSG_WARN_PYTHON3_M_OSTLER_FDA_APPLE_MAIL"
         warn "$MSG_WARN_PWG_EMAIL_INGEST_MBOX_TMP_MANUAL"
     fi
+fi
+
+# ── 3.14c  WhatsApp conversation-memory feed (4-artefact body feed) ──
+#
+# The CONVERSATION-MEMORY leg for WhatsApp, and the gating floor for the
+# whole conversation-memory feature (v1.0.0 GATE). It reads the macOS
+# WhatsApp Desktop store (ChatStorage.sqlite) for in-tier chats WITH
+# message bodies, renders each into a cleaned transcript + CM048
+# metadata, and hands it to pwg-convo, which emits the four artefacts
+# under ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
+#
+# This establishes the shared conversation-bundle scaffolding (dedicated
+# venv + wrapper + plist + PWG_CONVO_CMD wiring) that the iMessage /
+# email / meeting-voice body feeds replicate (step 2).
+#
+# SEPARATE from the hydrate_whatsapp sub-phase below (people-graph FACTS,
+# metadata only, reuses the email-ingest venv). This feed reads BODIES,
+# has its OWN dedicated venv, distinct label/wrapper/state/output, so the
+# two never collide. The read is local-file-only against WhatsApp
+# Desktop's already-synced store; it never contacts Meta.
+#
+# Gated on the SAME consent the hydrate sub-phase rides -- reading bodies
+# is strictly more sensitive than metadata, so it never takes a weaker
+# gate. Warn-not-abort throughout (a per-feed failure must never abort
+# the install); the CM048 pwg-convo setup above already hard-guarantees
+# the pipeline exists (ERR-15).
+if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
+    progress "Setting up whatsapp-bundle LaunchAgent (WhatsApp conversation memory)" "whatsapp_bundle"
+
+    WHATSAPP_SOURCE_BASE="${OSTLER_DIR}/services/whatsapp-source"
+    WHATSAPP_SOURCE_PKG="${WHATSAPP_SOURCE_BASE}/whatsapp_source"
+    WHATSAPP_SOURCE_VENV="${WHATSAPP_SOURCE_BASE}/.venv"
+    WHATSAPP_SOURCE_VENV_PYTHON="${WHATSAPP_SOURCE_VENV}/bin/python3"
+
+    # 1. Resolve the vendored package (bundled in the .app, or the dev
+    #    checkout's vendor/ tree). No clone fallback: the conversation
+    #    body feeds ship inside the .app; a raw dev install without the
+    #    vendor simply warns and skips (gated feature, never fatal).
+    WHATSAPP_SOURCE_SRC=""
+    if [[ -d "${SCRIPT_DIR}/whatsapp_source" && -f "${SCRIPT_DIR}/whatsapp_source/INSTALL_SNIPPET.sh" ]]; then
+        WHATSAPP_SOURCE_SRC="${SCRIPT_DIR}/whatsapp_source"
+    elif [[ -d "${SCRIPT_DIR}/../vendor/whatsapp_source" && -f "${SCRIPT_DIR}/../vendor/whatsapp_source/INSTALL_SNIPPET.sh" ]]; then
+        WHATSAPP_SOURCE_SRC="${SCRIPT_DIR}/../vendor/whatsapp_source"
+    fi
+
+    if [[ -z "$WHATSAPP_SOURCE_SRC" ]]; then
+        warn "$MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING"
+    else
+        # 2. Stage the package under services/whatsapp-source/ so the
+        #    wrapper's SOURCE_DIR (the package parent) is stable.
+        rm -rf "$WHATSAPP_SOURCE_PKG"
+        mkdir -p "$WHATSAPP_SOURCE_PKG"
+        cp -R "${WHATSAPP_SOURCE_SRC}/." "$WHATSAPP_SOURCE_PKG/"
+
+        # 3. Dedicated venv with ostler_fda (reader) + pyyaml (contacts /
+        #    label map). Decoupled from the email-ingest venv so a
+        #    WhatsApp-only install (email channel off) still works.
+        WHATSAPP_FDA_SRC=""
+        if [[ -d "${SCRIPT_DIR}/ostler_fda" && -f "${SCRIPT_DIR}/ostler_fda/pyproject.toml" ]]; then
+            WHATSAPP_FDA_SRC="${SCRIPT_DIR}/ostler_fda"
+        elif [[ -d "${SCRIPT_DIR}/../vendor/ostler_fda" && -f "${SCRIPT_DIR}/../vendor/ostler_fda/pyproject.toml" ]]; then
+            WHATSAPP_FDA_SRC="${SCRIPT_DIR}/../vendor/ostler_fda"
+        fi
+
+        if [[ -n "$WHATSAPP_FDA_SRC" ]]; then
+            info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$WHATSAPP_SOURCE_VENV")"
+            mkdir -p "$WHATSAPP_SOURCE_BASE"
+            "$PYTHON3_BIN" -m venv "$WHATSAPP_SOURCE_VENV"
+            "$WHATSAPP_SOURCE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+            if "$WHATSAPP_SOURCE_VENV/bin/pip" install --quiet "$WHATSAPP_FDA_SRC" pyyaml 2>/tmp/ostler-whatsapp-source-pip.log; then
+                ok "$MSG_OK_WHATSAPP_SOURCE_FDA_INSTALLED"
+            else
+                warn "$MSG_WARN_WHATSAPP_SOURCE_FDA_FAILED"
+                if [[ -s /tmp/ostler-whatsapp-source-pip.log ]]; then
+                    sed -e 's/^/    /' /tmp/ostler-whatsapp-source-pip.log | tail -5
+                fi
+                WHATSAPP_SOURCE_VENV_PYTHON=""
+            fi
+        else
+            warn "$MSG_WARN_WHATSAPP_SOURCE_FDA_SRC_NOT_FOUND"
+            WHATSAPP_SOURCE_VENV_PYTHON=""
+        fi
+
+        # 4. PWG_CONVO_CMD: the CM048 venv pwg-convo binary (absolute, no
+        #    PATH dependency under launchd). The pipeline appends
+        #    "process <transcript> <metadata>" itself, so this is the
+        #    bare invocation. Falls back to the /usr/local/bin symlink
+        #    the CM048 setup created, then to PATH lookup.
+        WHATSAPP_PWG_CONVO_CMD="${CM048_VENV}/bin/pwg-convo"
+        if [[ ! -x "$WHATSAPP_PWG_CONVO_CMD" ]]; then
+            if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+                WHATSAPP_PWG_CONVO_CMD="/usr/local/bin/pwg-convo"
+            else
+                WHATSAPP_PWG_CONVO_CMD="pwg-convo"
+            fi
+        fi
+
+        # 5. Install the LaunchAgent via the vendored snippet (subshell;
+        #    its non-zero exit warns, never aborts).
+        WHATSAPP_SNIPPET="${WHATSAPP_SOURCE_PKG}/INSTALL_SNIPPET.sh"
+        if [[ -f "$WHATSAPP_SNIPPET" ]]; then
+            if OSTLER_INSTALL_ROOT="$WHATSAPP_SOURCE_PKG" \
+               OSTLER_DIR="$OSTLER_DIR" \
+               LOGS_DIR="$LOGS_DIR" \
+               OSTLER_VENV_PYTHON="$WHATSAPP_SOURCE_VENV_PYTHON" \
+               OSTLER_WA_SOURCE_DIR="$WHATSAPP_SOURCE_BASE" \
+               OSTLER_WA_PWG_CONVO_CMD="$WHATSAPP_PWG_CONVO_CMD" \
+               OSTLER_WA_USER_NAME="${USER_NAME:-You}" \
+               bash "$WHATSAPP_SNIPPET"; then
+                ok "$MSG_OK_WHATSAPP_BUNDLE_LAUNCHAGENT_LOADED"
+                info "$MSG_INFO_WHATSAPP_BUNDLE_TICK_CLAMPED"
+                info "$(printf "$MSG_INFO_WHATSAPP_BUNDLE_LOGS" "${LOGS_DIR}")"
+            else
+                warn "$MSG_WARN_WHATSAPP_BUNDLE_LAUNCHAGENT_FAILED"
+            fi
+        else
+            warn "$MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING"
+        fi
+    fi
+
+    unset WHATSAPP_SOURCE_BASE WHATSAPP_SOURCE_PKG WHATSAPP_SOURCE_VENV
+    unset WHATSAPP_SOURCE_VENV_PYTHON WHATSAPP_SOURCE_SRC WHATSAPP_FDA_SRC
+    unset WHATSAPP_PWG_CONVO_CMD WHATSAPP_SNIPPET
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────

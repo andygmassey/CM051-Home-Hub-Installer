@@ -286,6 +286,27 @@ targets:
           - $(SRCROOT)/../vendor/ostler_fda
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda
+      - name: Bundle whatsapp_source conversation feed into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's WhatsApp conversation-memory feed (the gating
+          # floor for conversation memory) probes
+          # ${SCRIPT_DIR}/whatsapp_source/INSTALL_SNIPPET.sh to install
+          # the four-artefact body feed LaunchAgent. Without this bundle
+          # step the feed silently skips on a productised install.
+          VENDOR_SRC="${SRCROOT}/../vendor/whatsapp_source"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/whatsapp_source/ is missing." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/whatsapp_source"
+          cp -R "${VENDOR_SRC}/." "${DEST}/whatsapp_source/"
+          /usr/bin/xattr -cr "${DEST}/whatsapp_source"
+        inputFiles:
+          - $(SRCROOT)/../vendor/whatsapp_source
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/whatsapp_source
       - name: Bundle Doctor agent into Resources
         script: |
           set -euo pipefail

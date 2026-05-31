@@ -92,6 +92,16 @@
         <string>OSTLER_PYTHON_PATH</string>
         <key>PWG_CONVO_CMD</key>
         <string>PWG_CONVO_CMD_VALUE</string>
+        <!--
+            OSTLER_SOURCE_DIR is the parent of the whatsapp_source package
+            the wrapper cd's into; OSTLER_USER_DISPLAY_NAME labels the
+            operator's own messages as "You". Both rendered by the
+            installer so the wrapper ships verbatim.
+        -->
+        <key>OSTLER_SOURCE_DIR</key>
+        <string>OSTLER_SOURCE_DIR_VALUE</string>
+        <key>OSTLER_USER_DISPLAY_NAME</key>
+        <string>OSTLER_USER_DISPLAY_NAME_VALUE</string>
     </dict>
 
     <key>ProcessType</key>

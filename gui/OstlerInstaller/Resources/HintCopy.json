@@ -194,6 +194,16 @@
     "illustration": null,
     "needs_fda": false
   },
+  "whatsapp_bundle": {
+    "id": "whatsapp_bundle",
+    "title": "WhatsApp conversations",
+    "subtitle": "Conversation memory",
+    "why": "Every fifteen minutes, Ostler reads recent WhatsApp conversations your Mac has synced (about the last year) and turns each into a short summary, any to-dos, a clean transcript, and metadata. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 10,
+    "long_running_threshold_s": 60,
+    "illustration": null,
+    "needs_fda": true
+  },
   "wiki_recompile_agent": {
     "id": "wiki_recompile_agent",
     "title": "Wiki rebuild scheduler",

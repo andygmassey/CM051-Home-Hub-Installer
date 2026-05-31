@@ -703,7 +703,7 @@ verify-dmg-contents:
 	fi; \
 	RES="$$MOUNT/$(APP_NAME).app/Contents/Resources"; \
 	MISSING=""; \
-	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline cm021 contact_syncer meeting_syncer identity_resolver email-ingest imessage-bridge assistant-agent; do \
+	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline cm021 contact_syncer meeting_syncer identity_resolver email-ingest imessage-bridge whatsapp_source assistant-agent; do \
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \
@@ -767,7 +767,7 @@ verify-dmg-contents:
 	    echo "       cached tarball at $(DAEMON_TARBALL_CACHE)." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + 10 vendor packages + daemon all present"
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + daemon present"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive

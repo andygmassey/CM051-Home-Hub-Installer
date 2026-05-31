@@ -109,6 +109,13 @@ final class StepCatalog {
         "knowledge_setup",
         "hub_power",
         "email_ingest",
+        // whatsapp_bundle: the WhatsApp conversation-memory feed (the
+        // gating floor for conversation memory). install.sh emits
+        // `progress "..." "whatsapp_bundle"` right after email_ingest
+        // when the WhatsApp channel + consent are enabled. The body
+        // feeds for iMessage / email / meeting-voice replicate this
+        // pattern (step 2) and slot in alongside.
+        "whatsapp_bundle",
         "imessage_bridge",
         "wiki_recompile_agent",
         "ostler_assistant",

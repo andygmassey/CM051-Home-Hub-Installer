@@ -248,6 +248,17 @@ MSG_OK_EMAIL_CHANNEL_FOLDER="Email channel: %s (folder: %s)"
 MSG_OK_EMAIL_INGEST_LAUNCHAGENT_LOADED_LABEL_COM="Email-ingest LaunchAgent loaded (label com.creativemachines.ostler.email-ingest)"
 MSG_OK_EMAIL_INGEST_SCRIPTS_BUNDLED_WITH_INSTALLER="Email-ingest scripts bundled with installer"
 MSG_OK_EMAIL_INGEST_SCRIPTS_CLONED_FROM="Email-ingest scripts cloned from %s"
+# WhatsApp conversation-memory feed (4-artefact body feed). Customer-facing
+# copy keeps the locked depth framing ("about the last year"); never "full
+# history" or "every message".
+MSG_OK_WHATSAPP_SOURCE_FDA_INSTALLED="  WhatsApp conversation reader installed."
+MSG_WARN_WHATSAPP_SOURCE_FDA_FAILED="WhatsApp conversation reader install failed; the WhatsApp conversation feed will not run. See output above."
+MSG_WARN_WHATSAPP_SOURCE_FDA_SRC_NOT_FOUND="WhatsApp conversation reader source not found; skipping the WhatsApp conversation feed."
+MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING="WhatsApp conversation feed package not found in this installer; skipping. WhatsApp message history (who you messaged and when) is unaffected."
+MSG_OK_WHATSAPP_BUNDLE_LAUNCHAGENT_LOADED="WhatsApp conversation feed LaunchAgent loaded (label com.creativemachines.ostler.whatsapp-bundle)"
+MSG_INFO_WHATSAPP_BUNDLE_TICK_CLAMPED="  First tick reads recent WhatsApp conversations your Mac has synced (about the last year); it stays on your Mac."
+MSG_INFO_WHATSAPP_BUNDLE_LOGS="  Logs: %s/whatsapp-bundle.log and whatsapp-bundle.err"
+MSG_WARN_WHATSAPP_BUNDLE_LAUNCHAGENT_FAILED="WhatsApp conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
 MSG_OK_EMBEDDING_MODEL_READY="Embedding model ready"
 MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY="Exported %s contacts (will import automatically)"
 MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="Export watcher installed (scans Downloads every 4 hours)"
