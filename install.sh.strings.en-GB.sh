@@ -918,6 +918,14 @@ MSG_HYDRATE_PREFERENCES_SKIPPED_NO_EXPORTS="No preference exports yet. Drop a Sp
 MSG_HYDRATE_PREFERENCES_SKIPPED_SETUP_PENDING="Preference enrichment not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_PREFERENCES_SKIPPED_NO_DATA="Preferences were imported recently. You can re-run later from Settings."
 
+# Preference enrichment pipeline setup (CM019, own venv at
+# ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
+MSG_CM019_SETUP_STARTED="Setting up preference enrichment (one-off)"
+MSG_CM019_SETUP_DONE="Preference enrichment ready"
+MSG_CM019_SETUP_FAILED="Preference enrichment setup did not finish. Your preferences pages fill once it is fixed; the rest of Ostler is unaffected."
+MSG_CM019_SETUP_EXISTS="Preference enrichment already set up"
+MSG_CM019_SETUP_SKIPPED="Preference enrichment pipeline not bundled; skipping for now."
+
 # CX-84: iMessage hydration. Fires as a separate progress emission
 # between hydrate_browsing and wiki_compile. Counts come from
 # ingest_imessage's return dict (people_created + people_enriched).

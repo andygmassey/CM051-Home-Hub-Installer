@@ -107,6 +107,11 @@ final class StepCatalog {
         "doctor_setup",
         "ical_server_setup",
         "knowledge_setup",
+        // Preferences wire (2026-05-31): cm019_setup builds the CM019 ingest +
+        // enrich venv (~/.ostler/services/cm019) that the shared ostler-import
+        // importer, the install-time preferences hydrate, and the export
+        // watcher all run from. Emitted at install.sh phase 3.11b.
+        "cm019_setup",
         "hub_power",
         "email_ingest",
         "imessage_bridge",

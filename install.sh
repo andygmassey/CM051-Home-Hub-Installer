@@ -6994,6 +6994,50 @@ elif [[ -n "$EXPORTS_DIR" ]]; then
     info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
 fi
 
+# ── 3.11b Preference enrichment pipeline (CM019) ─────────────────
+#
+# Sets up the vendored CM019 ingest + enrich pipeline in its OWN venv at
+# ~/.ostler/services/cm019/.venv (Ollama embedder, 768-dim, no torch).
+# This is the venv the shared ostler-import importer (next phase), the
+# install-time preferences hydrate, and the export watcher all run the
+# CLI from. Setup is idempotent (skipped if the venv already exists) and
+# non-fatal: a missing bundle or pip failure degrades to the wiki
+# empty-state, it never aborts the install.
+
+progress "Setting up preference enrichment" "cm019_setup"
+
+CM019_BUNDLE="${SCRIPT_DIR}/cm019_preferences"
+CM019_DIR="${OSTLER_DIR}/services/cm019"
+CM019_VENV="${CM019_DIR}/.venv"
+CM019_PY="${CM019_VENV}/bin/python"
+
+# Always ensure the canonical drop-zone exists so onboarding can point
+# at it and the watcher/hydrate can scan it even before any exports land.
+mkdir -p "${OSTLER_DIR}/imports/preferences"
+
+if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
+    if [[ ! -x "$CM019_PY" ]]; then
+        info "$MSG_CM019_SETUP_STARTED"
+        rm -rf "$CM019_DIR"
+        mkdir -p "$CM019_DIR"
+        cp -R "${CM019_BUNDLE}/" "$CM019_DIR/"
+        "$PYTHON3_BIN" -m venv "$CM019_VENV"
+        "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>/tmp/ostler-cm019-pip.log; then
+            ok "$MSG_CM019_SETUP_DONE"
+        else
+            warn "$MSG_CM019_SETUP_FAILED"
+            if [[ -s /tmp/ostler-cm019-pip.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm019-pip.log | tail -5
+            fi
+        fi
+    else
+        info "$MSG_CM019_SETUP_EXISTS"
+    fi
+else
+    info "$MSG_CM019_SETUP_SKIPPED"
+fi
+
 # ── 3.12 ostler-import command ──────────────────────────────────
 
 IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
@@ -7004,34 +7048,82 @@ if [[ -f "${SCRIPT_DIR}/ostler-import.sh" ]]; then
 else
     cat > "$IMPORT_SCRIPT" <<'IMPORTEOF'
 #!/usr/bin/env bash
-set -euo pipefail
+# Ostler shared export importer.
+#
+# Fans one or more export directories to BOTH consumers:
+#   - the people graph   (CM041 contact_syncer.import_all)
+#   - the preference wiki (CM019 ingest-dir + enrich --all -> `preferences`)
+#
+# It is the SINGLE ingest path. Three entry points call it:
+#   1. install.sh's install-time hydrate (Downloads + the drop-zone),
+#   2. the Downloads export watcher (auto-run on detection), and
+#   3. a power-user fallback (run it by hand).
+#
+# Safe to re-run over the same dir: contact_syncer dedupes (identity
+# resolver + DedupDetector) and the CM019 preferences upsert is keyed by
+# stable id, so a second pass is a no-op rather than a duplicate.
+#
+# Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
+# error, so one consumer being unavailable never blocks the other.
+set -uo pipefail
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+CM019_DIR="${OSTLER_DIR}/services/cm019"
+CM019_PY="${CM019_DIR}/.venv/bin/python"
 
-if [[ $# -lt 1 ]]; then
-    echo "Usage: ostler-import <exports-dir> [--user-name \"Name\"] [--verbose]"
-    echo ""
-    echo "Example: ostler-import ~/Downloads/gdpr-exports/ --user-name \"Tom\" --verbose"
+USER_NAME_ARG=""
+USER_ID_ARG=""
+VERBOSE=""
+DIRS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --user-name) USER_NAME_ARG="${2:-}"; shift 2 ;;
+        --user-id)   USER_ID_ARG="${2:-}"; shift 2 ;;
+        --verbose)   VERBOSE="--verbose"; shift ;;
+        -h|--help)
+            echo "Usage: ostler-import <exports-dir> [<exports-dir>...] [--user-name \"Name\"] [--user-id slug] [--verbose]"
+            echo ""
+            echo "Imports GDPR / app exports into both your people graph and your"
+            echo "preferences. Ostler runs this for you automatically; you only need"
+            echo "it by hand to re-import a folder Ostler did not pick up."
+            exit 0 ;;
+        *) DIRS+=("$1"); shift ;;
+    esac
+done
+
+if [[ ${#DIRS[@]} -eq 0 ]]; then
+    echo "Usage: ostler-import <exports-dir> [<exports-dir>...] [--user-name \"Name\"] [--user-id slug] [--verbose]"
     exit 1
 fi
 
-if [[ ! -d "$PIPELINE_DIR/contact_syncer" ]]; then
-    echo "Error: Import pipeline not installed."
-    echo "Re-run the Ostler installer to set it up."
-    exit 1
-fi
-
-if [[ ! -d "$PIPELINE_DIR/.venv" ]]; then
-    echo "Error: Python environment not set up."
-    echo "Re-run the Ostler installer to fix this."
-    exit 1
-fi
-
-cd "$PIPELINE_DIR"
 if [[ -f "${OSTLER_DIR}/config/.env" ]]; then
     set -a; source "${OSTLER_DIR}/config/.env"; set +a
 fi
-.venv/bin/python3 -m contact_syncer.import_all --exports-dir "$1" "${@:2}"
+# CM019 tags points by user slug; prefer an explicit flag, then the
+# installed-user env, then a neutral default.
+CM019_USER="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+rc=0
+for d in "${DIRS[@]}"; do
+    [[ -d "$d" ]] || continue
+
+    # ── People graph (CM041 contacts) ──────────────────────────────
+    if [[ -d "$PIPELINE_DIR/contact_syncer" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+        CS_ARGS=(--exports-dir "$d")
+        [[ -n "$USER_NAME_ARG" ]] && CS_ARGS+=(--user-name "$USER_NAME_ARG")
+        [[ -n "$VERBOSE" ]] && CS_ARGS+=("$VERBOSE")
+        ( cd "$PIPELINE_DIR" && .venv/bin/python3 -m contact_syncer.import_all "${CS_ARGS[@]}" ) || rc=$?
+    fi
+
+    # ── Preference wiki (CM019 ingest + enrich) ────────────────────
+    if [[ -x "$CM019_PY" ]]; then
+        ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
+            "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+        ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
+            "$CM019_PY" -m services.enrich.src.cli enrich --all -u "$CM019_USER" ) || rc=$?
+    fi
+done
+exit $rc
 IMPORTEOF
 fi
 
