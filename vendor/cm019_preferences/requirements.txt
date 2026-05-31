@@ -63,8 +63,8 @@ cryptography>=46.0.5
 #   pyshacl, pandas     -> upstream pyproject extras; not imported on the
 #                          ingest CLI path.
 #   python-multipart    -> only api.py form uploads (server surface).
-#   aiohttp, aiolimiter -> services/enrich only; enrichment is not wired for
-#                          v1.0 (the hydrate step runs ingest, not enrich).
+#   (aiohttp + aiolimiter are NOT dropped: enrich is wired -- see the
+#    enrichment section above. The hydrate step runs ingest THEN enrich.)
 #   requests, urllib3, setuptools, wheel, zipp, filelock
 #       -> Snyk floor pins for the removed ML/transitive tree; no longer
 #          reachable, so not carried over.
