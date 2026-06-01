@@ -1,0 +1,19 @@
+# Vendor import-resolution baseline (ratchet)
+# ===========================================
+#
+# Pre-existing unresolved intra-package imports in vendored code, frozen
+# so the guard lands green and only fails on NEW regressions. Each line
+# is an accepted failure exactly as the guard prints it (leading spaces
+# stripped). Shrink this list as the debt is fixed; the guard fails if a
+# listed entry is no longer a failure (a stale baseline entry), so it can
+# only get smaller.
+#
+# Lines starting with # and blank lines are ignored.
+#
+# --- tracked debt (fix separately, not in the browsing re-vendor PR) ---
+#
+# cm024_knowledge (Knowledge wing) ships a query package whose __init__
+# imports a retriever module that was never vendored. Top-level import,
+# so `import ...query` ImportErrors at runtime. Surfaced by this guard;
+# owned by the Knowledge vendoring work, not the browsing re-vendor.
+vendor/cm024_knowledge/src/query/__init__.py: 'from .retriever import ...' -> unresolved module

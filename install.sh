@@ -10931,18 +10931,20 @@ unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 
 # Browser hydration (CX-86 Gap A + Gap C) --------------------------
 #
-# Streams safari_history.json + chrome_history.json (written by the
-# Phase 3 FDA extract_all step) through the CM019 gateway. The
-# gateway writes to the `safari_history` Qdrant collection (renamed
-# from `safari_browsing` in CX-86 Gap B) so the CM044 wiki Browsing
-# page populates with the customer's visits.
+# Reads safari_history.json + chrome_history.json (written by the
+# Phase 3 FDA extract_all step) and runs ingest_browser_history, which
+# since HR015 PR #138 is a direct, single-machine writer: it embeds
+# each visit with the local Ollama instance and upserts straight into
+# the `safari_history` Qdrant collection (renamed from `safari_browsing`
+# in CX-86 Gap B) so the CM044 wiki Browsing page populates. No gateway
+# is involved on a customer install; the writer self-creates the
+# collection at 768-dim before the first upsert.
 #
-# Bearer auth: token from ~/.ostler/secrets/service_token (written
-# by the install.sh auth_tokens phase earlier). Blocklist (Q3
-# sign-off): banking / medical / etc. URLs are rejected with HTTP
-# 422 and counted as "skipped_sensitive". needs_reprocessing=true
-# (Q2 sign-off): backfilled rows land with empty topics/category;
-# the gateway's background enrichment tick chews through them.
+# Blocklist (Q3 sign-off): banking / medical / etc. URLs are dropped
+# client-side before embed/store and counted as "skipped_sensitive"
+# (no gateway, so no HTTP 422 path). needs_reprocessing=true (Q2
+# sign-off): backfilled rows land with empty topics/category; the
+# assistant's background enrichment tick chews through them.
 #
 # Same 90s wall-clock cap as hydrate_email + hydrate_whatsapp. On
 # timeout we emit MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES and
@@ -11183,18 +11185,19 @@ unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
 #   1. Probes Qdrant /collections. If at least one collection exists,
 #      we trust the per-source hydrate_* runs above and short-circuit.
 #   2. If Qdrant is empty, re-runs ostler_fda.pwg_ingest.
-#      ingest_browser_history (which POSTs through the gateway, which
-#      writes to Qdrant). The Safari history JSON is the most reliable
+#      ingest_browser_history (the direct Ollama -> Qdrant writer; it
+#      self-creates the safari_history collection at 768-dim then
+#      upserts). The Safari history JSON is the most reliable
 #      Qdrant-populating source -- almost every Mac has months of
 #      Safari history and 4,000+ visits is typical.
 #   3. Polls Qdrant /collections again after the ingest to confirm
-#      at least one collection landed. Time-capped (90s) so a busted
-#      gateway never blocks install.
+#      at least one collection landed. Time-capped (90s) so a slow
+#      embed run never blocks install.
 #   4. Emits explicit log markers (CX106_QDRANT_*, CX106_BROWSER_*) the
 #      GUI sidebar parses to surface the step's state to the customer.
 #
-# Total install-time delta: 0-90s depending on gateway responsiveness.
-# Healthy gateway + already-populated Qdrant short-circuits in <1s.
+# Total install-time delta: 0-90s depending on embed throughput.
+# An already-populated Qdrant short-circuits in <1s.
 # This is a noticeable but acceptable extension to the install runtime;
 # the alternative is shipping with "Hub starting up..." indefinite as
 # customer-facing first-impression UX, which is unshippable for v1.0.
@@ -11233,12 +11236,13 @@ _INITIAL_HYDRATE_COLLECTIONS_BEFORE="$(_initial_hydrate_qdrant_count)"
 gui_emit CX106_QDRANT_BEFORE "count=${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}"
 info "$(printf "$MSG_INITIAL_HYDRATE_QDRANT_BEFORE" "${_INITIAL_HYDRATE_COLLECTIONS_BEFORE}")"
 
-# Re-run the gateway-driven browser history ingest if Qdrant is empty.
-# The first hydrate_browsing call (line ~10889) may have raced ahead
-# of the gateway's first-collection setup; this is the deliberate retry
-# inside install completion, with a long enough timeout that a slow
-# gateway start (Docker image cold-start, first-request JIT) does not
-# silently leave Qdrant empty.
+# Re-run the direct browser history ingest if Qdrant is empty. The
+# first hydrate_browsing call (line ~10889) may have been skipped or
+# cut short by its wall-clock cap; this is the deliberate retry inside
+# install completion, with a long enough timeout that a slow first
+# embed run (Ollama cold-start) does not silently leave Qdrant empty.
+# The writer self-creates the safari_history collection, so no separate
+# collection-setup step has to win a race first.
 if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
    && [[ -x "$_INITIAL_HYDRATE_PY" ]] \
    && { [[ -s "${_INITIAL_HYDRATE_FDA_DIR}/safari_history.json" ]] \
@@ -11264,9 +11268,9 @@ except Exception as exc:
     print(json.dumps({'status': 'error', 'error': type(exc).__name__}))
 " >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
 
-    # Poll Qdrant for up to 30s while the gateway writes through. The
-    # first POST creates the collection lazily, so the count flips from
-    # 0 to >=1 only after the first successful upsert is committed.
+    # Poll Qdrant for up to 30s while the writer embeds + upserts. The
+    # writer self-creates safari_history, so the count flips from 0 to
+    # >=1 only after the first successful upsert is committed.
     _INITIAL_HYDRATE_POLL_ELAPSED=0
     while [[ "$_INITIAL_HYDRATE_POLL_ELAPSED" -lt 30 ]]; do
         if [[ "$(_initial_hydrate_qdrant_count)" -gt 0 ]]; then
