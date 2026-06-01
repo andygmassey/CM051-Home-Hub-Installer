@@ -19,6 +19,13 @@ struct ContentView: View {
             // emitted DONE status=cancelled.
             if coordinator.cancelled {
                 InstallCancelledView()
+            // CX-87 (2026-06-01): Full Disk Access gate sits ahead of
+            // everything except the cancelled terminal. On first launch
+            // with no FDA, this is the only screen shown until the
+            // customer grants it and reopens -- so the quit-and-reopen
+            // happens before any questions, not mid-install.
+            } else if coordinator.needsFullDiskAccessUpfront {
+                FullDiskAccessGateView()
             // CX-17 (2026-05-23): the permissions intro screen lands
             // BEFORE everything else (licence, admin gate, install).
             // The macOS TCC dialogs must fire while the customer is

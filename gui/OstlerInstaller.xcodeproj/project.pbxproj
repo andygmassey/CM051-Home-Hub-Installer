@@ -49,6 +49,7 @@
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
+		95D9BCFA662C1E7244D50C83 /* FullDiskAccessGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */; };
 		98C877552A588390D0F9D15B /* ViewCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 143B97F50F4AF5CC13BFCECB /* ViewCopy.json */; };
 		9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */; };
 		9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA415C1B21A151B849E39CE1 /* ViewCopy.swift */; };
@@ -129,6 +130,7 @@
 		648CD2F16A53E31F71B7BD82 /* HintCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HintCopy.json; sourceTree = "<group>"; };
 		64CD3CA6555E4C9E1165A157 /* IBMPlexSans-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-SemiBold.ttf"; sourceTree = "<group>"; };
 		65879092ECF508D853DE6727 /* IBMPlexSans-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Medium.ttf"; sourceTree = "<group>"; };
+		66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessGateView.swift; sourceTree = "<group>"; };
 		6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryView.swift; sourceTree = "<group>"; };
 		6F6D6A276A313E76D98FEA20 /* PermissionsPrewarmSequencingTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmSequencingTest.swift; sourceTree = "<group>"; };
 		70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmInfoPlistTest.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 			children = (
 				E4C1249B5BB363F304334F02 /* ContentView.swift */,
 				1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */,
+				66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */,
 				E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */,
 				E92A90F0ED1636988B7278FB /* HintPanelView.swift */,
 				260069E8B35BBB27233D9472 /* InstallCompleteView.swift */,
@@ -971,6 +974,7 @@
 				9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */,
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
 				135D1027BD0F3B4762310C2D /* FingerprintState.swift in Sources */,
+				95D9BCFA662C1E7244D50C83 /* FullDiskAccessGateView.swift in Sources */,
 				E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */,
 				F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */,
 				51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */,

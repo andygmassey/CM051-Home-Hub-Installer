@@ -32,6 +32,10 @@ final class InstallerCoordinator: ObservableObject {
     @Published var logLines: [LogLine] = []
     @Published var pendingPrompt: PendingPrompt? = nil
     @Published var needsFDA: NeedsFDA? = nil
+    // CX-87: front-loaded FDA gate. True when the very first launch has
+    // no Full Disk Access yet; ContentView shows FullDiskAccessGateView
+    // and nothing else runs until the customer grants it and reopens.
+    @Published var needsFullDiskAccessUpfront: Bool = false
     @Published var needsSudo: String? = nil
     @Published var finished: StepStatus? = nil
     /// CX-126: set true when install.sh emits `DONE status=cancelled`
@@ -695,6 +699,39 @@ final class InstallerCoordinator: ObservableObject {
     /// prompting), so this method can be safely called from
     /// onAppear without worrying about re-prompting on a re-launch.
     /// We still log per-call to surface state in the LogDrawer.
+    /// CX-87: the FIRST thing the app does on launch (after the
+    /// self-relocator). If the bundle already has Full Disk Access we
+    /// fall straight through to the normal permissions/licence/install
+    /// flow. If not, we raise the up-front FDA gate and stop -- the
+    /// customer switches FDA on, macOS makes them quit, and on reopen
+    /// this runs again, the probe passes, and the entire setup runs
+    /// once with FDA in place. This is what stops the mid-install
+    /// quit-and-reopen that used to drop the app onto the reuse path.
+    func gateFullDiskAccessThenStart() {
+        if AuthorizationHelper.shared.hasFullDiskAccess() {
+            needsFullDiskAccessUpfront = false
+            OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
+            requestPermissionsThenStart()
+        } else {
+            needsFullDiskAccessUpfront = true
+            OstlerLog.lifecycle.info("FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
+        }
+    }
+
+    /// CX-87: bound to the "I've switched it on" button on the FDA gate,
+    /// as a fallback for the case where macOS did not force-quit the app
+    /// after the grant. Re-probes; if FDA is now present, drops the gate
+    /// and proceeds, otherwise leaves the gate up.
+    func recheckFullDiskAccessAndProceed() {
+        if AuthorizationHelper.shared.hasFullDiskAccess() {
+            OstlerLog.lifecycle.info("FDA gate: re-check passed -- continuing")
+            needsFullDiskAccessUpfront = false
+            requestPermissionsThenStart()
+        } else {
+            OstlerLog.lifecycle.info("FDA gate: re-check still without access -- holding on gate")
+        }
+    }
+
     func requestPermissionsThenStart() {
         // CX-17: this method now ONLY puts the intro screen on
         // screen. The actual prewarm() fires when the customer

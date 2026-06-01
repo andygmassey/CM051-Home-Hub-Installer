@@ -34,6 +34,7 @@
     "intro_photos_reason": "So the Hub can read photo metadata (date, location, captions) and tie memories to people, places, and events.",
     "intro_privacy_note": "Your data stays on this Mac. Nothing is uploaded.",
     "intro_grant_button": "Grant permissions",
+    "intro_grant_button_requesting": "Requesting access",
     "intro_skip_button": "Skip for now",
     "denial_summary_heading": "Some permissions were not granted",
     "denial_summary_footer": "You can grant these later in System Settings > Privacy & Security.",
@@ -134,6 +135,14 @@
     "instructions": "Open System Settings, find Full Disk Access in the Privacy & Security section, and tick OstlerInstaller. Then come back here and tap Continue.",
     "open_settings_button": "Open System Settings",
     "continue_button": "I've granted it, continue"
+  },
+
+  "fda_gate": {
+    "heading": "First, switch on Full Disk Access",
+    "body": "Ostler reads your Messages, Mail, Calendar and more, all on this Mac and never uploaded. macOS needs you to switch on Full Disk Access for the installer before setup can begin.",
+    "steps": "1.  Tap Open System Settings below.\n2.  Switch on OstlerInstaller in the Full Disk Access list.\n3.  macOS will ask you to quit the installer. Quit it, reopen it, and setup carries on from here automatically.",
+    "open_settings_button": "Open System Settings",
+    "recheck_button": "I've switched it on, continue"
   },
 
   "log_drawer": {

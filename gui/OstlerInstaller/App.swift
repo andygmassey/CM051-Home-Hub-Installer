@@ -48,7 +48,15 @@ struct OstlerInstallerApp: App {
                     // ContentView's onChange(of: permissionsPrewarmFinished)
                     // so it cannot run in parallel with the popups.
                     // Closes E1 + C4 (TCC subprocess attribution).
-                    coordinator.requestPermissionsThenStart()
+                    //
+                    // CX-87 (2026-06-01): gate on Full Disk Access FIRST.
+                    // If FDA isn't granted yet this raises the up-front
+                    // FDA screen and stops; the customer grants it,
+                    // macOS makes them quit, and on reopen this same
+                    // path finds FDA present and proceeds. Only once FDA
+                    // is in place do permissions/licence/install run --
+                    // so the whole flow happens once, never mid-install.
+                    coordinator.gateFullDiskAccessThenStart()
                 }
         }
         .windowResizability(.contentSize)
