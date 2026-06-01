@@ -1,0 +1,47 @@
+name: vendor-integrity
+
+# Vendored-package integrity guards. Two recurrence-class checks plus
+# the browser-history vendor regression, run on any change under vendor/
+# (or to the guards themselves).
+#
+# Why these exist (the browsing-at-v1.0 disease, 2026-06): gui/project.yml
+# bundles vendor/ostler_fda, but a fix had landed in a top-level copy that
+# never shipped, so the customer ran stale code while the source looked
+# correct; and a separate vendored package shipped importing a sibling
+# module that was never vendored (the chat_token class), exploding only
+# at customer runtime. These guards turn both into pre-merge failures.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/**'
+      - 'tests/test_no_divergent_vendor_twin.sh'
+      - 'tests/test_vendor_import_resolution.py'
+      - 'tests/vendor_import_resolution_baseline.txt'
+      - '.github/workflows/vendor-integrity.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  vendor-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Divergent non-shipping twin guard
+        run: bash tests/test_no_divergent_vendor_twin.sh
+
+      - name: Vendor import-resolution guard
+        run: python3 tests/test_vendor_import_resolution.py
+
+      - name: Browser-history vendor regression
+        run: bash vendor/ostler_fda/test_vendor_browser_history.sh

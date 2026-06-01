@@ -11647,6 +11647,89 @@ fi
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
 
+# People search index (#600) ---------------------------------------
+#
+# Populate the Qdrant `people` collection from Oxigraph. MUST run after
+# the Oxigraph-populating steps above (hydrate_graph contacts/calendar +
+# hydrate_imessage Person nodes): the sweep reads every pwg:Person from
+# Oxigraph, embeds the display name with local Ollama, and upserts into
+# `people` via ingest_people_to_qdrant, which self-creates the collection
+# at 768-dim. The wiki People pages read Oxigraph directly and are
+# unaffected; this is what makes the iOS People tab + Hub People-card +
+# semantic search (which read the Qdrant `people` collection, filtered on
+# contact_type == "person") show the customer's contacts instead of
+# nothing. Counts-only stdout; no display names cross the boundary.
+progress "Indexing your people for search" "hydrate_people"
+
+_HYDRATE_PEOPLE_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_HYDRATE_PEOPLE_PY="${_HYDRATE_PEOPLE_VENV}/bin/python"
+
+if _hydrate_sentinel_fresh "people"; then
+    info "$MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA"
+elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
+    info "$MSG_HYDRATE_PEOPLE_STARTED"
+
+    _HYDRATE_PEOPLE_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_PEOPLE_TIMEOUT_WRAP="gtimeout 90"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_PEOPLE_TIMEOUT_WRAP="timeout 90"
+    fi
+
+    _HYDRATE_PEOPLE_LOG=/tmp/ostler-hydrate-people.log
+    _HYDRATE_PEOPLE_TIMED_OUT=false
+
+    # Inline python so we call ingest_people_to_qdrant directly: it reads
+    # pwg:Person from Oxigraph, embeds + upserts to Qdrant `people`, and
+    # self-creates the collection. Output is the counts-only JSON.
+    _HYDRATE_PEOPLE_JSON="$(
+        $_HYDRATE_PEOPLE_TIMEOUT_WRAP \
+        "$_HYDRATE_PEOPLE_PY" -c "
+import json
+from ostler_fda.pwg_ingest import ingest_people_to_qdrant
+result = ingest_people_to_qdrant()
+print(json.dumps(result))
+" 2>>"$_HYDRATE_PEOPLE_LOG" | tail -n 1
+    )"
+    rc=$?
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_PEOPLE_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_PEOPLE_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES"
+    elif [[ -n "$_HYDRATE_PEOPLE_JSON" ]]; then
+        # Parse 'sent' for the customer-facing count. Counts-only dict.
+        _HYDRATE_PEOPLE_SENT="$(
+            printf '%s' "$_HYDRATE_PEOPLE_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("sent", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_PEOPLE_SENT="${_HYDRATE_PEOPLE_SENT:-0}"
+        if [[ "$_HYDRATE_PEOPLE_SENT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_PEOPLE_DONE" "$_HYDRATE_PEOPLE_SENT")"
+        else
+            info "$MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA"
+        fi
+    else
+        info "$MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA"
+    fi
+
+    # #48g sentinel record: dedupes re-runs within a 7-day window.
+    _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+
+    unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
+    unset _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
+else
+    info "$MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING"
+fi
+
+unset _HYDRATE_PEOPLE_VENV _HYDRATE_PEOPLE_PY
+
 # Preferences install-time ingest now runs earlier, at phase 3.12b,
 # through the shared ostler-import fan-out (CM041 contacts + CM019
 # preferences) over Downloads + the drop-zone -- collapsed there so

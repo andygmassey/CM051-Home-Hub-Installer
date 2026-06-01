@@ -154,6 +154,11 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // #600: hydrate_people fires after hydrate_imessage (so Oxigraph is
+        // fully populated) and before initial_hydrate. Sweeps pwg:Person from
+        // Oxigraph into the Qdrant `people` collection so the iOS People tab +
+        // Hub People-card + semantic search populate.
+        "hydrate_people",
         // CX-106 (2026-05-29): initial_hydrate is a synchronous first-load
         // sweep emitted between hydrate_imessage and wiki_compile that
         // guarantees Qdrant has at least one collection before the wiki

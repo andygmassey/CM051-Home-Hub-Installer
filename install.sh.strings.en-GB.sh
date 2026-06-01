@@ -974,6 +974,13 @@ MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA="No iMessage history to read. You can re-ru
 MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background – your wiki will fill in over the next hour."
 
+# People search index (#600)
+MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
+MSG_HYDRATE_PEOPLE_DONE="Indexed %s people for search"
+MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA="No people to index yet. You can re-run later from Settings."
+MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING="People indexer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="Still indexing your people in the background; search will fill in shortly."
+
 # CX-47 (DMG #30, 2026-05-24): elevated pre-warn banner for the three
 # folder-access TCC prompts triggered by the GDPR-export scan.
 MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE="Three folder-access prompts coming up"
