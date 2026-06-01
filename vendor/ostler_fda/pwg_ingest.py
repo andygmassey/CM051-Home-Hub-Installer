@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -703,6 +704,32 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
 _GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8000/api/safari/ingest"
 _SERVICE_TOKEN_PATH = Path.home() / ".ostler" / "secrets" / "service_token"
 
+# Defensive runtime bounds (browser-ingest hang fix). The gateway embeds
+# each entry via Ollama on ingest; on a fresh install Ollama may be cold
+# or the gateway not yet ready, so a POST can block for the full
+# per-request timeout. With thousands of history rows that previously
+# meant an effectively-infinite loop -- the "importing browsing history
+# hangs" symptom. install.sh wraps this call in `timeout 90` ONLY when
+# GNU timeout / gtimeout is on PATH, which a stock macOS does NOT have,
+# so the shell cap cannot be relied on. We therefore bound the work here
+# too, with no external dependency:
+#   * overall wall-clock budget (< install.sh's 90s cap so we return a
+#     clean counts JSON before the shell would SIGKILL us)
+#   * a short per-request timeout (a single short-doc embed is fast once
+#     the model is warm; if it is not, we would rather move on)
+#   * a circuit breaker: after N consecutive transport failures the
+#     gateway is presumed down/hung and we stop
+# Whatever is not sent inline is left for the gateway's background
+# enrichment tick / Doctor rescan to backfill. This function never hangs
+# and never raises; it always returns the counts-only dict.
+_BROWSER_INGEST_BUDGET_S = float(
+    os.environ.get("OSTLER_BROWSER_INGEST_BUDGET_S", "75")
+)
+_BROWSER_INGEST_REQ_TIMEOUT_S = float(
+    os.environ.get("OSTLER_BROWSER_INGEST_REQ_TIMEOUT_S", "8")
+)
+_BROWSER_INGEST_BREAKER_MAX = 5
+
 
 def _read_service_token() -> Optional[str]:
     """Read the Bearer token install.sh's auth_tokens phase wrote."""
@@ -782,13 +809,34 @@ def ingest_browser_history(fda_dir: Path, gateway_url: Optional[str] = None) -> 
     sent = 0
     skipped_sensitive = 0
     errored = 0
+    consecutive_failures = 0
+    bounded_out = False  # True if budget or breaker cut the batch short
 
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    with httpx.Client(timeout=30.0) as client:
+    deadline = time.monotonic() + _BROWSER_INGEST_BUDGET_S
+    # proxy=None: the gateway is on loopback; never route localhost POSTs
+    # through a customer's HTTP proxy (matches _sparql_* / _embed clients
+    # above). Also makes connection-refused surface as a fast ConnectError
+    # so the circuit breaker can trip instead of the proxy masking it.
+    transport = httpx.HTTPTransport(proxy=None)
+    with httpx.Client(
+        timeout=_BROWSER_INGEST_REQ_TIMEOUT_S, transport=transport,
+    ) as client:
         for entry in payload_entries:
+            # Wall-clock budget: stop cleanly and let the gateway's
+            # background tick backfill whatever is left. Never hang.
+            if time.monotonic() >= deadline:
+                bounded_out = True
+                logger.info(
+                    "Browser ingest budget (%.0fs) reached; deferring the "
+                    "remaining entries to the gateway background tick.",
+                    _BROWSER_INGEST_BUDGET_S,
+                )
+                break
+
             payload = {
                 "url": entry.get("url"),
                 "title": entry.get("title"),
@@ -802,29 +850,69 @@ def ingest_browser_history(fda_dir: Path, gateway_url: Optional[str] = None) -> 
             try:
                 resp = client.post(endpoint, json=payload, headers=headers)
             except (httpx.RequestError, httpx.HTTPError) as exc:
-                if errored < 5:
+                consecutive_failures += 1
+                errored += 1
+                if consecutive_failures <= 5:
                     logger.warning(
                         "gateway POST failed (%s); continuing batch.",
                         type(exc).__name__,
                     )
-                errored += 1
+                # Circuit breaker: the gateway is presumed down or hung.
+                # Stop now rather than grind every remaining row through
+                # the full per-request timeout.
+                if consecutive_failures >= _BROWSER_INGEST_BREAKER_MAX:
+                    bounded_out = True
+                    logger.warning(
+                        "gateway unreachable after %d consecutive failures; "
+                        "deferring the remaining entries to the background "
+                        "tick.",
+                        consecutive_failures,
+                    )
+                    break
                 continue
 
             if resp.status_code in (200, 201, 202):
+                consecutive_failures = 0
                 sent += 1
             elif resp.status_code == 422:
+                # 422 = the gateway is alive and applied its sensitive-URL
+                # blocklist, so this counts as the backend working.
+                consecutive_failures = 0
                 skipped_sensitive += 1
             else:
+                # Any other status (404/405/501/502/503) means the ingest
+                # route is not actually being served -- e.g. the daemon
+                # squats :8000 with a proxy stub but no live gateway behind
+                # it, returning 405/503. These come back fast, so without
+                # counting them the breaker never trips and we grind every
+                # row against the wall-clock budget. Treat repeated non-2xx
+                # as backend-unavailable and bail, same as transport errors.
+                consecutive_failures += 1
                 errored += 1
+                if consecutive_failures <= 5:
+                    logger.warning(
+                        "gateway returned HTTP %d for ingest; continuing.",
+                        resp.status_code,
+                    )
+                if consecutive_failures >= _BROWSER_INGEST_BREAKER_MAX:
+                    bounded_out = True
+                    logger.warning(
+                        "browsing-ingest backend not available (repeated "
+                        "HTTP %d); deferring the remaining entries to the "
+                        "background backfill.",
+                        resp.status_code,
+                    )
+                    break
 
     logger.info(
         "Browser history ingest: %d sent, %d skipped (sensitive), "
-        "%d errored across %d Safari + %d Chrome entries.",
+        "%d errored across %d Safari + %d Chrome entries.%s",
         sent, skipped_sensitive, errored,
         safari_count, chrome_count,
+        " (bounded; remainder deferred)" if bounded_out else "",
     )
     return {
-        "status": "ok",
+        "status": "partial" if bounded_out else "ok",
         "total": len(payload_entries),
         "sent": sent,
         "skipped_sensitive": skipped_sensitive,

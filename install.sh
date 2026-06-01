@@ -1259,16 +1259,27 @@ _store_populated_mail() {
 }
 
 # Calendar: Calendar Cache row count > 0 OR any *.calendar dir with a
-# .ics file inside. macOS Sequoia 15.x writes to ~/Library/Calendars/
-# Calendar Cache; older macOS uses Calendar.sqlitedb. Both checked.
+# .ics file inside. CX-122 (2026-06-01): macOS Sequoia 15.x stores events
+# in the Calendar Agent GROUP CONTAINER, not ~/Library/Calendars (that
+# legacy path is empty/absent on a clean 15.x box). The prior comment here
+# was wrong: it claimed Sequoia writes to ~/Library/Calendars, so this gate
+# false-negatived a fully synced calendar (Studio 2026-06-01: 15,472 events
+# present, gate said "not synced", hydration skipped). The FDA extractor
+# (ostler_fda/calendar.py) reads the Group Container; this gate MUST probe
+# the SAME store or it strangles a working extractor. Group Container first,
+# then the legacy locations for older macOS.
 _store_populated_calendar() {
-    local cal_dir="${HOME}/Library/Calendars"
-    [[ -d "$cal_dir" ]] || return 1
-    local cache="$cal_dir/Calendar Cache"
-    local sqlitedb="$cal_dir/Calendar.sqlitedb"
     local probe_db=""
-    [[ -f "$cache" ]] && probe_db="$cache"
-    [[ -z "$probe_db" && -f "$sqlitedb" ]] && probe_db="$sqlitedb"
+    local gc_db="${HOME}/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb"
+    [[ -f "$gc_db" ]] && probe_db="$gc_db"
+
+    local cal_dir="${HOME}/Library/Calendars"
+    if [[ -z "$probe_db" && -d "$cal_dir" ]]; then
+        local cache="$cal_dir/Calendar Cache"
+        local sqlitedb="$cal_dir/Calendar.sqlitedb"
+        [[ -f "$cache" ]] && probe_db="$cache"
+        [[ -z "$probe_db" && -f "$sqlitedb" ]] && probe_db="$sqlitedb"
+    fi
     if [[ -n "$probe_db" ]]; then
         local n
         n="$(sqlite3 "file:${probe_db}?mode=ro" -bail \
@@ -1277,8 +1288,8 @@ _store_populated_calendar() {
         [[ "$n" =~ ^[0-9]+$ ]] || n=0
         [[ "$n" -gt 0 ]] && return 0
     fi
-    # Fallback: any .ics under any .calendar bundle
-    if find "$cal_dir" -maxdepth 3 -type f -name '*.ics' -print -quit 2>/dev/null | grep -q .; then
+    # Fallback: any .ics under any legacy .calendar bundle
+    if [[ -d "$cal_dir" ]] && find "$cal_dir" -maxdepth 3 -type f -name '*.ics' -print -quit 2>/dev/null | grep -q .; then
         return 0
     fi
     return 1
