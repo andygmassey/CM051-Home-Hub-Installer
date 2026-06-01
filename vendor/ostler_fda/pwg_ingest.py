@@ -513,18 +513,22 @@ def ingest_calendar(fda_dir: Path) -> dict:
     events = json.loads(events_file.read_text())
     people_seen: set[str] = set()
     events_processed = 0
+    meetings_created = 0
 
     for event in events:
         attendees = event.get("attendees", [])
         start_date = event.get("start_date", "")
         title = event.get("title", "")
+        location = event.get("location", "")
 
+        attendee_uris: list[str] = []
         for attendee in attendees:
             if not attendee:
                 continue
 
             person_id = _person_id_from_identifier(attendee)
             uri = _person_uri(person_id)
+            attendee_uris.append(uri)
 
             if person_id not in people_seen:
                 people_seen.add(person_id)
@@ -549,16 +553,60 @@ def ingest_calendar(fda_dir: Path) -> dict:
             if start_date:
                 _update_last_contact(uri, start_date, "calendar")
 
+        # Emit a Meeting node so the wiki Meetings page renders this event.
+        # The CM044 reader (pwg_data.load_meetings) queries `pwg:Meeting`
+        # with pwg:meetingSummary / pwg:meetingDate / pwg:meetingLocation /
+        # pwg:meetingAttendee, so we write exactly those predicates. Without
+        # this the calendar events only ever became contact-date signals and
+        # the Meetings wiki page rendered empty even though events existed.
+        # Meeting URI is a stable uuid5 of title+date so re-ingest is
+        # idempotent (Oxigraph INSERT DATA on identical triples is a no-op).
+        if title or attendee_uris:
+            meeting_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"https://pwg.dev/meeting/{title}|{start_date}",
+            )
+            meeting_uri = f"https://pwg.dev/ontology#meeting_{meeting_id}"
+            m_triples = [
+                f"<{meeting_uri}> a pwg:Meeting",
+                f'<{meeting_uri}> pwg:source "calendar_fda"',
+                f'<{meeting_uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
+            ]
+            if title:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingSummary "{_escape(title)}"'
+                )
+            if start_date:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingDate "{_escape(start_date)}"'
+                )
+            if location:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingLocation "{_escape(location)}"'
+                )
+            for a_uri in attendee_uris:
+                m_triples.append(
+                    f"<{meeting_uri}> pwg:meetingAttendee <{a_uri}>"
+                )
+            m_sparql = (
+                "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+                "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+                "INSERT DATA {\n  " + " .\n  ".join(m_triples) + " .\n}"
+            )
+            _sparql_update(m_sparql)
+            meetings_created += 1
+
         events_processed += 1
 
     logger.info(
-        "Calendar: %d events processed, %d unique attendees",
-        events_processed, len(people_seen),
+        "Calendar: %d events processed, %d unique attendees, %d meetings",
+        events_processed, len(people_seen), meetings_created,
     )
     return {
         "status": "ok",
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
+        "meetings_created": meetings_created,
     }
 
 
@@ -675,162 +723,373 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     return {"status": "ok", "people_created": people_created}
 
 
-# ── Browser history ingestion (CX-86 Gap A) ───────────────────────
+# ── Browser history ingestion (direct path, v1.0) ─────────────────
 #
-# Streams safari_history.json + chrome_history.json (written by
-# extract_all.py) through the CM019 gateway's POST /api/safari/ingest
-# endpoint. The gateway writes to the `safari_history` Qdrant
-# collection (renamed from `safari_browsing` in Gap B), where the
-# CM044 wiki Browsing page reads from.
+# Single-Mac product: there is NO PWG gateway on a customer install.
+# The zeroclaw-gateway daemon on :8000 does not implement
+# /api/safari/ingest, and nothing listens on :8765. So this writer
+# embeds visits with the local Ollama instance and upserts directly
+# into the Qdrant `safari_history` collection -- the exact collection
+# the CM044 wiki Browsing page and the person-matching reader scroll.
 #
-# Auth: Bearer token from ~/.ostler/secrets/service_token. Blocklist
-# (Q3 sign-off): banking / medical / etc. URLs are rejected by the
-# gateway with HTTP 422 and counted as "skipped_sensitive".
-# needs_reprocessing=true (Q2 sign-off): backfilled rows land in
-# Qdrant with empty topics/category; gateway background tick enriches.
+# Blocklist: because there is no server-side gateway to enforce it,
+# the sensitive-domain blocklist (banking / medical / auth / adult)
+# is enforced HERE, client-side, before anything is embedded or
+# stored. A blocked visit never reaches Ollama or Qdrant. Dropped
+# visits are counted as "skipped_sensitive".
 #
-# Privacy AC mirror B2 + CX-85: stdout payload contains counts only.
-# No URLs, titles, or domain names cross the install.sh boundary.
+# Privacy: the return dict is counts only. No URLs, titles, or
+# domains cross the install.sh process boundary (install.sh reads
+# `sent` and `skipped_sensitive`).
 
-# #48g historical backfill (CX-86): the customer-install gateway binds
-# 127.0.0.1:8000 (locked at CX-59 / DMG #34, 2026-05-24). The previous
-# default of :8765 was the dev-only port the gateway used pre-launch;
-# leaving it as a fallback meant every install where OSTLER_GATEWAY_URL
-# was not explicitly set would silently fail to ingest browsing history
-# (connection refused -> errored++, sent=0). install.sh's hydrate_browsing
-# step does NOT set OSTLER_GATEWAY_URL today, so the :8765 default was
-# the runtime path on every customer Mac.
-_GATEWAY_ENDPOINT_DEFAULT = "http://localhost:8000/api/safari/ingest"
-_SERVICE_TOKEN_PATH = Path.home() / ".ostler" / "secrets" / "service_token"
+# The CM044 Browsing page + person-matching reader BOTH scroll the
+# Qdrant collection named exactly "safari_history". Chrome visits land
+# in the SAME collection (readers key off url/title/domain, not the
+# source). Overridable for tests only.
+BROWSING_QDRANT_COLLECTION = os.getenv(
+    "BROWSING_QDRANT_COLLECTION", "safari_history"
+)
+# Batch sizes: 64 keeps Ollama responsive on a 16GB Mac across
+# thousands of visits; 200 is Qdrant's tested upsert chunk.
+_BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
+_BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
+# nomic-embed-text emits 768-dim vectors. The collection MUST be created
+# at this size before the first upsert: a PUT of points into a missing
+# collection 404s and silently lands zero rows.
+_BROWSING_VECTOR_DIM = int(os.getenv("BROWSING_VECTOR_DIM", "768"))
+
+# Sensitive-domain blocklist. Substring match on the lowercased domain
+# so subdomains (e.g. secure.bank.example.com) are caught too.
+_SENSITIVE_DOMAIN_SUBSTRINGS = (
+    # Banking / finance
+    "bank", "paypal", "stripe.com", "wise.com", "revolut", "monzo",
+    "barclays", "hsbc", "natwest", "lloyds", "santander", "halifax",
+    "nationwide", "amex", "americanexpress", "mastercard", "visa.com",
+    "coinbase", "binance", "kraken.com",
+    # Medical / health
+    "nhs.uk", "patient", "healthgrades", "webmd", "mayoclinic",
+    "pharmacy", "doctolib", "zocdoc", "medical", "clinic", "hospital",
+    "therapy", "psychology", "mentalhealth",
+    # Adult
+    "pornhub", "xvideos", "xnxx", "onlyfans", "xhamster", "redtube",
+    # Auth / account-recovery surfaces
+    "accounts.google.com", "appleid.apple.com", "login.microsoftonline",
+)
 
 
-def _read_service_token() -> Optional[str]:
-    """Read the Bearer token install.sh's auth_tokens phase wrote."""
-    try:
-        return _SERVICE_TOKEN_PATH.read_text(encoding="utf-8").strip() or None
-    except (OSError, FileNotFoundError):
-        return None
+def _is_sensitive_domain(domain: str) -> bool:
+    """True if ``domain`` matches the sensitive blocklist (substring,
+    case-insensitive). A blank domain is never sensitive (it is dropped
+    upstream as unusable)."""
+    if not domain:
+        return False
+    d = domain.lower()
+    return any(token in d for token in _SENSITIVE_DOMAIN_SUBSTRINGS)
 
 
-def ingest_browser_history(fda_dir: Path, gateway_url: Optional[str] = None) -> dict:
-    """Stream browser history JSON to the gateway.
+def _ollama_embed_batch(texts: list[str]) -> list[list[float]]:
+    """Batch-embed texts via Ollama /api/embed.
 
-    Reads safari_history.json + chrome_history.json from ``fda_dir``,
-    POSTs each entry to ``POST /api/safari/ingest`` with Bearer auth
-    and ``needs_reprocessing: true``. Counts ok / skipped (HTTP 422
-    blocklist) / errored. Returns a counts-only dict.
+    Returns one vector per input, in order. On any failure a given
+    slot is padded with an empty list so the caller keeps index
+    alignment; empty vectors are dropped at upsert time. Falls back to
+    the per-text :func:`_embed_text` if a batch response is malformed.
     """
-    endpoint = gateway_url or os.environ.get(
-        "OSTLER_GATEWAY_URL", _GATEWAY_ENDPOINT_DEFAULT,
-    )
+    if not texts:
+        return []
+    transport = httpx.HTTPTransport(proxy=None)
+    vectors: list[list[float]] = []
+    with httpx.Client(timeout=120.0, transport=transport) as client:
+        for start in range(0, len(texts), _BROWSING_EMBED_BATCH_SIZE):
+            chunk = texts[start : start + _BROWSING_EMBED_BATCH_SIZE]
+            try:
+                resp = client.post(
+                    f"{OLLAMA_URL}/api/embed",
+                    json={"model": EMBED_MODEL, "input": chunk},
+                )
+                resp.raise_for_status()
+                embs = resp.json().get("embeddings")
+                if embs is None or len(embs) != len(chunk):
+                    # Malformed/short batch: degrade to one-at-a-time.
+                    embs = []
+                    for t in chunk:
+                        try:
+                            embs.append(_embed_text(t))
+                        except Exception as inner:
+                            logger.warning(
+                                "Ollama embed failed for one visit: %s",
+                                type(inner).__name__,
+                            )
+                            embs.append([])
+                vectors.extend(embs)
+            except Exception as exc:
+                logger.warning(
+                    "Ollama embed batch failed (start=%d, size=%d): %s",
+                    start, len(chunk), type(exc).__name__,
+                )
+                vectors.extend([[] for _ in chunk])
+    return vectors
 
-    payload_entries: list[dict] = []
-    safari_count = 0
-    chrome_count = 0
-    for filename, label in [
-        ("safari_history.json", "safari_history"),
-        ("chrome_history.json", "chrome_history"),
-    ]:
+
+def _qdrant_ensure_collection(collection: str, dim: int) -> None:
+    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
+
+    Single-Mac product: there is no gateway to lazily create the
+    collection, and nothing else on a fresh install creates
+    safari_history. Qdrant rejects a PUT of points into a missing
+    collection (404), which would silently land zero rows. So the
+    direct writer ensures its own collection first.
+
+    Idempotent and non-destructive: an existing collection is left
+    untouched (a dim mismatch is logged, never auto-recreated, so a
+    customer's data is never dropped). Failures are swallowed: a
+    subsequent upsert failure already degrades the count rather than
+    crashing the installer.
+    """
+    transport = httpx.HTTPTransport(proxy=None)
+    base = f"{QDRANT_URL}/collections/{collection}"
+    with httpx.Client(timeout=30.0, transport=transport) as client:
+        try:
+            resp = client.get(base)
+            if resp.status_code == 200:
+                vectors = (
+                    resp.json().get("result", {})
+                    .get("config", {}).get("params", {})
+                    .get("vectors", {})
+                )
+                size = vectors.get("size") if isinstance(vectors, dict) else None
+                if size is not None and size != dim:
+                    logger.warning(
+                        "Qdrant collection %s exists at dim=%s, expected %d; "
+                        "leaving as-is (upserts may be rejected).",
+                        collection, size, dim,
+                    )
+                return
+        except Exception as exc:
+            logger.warning(
+                "Qdrant collection probe for %s failed: %s",
+                collection, type(exc).__name__,
+            )
+        try:
+            resp = client.put(
+                base, json={"vectors": {"size": dim, "distance": "Cosine"}},
+            )
+            resp.raise_for_status()
+            logger.info("Created Qdrant collection %s (dim=%d).", collection, dim)
+        except Exception as exc:
+            logger.warning(
+                "Qdrant collection create for %s failed: %s",
+                collection, type(exc).__name__,
+            )
+
+
+def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+    """Batch-upsert points into a named Qdrant collection.
+
+    Each point is ``{"id", "vector", "payload"}``. Points with an empty
+    vector are dropped (Qdrant rejects zero-length vectors). Flushes in
+    chunks; logs and continues on a chunk failure. Returns the count
+    the server acknowledged.
+    """
+    valid = [p for p in points if p.get("vector")]
+    dropped = len(points) - len(valid)
+    if dropped:
+        logger.warning(
+            "Dropping %d browsing points with empty vectors "
+            "(Ollama embed failure upstream).", dropped,
+        )
+    if not valid:
+        return 0
+    upserted = 0
+    transport = httpx.HTTPTransport(proxy=None)
+    # Qdrant REST upsert is PUT /collections/{name}/points (NOT
+    # /points/upsert, which 404s). Verified live on Studio 2026-05-30.
+    url = f"{QDRANT_URL}/collections/{collection}/points"
+    with httpx.Client(timeout=60.0, transport=transport) as client:
+        for start in range(0, len(valid), _BROWSING_QDRANT_BATCH_SIZE):
+            chunk = valid[start : start + _BROWSING_QDRANT_BATCH_SIZE]
+            body = {"points": [
+                {"id": p["id"], "vector": p["vector"], "payload": p["payload"]}
+                for p in chunk
+            ]}
+            try:
+                resp = client.put(url, json=body, params={"wait": "true"})
+                resp.raise_for_status()
+                upserted += len(chunk)
+            except Exception as exc:
+                logger.warning(
+                    "Qdrant upsert into %s failed (start=%d, size=%d): %s",
+                    collection, start, len(chunk), type(exc).__name__,
+                )
+    return upserted
+
+
+def _load_browsing_visits(fda_dir: Path) -> list[dict]:
+    """Read safari_history.json + chrome_history.json from ``fda_dir``.
+
+    Both are lists of timeline dicts emitted by the FDA extractor with
+    keys: type, timestamp, url, domain, title, visit_count, source.
+    Only safari_history.json is produced by extract_all.py today;
+    chrome_history.json is read forward-compatibly (skipped if absent)
+    so a future Chrome extractor needs no change here. A missing file
+    is skipped silently; a malformed file logs and contributes nothing.
+    """
+    visits: list[dict] = []
+    for filename in ("safari_history.json", "chrome_history.json"):
         path = fda_dir / filename
         if not path.exists():
             continue
         try:
-            entries = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning(
-                "Could not read %s: %s; skipping that source.",
+                "Could not parse %s: %s; skipping.",
                 filename, type(exc).__name__,
             )
             continue
-        if not isinstance(entries, list):
-            logger.warning("%s root is not a list; skipping.", filename)
-            continue
-        payload_entries.extend(entries)
-        if label == "safari_history":
-            safari_count = len(entries)
+        if isinstance(data, list):
+            visits.extend(v for v in data if isinstance(v, dict))
         else:
-            chrome_count = len(entries)
+            logger.warning("%s root is not a list; skipping.", filename)
+    return visits
 
-    if not payload_entries:
-        logger.info("No browser history to ingest.")
+
+def ingest_browser_history(fda_dir: Path) -> dict:
+    """Ingest Safari (and Chrome, if present) browsing history into the
+    Qdrant ``safari_history`` collection via the local Ollama embedder.
+
+    Direct, single-machine path: no gateway. Sensitive domains are
+    dropped client-side before embed/store. Defensive: missing, empty,
+    or all-sensitive input returns ``{"status": "no_data", ...}`` with
+    zero counts and never raises; an Ollama/Qdrant hiccup degrades the
+    count rather than crashing the installer.
+
+    Returns counts only (HR015 #134 privacy contract):
+      ``status``           : "ok" | "no_data" | "error"
+      ``sent``             : points upserted into Qdrant (install.sh reads this)
+      ``points_created``   : alias of ``sent`` (parity with other ingestors)
+      ``skipped_sensitive``: visits dropped by the blocklist (install.sh reads this)
+      ``total``            : ingestible visits considered (after url filter)
+    """
+    visits = _load_browsing_visits(fda_dir)
+    if not visits:
+        logger.info("No browsing history to ingest.")
         return {
             "status": "no_data",
-            "total": 0,
             "sent": 0,
+            "points_created": 0,
             "skipped_sensitive": 0,
-            "errored": 0,
-            "safari_entries": 0,
-            "chrome_entries": 0,
+            "total": 0,
         }
 
-    token = _read_service_token()
-    if not token:
-        logger.warning(
-            "No service token at %s; the gateway requires Bearer auth.",
-            _SERVICE_TOKEN_PATH,
+    skipped_sensitive = 0
+    queue: list[dict] = []
+    for v in visits:
+        url = (v.get("url") or "").strip()
+        if not url:
+            continue
+        domain = (v.get("domain") or "").strip()
+        if _is_sensitive_domain(domain):
+            skipped_sensitive += 1
+            continue
+        title = (v.get("title") or "").strip()
+        timestamp = (v.get("timestamp") or "").strip()
+        source = v.get("source") or "safari_history"
+        visit_count = v.get("visit_count") or 0
+
+        # Embedding document: title carries the human-readable signal
+        # the person-matcher scans; domain + url anchor it.
+        doc = " ".join(part for part in (title, domain, url) if part)
+        # Stable point id: same url+timestamp re-runs upsert in place
+        # (idempotent re-install) rather than duplicating rows.
+        point_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL, f"browsing|{source}|{url}|{timestamp}"
+        ))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                "url": url,
+                "domain": domain,
+                "title": title,
+                # Readers look for visit_date / created_at / date; the
+                # extractor names it `timestamp`. Provide all aliases so
+                # the Browsing timeline buckets visits regardless of key.
+                "timestamp": timestamp,
+                "visit_date": timestamp,
+                "created_at": timestamp,
+                "date": timestamp,
+                "visit_count": visit_count,
+                "source": source,
+                "type": "web_visit",
+                "privacy_level": DEFAULT_PRIVACY,
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Browsing: 0 ingestible visits (%d skipped sensitive).",
+            skipped_sensitive,
         )
         return {
-            "status": "no_token",
-            "total": len(payload_entries),
+            "status": "no_data",
             "sent": 0,
-            "skipped_sensitive": 0,
-            "errored": 0,
-            "safari_entries": safari_count,
-            "chrome_entries": chrome_count,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": 0,
         }
 
     sent = 0
-    skipped_sensitive = 0
-    errored = 0
+    try:
+        # Ensure the collection exists at 768-dim before the first upsert.
+        # On a fresh single-Mac install nothing else creates it, and a PUT
+        # of points into a missing collection 404s into zero rows.
+        _qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION, _BROWSING_VECTOR_DIM)
+        vectors = _ollama_embed_batch([item["doc"] for item in queue])
+        points = [
+            {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+            for item, vec in zip(queue, vectors)
+        ]
+        sent = _qdrant_upsert_points(BROWSING_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        # Non-fatal: the installer must not abort on a vector-store hiccup.
+        logger.warning(
+            "Browsing vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    with httpx.Client(timeout=30.0) as client:
-        for entry in payload_entries:
-            payload = {
-                "url": entry.get("url"),
-                "title": entry.get("title"),
-                "timestamp": entry.get("timestamp"),
-                "device": entry.get("source", "unknown"),
-                "needs_reprocessing": True,
-            }
-            if not payload["url"]:
-                errored += 1
-                continue
-            try:
-                resp = client.post(endpoint, json=payload, headers=headers)
-            except (httpx.RequestError, httpx.HTTPError) as exc:
-                if errored < 5:
-                    logger.warning(
-                        "gateway POST failed (%s); continuing batch.",
-                        type(exc).__name__,
-                    )
-                errored += 1
-                continue
-
-            if resp.status_code in (200, 201, 202):
-                sent += 1
-            elif resp.status_code == 422:
-                skipped_sensitive += 1
-            else:
-                errored += 1
+    if sent == 0:
+        # We had visits to store but none landed (every chunk failed).
+        # Report error, not "ok" -- a silent ok-with-zero would let the
+        # installer claim success while the Browsing page stays blank.
+        logger.warning(
+            "Browsing: embedded %d visits but 0 landed in Qdrant '%s'.",
+            len(queue), BROWSING_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
 
     logger.info(
-        "Browser history ingest: %d sent, %d skipped (sensitive), "
-        "%d errored across %d Safari + %d Chrome entries.",
-        sent, skipped_sensitive, errored,
-        safari_count, chrome_count,
+        "Browsing: %d visits upserted to Qdrant '%s' (%d skipped sensitive).",
+        sent, BROWSING_QDRANT_COLLECTION, skipped_sensitive,
     )
     return {
         "status": "ok",
-        "total": len(payload_entries),
         "sent": sent,
+        "points_created": sent,
         "skipped_sensitive": skipped_sensitive,
-        "errored": errored,
-        "safari_entries": safari_count,
-        "chrome_entries": chrome_count,
+        "total": len(queue),
     }
 
 

@@ -51,7 +51,8 @@ if ! grep -q "with _copy_history_db" "$SCRIPT_DIR/chrome_history.py"; then
 fi
 echo "lock-workaround check: extract_history uses _copy_history_db context manager"
 
-# pwg_ingest must register ingest_browser_history + the gateway endpoint.
+# pwg_ingest must register ingest_browser_history in the dispatcher.
+# (Direct Ollama -> Qdrant writer since HR015 PR #138: no gateway.)
 if ! grep -qE "def ingest_browser_history" "$SCRIPT_DIR/pwg_ingest.py"; then
     echo "FAIL: pwg_ingest.py missing ingest_browser_history()" >&2
     exit 1
@@ -62,8 +63,35 @@ if ! grep -q '"browser_history", ingest_browser_history' "$SCRIPT_DIR/pwg_ingest
 fi
 echo "pwg_ingest check: ingest_browser_history defined + registered in dispatcher"
 
-# Privacy AC: return dict must contain counts only -- key set is pinned.
-for key in '"status":' '"sent":' '"skipped_sensitive":' '"errored":' '"safari_entries":' '"chrome_entries":'; do
+# Direct-Qdrant writer must self-create its collection. On a fresh
+# single-Mac install nothing else creates safari_history, and an upsert
+# into a missing collection 404s into zero rows -- a blank Browsing page
+# that looks "installed". Guards against re-vendoring a writer that
+# dropped the ensure (the exact disease browsing-at-v1.0 fixed).
+if ! grep -qE "def _qdrant_ensure_collection" "$SCRIPT_DIR/pwg_ingest.py"; then
+    echo "FAIL: pwg_ingest.py missing _qdrant_ensure_collection (direct writer must self-create its collection)" >&2
+    exit 1
+fi
+if ! grep -q "_qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION" "$SCRIPT_DIR/pwg_ingest.py"; then
+    echo "FAIL: ingest_browser_history must call _qdrant_ensure_collection before upsert" >&2
+    exit 1
+fi
+echo "self-create check: ingest_browser_history ensures safari_history before upsert"
+
+# Direct-path writer must NOT carry the retired gateway POST machinery.
+# (The direct writer's explanatory comment mentions /api/safari/ingest
+# to say it does NOT use it, so we sentinel on the gateway config
+# constant that only the old POST writer defined.)
+if grep -qE "_GATEWAY_ENDPOINT_DEFAULT|OSTLER_GATEWAY_URL" "$SCRIPT_DIR/pwg_ingest.py"; then
+    echo "FAIL: pwg_ingest.py still carries the retired gateway POST machinery (stale vendor pre-PR #138)" >&2
+    exit 1
+fi
+echo "no-gateway check: pwg_ingest.py carries no gateway POST machinery"
+
+# Privacy AC: return dict must contain counts only -- key set is pinned
+# to the direct contract (status + sent + points_created + skipped +
+# total; the gateway-era errored/safari_entries/chrome_entries are gone).
+for key in '"status":' '"sent":' '"points_created":' '"skipped_sensitive":' '"total":'; do
     if ! grep -q -- "$key" "$SCRIPT_DIR/pwg_ingest.py"; then
         echo "FAIL: pwg_ingest.py missing return-dict key in ingest_browser_history: $key" >&2
         exit 1
