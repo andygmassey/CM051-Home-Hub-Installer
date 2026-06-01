@@ -1093,6 +1093,125 @@ def ingest_browser_history(fda_dir: Path) -> dict:
     }
 
 
+# ── People -> Qdrant populate (Oxigraph sweep, direct, v1.0) ───────
+#
+# Single-Mac product: nothing creates or populates the Qdrant `people`
+# collection on a fresh install. contact_syncer is not bundled or run,
+# graph_db_start creates no collections, and the iMessage path writes
+# Oxigraph RDF only. The wiki People pages are fine (the CM044 compiler
+# reads people from Oxigraph via SPARQL), but the iOS People tab + Hub
+# People-card + semantic search read the Qdrant `people` collection
+# (ical-server.py people_search / scroll, BOTH filtered on
+# payload.contact_type == "person") and so see zero rows.
+#
+# This sweeps EVERY pwg:Person from Oxigraph -- all sources, matching
+# the wiki's completeness rather than just iMessage -- embeds the
+# display name with the local Ollama instance, and upserts one point
+# per person into `people`, self-creating the collection at 768-dim
+# (same no-gateway / no-precreate gap the browsing writer closes).
+
+PEOPLE_QDRANT_COLLECTION = QDRANT_COLLECTION  # "people"; override via QDRANT_COLLECTION
+# nomic-embed-text emits 768-dim vectors (same model + dim as browsing).
+_PEOPLE_VECTOR_DIM = int(os.getenv("PEOPLE_VECTOR_DIM", "768"))
+
+
+def ingest_people_to_qdrant() -> dict:
+    """Populate the Qdrant ``people`` collection from Oxigraph.
+
+    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
+    and upserts a point per person carrying the payload contract the iOS
+    People tab + Hub People-card read: ``display_name``, ``person_uri``,
+    and ``contact_type == "person"`` (the filter BOTH the search and
+    scroll endpoints require -- a point without it is invisible to the
+    tab). Self-creates the collection at 768-dim. Counts only in the
+    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
+    degrades the count rather than aborting the installer.
+    """
+    try:
+        rows = _sparql_query(
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "SELECT ?person ?name WHERE {\n"
+            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
+            "}"
+        )
+    except Exception as exc:
+        logger.warning(
+            "People sweep: Oxigraph query failed: %s", type(exc).__name__,
+        )
+        return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
+
+    # Dedup by person URI; keep the first display name seen.
+    persons: dict[str, str] = {}
+    for r in rows:
+        uri = (r.get("person", {}).get("value") or "").strip()
+        name = (r.get("name", {}).get("value") or "").strip()
+        if uri and name and uri not in persons:
+            persons[uri] = name
+
+    if not persons:
+        logger.info("People sweep: no pwg:Person in Oxigraph to populate.")
+        return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
+
+    items = list(persons.items())  # [(uri, name), ...] -- stable order
+    sent = 0
+    try:
+        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, _PEOPLE_VECTOR_DIM)
+        vectors = _ollama_embed_batch([name for _, name in items])
+        points = [
+            {
+                # Stable id: same person URI re-upserts in place across
+                # re-installs rather than duplicating the row.
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"person|{uri}")),
+                "vector": vec,
+                "payload": {
+                    "display_name": name,
+                    "person_uri": uri,
+                    # Both ical-server read paths filter on this exact
+                    # value; without it the iOS People tab sees nothing.
+                    "contact_type": "person",
+                },
+            }
+            for (uri, name), vec in zip(items, vectors)
+        ]
+        sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "People sweep: vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "total": len(items),
+        }
+
+    if sent == 0:
+        # Persons existed but none landed (every chunk failed). Report
+        # error, not ok-with-zero, so the installer does not claim
+        # success while the People tab stays empty.
+        logger.warning(
+            "People sweep: embedded %d persons but 0 landed in Qdrant '%s'.",
+            len(items), PEOPLE_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(items),
+        }
+
+    logger.info(
+        "People sweep: %d persons upserted to Qdrant '%s'.",
+        sent, PEOPLE_QDRANT_COLLECTION,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "total": len(items),
+    }
+
+
 # ── Master runner ─────────────────────────────────────────────────
 
 def ingest_all(fda_dir: Optional[Path] = None) -> dict:
