@@ -8987,13 +8987,17 @@ _install_conversation_feed() {
     mkdir -p "$la"
     local rendered="${la}/${plist}"
     local py_val="${venv_python:-python3}"
-    local e_bin e_home e_logs e_py e_pwg e_user
+    local e_bin e_home e_logs e_py e_pwg e_user e_user_id
     e_bin="$(printf '%s' "$bin_dir" | sed 's/[&/\]/\\&/g')"
     e_home="$(printf '%s' "$HOME" | sed 's/[&/\]/\\&/g')"
     e_logs="$(printf '%s' "$LOGS_DIR" | sed 's/[&/\]/\\&/g')"
     e_py="$(printf '%s' "$py_val" | sed 's/[&/\]/\\&/g')"
     e_pwg="$(printf '%s' "$pwg" | sed 's/[&/\]/\\&/g')"
     e_user="$(printf '%s' "${USER_NAME:-You}" | sed 's/[&/\]/\\&/g')"
+    # OSTLER_USER_ID scopes pwg-convo. USER_ID is :?-guaranteed non-empty
+    # well before this phase, so the bundle agent never renders a blank
+    # user_id (which would make CM048's fail-loud guard kill every tick).
+    e_user_id="$(printf '%s' "${USER_ID:-}" | sed 's/[&/\]/\\&/g')"
     # _VALUE/_PATH-suffixed placeholders before bare ones, so a bare token
     # is never a substring of a longer placeholder (byte-safe render).
     sed \
@@ -9001,6 +9005,7 @@ _install_conversation_feed() {
         -e "s/PWG_CONVO_CMD_VALUE/$e_pwg/g" \
         -e "s/OSTLER_SOURCE_DIR_VALUE/$esc_base/g" \
         -e "s/OSTLER_USER_DISPLAY_NAME_VALUE/$e_user/g" \
+        -e "s/OSTLER_USER_ID_VALUE/$e_user_id/g" \
         -e "s/OSTLER_BIN/$e_bin/g" \
         -e "s/OSTLER_HOME/$e_home/g" \
         -e "s/OSTLER_LOGS/$e_logs/g" \
