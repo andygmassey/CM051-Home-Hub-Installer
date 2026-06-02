@@ -787,6 +787,37 @@ targets:
           - $(SRCROOT)/../wiki-recompile/INSTALL_SNIPPET.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/wiki-recompile/INSTALL_SNIPPET.sh
+      - name: Bundle context-refresh (#608 personal-context digest LaunchAgent)
+        script: |
+          set -euo pipefail
+          # install.sh probes ${SCRIPT_DIR}/context-refresh/INSTALL_SNIPPET.sh
+          # to install the context-refresh LaunchAgent (#608). It runs
+          # generate_pwg_context.py to write ~/.ostler/assistant-config/
+          # CONTEXT.md -- the personal-graph digest the daemon injects
+          # into every system prompt so the assistant answers personal
+          # questions from the graph instead of as a generic LLM.
+          # Without this bundle the GUI install falls through to the
+          # elif reuse branch (only true on re-install) or skips, and
+          # the assistant ships disconnected from the graph (the #608
+          # launch blocker). Mirrors the wiki-recompile bundle above.
+          #
+          # Source-of-truth: CM051 repo root /context-refresh/.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../context-refresh"
+          if [ ! -d "${SRC}" ] || [ ! -f "${SRC}/INSTALL_SNIPPET.sh" ]; then
+            echo "ERROR: context-refresh/ not found at ${SRC} (need INSTALL_SNIPPET.sh)" >&2
+            echo "       CM051 repo root must contain context-refresh/INSTALL_SNIPPET.sh." >&2
+            exit 1
+          fi
+          echo "Bundling context-refresh from ${SRC} into Resources/context-refresh/"
+          mkdir -p "${DEST}/context-refresh"
+          cp -R "${SRC}/"* "${DEST}/context-refresh/"
+          /usr/bin/xattr -cr "${DEST}/context-refresh" || true
+          chmod 755 "${DEST}/context-refresh/INSTALL_SNIPPET.sh"
+        inputFiles:
+          - $(SRCROOT)/../context-refresh/INSTALL_SNIPPET.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/context-refresh/INSTALL_SNIPPET.sh
       - name: Bundle legal Python package (consent-string constants)
         script: |
           set -euo pipefail
