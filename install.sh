@@ -10658,26 +10658,41 @@ OSTLER_TAILSCALE_IP=""
 TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
-    if ! command -v tailscale &>/dev/null && [[ ! -d "/Applications/Tailscale.app" ]]; then
+    # ── Path A: Homebrew FORMULA + userspace networking (#604) ──────
+    #
+    # #604 (2026-06-02, Studio v1.0.0 install): `brew install --cask
+    # tailscale` now resolves to the `tailscale-app` GUI cask (1.98.x),
+    # which ships a kernel/system extension and a sudo-driven `.pkg`.
+    # The installer's non-interactive sudo cannot complete that pkg (it
+    # also needs an interactive System Settings extension approval), so
+    # `installer -pkg ... exited with 1`, the step only warned, and the
+    # install finished with Tailscale absent and never launched. (NOT
+    # the old CX-25/CX-105 shallow-brew git-history issue, which is
+    # fixed -- the cask resolves and downloads fine now.)
+    #
+    # Fix: the `tailscale` FORMULA instead. It is the CLI + tailscaled
+    # with no kext and no .app, so it installs headless with no sudo.
+    # We run tailscaled in userspace-networking mode (--tun=userspace-
+    # networking: no TUN device, no kernel extension, no root) under a
+    # per-user LaunchAgent, authenticate with `tailscale up`, and use
+    # `tailscale serve` to expose the Hub's local ports on the tailnet
+    # so the iOS Companion reaches this Mac off-LAN -- all without any
+    # system-extension approval the installer cannot drive.
+    #
+    # CONSTRAINT (Studio gate, not yet proven here): userspace mode does
+    # not route the tailnet IP to local services at the OS layer the way
+    # kernel mode does; inbound reach depends on `tailscale serve`
+    # proxying each port. This must be proven to carry real inbound
+    # iPhone->Hub traffic before Path A is declared done (see PR body).
+    TS_STATE_DIR="${OSTLER_DIR}/tailscale"
+    TS_SOCK="${TS_STATE_DIR}/tailscaled.sock"
+    mkdir -p "$TS_STATE_DIR"
+
+    if ! command -v tailscale &>/dev/null; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
-        # CX-105 (DMG #48k, 2026-05-29): Tailscale install via
-        # `brew install --cask` fails on fresh Macs because the
-        # CX-25 manual-tarball Homebrew install path leaves brew
-        # as "shallow or no git repository", which breaks cask
-        # tap resolution. Tailscale is recoverable: the iOS
-        # Companion works on the local LAN without it, and the
-        # customer can install Tailscale from tailscale.com any
-        # time. Convert the fail-loud to warn-and-continue so the
-        # rest of the install can complete; surface a clear next
-        # step rather than blocking shipping. Proper fix in v1.0.1
-        # (replace tarball brew with git-clone or skip brew for
-        # this step entirely).
-        if brew install --cask tailscale 2>&1; then
+        if brew install tailscale 2>&1; then
             ok "$MSG_OK_TAILSCALE_INSTALLED"
         else
-            warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
-        fi
-        if [[ ! -d "/Applications/Tailscale.app" ]]; then
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
             OSTLER_TAILSCALE_SKIPPED=1
         fi
@@ -10685,45 +10700,90 @@ if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
     fi
 
-    # Open the Tailscale app -- first launch prompts for sign-in.
-    # CX-81 Tailscale step root-cause fix (2026-05-26):
-    # was `open -gj -a Tailscale` where `-g` skips foreground and
-    # `-j` launches HIDDEN -- the sign-in window never appeared for
-    # customers who had never signed into Tailscale on this Mac.
-    # `open -a Tailscale` brings the app to the foreground so the
-    # sign-in window is actually visible. For already-signed-in
-    # customers, this just brings the menu-bar app forward briefly,
-    # which is acceptable.
-    if [[ -d "/Applications/Tailscale.app" ]]; then
+    TS_CLI="$(command -v tailscale || true)"
+    TS_DAEMON="$(command -v tailscaled || true)"
+
+    if [[ -n "$TS_CLI" && -n "$TS_DAEMON" ]]; then
+        # ── Userspace tailscaled under a per-user LaunchAgent ───────
+        # --tun=userspace-networking: no TUN, no kext, no root. State +
+        # socket live under the user's ~/.ostler so the CLI (run as the
+        # same user) reaches them via --socket. KeepAlive keeps the
+        # tailnet up across reboots.
+        TS_LAUNCH_AGENT="${HOME}/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"
+        mkdir -p "${HOME}/Library/LaunchAgents" "$LOGS_DIR"
+        cat > "$TS_LAUNCH_AGENT" <<TSPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.creativemachines.ostler.tailscaled</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${TS_DAEMON}</string>
+        <string>--tun=userspace-networking</string>
+        <string>--state=${TS_STATE_DIR}/tailscaled.state</string>
+        <string>--statedir=${TS_STATE_DIR}</string>
+        <string>--socket=${TS_SOCK}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/tailscaled.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/tailscaled.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
+TSPLIST
+        chmod 0644 "$TS_LAUNCH_AGENT"
+        launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
+        if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
+            ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
+        else
+            warn "$MSG_WARN_TAILSCALED_USERSPACE_START_FAILED"
+        fi
+        # Wait for the daemon to create its control socket (max ~15s).
+        TS_SOCK_WAIT=0
+        while [[ ! -S "$TS_SOCK" && $TS_SOCK_WAIT -lt 15 ]]; do
+            sleep 1; TS_SOCK_WAIT=$((TS_SOCK_WAIT + 1))
+        done
+
+        # ── Browser auth: `tailscale up` prints a login URL ─────────
+        # No GUI app to click, so capture the URL tailscale prints and
+        # open it in the default browser. up runs in the background so
+        # the installer can poll for the assigned IP while the customer
+        # completes OAuth.
         info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
-        open -a Tailscale 2>/dev/null || true
-        sleep 3
-    fi
+        TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
+        ( "$TS_CLI" --socket="$TS_SOCK" up >"$TS_UP_LOG" 2>&1 || true ) &
+        # Surface + open the login URL once tailscale prints it.
+        TS_URL=""
+        TS_URL_WAIT=0
+        while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
+            TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
+            [[ -n "$TS_URL" ]] && break
+            # Already authenticated installs print no URL; stop waiting
+            # once an IP exists.
+            [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
+            sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
+        done
+        if [[ -n "$TS_URL" ]]; then
+            info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
+            open "$TS_URL" 2>/dev/null || true
+        fi
 
-    # The CLI lives at /Applications/Tailscale.app/Contents/MacOS/Tailscale
-    # OR in PATH if Homebrew formula. Find it.
-    TS_CLI=""
-    if command -v tailscale &>/dev/null; then
-        TS_CLI="tailscale"
-    elif [[ -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
-        TS_CLI="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-    fi
-
-    if [[ -n "$TS_CLI" ]]; then
-        # 180s window: a non-technical user reading the prompt, switching
-        # to the GUI, completing OAuth (Apple/Google/Microsoft sign-in
-        # with possible 2FA), and returning easily eats 2-3 minutes.
-        # 60s is too short and was the most-tripped Phase-3 timeout in
-        # the install audit (~2026-05-01).
+        # 180s window: a non-technical user reading the prompt, opening
+        # the login URL, completing OAuth (Apple/Google/Microsoft with
+        # possible 2FA) and returning easily eats 2-3 minutes.
         info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
-        info "$MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH"
         TS_WAIT=0
-        # Periodic progress update threshold: emit at 30s/60s/90s/120s/150s
-        # so the customer sees the installer is alive while they finish
-        # the OAuth dance in the Tailscale window.
         TS_NEXT_TICK=30
         while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
-            OSTLER_TAILSCALE_IP=$("$TS_CLI" ip --4 2>/dev/null | head -1 || true)
+            OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
             if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
                 sleep 3
                 TS_WAIT=$((TS_WAIT + 3))
@@ -10735,6 +10795,21 @@ if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
         done
 
         if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
+            # ── Expose the Hub's local ports on the tailnet ─────────
+            # In userspace mode the tailnet IP does not reach local
+            # listeners without an explicit proxy, so serve each Hub
+            # port: 8089 (Doctor API the iOS Companion uses) and 8044
+            # (the wiki). --bg keeps the forwarder running after the
+            # installer exits. Best-effort: a serve failure is surfaced
+            # but does not fail the install (on-LAN pairing still works).
+            for _ts_port in 8089 8044; do
+                if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
+                    info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
+                else
+                    warn "$(printf "$MSG_WARN_TAILSCALE_SERVE_PORT_FAILED" "$_ts_port")"
+                fi
+            done
+            unset _ts_port
             ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
             echo "  Use this address in the Ostler iOS companion app:"
             echo "    http://${OSTLER_TAILSCALE_IP}:8089"
