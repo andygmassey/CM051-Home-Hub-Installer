@@ -17,6 +17,7 @@ on:
       - 'vendor/**'
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_vendor_import_resolution.py'
+      - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
   push:
@@ -42,6 +43,9 @@ jobs:
 
       - name: Vendor import-resolution guard
         run: python3 tests/test_vendor_import_resolution.py
+
+      - name: Vendor entrypoint-resolution guard
+        run: python3 tests/test_vendor_entrypoint_resolution.py
 
       - name: Browser-history vendor regression
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
