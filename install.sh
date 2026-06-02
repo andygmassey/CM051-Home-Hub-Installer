@@ -10759,7 +10759,13 @@ TSPLIST
         # completes OAuth.
         info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
         TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
-        ( "$TS_CLI" --socket="$TS_SOCK" up >"$TS_UP_LOG" 2>&1 || true ) &
+        # Register the Hub under a stable, predictable tailnet name so the
+        # iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
+        # regardless of the customer's Mac hostname. Without --hostname,
+        # the node inherits the Mac's local name (random per customer).
+        # Tailscale auto-suffixes (-1, -2) only on a collision within the
+        # same tailnet, which a single-Hub customer tailnet will not hit.
+        ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
         # Surface + open the login URL once tailscale prints it.
         TS_URL=""
         TS_URL_WAIT=0
