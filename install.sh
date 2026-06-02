@@ -4918,30 +4918,60 @@ fi
 
 progress "Setting up Ollama (local AI engine)" "ollama_install"
 
-if command -v ollama &>/dev/null; then
+# CX-43 / Ollama-runner fix (2026-06-02). Install the CASK
+# (Ollama.app), not the Homebrew FORMULA.
+#
+# The formula's `ollama` (0.30.0) ships ONLY an MLX runner and NO
+# llama-server, so every GGUF model (nomic-embed-text, the qwen
+# conversation models) returns HTTP 500 "llama-server not found":
+# the embedding pipeline dies, Qdrant stays empty, the People card /
+# iOS People tab / semantic search / browsing all come up blank, and
+# the assistant is mute. The cask bundles llama-server (validated on
+# the Studio: /api/embed -> 200, 768-dim). The formula cannot serve
+# our models at all -- this is a hard blocker, not a preference.
+#
+# CX-14 E1 (2026-05-23) originally chose the formula to dodge the
+# cask's Gatekeeper "downloaded from internet" quarantine dialog on
+# the .app's first GUI launch. We honour E1's actual goal (no
+# mid-install dialog) by a DIFFERENT mechanism, not by reverting to
+# the broken formula:
+#   1. We never `open -a Ollama` (a GUI launch is what triggers the
+#      app-launch quarantine dialog). We run the inner CLI binary
+#      headless -- /Applications/Ollama.app/Contents/Resources/ollama
+#      serve -- under our own com.ostler.ollama LaunchAgent. Launching
+#      the inner binary never fires the app-launch dialog (Studio:
+#      no prompt, embed 200).
+#   2. We defensively strip the quarantine xattr from the bundle after
+#      install, so even a stricter Gatekeeper cannot block the exec.
+# Net: no mid-install dialog (E1's real concern) AND a working
+# llama-server (the bug E1 did not know about).
+
+OLLAMA_APP_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
+
+# Detect the CASK specifically. A bare `command -v ollama` is
+# satisfied by a pre-existing broken FORMULA on PATH and would wrongly
+# skip the cask install, so path-match the app binary instead.
+if [[ -x "$OLLAMA_APP_BIN" ]]; then
     ok "$MSG_OK_OLLAMA_INSTALLED"
 else
-    # CX-14 Section E1 (2026-05-23). Install the FORMULA, not the
-    # cask. The cask installs Ollama.app + ships a notarised .app
-    # bundle whose first launch triggers a Gatekeeper "downloaded
-    # from internet" dialog (xattr com.apple.quarantine), which
-    # mid-installs the customer either fights through or ignores
-    # (and then later wonders why the Hub cannot reach Ollama).
-    #
-    # The formula installs `ollama` as a CLI binary into Homebrew's
-    # bin (no .app to quarantine, no Gatekeeper dialog). It serves
-    # on the SAME port (11434) and uses the SAME on-disk layout for
-    # models (~/.ollama/), so every downstream wire path (Hub
-    # agents, embedding pipeline, the model-pull retries below) is
-    # unchanged. The only difference is start-on-boot: we use
-    # `brew services start ollama` to wire a launchd plist for
-    # persistence (cask's `open -a Ollama` path is no longer
-    # available; brew services is the formula's native equivalent).
+    # If the broken formula is present it shadows the cask binary on
+    # PATH and its brew-services launchd respawns it onto :11434 even
+    # after a pkill, so tear the service down AND uninstall the formula
+    # before the cask goes in.
+    if brew list --formula 2>/dev/null | grep -qx ollama; then
+        info "$MSG_INFO_REMOVING_BROKEN_OLLAMA_FORMULA"
+        brew services stop ollama 2>/dev/null || true
+        launchctl bootout "gui/$(id -u)/homebrew.mxcl.ollama" 2>/dev/null || true
+        brew uninstall --formula ollama 2>/dev/null || true
+    fi
+
     info "$MSG_INFO_INSTALLING_OLLAMA"
-    brew install ollama
-    # DMG #48 silent-bail hardening: verify ollama binary is on PATH
-    # before declaring the formula installed.
-    if ! command -v ollama &>/dev/null; then
+    brew install --cask ollama-app
+    # Belt-and-braces de-quarantine (CX-14 E1's concern, neutralised).
+    xattr -dr com.apple.quarantine /Applications/Ollama.app 2>/dev/null || true
+    # DMG #48 silent-bail hardening: verify the CASK binary exists
+    # before declaring success (not a bare `command -v`).
+    if [[ ! -x "$OLLAMA_APP_BIN" ]]; then
         fail_with_code "ERR-07-DMG48-OLLAMA-MISSING-AFTER-BREW" \
             "$(printf "$MSG_FAIL_OLLAMA_MISSING_AFTER_BREW" "$INSTALL_LOG")"
     fi
@@ -4952,20 +4982,43 @@ if curl -s http://localhost:11434/api/tags &>/dev/null; then
     ok "$MSG_OK_OLLAMA_RUNNING"
 else
     info "$MSG_INFO_STARTING_OLLAMA"
-    # Formula path: prefer `brew services start ollama` so the
-    # launchd plist persists across reboots (cask used to do this
-    # via the .app's built-in LaunchAgent; formula needs the
-    # explicit brew-services wire). Fall back to a backgrounded
-    # `ollama serve` if brew services is unavailable (e.g. a
-    # Homebrew install that did not wire services for some reason).
-    brew services start ollama 2>/dev/null || ollama serve &>/dev/null &
-    # Wait up to 30 seconds for Ollama to be ready
+    # Serve headless via our own LaunchAgent running the cask's inner
+    # binary (NOT `open -a Ollama`, NOT brew services). This persists
+    # across reboots and avoids the GUI app-launch quarantine dialog.
+    OLLAMA_LOG_DIR="${LOGS_DIR:-${HOME}/.ostler/logs}"
+    mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
+    OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
+    cat > "$OLLAMA_PLIST" <<OLLAMAPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.ollama</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OLLAMA_APP_BIN}</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${OLLAMA_LOG_DIR}/ollama.log</string>
+    <key>StandardErrorPath</key>
+    <string>${OLLAMA_LOG_DIR}/ollama.err</string>
+</dict>
+</plist>
+OLLAMAPLIST
+    launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null || \
+        launchctl load "$OLLAMA_PLIST" 2>/dev/null || true
+    # Wait up to 90 seconds for Ollama to be ready
     OLLAMA_WAIT=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
-            echo "  Run 'brew services start ollama' from Terminal to start it manually,"
-            echo "  then re-run the installer."
+            info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
             exit 1
         fi
         sleep 2
@@ -5269,8 +5322,9 @@ TOMLPREAMBLE
     #   override and is not needed here.
     #
     # base_url + model are the load-bearing fields. base_url is
-    # the Ollama server URL the installer wired up in Phase 1.5b
-    # (brew install ollama + open -a Ollama). The model is the
+    # the Ollama server URL the installer wired up in Phase 3.3
+    # (brew install --cask ollama-app, served headless via the
+    # com.ostler.ollama LaunchAgent). The model is the
     # tier-aware default the installer chose at AI_MODEL
     # selection time (high RAM = qwen3.6:35b-a3b, mid =
     # qwen3.5:9b, low = gemma4:e2b). The customer can edit
@@ -6602,6 +6656,27 @@ else
     fi
     ok "$MSG_OK_EMBEDDING_MODEL_READY"
 fi
+
+# CX-43 / #177 -- prove the embedding engine actually returns vectors
+# before anything relies on it. A running Ollama with a broken runner
+# (the old formula) pulls the model fine but returns HTTP 500 on
+# /api/embed, which silently left Qdrant empty: hydrate_people reported
+# status=ok while landing 0 points. Assert HTTP 200 AND a non-empty
+# embeddings[0], and fail loudly otherwise.
+info "$MSG_INFO_VERIFYING_EMBEDDINGS"
+EMBED_HEALTH_BODY="$(mktemp -t ostler-embed-healthcheck)"
+EMBED_HEALTH_CODE=$(curl -s --max-time 90 -o "$EMBED_HEALTH_BODY" -w '%{http_code}' \
+    -X POST http://localhost:11434/api/embed \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"nomic-embed-text","input":"healthcheck"}' 2>/dev/null || true)
+if [[ "$EMBED_HEALTH_CODE" != "200" ]] || \
+   ! grep -Eq '"embeddings":[[:space:]]*\[[[:space:]]*\[[[:space:]]*-?[0-9]' "$EMBED_HEALTH_BODY" 2>/dev/null; then
+    rm -f "$EMBED_HEALTH_BODY"
+    fail_with_code "ERR-13-EMBED-HEALTHCHECK" \
+        "$(printf "$MSG_FAIL_EMBED_HEALTHCHECK" "$INSTALL_LOG")"
+fi
+rm -f "$EMBED_HEALTH_BODY"
+ok "$MSG_OK_EMBEDDINGS_VERIFIED"
 
 if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
     if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
@@ -7947,6 +8022,9 @@ fi
 echo ""
 echo "  Stopping services..."
 cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.ollama" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" 2>/dev/null || true
+brew uninstall --cask ollama-app 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || \
@@ -7981,6 +8059,7 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" 2>/dev/null || true
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
