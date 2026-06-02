@@ -274,18 +274,29 @@
 
   "pair_iphone": {
     "_meta": "CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR section rendered between the service tick list and the CTA buttons on InstallCompleteView. The Hub gateway exposes POST http://localhost:8000/admin/paircode (no auth needed on localhost) which returns a §3.3 envelope JSON; we render that JSON string as a 256x256 QR with an oxblood border. CM031 iOS app scans the QR + decodes the envelope.",
-    "title": "Pair your iPhone",
-    "help": "Open the Ostler app on your iPhone and scan this QR code to link it to this Hub. You can also pair later from the Pairing tab in the Ostler app.",
+    "title": "Already installed the app?",
+    "help": "Already have the Ostler app on your iPhone? Scan this code to pair it with this Mac. You can also pair later from inside the app.",
     "fetching": "Generating pairing code...",
     "refresh_button": "Refresh code",
     "fetch_failed": "Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."
   },
 
+  "get_ios_app": {
+    "_meta": "#599 (2026-06-02): success-screen 'Get Ostler on your iPhone' section. Static QR + link to https://ostler.ai/ios, a stable redirect Andy repoints to the App Store listing once it is live, so the DMG never needs recutting for the store URL. This is the primary iPhone call to action; the pair_iphone QR is demoted below it.",
+    "title": "Get Ostler on your iPhone",
+    "body": "Scan the code to download the Ostler app, then open it to reach your wiki and your assistant from anywhere.",
+    "url_caption": "ostler.ai/ios"
+  },
+
   "install_complete": {
-    "_meta": "CX-81 B8 (2026-05-26): completion screen copy lifted from inline Text() literals in InstallCompleteView.swift per Rule 0.9. Rendered after the install pipeline reaches DONE. heading + subheading sit above the per-service health-check tick list; CTAs sit in the sticky footer.",
-    "heading": "You're all set",
-    "subheading": "Ostler is running on this Mac. Everything you need is set up; you can close this window.",
-    "health_check_label": "Health check",
+    "_meta": "#599 (2026-06-02): completion screen reworked. Hero 'Ostler is installed' (calm, not 'everything is ready') -> a 'what's happening now' hydration explainer that is the focus -> 'Get Ostler on your iPhone' (get_ios_app) -> demoted pairing QR (pair_iphone) -> the per-service tick list moved into a collapsed 'Hub status' disclosure. CTAs sit in the sticky footer. All copy via Rule 0.9. Qualitative hydration timing only (no hard hours number).",
+    "heading": "Ostler is installed",
+    "subheading": "Ostler is set up on this Mac.",
+    "hydration_label": "What's happening now",
+    "hydration_body": "Ostler is now building your private knowledge base in the background. The first pass can take a few hours, and your wiki and assistant get richer as it keeps working. You can close this window. It carries on by itself.",
+    "hub_status_label": "Hub status",
+    "status_ok": "OK",
+    "status_see_log": "see log",
     "open_ostler_button": "Open Ostler",
     "open_wiki_button": "Open your Wiki"
   },
