@@ -113,6 +113,7 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "hub-power": ["vendor/hub_power"],
     "cm024_knowledge": ["vendor/cm024_knowledge"],
     "cm048_pipeline": ["vendor/cm048_pipeline"],
+    "cm019_preferences": ["vendor/cm019_preferences"],
     "contact_syncer": ["vendor/cm041"],
     "assistant_api": ["vendor/cm041"],
     "email-ingest": ["vendor/email_ingest"],
