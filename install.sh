@@ -6393,6 +6393,21 @@ services:
       - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}
+      # #606: the compiler runs as a one-shot container on this compose
+      # network. Without these it defaults (compiler/config.py) to
+      # localhost:7878 / localhost:6333, which inside the container is
+      # its OWN loopback -> httpx.ConnectError in load_people() ->
+      # People / Orgs / Topics / Places never build -> /people/ 404s.
+      # Reach the data services by their compose service names, and
+      # Ollama (a host process, not a compose service) via the host
+      # gateway.
+      - OXIGRAPH_URL=http://oxigraph:7878
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://host.docker.internal:11434
+    extra_hosts:
+      # macOS / Colima-friendly way to surface the host gateway so the
+      # OLLAMA_URL above resolves to the host's Ollama.
+      - "host.docker.internal:host-gateway"
 
   # Local AI web search (Vane). Replaces the cloud-search dependency
   # that comparable assistants offload to Perplexity / Google. The
@@ -6451,6 +6466,56 @@ cd "$OSTLER_DIR"
 # with its own error surface.
 docker compose up -d qdrant oxigraph redis
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
+
+# ── Pre-create optional Qdrant collections (#606) ────────────────
+#
+# The wiki compiler reads several Qdrant collections at compile time.
+# On a fresh install `people` is self-created by ingest_people_to_qdrant
+# (hydrate_people) and `preferences` by the CM019 ingest, but
+# conversations / evernote_knowledge (and preferences when no prefs
+# data lands) are never created until their source data first arrives,
+# which may be never on day one. A bare read of a missing collection
+# 404s, and CM044's person_pages reader treats a conversations 404 as
+# fatal, aborting the whole compile so /people/ 404s. Pre-creating the
+# collections empty makes every read return an empty set instead.
+#
+# nomic-embed-text (the embedder used across the graph ingest paths) is
+# 768-dim, Cosine, unnamed vectors -- matching the people collection
+# the ingest builds, so a later real ingest into these collections is
+# consistent. Idempotent: GET first, only PUT when absent, so an
+# already-populated collection is never clobbered. Best-effort and
+# non-fatal: a transient Qdrant hiccup must not fail the whole install
+# (CM044's reader is being hardened to tolerate a 404 in parallel).
+_qdrant_url="${QDRANT_URL:-http://localhost:6333}"
+_qdrant_ready=false
+for _ in $(seq 1 30); do
+    if curl -sf -m 2 "${_qdrant_url}/readyz" &>/dev/null \
+       || curl -sf -m 2 "${_qdrant_url}/collections" &>/dev/null; then
+        _qdrant_ready=true
+        break
+    fi
+    sleep 1
+done
+
+if [[ "$_qdrant_ready" == true ]]; then
+    for _coll in conversations preferences evernote_knowledge; do
+        # Already present? Leave it untouched (never clobber real data).
+        if curl -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
+            continue
+        fi
+        if curl -sf -m 10 -X PUT "${_qdrant_url}/collections/${_coll}" \
+            -H 'Content-Type: application/json' \
+            -d '{"vectors": {"size": 768, "distance": "Cosine"}}' &>/dev/null; then
+            info "$(printf "$MSG_INFO_QDRANT_COLLECTION_PRECREATED" "${_coll}")"
+        else
+            warn "$(printf "$MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED" "${_coll}")"
+        fi
+    done
+    unset _coll
+else
+    warn "$MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED"
+fi
+unset _qdrant_url _qdrant_ready
 
 # ── 3.8b Local web search (Vane) ──────────────────────────────────
 #
