@@ -120,45 +120,26 @@ struct InstallCompleteView: View {
 
             Divider()
 
-            // Per-service summary. Reads from logLines so the panel
-            // reflects the actual probes (not a hardcoded list).
-            VStack(alignment: .leading, spacing: .ostlerSpace1) {
-                Text(ViewCopy.shared.string(for: "install_complete.health_check_label"))
-                    .font(.ostlerStrap)
-                    .tracking(1.2)
-                    .foregroundStyle(Color.ostlerInkMuted)
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(serviceChecks) { check in
-                        HStack(spacing: .ostlerSpace2) {
-                            Image(systemName: check.status == .ok
-                                  ? "checkmark.circle.fill"
-                                  : "exclamationmark.triangle.fill")
-                                .foregroundStyle(check.status == .ok
-                                                 ? Color.ostlerForest
-                                                 : Color.ostlerOxbloodWarm)
-                                .frame(width: 18)
-                            Text(check.label)
-                                .font(.ostlerBody)
-                                .foregroundStyle(Color.ostlerInk)
-                            Spacer()
-                            Text(check.status == .ok ? "OK" : "see log")
-                                .font(.ostlerCaption)
-                                .foregroundStyle(Color.ostlerInkSubdued)
-                        }
-                    }
-                }
-                .padding(.vertical, .ostlerSpace1)
-            }
+            // #599: "What's happening now" replaces the per-service
+            // tick list as the focus, so a still-hydrating wiki does
+            // not read as "everything is finished".
+            whatsHappeningSection
 
             Divider()
 
-            // CX-56 (DMG ship, 2026-05-24): iOS Companion pairing
-            // QR. Sits between the service tick list and the CTA
-            // buttons so the customer's last action on the install
-            // is "open the iPhone app and scan this". The QR
-            // encodes the §3.3 envelope returned by
-            // POST http://localhost:8000/admin/paircode.
+            // #599: primary iPhone call to action -- download the app.
+            getIosAppSection
+
+            // #599: the pairing QR, demoted below the download CTA and
+            // relabelled "already installed the app? scan to pair".
             pairingSection
+
+            Divider()
+
+            // #599: the per-service tick list, moved into a collapsed
+            // "Hub status" disclosure -- still reachable, not the
+            // headline.
+            hubStatusSection
 
             Spacer(minLength: .ostlerSpace2)
         }
@@ -209,6 +190,117 @@ struct InstallCompleteView: View {
             // view rebuilds for an unrelated reason.
             await fetchPairCode()
         }
+    }
+
+    // ── #599 "What's happening now" ───────────────────────────────
+    // Calm, minimal hydration explainer (no glowing callout). Sets the
+    // expectation that the wiki + assistant keep filling in for a while
+    // after install. Qualitative timing only -- no hard hours number.
+    @ViewBuilder
+    private var whatsHappeningSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace1) {
+            Text(ViewCopy.shared.string(for: "install_complete.hydration_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+            Text(ViewCopy.shared.string(for: "install_complete.hydration_body"))
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // ── #599 "Get Ostler on your iPhone" ──────────────────────────
+    // Primary iPhone CTA: a static QR + link to a stable redirect Andy
+    // repoints to the App Store listing once it is live, so the DMG
+    // never needs recutting for the store URL.
+    private static let iosAppURL = "https://ostler.ai/ios"
+
+    @ViewBuilder
+    private var getIosAppSection: some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace2) {
+            Text(ViewCopy.shared.string(for: "get_ios_app.title"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+            HStack(alignment: .center, spacing: .ostlerSpace3) {
+                staticQRPanel(payload: Self.iosAppURL)
+                    .frame(width: 144, height: 144)
+                VStack(alignment: .leading, spacing: .ostlerSpace1) {
+                    Text(ViewCopy.shared.string(for: "get_ios_app.body"))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(ViewCopy.shared.string(for: "get_ios_app.url_caption"))
+                        .font(.ostlerCaption)
+                        .foregroundStyle(Color.ostlerInkSubdued)
+                }
+            }
+        }
+    }
+
+    /// Static (non-fetched) QR panel for a fixed payload such as the
+    /// iOS download URL. Same oxblood-bordered frame as the pairing QR.
+    @ViewBuilder
+    private func staticQRPanel(payload: String) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.ostlerOxblood.opacity(0.5), lineWidth: 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white)
+                )
+            if let qrImage = Self.makeQRImage(payload: payload, size: 128) {
+                Image(nsImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+            } else {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 56))
+                    .foregroundStyle(Color.ostlerInkSubdued)
+            }
+        }
+    }
+
+    // ── #599 "Hub status" (demoted) ───────────────────────────────
+    // The per-service tick list, moved out of the headline into a
+    // collapsed disclosure. Still reads from logLines so it reflects
+    // the actual probes.
+    @ViewBuilder
+    private var hubStatusSection: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(serviceChecks) { check in
+                    HStack(spacing: .ostlerSpace2) {
+                        Image(systemName: check.status == .ok
+                              ? "checkmark.circle.fill"
+                              : "exclamationmark.triangle.fill")
+                            .foregroundStyle(check.status == .ok
+                                             ? Color.ostlerForest
+                                             : Color.ostlerOxbloodWarm)
+                            .frame(width: 18)
+                        Text(check.label)
+                            .font(.ostlerBody)
+                            .foregroundStyle(Color.ostlerInk)
+                        Spacer()
+                        Text(check.status == .ok
+                             ? ViewCopy.shared.string(for: "install_complete.status_ok")
+                             : ViewCopy.shared.string(for: "install_complete.status_see_log"))
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerInkSubdued)
+                    }
+                }
+            }
+            .padding(.top, .ostlerSpace1)
+        } label: {
+            Text(ViewCopy.shared.string(for: "install_complete.hub_status_label"))
+                .font(.ostlerStrap)
+                .tracking(1.2)
+                .foregroundStyle(Color.ostlerInkMuted)
+        }
+        .tint(Color.ostlerInkMuted)
     }
 
     // ── CX-56 pairing QR ──────────────────────────────────────────
