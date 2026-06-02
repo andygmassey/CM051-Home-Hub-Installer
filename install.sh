@@ -6962,6 +6962,42 @@ elif [[ "$CM048_SOURCE_OK" == true ]]; then
     warn "$MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML"
 fi
 
+# ── 3.10b-models CM048 settings.yaml (RAM-aware conversation models) ──
+#
+# CM048's pipeline defaults its enrich/fact/relationship/coach steps to
+# qwen3.5:35b-a3b, which needs ~18-20GB resident and cannot run on a 16GB
+# box (and is a brutal squeeze on 24GB). The installer's RAM-aware picker
+# already chose the model it actually pulled ($AI_MODEL: 35b-a3b only on
+# 48GB+, 9b on 24-48GB, gemma4:e2b below), so point every conversation
+# step at THAT model rather than a default no normal box can serve. Big-
+# memory boxes opt into 35b-a3b automatically because that is what their
+# picker selected; CM048's code default stays at 35b-a3b as the quality
+# aspiration. Without this, conversations dispatch, classify, then die at
+# 02_enrich with an Ollama 404 for the unpulled 35b-a3b model.
+#
+# CM048 auto-loads ~/.ostler/settings.yaml (ostler_paths.settings_yaml_
+# path). The file also carries user_id so a manual pwg-convo run works
+# without the bundle-agent env. Never clobber an existing file: a re-run
+# or an operator edit wins.
+_cm048_settings="${OSTLER_DIR}/settings.yaml"
+_cm048_model="${AI_MODEL:-qwen3.5:9b}"
+if [[ -f "$_cm048_settings" ]]; then
+    info "$(printf "$MSG_INFO_CM048_SETTINGS_KEPT" "$_cm048_settings")"
+else
+    mkdir -p "$OSTLER_DIR"
+    {
+        printf 'user_id: %s\n' "${USER_ID:-ostler}"
+        printf 'ollama_url: %s\n' "${OLLAMA_URL:-http://127.0.0.1:11434}"
+        printf 'ollama_classify_model: %s\n' "$_cm048_model"
+        printf 'ollama_enrich_model: %s\n' "$_cm048_model"
+        printf 'ollama_fact_model: %s\n' "$_cm048_model"
+        printf 'ollama_relationship_model: %s\n' "$_cm048_model"
+        printf 'ollama_coach_model: %s\n' "$_cm048_model"
+    } > "$_cm048_settings"
+    chmod 0600 "$_cm048_settings"
+    info "$(printf "$MSG_INFO_CM048_SETTINGS_WRITTEN" "$_cm048_model" "${RAM_GB:-?}")"
+fi
+
 # ── 3.10c Calendar / Gmail bridge for ical-server.py ─────────────
 #
 # Phase 3.10c installs the two binaries that ical-server.py
