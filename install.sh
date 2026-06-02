@@ -7478,6 +7478,96 @@ run_all(Path('${OSTLER_DIR}/imports/fda'))
 FDAEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
+# Create a self-removing contact re-sync wrapper. Re-runs the CM041
+# contact_syncer against the LOCAL AddressBook store -- specifically the
+# Full-Disk-Access-gated AddressBook-v22.abcddb fallback, NOT the
+# Contacts.app osascript export that needs Automation -- so contacts that
+# iCloud finishes syncing AFTER the install window still reach the graph.
+# Idempotent: the syncer dedupes by identity, so re-runs only add what is
+# new. Driven by the com.ostler.contact-resync LaunchAgent, which the
+# hydrate step schedules ONLY when it saw configured accounts but imported
+# zero (the iCloud-sync timing race). The wrapper boots out its own agent
+# once it imports at least one contact, or after CONTACT_RESYNC_MAX_TRIES
+# attempts, so a Mac that never finishes syncing can never keep a re-sync
+# agent alive indefinitely.
+cat > "${OSTLER_DIR}/bin/ostler-contact-resync" <<'CRSEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
+PIPELINE_PY="${PIPELINE_DIR}/.venv/bin/python"
+OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+LABEL="com.ostler.contact-resync"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+TRIES_FILE="${STATE_DIR}/contact-resync.tries"
+LOG_FILE="${LOGS_DIR}/contact-resync.log"
+CONTACT_RESYNC_MAX_TRIES="${CONTACT_RESYNC_MAX_TRIES:-48}"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+remove_self() {
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
+        launchctl unload "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST" "$TRIES_FILE"
+}
+
+# Bounded retry: bump the attempt counter and, once it exceeds the cap,
+# give up and remove the agent. Belt-and-braces against a Mac that never
+# finishes syncing contacts.
+tries=0
+[[ -f "$TRIES_FILE" ]] && tries="$(cat "$TRIES_FILE" 2>/dev/null || echo 0)"
+[[ "$tries" =~ ^[0-9]+$ ]] || tries=0
+tries=$((tries + 1))
+printf '%s' "$tries" >"$TRIES_FILE"
+if [[ "$tries" -gt "$CONTACT_RESYNC_MAX_TRIES" ]]; then
+    log "giving up after ${CONTACT_RESYNC_MAX_TRIES} attempts; removing agent"
+    remove_self
+    exit 0
+fi
+
+if [[ ! -x "$PIPELINE_PY" ]]; then
+    log "import-pipeline venv missing at ${PIPELINE_PY}; will retry (attempt ${tries})"
+    exit 0
+fi
+
+# Force the AddressBook-v22.abcddb fallback by pointing --vcf at a path we
+# never create: the syncer logs "vCard file not found" and reads the
+# now-synced local AddressBook directly (Full Disk Access only).
+FORCE_ABCDDB_VCF="${OSTLER_DIR}/imports/.contact-resync-force-abcddb.vcf"
+rm -f "$FORCE_ABCDDB_VCF" 2>/dev/null || true
+
+json="$(
+    cd "$PIPELINE_DIR" && \
+    "$PIPELINE_PY" -m contact_syncer.syncer \
+        --vcf "$FORCE_ABCDDB_VCF" \
+        --graph-endpoint "$OXIGRAPH_URL" 2>>"$LOG_FILE" \
+    | tail -n 1
+)" || json=""
+
+count="$(
+    printf '%s' "$json" | python3 -c 'import json,sys
+try:
+    print(int(json.loads(sys.stdin.read()).get("imported", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+)"
+count="${count:-0}"
+
+if [[ "$count" -gt 0 ]]; then
+    log "contact re-sync imported ${count} contact(s) on attempt ${tries}; removing agent"
+    remove_self
+else
+    log "contacts still not synced (attempt ${tries}/${CONTACT_RESYNC_MAX_TRIES}); will retry"
+fi
+exit 0
+CRSEOF
+chmod +x "${OSTLER_DIR}/bin/ostler-contact-resync"
+
 # Create an export watcher script -- scans Downloads for new GDPR exports
 cat > "${OSTLER_DIR}/bin/ostler-scan-exports" <<'SCANEOF'
 #!/usr/bin/env bash
@@ -8069,6 +8159,8 @@ launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.contact-resync" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.deferred-register-device" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
@@ -8100,6 +8192,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
@@ -11182,6 +11275,45 @@ _HYDRATE_PIPELINE_PY="${PIPELINE_DIR}/.venv/bin/python"
 # don't drift on leap years.
 OSTLER_HYDRATE_BACKFILL_DAYS="${OSTLER_HYDRATE_BACKFILL_DAYS:-1825}"
 
+# Schedule the self-removing contact re-sync agent. Called from the
+# pending-state branches below (accounts configured but the import came
+# back empty -- iCloud had not finished its first contact sync inside the
+# install window). The agent fires every CONTACT_RESYNC_INTERVAL_S seconds
+# and runs bin/ostler-contact-resync, which re-reads the now-synced local
+# AddressBook (FDA fallback) and removes its own agent once contacts land.
+# Idempotent: if the plist already exists we leave it (it self-removes on
+# success), so two pending branches firing never double-schedule.
+_schedule_contact_resync() {
+    local plist="${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
+    local interval_s="${CONTACT_RESYNC_INTERVAL_S:-1800}"
+    [[ -f "$plist" ]] && return 0
+    [[ -x "${OSTLER_DIR}/bin/ostler-contact-resync" ]] || return 0
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    cat > "$plist" <<CRSPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.contact-resync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/ostler-contact-resync</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/contact-resync.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/contact-resync.err</string>
+</dict>
+</plist>
+CRSPLIST
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
+        launchctl load "$plist" 2>/dev/null || true
+    info "$MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED"
+}
+
 # Contact hydration ------------------------------------------------
 #
 # CX-93 (DMG #48g): re-export from Contacts.app at hydrate time as
@@ -11279,6 +11411,10 @@ except Exception:
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
         # State 2 -- accounts configured but local AB empty.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
+        # iCloud has not finished its first contact sync yet. Schedule a
+        # self-removing re-sync agent so the contacts land in the graph
+        # once the sync completes, without the customer re-running setup.
+        _schedule_contact_resync
     else
         # State 1 -- no contacts source configured at all.
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
@@ -11290,6 +11426,9 @@ else
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
+        # Same iCloud-sync race as the populated-vcf path above: schedule
+        # the self-removing re-sync so late-syncing contacts still land.
+        _schedule_contact_resync
     else
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
     fi
