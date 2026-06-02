@@ -82,18 +82,46 @@ log "wiki-recompile tick start"
 #   (b) PIPESTATUS[0] is the docker exit code, NOT the tail exit
 #       code -- without explicit PIPESTATUS we'd see tail's 0
 #       and miss the failure entirely.
-# Drop pipefail just for the pipeline, capture PIPESTATUS, restore.
-set +o pipefail
-docker compose --profile compile run --rm wiki-compiler 2>&1 | tail -20
-COMPILE_RC=${PIPESTATUS[0]}
-set -o pipefail
+# -T disables docker's pseudo-TTY allocation and </dev/null detaches
+# stdin: together they cure the `compose run --rm` exit-hang where the CLI
+# wrapper sits at 0% CPU after the container exits until something kills it
+# (confirmed on the live Studio box -- without -T the daily tick wedges and
+# never refreshes the wiki). A watchdog hard-kills a genuinely stuck
+# compile after WIKI_COMPILE_TIMEOUT so the LaunchAgent can never wedge
+# indefinitely. Output is captured to a temp file and tailed afterwards so
+# a long compile still surfaces its last lines without holding a TTY.
+WIKI_COMPILE_TIMEOUT="${WIKI_COMPILE_TIMEOUT:-1800}"
+_compile_log="$(mktemp -t wiki-recompile.XXXXXX)"
+docker compose --profile compile run --rm -T wiki-compiler </dev/null >"$_compile_log" 2>&1 &
+_compile_pid=$!
+# Watchdog: stdio detached to /dev/null so it never holds a parent pipe
+# open. Killed the instant the compile returns, so it only ever fires on a
+# genuine hang.
+{
+    sleep "$WIKI_COMPILE_TIMEOUT"
+    if kill -0 "$_compile_pid" 2>/dev/null; then
+        kill -TERM "$_compile_pid" 2>/dev/null
+        sleep 5
+        kill -KILL "$_compile_pid" 2>/dev/null
+    fi
+} >/dev/null 2>&1 &
+_watchdog_pid=$!
+COMPILE_RC=0
+wait "$_compile_pid" || COMPILE_RC=$?
+kill "$_watchdog_pid" 2>/dev/null || true
+wait "$_watchdog_pid" 2>/dev/null || true
+tail -20 "$_compile_log" 2>/dev/null || true
+rm -f "$_compile_log"
+if [ "$COMPILE_RC" -eq 137 ] || [ "$COMPILE_RC" -eq 143 ]; then
+    log "ERROR: wiki-compiler exceeded ${WIKI_COMPILE_TIMEOUT}s and was killed by the watchdog (exit $COMPILE_RC)."
+fi
 if [ "$COMPILE_RC" -ne 0 ]; then
     log "ERROR: wiki-compiler failed (exit $COMPILE_RC); skipping wiki-site refresh."
     log "       Common causes: Oxigraph unhealthy, disk pressure on wiki_docs"
     log "       volume, ostler-wiki-compiler image missing or stale."
     log "       Manual retry:"
     log "         cd $OSTLER_DIR"
-    log "         docker compose --profile compile run --rm wiki-compiler"
+    log "         docker compose --profile compile run --rm -T wiki-compiler </dev/null"
     exit "$COMPILE_RC"
 fi
 

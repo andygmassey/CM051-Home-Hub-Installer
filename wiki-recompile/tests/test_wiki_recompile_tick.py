@@ -4,7 +4,7 @@ Drives ``wiki-recompile-tick.sh`` end-to-end with a stubbed
 ``docker`` binary so we can exercise the success / failure paths
 without a live Docker daemon. Asserts:
 
-- Calls ``docker compose --profile compile run --rm wiki-compiler``.
+- Calls ``docker compose --profile compile run --rm -T wiki-compiler``.
 - Then calls ``docker compose up -d wiki-site``.
 - Surfaces compose run failures with a clear message and skips the
   wiki-site refresh.
@@ -40,7 +40,7 @@ def _make_fake_docker(stub_dir: Path, *, run_exit: int = 0,
     log = log_path or (stub_dir / "docker.log")
     body = f"""#!/usr/bin/env bash
 echo "$@" >> "{log}"
-# `docker compose --profile compile run --rm wiki-compiler`
+# `docker compose --profile compile run --rm -T wiki-compiler`
 if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
     exit {run_exit}
 fi
@@ -108,13 +108,13 @@ def test_wrapper_runs_compile_then_up(stub_env):
 
     invocations = log.read_text().splitlines()
     # Two docker invocations expected, in order.
-    assert any("compose --profile compile run --rm wiki-compiler" in line
+    assert any("compose --profile compile run --rm -T wiki-compiler" in line
                for line in invocations), invocations
     assert any("compose up -d wiki-site" in line for line in invocations), invocations
 
     # Order: run before up.
     run_idx = next(i for i, line in enumerate(invocations)
-                   if "compose --profile compile run --rm wiki-compiler" in line)
+                   if "compose --profile compile run --rm -T wiki-compiler" in line)
     up_idx = next(i for i, line in enumerate(invocations)
                   if "compose up -d wiki-site" in line)
     assert run_idx < up_idx
@@ -159,7 +159,7 @@ def test_up_failure_surfaces_exit(stub_env):
     assert "wiki-site failed to start" in result.stdout
     # Both invocations happened.
     invocations = log.read_text().splitlines()
-    assert any("run --rm wiki-compiler" in line for line in invocations)
+    assert any("run --rm -T wiki-compiler" in line for line in invocations)
     assert any("up -d wiki-site" in line for line in invocations)
 
 
