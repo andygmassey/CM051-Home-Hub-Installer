@@ -1625,29 +1625,108 @@ final class InstallerCoordinator: ObservableObject {
         }
     }
 
+    /// Outcome of reconciling the two completion signals install.sh
+    /// hands the GUI: the protocol DONE marker (parsed into `finished`)
+    /// AND the OS process exit code. CX-454 made both load-bearing so a
+    /// disagreement can never be papered over as success.
+    enum TerminationOutcome: Equatable {
+        /// Clean success: a `DONE status=ok` marker AND exit 0. Nothing
+        /// to change; the existing `.ok` terminal stands.
+        case confirmedSuccess
+        /// Clean failure already signalled by a `DONE status=fail`
+        /// marker (whatever the exit code). Nothing to override.
+        case confirmedFailure
+        /// User cancel / consent-decline. Neutral terminal stands.
+        case cancelled
+        /// The two signals disagree, or there was no DONE marker at all.
+        /// MUST be surfaced as a loud failure with `message`, even if
+        /// the OS exit code was 0. Covers: (a) no DONE marker (script
+        /// died mid-flight, e.g. a `set -u` abort) -- CX-126; and
+        /// (b) a `DONE status=ok` marker that is contradicted by a
+        /// non-zero exit code (a tail command after the marker, or the
+        /// bash wrapper itself, died) -- CX-454.
+        case failure(message: String)
+    }
+
+    /// Pure reconciliation of the DONE marker against the OS exit code.
+    /// Extracted as a static function so the status-mapping logic has a
+    /// unit-testable seam that does not require standing up a real
+    /// `Process` (whose `terminationStatus` cannot be mocked).
+    ///
+    /// Contract (CX-454): success requires BOTH signals to agree --
+    /// a `DONE status=ok` marker AND a zero exit code. Any disagreement
+    /// (ok marker + non-zero exit, or exit 0 + no marker) is a loud
+    /// failure, never a silent success. The legacy `set -u`-dies-with-
+    /// no-marker path (CX-126) is the `donedMarker == nil` arm here.
+    static func reconcileTermination(
+        donedMarker finished: StepStatus?,
+        cancelled: Bool,
+        exitCode: Int32
+    ) -> TerminationOutcome {
+        if cancelled {
+            return .cancelled
+        }
+        switch finished {
+        case .none:
+            // No DONE marker ever arrived -- the script died mid-flight.
+            // Failure regardless of the reported exit code (a `set -u`
+            // abort can surface as exit 0 through pipeline / wrapper
+            // masking). CX-126.
+            if exitCode == 0 {
+                return .failure(message: "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
+            }
+            return .failure(message: "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
+        case .fail:
+            // install.sh already told us it failed. Honour it.
+            return .confirmedFailure
+        case .warn:
+            // A terminal `warn` finish is treated as a (non-fatal)
+            // completion; require a clean exit to call it success.
+            if exitCode == 0 {
+                return .confirmedSuccess
+            }
+            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
+        case .ok:
+            // CX-454: a success marker is only trustworthy if the OS
+            // exit code agrees. A `DONE status=ok` followed by a
+            // non-zero exit (a post-marker tail command, or the bash
+            // wrapper, dying) previously rendered the green "all set"
+            // screen over a broken install. Fail loud on disagreement.
+            if exitCode == 0 {
+                return .confirmedSuccess
+            }
+            return .failure(message: "The installer reported it finished but the process exited with an error (exit \(exitCode)). Some steps may not have completed. Use Copy log and Try again, or contact support@ostler.ai.")
+        }
+    }
+
     private func handleTermination() {
         let exitCode = process?.terminationStatus ?? -1
-        if finished == nil && !cancelled {
-            // CX-126: the subprocess terminated WITHOUT ever emitting a
-            // DONE marker. install.sh's contract is that every genuine
-            // finish -- success or failure -- emits `gui_emit DONE`
-            // (success: `gui_done ok` at the tail; failure: via
-            // `fail_with_code`). A termination with no DONE therefore
-            // means the script died mid-flight (e.g. a `set -u` unbound
-            // variable abort), which we MUST treat as a failure
-            // regardless of the OS exit code. Pre-CX-126 this fell back
-            // to `exitCode == 0 ? .ok : .fail`; a `set -u` death that
-            // surfaced as exit 0 (pipeline / wrapper masking) then
-            // rendered the full green "You're all set" success screen
-            // over a half-installed Hub with every health check red --
-            // the single worst first-run outcome. No DONE == not done.
+        let outcome = Self.reconcileTermination(
+            donedMarker: finished,
+            cancelled: cancelled,
+            exitCode: exitCode
+        )
+        switch outcome {
+        case .confirmedSuccess, .confirmedFailure, .cancelled:
+            // The marker and exit code agree (or the user cancelled);
+            // the terminal state set during marker handling stands.
+            break
+        case .failure(let message):
+            // The two completion signals disagree, or no DONE marker
+            // arrived. Override any optimistic `.ok` and surface a loud
+            // failure -- never a silent success. Covers CX-126 (no
+            // marker, e.g. a `set -u` abort) AND CX-454 (ok marker
+            // contradicted by a non-zero exit code).
+            let wasFalseSuccess = (finished == .ok)
             finished = .fail
             if error == nil {
-                error = exitCode == 0
-                    ? "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai."
-                    : "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai."
+                error = message
             }
-            OstlerLog.lifecycle.error("handleTermination: subprocess ended with NO DONE marker (exit \(exitCode, privacy: .public)) -- treating as failure (CX-126)")
+            if wasFalseSuccess {
+                OstlerLog.lifecycle.error("handleTermination: DONE status=ok contradicted by non-zero exit \(exitCode, privacy: .public) -- overriding to failure (CX-454)")
+            } else {
+                OstlerLog.lifecycle.error("handleTermination: subprocess ended with NO DONE marker (exit \(exitCode, privacy: .public)) -- treating as failure (CX-126)")
+            }
         }
         appendLog(level: "info", msg: "Subprocess terminated (exit \(exitCode))")
         OstlerLog.lifecycle.info("subprocess terminated exit=\(exitCode, privacy: .public) finished=\(String(describing: self.finished), privacy: .public)")
