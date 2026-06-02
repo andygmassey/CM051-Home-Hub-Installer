@@ -5290,6 +5290,28 @@ TOMLPREAMBLE
     echo "model = \"${_ai_model_esc}\""
     echo "timeout_secs = 300"
 
+    # ── HTTP request tool: reach the local personal-graph API ───
+    #
+    # The assistant answers "who is X / when did I last see X" from a
+    # baseline CONTEXT.md digest injected into every prompt, and for
+    # specifics not in the digest it fetches live from the local
+    # ical-server with the http_request tool
+    # (GET 127.0.0.1:8090/api/v1/people/search, /people/context).
+    #
+    # `enabled` already defaults true on the daemon side, but
+    # `allow_private_hosts` defaults FALSE for SSRF protection -- and
+    # 127.0.0.1 is a private host, so without this the tool refuses
+    # the loopback call and the assistant says "I have no access to
+    # your data" (the #608 launch blocker). The schema gates RFC1918 +
+    # loopback + link-local behind this single flag; there is no
+    # loopback-only knob. Acceptable here: the Hub is a single-machine
+    # product and the only private host the assistant is guided to
+    # call is the read-only loopback ical-server.
+    echo
+    echo "[http_request]"
+    echo "enabled = true"
+    echo "allow_private_hosts = true"
+
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
@@ -11960,6 +11982,56 @@ if curl -sf -o /dev/null -m 3 http://localhost:3000; then
     ok "$MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH"
 else
     info "$MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE"
+fi
+
+# ── Personal-context digest refresh (#608) ──────────────────────
+#
+# Wires the context-refresh LaunchAgent. generate_pwg_context.py
+# (vendored from ostler-assistant) queries the loopback ical-server
+# (now populated by the hydrate steps above) and writes CONTEXT.md
+# into the assistant-config dir. The assistant daemon injects
+# CONTEXT.md into every system prompt, so the chat assistant has
+# baseline awareness of the customer's people, meetings and
+# preferences. Without this the assistant answers "I have no access
+# to your data" -- the #608 launch blocker.
+#
+# Sourced HERE (after initial_hydrate) on purpose: the ical-server is
+# up from Phase 3.13a, but only carries data once the graph is
+# hydrated. Installing the LaunchAgent now means its RunAtLoad fires a
+# FIRST, POPULATED digest immediately, rather than an empty one that
+# waits for the next scheduled fire.
+#
+# Bundled-with-installer pattern mirrors wiki-recompile. A missing
+# bundle is a warn, not a hard fail: the assistant still answers via
+# live http_request lookups ([http_request] allow_private_hosts was
+# enabled in the wizard config above); the digest is the always-on
+# baseline that saves a lookup round-trip on common questions.
+
+OSTLER_CONTEXT_REFRESH_DIR="${OSTLER_DIR}/context-refresh"
+CONTEXT_REFRESH_SNIPPET=""
+
+if [[ -d "${SCRIPT_DIR}/context-refresh" && -f "${SCRIPT_DIR}/context-refresh/INSTALL_SNIPPET.sh" ]]; then
+    mkdir -p "$OSTLER_CONTEXT_REFRESH_DIR"
+    cp -R "${SCRIPT_DIR}/context-refresh/"* "$OSTLER_CONTEXT_REFRESH_DIR/"
+    CONTEXT_REFRESH_SNIPPET="${OSTLER_CONTEXT_REFRESH_DIR}/INSTALL_SNIPPET.sh"
+    ok "$MSG_OK_CONTEXT_REFRESH_SCRIPTS_BUNDLED"
+elif [[ -f "${OSTLER_CONTEXT_REFRESH_DIR}/INSTALL_SNIPPET.sh" ]]; then
+    CONTEXT_REFRESH_SNIPPET="${OSTLER_CONTEXT_REFRESH_DIR}/INSTALL_SNIPPET.sh"
+    info "$(printf "$MSG_INFO_REUSING_EXISTING_CONTEXT_REFRESH" "${OSTLER_CONTEXT_REFRESH_DIR}")"
+else
+    warn "$MSG_WARN_CONTEXT_REFRESH_NOT_BUNDLED"
+fi
+
+if [[ -n "$CONTEXT_REFRESH_SNIPPET" && -f "$CONTEXT_REFRESH_SNIPPET" ]]; then
+    if OSTLER_INSTALL_ROOT="$OSTLER_CONTEXT_REFRESH_DIR" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       bash "${OSTLER_CONTEXT_REFRESH_DIR}/INSTALL_SNIPPET.sh"; then
+        ok "$MSG_OK_CONTEXT_REFRESH_LAUNCHAGENT_LOADED"
+        info "$(printf "$MSG_INFO_CONTEXT_REFRESH_LOGS" "${LOGS_DIR}")"
+    else
+        warn "$MSG_WARN_CONTEXT_REFRESH_LAUNCHAGENT_FAILED"
+    fi
 fi
 
 # ── 3.18 iMessage TCC posture probe (install-time snapshot) ──────
