@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler personal-context-digest refresh LaunchAgent (#608).
+
+        Runs generate_pwg_context.py, which queries the local
+        ical-server (127.0.0.1:8090) and writes a compact CONTEXT.md
+        digest into the assistant's workspace dir. The ostler-assistant
+        daemon injects CONTEXT.md verbatim into every system prompt,
+        so the chat assistant has baseline awareness of the customer's
+        people, meetings and preferences. Without this agent the digest
+        is never produced and the assistant answers "I have no access
+        to your data" -- the v1.0.1 launch blocker.
+
+        Pattern mirrors the wiki-recompile LaunchAgent
+        (com.creativemachines.ostler.wiki-recompile): a /bin/bash
+        wrapper does the real work; this plist just schedules it.
+
+        The installer renders the placeholders below at install time:
+          OSTLER_BIN  -> $OSTLER_DIR/bin
+          OSTLER_HOME -> $HOME (used as working directory)
+          OSTLER_LOGS -> $LOGS_DIR (~/.ostler/logs by default)
+
+        British English throughout.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.context-refresh</string>
+
+    <!--
+        Wrapper script sets the ZEROCLAW_WORKSPACE_DIR contract and
+        runs the digest generator; placeholder is replaced at install
+        time with the absolute path.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_BIN/context-refresh-tick.sh</string>
+    </array>
+
+    <!--
+        PATH for python3 resolution. LaunchAgents do not inherit the
+        user's shell PATH; the wrapper prepends the same set, but the
+        block keeps a hand-edited plist working too.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!--
+        Three scheduled fires per day so the digest tracks the graph
+        as contacts and meetings sync, and is fresh around the morning
+        brief and evening wrap. The digest is a few KB over loopback,
+        so this is cheap. StartCalendarInterval honours the system
+        timezone. Andy can tune the cadence post-launch.
+
+        Separate dicts (NOT one dict with multiple Hour entries):
+        launchd treats StartCalendarInterval values as wildcards, so a
+        single dict with several hours would not do what it looks like.
+    -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>13</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>19</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <!--
+        RunAtLoad fires once at LaunchAgent load (login or post-
+        install). This is what produces the FIRST digest right after
+        install, so the very first chat already has context. If the
+        ical-server is not up yet, the generator exits 0 and leaves
+        any prior CONTEXT.md untouched; the next calendar fire (or the
+        next login) catches up.
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!--
+        Working directory: HOME so any relative paths resolve against
+        the user's home rather than /.
+    -->
+    <key>WorkingDirectory</key>
+    <string>OSTLER_HOME</string>
+
+    <!--
+        Stdout and stderr go to $LOGS_DIR. One short line per run
+        ("wrote N chars" or "no data available"), so the log stays
+        tiny. Doctor surfaces these when troubleshooting why the
+        assistant lacks context.
+    -->
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/context-refresh.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/context-refresh.err</string>
+
+    <!--
+        Background priority: the digest refresh is not latency-critical
+        and must not compete with foreground work on the user's
+        daily-driver Mac. Matches the wiki-recompile agent's pick.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

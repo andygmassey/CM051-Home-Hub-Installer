@@ -378,6 +378,14 @@ MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-recompile scripts cloned from %s
 MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044="Wiki running at http://localhost:8044"
 MSG_OK_YOUR_ASSISTANT_CALLED="Your assistant is called %s"
 
+# ── Personal-context digest refresh (#608) ──
+MSG_OK_CONTEXT_REFRESH_SCRIPTS_BUNDLED="Personal-context digest scripts bundled with installer"
+MSG_OK_CONTEXT_REFRESH_LAUNCHAGENT_LOADED="Personal-context digest LaunchAgent loaded (label com.creativemachines.ostler.context-refresh)"
+MSG_INFO_CONTEXT_REFRESH_LOGS="  Logs: %s/context-refresh.log + .err"
+MSG_INFO_REUSING_EXISTING_CONTEXT_REFRESH="Reusing existing context-refresh install at %s"
+MSG_WARN_CONTEXT_REFRESH_NOT_BUNDLED="Personal-context digest scripts not bundled; the assistant will rely on live lookups only (no always-on context summary)"
+MSG_WARN_CONTEXT_REFRESH_LAUNCHAGENT_FAILED="Personal-context digest LaunchAgent did not load; see context-refresh.err. The assistant still answers via live lookups"
+
 # ── Warnings (non-fatal) ──
 
 MSG_WARN_BASH_INSTALL_SNIPPET_SH="  bash %s/INSTALL_SNIPPET.sh"
