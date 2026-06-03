@@ -12306,10 +12306,45 @@ mkdir -p "${USER_FACING_ROOT}/Wiki" "${USER_FACING_ROOT}/Wiki/_images"
 
 WIKI_FIRST_COMPILE_OK=false
 cd "$OSTLER_DIR"
-if docker compose --profile compile run --rm wiki-compiler 2>&1 | tail -10; then
+# v1.0.1 -- background the wiki summaries so the install completes fast.
+#
+# The first compile generates ~340 synchronous LLM summaries (top people
+# + orgs + topics) at ~10-13s each: 30-60 min on a large address book,
+# during which the installer used to sit frozen at 100%. We now split it:
+#
+#   1. BASELINE compile with OSTLER_WIKI_SKIP_LLM=1 (honoured by the CM044
+#      compiler): renders every page skeleton with NO LLM calls, finishes
+#      in ~1-2 min. This is the one that gates the install -- it is fast
+#      and must succeed.
+#   2. Bring wiki-site up immediately so :8044 serves the baseline wiki.
+#   3. The install completes here. The customer has a browsable wiki.
+#   4. Kick the FULL summary compile (summaries ON) in the BACKGROUND,
+#      fully detached. It writes .hydration_status.json live so the
+#      homepage panel reflects progress; the summaries replace the
+#      skeletons as they land. Its exit code NEVER gates the install -- a
+#      background failure leaves the already-serving baseline wiki intact.
+#
+# `-T </dev/null` cures the `compose run --rm` exit-hang (see the
+# wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
+# its real exit code (PIPESTATUS[0], not tail's) gates the install under
+# `set -euo pipefail`.
+set +e
+docker compose --profile compile run --rm -T \
+    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
+WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
+set -e
+if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
         ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
+        # Detached full summary compile (summaries ON -- no skip flag).
+        # nohup + </dev/null + disown so it survives install.sh exit and
+        # its exit code can never gate install completion.
+        WIKI_BG_LOG="${LOGS_DIR}/wiki-background-compile.log"
+        nohup docker compose --profile compile run --rm -T wiki-compiler \
+            </dev/null >"$WIKI_BG_LOG" 2>&1 &
+        disown 2>/dev/null || true
+        info "$MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED"
     else
         warn "$MSG_WARN_WIKI_COMPILED_BUT_WIKI_SITE_CONTAINER"
         warn "$(printf "$MSG_WARN_TRY_DOCKER_COMPOSE_F_DOCKER_COMPOSE" "${OSTLER_DIR}")"

@@ -392,6 +392,7 @@ MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="Wiki-recompile LaunchAgent l
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki-recompile scripts bundled with installer"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-recompile scripts cloned from %s"
 MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044="Wiki running at http://localhost:8044"
+MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED="Your wiki is ready to browse. Ostler is now writing the page summaries in the background, so they will fill in over the next little while. You can start using your wiki straight away."
 MSG_OK_YOUR_ASSISTANT_CALLED="Your assistant is called %s"
 
 # ── Personal-context digest refresh (#608) ──
