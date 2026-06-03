@@ -710,6 +710,7 @@ verify-dmg-contents:
 	if [ ! -x "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" ]; then \
 	    OSTLER_APP_OK=0; \
 	fi; \
+	HUB_SHA="$$(strings "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" 2>/dev/null | grep -oE 'OSTLER_HUB_BUILD_SHA=[0-9a-f]{40}' | head -1 | cut -d= -f2)"; \
 	INSTALL_SH_OK=1; \
 	if ! grep -q "OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases" "$$RES/install.sh" 2>/dev/null; then \
 	    INSTALL_SH_OK=0; \
@@ -746,6 +747,21 @@ verify-dmg-contents:
 	    echo "       executable at Contents/MacOS/zeroclaw-desktop." >&2; \
 	    exit 1; \
 	fi; \
+	if [ -z "$$HUB_SHA" ]; then \
+	    echo "ERROR: bundled Hub binary carries no OSTLER_HUB_BUILD_SHA marker." >&2; \
+	    echo "       This is a STALE / pre-marker Ostler.app (the 2026-06-03 P0:" >&2; \
+	    echo "       a fresh binary was on disk but make ship bundled an old one)." >&2; \
+	    echo "       Rebuild Ostler.app from current ostler-assistant origin/main" >&2; \
+	    echo "       (build.rs stamps the marker) and re-cut." >&2; \
+	    exit 1; \
+	fi; \
+	if [ -n "$(OSTLER_HUB_EXPECTED_SHA)" ] && [ "$$HUB_SHA" != "$(OSTLER_HUB_EXPECTED_SHA)" ]; then \
+	    echo "ERROR: bundled Hub build-SHA does not match the expected rebuild." >&2; \
+	    echo "       bundled:  $$HUB_SHA" >&2; \
+	    echo "       expected: $(OSTLER_HUB_EXPECTED_SHA) (ostler-assistant origin/main)" >&2; \
+	    echo "       make ship sourced a different Ostler.app than intended (Bug A)." >&2; \
+	    exit 1; \
+	fi; \
 	if [ "$$INSTALL_SH_OK" = "0" ]; then \
 	    echo "ERROR: install.sh on the DMG does not wire RemoteCapture against" >&2; \
 	    echo "       the public ostler-ai/ostler-releases CDN URL. Regression" >&2; \
@@ -767,7 +783,7 @@ verify-dmg-contents:
 	    echo "       cached tarball at $(DAEMON_TARBALL_CACHE)." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + daemon present"
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + daemon present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive
