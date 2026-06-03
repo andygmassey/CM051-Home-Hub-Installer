@@ -13182,6 +13182,17 @@ if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
 fi
 gui_done ok
 
+# ── App-icon cache-bust ────────────────────────────────────────────
+# The .app bundles are placed by the DMG drag-install, so macOS can
+# show a stale soft icon from the iconservices cache. Touch each
+# bundle to bump its mtime and nudge Dock to re-read the icons. This
+# is best-effort and non-destructive (no cache deletion); every step
+# is guarded so it can never abort the install.
+for app in "/Applications/Ostler.app" "/Applications/Ostler RemoteCapture.app" "/Applications/OstlerInstaller.app"; do
+    [[ -d "$app" ]] && touch "$app" 2>/dev/null || true
+done
+killall Dock 2>/dev/null || true
+
 # ── First-run auto-open ────────────────────────────────────────────
 # Open the customer-facing wiki in the default browser. Best-effort --
 # don't fail the install if this fails. Under GUI mode the installer
