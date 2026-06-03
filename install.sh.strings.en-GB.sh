@@ -882,7 +882,7 @@ MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
 # days to 5 years -- customer copy updated to match the new behaviour.
 MSG_HYDRATE_CALENDAR_STARTED="Loading your last 90 days of calendar (longer history backfills in the background)"
 MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
-MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki – this takes 2 to 5 minutes"
+MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki. Ostler is writing a short summary for each of your key people, organisations and topics, so on a large address book this can take from a few minutes up to around an hour. It only happens once, runs entirely on your Mac, and is safe to leave."
 
 # CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.
 # Synchronous Qdrant-readiness gate between hydrate_* and wiki_compile
