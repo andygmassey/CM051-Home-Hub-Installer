@@ -45,3 +45,6 @@ jobs:
 
       - name: Browser-history vendor regression
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
+
+      - name: Doctor pairing-panel vendor regression
+        run: bash vendor/doctor/test_vendor_pairing.sh

@@ -258,6 +258,10 @@ DASHBOARD_IMPORT_EVERNOTE_LINK = (
     ' &ndash; <a href="/import-evernote">Import Evernote</a>'
 )
 
+DASHBOARD_PAIR_IOS_LINK = (
+    ' &ndash; <a href="/pair-ios">Pair iOS device</a>'
+)
+
 DASHBOARD_ALERT_REPORT_FAIL = (
     "Could not prepare report. Please try again."
 )
@@ -354,6 +358,83 @@ composition. Future cleanup can lift the JS side to a
 window-injected constants block at the top of the rendered template."""
 
 
+# ── _render_pair_ios_page (/pair-ios) ────────────────────────────────
+
+
+PAIR_IOS_TITLE_TAG = "Ostler Doctor &ndash; Pair iOS device"
+PAIR_IOS_HEADING = "Pair iOS device"
+PAIR_IOS_SUBTITLE = (
+    "Companion pairing &ndash; "
+    "<a href=\"/doctor\">Back to dashboard</a>"
+)
+
+PAIR_IOS_NETWORK_BANNER_HTML = (
+    "Pair on a network you trust. Home Wi-Fi or a Tailscale network you "
+    "own are the safe paths. Public Wi-Fi (coffee shop, hotel, "
+    "conference) often blocks devices from reaching each other; the rare "
+    "public network that does not also exposes the one-time pair code to "
+    "anyone else on it."
+)
+
+PAIR_IOS_SECTION_CODE = "One-time pairing QR"
+PAIR_IOS_INTRO_HTML = (
+    "Open the Ostler Companion on your iPhone or iPad, tap "
+    "<strong>Pair with Hub</strong>, and point the device camera at the "
+    "QR code below. The QR carries the Hub address, the rotating one-"
+    "time pairing token, and the cryptographic anchors the Companion "
+    "needs &ndash; nothing leaves this Mac."
+)
+PAIR_IOS_CAMERA_HINT_HTML = (
+    "Or open the iPhone Camera app and aim it at the QR code on this "
+    "screen &ndash; tap the suggestion to open the Companion."
+)
+PAIR_IOS_HUB_ADDR_LABEL = "Hub address"
+
+PAIR_IOS_BTN_REGENERATE = "Generate new pairing QR"
+PAIR_IOS_BTN_REGENERATING = "Generating&hellip;"
+
+PAIR_IOS_EMPTY_TITLE = "Hub not ready yet"
+PAIR_IOS_EMPTY_DETAIL = (
+    "The Hub is still starting up. Wait ten seconds, then reload this "
+    "page."
+)
+
+PAIR_IOS_DISABLED_TITLE = "Pairing is disabled"
+PAIR_IOS_DISABLED_DETAIL = (
+    "Pairing is turned off in the Hub configuration. The Companion app "
+    "cannot pair with this Hub until pairing is enabled."
+)
+
+PAIR_IOS_NO_CODE_TITLE = "No active pairing QR"
+PAIR_IOS_NO_CODE_DETAIL = (
+    "The Hub has already paired with another device. Press "
+    "<strong>Generate new pairing QR</strong> below to make a fresh "
+    "one-time QR."
+)
+
+PAIR_IOS_QR_RENDER_TITLE = "Could not draw the QR code"
+PAIR_IOS_QR_RENDER_DETAIL = (
+    "The Hub returned a valid envelope but the QR image could not be "
+    "drawn. Try Generate new pairing QR, or reload the page."
+)
+
+PAIR_IOS_ENVELOPE_INVALID_TITLE = "Hub returned an envelope the iOS app cannot read"
+PAIR_IOS_ENVELOPE_INVALID_DETAIL = (
+    "The Hub gave Doctor a pairing envelope that does not match what "
+    "the Companion expects. Update the Hub, then reload this page."
+)
+
+PAIR_IOS_ERROR_FETCH_PREFIX = "Could not check the pairing QR: "
+PAIR_IOS_ERROR_REGENERATE_PREFIX = "Could not generate a new pairing QR: "
+PAIR_IOS_ERROR_NETWORK_PREFIX = "Network error: "
+
+PAIR_IOS_META_FOOTER_HTML = (
+    "The QR is shown only on this Mac. The Companion sends the pairing "
+    "token back the first time it pairs &ndash; after that, the Hub "
+    "remembers the device by a key, not the token."
+)
+
+
 # ── Console banner (printed at __main__) ─────────────────────────────
 
 
@@ -366,3 +447,57 @@ CONSOLE_RUNNING_FMT = (
 
 
 APP_TITLE = "Ostler Doctor – Local Dashboard"
+
+
+# ── iMessage TCC posture tile (task #278) ────────────────────────────
+#
+# Reads ``~/.ostler/imessage-posture/state.md`` written by CM051
+# install.sh section 3.18. Customer-visible because macOS silent
+# denial of AppleEvents permission for Messages.app is one of the
+# most common ways a daily brief never gets delivered, and the
+# customer has no other way to tell.
+
+IMESSAGE_TCC_SECTION_TITLE = "iMessage delivery"
+
+IMESSAGE_TCC_STATUS_GRANTED = "Working"
+IMESSAGE_TCC_STATUS_DENIED = "iMessage delivery may not be working"
+IMESSAGE_TCC_STATUS_CHECK_FAILED = "iMessage probe could not confirm permission"
+IMESSAGE_TCC_STATUS_UNKNOWN = "iMessage posture unknown"
+
+IMESSAGE_TCC_DETAIL_GRANTED = (
+    "Automation permission for Messages.app is granted. "
+    "Daily briefs and pre-meeting briefs delivered via iMessage should work."
+)
+IMESSAGE_TCC_DETAIL_DENIED = (
+    "macOS has refused Ostler's request for Automation permission on "
+    "Messages.app (error -1743). Conversations sent via iMessage will "
+    "silently fail to deliver until you grant it."
+)
+IMESSAGE_TCC_DETAIL_CHECK_FAILED = (
+    "The install-time probe ran but the result did not match a recognised "
+    "shape. iMessage delivery may or may not be working. Run "
+    "ostler-assistant doctor for the latest runtime status, or re-run "
+    "install.sh --repair to refresh this snapshot."
+)
+IMESSAGE_TCC_DETAIL_UNKNOWN = (
+    "The posture marker exists but its status field was not recognised. "
+    "Re-run install.sh --repair to refresh."
+)
+
+IMESSAGE_TCC_HOW_TO_FIX_LABEL = "How to fix"
+
+IMESSAGE_TCC_REMEDIATION_DENIED = (
+    "Open System Settings, then Privacy and Security, then Automation. "
+    "Find the row for Terminal (or for the Ostler Installer) and enable "
+    "the Messages tick. Re-run install.sh --repair to refresh this marker."
+)
+IMESSAGE_TCC_REMEDIATION_CHECK_FAILED = (
+    "Re-run install.sh --repair to retry the probe, or run "
+    "ostler-assistant doctor to see runtime status once the daemon is up."
+)
+
+IMESSAGE_TCC_CAPTURED_AT_PREFIX_FMT = "Captured {relative}"
+IMESSAGE_TCC_SOURCE_PREFIX_FMT = "Source: {source}"
+IMESSAGE_TCC_STDERR_LABEL = "Probe stderr fragment"
+IMESSAGE_TCC_FULL_MARKER_LABEL = "Full posture marker"
+

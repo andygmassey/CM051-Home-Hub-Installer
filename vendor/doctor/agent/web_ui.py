@@ -44,9 +44,9 @@ from first_run import is_first_run, get_wizard_steps, render_wizard, mark_setup_
 from dashboard_components import (
     all_observability_postures,
     render_consent_status,
+    render_imessage_tcc_posture,
     render_observability_posture,
     render_security_posture,
-    render_subscription_banner,
 )
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
@@ -76,6 +76,7 @@ from web_ui_copy import (
     DASHBOARD_HELP_PARAGRAPH_2,
     DASHBOARD_HOSTNAME_UNKNOWN,
     DASHBOARD_IMPORT_EVERNOTE_LINK,
+    DASHBOARD_PAIR_IOS_LINK,
     DASHBOARD_LAST_CHECKED_JUST_NOW,
     DASHBOARD_LAST_CHECKED_PREFIX,
     DASHBOARD_LAST_CHECKED_SUFFIX,
@@ -162,6 +163,29 @@ from web_ui_copy import (
     OLLAMA_MODELS_DISK_USE_FIX,
     OLLAMA_MODELS_DISK_USE_FIX_COMMAND,
     OLLAMA_MODELS_DISK_USE_TITLE_FMT,
+    PAIR_IOS_BTN_REGENERATE,
+    PAIR_IOS_BTN_REGENERATING,
+    PAIR_IOS_CAMERA_HINT_HTML,
+    PAIR_IOS_DISABLED_DETAIL,
+    PAIR_IOS_DISABLED_TITLE,
+    PAIR_IOS_EMPTY_DETAIL,
+    PAIR_IOS_EMPTY_TITLE,
+    PAIR_IOS_ENVELOPE_INVALID_DETAIL,
+    PAIR_IOS_ENVELOPE_INVALID_TITLE,
+    PAIR_IOS_ERROR_NETWORK_PREFIX,
+    PAIR_IOS_ERROR_REGENERATE_PREFIX,
+    PAIR_IOS_HEADING,
+    PAIR_IOS_HUB_ADDR_LABEL,
+    PAIR_IOS_INTRO_HTML,
+    PAIR_IOS_META_FOOTER_HTML,
+    PAIR_IOS_NETWORK_BANNER_HTML,
+    PAIR_IOS_NO_CODE_DETAIL,
+    PAIR_IOS_NO_CODE_TITLE,
+    PAIR_IOS_QR_RENDER_DETAIL,
+    PAIR_IOS_QR_RENDER_TITLE,
+    PAIR_IOS_SECTION_CODE,
+    PAIR_IOS_SUBTITLE,
+    PAIR_IOS_TITLE_TAG,
     PORT_CONFLICT_DETAIL_FMT,
     PORT_CONFLICT_FIX,
     PORT_CONFLICT_FIX_COMMAND_FMT,
@@ -667,10 +691,14 @@ def render_dashboard(
     # bundled wording-hash drifts from stored hash (renewal needed).
     consent_section = render_consent_status()
 
-    # Subscription state (Ostler Pro). Reads ``~/.ostler/state/subscription_state.json``
-    # written by subscription_gate.py. Apple-restraint posture: never red.
-    # Empty string on a brand-new install pre-license-verification.
-    subscription_section = render_subscription_banner()
+    # iMessage TCC posture (task #278): install-time snapshot of
+    # the macOS AppleEvents permission for Messages.app. Empty
+    # string when the marker is absent (fresh install before
+    # install.sh has run, or install with iMessage disabled). A
+    # silent denial here is one of the most common ways a daily
+    # brief never arrives, so surfacing it explicitly is part of
+    # the productisation posture story.
+    imessage_tcc_section = render_imessage_tcc_posture()
 
     # Build findings
     findings_html = ""
@@ -1224,7 +1252,7 @@ def render_dashboard(
 
         {consent_section}
 
-        {subscription_section}
+        {imessage_tcc_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
@@ -1247,7 +1275,7 @@ def render_dashboard(
         </div>
 
         <div class="meta" id="metaInfo">
-            {meta_info_html}{import_evernote_link}
+            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}
         </div>
     </div>
 
@@ -2419,6 +2447,437 @@ async def api_import_evernote_tail(job_id: str):
         return PlainTextResponse(_tail(job_id), status_code=200)
     except _Err as exc:
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+# ── Pair iOS device panel (DFA-002) ──────────────────────────────────
+
+
+def _render_pair_ios_page() -> str:
+    """Render the Pair iOS device panel.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` rather than feeling bolted on.
+
+    The QR image is rendered server-side as inline SVG and embedded in
+    the API JSON; the client just sets ``innerHTML``. No external
+    JavaScript libraries are loaded.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{PAIR_IOS_TITLE_TAG}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #1a1612;
+            --ostler-panel-elev: #221c16;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-accent-warm: #E26A6A;
+            --ostler-accent-glow: rgba(200, 69, 69, 0.18);
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-faint: rgba(236, 232, 221, 0.32);
+            --red: #d96666;
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .qr-wrap {{
+            display: flex;
+            justify-content: center;
+            margin: 0.6rem 0 0.4rem;
+        }}
+        .qr-frame {{
+            background: var(--ostler-chassis);
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .qr-frame svg {{
+            display: block;
+            width: 240px;
+            height: 240px;
+        }}
+        .hub-addr {{
+            font-family: var(--font-mono);
+            font-size: 0.92rem;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.55rem 0.85rem;
+            text-align: center;
+            margin: 1rem 0 0.4rem;
+            user-select: all;
+            -webkit-user-select: all;
+        }}
+        .hub-addr-label {{
+            font-family: var(--font-display);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 0.85rem;
+        }}
+        .camera-hint {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.5;
+            margin-top: 0.85rem;
+        }}
+        .empty-state-title {{
+            font-family: var(--font-display);
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 0.55rem;
+            color: var(--text);
+        }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1.1rem;
+            flex-wrap: wrap;
+        }}
+        button.secondary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.4rem;
+            border-radius: 999px;
+            cursor: pointer;
+            background: var(--ostler-panel);
+            color: var(--text-secondary);
+            border: 1px solid var(--ostler-hairline-soft);
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s, border-color 0.18s, color 0.18s;
+        }}
+        button.secondary:hover {{
+            border-color: var(--ostler-accent);
+            color: var(--text);
+            background: var(--ostler-panel-elev);
+            transform: translateY(-1px);
+        }}
+        button.secondary:disabled {{
+            background: var(--ostler-panel);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            transform: none;
+            border-color: var(--ostler-hairline-faint);
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .network-notice {{
+            padding: 0.7rem 1rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            margin-bottom: 1.4rem;
+            border-left: 3px solid #e0a437;
+            background: rgba(224, 164, 55, 0.10);
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+            line-height: 1.55;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+            .qr-frame svg {{ width: 200px; height: 200px; }}
+            .hub-addr {{ font-size: 0.82rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{PAIR_IOS_HEADING}</h1>
+        <div class="subtitle">
+            {PAIR_IOS_SUBTITLE}
+        </div>
+
+        <div class="network-notice">{PAIR_IOS_NETWORK_BANNER_HTML}</div>
+
+        <div id="errorBanner" class="banner"></div>
+
+        <div id="codePanel" class="panel" style="display:none">
+            <div class="section-title">{PAIR_IOS_SECTION_CODE}</div>
+            <p>{PAIR_IOS_INTRO_HTML}</p>
+            <div class="qr-wrap">
+                <div class="qr-frame" id="qrFrame"></div>
+            </div>
+            <div class="camera-hint">{PAIR_IOS_CAMERA_HINT_HTML}</div>
+            <div class="hub-addr-label">{PAIR_IOS_HUB_ADDR_LABEL}</div>
+            <div class="hub-addr" id="hubAddr"></div>
+            <div class="button-row">
+                <button type="button" class="secondary" id="regenerateBtn">{PAIR_IOS_BTN_REGENERATE}</button>
+            </div>
+        </div>
+
+        <div id="emptyPanel" class="panel" style="display:none">
+            <div class="empty-state-title" id="emptyTitle"></div>
+            <p id="emptyDetail"></p>
+            <div class="button-row" id="emptyButtonRow" style="display:none">
+                <button type="button" class="secondary" id="regenerateBtnEmpty">{PAIR_IOS_BTN_REGENERATE}</button>
+            </div>
+        </div>
+
+        <div class="meta-bottom">
+            {PAIR_IOS_META_FOOTER_HTML}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const STATUS_POLL_MS = 15000;
+
+        const codePanel = document.getElementById('codePanel');
+        const emptyPanel = document.getElementById('emptyPanel');
+        const qrFrame = document.getElementById('qrFrame');
+        const hubAddrEl = document.getElementById('hubAddr');
+        const emptyTitle = document.getElementById('emptyTitle');
+        const emptyDetail = document.getElementById('emptyDetail');
+        const emptyButtonRow = document.getElementById('emptyButtonRow');
+        const regenerateBtn = document.getElementById('regenerateBtn');
+        const regenerateBtnEmpty = document.getElementById('regenerateBtnEmpty');
+        const errorBanner = document.getElementById('errorBanner');
+
+        function showError(msg) {{
+            errorBanner.textContent = msg;
+            errorBanner.classList.add('visible');
+        }}
+
+        function clearError() {{
+            errorBanner.classList.remove('visible');
+            errorBanner.textContent = '';
+        }}
+
+        function showCode(state) {{
+            emptyPanel.style.display = 'none';
+            codePanel.style.display = '';
+            qrFrame.innerHTML = state.qr_svg || '';
+            hubAddrEl.textContent = state.hub_addr || '';
+        }}
+
+        function showEmpty(title, detail, withRegenerate) {{
+            codePanel.style.display = 'none';
+            emptyPanel.style.display = '';
+            emptyTitle.innerHTML = title;
+            emptyDetail.innerHTML = detail;
+            emptyButtonRow.style.display = withRegenerate ? '' : 'none';
+        }}
+
+        function renderState(state) {{
+            if (state.available && state.qr_svg) {{
+                showCode(state);
+                return;
+            }}
+            switch (state.error_kind) {{
+                case 'pairing_disabled':
+                    showEmpty(
+                        '{PAIR_IOS_DISABLED_TITLE}',
+                        '{PAIR_IOS_DISABLED_DETAIL}',
+                        false
+                    );
+                    break;
+                case 'no_code_active':
+                    showEmpty(
+                        '{PAIR_IOS_NO_CODE_TITLE}',
+                        '{PAIR_IOS_NO_CODE_DETAIL}',
+                        true
+                    );
+                    break;
+                case 'qr_render_failed':
+                    showEmpty(
+                        '{PAIR_IOS_QR_RENDER_TITLE}',
+                        '{PAIR_IOS_QR_RENDER_DETAIL}',
+                        true
+                    );
+                    break;
+                case 'gateway_envelope_invalid':
+                    showEmpty(
+                        '{PAIR_IOS_ENVELOPE_INVALID_TITLE}',
+                        '{PAIR_IOS_ENVELOPE_INVALID_DETAIL}',
+                        true
+                    );
+                    break;
+                default:
+                    // gateway_down / timeout / unreachable / http_error /
+                    // malformed -- all surface the same friendly "Hub not
+                    // ready yet" empty state.
+                    showEmpty(
+                        '{PAIR_IOS_EMPTY_TITLE}',
+                        '{PAIR_IOS_EMPTY_DETAIL}',
+                        false
+                    );
+            }}
+        }}
+
+        function fetchStatus() {{
+            fetch('/api/v1/pair/status')
+                .then(function(r) {{ return r.json(); }})
+                .then(function(state) {{
+                    clearError();
+                    renderState(state);
+                }})
+                .catch(function(err) {{
+                    showError('{PAIR_IOS_ERROR_NETWORK_PREFIX}' + err);
+                }});
+        }}
+
+        function regenerate(btn) {{
+            const originalLabel = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '{PAIR_IOS_BTN_REGENERATING}';
+            fetch('/api/v1/pair/regenerate', {{method: 'POST'}})
+                .then(function(r) {{ return r.json(); }})
+                .then(function(state) {{
+                    clearError();
+                    renderState(state);
+                }})
+                .catch(function(err) {{
+                    showError('{PAIR_IOS_ERROR_REGENERATE_PREFIX}' + err);
+                }})
+                .finally(function() {{
+                    btn.disabled = false;
+                    btn.textContent = originalLabel;
+                }});
+        }}
+
+        regenerateBtn.addEventListener('click', function() {{ regenerate(regenerateBtn); }});
+        regenerateBtnEmpty.addEventListener('click', function() {{ regenerate(regenerateBtnEmpty); }});
+
+        fetchStatus();
+        setInterval(fetchStatus, STATUS_POLL_MS);
+    }})();
+    </script>
+</body>
+</html>"""
+
+
+@app.get("/pair-ios", response_class=HTMLResponse)
+async def pair_ios_page():
+    """Render the Pair iOS device panel (DFA-002)."""
+    return HTMLResponse(_render_pair_ios_page())
+
+
+@app.get("/api/v1/pair/status", response_class=JSONResponse)
+async def api_pair_status():
+    """Return the current pair code, QR SVG, and any error state."""
+    from pair_status import fetch_pair_status
+    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
+
+
+@app.post("/api/v1/pair/regenerate", response_class=JSONResponse)
+async def api_pair_regenerate(request: Request):
+    """Rotate the pair code via the gateway and return the new shape.
+
+    Cross-origin POSTs from a malicious local browser tab can DOS the
+    pair code (rotate it under the customer's feet) even though the
+    same-origin policy blocks the attacker from reading the new code.
+    Modern browsers set ``Sec-Fetch-Site`` automatically; reject
+    anything that is not ``same-origin`` or ``none`` (the latter
+    covers direct navigation and bookmarks). Older browsers do not
+    send the header; in that case the request is allowed through and
+    the same-origin policy remains the defence-in-depth.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"},
+            status_code=403,
+        )
+    from pair_status import fetch_pair_status
+    return JSONResponse(
+        fetch_pair_status(fresh=True).to_dict(), status_code=200,
+    )
 
 
 # ── Main ─────────────────────────────────────────────────────────────

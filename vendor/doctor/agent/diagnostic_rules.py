@@ -79,11 +79,6 @@ from diagnostic_copy import (
     HIGH_MEM_CONTAINER_FIX,
     HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
     HIGH_MEM_CONTAINER_TITLE_FMT,
-    IMESSAGE_FDA_DETAIL,
-    IMESSAGE_FDA_FIX,
-    IMESSAGE_FDA_FIX_COMMAND,
-    IMESSAGE_FDA_RESTART_HINT,
-    IMESSAGE_FDA_TITLE,
     IMPORT_BLOCKED_EMBED_DETAIL,
     IMPORT_BLOCKED_EMBED_FIX,
     IMPORT_BLOCKED_EMBED_FIX_COMMAND,
@@ -813,128 +808,6 @@ def check_backfill_progress(snapshot: Any) -> list[dict]:
     return findings
 
 
-# ── CX-60 iMessage daemon FDA card ───────────────────────────────────
-
-
-def _imessage_chat_db_path() -> str:
-    """Returns the canonical ~/Library/Messages/chat.db path.
-
-    Pulled to its own helper so tests can monkeypatch HOME without
-    touching the rule body.
-    """
-    import os
-
-    return os.path.join(
-        os.path.expanduser("~"),
-        "Library",
-        "Messages",
-        "chat.db",
-    )
-
-
-def _imessage_chat_db_readable() -> bool:
-    """True if SOMETHING in this Doctor process can open chat.db.
-
-    Used purely as a "FDA is granted on this machine" liveness probe
-    for the auto-dismiss path in :func:`check_imessage_fda`. The
-    file exists on every macOS install; failing to open it is the
-    signal the user has not yet granted Full Disk Access for the
-    binary doing the probing.
-
-    We use ``sqlite3.connect`` rather than ``os.access`` because
-    macOS reports the path as readable from a stat() perspective
-    even when TCC denies the actual open -- we have to attempt the
-    real SQLite open to get the truthful answer.
-
-    Any failure (missing file, permission denied, OSError on the
-    sqlite extension import) is treated as "not readable" -- safer
-    to keep the card visible than to wrongly auto-dismiss.
-    """
-    import sqlite3
-
-    path = _imessage_chat_db_path()
-    try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
-    except sqlite3.Error:
-        return False
-    except OSError:
-        return False
-    try:
-        # A minimal read confirms the open succeeded; the chat.db
-        # ``message`` table always exists once Messages has run once,
-        # but we only care that the open + a no-op SELECT round-trip
-        # without raising the OperationalError that TCC denial throws.
-        conn.execute("SELECT 1").fetchone()
-        return True
-    except sqlite3.Error:
-        return False
-    finally:
-        try:
-            conn.close()
-        except sqlite3.Error:
-            pass
-
-
-def check_imessage_fda(snapshot: Any) -> list[dict]:
-    """CX-60 Doctor card: ostler-assistant daemon needs FDA for
-    ~/Library/Messages/chat.db.
-
-    Renders a warning-severity card when ALL of:
-
-    1. The installer recorded ``imessage_chat_db_fda_needed=True`` in
-       pipeline_signals.json (the install-time probe found the
-       daemon could not open chat.db once the LaunchAgent loaded).
-    2. A live re-probe from this Doctor process *also* cannot open
-       chat.db. This is the auto-dismiss path: as soon as either
-       the customer's Doctor process or the assistant binary gains
-       FDA and the customer re-runs Doctor, the card disappears.
-
-    A missing key on the snapshot (``None``) means the install ran
-    before CX-60 shipped -- we stay quiet rather than firing a
-    false-positive card on legacy installs.
-
-    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
-    The fix-command opens System Settings -> Privacy & Security ->
-    Full Disk Access via the x-apple.systempreferences URL scheme.
-    The follow-up ``IMESSAGE_FDA_RESTART_HINT`` is appended to the
-    detail so the user sees the launchctl restart command alongside.
-    """
-    findings: list[dict] = []
-
-    signals = getattr(snapshot, "pipeline_signals", None)
-    if signals is None:
-        return findings
-
-    needs = getattr(signals, "imessage_chat_db_fda_needed", None)
-    if needs is not True:
-        # None (legacy install, no probe yet) or False (probe said
-        # the daemon was already healthy). Either way: no card.
-        return findings
-
-    # Live auto-dismiss: if Doctor's own process can open chat.db,
-    # FDA has been granted at least to one binary on this Mac. The
-    # daemon may still need its own grant (TCC is per-binary), but
-    # at that point the install-time probe is stale -- prefer the
-    # live signal so the card does not linger.
-    if _imessage_chat_db_readable():
-        return findings
-
-    detail = "{body}\n\n{restart}".format(
-        body=IMESSAGE_FDA_DETAIL,
-        restart=IMESSAGE_FDA_RESTART_HINT,
-    )
-    findings.append({
-        "severity": "warning",
-        "title": IMESSAGE_FDA_TITLE,
-        "detail": detail,
-        "fix": IMESSAGE_FDA_FIX,
-        "fix_command": IMESSAGE_FDA_FIX_COMMAND,
-        "risk": "low",
-        "category": "installation",
-    })
-    return findings
-
-
 # ── Rule registry ────────────────────────────────────────────────────
 
 
@@ -955,7 +828,6 @@ ALL_RULES = [
     check_service_versions,
     check_mail_content,
     check_backfill_progress,
-    check_imessage_fda,
 ]
 
 

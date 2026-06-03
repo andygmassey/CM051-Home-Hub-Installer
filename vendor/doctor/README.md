@@ -32,13 +32,23 @@ Pure-Python runtime under `agent/`. Listed in `install.sh:4802` as the
   `web_ui_copy.py`, `dashboard_components.py` (Rule 0.9 catalogues +
   rendered components)
 - `chat_token.py` (chat-token mint endpoint for the iOS companion)
+- `pair_status.py` (paircode + QR status the `/pair-ios` route serves)
+- `imessage_tcc_posture.py` (iMessage Full Disk Access posture marker
+  reader, rendered by `dashboard_components.py`)
 - `diagnostic_rules.py`, `status_collector.py` (the diagnostic engine)
 - `first_run.py` (first-launch wizard panels)
 - `import_evernote.py`, `import_evernote_runner.py` (Evernote ingest UI
   + runner; gated by user action, safe to ship dormant)
 - `proxy.py`, `wiki_correct.py` (wiki proxy + corrector)
-- `web_ui.py` (FastAPI entry point: `/doctor`, `/pair-ios`, panels)
-- `requirements.txt` (`fastapi`, `uvicorn`, `httpx`, `pyyaml`)
+- `web_ui.py` (FastAPI entry point: `/doctor`, `/pair-ios`,
+  `/api/v1/pair/status`, `/api/v1/pair/regenerate`, panels)
+- `requirements.txt` (`fastapi`, `uvicorn`, `httpx`, `pyyaml`, `qrcode`)
+
+Last synced from HR015 `doctor/agent/` @ `f085fc0b` (the pairing-panel
+and iMessage TCC posture features that landed upstream after the prior
+~2026-05-27 sync). A vendor-freshness guard,
+`vendor/doctor/test_vendor_pairing.sh`, fails the build if a future
+re-sync drops the `/pair-ios` route or `pair_status.py`.
 
 ## What is NOT included
 
