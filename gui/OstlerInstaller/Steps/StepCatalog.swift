@@ -130,6 +130,11 @@ final class StepCatalog {
         "imessage_bundle",
         "imessage_bridge",
         "wiki_recompile_agent",
+        // First-day wiki catch-up LaunchAgent. install.sh emits the matching
+        // `progress "..." "wiki_recompile_catchup_agent"` immediately after
+        // wiki_recompile_agent; it recompiles once after late contact/iCloud
+        // hydration (#598) so the wiki is not stuck on the pre-sync graph.
+        "wiki_recompile_catchup_agent",
         "ostler_assistant",
         "ostler_hub_app",
         "ostler_remotecapture",
