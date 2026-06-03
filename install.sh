@@ -10200,6 +10200,33 @@ fi
 # Best-effort: any failure in this block leaves install.sh trucking
 # on. Doctor falls back to its safe-default "no card" path.
 
+# ── CX-90 (fresh-install P0): daemon-identity TCC test as a helper ──
+#
+# The authoritative question for the iMessage channel is whether the
+# *daemon* (ai.ostler.assistant, or the legacy bare-binary client)
+# holds Full Disk Access -- NOT whether install.sh's own TCC posture
+# can read chat.db. install.sh inherits OstlerInstaller.app's identity,
+# so its own sqlite3 read is only a weak hint and must never on its own
+# decide "FDA is granted". This helper queries the system TCC.db for
+# the daemon client ids and echoes "granted" only when auth_value == 2.
+# Best-effort: if sudo would prompt (cache expired) or sqlite3 fails it
+# echoes nothing, so callers fall through to the assist/dialog path --
+# no worse than the pre-CX-90 behaviour.
+_imessage_daemon_fda_granted() {
+    local _auth=""
+    if command -v sudo >/dev/null 2>&1; then
+        _auth="$(
+            sudo -n sqlite3 \
+                "/Library/Application Support/com.apple.TCC/TCC.db" \
+                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
+                2>/dev/null || true
+        )"
+    fi
+    if [[ "$_auth" == "2" ]]; then
+        echo "granted"
+    fi
+}
+
 info "$MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN"
 set +e  # CX-60: probe is best-effort; never kill the install from here
 _imessage_fda_probe_failure_line=""
@@ -10218,55 +10245,46 @@ else
     sleep 2
 
     if [[ -f "$_imessage_chat_db_path" ]]; then
-        # sqlite3 ships with macOS. URI mode + ro lets us probe
-        # without locking the database against Messages.app.
-        if sqlite3 -readonly \
-                "file:${_imessage_chat_db_path}?mode=ro" \
-                "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+        # ── CX-90 (fresh-install P0): daemon-identity test is FIRST ──
+        #
+        # The authoritative test is whether the *daemon*
+        # (ai.ostler.assistant / legacy bare-binary client) holds
+        # Full Disk Access. We query the system TCC.db for the
+        # daemon client ids up front, unconditionally. Only the
+        # daemon client returning auth_value == 2 sets needed=false
+        # and prints the GRANTED line. install.sh's own chat.db read
+        # below is demoted to an informational hint -- it inherits
+        # OstlerInstaller.app's TCC posture, NOT the daemon's, so it
+        # must never on its own decide "FDA is granted".
+        #
+        # v0.4.3+ shape: the daemon is launched from inside
+        # OstlerAssistant.app/Contents/MacOS/, so macOS TCC keys the
+        # client column by the bundle identifier (ai.ostler.assistant)
+        # -- the same value the bundle declares in Info.plist
+        # CFBundleIdentifier. The helper checks both the bundle-ID form
+        # (v0.4.3+) AND the legacy bare-binary path (in case a customer
+        # still has an old FDA grant against the bare-binary client).
+        # Either form returning 2 means "granted".
+        if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
             _imessage_fda_needed="false"
-            info "$MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED"
+            info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
+            launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
         else
-            info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
-            # ── CX-78c (DMG #45, 2026-05-25): daemon-TCC pre-probe ──
-            #
-            # The chat.db probe above runs as install.sh, which
-            # inherits OstlerInstaller.app's TCC posture — *not*
-            # ostler-assistant's. If the customer granted FDA to
-            # the daemon on a previous install but never to
-            # OstlerInstaller.app, the probe returns a false
-            # negative and the assist dialog fires unnecessarily.
-            # Query the system TCC.db directly via sudo to read
-            # the daemon's actual auth_value. auth_value 2 means
-            # allowed. Best-effort: if sudo prompt would be
-            # needed (cache expired) we silently fall through to
-            # the dialog path; net effect is no worse than the
-            # pre-CX-78c behaviour.
-            #
-            # v0.4.3+ shape: the daemon is launched from inside
-            # OstlerAssistant.app/Contents/MacOS/, so macOS TCC
-            # keys the client column by the bundle identifier
-            # (ai.ostler.assistant) -- the same value the bundle
-            # declares in Info.plist CFBundleIdentifier. We
-            # check both the bundle-ID form (v0.4.3+) AND the
-            # legacy bare-binary path (in case a customer still
-            # has an old FDA grant against the bare-binary
-            # client). Either form returning 2 means "granted".
-            _daemon_fda_auth=""
-            if command -v sudo >/dev/null 2>&1; then
-                _daemon_fda_auth="$(
-                    sudo -n sqlite3 \
-                        "/Library/Application Support/com.apple.TCC/TCC.db" \
-                        "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
-                        2>/dev/null || true
-                )"
+            # The daemon-identity test above reported not-granted.
+            # We still run install.sh's own read of chat.db as a
+            # best-effort hint, but a success here does NOT prove the
+            # daemon has FDA (it inherits OstlerInstaller.app's TCC
+            # identity, not the daemon's), so it must NOT set
+            # needed=false nor print the "channel will work" line. We
+            # keep its outcome to a non-committal log only.
+            if sqlite3 -readonly \
+                    "file:${_imessage_chat_db_path}?mode=ro" \
+                    "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+                : # installer identity can read chat.db; not authoritative for the daemon
             fi
-            if [[ "$_daemon_fda_auth" == "2" ]]; then
-                _imessage_fda_needed="false"
-                info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
-                launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
-                unset _daemon_fda_auth
-            else
-                unset _daemon_fda_auth
+            info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
+            # Fall straight through to the assisted-grant flow below.
+            if true; then
                 # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
                 #
                 # macOS TCC grants Full Disk Access per-binary; there's
@@ -10404,26 +10422,19 @@ else
                       _imessage_fda_icon_path _imessage_fda_icon_path_esc \
                       _imessage_fda_icon_clause
 
-                # Re-probe chat.db. The TCC cache for the install.sh
-                # binary (which inherits OstlerInstaller.app's
-                # posture) doesn't reflect grants made to the
-                # ostler-assistant binary -- but for the customer's
-                # downstream experience, what matters is whether
-                # the daemon binary itself can read chat.db on its
-                # next LaunchAgent restart. We can't probe that
-                # directly from this process. Best signal: if
-                # install.sh's own probe of chat.db now succeeds
-                # (it inherited OstlerInstaller.app's FDA, which
-                # was almost certainly the binary the customer just
-                # added in System Settings AS WELL), that's a strong
-                # heuristic that the daemon binary also has FDA.
-                # Imperfect; the Doctor card's live re-probe
-                # (status_collector + check_imessage_fda) gives the
-                # ground truth on next refresh.
+                # Re-probe the daemon's actual TCC posture (CX-90):
+                # what matters for the customer's downstream
+                # experience is whether the *daemon* now holds Full
+                # Disk Access, not whether install.sh's own identity
+                # can read chat.db. Re-run the same daemon-identity
+                # TCC query used at the top of this block so the
+                # re-probe and the initial test agree on what
+                # "granted" means. Imperfect timing (TCC.db can lag a
+                # second after the grant) is covered by the Doctor
+                # card's live re-probe (status_collector +
+                # check_imessage_fda) on next refresh.
                 sleep 2
-                if sqlite3 -readonly \
-                        "file:${_imessage_chat_db_path}?mode=ro" \
-                        "SELECT 1 LIMIT 1;" >/dev/null 2>&1; then
+                if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
                     _imessage_fda_needed="false"
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
                     # Kick the assistant LaunchAgent to pick up the
@@ -10435,7 +10446,7 @@ else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
-            fi  # closes outer `if daemon-TCC granted / else` (CX-78c)
+            fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
     else
         # No chat.db on this Mac at all (e.g. Messages.app never
@@ -11408,8 +11419,15 @@ except Exception:
         # declined the Automation prompt or the prompt has not
         # appeared yet. Tell them how to grant it.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
+    elif _store_populated_contacts; then
+        # CX-91 (fresh-install): the local AddressBook store HAS contact
+        # rows on disk, so contacts ARE synced -- the AppleScript export
+        # simply returned nothing (Automation prompt deferred or declined).
+        # That is a permission problem, not a sync-not-finished problem,
+        # so emit the Automation-permission copy rather than "not synced".
+        warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        # State 2 -- accounts configured but local AB empty.
+        # State 2 -- accounts configured but local AB genuinely empty.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
         # iCloud has not finished its first contact sync yet. Schedule a
         # self-removing re-sync agent so the contacts land in the graph
@@ -11423,6 +11441,12 @@ else
     # No vcf written OR pipeline venv missing. Classify between
     # TCC denial and genuinely empty using the same probe shape.
     if [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
+        warn "$MSG_HYDRATE_CONTACTS_DENIED"
+    elif _store_populated_contacts; then
+        # CX-91 (fresh-install): cross-check the on-disk AddressBook store
+        # before saying "not synced". Rows present means contacts ARE
+        # synced and the empty vcf is an export/permission failure, so
+        # emit the Automation-permission copy, not the sync-pending copy.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
@@ -13157,6 +13181,17 @@ if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end ok
 fi
 gui_done ok
+
+# ── App-icon cache-bust ────────────────────────────────────────────
+# The .app bundles are placed by the DMG drag-install, so macOS can
+# show a stale soft icon from the iconservices cache. Touch each
+# bundle to bump its mtime and nudge Dock to re-read the icons. This
+# is best-effort and non-destructive (no cache deletion); every step
+# is guarded so it can never abort the install.
+for app in "/Applications/Ostler.app" "/Applications/Ostler RemoteCapture.app" "/Applications/OstlerInstaller.app"; do
+    [[ -d "$app" ]] && touch "$app" 2>/dev/null || true
+done
+killall Dock 2>/dev/null || true
 
 # ── First-run auto-open ────────────────────────────────────────────
 # Open the customer-facing wiki in the default browser. Best-effort --
