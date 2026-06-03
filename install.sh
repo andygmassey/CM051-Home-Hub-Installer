@@ -5344,6 +5344,33 @@ TOMLPREAMBLE
     echo "model = \"${_ai_model_esc}\""
     echo "timeout_secs = 300"
 
+    # ── Runtime: disable hidden chain-of-thought (#600) ─────────
+    #
+    # The daemon's Ollama provider only force-disables thinking for
+    # the gemma4:* family (effective_think() in
+    # crates/zeroclaw-providers/src/ollama.rs hardcodes Some(false)
+    # for "gemma4:" tags). Every other model -- the qwen3.5:9b mid
+    # tier and the qwen3.6:35b-a3b high tier the installer selects
+    # for 24GB+ and 48GB+ machines -- falls through to the operator
+    # config, which defaults to None == provider default == thinking
+    # ON. That makes the assistant emit and stream a long hidden
+    # reasoning pass before every interactive reply: on the 9B at
+    # the ~13 tok/s the Mac Mini benchmarks (HR015
+    # BENCHMARKS_2026-04-21.md), that is tens of seconds of dead air
+    # before the customer sees a single word.
+    #
+    # Setting runtime.reasoning_enabled = false makes
+    # effective_think() return Some(false) for ALL models (it passes
+    # the operator value straight through for non-gemma4 tags), so
+    # the daemon sends `think: false` on every Ollama request and
+    # replies start streaming immediately. Schema field:
+    # RuntimeConfig.reasoning_enabled: Option<bool> in
+    # crates/zeroclaw-config/src/schema.rs. The customer can flip it
+    # back on by editing this section post-install.
+    echo
+    echo "[runtime]"
+    echo "reasoning_enabled = false"
+
     # ── HTTP request tool: reach the local personal-graph API ───
     #
     # The assistant answers "who is X / when did I last see X" from a
