@@ -11419,8 +11419,15 @@ except Exception:
         # declined the Automation prompt or the prompt has not
         # appeared yet. Tell them how to grant it.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
+    elif _store_populated_contacts; then
+        # CX-91 (fresh-install): the local AddressBook store HAS contact
+        # rows on disk, so contacts ARE synced -- the AppleScript export
+        # simply returned nothing (Automation prompt deferred or declined).
+        # That is a permission problem, not a sync-not-finished problem,
+        # so emit the Automation-permission copy rather than "not synced".
+        warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        # State 2 -- accounts configured but local AB empty.
+        # State 2 -- accounts configured but local AB genuinely empty.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
         # iCloud has not finished its first contact sync yet. Schedule a
         # self-removing re-sync agent so the contacts land in the graph
@@ -11434,6 +11441,12 @@ else
     # No vcf written OR pipeline venv missing. Classify between
     # TCC denial and genuinely empty using the same probe shape.
     if [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
+        warn "$MSG_HYDRATE_CONTACTS_DENIED"
+    elif _store_populated_contacts; then
+        # CX-91 (fresh-install): cross-check the on-disk AddressBook store
+        # before saying "not synced". Rows present means contacts ARE
+        # synced and the empty vcf is an export/permission failure, so
+        # emit the Automation-permission copy, not the sync-pending copy.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
     elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
