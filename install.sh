@@ -11477,7 +11477,20 @@ unset _CONTACTS_STDERR _CONTACTS_TCC_DENIED _hydrate_contacts_accounts
 # install-time path because the Calendar Cache query was scanning
 # years of recurring-event expansions inside the 180s wall-clock cap.
 OSTLER_HYDRATE_CALENDAR_DAYS="${OSTLER_HYDRATE_CALENDAR_DAYS:-90}"
-if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+# Calendar extraction + ingest import ostler_fda (ostler_fda.calendar and
+# ostler_fda.pwg_ingest). ostler_fda is pip-installed into the email-ingest
+# venv (Phase 3.14b), NOT into the contact-syncer import-pipeline venv
+# ($_HYDRATE_PIPELINE_PY), which only carries the contact_syncer package.
+# The sibling browsing / imessage / people ingests already run their
+# ostler_fda.pwg_ingest calls under the email-ingest venv for exactly this
+# reason. The calendar steps were the only ones still pointed at the
+# pipeline venv, so their imports raised ModuleNotFoundError and calendar
+# silently never landed (Studio 2026-06-03: Oxigraph calendar events = 0,
+# mislabelled "Calendar app has not synced yet"). Run them under the same
+# email-ingest venv the siblings use.
+_HYDRATE_CALENDAR_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
+_HYDRATE_CALENDAR_PY="${_HYDRATE_CALENDAR_VENV}/bin/python"
+if [[ -x "$_HYDRATE_CALENDAR_PY" ]]; then
     info "$MSG_HYDRATE_CALENDAR_STARTED"
 
     # State-2 wait: if accounts configured but cache empty, offer to
@@ -11502,8 +11515,8 @@ if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     # here we overwrite with the 5-year window so the hydrate
     # consumer sees full history. The OSTLER_FDA_OUTPUT_DIR env
     # var threads through to the writer.
-    OSTLER_FDA_OUTPUT_DIR="${OSTLER_DIR}/imports/fda" \
-    "$_HYDRATE_PIPELINE_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log || true
+    _HYDRATE_CALENDAR_EXTRACT="$(OSTLER_FDA_OUTPUT_DIR="${OSTLER_DIR}/imports/fda" \
+    "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
 import json, os, sys
 from pathlib import Path
 out_dir = Path(os.environ["OSTLER_FDA_OUTPUT_DIR"])
@@ -11523,13 +11536,14 @@ except FileNotFoundError as e:
 except Exception as e:
     print(json.dumps({"status": "error", "error": str(e)}))
 EOF
+)" || _HYDRATE_CALENDAR_EXTRACT=""
 
     # Ingest the JSON into Oxigraph via the existing pwg_ingest path.
     # ingest_calendar reads calendar_events.json and emits triples
     # per attendee. The return dict has {events_processed,
     # unique_attendees} which we surface as "Imported %s events".
     _HYDRATE_CALENDAR_JSON="$(
-        "$_HYDRATE_PIPELINE_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
+        "$_HYDRATE_CALENDAR_PY" - <<EOF 2>>/tmp/ostler-hydrate-calendar.log
 import json, os, sys
 from pathlib import Path
 os.environ.setdefault("OXIGRAPH_URL", "$_HYDRATE_OXIGRAPH")
@@ -11553,8 +11567,30 @@ except Exception:
     print(0)' 2>/dev/null
     )"
     _HYDRATE_CALENDAR_COUNT="${_HYDRATE_CALENDAR_COUNT:-0}"
+    # Parse the extract + ingest "status" so a genuine extractor failure
+    # (a raised exception -- e.g. ModuleNotFoundError if ostler_fda is not
+    # importable in the venv, or a bug in calendar.py / pwg_ingest) is told
+    # apart from the empty-iCloud "Calendar not synced" state. Conflating
+    # the two is exactly how a dead import masqueraded as a sync state on
+    # the 2026-06-03 Studio install (silent-bail rule).
+    _hydrate_cal_status_of() {
+        printf '%s' "$1" | python3 -c 'import json,sys
+try:
+    print(json.loads(sys.stdin.read()).get("status",""))
+except Exception:
+    print("")' 2>/dev/null
+    }
+    _HYDRATE_CALENDAR_EXTRACT_STATUS="$(_hydrate_cal_status_of "${_HYDRATE_CALENDAR_EXTRACT:-}")"
+    _HYDRATE_CALENDAR_INGEST_STATUS="$(_hydrate_cal_status_of "${_HYDRATE_CALENDAR_JSON:-}")"
+    unset -f _hydrate_cal_status_of
     if [[ "$_HYDRATE_CALENDAR_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CALENDAR_DONE" "$_HYDRATE_CALENDAR_COUNT")"
+    elif [[ "$_HYDRATE_CALENDAR_EXTRACT_STATUS" == "error" \
+            || "$_HYDRATE_CALENDAR_INGEST_STATUS" == "error" ]]; then
+        # The extractor or ingest raised -- this is NOT an empty calendar.
+        # Surface it as a failure (with the log path) instead of the
+        # "not synced" state so the two are never conflated.
+        warn "$MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED"
     elif [[ "$_hydrate_cal_accounts" -gt 0 ]]; then
         # State 2 -- accounts configured but cache empty (wait-for-
         # populate either declined or timed out).
@@ -11563,7 +11599,8 @@ except Exception:
         # State 1 -- no calendar accounts configured at all.
         info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
     fi
-    unset _hydrate_cal_accounts
+    unset _hydrate_cal_accounts _HYDRATE_CALENDAR_EXTRACT \
+          _HYDRATE_CALENDAR_EXTRACT_STATUS _HYDRATE_CALENDAR_INGEST_STATUS
 else
     info "$MSG_HYDRATE_SKIPPED_NO_EVENTS"
 fi
@@ -11831,7 +11868,8 @@ fi
 unset _HYDRATE_WHATSAPP_VENV _HYDRATE_WHATSAPP_PY _HYDRATE_WHATSAPP_DB
 unset _HYDRATE_OXIGRAPH_WA
 
-unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY
+unset _HYDRATE_VCF _HYDRATE_API _HYDRATE_OXIGRAPH _HYDRATE_PIPELINE_PY \
+      _HYDRATE_CALENDAR_VENV _HYDRATE_CALENDAR_PY
 unset _HYDRATE_CONTACTS_JSON _HYDRATE_CONTACTS_COUNT
 unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 

@@ -945,6 +945,7 @@ MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts app. macOS may have as
 MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
 MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
+MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see /tmp/ostler-hydrate-calendar.log, then re-run hydration from Settings."
 
 # WhatsApp hydration strings (CX-85)
 # Used by install.sh's hydrate_whatsapp step, inserted inside the
