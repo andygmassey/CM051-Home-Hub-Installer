@@ -103,6 +103,16 @@
         <string>OSTLER_SOURCE_DIR_VALUE</string>
         <key>OSTLER_USER_DISPLAY_NAME</key>
         <string>OSTLER_USER_DISPLAY_NAME_VALUE</string>
+        <!--
+            OSTLER_USER_ID scopes the conversation to the operator. CM048's
+            pwg-convo fails loud at settings construction without it (the
+            productisation guard against an empty user_id silently
+            propagating), so the bundle agent must carry it or every tick
+            dies before processing a single chat. Rendered from the
+            installer's USER_ID.
+        -->
+        <key>OSTLER_USER_ID</key>
+        <string>OSTLER_USER_ID_VALUE</string>
     </dict>
 
     <key>ProcessType</key>
