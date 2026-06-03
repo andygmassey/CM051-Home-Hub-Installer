@@ -7560,6 +7560,24 @@ count="${count:-0}"
 
 if [[ "$count" -gt 0 ]]; then
     log "contact re-sync imported ${count} contact(s) on attempt ${tries}; removing agent"
+    # New contacts have just landed in the graph. The install-time wiki
+    # compile (Phase 3.16) ran before iCloud finished syncing, so on a
+    # fresh Mac it saw a near-empty People graph. Kick the existing
+    # wiki-recompile tick now so the wiki reflects the contacts that have
+    # just arrived, rather than waiting for the daily LaunchAgent. Fired
+    # non-fatally and backgrounded: a recompile failure (or a missing tick
+    # on an older layout) must never break the re-sync or hold the agent
+    # open. Guarded on the tick being present so an older install that
+    # predates wiki-recompile degrades quietly.
+    #
+    # Known limitation (v1.0.1, out of scope here): this does NOT re-run
+    # the Qdrant people search-index embed (hydrate_people), so the newly
+    # imported people render on their wiki PAGES (read from Oxigraph) but
+    # may be momentarily absent from wiki SEARCH until the next embed.
+    if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
+        log "new contacts imported; rebuilding your wiki in the background"
+        nohup "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" >/dev/null 2>&1 &
+    fi
     remove_self
 else
     log "contacts still not synced (attempt ${tries}/${CONTACT_RESYNC_MAX_TRIES}); will retry"
@@ -8181,6 +8199,8 @@ launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
@@ -8203,6 +8223,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.pl
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
@@ -9545,6 +9566,136 @@ if [[ -n "$WIKI_RECOMPILE_SNIPPET" && -f "$WIKI_RECOMPILE_SNIPPET" ]]; then
         warn "$(printf "$MSG_WARN_CD" "${OSTLER_DIR}")"
         warn "$MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM"
     fi
+fi
+
+# ── 3.14d-bis Wiki recompile FIRST-DAY catch-up LaunchAgent ──────
+#
+# Safety net for ANY late-landing source, not just contacts. The
+# contact-resync trigger added alongside this only covers contacts;
+# calendar / email / WhatsApp / iCloud data can also finish syncing
+# minutes-to-hours AFTER the install-time compile, which would
+# otherwise leave the wiki sparse until the DAILY recompile agent
+# fires (up to 24h later).
+#
+# Shape mirrors the bounded ostler-contact-resync agent: a self-
+# removing wrapper that counts its runs against a cap and boots out
+# its own agent once the cap is reached. It reuses the existing
+# wiki-recompile-tick.sh (NO duplicated compile logic); incremental
+# compiles are cheap because unchanged sections are skipped, so a
+# handful of extra ticks over the first few hours is harmless. The
+# steady-state DAILY agent installed above is left untouched -- this
+# is purely a first-day quick-heal that then removes itself.
+#
+# Defaults: every 1800s (30 min), capped at 24 tries (~12 hours),
+# both overridable via env for testing.
+if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
+    progress "Setting up first-day wiki catch-up LaunchAgent" "wiki_recompile_catchup_agent"
+
+    WIKI_CATCHUP_INTERVAL_S="${WIKI_CATCHUP_INTERVAL_S:-1800}"
+    WIKI_CATCHUP_MAX_TRIES="${WIKI_CATCHUP_MAX_TRIES:-24}"
+    WIKI_CATCHUP_LABEL="com.creativemachines.ostler.wiki-recompile-catchup"
+    WIKI_CATCHUP_PLIST="${HOME}/Library/LaunchAgents/${WIKI_CATCHUP_LABEL}.plist"
+
+    # Self-removing, bounded catch-up wrapper. Single-quoted heredoc:
+    # no install-time expansion -- it resolves OSTLER_DIR at run time
+    # exactly like ostler-contact-resync does.
+    cat > "${OSTLER_DIR}/bin/ostler-wiki-recompile-catchup" <<'WCUEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+LABEL="com.creativemachines.ostler.wiki-recompile-catchup"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+TRIES_FILE="${STATE_DIR}/wiki-recompile-catchup.tries"
+LOG_FILE="${LOGS_DIR}/wiki-recompile-catchup.log"
+WIKI_CATCHUP_MAX_TRIES="${WIKI_CATCHUP_MAX_TRIES:-24}"
+TICK="${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+remove_self() {
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
+        launchctl unload "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST" "$TRIES_FILE"
+}
+
+# Bounded run counter: once we exceed the cap, give up and remove the
+# agent so the first-day catch-up can never run forever. The daily
+# recompile agent remains the long-term steady state.
+tries=0
+[[ -f "$TRIES_FILE" ]] && tries="$(cat "$TRIES_FILE" 2>/dev/null || echo 0)"
+[[ "$tries" =~ ^[0-9]+$ ]] || tries=0
+tries=$((tries + 1))
+printf '%s' "$tries" >"$TRIES_FILE"
+if [[ "$tries" -gt "$WIKI_CATCHUP_MAX_TRIES" ]]; then
+    log "first-day catch-up complete after ${WIKI_CATCHUP_MAX_TRIES} ticks; removing agent (daily recompile continues)"
+    remove_self
+    exit 0
+fi
+
+if [[ ! -x "$TICK" ]]; then
+    log "wiki-recompile-tick.sh missing at ${TICK}; removing catch-up agent"
+    remove_self
+    exit 0
+fi
+
+# Reuse the existing tick (no duplicated compile logic). Non-fatal:
+# a failed tick just gets retried on the next interval until the cap.
+log "first-day catch-up tick ${tries}/${WIKI_CATCHUP_MAX_TRIES}: rebuilding wiki against current state"
+"$TICK" >>"$LOG_FILE" 2>&1 || log "catch-up tick ${tries} returned non-zero; will retry"
+exit 0
+WCUEOF
+    chmod +x "${OSTLER_DIR}/bin/ostler-wiki-recompile-catchup"
+
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    cat > "$WIKI_CATCHUP_PLIST" <<WCUPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${WIKI_CATCHUP_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/ostler-wiki-recompile-catchup</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>WIKI_CATCHUP_MAX_TRIES</key>
+        <string>${WIKI_CATCHUP_MAX_TRIES}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${WIKI_CATCHUP_INTERVAL_S}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/wiki-recompile-catchup.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/wiki-recompile-catchup.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
+WCUPLIST
+    chmod 0644 "$WIKI_CATCHUP_PLIST"
+
+    launchctl bootout "gui/$(id -u)/${WIKI_CATCHUP_LABEL}" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$WIKI_CATCHUP_PLIST" 2>/dev/null || \
+       launchctl load "$WIKI_CATCHUP_PLIST" 2>/dev/null; then
+        ok "$MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED"
+    else
+        warn "$MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED"
+    fi
+else
+    info "$MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK"
 fi
 
 # ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
