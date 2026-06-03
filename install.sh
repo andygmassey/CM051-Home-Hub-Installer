@@ -7560,6 +7560,24 @@ count="${count:-0}"
 
 if [[ "$count" -gt 0 ]]; then
     log "contact re-sync imported ${count} contact(s) on attempt ${tries}; removing agent"
+    # New contacts have just landed in the graph. The install-time wiki
+    # compile (Phase 3.16) ran before iCloud finished syncing, so on a
+    # fresh Mac it saw a near-empty People graph. Kick the existing
+    # wiki-recompile tick now so the wiki reflects the contacts that have
+    # just arrived, rather than waiting for the daily LaunchAgent. Fired
+    # non-fatally and backgrounded: a recompile failure (or a missing tick
+    # on an older layout) must never break the re-sync or hold the agent
+    # open. Guarded on the tick being present so an older install that
+    # predates wiki-recompile degrades quietly.
+    #
+    # Known limitation (v1.0.1, out of scope here): this does NOT re-run
+    # the Qdrant people search-index embed (hydrate_people), so the newly
+    # imported people render on their wiki PAGES (read from Oxigraph) but
+    # may be momentarily absent from wiki SEARCH until the next embed.
+    if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
+        log "new contacts imported; rebuilding your wiki in the background"
+        nohup "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" >/dev/null 2>&1 &
+    fi
     remove_self
 else
     log "contacts still not synced (attempt ${tries}/${CONTACT_RESYNC_MAX_TRIES}); will retry"
