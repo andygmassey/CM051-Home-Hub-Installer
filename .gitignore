@@ -10,6 +10,10 @@ config.local.*
 *_private*
 *credentials*
 *token*
+# Vendored Doctor source module (NOT a secret) - the broad *token* guard above
+# otherwise swallows it, which dropped it from the vendor and blanked the iOS
+# Pairing tab (chat_token.py is lazy-imported by web_ui.py). Keep tracked.
+!vendor/doctor/agent/chat_token.py
 secrets/
 credentials/
 
