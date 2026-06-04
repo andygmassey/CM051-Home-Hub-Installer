@@ -703,8 +703,14 @@ USER_FACING_ROOT="${HOME}/Documents/Ostler"
 # emits for every wired human channel -- WhatsApp first (the gating
 # floor), then iMessage / email / meeting-voice. The bundle feeds
 # write under ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
-# (AI Conversations live in a SEPARATE tree, added in v1.0.1.)
-USER_TREE_SUBDIRS=("Wiki" "Conversations" "Transcripts" "Daily-Briefs" "Captures" "Exports")
+# "AI Conversations" (with a space) holds the episodic markdown
+# artefacts CM052's pwg-ai-convo writes for the customer's own
+# AI-chatbot transcripts (Claude Code sessions + ChatGPT export). The
+# name must match OSTLER_AI_CONVERSATIONS_DIR exactly -- both CM052's
+# wire (_DEFAULT_AI_CONVERSATIONS_DIR) and CM044's wiki reader default
+# to "~/Documents/Ostler/AI Conversations"; a hyphen here would be a
+# silent reader/writer mismatch (empty AI Chats wiki section).
+USER_TREE_SUBDIRS=("Wiki" "Conversations" "AI Conversations" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 
 # ── DMG #48 install transcript ────────────────────────────────────
 #
@@ -5083,6 +5089,23 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 # was installed and signed in. Used by the iOS / Watch companion to reach
 # this Mac from anywhere. Empty if Tailscale is not in use.
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
+
+# AI Conversations (CM052, v1.0.1). Ingests the customer's own
+# AI-chatbot transcripts (Claude Code sessions + ChatGPT export) into
+# the conversation memory. The dir name must stay in lock-step with
+# CM052's wire and CM044's wiki reader -- "AI Conversations" with a
+# space. PWG_AI_CONVERSATIONS_ENABLED gates the hydrate phase + the
+# Claude Code watcher LaunchAgent; PWG_AI_CHAT_WINGS is the matching
+# CM044 wiki-compiler passthrough so the AI Chats section renders.
+PWG_AI_CONVERSATIONS_ENABLED="${PWG_AI_CONVERSATIONS_ENABLED:-1}"
+OSTLER_AI_CONVERSATIONS_DIR="${OSTLER_AI_CONVERSATIONS_DIR:-${USER_FACING_ROOT}/AI Conversations}"
+OSTLER_CHATGPT_IMPORT_DIR="${OSTLER_CHATGPT_IMPORT_DIR:-${USER_FACING_ROOT}/imports/chatgpt}"
+PWG_AI_CHAT_WINGS="${PWG_AI_CHAT_WINGS:-}"
+# CM052's wire labels the user side of each transcript from this and
+# fail-fasts if it is ever empty. Prefer the me-card email resolved in
+# Phase 2 (USER_EMAIL); fall back to USER_ID (always non-empty, seeded
+# from DEFAULT_ID) so the wire always has a non-empty label.
+CM052_USER_EMAIL="${CM052_USER_EMAIL:-${USER_EMAIL:-${USER_ID}}}"
 ENVEOF
 
 ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
