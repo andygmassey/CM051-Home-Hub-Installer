@@ -3792,13 +3792,22 @@ if [[ -f "${HOME}/Library/Application Support/Google/Chrome/Default/History" ]];
     HAS_CHROME=true
 fi
 
+# DMG fix 3 (#618 partial): name Chrome in the Recommended description
+# (TTY menu) when it is installed, so a Chrome-primary customer sees
+# that their real main browser is included. The GUI preset label
+# (MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED) already promises this.
+_recommended_chrome_note=""
+if [[ "$HAS_CHROME" == true ]]; then
+    _recommended_chrome_note=", Chrome history"
+fi
+
 cat <<MENU
 
   Three presets, or pick each one yourself:
 
     [1] Recommended  Safari history + bookmarks, Notes, Calendar,
-                     Reminders, iMessage, Apple Mail. The everyday
-                     sources -- privacy-friendly, all local.
+                     Reminders, iMessage, Apple Mail${_recommended_chrome_note}. The
+                     everyday sources -- privacy-friendly, all local.
 
     [2] Everything   The above + WhatsApp + Chrome (if installed),
                      Photos events (NOT face recognition). Slower,
@@ -3827,17 +3836,30 @@ PRESET=${PRESET:-recommended}
 # wiki empty of iMessage + email-correspondent data on every install.
 RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
 
-# EVERYTHING adds whatsapp_history + chrome_history conditionally -- the
+# DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
+# Recommended install must ingest Chrome history too when Chrome is
+# installed -- otherwise it silently captures the barely-used Safari and
+# misses the real main browser. chrome_history.py already ships and is
+# exercised by the Everything path; this just lists the source. Safari
+# stays in Recommended regardless (harmless if empty). Without Chrome,
+# Recommended is unchanged. The GUI preset label already promises this
+# (MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED) -- the var was the gap, the
+# same strings-promise-vs-var mismatch as the #48g imessage/apple_mail
+# fix. Brave / Edge / Arc / Firefox stay post-launch (#618).
+if [[ "$HAS_CHROME" == true ]]; then
+    RECOMMENDED="${RECOMMENDED},chrome_history"
+fi
+
+# EVERYTHING adds whatsapp_history + photos conditionally -- the
 # extractors throw FileNotFoundError if the source DB is missing, so it
 # is safe to list them, but skipping the listing when the app isn't
 # installed keeps the post-install summary honest ("Found 0 WhatsApp
 # people" reads as a bug; not listing the source reads as fine).
+# chrome_history is inherited from RECOMMENDED above, so it is NOT
+# re-added here (a duplicate in OSTLER_FDA_SOURCES would double-list it).
 EVERYTHING="${RECOMMENDED},photos_metadata"
 if [[ "$HAS_WHATSAPP_DESKTOP" == true ]]; then
     EVERYTHING="${EVERYTHING},whatsapp_history"
-fi
-if [[ "$HAS_CHROME" == true ]]; then
-    EVERYTHING="${EVERYTHING},chrome_history"
 fi
 
 case "$PRESET" in
