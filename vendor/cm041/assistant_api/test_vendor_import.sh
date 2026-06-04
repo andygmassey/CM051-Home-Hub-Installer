@@ -203,5 +203,33 @@ if ! grep -q "OSTLER_API_PORT" "$ICAL_SERVER_PY"; then
 fi
 echo "PASS: ical-server.py honours OSTLER_API_PORT env var"
 
+# -------------------------------------------------------------------
+# Part 7: #596 Hub People page wiring -- the bare list endpoint.
+# -------------------------------------------------------------------
+# The Hub dashboard People page reads GET /api/v1/people (list + count).
+# Pre-#596 there was NO such handler, so the page always fell to its
+# empty-state regardless of how full Qdrant/Oxigraph were. Lock all
+# three legs so a future refactor cannot silently re-break it:
+#   (a) the bare /people GET handler in ical-server.py,
+#   (b) the /api/v1/people -> /people version alias,
+#   (c) the bare /api/v1/people token in DOCTOR_PROXY_PATHS, matched
+#       comma-bounded so the longer /api/v1/people/search entry does
+#       NOT satisfy it (substring matching would mask a removal).
+
+if ! grep -q 'parsed.path == "/people":' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the bare GET /people handler (#596)" >&2
+    exit 1
+fi
+if ! grep -q '"/api/v1/people":' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the /api/v1/people -> /people alias (#596)" >&2
+    exit 1
+fi
+if ! grep -qF "/api/v1/people," "$INSTALL_SH"; then
+    echo "FAIL: install.sh DOCTOR_PROXY_PATHS is missing the bare /api/v1/people" >&2
+    echo "      (the /api/v1/people/search entry does NOT cover the list route)" >&2
+    exit 1
+fi
+echo "PASS: #596 Hub People list endpoint wired (handler + alias + proxy path)"
+
 echo ""
 echo "PASS: vendor/cm041/assistant_api/ regression test green"

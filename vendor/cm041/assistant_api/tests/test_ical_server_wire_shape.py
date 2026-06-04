@@ -370,5 +370,115 @@ class ReadIso8601MarkerTests(unittest.TestCase):
             path.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# #596 – GET /api/v1/people (people_list) full-set + empty-by-design
+# ---------------------------------------------------------------------------
+
+
+class PeopleListEndpointTests(unittest.TestCase):
+    """#596: the Hub People page reads /api/v1/people and counts the rows it
+    returns. people_list must return the FULL Qdrant `people` set (paginated
+    scroll) as {people, total} with the same contact_type == person filter as
+    people_search / people_stale, so the Hub count matches the wiki. A missing
+    `people` collection is empty-by-design and must be calm, NOT an error."""
+
+    @staticmethod
+    def _fake_resp(body):
+        class _R:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *args):
+                return False
+
+            def read(self_inner):
+                import json as _json
+                return _json.dumps(body).encode()
+
+        return _R()
+
+    def _point(self, pid, name, **payload):
+        pl = {"display_name": name, "contact_type": "person"}
+        pl.update(payload)
+        return {"id": pid, "payload": pl}
+
+    def test_shape_total_and_role_mapping(self):
+        page = {"result": {"points": [
+            self._point("p1", "Alice Example", organization="Example Corp"),
+            self._point("p2", "Bob Example", job_title="Builder"),
+        ], "next_page_offset": None}}
+        with mock.patch("urllib.request.urlopen",
+                        return_value=self._fake_resp(page)):
+            result = ical_server.people_list()
+        self.assertIn("people", result)
+        self.assertIn("total", result)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(len(result["people"]), 2,
+                         "total must equal len(people) so the Hub header "
+                         "count matches the wiki")
+        for row in result["people"]:
+            self.assertIn("id", row)
+            self.assertIn("name", row)
+        by_name = {r["name"]: r for r in result["people"]}
+        # job_title preferred, organization fallback for the row's role.
+        self.assertEqual(by_name["Bob Example"]["role"], "Builder")
+        self.assertEqual(by_name["Alice Example"]["role"], "Example Corp")
+
+    def test_sort_recency_orders_desc_and_strips_internal_key(self):
+        page = {"result": {"points": [
+            self._point("old", "Old Contact", last_contact_ts=1_600_000_000),
+            self._point("new", "New Contact", last_contact_ts=1_900_000_000),
+        ], "next_page_offset": None}}
+        with mock.patch("urllib.request.urlopen",
+                        return_value=self._fake_resp(page)):
+            result = ical_server.people_list(sort="recency")
+        self.assertEqual([r["name"] for r in result["people"]],
+                         ["New Contact", "Old Contact"])
+        self.assertNotIn("_lc_ts", result["people"][0],
+                         "internal sort key must not leak onto the wire")
+
+    def test_missing_collection_is_empty_by_design(self):
+        import urllib.error
+        err = urllib.error.HTTPError(
+            "http://localhost:6333/collections/people/points/scroll",
+            404, "Not Found", {}, None)
+        with mock.patch("urllib.request.urlopen", side_effect=err):
+            result = ical_server.people_list()
+        self.assertEqual(result, {"people": [], "total": 0})
+        self.assertNotIn("error", result,
+                         "a missing collection is empty-by-design, not a fault")
+        self.assertNotIn("degraded", result)
+
+    def test_qdrant_down_degrades_not_crashes(self):
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=RuntimeError("connection refused")):
+            result = ical_server.people_list()
+        self.assertEqual(result["people"], [])
+        self.assertEqual(result["total"], 0)
+        self.assertTrue(result.get("degraded"))
+        self.assertIn("error", result)
+
+    def test_pagination_collects_every_page(self):
+        page1 = {"result": {"points": [self._point("p1", "Alice Example")],
+                            "next_page_offset": "cursor-2"}}
+        page2 = {"result": {"points": [self._point("p2", "Bob Example")],
+                            "next_page_offset": None}}
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=[self._fake_resp(page1),
+                                     self._fake_resp(page2)]):
+            result = ical_server.people_list()
+        self.assertEqual(result["total"], 2)
+        self.assertEqual({r["name"] for r in result["people"]},
+                         {"Alice Example", "Bob Example"})
+
+    def test_route_and_alias_registered_in_source(self):
+        source = ICAL_SERVER_PY.read_text(encoding="utf-8")
+        self.assertIn('"/api/v1/people":', source,
+                      "#596: /api/v1/people must remap to /people in the "
+                      "version alias table")
+        self.assertIn('if parsed.path == "/people":', source,
+                      "#596: a bare /people GET handler must exist")
+
+
 if __name__ == "__main__":
     unittest.main()
