@@ -17,6 +17,7 @@ Endpoints:
   GET /api/v1/coach/recent         – coaching observations (CM048)
   GET /api/v1/conversation/status/{id} – conversation processing status (CM048)
   GET /api/v1/hub/health           – Hub status for iOS Companion pill (HR015 Hub portability)
+  GET /api/v1/hydration/status     – First-run wiki hydration progress for the homepage panel (CM044 #624)
   GET /api/v1/recording/active     – Current capture state for the iOS Recording Live Activity (CM042 → CM031)
   POST /api/v1/conversation/process – submit conversation for processing (CM048)
   POST /api/v1/ingest/ios          – batch upload from iOS companion
@@ -173,6 +174,34 @@ PWG_HOME = Path(os.environ.get("PWG_HOME", os.path.expanduser("~/.pwg")))
 COACH_DB = PWG_HOME / "coach" / "observations.db"
 PROCESSING_DIR = PWG_HOME / "processing"
 CONVERSATIONS_DIR = PWG_HOME / "conversations"
+
+# ── Wiki hydration status (CM044 #624) ───────────────────────────────
+# The wiki compiler writes a small JSON progress file as it builds; this
+# endpoint reads it cross-process and combines it with live data-source
+# counts to drive the first-run hydration panel on the wiki homepage.
+# Host-anchored path, shared with the compiler via the same env var: the
+# compiler runs in a container and bind-mounts this host location, so the
+# file it writes is the file this endpoint reads. Mirrors CM044's
+# compiler/hydration.py::status_path. Default kept in lockstep with it.
+WIKI_HYDRATION_STATUS_FILE = (
+    os.environ.get("WIKI_HYDRATION_STATUS_FILE")
+    or os.path.expanduser("~/.ostler/state/wiki_hydration.json")
+)
+
+# Browser origins allowed to read the hydration endpoint. The wiki is
+# served on :8044; the Tauri Hub webview uses the tauri:// origin (and
+# https://tauri.localhost on Windows). This is an allowlist reflected
+# back when matched, NOT '*': the route sits behind the Doctor auth
+# proxy, but the CORS scope stays tight as defence in depth. The payload
+# carries no PII (counts / phase / state / eta only), so the exposure if
+# an unexpected origin ever slipped through is a progress bar, nothing
+# personal.
+WIKI_HYDRATION_ALLOWED_ORIGINS = {
+    "http://localhost:8044",
+    "http://127.0.0.1:8044",
+    "tauri://localhost",
+    "https://tauri.localhost",
+}
 
 # CM048 ships as its own venv'd service installed by CM051 install.sh
 # phase 3.10b. The installer symlinks
@@ -2244,9 +2273,218 @@ def api_health_detailed():
     return out
 
 
+# ── Wiki hydration status endpoint (CM044 #624 Part B) ───────────────
+
+
+def _wiki_people_count():
+    """Qdrant people-collection point count, or None if unreachable.
+
+    None (unreachable) is reported as 'pending', never 'done': we must
+    not claim contacts are loaded when we cannot actually see them.
+    """
+    try:
+        with urllib.request.urlopen(
+            QDRANT_URL.rstrip("/") + "/collections/people", timeout=3
+        ) as resp:
+            data = json.loads(resp.read())
+        return int(data.get("result", {}).get("points_count", 0) or 0)
+    except Exception:
+        return None
+
+
+def _wiki_triples_count():
+    """Oxigraph total triple count, or None if unreachable."""
+    try:
+        rows = _sparql_select("SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }")
+        return int(rows[0]["n"]) if rows else 0
+    except Exception:
+        return None
+
+
+def _wiki_read_compiler_status():
+    """Read the wiki compiler's hydration status file (CM044 Part A), or
+    None if it is absent or unreadable. This is the cross-process read:
+    the file was written by the containerised compiler onto the shared
+    host path."""
+    try:
+        p = Path(WIKI_HYDRATION_STATUS_FILE)
+        if not p.is_file():
+            return None
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _wiki_eta_seconds(eta_utc):
+    """Seconds from now until eta_utc (clamped at 0), or None."""
+    if not eta_utc:
+        return None
+    try:
+        eta = datetime.fromisoformat(str(eta_utc).replace("Z", "+00:00"))
+        # Derive "now" in the parsed value's own tz so this does not
+        # depend on a module-level timezone import.
+        now = datetime.now(eta.tzinfo)
+        return max(0, int((eta - now).total_seconds()))
+    except Exception:
+        return None
+
+
+def _wiki_conversations_progress():
+    """Aggregate CM048 conversation processing state.json files."""
+    dispatched = completed = failed = running = 0
+    try:
+        if PROCESSING_DIR.exists():
+            for d in PROCESSING_DIR.iterdir():
+                sf = d / "state.json"
+                if not sf.is_file():
+                    continue
+                dispatched += 1
+                try:
+                    st = json.loads(sf.read_text())
+                except Exception:
+                    # An unreadable state file is in-flight, not a success.
+                    running += 1
+                    continue
+                if st.get("failed_step"):
+                    failed += 1
+                elif st.get("current_step") == "completed":
+                    completed += 1
+                else:
+                    running += 1
+    except Exception:
+        pass
+    return {"dispatched": dispatched, "completed": completed,
+            "failed": failed, "running": running}
+
+
+def api_hydration_status():
+    """Composite first-run hydration status for the wiki panel (CM044 #624).
+
+    Combines live data-source counts (Qdrant people, Oxigraph triples),
+    the wiki compiler's own progress file (org / person LLM summaries),
+    and the CM048 conversation-processing state into a per-phase view so
+    the wiki homepage can show a calm, honest progress panel during the
+    first build.
+
+    Honesty rules (no fake spinners, no premature 'done'):
+      * an upstream we cannot reach is 'pending', never 'done';
+      * an empty Qdrant collection is 'pending', never 'done with 0';
+      * a phase is only 'running' when there is real in-flight work
+        (total > 0 and not yet finished) -- total == 0 stays 'pending';
+      * conversation failures surface as 'needs_attention', not swallowed
+        into 'pending'.
+
+    The payload is non-PII by construction: counts, phase keys, states,
+    and an ETA only. No names, no content.
+    """
+    phases = []
+
+    # 1. Contacts -- Qdrant people collection. Binary: the collection
+    #    either has points (done) or does not (pending). We cannot know a
+    #    target count, so we never report a partial 'running' here.
+    people = _wiki_people_count()
+    phases.append({
+        "key": "contacts",
+        "state": "done" if (people or 0) > 0 else "pending",
+        "count": people if people is not None else 0,
+    })
+
+    # 2. Graph -- Oxigraph triples. Same binary shape as contacts.
+    triples = _wiki_triples_count()
+    phases.append({
+        "key": "graph",
+        "state": "done" if (triples or 0) > 0 else "pending",
+        "count": triples if triples is not None else 0,
+    })
+
+    # 3. AI summaries -- the wiki compiler's own progress file. This is
+    #    the slow phase (per-org / per-person LLM prose) and the one that
+    #    carries an ETA.
+    comp = _wiki_read_compiler_status()
+    ai = {"key": "ai_summaries", "done": 0, "total": 0,
+          "eta_utc": None, "eta_seconds": None}
+    if comp is None:
+        ai["state"] = "pending"            # compiler has not started yet
+    elif comp.get("complete"):
+        ai["state"] = "done"
+    else:
+        done = int(comp.get("stage_done", 0) or 0)
+        total = int(comp.get("stage_total", 0) or 0)
+        ai["done"], ai["total"] = done, total
+        if total <= 0:
+            ai["state"] = "pending"        # no fake spinner with total 0
+        else:
+            ai["state"] = "running"
+            ai["eta_utc"] = comp.get("eta_utc")
+            ai["eta_seconds"] = _wiki_eta_seconds(comp.get("eta_utc"))
+    phases.append(ai)
+
+    # 4. Conversations -- CM048 processing. Failures surface loudly.
+    conv = _wiki_conversations_progress()
+    if conv["failed"] > 0:
+        conv_state = "needs_attention"
+    elif conv["dispatched"] == 0:
+        conv_state = "pending"
+    elif conv["completed"] >= conv["dispatched"]:
+        conv_state = "done"
+    else:
+        conv_state = "running"
+    phases.append({"key": "conversations", "state": conv_state, **conv})
+
+    # Overall. Contacts / graph / ai_summaries gate completion; the
+    # conversations phase is surfaced but a pending (zero-dispatched)
+    # conversations phase does NOT hold the panel open, because a fresh
+    # box may legitimately have no conversations to process. An actively
+    # running or failing conversations phase still shows through.
+    by_key = {p["key"]: p["state"] for p in phases}
+    gating = [by_key["contacts"], by_key["graph"], by_key["ai_summaries"]]
+    if any(p["state"] == "needs_attention" for p in phases):
+        overall = "needs_attention"
+    elif all(s == "done" for s in gating) and by_key["conversations"] != "running":
+        overall = "complete"
+    elif any(p["state"] in ("running", "done") for p in phases):
+        overall = "running"
+    else:
+        overall = "pending"
+
+    return {
+        "overall_state": overall,
+        "phases": phases,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    def _send_hydration_cors(self):
+        """Emit Access-Control-Allow-Origin for the hydration route ONLY.
+
+        The request Origin is reflected back only when it is in the
+        allowlist (wiki + Tauri Hub webview). Scoped to this single route
+        so no other endpoint leaks CORS -- a guard test asserts exactly
+        that.
+        """
+        origin = self.headers.get("Origin")
+        if origin in WIKI_HYDRATION_ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        # Preflight support for the hydration route (browsers may send it
+        # if a custom header ever creeps into the fetch). Other paths get
+        # a plain 405 with no CORS headers.
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/v1/hydration/status":
+            self.send_response(204)
+            self._send_hydration_cors()
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            return
+        self.send_response(405)
+        self.end_headers()
 
     # Map /api/v1/... paths the iOS app calls to the legacy unprefixed
     # paths so existing handler blocks serve both. Legacy callers keep
@@ -2638,6 +2876,25 @@ class Handler(BaseHTTPRequestHandler):
                 }
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        # Wiki first-run hydration panel (CM044 #624). Reachable through
+        # the Doctor auth proxy at /api/v1/* (DOCTOR_PROXY_PATHS includes
+        # this path). CORS is emitted on this route only, allowlisted to
+        # the wiki and Tauri Hub origins. Degrades calm: any failure
+        # returns a pending payload with 200 so the panel never breaks
+        # the homepage.
+        if parsed.path == "/api/v1/hydration/status":
+            try:
+                result = api_hydration_status()
+            except Exception as exc:
+                result = {"overall_state": "pending", "phases": [],
+                          "error": str(exc)[:200]}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._send_hydration_cors()
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())
             return

@@ -6673,6 +6673,15 @@ services:
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
+      # Hydration status hand-off (CM044 #624). The compiler writes a
+      # small JSON progress file here; the host-side CM041 ical-server
+      # hydration endpoint reads it cross-process to drive the live
+      # dashboard panel. It must NOT live inside the wiki-docs named
+      # volume (host-invisible), so it is bind-mounted from the host
+      # state dir. The compiler writes to /state inside the container
+      # (WIKI_HYDRATION_STATUS_FILE below); that lands at ~/.ostler/state
+      # on the host where the endpoint reads it.
+      - ${HOME}/.ostler/state:/state
     environment:
       # Inside-container path the compiler writes the MkDocs source
       # to. Pinned to /wiki to match the wiki-docs:/wiki mount above.
@@ -6680,6 +6689,11 @@ services:
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian
+      # Absolute path (inside the container) of the hydration status
+      # file. Bind-mounted to ~/.ostler/state on the host above, so the
+      # host-side CM041 ical-server hydration endpoint reads the same
+      # file the compiler writes. See compiler/hydration.py::status_path.
+      - WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json
       # CM044 productisation knobs (set by CM044 PR #22). Empty
       # defaults are intentional: the compiler treats "" as "no
       # operator-specific filter" and emits a generic wiki rather
@@ -8662,7 +8676,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              path-parameter routes use FastAPI {slug}/{id} syntax so the
              proxy's request.url.path forwarding substitutes them. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget</string>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
     </dict>
