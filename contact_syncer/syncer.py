@@ -57,6 +57,10 @@ class ContactSyncer:
         )
         self.qdrant = QdrantClient(url=self.cfg.QDRANT_URL)
         self.state_file = self.cfg.STATE_FILE
+        # Set once we have confirmed/created the Qdrant collection in this
+        # run, so the self-create probe costs one GET per sync, not one
+        # per contact (#638).
+        self._collection_ensured = False
 
     # -- state persistence ----------------------------------------------------
 
@@ -706,6 +710,58 @@ class ContactSyncer:
         data = resp.json()
         return data.get("embeddings", [])
 
+    def _ensure_qdrant_collection(self, vector_size: int) -> None:
+        """Create the Qdrant collection if it does not already exist.
+
+        On a fresh single-Mac install nothing pre-creates the `people`
+        collection before this syncer runs: install.sh's graph_db_start
+        brings Qdrant up empty, the contact hydrate (hydrate_graph) is the
+        FIRST writer to `people`, and Qdrant does not auto-create a
+        collection on upsert. Without this self-create the very first
+        upsert 404s ("Collection 'people' doesn't exist"), the hydrate
+        dies after reading every contact, and the People surfaces (iOS
+        People tab, Hub People card, wiki People page, semantic search)
+        stay blank. The sibling people-ingest writer already self-creates
+        (HR015 ostler_fda.pwg_ingest._qdrant_ensure_collection); the
+        contact syncer must do the same (#638).
+
+        Idempotent: an existing collection short-circuits, so a re-run, or
+        a box where the people-ingest step created it first, never
+        clobbers data. The vector size comes from the real embedding (with
+        the nomic-embed-text default as a fallback) and the distance
+        matches the install.sh #606 pre-create and the people-ingest path:
+        768-dim, Cosine, unnamed vectors.
+        """
+        collection = self.cfg.QDRANT_COLLECTION
+        try:
+            if self.qdrant.collection_exists(collection):
+                return
+        except Exception:
+            # Probe failed (transient Qdrant hiccup): fall through and try
+            # to create. A redundant create on an existing collection is
+            # tolerated below, so this cannot make things worse.
+            pass
+
+        from qdrant_client.models import Distance, VectorParams
+
+        size = vector_size if vector_size and vector_size > 0 else 768
+        try:
+            self.qdrant.create_collection(
+                collection_name=collection,
+                vectors_config=VectorParams(size=size, distance=Distance.COSINE),
+            )
+            logger.info(
+                "Created Qdrant collection '%s' (size=%d, Cosine).",
+                collection, size,
+            )
+        except Exception:
+            # Lost a create race, or it already existed: tolerate only if
+            # the collection is now present; otherwise re-raise so a
+            # genuine Qdrant failure still surfaces to the caller.
+            if self.qdrant.collection_exists(collection):
+                return
+            raise
+
     def _upsert_qdrant(
         self,
         person_id: str,
@@ -714,6 +770,12 @@ class ContactSyncer:
         vector: List[float],
     ) -> None:
         """Upsert a single person point into Qdrant."""
+        # Fresh-install self-heal: make sure the collection exists before
+        # the first upsert of the run, sized from this real embedding.
+        # Once per syncer run via the _collection_ensured latch (#638).
+        if not getattr(self, "_collection_ensured", False):
+            self._ensure_qdrant_collection(len(vector))
+            self._collection_ensured = True
         now_iso = datetime.now(timezone.utc).isoformat()
         # last_contact: prefer the EXISTING value in Qdrant, set by
         # meetings or future conversation pipelines. For a brand-new

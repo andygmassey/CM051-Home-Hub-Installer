@@ -6781,14 +6781,22 @@ ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 # ── Pre-create optional Qdrant collections (#606) ────────────────
 #
 # The wiki compiler reads several Qdrant collections at compile time.
-# On a fresh install `people` is self-created by ingest_people_to_qdrant
-# (hydrate_people) and `preferences` by the CM019 ingest, but
+# On a fresh install `people` is written first by the contact hydrate
+# (hydrate_graph, contact_syncer) and then topped up by the people
+# ingest (hydrate_people), and `preferences` by the CM019 ingest, but
 # conversations / evernote_knowledge (and preferences when no prefs
 # data lands) are never created until their source data first arrives,
 # which may be never on day one. A bare read of a missing collection
 # 404s, and CM044's person_pages reader treats a conversations 404 as
 # fatal, aborting the whole compile so /people/ 404s. Pre-creating the
 # collections empty makes every read return an empty set instead.
+#
+# `people` is pre-created here as belt-and-braces (#638). The contact
+# syncer now self-creates `people` before its first upsert (so the
+# hydrate no longer 404s mid-run on a fresh box), but pre-creating it
+# as well means an early reader never 404s in the window before the
+# first contact write, and a Mac with no contacts at all still leaves
+# an empty `people` for the wiki to read instead of a missing one.
 #
 # nomic-embed-text (the embedder used across the graph ingest paths) is
 # 768-dim, Cosine, unnamed vectors -- matching the people collection
@@ -6809,7 +6817,7 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$_qdrant_ready" == true ]]; then
-    for _coll in conversations preferences evernote_knowledge; do
+    for _coll in people conversations preferences evernote_knowledge; do
         # Already present? Leave it untouched (never clobber real data).
         if curl -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
             continue
