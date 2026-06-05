@@ -1228,6 +1228,109 @@ def people_stale(months=3, limit=5):
     return {"contacts": contacts[:limit]}
 
 
+def _recency_label(last_contact_ts):
+    """Coarse uppercase relative-time label for the Hub People row.
+
+    Mirrors the terse iOS Reconnect strip style ("3D AGO", "2MO AGO").
+    Returns "" when no timestamp is known, so the row simply omits it.
+    """
+    if not last_contact_ts:
+        return ""
+    import time
+    delta = int(time.time()) - int(last_contact_ts)
+    if delta < 0:
+        return ""
+    hours = delta // 3600
+    if hours < 1:
+        return "JUST NOW"
+    if hours < 24:
+        return f"{hours}H AGO"
+    days = hours // 24
+    if days < 30:
+        return f"{days}D AGO"
+    months = days // 30
+    if months < 12:
+        return f"{months}MO AGO"
+    return f"{months // 12}Y AGO"
+
+
+def people_list(sort=None, ceiling=10000):
+    """List every person in the Qdrant `people` collection for the Hub.
+
+    The Hub dashboard People page reads this; its header count is the length
+    of `people`, so we return the FULL set (paginated scroll, not a top-N) and
+    let the page count it. Same `contact_type == "person"` filter as
+    people_search / people_stale, so the Hub count matches the wiki People
+    count and the iOS People tab once #600 hydrate has populated Qdrant.
+
+    Counts + light rows only (id, name, role, recency); no facts or notes
+    cross this boundary. A missing `people` collection (fresh box, contacts
+    not yet granted) is the empty-by-design path: return an empty list
+    calmly, NOT an error, so all three surfaces show a calm empty-state.
+    """
+    points = []
+    next_offset = None
+    page = 256
+    try:
+        while len(points) < ceiling:
+            body = {
+                "filter": {
+                    "must": [
+                        {"key": "contact_type", "match": {"value": "person"}},
+                    ]
+                },
+                "limit": page,
+                "with_payload": True,
+                "with_vector": False,
+            }
+            if next_offset is not None:
+                body["offset"] = next_offset
+            data = json.dumps(body).encode()
+            req = urllib.request.Request(
+                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read()).get("result", {}) or {}
+            batch = result.get("points", []) or []
+            points.extend(batch)
+            next_offset = result.get("next_page_offset")
+            if not batch or not next_offset:
+                break
+    except Exception as exc:
+        # A 404 here means the `people` collection does not exist yet, which is
+        # the empty-by-design path (no contacts granted). Report it calmly, not
+        # as a fault. Anything else (Qdrant down, etc.) is a genuine degrade.
+        if getattr(exc, "code", None) == 404:
+            return {"people": [], "total": 0}
+        return {"people": [], "total": 0, "degraded": True,
+                "reason": str(exc), "error": str(exc)}
+
+    people = []
+    for pt in points:
+        p = pt.get("payload", {}) or {}
+        name = p.get("display_name") or p.get("name") or ""
+        if not name:
+            continue
+        row = {"id": str(pt.get("id")), "name": name}
+        role = p.get("job_title") or p.get("organization") or ""
+        if role:
+            row["role"] = role
+        lc_ts = p.get("last_contact_ts", 0) or 0
+        recency = _recency_label(lc_ts)
+        if recency:
+            row["recency"] = recency
+        row["_lc_ts"] = lc_ts
+        people.append(row)
+
+    if sort == "recency":
+        people.sort(key=lambda r: r.get("_lc_ts", 0), reverse=True)
+    for row in people:
+        row.pop("_lc_ts", None)
+    return {"people": people, "total": len(people)}
+
+
 def people_recent(days=7, limit=5):
     """Find people with recent meetings (for follow-up suggestions)."""
     from datetime import datetime, timedelta, timezone
@@ -2149,6 +2252,7 @@ class Handler(BaseHTTPRequestHandler):
     # paths so existing handler blocks serve both. Legacy callers keep
     # working; CM031 (PWG Companion) gets its versioned URLs.
     _VERSIONED_TO_LEGACY = {
+        "/api/v1/people":           "/people",
         "/api/v1/people/search":    "/people/search",
         "/api/v1/people/context":   "/people/context",
         "/api/v1/people/stale":     "/people/stale",
@@ -2341,6 +2445,20 @@ class Handler(BaseHTTPRequestHandler):
                 result = people_stale(months=months, limit=limit)
             except Exception as e:
                 result = {"contacts": [], "degraded": True, "reason": str(e), "error": str(e)}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        if parsed.path == "/people":
+            params = parse_qs(parsed.query)
+            sort = params.get("sort", [None])[0]
+            try:
+                result = people_list(sort=sort)
+            except Exception as e:
+                result = {"people": [], "total": 0, "degraded": True,
+                          "reason": str(e), "error": str(e)}
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
