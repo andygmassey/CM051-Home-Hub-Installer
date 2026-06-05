@@ -4854,15 +4854,61 @@ else
 
         if ! docker info &>/dev/null 2>&1; then
             info "$MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME"
-            # Allocate enough resources for 3 containers
-            colima start --cpu 2 --memory 4 --disk 30 2>/dev/null || {
+
+            # CX-80 (task #509, v1.0.1): the lima hostagent that
+            # backs Colima discovers + forwards the guest's Docker
+            # socket port asynchronously after `colima start` returns.
+            # On a cold first boot the hostagent port-discovery can
+            # race: `colima start` either exits non-zero ("error at
+            # instance: failed to get the host agent ... no forwarded
+            # port") OR exits 0 but leaves ${HOME}/.colima/default/
+            # docker.sock unforwarded, so the very next `docker info`
+            # cannot reach the daemon. The DMG #46 Studio retest hit
+            # exactly this: containers never came up and :8044 wiki
+            # was unreachable. The old single-shot `colima start ||
+            # fallback` had no retry, so one transient port-discovery
+            # miss dropped the customer straight to the Docker Desktop
+            # fallback (or a hard fail) even though a plain retry
+            # recovers it 100% of the time in practice.
+            #
+            # Self-heal: try up to COLIMA_START_MAX_ATTEMPTS times with
+            # a short backoff. Between attempts run `colima stop` to
+            # clear the half-started instance so the next `colima
+            # start` begins from a clean state rather than tripping on
+            # "instance already running but socket not forwarded". Log
+            # each attempt. Only after the bounded retries are
+            # exhausted do we fall through to the Docker Desktop
+            # fallback / hard fail. Readiness is the `docker info`
+            # wait loop further below; here we just need ONE clean
+            # start that leaves the socket reachable.
+            COLIMA_START_MAX_ATTEMPTS=3
+            COLIMA_START_BACKOFF=5
+            colima_started=0
+            for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
+                info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
+                # Allocate enough resources for 3 containers.
+                if colima start --cpu 2 --memory 4 --disk 30 2>/dev/null \
+                    && docker info &>/dev/null 2>&1; then
+                    colima_started=1
+                    break
+                fi
+                if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then
+                    warn "$(printf "$MSG_WARN_COLIMA_START_RETRY" "$COLIMA_START_BACKOFF")"
+                    # Clear the half-started instance so the next
+                    # attempt re-runs port-discovery from scratch.
+                    colima stop --force 2>/dev/null || colima stop 2>/dev/null || true
+                    sleep "$COLIMA_START_BACKOFF"
+                fi
+            done
+
+            if [[ "$colima_started" -ne 1 ]]; then
                 warn "$MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP"
                 if [[ -d "/Applications/Docker.app" ]]; then
                     open -a Docker 2>/dev/null || true
                 else
                     fail_with_code "ERR-06-DOCKER-COLIMA-FAIL" "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD"
                 fi
-            }
+            fi
         fi
     elif [[ -d "/Applications/Docker.app" ]]; then
         # Docker Desktop is installed but not running
