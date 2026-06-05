@@ -576,7 +576,21 @@ def run_all(
     if "apple_mail" in sources:
         try:
             from .apple_mail import extract_messages, email_stats, frequent_contacts
-            messages = extract_messages(since_days=365)
+            # Mail history window is configurable, same shape as the
+            # other sources (OSTLER_IMESSAGE_BACKFILL_DAYS etc). The
+            # hardcoded since_days=365 silently dropped everything older
+            # than a year at install time; a fresh customer with a long
+            # mailbox saw only the last 12 months land in the graph.
+            # Default to 5 years (1825 days) to match the other
+            # extractors. The customer can extend further from Doctor
+            # later (#260). The message limit is lifted in step with the
+            # window so a multi-year backfill is not clipped at the old
+            # 10k cap.
+            mail_backfill_days = int(
+                os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", "1825")
+            )
+            mail_limit = int(os.environ.get("OSTLER_MAIL_BACKFILL_LIMIT", "100000"))
+            messages = extract_messages(since_days=mail_backfill_days, limit=mail_limit)
             stats = email_stats(messages)
             contacts = frequent_contacts(messages)
 
@@ -587,14 +601,31 @@ def run_all(
                 json.dumps(contacts, indent=2, default=str)
             )
 
-            summary["sources"]["apple_mail"] = {
-                "status": "ok",
-                **stats,
-            }
-            logger.info(
-                "[ok] Apple Mail: %d messages, %d unread",
-                stats["total_messages"], stats["unread"],
-            )
+            # #259: when Apple Mail is configured but the local store
+            # holds no messages in the window, do not pretend success.
+            # Surface an empty_no_content status so install.sh can guide
+            # the customer to connect an account / open Mail and re-run,
+            # instead of silently recording "ok, 0 messages".
+            if stats["total_messages"] == 0:
+                summary["sources"]["apple_mail"] = {
+                    "status": "empty_no_content",
+                    **stats,
+                }
+                logger.info(
+                    "[skip] Apple Mail: configured but no local messages found "
+                    "in the last %d days (connect an account in Apple Mail, "
+                    "then re-run)",
+                    mail_backfill_days,
+                )
+            else:
+                summary["sources"]["apple_mail"] = {
+                    "status": "ok",
+                    **stats,
+                }
+                logger.info(
+                    "[ok] Apple Mail: %d messages, %d unread",
+                    stats["total_messages"], stats["unread"],
+                )
 
         except PermissionError:
             summary["sources"]["apple_mail"] = {"status": "no_fda"}

@@ -6273,10 +6273,21 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # OSTLER_WHATSAPP_BACKFILL_DAYS: new env var, hard-coded extract
     #                                 (whatsapp_history extract_all
     #                                  branch reads it now)
+    # OSTLER_MAIL_BACKFILL_DAYS:    #260 -- Apple Mail history window.
+    #                                 Previously hard-coded at 365 days
+    #                                 in extract_all.py, so a fresh
+    #                                 customer only ever got the last 12
+    #                                 months of mail in the graph. Now
+    #                                 configurable + defaults to 5 years
+    #                                 like the other sources. Customers
+    #                                 can extend further post-install via
+    #                                 `ostler-fda` with a larger value
+    #                                 (the "extend now?" affordance).
     : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=1825}"
     : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
     : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
 
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
@@ -6285,6 +6296,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
                  OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
                  OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
+                 OSTLER_MAIL_BACKFILL_DAYS="${OSTLER_MAIL_BACKFILL_DAYS}" \
                  "$OSTLER_PYTHON" -c "
 import sys, json
 sys.path.insert(0, '${FDA_DIR}')
@@ -6320,6 +6332,66 @@ print(json.dumps(summary, default=str))
         info "$MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL"
         info "$MSG_INFO_AND_RE_RUN_OSTLER_FDA"
     fi
+
+    # #259: Apple Mail no-content guidance. The apple_mail extractor
+    # arm now reports status "empty_no_content" when Mail is in the
+    # source set but the local store holds no messages in the window
+    # (no accounts connected, or accounts configured but never synced).
+    # Without this, the install records a silent zero and the customer
+    # never learns why their email surfaces are blank. Surface a calm,
+    # informational message pointing them at Apple Mail; this is not a
+    # hard failure and the install continues. Bracket with set +e so a
+    # grep miss under pipefail can never abort the install.
+    set +e
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+       && printf '%s' "$FDA_OUTPUT" | grep -q '"apple_mail"[^}]*"empty_no_content"'; then
+        info "$MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT"
+        info "$MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN"
+    fi
+    set -e
+
+    # #260: Mail history window "extend now?" affordance. The default
+    # window is 5 years (OSTLER_MAIL_BACKFILL_DAYS, set above). Offer the
+    # customer a one-touch way to pull their FULL local Mail history at
+    # install time if they keep more than 5 years on this Mac. Only ask
+    # when Apple Mail actually produced content (status "ok"); asking on
+    # an empty store would be noise. GUI-only + skippable; default is No
+    # so a walk-away install never blocks here.
+    set +e
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+       && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+       && printf '%s' "$FDA_OUTPUT" | grep -q '"apple_mail"[^}]*"status": "ok"'; then
+        _mail_extend_answer="$(gui_read \
+            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE" \
+            yesno \
+            "N" \
+            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP" \
+            "" \
+            "mail_extend_history")"
+        case "${_mail_extend_answer:-N}" in
+            y|Y|yes|YES|Yes)
+                ok "$MSG_OK_MAIL_EXTENDING_FULL_HISTORY"
+                # 50 years comfortably covers any realistic local mailbox
+                # without an unbounded query. Re-run only the apple_mail
+                # source so we do not redo every extractor.
+                OSTLER_FDA_SOURCES="apple_mail" \
+                OSTLER_MAIL_BACKFILL_DAYS="18250" \
+                "$OSTLER_PYTHON" -c "
+import sys, json
+sys.path.insert(0, '${FDA_DIR}')
+from ostler_fda.extract_all import run_all
+from pathlib import Path
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
+print(json.dumps(summary, default=str))
+" 2>&1 | grep '^\[' | sed 's/^/     /' || true
+                ;;
+            *)
+                ok "$MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY"
+                ;;
+        esac
+        unset _mail_extend_answer
+    fi
+    set -e
 
     # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
     # iCloud syncs. Calendar, Notes, Photos face recognition etc. can

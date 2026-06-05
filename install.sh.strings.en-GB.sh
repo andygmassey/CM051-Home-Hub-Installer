@@ -26,6 +26,8 @@ MSG_INFO_AND_RE_RUN_OSTLER_FDA="and re-run: ostler-fda"
 MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="Apple Mail accounts visible: %s (informational)"
 MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
 MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST="Apple Mail has cached messages. Ingest will pick them up on the next hourly tick."
+MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT="Apple Mail is selected, but there are no local messages to read on this Mac yet. Open Apple Mail and add an account (System Settings > Internet Accounts, then tick Mail), and let it finish a first sync."
+MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN="Once mail has arrived, re-run: ostler-fda. Ostler will pick it up automatically; nothing else is needed."
 MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST="Apple notarisation will be verified by Gatekeeper on first launch."
 MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP="available the installer will skip this step automatically."
 MSG_INFO_BASH_INSTALL_SNIPPET_SH="    bash %s/INSTALL_SNIPPET.sh"
@@ -331,6 +333,8 @@ MSG_OK_LICENCE_TEXTS_INSTALLED_SOURCE="Licence texts installed at %s/ (source: %
 MSG_OK_MACOS_DETECTED="macOS %s detected"
 MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS="Opening System Settings > Internet Accounts so you can add a mail account. Come back to this window once you have signed in to your first account."
 MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS="Skipping the Internet Accounts step. You can add a mail account later from System Settings; Doctor will surface a follow-up if no mail arrives within 24 hours."
+MSG_OK_MAIL_EXTENDING_FULL_HISTORY="Pulling your full Apple Mail history now. This can take a little longer for a large mailbox."
+MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY="Keeping the standard five-year mail window. You can pull more later from Doctor."
 MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE="nomic-embed-text already available"
 MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama installed"
@@ -784,6 +788,9 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any email account you have added to Appl
 
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Add a mail account to Apple Mail?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Apple Mail has no accounts connected on this Mac yet, so Ostler will not have any email to read. Pick Yes to open System Settings > Internet Accounts now (you can add iCloud, Gmail, or Outlook there). Pick No to skip; you can add an account later and Doctor will surface a follow-up if no mail arrives within 24 hours."
+
+MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Pull your full Apple Mail history?"
+MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="By default Ostler reads the last five years of your Apple Mail. If you keep more than that on this Mac and want all of it in your knowledge graph, pick Yes to pull the full local history now (this can take a little longer for a large mailbox). Pick No to keep the five-year window; you can always extend it later from Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Keep as NO if your accounts are with Gmail, iCloud, or Outlook – those work better via Apple Mail above."

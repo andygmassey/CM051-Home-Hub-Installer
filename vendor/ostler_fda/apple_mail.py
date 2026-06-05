@@ -82,14 +82,17 @@ def _find_envelope_index(mail_dir: Optional[Path] = None) -> Path:
 
 def extract_messages(
     db_path: Optional[Path] = None,
-    since_days: int = 365,
-    limit: int = 10000,
+    since_days: int = 1825,
+    limit: int = 100000,
 ) -> list[EmailMessage]:
     """Extract email metadata from the Mail Envelope Index.
 
     Args:
         db_path: Path to the Envelope Index. Auto-detected if None.
-        since_days: Only include emails from the last N days.
+        since_days: Only include emails from the last N days. Defaults
+            to 5 years (1825 days); callers can pass a smaller or larger
+            window. The install path drives this from
+            OSTLER_MAIL_BACKFILL_DAYS (see extract_all.py).
         limit: Maximum number of messages to extract.
 
     Returns:
