@@ -12596,7 +12596,11 @@ docker compose --profile compile run --rm -T \
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
-    if docker compose up -d wiki-site 2>&1 | tail -3; then
+    # #598: force-recreate so the freshly compiled baseline is actually served.
+    # The mkdocs dev server does not pick up cross-container volume writes via
+    # inotify, so a plain `up -d` would keep serving an empty /people/. This is
+    # the identical publish primitive used by wiki-recompile-tick.sh.
+    if docker compose up -d --force-recreate wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
         ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
         # Detached full summary compile (summaries ON -- no skip flag).

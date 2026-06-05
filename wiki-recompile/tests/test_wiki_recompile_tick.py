@@ -7,7 +7,9 @@ without a live Docker daemon. Asserts:
 - Phase 1: runs a FAST BASELINE compile with
   ``-e OSTLER_WIKI_SKIP_LLM=1`` (skips the multi-hour LLM summary
   pass so people appear in seconds).
-- Then publishes via ``docker compose up -d wiki-site``.
+- Then publishes via ``docker compose up -d --force-recreate
+  wiki-site`` (#598: force-recreate so the dev server re-reads the
+  volume the compiler wrote; a plain ``up -d`` leaves it stale).
 - Phase 2: AFTER publishing, launches a DETACHED full compile
   (``nohup`` + ``disown``, NO ``OSTLER_WIKI_SKIP_LLM``) so the
   summaries backfill -- and does NOT wait on it (the tick returns
@@ -165,8 +167,10 @@ def test_wrapper_runs_baseline_then_up_then_detached_full(stub_env):
         for line in invocations
     ), f"no SKIP_LLM baseline compile recorded: {invocations}"
 
-    # Publish: wiki-site brought up.
-    assert any("compose up -d wiki-site" in line for line in invocations), invocations
+    # Publish: wiki-site brought up with a force-recreate (#598).
+    assert any(
+        "compose up -d --force-recreate wiki-site" in line for line in invocations
+    ), invocations
 
     # Order: baseline before publish.
     baseline_idx = next(
@@ -174,7 +178,7 @@ def test_wrapper_runs_baseline_then_up_then_detached_full(stub_env):
         if "run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line
     )
     up_idx = next(i for i, line in enumerate(invocations)
-                  if "compose up -d wiki-site" in line)
+                  if "compose up -d --force-recreate wiki-site" in line)
     assert baseline_idx < up_idx
 
     # Phase 2: a DETACHED full compile (no SKIP_LLM) launched AFTER
@@ -223,7 +227,7 @@ def test_baseline_failure_skips_up_and_surfaces_exit(stub_env):
     # appear if it (wrongly) launched -- no background full compile.
     time.sleep(0.3)
     invocations = log.read_text().splitlines()
-    assert not any("compose up -d wiki-site" in line for line in invocations)
+    assert not any("--force-recreate wiki-site" in line for line in invocations)
     # The single run invocation we DID make is the baseline (carries
     # SKIP_LLM); there must be no second, summary-pass run.
     run_lines = [line for line in invocations if "run --rm -T" in line]
@@ -255,7 +259,7 @@ def test_up_failure_surfaces_exit(stub_env):
         "run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line
         for line in invocations
     )
-    assert any("up -d wiki-site" in line for line in invocations)
+    assert any("up -d --force-recreate wiki-site" in line for line in invocations)
     full_lines = [
         line for line in invocations
         if "run --rm -T wiki-compiler" in line
@@ -382,3 +386,27 @@ def test_install_snippet_substitutes_placeholders(tmp_path):
     staged_wrapper = fake_ostler / "bin" / "wiki-recompile-tick.sh"
     assert staged_wrapper.exists()
     assert staged_wrapper.stat().st_mode & 0o111
+
+
+# ---------------------------------------------------------------------------
+# #598 stale-serve: both publish paths force-recreate wiki-site
+# ---------------------------------------------------------------------------
+
+
+def test_both_publish_paths_force_recreate_wiki_site():
+    """#598: the served site went stale because `mkdocs serve` does not pick
+    up cross-container volume writes via inotify, so a plain `up -d wiki-site`
+    (a no-op on an already-running container) kept serving an empty /people/
+    even though people.md on disk was full. The fix is to force-recreate
+    wiki-site on publish, and the recompile-tick AND the install-time publish
+    must use the SAME primitive so they never diverge."""
+    tick = WRAPPER.read_text()
+    assert "up -d --force-recreate wiki-site" in tick, (
+        "wiki-recompile-tick.sh publish must force-recreate wiki-site (#598)"
+    )
+
+    install_sh = (REPO_ROOT / "install.sh").read_text()
+    assert "up -d --force-recreate wiki-site" in install_sh, (
+        "install.sh publish must use the identical force-recreate primitive "
+        "(#598); install-time and recompile-time publish must not diverge"
+    )
