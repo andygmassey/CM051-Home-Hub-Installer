@@ -1,0 +1,12 @@
+# OstlerInstaller app-icon golden hashes (TNM icon superellipse FINAL).
+# Installer app icon = Ink; DialogIcon = oxblood (documented #553 exception).
+# Regenerate via generate_appicon.py and repin if intentional.
+# sha256  filename
+f4a8566cb03e0dbad8eb8c97881e50631af59e386106cb23cc3d6b5dbd23f6ab  icon_16.png
+ca36c7e716fbf0dca6a0cd6a54eaf99d142cf60c63fce1b61e14b7644416a3d4  icon_32.png
+b8132c928bba3d7bdf6cab4c4d63ccfe5f0a149332a3d3ead3d5558e6cb2dd17  icon_64.png
+f29b10166d240e57c9a86fba084aed737a1a8119952b64edd150b93c4582c237  icon_128.png
+f59fea776b3d1b6df09e13748ee6cdfde1029bb42105902131bff19248429c20  icon_256.png
+fb8da1505bed8de76183917d876280d1bf6c26d10f967be31b805378925110df  icon_512.png
+be8ec94e7543f68f394d98ae4628eaac2b617f7d61316f75ee9449b9f2f3cbbb  icon_1024.png
+6c5bbc9554ca057be620a35d993ebefe4d0cf276e0fc97900ea007ee5c0ab156  DialogIcon.icns

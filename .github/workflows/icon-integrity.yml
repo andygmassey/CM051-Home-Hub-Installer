@@ -1,0 +1,43 @@
+name: icon-integrity
+
+# Installer app-icon guards (TNM_BRIEF_icon_superellipse_FINAL). The icon must
+# stay a true continuous-corner squircle (superellipse), never drift back to a
+# rounded rectangle, and keep its colours: appiconset = Ink, DialogIcon =
+# oxblood (the documented #553 exception). A rounded-rect negative control must
+# fail the corner gate, and every slot's sha256 is pinned. The DialogIcon
+# colour check is macOS-only (sips) and skips on Linux; its hash is still
+# pinned cross-platform.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/OstlerInstaller/Assets.xcassets/AppIcon.appiconset/**'
+      - 'gui/OstlerInstaller/Resources/DialogIcon.icns'
+      - 'gui/OstlerInstaller/generate_appicon.py'
+      - 'gui/OstlerInstaller/test_icon_geometry.py'
+      - 'gui/OstlerInstaller/ICON_HASHES.txt'
+      - '.github/workflows/icon-integrity.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  icon-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pillow
+        run: python -m pip install --quiet "Pillow>=10"
+
+      - name: Corner-geometry + colour + golden-hash guards
+        working-directory: gui/OstlerInstaller
+        run: python -m unittest test_icon_geometry -v
