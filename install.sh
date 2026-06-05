@@ -11611,11 +11611,20 @@ except Exception:
         # self-removing re-sync so contacts land once FDA is granted.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
         _schedule_contact_resync
-    elif [[ "$_hydrate_contacts_accounts" -gt 0 ]] || _store_populated_contacts; then
-        # FDA granted + accounts configured (or rows on disk) but the
-        # import came back 0: iCloud has not finished its first sync yet
-        # (or a transient read). Surface it and schedule the self-removing
-        # re-sync so late-syncing contacts still reach the graph.
+    elif _store_populated_contacts; then
+        # SILENT-ZERO GUARD (the failure mode that has burned us): FDA is
+        # granted AND the local AddressBook store HAS contact rows on
+        # disk, yet the abcddb import returned 0. That is NOT "iCloud
+        # still syncing" -- the contacts are right there. Surface it as a
+        # distinct, loud read failure (never report success), and still
+        # schedule the re-sync so a transient read recovers.
+        warn "$MSG_HYDRATE_CONTACTS_READ_FAILED"
+        _schedule_contact_resync
+    elif [[ "$_hydrate_contacts_accounts" -gt 0 ]]; then
+        # FDA granted, accounts configured, but the local store is still
+        # empty: iCloud has not finished its first contact sync yet.
+        # Surface it and schedule the self-removing re-sync so late-syncing
+        # contacts still reach the graph.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
         _schedule_contact_resync
     else

@@ -77,6 +77,12 @@ grep -qE 'FDA_GRANTED|_has_fda' <<<"$HYD" || fail_test "hydrate does not check F
 grep -q 'MSG_HYDRATE_CONTACTS_DENIED' <<<"$HYD" || fail_test "no FDA-denied warning surfaced"
 grep -q '_schedule_contact_resync' <<<"$HYD" || fail_test "no self-removing re-sync scheduled for the late-sync / FDA-grant case"
 grep -q 'MSG_HYDRATE_CONTACTS_DONE' <<<"$HYD" || fail_test "no success (non-zero count) branch"
+# SILENT-ZERO guard: FDA granted + local store populated + 0 imported
+# must be its own loud failure, never a "pending" or a silent pass.
+grep -q 'MSG_HYDRATE_CONTACTS_READ_FAILED' <<<"$HYD" \
+    || fail_test "no silent-zero guard: a populated store importing 0 contacts must fail loud (MSG_HYDRATE_CONTACTS_READ_FAILED)"
+grep -q '_store_populated_contacts' <<<"$HYD" \
+    || fail_test "silent-zero guard does not check _store_populated_contacts"
 # The denial copy must reference Full Disk Access, not Automation.
 denied_line="$(grep '^MSG_HYDRATE_CONTACTS_DENIED=' "$STRINGS_FILE")"
 grep -qi 'Full Disk Access' <<<"$denied_line" || fail_test "MSG_HYDRATE_CONTACTS_DENIED still references Automation, not Full Disk Access:
@@ -84,7 +90,7 @@ $denied_line"
 echo "PASS: FDA denial fails loud (FDA wording + resync), and a non-zero-count success branch exists"
 
 # ── 5. strings present ──────────────────────────────────────────
-for key in MSG_INFO_CONTACT_CARD_WILL_ASK MSG_HYDRATE_CONTACTS_DENIED MSG_HYDRATE_CONTACTS_PENDING MSG_HYDRATE_CONTACTS_DONE; do
+for key in MSG_INFO_CONTACT_CARD_WILL_ASK MSG_HYDRATE_CONTACTS_DENIED MSG_HYDRATE_CONTACTS_PENDING MSG_HYDRATE_CONTACTS_DONE MSG_HYDRATE_CONTACTS_READ_FAILED; do
     grep -q "^${key}=" "$STRINGS_FILE" || fail_test "locale catalogue missing key: $key"
 done
 echo "PASS: locale keys present"
