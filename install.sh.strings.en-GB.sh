@@ -56,6 +56,7 @@ MSG_INFO_CLONING_WIKI_RECOMPILE_SCRIPTS="Cloning wiki-recompile scripts..."
 MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL="Colima installed but not running. Will start it."
 MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN="Could not export contacts. You can import manually later."
 MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="Could not read contact card. No problem – we will ask instead."
+MSG_INFO_CONTACT_CARD_WILL_ASK="We will ask you for your name and country in a moment. Your contacts are read later using the Full Disk Access you grant, and nothing leaves this Mac."
 MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR="  cp -R /tmp/doctor-src/doctor/agent/* %s/"
 MSG_INFO_CREATING_PYTHON_VENV="  Creating Python venv at %s..."
 MSG_INFO_CREATING_USER_FACING_CONTENT_TREE="Creating user-facing content tree at %s/"
@@ -952,7 +953,7 @@ MSG_INFO_CALENDAR_CONFIGURED_BUT_NOT_FETCHED="Calendar accounts visible: %s. Ope
 MSG_INFO_CONTACTS_CONFIGURED_BUT_NOT_FETCHED="Contacts accounts visible: %s. Open Contacts.app once so it can sync your address book."
 
 # Account-detection denial / sync-pending split for hydrate copy
-MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts app. macOS may have asked for Automation permission and been declined - check System Settings > Privacy & Security > Automation and ensure OstlerInstaller has access to Contacts."
+MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts. Ostler reads them through Full Disk Access - grant it in System Settings > Privacy & Security > Full Disk Access, then re-run hydration from Settings. We will keep retrying in the background."
 MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
 MSG_HYDRATE_CONTACTS_RESYNC_REBUILDING_WIKI="New contacts imported; rebuilding your wiki in the background."
