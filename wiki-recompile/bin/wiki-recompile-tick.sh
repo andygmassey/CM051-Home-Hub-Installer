@@ -150,7 +150,13 @@ fi
 # ---------------------------------------------------------------------------
 
 set +o pipefail
-docker compose up -d wiki-site 2>&1 | tail -5
+# #598: force-recreate so the dev server re-reads the wiki-docs volume the
+# compiler just wrote. inotify does not reliably cross the container/volume
+# boundary, so a plain `up -d` (a no-op on an already-running container) keeps
+# serving the stale in-memory build and /people/ stays empty even though
+# people.md on disk is full. install.sh uses the identical publish primitive
+# so install-time and recompile-time behave the same.
+docker compose up -d --force-recreate wiki-site 2>&1 | tail -5
 UP_RC=${PIPESTATUS[0]}
 set -o pipefail
 if [ "$UP_RC" -ne 0 ]; then
