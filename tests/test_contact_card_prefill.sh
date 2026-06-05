@@ -170,24 +170,26 @@ if ! grep -q 'MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE=' "$STRINGS_SH";
 fi
 echo "PASS [case-5]: Q4 country-code prompt swaps to DETECTED_FROM_PHONE when source=phone"
 
-# ── Case 6: MSG_INFO_PLEASE_WAIT_READING_CONTACTS exists + is wired ─
-if ! grep -q 'MSG_INFO_PLEASE_WAIT_READING_CONTACTS=' "$STRINGS_SH"; then
-    echo "FAIL [case-6]: catalogue missing MSG_INFO_PLEASE_WAIT_READING_CONTACTS" >&2
+# ── Case 6: CX-453 -- the Phase-2 me-card osascript read is GONE ───
+# Pre-CX-453 this asserted a "please wait reading contacts" status fired
+# before the count-of-every-person osascript scan. CX-453 removed that
+# whole Phase-2 Contacts read (it fired the AppleEvent Automation prompt;
+# contacts are now ingested at hydrate time via the FDA abcddb read). So
+# the assertion flips: the me-card site must NOT do a count-of-every-
+# person scan, and must emit the "we will ask" message instead.
+if grep -q 'count of every person' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: Phase-2 'count of every person' osascript scan still present (CX-453 removed it)" >&2
     exit 1
 fi
-if ! grep -q 'info "\$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"' "$INSTALL_SH"; then
-    echo "FAIL [case-6]: install.sh not emitting MSG_INFO_PLEASE_WAIT_READING_CONTACTS" >&2
+if ! grep -q 'info "\$MSG_INFO_CONTACT_CARD_WILL_ASK"' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card site not emitting MSG_INFO_CONTACT_CARD_WILL_ASK" >&2
     exit 1
 fi
-# Ordering: the status line must appear BEFORE the count-of-every-person
-# osascript. Otherwise the silent-wait alarm isn't actually solved.
-WAIT_LINE=$(grep -n 'info "\$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"' "$INSTALL_SH" | head -n 1 | cut -d: -f1)
-COUNT_LINE=$(grep -n 'count of every person' "$INSTALL_SH" | head -n 1 | cut -d: -f1)
-if [[ -z "$WAIT_LINE" || -z "$COUNT_LINE" || "$WAIT_LINE" -ge "$COUNT_LINE" ]]; then
-    echo "FAIL [case-6]: wait line (#${WAIT_LINE:-?}) must fire before count osascript (#${COUNT_LINE:-?})" >&2
+if ! grep -q 'MSG_INFO_CONTACT_CARD_WILL_ASK=' "$STRINGS_SH"; then
+    echo "FAIL [case-6]: catalogue missing MSG_INFO_CONTACT_CARD_WILL_ASK" >&2
     exit 1
 fi
-echo "PASS [case-6]: contacts-wait line wired and fires before count-of-every-person scan"
+echo "PASS [case-6]: CX-453 -- Phase-2 Contacts osascript read removed; we-will-ask message wired"
 
 # ── Case 7: synthetic-fixture invariant (locked memory) ────────────
 #

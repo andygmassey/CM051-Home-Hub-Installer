@@ -2102,96 +2102,33 @@ DETECTED_COUNTRY=""
 DETECTED_EMAIL=""
 DETECTED_PHONE=""
 
-info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
-echo "  macOS may ask permission to access Contacts."
-echo "  This reads your name, country, and phone number to save you typing."
-echo "  It also exports your contacts for the knowledge graph."
-echo "  (Your data stays on this machine -- nothing is sent anywhere.)"
-echo ""
-
-# Capture stderr separately so we can detect a Contacts permission denial
-# (errAEEventNotPermitted = -1743) and surface it cleanly. The previous
-# `2>/dev/null || echo ""` swallowed denials silently and left the user
-# wondering why nothing happened.
-CARD_STDERR=$(mktemp)
-CARD_DATA=$(osascript -e '
-tell application "Contacts"
-    set myCard to my card
-    set myName to name of myCard
-    set firstName to first name of myCard
-
-    set myCountry to ""
-    try
-        set myCountry to country of first address of myCard
-    end try
-
-    set myEmail to ""
-    try
-        set myEmail to value of first email of myCard
-    end try
-
-    set myPhone to ""
-    try
-        set myPhone to value of first phone of myCard
-    end try
-
-    return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR" || true)
-
-if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
-    warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
-    warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
-    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
-fi
-rm -f "$CARD_STDERR"
-
-if [[ -n "$CARD_DATA" ]]; then
-    DETECTED_NAME=$(echo "$CARD_DATA" | cut -d'|' -f1)
-    DETECTED_FIRST=$(echo "$CARD_DATA" | cut -d'|' -f2)
-    DETECTED_COUNTRY=$(echo "$CARD_DATA" | cut -d'|' -f3)
-    DETECTED_EMAIL=$(echo "$CARD_DATA" | cut -d'|' -f4)
-    DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
-    ok "$(printf "$MSG_OK_FOUND" "${DETECTED_NAME}")"
-
-    # Back up contacts FIRST -- before we do anything with them.
-    # This is a safety net in case anything goes wrong during import.
-    CONTACTS_BACKUP="${OSTLER_DIR}/backups/contacts-backup-$(date +%Y%m%d-%H%M%S).vcf"
-    CONTACTS_EXPORT="${OSTLER_DIR}/imports/icloud-contacts.vcf"
-    mkdir -p "${OSTLER_DIR}/imports" "${OSTLER_DIR}/backups"
-    # CX-12 F6 (locked 2026-05-23): the osascript that follows counts +
-    # exports the entire address book and can dwell silently for up to
-    # ~30s on large libraries. Without a status line the GUI panel sits
-    # blank while the customer wonders whether the installer has frozen
-    # (Studio retest #5 "21s blank-wait" finding). Emit a structured
-    # info line first so the Log drawer + the spinner caption both
-    # surface what is happening.
-    info "$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"
-    CONTACT_COUNT=$(osascript -e '
-tell application "Contacts"
-    set vcfData to vcard of every person
-    return count of every person
-end tell' 2>/dev/null || echo "0")
-
-    if [[ "$CONTACT_COUNT" -gt 0 ]]; then
-        # Save backup copy first
-        osascript -e "
-tell application \"Contacts\"
-    set vcfData to vcard of every person
-    set fp to POSIX file \"${CONTACTS_BACKUP}\"
-    set fRef to open for access fp with write permission
-    write vcfData to fRef
-    close access fRef
-end tell" 2>/dev/null && \
-        ok "$(printf "$MSG_OK_BACKED_UP_CONTACTS" "${CONTACT_COUNT}" "${CONTACTS_BACKUP}")"
-
-        # Export working copy for import
-        cp "$CONTACTS_BACKUP" "$CONTACTS_EXPORT" 2>/dev/null && \
-        ok "$(printf "$MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY" "${CONTACT_COUNT}")" || \
-        info "$MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN"
-    fi
-else
-    info "$MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO"
-fi
+# CX-453 (task #453, v1.0.1): no Contacts read in Phase 2.
+#
+# This me-card read + VCF export previously used
+# `osascript -e 'tell application "Contacts" ...'`, which fires the
+# macOS AppleEvent Automation consent prompt ("OstlerInstaller wants to
+# control Contacts", blue icon) ON TOP OF the Contacts/FDA permission
+# the customer already grants -- a confusing second prompt and a silent
+# -1743 failure source. PyObjC via the bundled Python is NOT an option
+# here: the bundled venv is not created until the encrypt_db step
+# (Phase 3), well after this Phase-2 question block, so no bundled
+# interpreter exists yet.
+#
+# Decision (Andy, 2026-06-05): drop the osascript entirely. The me-card
+# read was only a pre-fill convenience; the customer types their name +
+# country as the plain questions below, exactly as they answer the rest
+# of setup. The ACTUAL contact ingest happens later, at hydrate time,
+# through contact_syncer's Full-Disk-Access AddressBook read (the abcddb
+# fallback) -- the same FDA the installer already pre-warms and grants,
+# with NO Automation prompt. So no data is lost by not exporting a VCF
+# here: the FDA-read abcddb is the real source (see the contact
+# hydration block).
+#
+# DETECTED_NAME/COUNTRY/EMAIL/PHONE stay empty (initialised above), so
+# the questions below prompt without a pre-filled default. DETECTED_FIRST
+# is intentionally left unset; every downstream reader uses
+# ${DETECTED_FIRST:-} so set -u is safe.
+info "$MSG_INFO_CONTACT_CARD_WILL_ASK"
 
 # ── Map country name to dialling code ──────────────────────────────
 
@@ -11762,78 +11699,54 @@ CRSPLIST
 
 # Contact hydration ------------------------------------------------
 #
-# CX-93 (DMG #48g): re-export from Contacts.app at hydrate time as
-# well as at the Phase-2 me-card capture. On a fresh Mac the
-# Phase-2 export can run BEFORE iCloud finishes the first contact
-# sync (Phase 2 is the very first thing that happens; iCloud sync
-# can take 30-90 seconds after sign-in). By the time we get to
-# hydrate (post-FDA, post-encrypt, post-Docker bring-up = several
-# minutes later), iCloud has typically caught up. Re-exporting here
-# means the customer's local AB + freshly-synced iCloud contacts
-# BOTH land in the import. If the Phase-2 vcf already has content
-# we keep it -- this is purely additive.
-if [[ ! -s "$_HYDRATE_VCF" ]]; then
-    info "$MSG_HYDRATE_CONTACTS_REEXPORT"
-    mkdir -p "$(dirname "$_HYDRATE_VCF")"
+# CX-453 (task #453, v1.0.1): read contacts through the Full-Disk-Access
+# AddressBook store (the abcddb fallback), NOT a Contacts.app osascript
+# export. The osascript re-export here used to fire the AppleEvent
+# Automation prompt (blue "wants to control Contacts"); we removed it so
+# the customer never sees that second prompt. The same applies to the
+# Phase-2 me-card site, which no longer reads Contacts at all.
+#
+# This is the moment the contacts actually reach the graph (the Phase-2
+# VCF export was dropped, so there is no pre-written vcf): by hydrate
+# (post-FDA-grant, post-encrypt, post-Docker = several minutes in) iCloud
+# has typically finished its first contact sync, so the local
+# AddressBook-v22.abcddb is populated. We force contact_syncer onto that
+# abcddb read by pointing --vcf at a path we never create -- the same
+# proven pattern bin/ostler-contact-resync uses. NO Automation prompt;
+# only the Full Disk Access the installer already pre-warmed and granted.
+mkdir -p "$(dirname "$_HYDRATE_VCF")"
 
-    # CX-101 (DMG #48j, 2026-05-29): state-2 wait + non-swallowing
-    # stderr capture. The old code piped osascript stderr to
-    # /dev/null + appended || true, so a Contacts Automation TCC
-    # denial AND a "Contacts hasn't synced yet" empty-store result
-    # were both indistinguishable from genuine "no contacts".
-    # Three improvements:
-    #   1. Pre-prompt offer to open Contacts.app if accounts are
-    #      configured but the local AB is empty (state 2).
-    #   2. Capture osascript stderr into /tmp log file so the install
-    #      log records the actual error.
-    #   3. After the osascript fails, classify the error: TCC denial
-    #      (-1743 / errAEEventNotPermitted) -> state-denied copy;
-    #      empty store -> state-pending copy.
-    _hydrate_contacts_accounts="$(_accountsdb_count_contacts)"
-    _hydrate_contacts_accounts="${_hydrate_contacts_accounts:-0}"
-    if [[ "$_hydrate_contacts_accounts" -gt 0 ]] \
-       && ! _store_populated_contacts \
-       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-        _open_contacts_help="$(printf "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP" "${_hydrate_contacts_accounts}")"
-        _three_state_wait_for_populate \
-            "contacts" \
-            "Contacts" \
-            "" \
-            "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE" \
-            "$_open_contacts_help" || true
-        unset _open_contacts_help
-    fi
-
-    _CONTACTS_STDERR="/tmp/ostler-hydrate-contacts-osascript.stderr"
-    : > "$_CONTACTS_STDERR"
-    osascript -e "
-tell application \"Contacts\"
-    set vcfData to vcard of every person
-    set fp to POSIX file \"${_HYDRATE_VCF}\"
-    set fRef to open for access fp with write permission
-    write vcfData to fRef
-    close access fRef
-end tell" 2>"$_CONTACTS_STDERR" || true
-
-    # If osascript wrote a known TCC-denial marker into stderr, set a
-    # flag so the downstream hydrate result picks the right copy.
-    # macOS denial codes: -1743 (Not authorised), errAEEventNotPermitted.
-    _CONTACTS_TCC_DENIED=false
-    if grep -qE 'Not authori[sz]ed|-1743|errAEEventNotPermitted' \
-        "$_CONTACTS_STDERR" 2>/dev/null; then
-        _CONTACTS_TCC_DENIED=true
-    fi
+# State-2 nudge: if accounts are configured but the local AB has no rows
+# yet (iCloud still syncing), offer to open Contacts.app so the sync
+# kicks. GUI-only; never an osascript Contacts read.
+_hydrate_contacts_accounts="$(_accountsdb_count_contacts)"
+_hydrate_contacts_accounts="${_hydrate_contacts_accounts:-0}"
+if [[ "$_hydrate_contacts_accounts" -gt 0 ]] \
+   && ! _store_populated_contacts \
+   && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    _open_contacts_help="$(printf "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP" "${_hydrate_contacts_accounts}")"
+    _three_state_wait_for_populate \
+        "contacts" \
+        "Contacts" \
+        "" \
+        "$MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE" \
+        "$_open_contacts_help" || true
+    unset _open_contacts_help
 fi
 
-if [[ -s "$_HYDRATE_VCF" ]] && [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
+if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CONTACTS_STARTED"
-    # contact_syncer.syncer --vcf emits a single-line JSON status on
-    # stdout when it finishes. Progress lines go to stderr so the
-    # final stdout line is parseable.
+    # Force the AddressBook-v22.abcddb fallback: point --vcf at a path we
+    # never create, so contact_syncer.syncer logs "vCard file not found"
+    # and reads the local AddressBook directly (Full Disk Access only, no
+    # Automation). It emits a single-line JSON status on stdout; progress
+    # goes to stderr so the final stdout line is parseable.
+    _HYDRATE_FORCE_ABCDDB_VCF="${OSTLER_DIR}/imports/.hydrate-force-abcddb.vcf"
+    rm -f "$_HYDRATE_FORCE_ABCDDB_VCF" 2>/dev/null || true
     _HYDRATE_CONTACTS_JSON="$(
         cd "$PIPELINE_DIR" && \
         "$_HYDRATE_PIPELINE_PY" -m contact_syncer.syncer \
-            --vcf "$_HYDRATE_VCF" \
+            --vcf "$_HYDRATE_FORCE_ABCDDB_VCF" \
             --graph-endpoint "$_HYDRATE_OXIGRAPH" 2>>/tmp/ostler-hydrate-contacts.log \
         | tail -n 1
     )" || _HYDRATE_CONTACTS_JSON=""
@@ -11847,52 +11760,48 @@ except Exception:
     print(0)' 2>/dev/null
     )"
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
+
+    # FDA is the ONLY permission this path needs. Read the conservative
+    # Phase-4 result; treat anything other than an explicit "true" that
+    # comes with a 0-count as a denial worth surfacing (default to "true"
+    # only so an unset var on some path cannot wrongly cry "denied").
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
-    elif [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
-        # Contacts Automation TCC denied -- the customer either
-        # declined the Automation prompt or the prompt has not
-        # appeared yet. Tell them how to grant it.
+    elif [[ "${FDA_GRANTED:-true}" != "true" ]] || ! _has_fda; then
+        # Fail LOUD on FDA denial -- never a silent 0-contact pass. The
+        # abcddb read needs Full Disk Access; without it nothing can be
+        # read. Tell the customer exactly what to grant, and schedule the
+        # self-removing re-sync so contacts land once FDA is granted.
         warn "$MSG_HYDRATE_CONTACTS_DENIED"
+        _schedule_contact_resync
     elif _store_populated_contacts; then
-        # CX-91 (fresh-install): the local AddressBook store HAS contact
-        # rows on disk, so contacts ARE synced -- the AppleScript export
-        # simply returned nothing (Automation prompt deferred or declined).
-        # That is a permission problem, not a sync-not-finished problem,
-        # so emit the Automation-permission copy rather than "not synced".
-        warn "$MSG_HYDRATE_CONTACTS_DENIED"
-    elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        # State 2 -- accounts configured but local AB genuinely empty.
+        # SILENT-ZERO GUARD (the failure mode that has burned us): FDA is
+        # granted AND the local AddressBook store HAS contact rows on
+        # disk, yet the abcddb import returned 0. That is NOT "iCloud
+        # still syncing" -- the contacts are right there. Surface it as a
+        # distinct, loud read failure (never report success), and still
+        # schedule the re-sync so a transient read recovers.
+        warn "$MSG_HYDRATE_CONTACTS_READ_FAILED"
+        _schedule_contact_resync
+    elif [[ "$_hydrate_contacts_accounts" -gt 0 ]]; then
+        # FDA granted, accounts configured, but the local store is still
+        # empty: iCloud has not finished its first contact sync yet.
+        # Surface it and schedule the self-removing re-sync so late-syncing
+        # contacts still reach the graph.
         warn "$MSG_HYDRATE_CONTACTS_PENDING"
-        # iCloud has not finished its first contact sync yet. Schedule a
-        # self-removing re-sync agent so the contacts land in the graph
-        # once the sync completes, without the customer re-running setup.
         _schedule_contact_resync
     else
-        # State 1 -- no contacts source configured at all.
+        # No contacts source configured at all.
         warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
     fi
+    unset _HYDRATE_FORCE_ABCDDB_VCF
 else
-    # No vcf written OR pipeline venv missing. Classify between
-    # TCC denial and genuinely empty using the same probe shape.
-    if [[ "${_CONTACTS_TCC_DENIED:-false}" == "true" ]]; then
-        warn "$MSG_HYDRATE_CONTACTS_DENIED"
-    elif _store_populated_contacts; then
-        # CX-91 (fresh-install): cross-check the on-disk AddressBook store
-        # before saying "not synced". Rows present means contacts ARE
-        # synced and the empty vcf is an export/permission failure, so
-        # emit the Automation-permission copy, not the sync-pending copy.
-        warn "$MSG_HYDRATE_CONTACTS_DENIED"
-    elif [[ "$(_accountsdb_count_contacts)" -gt 0 ]]; then
-        warn "$MSG_HYDRATE_CONTACTS_PENDING"
-        # Same iCloud-sync race as the populated-vcf path above: schedule
-        # the self-removing re-sync so late-syncing contacts still land.
-        _schedule_contact_resync
-    else
-        warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
-    fi
+    # Import-pipeline venv missing -- cannot read contacts at all. Loud,
+    # not silent: the venv build earlier should have hard-failed, but if
+    # we reach here, say so rather than imply zero contacts.
+    warn "$MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD"
 fi
-unset _CONTACTS_STDERR _CONTACTS_TCC_DENIED _hydrate_contacts_accounts
+unset _hydrate_contacts_accounts
 
 # Calendar hydration -----------------------------------------------
 #
