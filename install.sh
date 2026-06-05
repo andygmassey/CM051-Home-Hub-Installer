@@ -16,7 +16,14 @@
 #   - Install anything without telling you first.
 #   - Touch your existing Docker containers or Homebrew packages.
 
-set -euo pipefail
+# -E (errtrace): make the ERR trap fire for failures INSIDE shell
+# functions / subshells / command substitutions, not just top-level
+# commands. Without it a `set -u` death inside a helper function (the
+# common abort shape -- CX-98 et al) would skip the ERR trap entirely
+# and die silently with no DONE marker. The ERR trap itself
+# (_ostler_on_err) is registered later, once the real gui helpers are
+# sourced. See CX-454 (task #454).
+set -Eeuo pipefail
 
 # ── Flags ──────────────────────────────────────────────────────────
 
@@ -272,6 +279,25 @@ err()   { gui_active || printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; gui_log
 # patches only.
 OSTLER_LAST_ERROR_CODE=""
 
+# CX-454 (task #454): the single "a terminal DONE marker has gone out"
+# sentinel. It is set =1 inside the real gui_done / gui_cancelled
+# (lib/progress_emitter.sh), which are the only chokepoints that emit a
+# DONE ok / fail / cancelled marker. Every explicit fail/fail_with_code
+# routes through gui_done, so an anticipated failure sets it too.
+#
+# Two trap handlers read it so we report a mid-script death exactly
+# once, never twice and never as a false success:
+#   - the ERR trap (_ostler_on_err) stays silent if a terminal marker
+#     already went out (so a curated ERR-NN-* is not overwritten by the
+#     synthetic ERR-99);
+#   - the EXIT backstop (top of composite_cleanup) emits a synthetic
+#     DONE-fail ONLY if no terminal marker was emitted and the install
+#     had actually started (see _ostler_on_err / composite_cleanup).
+#
+# Declared empty up-front so both `set -u`-safe handlers can read it via
+# ${OSTLER_DONE_EMITTED:-} before the lib is sourced.
+OSTLER_DONE_EMITTED=""
+
 fail_with_code() {
     # fail_with_code <CODE> <MSG...>
     # CODE must match ERR-NN-* shape. We do not enforce that here
@@ -286,6 +312,12 @@ fail_with_code() {
 }
 
 fail()  {
+    # CX-454: this routes through gui_done below, which sets
+    # OSTLER_DONE_EMITTED. That marks the failure as already terminally
+    # reported, so the ERR trap (_ostler_on_err) and the EXIT backstop
+    # both stay silent and never double-report this explicit failure
+    # with the synthetic ERR-99 code. Every fail_with_code routes
+    # through here, so both helpers are covered.
     # Render the code prefix on the TTY line + the GUI log so the
     # error is greppable end-to-end. The code may be empty -- a
     # legacy fail "..." call (no code attached) renders without a
@@ -4376,6 +4408,31 @@ TAILSCALE_TMP_ENV=""
 # branch may already have set.
 
 composite_cleanup() {
+    # ─── CX-454 EXIT backstop (runs FIRST, before any cleanup) ───
+    # The load-bearing half of the mid-script-death fix. On bash 3.2 a
+    # `set -u` unbound-variable abort skips the ERR trap and can mask
+    # its exit code to 0 (verified), so the ONLY reliable signal that we
+    # died mid-install is: a step had started AND no terminal DONE
+    # marker was ever emitted. In that case emit a synthetic DONE-fail
+    # naming the failing step BEFORE we tear down resources, so the GUI
+    # shows a real failure with a code + step instead of the generic
+    # no-DONE catch-all. Guards:
+    #   - OSTLER_DONE_EMITTED empty: no ok/fail/cancelled marker went
+    #     out (a clean success, an explicit fail, or a user-cancel all
+    #     set it, so none of those false-trigger here).
+    #   - __OSTLER_STEP_ID non-empty: the install had actually begun, so
+    #     an early `--help`/`--version`/pre-step `exit 0` (which never
+    #     opens a step) cannot be mislabelled as a failure.
+    # Fully ${VAR:-}-guarded so the backstop itself is set -u safe.
+    # ─── OSTLER_EXIT_BACKSTOP_BEGIN ───
+    if [[ -z "${OSTLER_DONE_EMITTED:-}" && -n "${__OSTLER_STEP_ID:-}" ]]; then
+        OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-${__OSTLER_STEP_ID}"
+        export OSTLER_LAST_ERROR_CODE
+        gui_log error "Install aborted before completion during step '${__OSTLER_STEP_ID}' with no completion marker (likely a set -u unbound-variable abort)."
+        gui_done fail
+    fi
+    # ─── OSTLER_EXIT_BACKSTOP_END ───
+
     if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
         kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
         SUDO_KEEPALIVE_PID=""
@@ -4415,6 +4472,66 @@ trap composite_cleanup EXIT
 # branch can call it before this trap is registered. See the
 # block under the "Atomic-promote the pre-FDA staging tree" comment
 # above the path-variable setup.
+
+# ─── OSTLER_ERR_TRAP_BEGIN (CX-454 / task #454) ───────────────────
+# Report a mid-script death as a loud DONE-fail BEFORE the script
+# exits, so the GUI surfaces a real failure with a step + stable code
+# instead of the generic "stopped before it finished" catch-all (or,
+# historically, a masked green success).
+#
+# TWO HANDLERS, because of a VERIFIED bash 3.2 behaviour (3.2.57 is the
+# system bash on the customer's Mac, both /bin/bash and PATH):
+#
+#   1. The ERR trap fires only for a genuine COMMAND failure under
+#      `set -e` (e.g. an uncaught `docker`/`cp` non-zero). On bash 3.2
+#      it does NOT fire for a `set -u` unbound-variable abort -- that
+#      death happens during word expansion, skips the ERR trap, AND can
+#      surface with a MASKED exit code of 0 (verified). Since the
+#      unbound-var abort is the single most common install death shape
+#      (CX-18/52/95/98 were all this), an ERR trap ALONE would miss the
+#      class this task is aimed at. The ERR trap is still worth keeping:
+#      for the command-failure class it gives the precise failing line.
+#
+#   2. The EXIT backstop (top of composite_cleanup) is the load-bearing
+#      net. The EXIT trap DOES fire on a `set -u` abort (verified), so
+#      if the install had started (a step id exists) and NO terminal
+#      DONE marker was emitted, it emits a synthetic DONE-fail naming
+#      the step that was running. This catches the unbound-var /
+#      exit-code-masked class the ERR trap cannot see.
+#
+# `set -E` (errtrace, set at the top of the script) makes the ERR trap
+# fire for command failures inside functions, not just at top level.
+#
+# Both handlers are `set -u` safe (every var read via ${VAR:-}) so the
+# reporter can never trip `set -u` and die while reporting.
+_ostler_on_err() {
+    local exit_code="${1:-1}"
+    local line="${2:-0}"
+    local cmd="${3:-}"
+    # If a terminal DONE marker already went out (an explicit
+    # fail/fail_with_code, a clean gui_done ok, a cancel, or a prior
+    # ERR fire), stay silent: report exactly once, and never overwrite
+    # a curated ERR-NN-* with the synthetic ERR-99.
+    if [[ -n "${OSTLER_DONE_EMITTED:-}" ]]; then
+        return
+    fi
+    # Synthetic, stable, support-greppable code carrying the failing
+    # line. Documented shape: ERR-99-INSTALL-ABORT-L<line>.
+    OSTLER_LAST_ERROR_CODE="ERR-99-INSTALL-ABORT-L${line}"
+    export OSTLER_LAST_ERROR_CODE
+    # Record command + step + line in the LOG stream (already redacted
+    # by the GUI's LogRedactor) so support has the raw context. Keep the
+    # raw command OFF the customer banner -- the banner carries step +
+    # code only, via the DONE marker below.
+    local step="${__OSTLER_STEP_ID:-}"
+    gui_log error "Install aborted unexpectedly at line ${line}${step:+ (step ${step})}: ${cmd}"
+    # Emit the one DONE-fail marker the GUI keys on. gui_done attaches
+    # OSTLER_LAST_ERROR_CODE as code= AND sets OSTLER_DONE_EMITTED, so
+    # the EXIT backstop below then stays silent.
+    gui_done fail
+}
+trap '_ostler_on_err $? $LINENO "$BASH_COMMAND"' ERR
+# ─── OSTLER_ERR_TRAP_END ──────────────────────────────────────────
 
 # Refresh the sudo timestamp every 60s while this script runs, so a long
 # Phase 3 (e.g. slow ollama pull) does not silently expire it. Under

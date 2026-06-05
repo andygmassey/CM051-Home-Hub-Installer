@@ -282,6 +282,10 @@ gui_done() {
     # Empty code (legacy bare `fail "..."`) emits no code= keyword
     # which the parser tolerates -- matches the pre-CX-17 wire shape.
     local status="${1:-ok}"
+    # CX-454: record that a terminal DONE marker has gone out, so the
+    # install.sh ERR trap + EXIT backstop never double-report or
+    # overwrite this with a synthetic mid-script-death failure.
+    OSTLER_DONE_EMITTED=1
     if [[ -n "${OSTLER_LAST_ERROR_CODE:-}" ]]; then
         gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}"
     else
@@ -296,6 +300,9 @@ gui_cancelled() {
     # failure banner (which is what the no-DONE crash fallback now
     # renders). Without this, those clean `exit 0` paths reach the GUI
     # with no DONE marker and get mislabelled as a crash.
+    # CX-454: a cancel is a terminal marker too -- record it so the EXIT
+    # backstop does not relabel a deliberate cancel as a failure.
+    OSTLER_DONE_EMITTED=1
     gui_emit DONE "status=cancelled"
 }
 
