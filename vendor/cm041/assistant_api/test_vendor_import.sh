@@ -231,5 +231,41 @@ if ! grep -qF "/api/v1/people," "$INSTALL_SH"; then
 fi
 echo "PASS: #596 Hub People list endpoint wired (handler + alias + proxy path)"
 
+# -------------------------------------------------------------------
+# Part 8: #624 wiki hydration panel -- cross-process wiring.
+# -------------------------------------------------------------------
+# The wiki homepage's first-run hydration panel reads
+# GET /api/v1/hydration/status. The silent-bail shape this guards: the
+# route exists in ical-server but is not reachable through the Doctor
+# :8089 front door (missing from DOCTOR_PROXY_PATHS), OR the compiler
+# container has nowhere host-visible to write the status file (missing
+# the ~/.ostler/state bind-mount + WIKI_HYDRATION_STATUS_FILE env), so
+# the host endpoint reads nothing and the panel hangs on "pending"
+# forever. Lock all four legs:
+#   (a) the route handler in ical-server.py,
+#   (b) the proxy path in DOCTOR_PROXY_PATHS,
+#   (c) the compiler's host state bind-mount in the compose heredoc,
+#   (d) the WIKI_HYDRATION_STATUS_FILE env pointing into that mount.
+
+if ! grep -q 'parsed.path == "/api/v1/hydration/status"' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the GET /api/v1/hydration/status handler (#624)" >&2
+    exit 1
+fi
+if ! grep -qF "/api/v1/hydration/status" "$INSTALL_SH"; then
+    echo "FAIL: install.sh DOCTOR_PROXY_PATHS is missing /api/v1/hydration/status" >&2
+    echo "      (the route is unreachable through the Doctor :8089 front door)" >&2
+    exit 1
+fi
+if ! grep -qF '${HOME}/.ostler/state:/state' "$INSTALL_SH"; then
+    echo "FAIL: install.sh wiki-compiler is missing the host state bind-mount (#624)" >&2
+    echo "      (the compiler has nowhere host-visible to write the status file)" >&2
+    exit 1
+fi
+if ! grep -qF "WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json" "$INSTALL_SH"; then
+    echo "FAIL: install.sh wiki-compiler is missing WIKI_HYDRATION_STATUS_FILE env (#624)" >&2
+    exit 1
+fi
+echo "PASS: #624 hydration panel wired (handler + proxy path + bind-mount + env)"
+
 echo ""
 echo "PASS: vendor/cm041/assistant_api/ regression test green"
