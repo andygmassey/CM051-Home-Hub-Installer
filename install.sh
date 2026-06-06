@@ -1914,6 +1914,18 @@ OSTLER_REGION_SOURCE="default_eu"
 # USER_ID="..." as its first non-comment line.
 SKIP_PHASE2=false
 FV_ENABLED=false
+# CX-123 (#643): belt-and-braces. Initialise the summary's OPTIONAL display
+# vars to safe defaults UNCONDITIONALLY here, so they are set on EVERY path
+# (fresh install + reuse), not only the path that happens to assign them.
+# The real conditional assignments below / later still override on their
+# own path; these just guarantee the final-summary recap never sees an
+# unset value. (The recap is also wrapped in set +u/-u as the primary
+# guard; this keeps the printed recap sensible rather than blank.)
+CONTACT_COUNT=0
+EXPORTS_DIR=""
+WIKI_FIRST_COMPILE_OK=false
+IMESSAGE_TCC_STATUS=""
+VANE_OK=false
 if [[ -f "${OSTLER_FINAL_DIR}/config/.env" ]] \
    && grep -q '^USER_ID=' "${OSTLER_FINAL_DIR}/config/.env" 2>/dev/null; then
     ok "$MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG"
@@ -13428,6 +13440,21 @@ fi
 
 # ── Summary ────────────────────────────────────────────────────────
 
+# CX-123 (#643): everything from here to `gui_done ok` below is the
+# DISPLAY-ONLY success recap. An unset OPTIONAL variable in here must NEVER
+# be able to abort the install before the DONE marker is emitted: a
+# `set -u` abort exits the script with no `gui_done ok`, so the GUI infers
+# a failure on a fully-successful install. This has false-failed cut after
+# cut on a different unguarded var each path (CONTACT_COUNT at L13455,
+# EXPORTS_DIR, FV_ENABLED, the channel flags, ...). Disabling nounset for
+# the whole recap neutralises ALL of them at once, including any bare echo
+# var. errexit (-e) and the ERR trap stay ACTIVE, so a genuine command
+# failure still aborts correctly; only the unbound-variable abort is
+# suppressed. nounset is restored immediately after gui_done ok.
+_cx123_nounset_was_on=0
+case "$-" in *u*) _cx123_nounset_was_on=1 ;; esac
+set +u
+
 INSTALL_END=$(date +%s)
 INSTALL_DURATION=$(( INSTALL_END - INSTALL_START ))
 INSTALL_MINS=$(( INSTALL_DURATION / 60 ))
@@ -13622,6 +13649,12 @@ if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end ok
 fi
 gui_done ok
+
+# CX-123 (#643): restore nounset now the display-only recap + the DONE
+# marker are emitted. The remaining post-success steps (icon cache-bust,
+# Dock restart, browser open) are loop-local / ${VAR:-} guarded, so they
+# run safely under set -u again.
+[[ "${_cx123_nounset_was_on:-0}" == 1 ]] && set -u
 
 # ── App-icon cache-bust ────────────────────────────────────────────
 # The .app bundles are placed by the DMG drag-install, so macOS can
