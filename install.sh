@@ -5533,7 +5533,7 @@ TOMLPREAMBLE
     echo "fallback = \"ollama\""
     echo
     echo "[providers.models.ollama]"
-    echo "base_url = \"http://localhost:11434\""
+    echo "base_url = \"http://localhost:11434/v1\""
     echo "model = \"${_ai_model_esc}\""
     echo "timeout_secs = 300"
 
