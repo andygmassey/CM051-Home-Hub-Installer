@@ -2,24 +2,26 @@
 #
 # tests/test_cx453_no_osascript_contacts.sh
 #
-# Regression test for the CX-453 (task #453, v1.0.1) fix: install.sh must
-# never read Contacts via `osascript -e 'tell application "Contacts"'`,
-# which fires the macOS AppleEvent Automation consent prompt (the blue
-# "OstlerInstaller wants to control Contacts" dialog) on top of the
-# Contacts/FDA permission the customer already grants.
+# Regression test for the Contacts-osascript posture. Two of the three
+# original osascript Contacts sites stay dropped (CX-453); the me-card
+# pre-fill read was RESTORED in #639 (the AppleEvent prompt is accepted
+# for v1.0 -- test_contact_card_prefill.sh guards the pre-fill itself).
 #
-# The fix removes all three osascript Contacts read sites:
-#   1. me-card auto-detect (Phase 2)  -> dropped; the customer types
-#      their name + country as plain questions.
-#   2. count + backup VCF export (Phase 2) -> dropped; contacts are
-#      ingested later via the Full-Disk-Access abcddb read.
-#   3. hydrate-time re-export -> replaced by forcing contact_syncer onto
-#      the AddressBook-v22.abcddb read (point --vcf at a path we never
-#      create), which needs only FDA, no Automation.
+# Still dropped (this test pins them gone):
+#   - count + backup VCF export (Phase 2): contacts are ingested later via
+#     the Full-Disk-Access abcddb read, not a Phase-2 VCF dump.
+#   - hydrate-time re-export -> replaced by forcing contact_syncer onto
+#     the AddressBook-v22.abcddb read (point --vcf at a path we never
+#     create), which needs only FDA, no Automation.
+#
+# Restored in #639 (allowed here, and the ONLY Contacts osascript): the
+# Phase-2 me-card read that pre-fills name/country/email/phone. Its
+# denial path (-1743) warns + falls back to plain questions, never a
+# silent pass.
 #
 # Per the silent-bail regression-test discipline this walks install.sh
-# and pins the EXACT shape so a future edit that reintroduces an
-# osascript Contacts read (or a silent 0-contact pass) trips this test.
+# and pins the EXACT shape so a future edit that reintroduces the VCF
+# export / hydrate re-export (or a silent 0-contact pass) trips this test.
 #
 # Synthetic only. Pure bash + standard tools.
 
@@ -37,31 +39,39 @@ fail_test() { echo "FAIL: $*" >&2; exit 1; }
 bash -n "$INSTALL_SH" || fail_test "install.sh fails bash -n parse check"
 echo "PASS: install.sh parses"
 
-# ── 1. No EXECUTABLE osascript Contacts read (comments allowed) ──
-# Strip comment lines (leading-whitespace + '#') before grepping, so the
-# explanatory comment that documents the OLD pattern does not trip us.
-# Scope is Contacts ONLY: System Events / Messages / Calendar osascripts
-# may legitimately remain.
-noncomment_contacts="$(grep -nE 'tell application "Contacts"' "$INSTALL_SH" \
-    | grep -vE ':[[:space:]]*#' || true)"
-if [[ -n "$noncomment_contacts" ]]; then
-    fail_test "executable osascript Contacts read still present:
-$noncomment_contacts"
+# ── 1. The ONLY executable Contacts osascript is the me-card read ──
+# Strip comment lines (leading-whitespace + '#') before grepping, so
+# explanatory comments do not trip us. The me-card read (#639) is the one
+# allowed Contacts osascript; any SECOND one (a revived VCF export /
+# hydrate re-export) is a regression.
+noncomment_contacts_count="$(grep -nE 'tell application "Contacts"' "$INSTALL_SH" \
+    | grep -vcE ':[[:space:]]*#' || true)"
+if [[ "$noncomment_contacts_count" -gt 1 ]]; then
+    fail_test "more than one executable Contacts osascript present (expected just the me-card read):
+$(grep -nE 'tell application "Contacts"' "$INSTALL_SH" | grep -vE ':[[:space:]]*#')"
 fi
-echo "PASS: no executable 'tell application \"Contacts\"' osascript read remains"
+# The one that remains must be the me-card read.
+grep -q 'set myCard to my card' "$INSTALL_SH" \
+    || fail_test "the restored me-card osascript read (set myCard to my card) is missing"
+echo "PASS: exactly one Contacts osascript remains, and it is the me-card read"
 
-# A Calendar osascript prewarm is fine and should still be here (proves
-# we scoped to Contacts, not nuke-all-osascript).
+# A Calendar osascript prewarm is fine (proves we scoped to Contacts).
 grep -qE "tell application \"Calendar\"" "$INSTALL_SH" \
     || echo "NOTE: no Calendar osascript found (not required, just a scope sanity check)"
 
-# ── 2. me-card site: dropped read, plain-question fallback ──────
-grep -q 'MSG_INFO_CONTACT_CARD_WILL_ASK' "$INSTALL_SH" \
-    || fail_test "me-card site does not emit the 'we will ask' message (MSG_INFO_CONTACT_CARD_WILL_ASK)"
-# The old Phase-2 VCF export must be gone.
+# ── 2. me-card site: pre-fill restored, VCF export + false comment gone ──
+# The fabricated "Decision (Andy, 2026-06-05)" attribution must not return.
+grep -q 'Decision (Andy, 2026-06-05)' "$INSTALL_SH" \
+    && fail_test "the fabricated 'Decision (Andy, 2026-06-05)' comment is back"
+# The me-card read must pre-fill the detected fields from CARD_DATA.
+grep -q 'CARD_DATA=' "$INSTALL_SH" \
+    || fail_test "me-card site no longer captures CARD_DATA for the pre-fill"
+grep -qE 'DETECTED_FIRST=\$\(echo "\$CARD_DATA"' "$INSTALL_SH" \
+    || fail_test "me-card site no longer parses DETECTED_FIRST from CARD_DATA (pre-fill regressed)"
+# The old Phase-2 VCF export must stay gone.
 grep -q 'CONTACTS_BACKUP=' "$INSTALL_SH" \
     && fail_test "Phase-2 CONTACTS_BACKUP osascript export still present"
-echo "PASS: me-card site reads nothing; Phase-2 VCF export removed"
+echo "PASS: me-card pre-fill restored; VCF export + fabricated comment gone"
 
 # ── 3. hydrate forces the FDA abcddb read ───────────────────────
 HYD="$(awk '/Contact hydration ----/{c=1} c{print} /^unset _hydrate_contacts_accounts/{if(c)exit}' "$INSTALL_SH")"
@@ -90,7 +100,7 @@ $denied_line"
 echo "PASS: FDA denial fails loud (FDA wording + resync), and a non-zero-count success branch exists"
 
 # ── 5. strings present ──────────────────────────────────────────
-for key in MSG_INFO_CONTACT_CARD_WILL_ASK MSG_HYDRATE_CONTACTS_DENIED MSG_HYDRATE_CONTACTS_PENDING MSG_HYDRATE_CONTACTS_DONE MSG_HYDRATE_CONTACTS_READ_FAILED; do
+for key in MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL MSG_HYDRATE_CONTACTS_DENIED MSG_HYDRATE_CONTACTS_PENDING MSG_HYDRATE_CONTACTS_DONE MSG_HYDRATE_CONTACTS_READ_FAILED; do
     grep -q "^${key}=" "$STRINGS_FILE" || fail_test "locale catalogue missing key: $key"
 done
 echo "PASS: locale keys present"

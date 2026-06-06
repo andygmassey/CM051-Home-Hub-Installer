@@ -2098,37 +2098,70 @@ osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 ||
 # ── Auto-detect from macOS contact card ────────────────────────────
 
 DETECTED_NAME=""
+DETECTED_FIRST=""
 DETECTED_COUNTRY=""
 DETECTED_EMAIL=""
 DETECTED_PHONE=""
 
-# CX-453 (task #453, v1.0.1): no Contacts read in Phase 2.
+# Auto-detect the customer's name/country/email/phone from their macOS
+# "my card" in Contacts, to pre-fill the questions below so they do not
+# retype data we can already read (#639). This uses
+# `osascript -e 'tell application "Contacts" ...'`, which fires the macOS
+# AppleEvent Automation consent prompt the first time ("OstlerInstaller
+# wants to control Contacts"). That prompt is accepted for v1.0: the
+# pre-fill is worth the one extra dialog. A denial (errAEEventNotPermitted
+# / -1743) is detected from stderr and handled gracefully below -- we warn
+# and fall back to plain questions, never a silent pass.
 #
-# This me-card read + VCF export previously used
-# `osascript -e 'tell application "Contacts" ...'`, which fires the
-# macOS AppleEvent Automation consent prompt ("OstlerInstaller wants to
-# control Contacts", blue icon) ON TOP OF the Contacts/FDA permission
-# the customer already grants -- a confusing second prompt and a silent
-# -1743 failure source. PyObjC via the bundled Python is NOT an option
-# here: the bundled venv is not created until the encrypt_db step
-# (Phase 3), well after this Phase-2 question block, so no bundled
-# interpreter exists yet.
-#
-# Decision (Andy, 2026-06-05): drop the osascript entirely. The me-card
-# read was only a pre-fill convenience; the customer types their name +
-# country as the plain questions below, exactly as they answer the rest
-# of setup. The ACTUAL contact ingest happens later, at hydrate time,
-# through contact_syncer's Full-Disk-Access AddressBook read (the abcddb
-# fallback) -- the same FDA the installer already pre-warms and grants,
-# with NO Automation prompt. So no data is lost by not exporting a VCF
-# here: the FDA-read abcddb is the real source (see the contact
-# hydration block).
-#
-# DETECTED_NAME/COUNTRY/EMAIL/PHONE stay empty (initialised above), so
-# the questions below prompt without a pre-filled default. DETECTED_FIRST
-# is intentionally left unset; every downstream reader uses
-# ${DETECTED_FIRST:-} so set -u is safe.
-info "$MSG_INFO_CONTACT_CARD_WILL_ASK"
+# (The promptless CNContact `ostler-contacts` helper is the #453 v1.0.1
+# follow-up. PyObjC via the bundled Python is not an option here: the
+# bundled venv is not created until the Phase-3 encrypt_db step, well
+# after this Phase-2 question block.)
+info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
+
+# Capture stderr separately so a Contacts permission denial (-1743) is
+# detected and surfaced cleanly instead of silently swallowed. The inner
+# `|| true` keeps the failure inside the $(...) subshell so set -E cannot
+# fire the ERR trap on a denial (cf. #640).
+CARD_STDERR=$(mktemp)
+CARD_DATA=$(osascript -e '
+tell application "Contacts"
+    set myCard to my card
+    set myName to name of myCard
+    set firstName to first name of myCard
+
+    set myCountry to ""
+    try
+        set myCountry to country of first address of myCard
+    end try
+
+    set myEmail to ""
+    try
+        set myEmail to value of first email of myCard
+    end try
+
+    set myPhone to ""
+    try
+        set myPhone to value of first phone of myCard
+    end try
+
+    return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
+end tell' 2>"$CARD_STDERR" || true)
+
+if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+    warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
+    warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+fi
+rm -f "$CARD_STDERR"
+
+if [[ -n "$CARD_DATA" ]]; then
+    DETECTED_NAME=$(echo "$CARD_DATA" | cut -d'|' -f1)
+    DETECTED_FIRST=$(echo "$CARD_DATA" | cut -d'|' -f2)
+    DETECTED_COUNTRY=$(echo "$CARD_DATA" | cut -d'|' -f3)
+    DETECTED_EMAIL=$(echo "$CARD_DATA" | cut -d'|' -f4)
+    DETECTED_PHONE=$(echo "$CARD_DATA" | cut -d'|' -f5)
+fi
 
 # ── Map country name to dialling code ──────────────────────────────
 
@@ -2790,6 +2823,32 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
        && "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" != true ]]; then
         warn "$MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP"
         CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true
+    fi
+
+    # #260 / #639: collect the Mail history-window choice HERE, upfront in
+    # Phase 2, adjacent to the Apple Mail question. It was previously a
+    # blocking gui_read mid-install (~L6498), which stalled a walk-away
+    # install. Default keeps 5 years; "extend" pulls the full local
+    # mailbox. The choice is stored in OSTLER_MAIL_BACKFILL_DAYS and
+    # consumed by the first FDA extraction with no further prompt. Only
+    # relevant when Apple Mail is the email source.
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
+        _mail_extend_answer="$(gui_read \
+            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE" \
+            yesno \
+            "N" \
+            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP" \
+            "" \
+            "mail_extend_history")"
+        case "${_mail_extend_answer:-N}" in
+            y|Y|yes|YES|Yes)
+                # 50 years comfortably covers any realistic local mailbox
+                # without an unbounded query.
+                OSTLER_MAIL_BACKFILL_DAYS="18250"
+                ;;
+            *) : ;;  # leave unset -> defaults to 1825 (5y) at extract time
+        esac
+        unset _mail_extend_answer
     fi
 
     if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
@@ -6450,46 +6509,20 @@ print(json.dumps(summary, default=str))
     fi
     set -e
 
-    # #260: Mail history window "extend now?" affordance. The default
-    # window is 5 years (OSTLER_MAIL_BACKFILL_DAYS, set above). Offer the
-    # customer a one-touch way to pull their FULL local Mail history at
-    # install time if they keep more than 5 years on this Mac. Only ask
-    # when Apple Mail actually produced content (status "ok"); asking on
-    # an empty store would be noise. GUI-only + skippable; default is No
-    # so a walk-away install never blocks here.
+    # #260 / #639: the Mail history window was chosen UPFRONT in Phase 2
+    # (OSTLER_MAIL_BACKFILL_DAYS) and already applied by the FDA extraction
+    # above, so there is NO prompt here -- a walk-away install must never
+    # block mid-run. Just confirm which window was applied, when Apple Mail
+    # actually produced content (status "ok"). Bracket with set +e so a
+    # grep miss under pipefail can never abort the install.
     set +e
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
-       && [[ "${OSTLER_GUI:-0}" == "1" ]] \
        && printf '%s' "$FDA_OUTPUT" | grep -q '"apple_mail"[^}]*"status": "ok"'; then
-        _mail_extend_answer="$(gui_read \
-            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE" \
-            yesno \
-            "N" \
-            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP" \
-            "" \
-            "mail_extend_history")"
-        case "${_mail_extend_answer:-N}" in
-            y|Y|yes|YES|Yes)
-                ok "$MSG_OK_MAIL_EXTENDING_FULL_HISTORY"
-                # 50 years comfortably covers any realistic local mailbox
-                # without an unbounded query. Re-run only the apple_mail
-                # source so we do not redo every extractor.
-                OSTLER_FDA_SOURCES="apple_mail" \
-                OSTLER_MAIL_BACKFILL_DAYS="18250" \
-                "$OSTLER_PYTHON" -c "
-import sys, json
-sys.path.insert(0, '${FDA_DIR}')
-from ostler_fda.extract_all import run_all
-from pathlib import Path
-summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
-print(json.dumps(summary, default=str))
-" 2>&1 | grep '^\[' | sed 's/^/     /' || true
-                ;;
-            *)
-                ok "$MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY"
-                ;;
-        esac
-        unset _mail_extend_answer
+        if [[ "${OSTLER_MAIL_BACKFILL_DAYS:-1825}" -gt 1825 ]]; then
+            ok "$MSG_OK_MAIL_EXTENDING_FULL_HISTORY"
+        else
+            ok "$MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY"
+        fi
     fi
     set -e
 

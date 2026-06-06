@@ -12,8 +12,9 @@
 #   F3  iMessage allowed default = "$USER_PHONE, $USER_EMAIL"
 #   F4  WhatsApp recipient default = "$USER_PHONE"
 #   F5  Country-code "We detected +..." prompt fires when source=phone
-#   F6  MSG_INFO_PLEASE_WAIT_READING_CONTACTS is emitted before the
-#       all-contacts osascript scan
+#   F6  the Phase-2 me-card osascript read + DETECTED_* pre-fill is
+#       present (#639 restored it; only the single me-card read, no
+#       bulk all-contacts scan, and no fabricated "Decision" comment)
 #
 # Synthetic fixture only — locked memory
 # feedback_synthetic_fixtures_no_real_data_default. Phone is in the
@@ -170,26 +171,33 @@ if ! grep -q 'MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE=' "$STRINGS_SH";
 fi
 echo "PASS [case-5]: Q4 country-code prompt swaps to DETECTED_FROM_PHONE when source=phone"
 
-# ── Case 6: CX-453 -- the Phase-2 me-card osascript read is GONE ───
-# Pre-CX-453 this asserted a "please wait reading contacts" status fired
-# before the count-of-every-person osascript scan. CX-453 removed that
-# whole Phase-2 Contacts read (it fired the AppleEvent Automation prompt;
-# contacts are now ingested at hydrate time via the FDA abcddb read). So
-# the assertion flips: the me-card site must NOT do a count-of-every-
-# person scan, and must emit the "we will ask" message instead.
+# ── Case 6: #639 -- the Phase-2 me-card pre-fill read is RESTORED ──
+# PR #220 deleted the me-card osascript read (and wrote a fabricated
+# "Decision (Andy)" comment). #639 restores it: the read pre-fills the
+# customer's details so they do not retype data we can already see. The
+# whole-address-book "count of every person" scan stays GONE (only the
+# single me-card read is back, not a bulk Contacts scan).
 if grep -q 'count of every person' "$INSTALL_SH"; then
-    echo "FAIL [case-6]: Phase-2 'count of every person' osascript scan still present (CX-453 removed it)" >&2
+    echo "FAIL [case-6]: Phase-2 'count of every person' bulk osascript scan present (only the single me-card read should be restored)" >&2
     exit 1
 fi
-if ! grep -q 'info "\$MSG_INFO_CONTACT_CARD_WILL_ASK"' "$INSTALL_SH"; then
-    echo "FAIL [case-6]: me-card site not emitting MSG_INFO_CONTACT_CARD_WILL_ASK" >&2
+if ! grep -q 'set myCard to my card' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card osascript read (set myCard to my card) is missing -- pre-fill regressed" >&2
     exit 1
 fi
-if ! grep -q 'MSG_INFO_CONTACT_CARD_WILL_ASK=' "$STRINGS_SH"; then
-    echo "FAIL [case-6]: catalogue missing MSG_INFO_CONTACT_CARD_WILL_ASK" >&2
+if ! grep -qE 'DETECTED_FIRST=\$\(echo "\$CARD_DATA"' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card read does not parse DETECTED_FIRST from CARD_DATA -- pre-fill regressed" >&2
     exit 1
 fi
-echo "PASS [case-6]: CX-453 -- Phase-2 Contacts osascript read removed; we-will-ask message wired"
+if ! grep -q 'info "\$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: me-card site not emitting the reading-contact-card pre-fill info" >&2
+    exit 1
+fi
+if grep -q 'Decision (Andy, 2026-06-05)' "$INSTALL_SH"; then
+    echo "FAIL [case-6]: fabricated 'Decision (Andy, 2026-06-05)' comment is back" >&2
+    exit 1
+fi
+echo "PASS [case-6]: #639 -- me-card pre-fill read restored; bulk scan + fabricated comment absent"
 
 # ── Case 7: synthetic-fixture invariant (locked memory) ────────────
 #
