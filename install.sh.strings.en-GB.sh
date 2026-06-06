@@ -219,6 +219,7 @@ MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE="Vane not responding (optional; 
 MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL="View any time with: bash install.sh --licenses"
 MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Voice recognition will stay off. You can enable later in Settings."
 MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="Waiting for you to sign in to Tailscale (up to 3 minutes)..."
+MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Tailscale remote access was not set up. Your iOS Companion will work on your home Wi-Fi; you can set up remote access later from Settings."
 MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN="WhatsApp connector left off. You can enable it later via Settings."
 MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17="WhatsApp keepalive scheduled at 08:50 + 17:50 (label com.creativemachines.ostler.whatsapp-keepalive)"
 MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK="Skipping first-day wiki catch-up: the wiki-recompile tick is not installed. The daily wiki rebuild, if installed, still runs."
