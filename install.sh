@@ -5898,7 +5898,12 @@ except Exception as e:
             fail_with_code "ERR-09-PASSKEY-SETUP" "$MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH"
         fi
     else
-        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2-)
+        # Inner `|| true`: a grep no-match (marker absent) returns non-zero
+        # and, under set -E, would fire the ERR trap INSIDE this $(...)
+        # subshell and abort a successful encryption (same class as
+        # CX-122 / #640). An empty RECOVERY_KEY is handled downstream by
+        # the `[[ -n "$RECOVERY_KEY" ]]` guard before the show-once render.
+        RECOVERY_KEY=$(echo "$SETUP_OUTPUT" | grep "^RECOVERY_PHRASE=" | cut -d= -f2- || true)
         ok "$MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP"
     fi
 elif [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then
@@ -9516,7 +9521,15 @@ APPLE_MAIL_VERSION_DIR=""
 # classification (state 1 vs state 2 vs state 3) becomes possible.
 info "CX-100 checkpoint: pre Mail.app version dir find"
 if [[ -d "${HOME}/Library/Mail" ]]; then
+    # set -E propagates the abort-on-error ERR trap INTO the $(...)
+    # subshell, so a non-zero find/sort here would fire _ostler_on_err
+    # before the outer `||` runs, false-failing a healthy install (same
+    # class as CX-122 / #640). Suppress the trap for just this probe; the
+    # `|| _mail_probe_failure_line=...` breadcrumb is preserved.
+    _saved_err_trap=$(trap -p ERR)
+    trap - ERR
     APPLE_MAIL_VERSION_DIR=$(find "${HOME}/Library/Mail" -maxdepth 1 -type d -name 'V[0-9]*' 2>/dev/null | sort -V | tail -1) || _mail_probe_failure_line="find Mail/V* dir"
+    eval "${_saved_err_trap:-}"
 fi
 info "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 
@@ -13095,8 +13108,33 @@ fi
 # See piece D / task #278 of the cron diagnosis brief.
 
 if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
-    DOCTOR_OUTPUT=$(timeout 10 "${ASSISTANT_BINARY}" doctor 2>&1) || \
+    # Pick a timeout wrapper, mirroring the hydrate_* steps. brew
+    # coreutils ships gtimeout; some toolchains ship plain timeout. Stock
+    # macOS ships NEITHER -- the old bare `timeout 10` was always a
+    # command-not-found there, so this probe never actually ran doctor.
+    # Empty wrapper -> call the daemon directly (its own startup is fast).
+    _DOCTOR_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _DOCTOR_TIMEOUT_WRAP="gtimeout 10"
+    elif command -v timeout >/dev/null 2>&1; then
+        _DOCTOR_TIMEOUT_WRAP="timeout 10"
+    fi
+    # The daemon may still be booting, so a non-zero `doctor` here is
+    # expected and deferred (the `||` fallback handles it). The load-
+    # bearing bit: `set -E` (errtrace) propagates the abort-on-error ERR
+    # trap INTO the $(...) command-substitution subshell, so ANY non-zero
+    # inside it (a warming daemon, or -- on stock macOS -- the absent
+    # `timeout` returning 127) fires _ostler_on_err -> gui_done fail FROM
+    # the subshell, false-failing an otherwise-successful install
+    # (CX-122 / #640; reproduced + verified on Studio bash 3.2.57, no
+    # timeout, via the ERR-trap ledger). The outer `||` only guards the
+    # parent assignment, not the inherited in-subshell trap. Suppress the
+    # ERR trap for exactly this probe, then restore the abort handler.
+    _saved_err_trap=$(trap -p ERR)
+    trap - ERR
+    DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || \
         DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
+    eval "${_saved_err_trap:-}"
 
     if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
         info "$MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY"

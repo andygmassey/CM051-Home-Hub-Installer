@@ -57,8 +57,10 @@ if printf '%s\n' "$BLOCK" | grep -q 'HEALTHY=false'; then
 fi
 printf 'PASS: doctor probe block is non-fatal (does not flip HEALTHY)\n'
 
-# 4. Deferred-on-failure path is wired
-if ! printf '%s\n' "$BLOCK" | grep -q 'deferred (daemon may still be'; then
+# 4. Deferred-on-failure path is wired: on a non-zero/failed probe the
+# block emits the deferred-doctor info messages (keyed by this MSG id)
+# rather than failing the install.
+if ! printf '%s\n' "$BLOCK" | grep -q 'MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY'; then
     printf 'FAIL: doctor probe block missing deferred-on-failure log\n' >&2
     exit 1
 fi
