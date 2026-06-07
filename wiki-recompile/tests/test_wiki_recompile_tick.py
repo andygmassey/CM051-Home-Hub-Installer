@@ -7,9 +7,11 @@ without a live Docker daemon. Asserts:
 - Phase 1: runs a FAST BASELINE compile with
   ``-e OSTLER_WIKI_SKIP_LLM=1`` (skips the multi-hour LLM summary
   pass so people appear in seconds).
-- Then publishes via ``docker compose up -d --force-recreate
-  wiki-site`` (#598: force-recreate so the dev server re-reads the
-  volume the compiler wrote; a plain ``up -d`` leaves it stale).
+- Then publishes via a plain ``docker compose up -d wiki-site`` (no
+  --force-recreate): the wiki-site container now runs a static server that
+  picks up the finished compile by polling the .compile-complete marker, so
+  no container restart is needed. The old force-recreate (#598) was the
+  recompile-window 000 and has been removed.
 - Phase 2: AFTER publishing, launches a DETACHED full compile
   (``nohup`` + ``disown``, NO ``OSTLER_WIKI_SKIP_LLM``) so the
   summaries backfill -- and does NOT wait on it (the tick returns
@@ -167,10 +169,14 @@ def test_wrapper_runs_baseline_then_up_then_detached_full(stub_env):
         for line in invocations
     ), f"no SKIP_LLM baseline compile recorded: {invocations}"
 
-    # Publish: wiki-site brought up with a force-recreate (#598).
+    # Publish: wiki-site brought up with a PLAIN `up -d` -- no force-recreate
+    # (the static server picks up the compile via its marker poll).
     assert any(
-        "compose up -d --force-recreate wiki-site" in line for line in invocations
+        "compose up -d wiki-site" in line for line in invocations
     ), invocations
+    assert not any(
+        "--force-recreate wiki-site" in line for line in invocations
+    ), f"publish must not force-recreate any more: {invocations}"
 
     # Order: baseline before publish.
     baseline_idx = next(
@@ -178,7 +184,7 @@ def test_wrapper_runs_baseline_then_up_then_detached_full(stub_env):
         if "run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line
     )
     up_idx = next(i for i, line in enumerate(invocations)
-                  if "compose up -d --force-recreate wiki-site" in line)
+                  if "compose up -d wiki-site" in line)
     assert baseline_idx < up_idx
 
     # Phase 2: a DETACHED full compile (no SKIP_LLM) launched AFTER
@@ -227,7 +233,8 @@ def test_baseline_failure_skips_up_and_surfaces_exit(stub_env):
     # appear if it (wrongly) launched -- no background full compile.
     time.sleep(0.3)
     invocations = log.read_text().splitlines()
-    assert not any("--force-recreate wiki-site" in line for line in invocations)
+    # No publish at all on a failed baseline.
+    assert not any("compose up -d wiki-site" in line for line in invocations)
     # The single run invocation we DID make is the baseline (carries
     # SKIP_LLM); there must be no second, summary-pass run.
     run_lines = [line for line in invocations if "run --rm -T" in line]
@@ -259,7 +266,7 @@ def test_up_failure_surfaces_exit(stub_env):
         "run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line
         for line in invocations
     )
-    assert any("up -d --force-recreate wiki-site" in line for line in invocations)
+    assert any("up -d wiki-site" in line for line in invocations)
     full_lines = [
         line for line in invocations
         if "run --rm -T wiki-compiler" in line
@@ -389,24 +396,32 @@ def test_install_snippet_substitutes_placeholders(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# #598 stale-serve: both publish paths force-recreate wiki-site
+# Static-serve: both publish paths use a plain `up -d` (NO force-recreate)
 # ---------------------------------------------------------------------------
 
 
-def test_both_publish_paths_force_recreate_wiki_site():
-    """#598: the served site went stale because `mkdocs serve` does not pick
-    up cross-container volume writes via inotify, so a plain `up -d wiki-site`
-    (a no-op on an already-running container) kept serving an empty /people/
-    even though people.md on disk was full. The fix is to force-recreate
-    wiki-site on publish, and the recompile-tick AND the install-time publish
-    must use the SAME primitive so they never diverge."""
+def test_both_publish_paths_use_plain_up_no_force_recreate():
+    """The wiki-site container now runs a static server (CM044
+    docker/wiki-site-serve.py) that builds the HTML off the serving path and
+    picks up a finished compile by POLLING the compiler's .compile-complete
+    marker, then atomically swaps the new build in. So neither publish path
+    needs to restart the container: a plain `up -d wiki-site` is correct, and
+    the old `--force-recreate` (#598) -- which WAS the recompile-window 000 --
+    must be gone from BOTH the recompile-tick and the install-time publish so
+    they never diverge."""
     tick = WRAPPER.read_text()
-    assert "up -d --force-recreate wiki-site" in tick, (
-        "wiki-recompile-tick.sh publish must force-recreate wiki-site (#598)"
+    assert "up -d wiki-site" in tick, (
+        "wiki-recompile-tick.sh publish must use a plain `up -d wiki-site`"
+    )
+    assert "--force-recreate wiki-site" not in tick, (
+        "wiki-recompile-tick.sh must NOT force-recreate (it was the 000)"
     )
 
     install_sh = (REPO_ROOT / "install.sh").read_text()
-    assert "up -d --force-recreate wiki-site" in install_sh, (
-        "install.sh publish must use the identical force-recreate primitive "
-        "(#598); install-time and recompile-time publish must not diverge"
+    assert "up -d wiki-site" in install_sh, (
+        "install.sh publish must use the identical plain `up -d wiki-site`; "
+        "install-time and recompile-time publish must not diverge"
+    )
+    assert "--force-recreate wiki-site" not in install_sh, (
+        "install.sh must NOT force-recreate wiki-site any more"
     )
