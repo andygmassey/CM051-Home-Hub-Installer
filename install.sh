@@ -10566,6 +10566,31 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
         ASSISTANT_INSTALL_KEEPALIVE="false"
     fi
 
+    # #646 (v1.0 launch blocker): assemble the customer's OWN iMessage
+    # handles for the assistant's self-echo loop guard. The daemon's
+    # is_self_handle (crates/zeroclaw-channels/src/imessage.rs) reads
+    # OSTLER_IMESSAGE_SELF_HANDLES and drops inbound from the user's own
+    # handles, so the assistant cannot reply to its own output echoing
+    # back (shared Apple ID / cross-account routing). Source = the me-card
+    # identity (USER_PHONE + USER_EMAIL captured at Q3), NOT
+    # CHANNEL_IMESSAGE_ALLOWED, which may include OTHER people the
+    # assistant is allowed to talk to -- self-handles must be only the
+    # user's own addresses. Empty when iMessage is off or no handle was
+    # captured: the snippet then renders an empty value and the guard
+    # stays inactive (the daemon's content-based backstop still applies).
+    ASSISTANT_SELF_HANDLES=""
+    if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
+        for _self_h in "${USER_PHONE:-}" "${USER_EMAIL:-}"; do
+            _self_h="${_self_h# }"; _self_h="${_self_h% }"
+            [[ -n "$_self_h" ]] || continue
+            if [[ -z "$ASSISTANT_SELF_HANDLES" ]]; then
+                ASSISTANT_SELF_HANDLES="$_self_h"
+            else
+                ASSISTANT_SELF_HANDLES="${ASSISTANT_SELF_HANDLES},${_self_h}"
+            fi
+        done
+    fi
+
     # CX-77 (DMG #44, 2026-05-25): wrap the snippet invocation in a
     # retry loop and tee stderr into install.log. The snippet failed
     # on auto-run during DMG #43 Studio retest but succeeded when
@@ -10588,6 +10613,7 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
             LOGS_DIR="$LOGS_DIR" \
             ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
             INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
+            OSTLER_IMESSAGE_SELF_HANDLES="$ASSISTANT_SELF_HANDLES" \
             bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" 2>"$_snippet_stderr"
         ); then
             _snippet_ok=true
