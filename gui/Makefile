@@ -485,6 +485,28 @@ release: check-tools check-identity download-python
 sign-python-bundle:
 	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"
 	@bash scripts/sign-python-bundle.sh "$(APP_PATH)" "$(CODESIGN_ID)"
+	$(STEP) "Signing bundled assistant daemon with hardened runtime"
+	# CX-124 (launch blocker, 2026-06-07): notarytool rejected the DMG with
+	# "The executable does not have the hardened runtime enabled" for
+	# Contents/Resources/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant
+	# (submission 213e1ba8). Same root cause as CX-20 for python3.11: the daemon
+	# arrives from the ostler-releases tarball signed Developer ID but WITHOUT
+	# --options runtime (flags=0x0), and the outer --force --deep reseal below does
+	# NOT add hardened runtime to nested Mach-Os. Sign the daemon binary + its .app
+	# wrapper explicitly here, before the outer reseal seals them. Same entitlements
+	# file as python3.11/outer .app for uniform runtime+entitlements state.
+	@DAEMON_APP="$(APP_PATH)/Contents/Resources/assistant-agent/OstlerAssistant.app"; \
+	if [ -d "$$DAEMON_APP" ]; then \
+	    codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp \
+	        --entitlements "OstlerInstaller/OstlerInstaller.entitlements" \
+	        "$$DAEMON_APP/Contents/MacOS/ostler-assistant"; \
+	    codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp \
+	        --entitlements "OstlerInstaller/OstlerInstaller.entitlements" \
+	        "$$DAEMON_APP"; \
+	    echo "  signed daemon with hardened runtime: $$DAEMON_APP"; \
+	else \
+	    echo "  no bundled daemon at $$DAEMON_APP -- skipping (standalone sign run)"; \
+	fi
 	$(STEP) "Re-signing outer .app to seal inner Python signatures"
 	# CX-33 (2026-05-24): --entitlements MUST be passed here, otherwise the
 	# --force --deep re-sign STRIPS the disable-library-validation entitlement
@@ -499,6 +521,13 @@ sign-python-bundle:
 	@codesign -d --entitlements :- "$(APP_PATH)/Contents/Resources/python/bin/python3.11" 2>&1 | grep -q "disable-library-validation" \
 		&& echo "  ✓ disable-library-validation present on bundled python3.11" \
 		|| (echo "  ✗ disable-library-validation MISSING from python3.11 -- DMG will fail at encrypt_db on customer Mac"; exit 1)
+	@echo "Post-sign verify: assistant daemon hardened runtime (must be enabled)"
+	@DAEMON_BIN="$(APP_PATH)/Contents/Resources/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
+	if [ -f "$$DAEMON_BIN" ]; then \
+	    codesign -dvvv "$$DAEMON_BIN" 2>&1 | grep -Eq "flags=.*runtime" \
+	        && echo "  ✓ hardened runtime present on bundled daemon" \
+	        || (echo "  ✗ hardened runtime MISSING from bundled daemon -- DMG will fail notarisation"; exit 1); \
+	fi
 
 # ---------------------------------------------------------------------------
 # Hard prerequisite for `make ship`. Refuses to proceed when
