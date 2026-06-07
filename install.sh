@@ -12820,11 +12820,16 @@ docker compose --profile compile run --rm -T \
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
-    # #598: force-recreate so the freshly compiled baseline is actually served.
-    # The mkdocs dev server does not pick up cross-container volume writes via
-    # inotify, so a plain `up -d` would keep serving an empty /people/. This is
-    # the identical publish primitive used by wiki-recompile-tick.sh.
-    if docker compose up -d --force-recreate wiki-site 2>&1 | tail -3; then
+    # Publish the baseline. The wiki-site container now runs a static server
+    # (CM044 docker/wiki-site-serve.py) that builds the HTML off the serving
+    # path and picks up a finished compile by polling the compiler's
+    # .compile-complete marker -- so a plain `up -d` suffices and NO
+    # --force-recreate is needed. The old force-recreate existed only because
+    # `mkdocs serve` could not see cross-container volume writes via inotify and
+    # had to be restarted (#598); that restart WAS the recompile-window 000 the
+    # static server removes. Identical publish primitive to
+    # wiki-recompile-tick.sh.
+    if docker compose up -d wiki-site 2>&1 | tail -3; then
         WIKI_FIRST_COMPILE_OK=true
         ok "$MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044"
         # Detached full summary compile (summaries ON -- no skip flag).

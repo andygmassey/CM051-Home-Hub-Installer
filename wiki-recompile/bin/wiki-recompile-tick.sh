@@ -150,13 +150,18 @@ fi
 # ---------------------------------------------------------------------------
 
 set +o pipefail
-# #598: force-recreate so the dev server re-reads the wiki-docs volume the
-# compiler just wrote. inotify does not reliably cross the container/volume
-# boundary, so a plain `up -d` (a no-op on an already-running container) keeps
-# serving the stale in-memory build and /people/ stays empty even though
-# people.md on disk is full. install.sh uses the identical publish primitive
-# so install-time and recompile-time behave the same.
-docker compose up -d --force-recreate wiki-site 2>&1 | tail -5
+# Ensure wiki-site is up (restart: unless-stopped, but a manual stop or a
+# crashed daemon could have it down). NO --force-recreate: the wiki-site
+# container now runs a static server (CM044 docker/wiki-site-serve.py) that
+# builds the HTML off the serving path and picks up the compile we just ran by
+# polling the compiler's .compile-complete marker, then atomically swaps the
+# new build in -- so a plain `up -d` (a no-op when already running) is correct
+# and the server refreshes itself within its poll interval. The old
+# force-recreate existed only because `mkdocs serve` could not see
+# cross-container volume writes via inotify and had to be restarted (#598);
+# that restart WAS the recompile-window 000 this design removes. install.sh
+# uses the identical publish primitive.
+docker compose up -d wiki-site 2>&1 | tail -5
 UP_RC=${PIPESTATUS[0]}
 set -o pipefail
 if [ "$UP_RC" -ne 0 ]; then
