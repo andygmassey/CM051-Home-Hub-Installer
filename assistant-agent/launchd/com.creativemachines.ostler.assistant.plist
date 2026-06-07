@@ -68,6 +68,20 @@
     <dict>
         <key>ZEROCLAW_WORKSPACE</key>
         <string>OSTLER_ASSISTANT_CONFIG</string>
+        <!--
+            OSTLER_IMESSAGE_SELF_HANDLES (#646): the customer's OWN
+            iMessage handles (comma-separated phone + email), rendered by
+            INSTALL_SNIPPET from the me-card identity captured during
+            install. The assistant's self-echo loop guard
+            (crates/zeroclaw-channels/src/imessage.rs is_self_handle)
+            reads this env var and drops inbound that matches one of the
+            user's own handles, so the daemon cannot reply to its own
+            output echoing back as inbound (shared Apple ID / cross-account
+            routing). Empty when no handle was captured; the guard then
+            stays inactive and the daemon's content-based backstop applies.
+        -->
+        <key>OSTLER_IMESSAGE_SELF_HANDLES</key>
+        <string>OSTLER_IMESSAGE_SELF_HANDLES_VALUE</string>
     </dict>
 
     <!--

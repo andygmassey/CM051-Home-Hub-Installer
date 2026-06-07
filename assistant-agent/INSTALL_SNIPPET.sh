@@ -39,6 +39,14 @@
 #                            wrap). Default unset => skip. Only
 #                            meaningful when the customer enabled
 #                            the WhatsApp channel during install.
+#   OSTLER_IMESSAGE_SELF_HANDLES  the customer's OWN iMessage handles
+#                            (comma-separated phone + email), rendered
+#                            into the plist EnvironmentVariables so the
+#                            daemon's self-echo loop guard is armed
+#                            (#646). Default empty => guard inactive
+#                            (the daemon's content-based backstop still
+#                            applies). Must be the user's own identity
+#                            only, NOT the allowed-contacts list.
 #
 # Side effects:
 #   - Renders com.creativemachines.ostler.assistant.plist into
@@ -107,11 +115,23 @@ esc_home="$(printf '%s' "$ASSISTANT_HOME_RESOLVED"     | sed 's/[&/\]/\\&/g')"
 esc_logs="$(printf '%s' "$LOGS_DIR"                    | sed 's/[&/\]/\\&/g')"
 esc_assistant_cfg="$(printf '%s' "$ASSISTANT_CONFIG_DIR" | sed 's/[&/\]/\\&/g')"
 
+# #646 self-echo loop guard: the customer's OWN iMessage handles
+# (comma-separated phone + email), passed in by install.sh from the
+# me-card identity captured during the wizard. Rendered into the plist
+# EnvironmentVariables so the daemon's OSTLER_IMESSAGE_SELF_HANDLES guard
+# is armed and the assistant cannot reply to its own output echoing back.
+# Empty/unset is safe: the guard stays inactive and the daemon's
+# content-based backstop still applies. The token OSTLER_IMESSAGE_SELF_
+# HANDLES_VALUE differs from every other sed pattern (none is a substring
+# of it) so its substitution cannot collide with the passes below.
+esc_self_handles="$(printf '%s' "${OSTLER_IMESSAGE_SELF_HANDLES:-}" | sed 's/[&/\]/\\&/g')"
+
 # Order matters: the OSTLER_ASSISTANT_CONFIG token contains the
 # OSTLER_HOME prefix in the default install layout
 # ($HOME/.ostler/assistant-config). Substitute the most specific
 # token first so a later OSTLER_HOME pass cannot eat its prefix.
 sed \
+    -e "s/OSTLER_IMESSAGE_SELF_HANDLES_VALUE/$esc_self_handles/g" \
     -e "s/OSTLER_ASSISTANT_CONFIG/$esc_assistant_cfg/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
     -e "s/OSTLER_BIN/$esc_bin/g" \

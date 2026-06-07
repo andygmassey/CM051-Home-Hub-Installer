@@ -129,10 +129,14 @@ def _stage_inputs(tmp_path: Path, *, with_binary: bool = True) -> dict:
     )
 
     ostler_dir = tmp_path / "ostler"
-    bin_dir = ostler_dir / "bin"
-    bin_dir.mkdir(parents=True)
+    # v0.4.3+ shape: the daemon binary lives inside the .app bundle at
+    # OstlerAssistant.app/Contents/MacOS/, NOT the legacy ~/.ostler/bin/.
+    # The snippet resolves and exec-checks that bundle path, so stage the
+    # stub there or the binary-staged guard aborts before rendering.
+    macos_dir = ostler_dir / "OstlerAssistant.app" / "Contents" / "MacOS"
+    macos_dir.mkdir(parents=True)
     if with_binary:
-        binary = bin_dir / "ostler-assistant"
+        binary = macos_dir / "ostler-assistant"
         binary.write_text("#!/bin/sh\nexit 0\n")
         binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -172,7 +176,7 @@ def _stage_inputs(tmp_path: Path, *, with_binary: bool = True) -> dict:
     }
 
 
-def _run_snippet(setup: dict) -> subprocess.CompletedProcess:
+def _run_snippet(setup: dict, *, self_handles: str | None = None) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.update(
         {
@@ -184,6 +188,8 @@ def _run_snippet(setup: dict) -> subprocess.CompletedProcess:
             "PATH": f"{setup['stub_dir']}:{env.get('PATH','')}",
         }
     )
+    if self_handles is not None:
+        env["OSTLER_IMESSAGE_SELF_HANDLES"] = self_handles
     return subprocess.run(
         ["bash", str(SNIPPET)],
         env=env,
@@ -206,13 +212,45 @@ def test_snippet_renders_plist_and_substitutes_every_placeholder(tmp_path):
     assert "OSTLER_HOME" not in text
     assert "OSTLER_LOGS" not in text
     assert "OSTLER_ASSISTANT_CONFIG" not in text
+    # The #646 placeholder must also be fully substituted -- a stray
+    # token would land a literal "OSTLER_IMESSAGE_SELF_HANDLES_VALUE"
+    # in the daemon env and the self-handle guard would match nothing.
+    assert "OSTLER_IMESSAGE_SELF_HANDLES_VALUE" not in text
 
     data = plistlib.loads(rendered.read_bytes())
-    assert data["ProgramArguments"][0] == str(setup["ostler_dir"] / "bin" / "ostler-assistant")
+    macos_binary = setup["ostler_dir"] / "OstlerAssistant.app" / "Contents" / "MacOS" / "ostler-assistant"
+    assert data["ProgramArguments"][0] == str(macos_binary)
     assert data["EnvironmentVariables"]["ZEROCLAW_WORKSPACE"] == str(setup["config_dir"])
     assert data["StandardOutPath"] == str(setup["logs_dir"] / "ostler-assistant.log")
     assert data["StandardErrorPath"] == str(setup["logs_dir"] / "ostler-assistant.err")
     assert data["WorkingDirectory"] == str(setup["home_dir"])
+
+
+def test_snippet_renders_self_handles_into_plist(tmp_path):
+    # #646: the customer's own iMessage handles must land in the daemon
+    # env so the self-echo loop guard is armed on a clean install.
+    setup = _stage_inputs(tmp_path)
+    handles = "+447700900123,owner@example.com"
+    result = _run_snippet(setup, self_handles=handles)
+    assert result.returncode == 0, result.stderr
+
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_HANDLES"] == handles
+
+
+def test_snippet_renders_empty_self_handles_when_unset(tmp_path):
+    # No handles captured (iMessage off, or me-card had neither phone nor
+    # email): the key is still present but empty, so the guard simply
+    # stays inactive. An empty string is a valid plist value and must not
+    # leave the literal placeholder token behind.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup)  # OSTLER_IMESSAGE_SELF_HANDLES unset
+    assert result.returncode == 0, result.stderr
+
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    data = plistlib.loads(rendered.read_bytes())
+    assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_HANDLES"] == ""
 
 
 def test_snippet_calls_launchctl_bootstrap(tmp_path):
