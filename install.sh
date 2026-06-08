@@ -10031,10 +10031,14 @@ fi
 # Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
 # are env-overridable so an enterprise fork or pre-release smoke
 # can point at a different release without editing install.sh.
-# Default tracks the last-known-good upstream release. If a future
-# bump (e.g. v0.4.2 not yet published) raises 404, the inline
-# fallback below retries against ASSISTANT_FALLBACK_VERSION so the
-# install completes on the proven-good binary.
+# Default tracks the shipped Hub daemon (hub-v0.4.6, the bundled
+# DMG binary). If a future bump points at a tag not yet published
+# and the primary URL 404s, the inline fallback below retries
+# against ASSISTANT_FALLBACK_VERSION so the install completes on a
+# proven-good binary. Note this whole fetch path is fallback-only:
+# the DMG bundles the daemon and the bundled artefact is preferred
+# (see _assistant_bundled_shape below), so on the normal customer
+# install this version default is never exercised.
 #
 # Open question: there is no zeroclaw subcommand for "encrypt the
 # plaintext password the wizard just wrote" -- the secrets store
@@ -10043,9 +10047,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.4})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.6})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.4}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.6}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an
@@ -10057,11 +10061,15 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.4}"
 # render the Ostler v4 oxblood squircle next to the Full Disk
 # Access entry. The extraction + path logic below detects which
 # shape the tarball ships and stages both correctly, so the same
-# install.sh works against a fallback v0.4.1 tarball (bare
-# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
-# never published per task #507 -- the version was burned on a
-# pre-release dry-run.
-ASSISTANT_FALLBACK_VERSION="0.4.1"
+# install.sh works against either shape. v0.4.2 was never
+# published per task #507 (burned on a pre-release dry-run); the
+# old v0.4.1 fallback tarball (bare binary) has since been removed
+# from the release repo, so the fallback now targets v0.4.5 (the
+# most recent still-published app-bundle release before the
+# shipped v0.4.6). Verified against ostler-ai/ostler-releases
+# 2026-06-08: hub-v0.4.4 / hub-v0.4.5 / hub-v0.4.6 present,
+# hub-v0.4.1 absent.
+ASSISTANT_FALLBACK_VERSION="0.4.5"
 # Customer-facing distribution.
 #
 # CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
@@ -10174,12 +10182,10 @@ fi
 # Try the primary download URL, then fall back once to
 # ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
 # activates when (a) no bundled artefact is present in the DMG
-# and (b) the primary URL returns non-200. v0.4.2 of
-# ostler-assistant was never published to ostler-ai/ostler-installer
-# (default bumped in error pre-DMG#48; caught on a clean Studio
-# install). If the primary URL 404s, the install still completes
-# on a proven-good binary rather than stranding the customer at
-# the launch step.
+# and (b) the primary URL returns non-200. The daemon releases
+# live at ostler-ai/ostler-releases under hub-vX.Y.Z tags; if the
+# primary URL 404s, the install still completes on a proven-good
+# binary rather than stranding the customer at the launch step.
 _assistant_download_ok=false
 if [[ -z "$_assistant_bundled_shape" ]]; then
     if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
