@@ -62,6 +62,50 @@ class PreferenceFilter:
     # Minimum subject length (after stripping)
     MIN_SUBJECT_LENGTH = 2
 
+    # Categories dropped outright as preference noise (not garbage, but
+    # low-signal social-graph chaff that crowds out real preferences).
+    # "social" is the legacy Facebook reaction-owner category: a person's name
+    # captured because you reacted to their post. That is a relationship signal,
+    # not a preference, and the people pipeline (contact_syncer) is the right
+    # home for it. Reaction-owner names landing as LikePreference rows balloon
+    # the count and dilute genuine taste signals, so we drop them here.
+    DROP_CATEGORIES = {"social"}
+
+    # Per-source preference cap. A single noisy export (tens of thousands of
+    # Facebook reactions, say) must not crowd out high-signal preferences from
+    # every other source. When a source exceeds this many UNIQUE preferences,
+    # the lowest-priority categories are trimmed first (see CATEGORY_PRIORITY).
+    # No row is dropped silently: every trimmed row is logged (see cap_by_source).
+    MAX_PREFS_PER_SOURCE = 5000
+
+    # Category priority for the per-source cap. LOWER rank = higher signal =
+    # kept first when the cap bites. Deliberate follows and declared interests
+    # rank highest; the "saved"/media tail is trimmed first. Categories not
+    # listed fall to DEFAULT_CATEGORY_PRIORITY (kept ahead of the explicit
+    # low-value tail, behind the explicit high-signal set). Generic across all
+    # sources: an unlisted source's categories simply sort by strength.
+    CATEGORY_PRIORITY = {
+        # High signal: deliberate follows / declared interests
+        "page": 10,
+        "follows": 10,
+        "interest": 10,
+        # Engagement with named creators / pages
+        "instagram_creator": 20,
+        "facebook_content": 20,
+        "shared_link": 25,
+        "event": 25,
+        # Curated rich content (declared taste)
+        "movie_tv": 30,
+        "movies": 30,
+        "book": 30,
+        "books": 30,
+        "music": 30,
+        # Low-value tail: trimmed first when the cap is hit
+        "saved": 80,
+        "media": 85,
+    }
+    DEFAULT_CATEGORY_PRIORITY = 50
+
     def __init__(self, enable_dedup: bool = True, aggregate_frequency: bool = True):
         """
         Initialize the filter.
@@ -95,11 +139,13 @@ class PreferenceFilter:
         self.stats = {
             "total_seen": 0,
             "filtered_low_value": 0,
+            "filtered_dropped_category": 0,
             "filtered_duplicates": 0,
             "aggregated_count": 0,
             "passed": 0,
             "warmed_from_db": 0,
-            "cross_source_reinforced": 0
+            "cross_source_reinforced": 0,
+            "capped_by_source": 0
         }
 
     def _normalize_subject(self, subject: str) -> str:
@@ -149,6 +195,26 @@ class PreferenceFilter:
                 return True
 
         return False
+
+    def is_dropped_category(self, pref: ParsedPreference) -> bool:
+        """
+        Check if a preference belongs to a category dropped as noise.
+
+        This is a policy drop (distinct from is_low_value, which catches empty
+        or broken data). DROP_CATEGORIES currently holds "social" -- the legacy
+        Facebook reaction-owner names, which are a people signal rather than a
+        preference and balloon the preference count. Called in every ingestion
+        path (the streaming path via should_include, the aggregation path
+        directly), so reaction-owner rows never reach the graph as preferences.
+
+        Args:
+            pref: Preference to check
+
+        Returns:
+            True if the preference's category is in DROP_CATEGORIES
+        """
+        category = (pref.category or "").strip().lower()
+        return category in self.DROP_CATEGORIES
 
     def is_duplicate(self, pref: ParsedPreference) -> bool:
         """
@@ -386,6 +452,14 @@ class PreferenceFilter:
             logger.debug(f"Filtered low-value: {pref.subject[:50]}")
             return False
 
+        # Drop policy-noise categories (e.g. Facebook reaction-owner names)
+        if self.is_dropped_category(pref):
+            self.stats["filtered_dropped_category"] += 1
+            logger.debug(
+                f"Dropped noise category '{pref.category}': {pref.subject[:50]}"
+            )
+            return False
+
         # Check duplicates
         if self.is_duplicate(pref):
             self.stats["filtered_duplicates"] += 1
@@ -407,6 +481,107 @@ class PreferenceFilter:
         """
         return [p for p in preferences if self.should_include(p)]
 
+    def _category_rank(self, pref: ParsedPreference) -> int:
+        """Priority rank for a preference's category (lower = higher signal)."""
+        category = (pref.category or "").strip().lower()
+        return self.CATEGORY_PRIORITY.get(category, self.DEFAULT_CATEGORY_PRIORITY)
+
+    def cap_by_source(
+        self, preferences: List[ParsedPreference]
+    ) -> Tuple[List[ParsedPreference], List[Dict[str, str]]]:
+        """
+        Apply the per-source priority cap to a list of (deduped) preferences.
+
+        A single noisy export must not crowd out high-signal preferences from
+        every other source, so each source is capped at MAX_PREFS_PER_SOURCE.
+        When a source is over the cap, rows are ranked by category priority
+        (CATEGORY_PRIORITY, high signal first), then by strength magnitude, then
+        by observation frequency. The high-signal head is kept; the low-value
+        tail (saved/media first) is trimmed.
+
+        No row is dropped silently. Every trimmed row is recorded in the
+        returned log AND emitted to the logger (per-row at DEBUG so a full audit
+        trail exists without flooding a default install log; a per-source
+        summary at WARNING so the operator always SEES that a cap fired and by
+        how much). Sources under the cap pass through untouched.
+
+        Args:
+            preferences: Deduplicated/aggregated preferences to cap.
+
+        Returns:
+            (kept, capped_log) where kept is the surviving preferences and
+            capped_log is a list of {"source", "category", "subject"} dicts,
+            one per trimmed row.
+        """
+        # Group by source, preserving first-seen order for stable output.
+        by_source: Dict[str, List[ParsedPreference]] = {}
+        for pref in preferences:
+            by_source.setdefault(pref.source or "unknown", []).append(pref)
+
+        kept: List[ParsedPreference] = []
+        capped_log: List[Dict[str, str]] = []
+
+        for source, prefs in by_source.items():
+            if len(prefs) <= self.MAX_PREFS_PER_SOURCE:
+                kept.extend(prefs)
+                continue
+
+            # Rank: category priority asc, then strength magnitude desc, then
+            # frequency desc. The strongest, highest-signal rows survive.
+            def _sort_key(p: ParsedPreference):
+                frequency = 1
+                if isinstance(p.extra, dict):
+                    try:
+                        frequency = int(p.extra.get("frequency", 1))
+                    except (TypeError, ValueError):
+                        frequency = 1
+                return (
+                    self._category_rank(p),
+                    -abs(p.strength or 0.0),
+                    -frequency,
+                )
+
+            ranked = sorted(prefs, key=_sort_key)
+            survivors = ranked[: self.MAX_PREFS_PER_SOURCE]
+            trimmed = ranked[self.MAX_PREFS_PER_SOURCE :]
+            kept.extend(survivors)
+
+            trimmed_by_category: Dict[str, int] = {}
+            for p in trimmed:
+                category = p.category or "unknown"
+                trimmed_by_category[category] = trimmed_by_category.get(category, 0) + 1
+                capped_log.append(
+                    {
+                        "source": source,
+                        "category": category,
+                        "subject": p.subject,
+                    }
+                )
+                # Per-row audit trail (no silent truncation). DEBUG so a 10k-row
+                # trim does not flood the default install log; the WARNING below
+                # is what the operator sees.
+                logger.debug(
+                    "Source cap trim: source=%s category=%s subject=%s",
+                    source,
+                    category,
+                    p.subject[:60],
+                )
+
+            self.stats["capped_by_source"] += len(trimmed)
+            logger.warning(
+                "Per-source cap hit for '%s': kept %d of %d preferences "
+                "(MAX_PREFS_PER_SOURCE=%d); trimmed %d lowest-priority rows "
+                "by category: %s",
+                source,
+                len(survivors),
+                len(prefs),
+                self.MAX_PREFS_PER_SOURCE,
+                len(trimmed),
+                trimmed_by_category,
+            )
+
+        return kept, capped_log
+
     def reset(self):
         """Reset the filter state (clears seen keys, aggregated data, and stats)."""
         self._seen_keys.clear()
@@ -417,11 +592,13 @@ class PreferenceFilter:
         self.stats = {
             "total_seen": 0,
             "filtered_low_value": 0,
+            "filtered_dropped_category": 0,
             "filtered_duplicates": 0,
             "aggregated_count": 0,
             "passed": 0,
             "warmed_from_db": 0,
-            "cross_source_reinforced": 0
+            "cross_source_reinforced": 0,
+            "capped_by_source": 0
         }
 
     def warm_from_payloads(self, payloads: List[Dict]) -> int:
@@ -536,5 +713,6 @@ class PreferenceFilter:
             "unique_preferences": unique_count,
             "modified_count": len(self._modified_keys),
             "warmed_count": len(self._warmed_keys),
+            "capped_count": self.stats.get("capped_by_source", 0),
             "frequency_distribution": freq_dist if freq_dist else None
         }
