@@ -4,7 +4,7 @@ import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 import httpx
 
@@ -18,10 +18,30 @@ PWG = "https://pwg.dev/ontology#"
 
 class IdentityResolver:
 
-    def __init__(self, oxigraph_url: str, default_country_code: int = 852):
+    def __init__(
+        self,
+        oxigraph_url: str,
+        default_country_code: int = 852,
+        timeout: float = 30.0,
+    ):
         self.oxigraph_url = oxigraph_url.rstrip("/")
         self.default_country_code = default_country_code
-        self._client = httpx.Client(timeout=30.0)
+        self._client = httpx.Client(timeout=timeout)
+        # Resolution health counters - the safety net's audit trail (#660).
+        # Every contact that hits a resolver query error degrades to "create
+        # as new" (a recoverable possible-duplicate) rather than being dropped
+        # by the import loop, and is counted here so a degraded import can
+        # never silently pass for a clean one. See log_resolution_summary().
+        self.stats: dict[str, int] = {"total": 0, "degraded": 0}
+        # CX-126 (#660): in-memory fuzzy-candidate index. _fuzzy_match used to
+        # re-run an unbounded "SELECT all persons" against Oxigraph for EVERY
+        # contact -> O(n^2). On a real LinkedIn export (3,810 connections) that
+        # query measured 8s at ~900 people and grows super-linearly, so the
+        # install crawled then effectively hung. We now load the candidate set
+        # ONCE (lazily, on the first fuzzy match) and append each newly-created
+        # person via register_person(), so matching is in-memory (microseconds)
+        # with identical results. None = not yet loaded.
+        self._fuzzy_candidates: Optional[List[Dict[str, Optional[str]]]] = None
 
     # -- Public API -----------------------------------------------------------
 
@@ -39,7 +59,47 @@ class IdentityResolver:
                 pass False to avoid false matches via first-name collisions
                 (e.g. "Sandra Andersson" matching "Sandra Stewart" via
                 Jaro-Winkler prefix bonus on "Sand").
+
+        Safety net (#660): this method NEVER raises a resolver-query error. If
+        any tier's Oxigraph call fails (a 30s timeout against a large graph, a
+        transport error, or a 5xx), the contact degrades to a "new" result so
+        the caller still creates a person node - a recoverable possible-
+        duplicate that Tidy Contacts can later merge - rather than the import
+        loop catching the exception and silently dropping the row (the
+        ~1,300-contact loss the O(n^2) stall would otherwise have caused). The
+        degradation is logged per-contact and counted in `self.stats`.
         """
+        self.stats["total"] += 1
+        try:
+            return self._resolve_tiers(identity, use_fuzzy=use_fuzzy)
+        except httpx.HTTPError as exc:
+            self.stats["degraded"] += 1
+            logger.warning(
+                "Resolver degraded for '%s' (%s: %s) - creating as NEW to "
+                "avoid dropping the contact; review via log_resolution_summary()",
+                identity.display_name,
+                type(exc).__name__,
+                exc,
+            )
+            return MatchResult(
+                person_uri=None,
+                match_type="new",
+                confidence=0.0,
+                details=(
+                    f"Resolver degraded ({type(exc).__name__}); created as new "
+                    "to avoid dropping the contact"
+                ),
+            )
+
+    def _resolve_tiers(
+        self,
+        identity: PersonIdentity,
+        use_fuzzy: bool = True,
+    ) -> MatchResult:
+        """Tiered match logic. May raise httpx.HTTPError on a query failure;
+        the public resolve() wraps this and degrades to "new" so a failure
+        never drops a contact. TNM's in-memory candidate index lands inside the
+        Tier-3 path here; this error boundary sits outside it by design."""
         # Tier 1: Exact match on any single identifier
         for id_type, id_value in self._iter_identifiers(identity):
             person_uri = self.find_by_identifier(id_type, id_value)
@@ -92,13 +152,45 @@ class IdentityResolver:
             if fuzzy:
                 return fuzzy
 
-        # Tier 4: No match — signal that a new person should be created
+        # Tier 4: No match - signal that a new person should be created
         return MatchResult(
             person_uri=None,
             match_type="new",
             confidence=0.0,
             details="No matching person found",
         )
+
+    def resolution_summary(self) -> dict[str, int]:
+        """Resolution health counters for the current resolver instance.
+
+        Callers driving a bulk import should read this at the end of the run.
+        A non-zero `degraded` means some contacts were created as new
+        (possible duplicates) because their resolver query failed mid-import -
+        the rows were preserved, not dropped, but dedup did not run for them.
+        """
+        return dict(self.stats)
+
+    def log_resolution_summary(self) -> None:
+        """Emit a single end-of-run line; ERROR (not silent) if any contact
+        degraded, so a partially-failed import can never read as a clean one.
+        Wire this into the import loop after the final contact (#660)."""
+        degraded = self.stats["degraded"]
+        total = self.stats["total"]
+        if degraded:
+            logger.error(
+                "Identity resolution finished with %d/%d contacts DEGRADED to "
+                "new (rows preserved as possible duplicates, NOT dropped). The "
+                "resolver was failing queries mid-import - investigate before "
+                "trusting dedup; affected contacts can be merged via Tidy "
+                "Contacts. See #660.",
+                degraded,
+                total,
+            )
+        else:
+            logger.info(
+                "Identity resolution finished cleanly: %d contacts, 0 degraded.",
+                total,
+            )
 
     def create_person(self, identity: PersonIdentity, user_id: str) -> str:
         short_id = uuid.uuid4().hex[:12]
@@ -258,29 +350,22 @@ class IdentityResolver:
         self, name: str, org: Optional[str] = None,
         exclude_linkedin_url: Optional[str] = None,
     ) -> Optional[MatchResult]:
-        # Include LinkedIn URL identifiers so we can reject conflicting matches
-        sparql = (
-            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
-            f"  ?person a <{PWG}Person> ; "
-            f"          <{PWG}displayName> ?name . "
-            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
-            f"  OPTIONAL {{ "
-            f"    ?person <{PWG}hasIdentifier> ?lid . "
-            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
-            f"         <{PWG}identifierValue> ?linkedinUrl . "
-            f"  }} "
-            f"}}"
-        )
-        results = self._sparql_query(sparql)
-        bindings = results.get("results", {}).get("bindings", [])
+        # CX-126 (#660): match against the in-memory candidate index, loaded
+        # once and appended on create, instead of re-running an unbounded
+        # all-persons SELECT for every contact (the O(n^2) that hung the
+        # install). Identical match results; microseconds instead of seconds.
+        if self._fuzzy_candidates is None:
+            self._load_fuzzy_candidates()
 
         best_uri: Optional[str] = None
         best_score: float = 0.0
         best_name: str = ""
         org_confirmed = False
 
-        for row in bindings:
-            candidate_name = row["name"]["value"]
+        for row in self._fuzzy_candidates:
+            candidate_name = row.get("name") or ""
+            if not candidate_name:
+                continue
             score = _jaro_winkler(name.lower(), candidate_name.lower())
 
             # Hard blocker: if BOTH the incoming identity and the candidate
@@ -288,15 +373,15 @@ class IdentityResolver:
             # not the same person. Two different LinkedIn profiles = two
             # different people, regardless of name similarity.
             if exclude_linkedin_url:
-                candidate_linkedin = row.get("linkedinUrl", {}).get("value")
+                candidate_linkedin = row.get("linkedinUrl")
                 if candidate_linkedin and candidate_linkedin != exclude_linkedin_url:
                     continue
 
             if score > best_score:
                 best_score = score
-                best_uri = row["person"]["value"]
+                best_uri = row["person"]
                 best_name = candidate_name
-                candidate_org = row.get("org", {}).get("value")
+                candidate_org = row.get("org")
                 org_confirmed = (
                     org is not None
                     and candidate_org is not None
@@ -338,6 +423,66 @@ class IdentityResolver:
             )
 
         return None
+
+    def _load_fuzzy_candidates(self) -> None:
+        """Load all person nodes into the in-memory fuzzy-candidate index ONCE.
+
+        Replaces the per-contact "SELECT all persons" that made _fuzzy_match
+        O(n^2) (CX-126 #660): the identical query, run a single time. Every
+        subsequent fuzzy match iterates this list in memory, and
+        register_person() keeps it current for persons created during the run.
+        """
+        sparql = (
+            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
+            f"  ?person a <{PWG}Person> ; "
+            f"          <{PWG}displayName> ?name . "
+            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
+            f"  OPTIONAL {{ "
+            f"    ?person <{PWG}hasIdentifier> ?lid . "
+            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
+            f"         <{PWG}identifierValue> ?linkedinUrl . "
+            f"  }} "
+            f"}}"
+        )
+        results = self._sparql_query(sparql)
+        bindings = results.get("results", {}).get("bindings", [])
+        candidates: List[Dict[str, Optional[str]]] = []
+        for row in bindings:
+            candidates.append(
+                {
+                    "person": row.get("person", {}).get("value"),
+                    "name": row.get("name", {}).get("value"),
+                    "org": row.get("org", {}).get("value"),
+                    "linkedinUrl": row.get("linkedinUrl", {}).get("value"),
+                }
+            )
+        self._fuzzy_candidates = candidates
+
+    def register_person(
+        self,
+        person_uri: str,
+        name: str,
+        org: Optional[str] = None,
+        linkedin_url: Optional[str] = None,
+    ) -> None:
+        """Append a newly-created person to the in-memory fuzzy index.
+
+        A caller that creates a NEW person after resolve() returns no match
+        must call this so later contacts in the same run dedupe against it --
+        parity with the old query-Oxigraph-every-time behaviour. No-op when the
+        index has not been loaded yet (a later first load will include the
+        person anyway).
+        """
+        if self._fuzzy_candidates is None or not name:
+            return
+        self._fuzzy_candidates.append(
+            {
+                "person": person_uri,
+                "name": name,
+                "org": org,
+                "linkedinUrl": linkedin_url,
+            }
+        )
 
     def _iter_identifiers(
         self, identity: PersonIdentity
