@@ -1,0 +1,31 @@
+name: gdpr-export-detect
+
+# Bulletproof GDPR-export detection (#657). Proves the signature-based detector
+# finds exports regardless of name or whether they are still zipped, AND -- the
+# load-bearing bit -- runs a DRIFT GUARD that fails if the copy embedded in
+# install.sh (the quoted heredoc that actually ships in the DMG) has diverged
+# from the canonical lib/ostler-detect-exports.sh. A guard that exists but does
+# not run is the ships-dark trap; this wires it in.
+
+on:
+  pull_request:
+    paths:
+      - 'lib/ostler-detect-exports.sh'
+      - 'tests/test_gdpr_export_detect.sh'
+      - 'install.sh'
+      - '.github/workflows/gdpr-export-detect.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gdpr-export-detect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detector functional + drift guard
+        run: bash tests/test_gdpr_export_detect.sh

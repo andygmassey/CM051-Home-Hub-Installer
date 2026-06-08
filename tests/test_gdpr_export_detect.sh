@@ -67,5 +67,25 @@ EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
 if bash "$DETECT" "$EMPTY" >/dev/null; then fail "empty dir should exit non-zero"; fi
 echo "PASS: empty dir exits non-zero"
 
+# --- DRIFT GUARD ------------------------------------------------------------
+# install.sh embeds a verbatim copy of this lib (quoted heredoc) so it ships
+# inside the DMG with no cut-tooling change. If that embedded copy drifts from
+# the canonical lib/ file, the installer silently ships stale detection -- the
+# ships-dark trap. Fail loudly when they diverge. This guard is wired into CI
+# (.github/workflows/gdpr-export-detect.yml) so it actually runs, not just exists.
+echo "=== drift guard: embedded install.sh heredoc == lib/ file ==="
+INSTALL_SH="${HERE}/../install.sh"
+[[ -f "$INSTALL_SH" ]] || fail "install.sh not found for drift guard"
+EXTRACTED="$TMP/embedded.sh"
+awk "/<<'OSTLER_DETECT_EXPORTS_EOF'\$/{f=1;next} /^OSTLER_DETECT_EXPORTS_EOF\$/{f=0} f" \
+    "$INSTALL_SH" > "$EXTRACTED"
+[[ -s "$EXTRACTED" ]] || fail "could not extract the embedded detector heredoc from install.sh"
+if ! diff -u "$DETECT" "$EXTRACTED" >/dev/null; then
+    echo "--- diff (lib vs embedded) ---" >&2
+    diff -u "$DETECT" "$EXTRACTED" >&2 || true
+    fail "install.sh embedded detector has DRIFTED from lib/ostler-detect-exports.sh -- re-embed it"
+fi
+echo "PASS: embedded install.sh copy is byte-identical to lib/ostler-detect-exports.sh"
+
 echo ""
 echo "ALL GDPR-EXPORT-DETECT TESTS PASSED"
