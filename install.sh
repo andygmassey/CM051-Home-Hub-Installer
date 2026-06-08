@@ -8886,6 +8886,16 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
+        <!-- #652: pin the chat admin-token path to the ABSOLUTE file the
+             installer seeded (~5460), not the Doctor's Path.home() default.
+             read_admin_token() (HR015 doctor/agent/chat_token.py) needs this
+             to mint a chat token via POST /api/v1/auth/chat-token; without it
+             the Doctor resolves Path.home()/.ostler/secrets/... which can
+             diverge from where install.sh wrote (launchd HOME / OSTLER_DIR),
+             so the token reads as "not seeded" and chat 401s on a fresh box.
+             Absolute path removes the HOME ambiguity entirely. -->
+        <key>OSTLER_CHAT_ADMIN_TOKEN_FILE</key>
+        <string>${OSTLER_DIR}/secrets/zeroclaw_admin_token</string>
     </dict>
 </dict>
 </plist>
