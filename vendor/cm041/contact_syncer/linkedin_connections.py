@@ -43,6 +43,7 @@ if _PARENT_DIR not in sys.path:
 
 from contact_syncer import config
 from identity_resolver.models import PersonIdentity
+from identity_resolver.normalise import normalise_email
 from identity_resolver.resolver import IdentityResolver
 
 try:
@@ -195,13 +196,20 @@ def create_person_oxigraph(
         triples.append(f'<{id_uri}> pwg:identifierType "linkedin_url"')
         triples.append(f'<{id_uri}> pwg:identifierValue "{_escape(extra["linkedin_url"])}"')
 
-    # Email identifier
+    # Email identifier. Store the NORMALISED value (lower-cased, trimmed) so it
+    # matches what the resolver's find_by_identifier queries for. The resolver
+    # normalises emails on read (_iter_identifiers -> normalise_email); writing
+    # the raw value here would silently defeat Tier-1 exact-identifier dedup, so
+    # a LinkedIn-sourced person with the same email in different case would not
+    # merge against the (normalised) contact-card node. Same class as the BW-1
+    # contact_syncer fix.
     if extra.get("email"):
+        email_value = normalise_email(extra["email"])
         id_uri = f"https://pwg.dev/ontology#id_{person_id}_email_linkedin"
         triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
         triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
         triples.append(f'<{id_uri}> pwg:identifierType "email"')
-        triples.append(f'<{id_uri}> pwg:identifierValue "{_escape(extra["email"])}"')
+        triples.append(f'<{id_uri}> pwg:identifierValue "{_escape(email_value)}"')
         triples.append(f'<{id_uri}> pwg:identifierLabel "LINKEDIN"')
 
     sparql = (
