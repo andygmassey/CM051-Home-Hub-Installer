@@ -4,7 +4,7 @@ import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 import httpx
 
@@ -22,6 +22,15 @@ class IdentityResolver:
         self.oxigraph_url = oxigraph_url.rstrip("/")
         self.default_country_code = default_country_code
         self._client = httpx.Client(timeout=30.0)
+        # CX-126 (#660): in-memory fuzzy-candidate index. _fuzzy_match used to
+        # re-run an unbounded "SELECT all persons" against Oxigraph for EVERY
+        # contact -> O(n^2). On a real LinkedIn export (3,810 connections) that
+        # query measured 8s at ~900 people and grows super-linearly, so the
+        # install crawled then effectively hung. We now load the candidate set
+        # ONCE (lazily, on the first fuzzy match) and append each newly-created
+        # person via register_person(), so matching is in-memory (microseconds)
+        # with identical results. None = not yet loaded.
+        self._fuzzy_candidates: Optional[List[Dict[str, Optional[str]]]] = None
 
     # -- Public API -----------------------------------------------------------
 
@@ -258,29 +267,22 @@ class IdentityResolver:
         self, name: str, org: Optional[str] = None,
         exclude_linkedin_url: Optional[str] = None,
     ) -> Optional[MatchResult]:
-        # Include LinkedIn URL identifiers so we can reject conflicting matches
-        sparql = (
-            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
-            f"  ?person a <{PWG}Person> ; "
-            f"          <{PWG}displayName> ?name . "
-            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
-            f"  OPTIONAL {{ "
-            f"    ?person <{PWG}hasIdentifier> ?lid . "
-            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
-            f"         <{PWG}identifierValue> ?linkedinUrl . "
-            f"  }} "
-            f"}}"
-        )
-        results = self._sparql_query(sparql)
-        bindings = results.get("results", {}).get("bindings", [])
+        # CX-126 (#660): match against the in-memory candidate index, loaded
+        # once and appended on create, instead of re-running an unbounded
+        # all-persons SELECT for every contact (the O(n^2) that hung the
+        # install). Identical match results; microseconds instead of seconds.
+        if self._fuzzy_candidates is None:
+            self._load_fuzzy_candidates()
 
         best_uri: Optional[str] = None
         best_score: float = 0.0
         best_name: str = ""
         org_confirmed = False
 
-        for row in bindings:
-            candidate_name = row["name"]["value"]
+        for row in self._fuzzy_candidates:
+            candidate_name = row.get("name") or ""
+            if not candidate_name:
+                continue
             score = _jaro_winkler(name.lower(), candidate_name.lower())
 
             # Hard blocker: if BOTH the incoming identity and the candidate
@@ -288,15 +290,15 @@ class IdentityResolver:
             # not the same person. Two different LinkedIn profiles = two
             # different people, regardless of name similarity.
             if exclude_linkedin_url:
-                candidate_linkedin = row.get("linkedinUrl", {}).get("value")
+                candidate_linkedin = row.get("linkedinUrl")
                 if candidate_linkedin and candidate_linkedin != exclude_linkedin_url:
                     continue
 
             if score > best_score:
                 best_score = score
-                best_uri = row["person"]["value"]
+                best_uri = row["person"]
                 best_name = candidate_name
-                candidate_org = row.get("org", {}).get("value")
+                candidate_org = row.get("org")
                 org_confirmed = (
                     org is not None
                     and candidate_org is not None
@@ -338,6 +340,66 @@ class IdentityResolver:
             )
 
         return None
+
+    def _load_fuzzy_candidates(self) -> None:
+        """Load all person nodes into the in-memory fuzzy-candidate index ONCE.
+
+        Replaces the per-contact "SELECT all persons" that made _fuzzy_match
+        O(n^2) (CX-126 #660): the identical query, run a single time. Every
+        subsequent fuzzy match iterates this list in memory, and
+        register_person() keeps it current for persons created during the run.
+        """
+        sparql = (
+            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
+            f"  ?person a <{PWG}Person> ; "
+            f"          <{PWG}displayName> ?name . "
+            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
+            f"  OPTIONAL {{ "
+            f"    ?person <{PWG}hasIdentifier> ?lid . "
+            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
+            f"         <{PWG}identifierValue> ?linkedinUrl . "
+            f"  }} "
+            f"}}"
+        )
+        results = self._sparql_query(sparql)
+        bindings = results.get("results", {}).get("bindings", [])
+        candidates: List[Dict[str, Optional[str]]] = []
+        for row in bindings:
+            candidates.append(
+                {
+                    "person": row.get("person", {}).get("value"),
+                    "name": row.get("name", {}).get("value"),
+                    "org": row.get("org", {}).get("value"),
+                    "linkedinUrl": row.get("linkedinUrl", {}).get("value"),
+                }
+            )
+        self._fuzzy_candidates = candidates
+
+    def register_person(
+        self,
+        person_uri: str,
+        name: str,
+        org: Optional[str] = None,
+        linkedin_url: Optional[str] = None,
+    ) -> None:
+        """Append a newly-created person to the in-memory fuzzy index.
+
+        A caller that creates a NEW person after resolve() returns no match
+        must call this so later contacts in the same run dedupe against it --
+        parity with the old query-Oxigraph-every-time behaviour. No-op when the
+        index has not been loaded yet (a later first load will include the
+        person anyway).
+        """
+        if self._fuzzy_candidates is None or not name:
+            return
+        self._fuzzy_candidates.append(
+            {
+                "person": person_uri,
+                "name": name,
+                "org": org,
+                "linkedinUrl": linkedin_url,
+            }
+        )
 
     def _iter_identifiers(
         self, identity: PersonIdentity
