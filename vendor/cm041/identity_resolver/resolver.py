@@ -103,7 +103,9 @@ class IdentityResolver:
         # Tier 1: Exact match on any single identifier
         for id_type, id_value in self._iter_identifiers(identity):
             person_uri = self.find_by_identifier(id_type, id_value)
-            if person_uri:
+            if person_uri and self._identifier_match_trustworthy(
+                id_type, person_uri, identity
+            ):
                 return MatchResult(
                     person_uri=person_uri,
                     match_type="exact_identifier",
@@ -115,7 +117,11 @@ class IdentityResolver:
         found_uris: dict[str, tuple[str, str]] = {}
         for id_type, id_value in self._iter_identifiers(identity):
             uri = self.find_by_identifier(id_type, id_value)
-            if uri and uri not in found_uris:
+            if (
+                uri
+                and uri not in found_uris
+                and self._identifier_match_trustworthy(id_type, uri, identity)
+            ):
                 found_uris[uri] = (id_type, id_value)
 
         if len(found_uris) == 1:
@@ -343,6 +349,56 @@ class IdentityResolver:
         if bindings:
             return bindings[0]["person"]["value"]
         return None
+
+    # Identifier types that a different person can legitimately also carry:
+    # a reused family email address, a shared office switchboard number. A
+    # match on one of these is NOT by itself proof of same-person, so we only
+    # trust it when the display names also agree -- otherwise a one-shot import
+    # would collapse e.g. a mother/daughter who reused an email, or two
+    # colleagues on the same DID line (BW-1). The unique-by-construction
+    # identifiers (icloud_contact_uid, linkedin_url, whatsapp_lid) are always
+    # trusted. The strict exact-normalised-name check is deliberately
+    # conservative: name VARIANTS (e.g. "Granny Ritchie" / "Margaret Ritchie")
+    # stay separate rather than risk a wrong merge -- relaxing that to a fuzzy
+    # threshold is the BW-2 design follow-up.
+    _SHAREABLE_ID_TYPES = {"email", "phone"}
+
+    @staticmethod
+    def _normalise_name(name: Optional[str]) -> str:
+        return " ".join((name or "").strip().lower().split())
+
+    def _person_display_name(self, person_uri: str) -> Optional[str]:
+        sparql = (
+            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }} "
+            f"LIMIT 1"
+        )
+        results = self._sparql_query(sparql)
+        bindings = results.get("results", {}).get("bindings", [])
+        if bindings:
+            return bindings[0]["name"]["value"]
+        return None
+
+    def _identifier_match_trustworthy(
+        self, id_type: str, matched_uri: str, identity: PersonIdentity
+    ) -> bool:
+        """Whether an identifier match should be acted on (BW-1).
+
+        Unique identifiers are always trusted. A SHAREABLE identifier
+        (email/phone) is trusted only when the incoming and matched display
+        names are present and equal once normalised; otherwise we cannot
+        prove same-person, so we decline the match and let the caller create a
+        new node (a recoverable duplicate that Tidy Contacts can merge) rather
+        than risk an irreversible wrong merge.
+        """
+        if id_type not in self._SHAREABLE_ID_TYPES:
+            return True
+        incoming = self._normalise_name(identity.display_name)
+        if not incoming:
+            return False
+        existing = self._normalise_name(self._person_display_name(matched_uri))
+        if not existing:
+            return False
+        return incoming == existing
 
     # -- Private helpers ------------------------------------------------------
 

@@ -35,6 +35,10 @@ from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+from identity_resolver.normalise import (  # type: ignore[import-untyped]
+    normalise_email,
+    normalise_phone,
+)
 
 # Qdrant client
 from qdrant_client import QdrantClient
@@ -988,11 +992,19 @@ class ContactSyncer:
 
         for idx, phone in enumerate(parsed.get("phones", [])):
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
+            # Store the NORMALISED value so it matches what the resolver's
+            # find_by_identifier queries for. Previously this wrote the raw
+            # vCard value (e.g. "+852 9681 6605") while the resolver looked up
+            # the E.164 form ("+85296816605"), so Tier-1 exact-identifier dedup
+            # never fired and every repeat minted a duplicate (BW-1).
+            phone_value = normalise_phone(
+                phone["value"], self.resolver.default_country_code
+            )
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "phone"')
             id_triples.append(
-                f'<{id_uri}> pwg:identifierValue "{phone["value"]}"'
+                f'<{id_uri}> pwg:identifierValue "{phone_value}"'
             )
             if phone.get("label"):
                 id_triples.append(
@@ -1001,11 +1013,13 @@ class ContactSyncer:
 
         for idx, email in enumerate(parsed.get("emails", [])):
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_email{idx}"
+            # Normalise (lower-case) to match the resolver's lookup form (BW-1).
+            email_value = normalise_email(email["value"])
             triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
             id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
             id_triples.append(f'<{id_uri}> pwg:identifierType "email"')
             id_triples.append(
-                f'<{id_uri}> pwg:identifierValue "{email["value"]}"'
+                f'<{id_uri}> pwg:identifierValue "{_escape_sparql(email_value)}"'
             )
             if email.get("label"):
                 id_triples.append(
@@ -1082,10 +1096,13 @@ class ContactSyncer:
         for phone in parsed.get("phones", []):
             v = phone.get("value") if isinstance(phone, dict) else None
             if v:
+                # Normalise to the resolver's lookup form so dedup matches (BW-1).
+                v = normalise_phone(v, self.resolver.default_country_code)
                 new_ids.append(("phone", v, phone.get("label") if isinstance(phone, dict) else None))
         for email in parsed.get("emails", []):
             v = email.get("value") if isinstance(email, dict) else None
             if v:
+                v = normalise_email(v)
                 new_ids.append(("email", v, email.get("label") if isinstance(email, dict) else None))
 
         for idx, (id_type, id_value, label) in enumerate(new_ids):
