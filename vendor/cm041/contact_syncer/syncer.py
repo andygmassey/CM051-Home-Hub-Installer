@@ -889,6 +889,18 @@ class ContactSyncer:
             person_uri = f"https://pwg.dev/ontology#person_{person_id}"
             self._persist_photo(person_uri, parsed)
             self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
+            # Register the new person in the resolver's in-memory fuzzy index so
+            # LATER rows in this SAME run dedupe against it. The candidate
+            # snapshot is loaded once and frozen; without this a one-shot bulk
+            # import mints a fresh node for every repeat of a name -- the root
+            # cause of one-shot-import duplicates on a fresh install, which the
+            # incrementally synced graph never hit (each daily run re-snapshots).
+            self.resolver.register_person(
+                person_uri,
+                identity.display_name,
+                org=identity.organization,
+                linkedin_url=getattr(identity, "linkedin_url", None),
+            )
 
         return person_id, person_uri
 

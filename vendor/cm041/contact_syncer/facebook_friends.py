@@ -421,6 +421,20 @@ def import_friends(
                     )
                 counts["created"] += 1
 
+                # Register the new person in the resolver's in-memory fuzzy
+                # index so LATER rows in this SAME run dedupe against it. The
+                # candidate snapshot is loaded once and frozen; without this a
+                # one-shot bulk import mints a fresh node for every repeat of a
+                # name -- the root cause of one-shot-import duplicates on a
+                # fresh install, which the incrementally synced graph never hit
+                # (each daily run re-snapshots).
+                resolver.register_person(
+                    person_uri,
+                    identity.display_name,
+                    org=identity.organization,
+                    linkedin_url=identity.linkedin_url,
+                )
+
             # Qdrant upsert (embed + write)
             if qdrant and not dry_run:
                 embed_text_str = identity.display_name
