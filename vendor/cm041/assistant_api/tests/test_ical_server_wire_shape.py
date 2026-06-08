@@ -226,6 +226,84 @@ class TimelineDegradedShapeTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# BW-3 – Timeline meeting de-duplication
+# ---------------------------------------------------------------------------
+
+
+class TimelineMeetingDedupeTests(unittest.TestCase):
+    """BW-3: ``people_recent`` is a per-PERSON list, so a meeting with N
+    attendees comes back as N rows all carrying the same summary/date.
+    ``api_timeline`` must collapse them into ONE entry per distinct meeting
+    and merge the attendee names, rather than emitting the meeting once per
+    participant (the box-walk double-entry bug)."""
+
+    def _patch_no_calendar(self):
+        """Silence the calendar half so only the meeting path is exercised."""
+        return (
+            mock.patch.object(
+                ical_server.subprocess, "run",
+                side_effect=RuntimeError("no calendar in test"),
+            ),
+            mock.patch.object(
+                ical_server, "query_google_calendar",
+                side_effect=RuntimeError("no google cal in test"),
+            ),
+        )
+
+    def test_three_attendee_meeting_collapses_to_one_entry(self):
+        # people_recent returns one row per person, same meeting on each.
+        recent = {
+            "contacts": [
+                {"name": "Alexandre", "last_meeting": "Dinner - Alexandre, Rhys & Andy",
+                 "meeting_date": "2026-06-01", "location": "Yu Chuan Club", "wiki_url": "w/alexandre"},
+                {"name": "Rhys", "last_meeting": "Dinner - Alexandre, Rhys & Andy",
+                 "meeting_date": "2026-06-01", "location": "Yu Chuan Club", "wiki_url": "w/rhys"},
+                {"name": "Andy", "last_meeting": "Dinner - Alexandre, Rhys & Andy",
+                 "meeting_date": "2026-06-01", "location": "Yu Chuan Club", "wiki_url": "w/andy"},
+            ]
+        }
+        p_run, p_gcal = self._patch_no_calendar()
+        with p_run, p_gcal, mock.patch.object(
+            ical_server, "people_recent", return_value=recent
+        ):
+            result = ical_server.api_timeline(days=7)
+
+        meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
+        self.assertEqual(
+            len(meetings), 1,
+            f"BW-3: a 3-attendee meeting must yield ONE item, got "
+            f"{len(meetings)}: {meetings!r}",
+        )
+        self.assertEqual(
+            sorted(meetings[0]["participants"]), ["Alexandre", "Andy", "Rhys"],
+            "BW-3: the single meeting entry must merge all attendee names",
+        )
+        # The CM031 `entries` projection must also carry exactly one row.
+        entry_meetings = [e for e in result["entries"] if e.get("type") == "meeting"]
+        self.assertEqual(len(entry_meetings), 1, "BW-3: entries[] must also dedupe")
+
+    def test_distinct_meetings_stay_separate(self):
+        recent = {
+            "contacts": [
+                {"name": "Alexandre", "last_meeting": "Dinner", "meeting_date": "2026-06-01",
+                 "location": "", "wiki_url": ""},
+                {"name": "Bob", "last_meeting": "Campus tour", "meeting_date": "2026-07-08",
+                 "location": "", "wiki_url": ""},
+            ]
+        }
+        p_run, p_gcal = self._patch_no_calendar()
+        with p_run, p_gcal, mock.patch.object(
+            ical_server, "people_recent", return_value=recent
+        ):
+            result = ical_server.api_timeline(days=30)
+        meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
+        self.assertEqual(
+            len(meetings), 2,
+            "BW-3: two genuinely distinct meetings must NOT be collapsed",
+        )
+
+
+# ---------------------------------------------------------------------------
 # F-2 – people_stale British spelling
 # ---------------------------------------------------------------------------
 

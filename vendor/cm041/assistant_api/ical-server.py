@@ -1672,15 +1672,29 @@ def api_timeline(days=7):
     # Past: meetings from the graph
     try:
         recent = people_recent(days=days, limit=20).get("contacts", [])
+        # people_recent is a per-PERSON list: a meeting with N attendees comes
+        # back as N rows, all carrying the same summary/date. Collapsing them
+        # by (summary, date) yields one timeline entry per distinct meeting and
+        # merges the attendee names, so a meeting no longer appears once per
+        # participant (BW-3 / timeline double-entries).
+        meeting_by_key = {}
         for c in recent:
-            items.append({
-                "kind": "meeting",
-                "date": c.get("meeting_date", ""),
-                "summary": c.get("last_meeting", ""),
-                "participants": [c.get("name", "")],
-                "location": c.get("location", ""),
-                "wiki_url": c.get("wiki_url", ""),
-            })
+            key = (c.get("last_meeting", ""), c.get("meeting_date", ""))
+            entry = meeting_by_key.get(key)
+            if entry is None:
+                entry = {
+                    "kind": "meeting",
+                    "date": c.get("meeting_date", ""),
+                    "summary": c.get("last_meeting", ""),
+                    "participants": [],
+                    "location": c.get("location", ""),
+                    "wiki_url": c.get("wiki_url", ""),
+                }
+                meeting_by_key[key] = entry
+                items.append(entry)
+            name = c.get("name", "")
+            if name and name not in entry["participants"]:
+                entry["participants"].append(name)
     except Exception as exc:
         items.append({"kind": "meeting_error", "error": str(exc)})
 
