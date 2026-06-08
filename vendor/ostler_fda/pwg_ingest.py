@@ -141,6 +141,21 @@ def _person_uri(person_id: str) -> str:
     return f"https://pwg.dev/ontology#person_{person_id}"
 
 
+def _whatsapp_display_name(jid: str) -> str:
+    """Placeholder display name for an un-named WhatsApp phone contact.
+
+    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
+    a `+`-prefixed phone so the placeholder reads as a phone contact rather
+    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
+    are returned unchanged. A real name replaces this once contact_syncer or
+    CM046 email enrichment supplies one.
+    """
+    local = jid.split("@", 1)[0] if "@" in jid else jid
+    if local.isdigit():
+        return "+" + local
+    return local
+
+
 # ── iMessage ingestion ────────────────────────────────────────────
 
 def ingest_imessage(fda_dir: Path) -> dict:
@@ -400,17 +415,24 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             if not participant:
                 continue
 
+            # Defensive belt-and-braces (whatsapp_history already rejects
+            # these at source): `@lid` is WhatsApp's opaque linked-id, not a
+            # phone and not a name. As a contact's sole identity it is pure
+            # noise, so it must not become a number-named Person (BW-4).
+            if participant.endswith("@lid"):
+                continue
+
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
             exists = _person_exists(uri)
 
             if not exists:
-                # JIDs from WhatsApp are always phone-rooted
-                # (e.g. "<phone_e164>@s.whatsapp.net"). Stripping the
-                # suffix gives the E.164-shaped local-part the wiki
-                # uses as the displayName until enriched by other
-                # sources (contact_syncer, CM046 email signatures, etc.).
-                display = participant.split("@", 1)[0] if "@" in participant else participant
+                # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is
+                # an E.164 number. Present it as a `+`-prefixed phone so the
+                # placeholder reads as a phone contact rather than a bare
+                # "random number" (BW-4); real names arrive later from
+                # contact_syncer / CM046 email signatures.
+                display = _whatsapp_display_name(participant)
                 triples = [
                     f"<{uri}> a pwg:Person",
                     f'<{uri}> pwg:displayName "{_escape(display)}"',

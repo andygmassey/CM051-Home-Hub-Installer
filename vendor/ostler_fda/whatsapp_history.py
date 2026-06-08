@@ -126,6 +126,11 @@ TIER_T3_SKIP = "whatsapp_skipped"  # internal-only -- never emitted
 JID_SUFFIX_PERSON = "@s.whatsapp.net"
 JID_SUFFIX_GROUP = "@g.us"
 JID_SUFFIX_BROADCAST = "@broadcast"
+# `@lid` is WhatsApp's opaque "linked-id": a privacy identifier that is NOT a
+# phone number and carries no recognisable name. As the sole identity of a
+# contact it is pure noise -- a 15-digit integer the customer cannot place --
+# so it must never produce a Person node (BW-4: "random numbers in People").
+JID_SUFFIX_LID = "@lid"
 
 
 @dataclass
@@ -203,6 +208,9 @@ def _is_real_participant_jid(jid: Optional[str]) -> bool:
     if jid.endswith(JID_SUFFIX_BROADCAST):
         return False
     if jid.endswith(JID_SUFFIX_GROUP):
+        return False
+    if jid.endswith(JID_SUFFIX_LID):
+        # Opaque linked-id with no phone/name -- never a usable contact.
         return False
     return True
 
