@@ -1336,6 +1336,37 @@ def people_list(sort=None, ceiling=10000):
         return {"people": [], "total": 0, "degraded": True,
                 "reason": str(exc), "error": str(exc)}
 
+    # Batched identifier join (one query, grouped in Python -- never N+1).
+    # The Qdrant payload already carries phones/emails for CardDAV-sourced
+    # points, but LinkedIn URLs (and identifiers for non-CardDAV people, e.g.
+    # email/LinkedIn-only contacts) live only in Oxigraph as pwg:hasIdentifier
+    # nodes. Pull every identifier in a single SELECT and group by person URI;
+    # a degraded Oxigraph just leaves the payload values untouched.
+    ident_by_uri = {}
+    try:
+        ident_rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person ?type ?value WHERE {{\n'
+            '  ?person pwg:hasIdentifier ?id .\n'
+            '  ?id pwg:identifierType ?type ; pwg:identifierValue ?value .\n'
+            '}}'.format(ns=PWG_NS)
+        )
+        for r in ident_rows:
+            uri = r.get("person")
+            typ = (r.get("type") or "").strip()
+            val = (r.get("value") or "").strip()
+            if not uri or typ not in ("phone", "email", "linkedin_url") or not val:
+                continue
+            bucket = ident_by_uri.setdefault(
+                uri, {"phone": [], "email": [], "linkedin_url": []}
+            )
+            if val not in bucket[typ]:
+                bucket[typ].append(val)
+    except Exception:
+        # Identifiers are enrichment, not load-bearing: a degraded Oxigraph
+        # must not blank the People list. Fall back to payload-only contact info.
+        ident_by_uri = {}
+
     people = []
     for pt in points:
         p = pt.get("payload", {}) or {}
@@ -1351,12 +1382,61 @@ def people_list(sort=None, ceiling=10000):
         if recency:
             row["recency"] = recency
         row["_lc_ts"] = lc_ts
+
+        # Sort keys -- prefer the parsed given/family name, fall back to a
+        # split of the display name so LinkedIn/email-only people still sort.
+        given = (p.get("given_name") or "").strip()
+        family = (p.get("family_name") or "").strip()
+        if not given and not family:
+            parts = name.strip().split()
+            given = parts[0] if parts else ""
+            family = parts[-1] if len(parts) > 1 else ""
+        row["_first"] = given.casefold()
+        row["_last"] = (family or given).casefold()
+
+        # Contact fields: payload first (CardDAV), Oxigraph identifiers backfill.
+        uri = p.get("person_uri") or ""
+        ids = ident_by_uri.get(uri, {})
+        phones = [x for x in (p.get("phones") or []) if x]
+        emails = [x for x in (p.get("emails") or []) if x]
+        for x in ids.get("phone", []):
+            if x not in phones:
+                phones.append(x)
+        for x in ids.get("email", []):
+            if x not in emails:
+                emails.append(x)
+        linkedin = ids.get("linkedin_url", [])
+        if phones:
+            row["phone"] = phones[0]
+        if emails:
+            row["email"] = emails[0]
+        if linkedin:
+            row["linkedin"] = linkedin[0]
+
         people.append(row)
 
+    reverse = False
+    key = None
     if sort == "recency":
-        people.sort(key=lambda r: r.get("_lc_ts", 0), reverse=True)
+        key = lambda r: r.get("_lc_ts", 0)
+        reverse = True
+    elif sort == "firstname":
+        key = lambda r: (r.get("_first", ""), r.get("_last", ""))
+    elif sort == "lastname":
+        key = lambda r: (r.get("_last", ""), r.get("_first", ""))
+    if key is not None:
+        people.sort(key=key, reverse=reverse)
+
+    # Per-row jump letter for the A|B|C rail (alphabetical sorts only). The
+    # client renders the rail from these and scrolls to the first match.
     for row in people:
+        if sort in ("firstname", "lastname"):
+            src = row.get("_first" if sort == "firstname" else "_last", "")
+            ch = src[:1].upper()
+            row["jump"] = ch if "A" <= ch <= "Z" else "#"
         row.pop("_lc_ts", None)
+        row.pop("_first", None)
+        row.pop("_last", None)
     return {"people": people, "total": len(people)}
 
 
