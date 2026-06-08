@@ -1,0 +1,24 @@
+{
+  "venueLikes": [
+    {
+      "id": "5a0000000000000000000001",
+      "name": "Lantern Hill Ramen House"
+    },
+    {
+      "id": "5a0000000000000000000002",
+      "name": "Driftwood Coastal Cafe"
+    }
+  ],
+  "venueOkays": [
+    {
+      "id": "5a0000000000000000000003",
+      "name": "Midtown Quick Lunch Bar"
+    }
+  ],
+  "venueDislikes": [
+    {
+      "id": "5a0000000000000000000004",
+      "name": "Old Station Fast Food"
+    }
+  ]
+}
