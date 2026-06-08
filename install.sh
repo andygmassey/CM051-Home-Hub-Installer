@@ -3774,7 +3774,18 @@ try:
 except Exception as e:
     print(str(e), file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null)
+" 2>/dev/null) || EXTRACTED_MBOX=""
+            # CX-127: the helper above exits 1 when the zip holds no .mbox
+            # (e.g. a SPLIT multi-part Google Takeout -- takeout-...-6-001.zip
+            # whose non-first part has no mailbox) or on any zip exception.
+            # Under the script-wide `set -Eeuo pipefail`, a bare
+            # `VAR=$(... exit 1)` assignment aborts the WHOLE install on the
+            # spot -- jumping over the graceful warn-and-continue branch just
+            # below and killing a fully-recoverable optional step with no
+            # error and no DONE marker (the GUI then shows "failed"). The
+            # `|| EXTRACTED_MBOX=""` neutralises the errexit abort so the
+            # empty-result handler below runs as designed. Same set -e family
+            # as #640 / #643.
             if [[ -n "$EXTRACTED_MBOX" && -f "$EXTRACTED_MBOX" ]]; then
                 OSTLER_TAKEOUT_PATH="$EXTRACTED_MBOX"
                 ok "$(printf "$MSG_OK_EXTRACTED" "${EXTRACTED_MBOX}")"
