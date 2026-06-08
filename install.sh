@@ -8886,14 +8886,24 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
-        <!-- #652: pin the chat admin-token path to the ABSOLUTE file the
-             installer seeded (~5460), not the Doctor's Path.home() default.
-             read_admin_token() (HR015 doctor/agent/chat_token.py) needs this
-             to mint a chat token via POST /api/v1/auth/chat-token; without it
-             the Doctor resolves Path.home()/.ostler/secrets/... which can
-             diverge from where install.sh wrote (launchd HOME / OSTLER_DIR),
-             so the token reads as "not seeded" and chat 401s on a fresh box.
-             Absolute path removes the HOME ambiguity entirely. -->
+        <!-- #652 (THE FIX): point the Doctor's chat-token mint at the SAME
+             port the daemon's [gateway] is pinned to (8000, see CX-59 at
+             ~L5840). chat_token.py's _zeroclaw_port() defaults to zeroclaw's
+             binary default 42617; the internal mint (_internal_gateway_url)
+             then POSTs /api/pairing/initiate to 127.0.0.1:42617 where nothing
+             listens -> Connection refused -> 503 -> chat 401 on EVERY fresh
+             install. OSTLER_CHAT_GATEWAY_PORT is the only lever that retargets
+             the internal mint (the _URL override only changes the public iOS
+             URL). Setting 8000 also makes the iOS public chat_base_url use
+             :8000, which is correct since the daemon is pinned there. Keep in
+             lockstep with the `port = 8000` echo in the [gateway] config. -->
+        <key>OSTLER_CHAT_GATEWAY_PORT</key>
+        <string>8000</string>
+        <!-- #652 (hardening, not the root cause): pin the admin-token path to
+             the ABSOLUTE file install.sh seeded (~L5460) so read_admin_token()
+             can never resolve a divergent Path.home()/.ostler under a different
+             launchd HOME. Box-confirmed token-read works without this, but it
+             removes a latent class of failure. -->
         <key>OSTLER_CHAT_ADMIN_TOKEN_FILE</key>
         <string>${OSTLER_DIR}/secrets/zeroclaw_admin_token</string>
     </dict>
