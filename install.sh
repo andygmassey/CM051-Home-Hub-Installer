@@ -11716,8 +11716,23 @@ TSPLIST
             sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
         done
         if [[ -n "$TS_URL" ]]; then
+            # The URL is ALWAYS surfaced as plain text first (via info,
+            # which the GUI renders in its log pane), so the copy/paste
+            # sign-in path never depends on a browser launching at all.
             info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-            open "$TS_URL" 2>/dev/null || true
+            # Auto-open is best-effort. `open <url>` against a COLD-
+            # launching browser intermittently drops the open-URL Apple
+            # event -- or wedges Safari outright -- under the heavy CPU/IO
+            # load of a fresh install (Colima VM + Ollama + the importer
+            # all running). Observed ~1 in 4 on a clean Mac. Mitigation:
+            # warm the browser first so it is already running, give it a
+            # moment to register its open-URL handler, deliver the URL,
+            # then re-issue once more in the background so a dropped first
+            # event self-recovers without the user having to do anything.
+            open -g -a Safari >/dev/null 2>&1 || true
+            sleep 2
+            open "$TS_URL" >/dev/null 2>&1 || true
+            ( sleep 3; open "$TS_URL" >/dev/null 2>&1 || true ) &
         fi
 
         # 180s window: a non-technical user reading the prompt, opening
