@@ -638,7 +638,13 @@ def import_connections(
     for i, row in enumerate(rows, 1):
         identity, extra = row_to_identity(row)
 
-        if not identity.display_name.strip():
+        # Skip rows with no usable name. LinkedIn exports a literal
+        # "LinkedIn Member" placeholder for connections whose profile is
+        # private/withheld; these carry no real identity and must not become
+        # individual people (94 collapsed into one junk node on a real
+        # import). Matched case-insensitively.
+        _display = identity.display_name.strip()
+        if not _display or _display.casefold() == "linkedin member":
             counts["skipped"] += 1
             continue
 
@@ -709,6 +715,21 @@ def import_connections(
                         config.DEFAULT_PRIVACY_LEVEL,
                     )
                 counts["created"] += 1
+
+                # Register the new person in the resolver's in-memory fuzzy
+                # index so LATER rows in this SAME run dedupe against it. The
+                # candidate snapshot is loaded once and frozen; without this a
+                # one-shot bulk import (e.g. 3,810 LinkedIn connections) mints a
+                # fresh node for every repeat of a name -- the root cause of
+                # "Jay Livens x6" on a fresh install, which the incrementally
+                # synced graph never hit (each daily run re-snapshots). Fires in
+                # dry-run too so the reported dedup reflects real behaviour.
+                resolver.register_person(
+                    person_uri,
+                    identity.display_name,
+                    org=identity.organization,
+                    linkedin_url=identity.linkedin_url,
+                )
 
             # Qdrant upsert (embed + write)
             if qdrant and not dry_run:

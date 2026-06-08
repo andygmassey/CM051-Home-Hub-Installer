@@ -360,13 +360,20 @@ class IdentityResolver:
         best_uri: Optional[str] = None
         best_score: float = 0.0
         best_name: str = ""
-        org_confirmed = False
+        best_org_conflict = False
+
+        # Best candidate that ALSO shares the organisation, tracked separately.
+        # A same-name+same-org match is the strongest signal and is preferred
+        # over a higher-scoring but org-conflicting candidate (two real people
+        # who happen to share a name, e.g. the same name at two employers).
+        conf_uri: Optional[str] = None
+        conf_score: float = 0.0
+        conf_name: str = ""
 
         for row in self._fuzzy_candidates:
             candidate_name = row.get("name") or ""
             if not candidate_name:
                 continue
-            score = _jaro_winkler(name.lower(), candidate_name.lower())
 
             # Hard blocker: if BOTH the incoming identity and the candidate
             # have LinkedIn URLs and they are DIFFERENT, this is definitely
@@ -377,41 +384,67 @@ class IdentityResolver:
                 if candidate_linkedin and candidate_linkedin != exclude_linkedin_url:
                     continue
 
+            score = _jaro_winkler(name.lower(), candidate_name.lower())
+            candidate_org = row.get("org")
+            same_org = (
+                org is not None
+                and candidate_org is not None
+                and org.lower() == candidate_org.lower()
+            )
+            diff_org = (
+                org is not None
+                and candidate_org is not None
+                and org.lower() != candidate_org.lower()
+            )
+
+            if same_org and score > conf_score:
+                conf_score = score
+                conf_uri = row["person"]
+                conf_name = candidate_name
+
             if score > best_score:
                 best_score = score
                 best_uri = row["person"]
                 best_name = candidate_name
-                candidate_org = row.get("org")
-                org_confirmed = (
-                    org is not None
-                    and candidate_org is not None
-                    and org.lower() == candidate_org.lower()
-                )
+                best_org_conflict = diff_org
 
-        # Threshold tiers:
-        # - 0.85 + org confirmed → high-confidence match
-        # - 0.93 no org → still reliable (typos, stylised variants, etc.)
-        # - 0.85–0.93 no org → NOT a match. Jaro-Winkler's 4-char prefix
-        #   bonus pushes first-name collisions ("Sandra Andersson" ~
-        #   "Sandra Stewart" scored 0.867) above 0.85 on shared-prefix alone,
-        #   which blew up our People Graph on 2026-04-11. We still log
-        #   these as candidates so they can be reviewed, but we don't
-        #   return a match. See CM043/TODO.md follow-ups for context.
-        if best_score > 0.85 and org_confirmed:
+        # Threshold tiers (org-conflict-guarded):
+        # 1. >0.85 + same org -> high-confidence match (strongest signal).
+        # 2. >=0.93 + no org CONFLICT -> reliable (typos, stylised variants,
+        #    or one side simply has no org recorded). Merges "Jay Livens".
+        # 3. >=0.93 but the best candidate's org CONFLICTS -> two different
+        #    people who share a name (e.g. two real "Stuart Bailey"s at
+        #    different employers). Do NOT merge; log for review.
+        # 4. 0.85-0.93 no org -> NOT a match. Jaro-Winkler's 4-char prefix
+        #    bonus pushes first-name collisions ("Sandra Andersson" ~
+        #    "Sandra Stewart" scored 0.867) above 0.85 on shared-prefix
+        #    alone, which blew up our People Graph on 2026-04-11.
+        if conf_score > 0.85:
             return MatchResult(
-                person_uri=best_uri,
+                person_uri=conf_uri,
                 match_type="fuzzy_name",
-                confidence=best_score,
-                details=f"Fuzzy match: '{name}' ~ '{best_name}' (score={best_score:.3f}, org confirmed)",
+                confidence=conf_score,
+                details=f"Fuzzy match: '{name}' ~ '{conf_name}' (score={conf_score:.3f}, org confirmed)",
             )
 
-        if best_score >= 0.93:
+        if best_score >= 0.93 and not best_org_conflict:
             return MatchResult(
                 person_uri=best_uri,
                 match_type="fuzzy_name",
                 confidence=best_score * 0.8,
-                details=f"Fuzzy match: '{name}' ~ '{best_name}' (score={best_score:.3f}, high similarity no org)",
+                details=f"Fuzzy match: '{name}' ~ '{best_name}' (score={best_score:.3f}, high similarity, no org conflict)",
             )
+
+        if best_score >= 0.93 and best_org_conflict:
+            # Same name, conflicting organisation: almost always two distinct
+            # people. Hold for review rather than wrongly fusing them.
+            logger.info(
+                "Same-name candidate BLOCKED by org conflict (likely distinct people): '%s' ~ '%s' (score=%.3f)",
+                name,
+                best_name,
+                best_score,
+            )
+            return None
 
         if best_score > 0.85:
             # Log-only: shared-prefix first-name collisions live here
