@@ -18,10 +18,21 @@ PWG = "https://pwg.dev/ontology#"
 
 class IdentityResolver:
 
-    def __init__(self, oxigraph_url: str, default_country_code: int = 852):
+    def __init__(
+        self,
+        oxigraph_url: str,
+        default_country_code: int = 852,
+        timeout: float = 30.0,
+    ):
         self.oxigraph_url = oxigraph_url.rstrip("/")
         self.default_country_code = default_country_code
-        self._client = httpx.Client(timeout=30.0)
+        self._client = httpx.Client(timeout=timeout)
+        # Resolution health counters - the safety net's audit trail (#660).
+        # Every contact that hits a resolver query error degrades to "create
+        # as new" (a recoverable possible-duplicate) rather than being dropped
+        # by the import loop, and is counted here so a degraded import can
+        # never silently pass for a clean one. See log_resolution_summary().
+        self.stats: dict[str, int] = {"total": 0, "degraded": 0}
         # CX-126 (#660): in-memory fuzzy-candidate index. _fuzzy_match used to
         # re-run an unbounded "SELECT all persons" against Oxigraph for EVERY
         # contact -> O(n^2). On a real LinkedIn export (3,810 connections) that
@@ -48,7 +59,47 @@ class IdentityResolver:
                 pass False to avoid false matches via first-name collisions
                 (e.g. "Sandra Andersson" matching "Sandra Stewart" via
                 Jaro-Winkler prefix bonus on "Sand").
+
+        Safety net (#660): this method NEVER raises a resolver-query error. If
+        any tier's Oxigraph call fails (a 30s timeout against a large graph, a
+        transport error, or a 5xx), the contact degrades to a "new" result so
+        the caller still creates a person node - a recoverable possible-
+        duplicate that Tidy Contacts can later merge - rather than the import
+        loop catching the exception and silently dropping the row (the
+        ~1,300-contact loss the O(n^2) stall would otherwise have caused). The
+        degradation is logged per-contact and counted in `self.stats`.
         """
+        self.stats["total"] += 1
+        try:
+            return self._resolve_tiers(identity, use_fuzzy=use_fuzzy)
+        except httpx.HTTPError as exc:
+            self.stats["degraded"] += 1
+            logger.warning(
+                "Resolver degraded for '%s' (%s: %s) - creating as NEW to "
+                "avoid dropping the contact; review via log_resolution_summary()",
+                identity.display_name,
+                type(exc).__name__,
+                exc,
+            )
+            return MatchResult(
+                person_uri=None,
+                match_type="new",
+                confidence=0.0,
+                details=(
+                    f"Resolver degraded ({type(exc).__name__}); created as new "
+                    "to avoid dropping the contact"
+                ),
+            )
+
+    def _resolve_tiers(
+        self,
+        identity: PersonIdentity,
+        use_fuzzy: bool = True,
+    ) -> MatchResult:
+        """Tiered match logic. May raise httpx.HTTPError on a query failure;
+        the public resolve() wraps this and degrades to "new" so a failure
+        never drops a contact. TNM's in-memory candidate index lands inside the
+        Tier-3 path here; this error boundary sits outside it by design."""
         # Tier 1: Exact match on any single identifier
         for id_type, id_value in self._iter_identifiers(identity):
             person_uri = self.find_by_identifier(id_type, id_value)
@@ -101,13 +152,45 @@ class IdentityResolver:
             if fuzzy:
                 return fuzzy
 
-        # Tier 4: No match — signal that a new person should be created
+        # Tier 4: No match - signal that a new person should be created
         return MatchResult(
             person_uri=None,
             match_type="new",
             confidence=0.0,
             details="No matching person found",
         )
+
+    def resolution_summary(self) -> dict[str, int]:
+        """Resolution health counters for the current resolver instance.
+
+        Callers driving a bulk import should read this at the end of the run.
+        A non-zero `degraded` means some contacts were created as new
+        (possible duplicates) because their resolver query failed mid-import -
+        the rows were preserved, not dropped, but dedup did not run for them.
+        """
+        return dict(self.stats)
+
+    def log_resolution_summary(self) -> None:
+        """Emit a single end-of-run line; ERROR (not silent) if any contact
+        degraded, so a partially-failed import can never read as a clean one.
+        Wire this into the import loop after the final contact (#660)."""
+        degraded = self.stats["degraded"]
+        total = self.stats["total"]
+        if degraded:
+            logger.error(
+                "Identity resolution finished with %d/%d contacts DEGRADED to "
+                "new (rows preserved as possible duplicates, NOT dropped). The "
+                "resolver was failing queries mid-import - investigate before "
+                "trusting dedup; affected contacts can be merged via Tidy "
+                "Contacts. See #660.",
+                degraded,
+                total,
+            )
+        else:
+            logger.info(
+                "Identity resolution finished cleanly: %d contacts, 0 degraded.",
+                total,
+            )
 
     def create_person(self, identity: PersonIdentity, user_id: str) -> str:
         short_id = uuid.uuid4().hex[:12]
