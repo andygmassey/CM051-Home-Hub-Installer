@@ -2107,6 +2107,30 @@ if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
 fi
 osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
+# FDA_PREWARM (#572, 2026-06-09): register OstlerInstaller in the
+# System Settings > Full Disk Access list NOW, at the top of the install,
+# by attempting a read of the FDA-gated databases. macOS only lists an
+# app in that pane once it has ATTEMPTED an FDA-protected read and been
+# denied -- it never proactively prompts for FDA. Previously the first
+# such attempt happened at the FDA probe immediately before we open
+# System Settings (~line 6390), so the TCC list had not refreshed yet and
+# the customer was told to "find Ostler and turn it on" against a list
+# that did not yet contain it for ~30-60s. Priming here -- minutes ahead
+# of the grant prompt -- means the entry is already present and
+# toggle-ready when the pane opens. The reads are DENIED on a fresh Mac
+# (they grant nothing, so the real FDA probe + grant flow downstream is
+# unchanged), silent, and add no popup (FDA has no auto-prompt dialog).
+# Best-effort: never fails the install.
+if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    for _fda_prime in \
+        "$HOME/Library/Safari/History.db" \
+        "$HOME/Library/Messages/chat.db" \
+        "$HOME/Library/Mail/V10/MailData/Envelope Index"; do
+        [[ -e "$_fda_prime" ]] && head -c 1 "$_fda_prime" >/dev/null 2>&1 || true
+    done
+    unset _fda_prime
+fi
+
 # ── Auto-detect from macOS contact card ────────────────────────────
 
 DETECTED_NAME=""
@@ -6467,6 +6491,19 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                   _prewarn_icon_path_esc _prewarn_icon_clause
 
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
+            # FDA_PANE_REFRESH (#572, 2026-06-09): force a fresh System
+            # Settings load before pointing the customer at the FDA pane.
+            # A Settings window left open from an earlier prompt (e.g.
+            # Internet Accounts) can show a STALE Full Disk Access list
+            # that predates the OstlerInstaller entry primed at install
+            # start -- so the entry looks "missing" until the pane
+            # happens to refresh (the ~30-60s lag customers reported).
+            # killall + reopen guarantees the list is current. Best-effort;
+            # covers both the "System Settings" (macOS 13+) and legacy
+            # "System Preferences" process names.
+            killall "System Settings" >/dev/null 2>&1 || true
+            killall "System Preferences" >/dev/null 2>&1 || true
+            sleep 1
             open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
@@ -11717,6 +11754,17 @@ TSPLIST
         # completes OAuth.
         info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
         TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
+        # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE, before
+        # `tailscale up` and the URL-poll loop below, so the browser gets
+        # the entire 2-30s poll window to finish a cold launch instead of
+        # the fixed 2s the old code allowed at delivery time. Under heavy
+        # fresh-install load (Colima + Ollama + importer) Safari's cold
+        # start routinely outran that 2s, so the open-URL event landed on
+        # a still-bouncing Safari and was dropped (~40% on a clean Mac --
+        # the prior #644 mitigation reduced but did not close this race).
+        # Priming during the already-existing wait costs nothing.
+        # Best-effort, backgrounded (-g) so it does not steal focus.
+        open -g -a Safari >/dev/null 2>&1 || true
         # Register the Hub under a stable, predictable tailnet name so the
         # iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
         # regardless of the customer's Mac hostname. Without --hostname,
@@ -11740,19 +11788,26 @@ TSPLIST
             # which the GUI renders in its log pane), so the copy/paste
             # sign-in path never depends on a browser launching at all.
             info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-            # Auto-open is best-effort. `open <url>` against a COLD-
-            # launching browser intermittently drops the open-URL Apple
-            # event -- or wedges Safari outright -- under the heavy CPU/IO
-            # load of a fresh install (Colima VM + Ollama + the importer
-            # all running). Observed ~1 in 4 on a clean Mac. Mitigation:
-            # warm the browser first so it is already running, give it a
-            # moment to register its open-URL handler, deliver the URL,
-            # then re-issue once more in the background so a dropped first
-            # event self-recovers without the user having to do anything.
-            open -g -a Safari >/dev/null 2>&1 || true
-            sleep 2
-            open "$TS_URL" >/dev/null 2>&1 || true
-            ( sleep 3; open "$TS_URL" >/dev/null 2>&1 || true ) &
+            # Auto-open is best-effort. A bare `open <url>` against a
+            # COLD-launching browser intermittently drops the open-URL
+            # Apple event -- or wedges Safari outright -- under the heavy
+            # CPU/IO load of a fresh install (Colima VM + Ollama + the
+            # importer all running). Observed ~1 in 4 on a clean Mac with
+            # the prior fixed-2s-sleep mitigation; still seen ~40%.
+            # Safari was already warmed above (before the URL-poll loop),
+            # so it has had the full poll window to finish launching.
+            # Deliver the URL via Safari specifically and ATOMICALLY:
+            # `open -a Safari <url>` hands LaunchServices a single
+            # launch-if-needed-THEN-open-URL request, so it cannot fire
+            # the URL at a half-launched Safari the way the old bare
+            # `open <url>` (a separate LS request racing the launch) did.
+            # Fall back to the default-handler form if Safari is somehow
+            # unavailable, then re-issue once in the background as a
+            # dropped-event safety net. The URL is also printed as plain
+            # text above, so copy/paste always works even if every
+            # auto-open is dropped.
+            open -a Safari "$TS_URL" >/dev/null 2>&1 || open "$TS_URL" >/dev/null 2>&1 || true
+            ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
         fi
 
         # 180s window: a non-technical user reading the prompt, opening
