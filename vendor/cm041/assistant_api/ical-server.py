@@ -1284,6 +1284,10 @@ def people_stale(months=3, limit=5):
         lc_ts = p.get("last_contact_ts", 0)
         if not name or not lc_ts:
             continue
+        # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
+        # Stale / reconnect list. Render-time filter only. Ref #664.
+        if _is_nameless_name(name):
+            continue
         months_since = int((now - lc_ts) / (30 * 86400))
         contacts.append({
             "name": name,
@@ -1509,6 +1513,8 @@ def people_recent(days=7, limit=5):
     for r in rows:
         name = r.get("name", "")
         if not name or name in seen:
+            continue
+        if _is_nameless_name(name):
             continue
         seen.add(name)
         contacts.append({
