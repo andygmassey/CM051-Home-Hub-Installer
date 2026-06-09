@@ -12982,6 +12982,31 @@ else
     info "$MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED"
 fi
 
+# DEDUPE_MERGE (#661, RULE 1, 2026-06-09): after every person-creating
+# writer above (hydrate_graph contacts/calendar, the per-source FDA
+# ingest, contact_syncer, and initial_hydrate) and BEFORE wiki_compile
+# below, fold any Person nodes that share an EXACT identifier value (same
+# email or phone string) into one -- regardless of source or display
+# name. This is the only place the cross-source case gets merged: the
+# iMessage / WhatsApp ingest (pwg_ingest) mints its own uuid5 Person URIs
+# and never consults the identity resolver, so its people stay split from
+# the Contacts people until this graph-level sweep folds them. Running it
+# here means the wiki, the iOS People view and the Doctor API all render
+# merged people. Best-effort + idempotent (a re-run finds nothing): a
+# failure is logged and install continues. The fuzzy no-shared-identifier
+# case (BW-2) is deliberately NOT touched. Output goes to the install log,
+# not a user-facing string -- internal plumbing.
+if [[ -x "$_INITIAL_HYDRATE_PY" ]]; then
+    "$_INITIAL_HYDRATE_PY" -c "
+from ostler_fda.dedupe_merge import run
+import json
+try:
+    print('dedupe_merge:', json.dumps(run()))
+except Exception as exc:
+    print('dedupe_merge failed:', type(exc).__name__, exc)
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+fi
+
 unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
 unset _INITIAL_HYDRATE_VENV _INITIAL_HYDRATE_PY _INITIAL_HYDRATE_LOG
 unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER
