@@ -43,6 +43,22 @@ PWG = "https://pwg.dev/ontology#"
 EXACT_KEY_TYPES: Tuple[str, ...] = ("email", "phone")
 
 
+def _canonical_phone(value: str) -> str:
+    """Canonicalise a phone identifier so a WhatsApp JID collides with the
+    same E.164 number written by Contacts / iMessage. Strip the
+    ``@s.whatsapp.net`` suffix and ``+``-prefix the digit local-part so the
+    WhatsApp node and the Contacts node fold under RULE 1 (the "duplicate
+    +number" rows). Non-JID / non-numeric values pass through unchanged.
+    ``@lid`` JIDs are opaque (non-phone) and written with a non-phone type,
+    so they never reach here."""
+    v = value.strip()
+    if v.lower().endswith("@s.whatsapp.net"):
+        local = v.split("@", 1)[0]
+        if local.isdigit():
+            return "+" + local
+    return v
+
+
 def _sparql_query(sparql: str) -> list:
     transport = httpx.HTTPTransport(proxy=None)
     with httpx.Client(timeout=60.0, transport=transport) as client:
@@ -83,7 +99,9 @@ def find_collisions() -> Dict[Tuple[str, str], List[str]]:
         )
         groups: Dict[str, Set[str]] = {}
         for r in rows:
-            groups.setdefault(r["v"]["value"], set()).add(r["p"]["value"])
+            value = r["v"]["value"]
+            key = _canonical_phone(value) if typ == "phone" else value
+            groups.setdefault(key, set()).add(r["p"]["value"])
         for value, persons in groups.items():
             if len(persons) > 1:
                 out[(typ, value)] = sorted(persons)

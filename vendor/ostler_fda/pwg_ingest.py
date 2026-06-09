@@ -155,6 +155,14 @@ def _whatsapp_display_name(jid: str) -> str:
         return "+" + local
     return local
 
+def _whatsapp_phone_e164(jid: str) -> str:
+    """E.164 phone string for an ``@s.whatsapp.net`` JID, used as the phone
+    ``identifierValue`` so a WhatsApp contact shares ONE key with the same
+    number from Contacts / iMessage and RULE 1 folds them (was split as a
+    "duplicate +number"). Non-numeric / non-JID inputs pass through."""
+    local = jid.split("@", 1)[0] if "@" in jid else jid
+    return "+" + local if local.isdigit() else jid
+
 
 # ── iMessage ingestion ────────────────────────────────────────────
 
@@ -446,7 +454,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                     f"<{id_uri}> a pwg:PersonIdentifier",
                     f'<{id_uri}> pwg:identifierType "phone"',
-                    f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                    f'<{id_uri}> pwg:identifierValue "{_escape(_whatsapp_phone_e164(participant))}"',
                     f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                     f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                 ])
@@ -479,7 +487,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                         f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                         f"<{id_uri}> a pwg:PersonIdentifier",
                         f'<{id_uri}> pwg:identifierType "phone"',
-                        f'<{id_uri}> pwg:identifierValue "{_escape(participant)}"',
+                        f'<{id_uri}> pwg:identifierValue "{_escape(_whatsapp_phone_e164(participant))}"',
                         f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                         f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                     ]
