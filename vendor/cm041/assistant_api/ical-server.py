@@ -158,6 +158,44 @@ def _wiki_slug(name):
     s = re.sub(r"[^a-z0-9]+", "-", s)
     s = re.sub(r"-+", "-", s).strip("-")
     return s[:80] if s else "unknown"
+
+
+# Characters allowed in a "bare identifier" (phone-like) handle.
+_NAMELESS_BARE_ID_CHARS = frozenset("0123456789+-(). ")
+
+
+def _is_nameless_name(display_name):
+    """True when ``display_name`` is a raw handle, not a human name.
+
+    Canonical "non-displayable name" predicate. Byte-identical to
+    ``compiler/nameless.py`` (CM044 wiki) and ``PersonNameFilter`` (CM031
+    iOS); locked to prevent cross-surface drift. Ref #664.
+
+    Non-displayable when:
+      1. empty / whitespace-only, or
+      2. lowercased form contains ``@s.whatsapp.net`` or ``@lid`` (a
+         WhatsApp JID), or
+      3. a bare identifier: every character is in ``[0-9 + - ( ) . space]``
+         AND it contains at least 6 digits (a phone number / numeric handle).
+
+    Rows are hidden at render time (the People list); the Qdrant point /
+    graph node is never deleted. Composes after the exact-identifier merge
+    (#168/#280): only residual nameless rows are filtered, no double-count.
+    """
+    if not display_name:
+        return True
+    s = display_name.strip()
+    if not s:
+        return True
+    low = s.lower()
+    if "@s.whatsapp.net" in low or "@lid" in low:
+        return True
+    if all(c in _NAMELESS_BARE_ID_CHARS for c in s) and \
+            sum(c.isdigit() for c in s) >= 6:
+        return True
+    return False
+
+
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 PWG_NS = "https://pwg.dev/ontology#"
 
@@ -690,6 +728,11 @@ def people_search(query, limit=10):
     for pt in data.get("result", []):
         p = pt.get("payload", {})
         dn = p.get("display_name", "")
+        # Hide raw-handle "people" (WhatsApp JIDs, bare phone numbers) from
+        # the People list / search results. Render-time filter only; the
+        # Qdrant point is never deleted. Ref #664.
+        if _is_nameless_name(dn):
+            continue
         entry = {
             "name": dn,
             "slug": _wiki_slug(dn),
