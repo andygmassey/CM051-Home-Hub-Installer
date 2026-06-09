@@ -33,6 +33,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from identity_resolver.normalise import _jaro_winkler, normalise_email, normalise_phone
+from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Minimum Jaro-Winkler score between names for email match to stay high-confidence.
     # Below this, shared email is likely an inherited/shared account — downgrade to review.
     "email_name_similarity_threshold": 0.7,
+    # BW-2 correction loop: operator merge/distinct decisions live here as
+    # duplicates.yaml. distinct pairs are a permanent never-merge block;
+    # merge pairs are forced. Shared contract with the CM044 review page.
+    "corrections_dir": os.path.expanduser(
+        os.environ.get("WIKI_CORRECTIONS_DIR", "~/.ostler/corrections")
+    ),
 }
 
 
@@ -155,10 +162,45 @@ def _levenshtein(s1: str, s2: str) -> int:
     return prev[-1]
 
 
+def has_hard_conflict(
+    a: PersonRecord, b: PersonRecord, config: Dict[str, Any]
+) -> Optional[str]:
+    """BW-2 hard-conflict veto (spec §3b). A single conflicting *verified*
+    identifier means two records are different people no matter how well their
+    names match – this is the two-Stuart-Baileys guard.
+
+    Vetoes when the two records each carry a value of the same kind and the
+    values are disjoint:
+      - different LinkedIn URLs (one human, one LinkedIn identity => two people),
+      - different phone numbers (normalised E.164),
+      - different *corporate* email domains (free webmail like gmail is too
+        generic to count, so it is excluded).
+
+    Returns the conflicting kind ("linkedin"/"phone"/"email") or None. Only
+    meaningful for name-based strategies; shared-identifier strategies
+    (email_match/phone_match) are the opposite signal and must not call this.
+    """
+    if a.linkedin_urls and b.linkedin_urls and not (a.linkedin_urls & b.linkedin_urls):
+        return "linkedin"
+    if a.phones and b.phones and not (a.phones & b.phones):
+        return "phone"
+    common = config.get("common_email_domains", set())
+    a_corp = a.email_domains - common
+    b_corp = b.email_domains - common
+    if a_corp and b_corp and not (a_corp & b_corp):
+        return "email"
+    return None
+
+
 def detect_exact_name_matches(
     persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[DuplicateMatch]:
-    """Strategy 1: Exact display name match (confidence 0.9)."""
+    """Strategy 1: Exact display name match (confidence 0.9).
+
+    Hard-conflict veto applies (spec §3b): two records with an identical name
+    but a conflicting verified identifier are different people (the two real
+    Stuart Baileys), so they are never matched.
+    """
     by_name: Dict[str, List[str]] = defaultdict(list)
     for uri, p in persons.items():
         norm = _normalise_name(p.display_name)
@@ -173,11 +215,10 @@ def detect_exact_name_matches(
             for j in range(i + 1, len(uris)):
                 a = persons[uris[i]]
                 b = persons[uris[j]]
-                # Hard blocker: different LinkedIn URLs = different people,
-                # even with identical names (e.g. two "John Smith"s)
-                if a.linkedin_urls and b.linkedin_urls:
-                    if not a.linkedin_urls & b.linkedin_urls:
-                        continue
+                # Hard-conflict veto: different LinkedIn / phone / corporate
+                # email = different people, even with identical names.
+                if has_hard_conflict(a, b, config):
+                    continue
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
                     name_a=a.display_name,
@@ -327,12 +368,10 @@ def detect_fuzzy_name_matches(
             if jw_score < jw_threshold and lev_dist > lev_max:
                 continue
 
-            # Hard blocker: if BOTH persons have LinkedIn URLs and they
-            # are different, these are definitely different people.
-            # Two different LinkedIn profiles = never merge.
-            if a.linkedin_urls and b.linkedin_urls:
-                if not a.linkedin_urls & b.linkedin_urls:
-                    continue
+            # Hard-conflict veto (spec §3b): different LinkedIn / phone /
+            # corporate email = different people, never merge.
+            if has_hard_conflict(a, b, config):
+                continue
 
             confidence = base
             reasons = []
@@ -407,6 +446,10 @@ def detect_name_subset_matches(
         # Only match if unambiguous (exactly one full-name candidate)
         if len(candidates) == 1:
             full_uri = candidates[0]
+            # Hard-conflict veto: a single name matching a full name with a
+            # conflicting verified identifier is a different person.
+            if has_hard_conflict(persons[single_uri], persons[full_uri], config):
+                continue
             matches.append(DuplicateMatch(
                 uri_a=single_uri,
                 name_a=persons[single_uri].display_name,
@@ -834,6 +877,21 @@ class BatchResolver:
         all_matches.extend(detect_name_subset_matches(persons, self.config))
 
         auto, review = consolidate_matches(all_matches, self.config)
+
+        # BW-2 correction loop: honour operator merge/distinct decisions from
+        # duplicates.yaml. distinct = permanent never-merge block; merge =
+        # forced union. Shared contract with the CM044 review page.
+        decisions = load_duplicate_decisions(self.config.get("corrections_dir", ""))
+        if decisions["merge_groups"] or decisions["distinct_pairs"]:
+            def _user_match(ua: str, na: str, ub: str, nb: str) -> DuplicateMatch:
+                return DuplicateMatch(
+                    uri_a=ua, name_a=na, uri_b=ub, name_b=nb,
+                    confidence=1.0, strategy="user_decision",
+                    details="Operator marked these as the same person",
+                )
+            auto, review = apply_user_decisions(
+                auto, review, persons, decisions, match_factory=_user_match,
+            )
 
         report = ResolverReport(total_persons=len(persons))
 
