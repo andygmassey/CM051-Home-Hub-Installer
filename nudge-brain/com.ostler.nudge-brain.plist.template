@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Proactive "knows-me" nudge brain LaunchAgent (v1.0.1, task #669).
+  install.sh substitutes @@PYTHON@@ / @@BRAIN@@ / @@LOGDIR@@ and writes this to
+  ~/Library/LaunchAgents/com.ostler.nudge-brain.plist, then `launchctl bootstrap`.
+  Mirrors the founder shadow LaunchAgent (com.ostler.observer.shadow) but points
+  at the productised entrypoint with shadow OFF for customers.
+  FDA: the brain itself needs no chat.db here -- it reads the loopback
+  ical-server + posts to the daemon. (chat.db reads stay in the daemon's FDA context.)
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.nudge-brain</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@@PYTHON@@</string>
+        <string>@@BRAIN@@/nudge_brain.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OSTLER_ICAL_BASE</key><string>http://127.0.0.1:8089</string>
+        <key>OSTLER_NUDGE_ENDPOINT</key><string>http://127.0.0.1:8000/internal/nudge</string>
+        <key>OSTLER_OLLAMA_BASE</key><string>http://127.0.0.1:11434</string>
+        <!-- shadow ON for our QA, OFF (0) for customers; install.sh sets per the opt-in answer -->
+        <key>OSTLER_NUDGE_SHADOW</key><string>0</string>
+    </dict>
+    <!-- Run every 15 minutes; the judge's lead-time window does the real gating. -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>@@LOGDIR@@/nudge-brain.log</string>
+    <key>StandardErrorPath</key>
+    <string>@@LOGDIR@@/nudge-brain.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
