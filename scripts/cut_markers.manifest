@@ -22,6 +22,11 @@
 #                pattern must appear in that file AT the daemon tag the pin
 #                resolves to. Gates daemon-side / Hub-UI fixes with no vendored
 #                footprint (the web bundle is rebuilt from source at cut time).
+#   wiki_image_grep  target=<image-key>:<path-in-image>  pattern=<regex>  --
+#                pulls the PINNED wiki Docker digest from install.sh
+#                (image-key = wiki-site | wiki-compiler) and greps inside it.
+#                FAIL-CLOSED: docker unavailable / pull fail = RED. Ends the
+#                manual "did you rebuild the right wiki image" grep dance.
 #
 # --- v1.0.0 launch blockers (the v0.4.8 walk defects) ---
 daemon_tag|a129fcc1|-|chat: qwen3.x think:false default so local chat returns text (#113, the dead-chat cure)
@@ -30,3 +35,6 @@ vendor_grep|vendor/doctor/agent/web_ui.py|/api/v1/wiki/duplicates/decision|#171 
 vendor_grep|vendor/cm041/identity_resolver|name_org_auto_merge|#40 resolver same-org auto-merge (the unmerged same-org dupes)
 assistant_tag_grep|web/src/App.tsx|ReconnectingScreen|#566 passcode-flash fix (no 6-digit auto-render, calm reconnect)
 assistant_tag_grep|web/src/pages/AgentChat.tsx|useIdentity|assistant chosen-name in chat (header + greeting via /api/identity)
+wiki_image_grep|wiki-site:/docs/overrides|pwg-hydration-temporary|#84 hydration banner CSS baked into the pinned wiki-site image
+wiki_image_grep|wiki-compiler:/app/compiler|hydration_temporary|#84 hydration panel renderer in the pinned wiki-compiler image
+wiki_image_grep|wiki-compiler:/app/compiler|duplicates/decision|#83 duplicates one-tap page in the pinned wiki-compiler image

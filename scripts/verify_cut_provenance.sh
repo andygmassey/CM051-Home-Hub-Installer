@@ -133,6 +133,32 @@ while IFS='|' read -r kind target pattern desc; do
         info "the daemon tag predates this fix; re-tag from a main HEAD that contains it"
       fi
       ;;
+    wiki_image_grep)
+      # Verify a fix is baked into the PINNED wiki Docker image digest the cut
+      # actually ships (install.sh `image: ghcr.io/...@sha256:...`). This closes
+      # the hole that made wiki staleness a manual grep: the gate pulls the
+      # exact digest and greps inside it. target = `<image-key>:<path-in-image>`
+      # where image-key is wiki-site or wiki-compiler; pattern = regex to find.
+      # FAIL-CLOSED: if docker is unavailable or the pull fails, this is RED, so
+      # a cut host that cannot verify the image cannot pass.
+      img_key="${target%%:*}"; img_path="${target#*:}"
+      ref="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
+      if [[ -z "${ref}" ]]; then
+        red "wiki_image_grep ${img_key} :: no pinned digest in install.sh (${desc})"; continue
+      fi
+      if ! command -v docker >/dev/null 2>&1; then
+        red "wiki_image_grep ${img_key} :: docker unavailable -- cannot verify image (${desc})"
+        info "run the preflight on the cut host (docker + registry access required)"
+        continue
+      fi
+      docker pull -q "${ref}" >/dev/null 2>&1
+      if docker run --rm --entrypoint sh "${ref}" -c "grep -rq -- '${pattern}' '${img_path}' 2>/dev/null"; then
+        green "wiki_image_grep ${img_key}@${ref##*@} :${img_path} ~ /${pattern}/ (${desc})"
+      else
+        red "wiki_image_grep ${img_key} :${img_path} ~ /${pattern}/ NOT FOUND -- STALE WIKI IMAGE (${desc})"
+        info "rebuild + repin the ${img_key} digest from current CM044 main before cutting"
+      fi
+      ;;
     *)
       red "unknown manifest kind '${kind}'"
       ;;
