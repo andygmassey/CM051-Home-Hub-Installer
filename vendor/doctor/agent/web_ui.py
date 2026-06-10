@@ -2888,6 +2888,45 @@ async def api_pair_regenerate(request: Request):
     )
 
 
+@app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
+async def api_wiki_duplicates_decision(request: Request):
+    """Record a duplicate-contact decision (#3 duplicates UX).
+
+    The CM044 "Possible duplicate contacts" page renders Combine /
+    Not-the-same buttons that POST here. We append the decision to
+    ``duplicates.yaml`` in the corrections dir; the CM041 resolver enacts
+    it on the next sweep (merge = forced union, distinct = permanent
+    never-merge) and the page reads it back to stop re-nagging. Thin HTTP
+    plumbing only -- schema + write live in ``duplicate_decision.py``.
+    """
+    from duplicate_decision import (
+        ValidationError as _DupError,
+        validate_payload as _validate,
+        write_decision as _write,
+    )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    try:
+        normalised = _validate(body)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    try:
+        result = _write(normalised)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"could not record decision: {exc}"}, status_code=500,
+        )
+
+    return result
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 

@@ -54,6 +54,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "fuzzy_base_confidence": 0.6,
     "fuzzy_same_org_bonus": 0.1,
     "fuzzy_same_domain_bonus": 0.1,
+    # Name+org auto-merge (2026-06-10): a same-org match whose names are a
+    # strong variant (Jaro-Winkler >= name_org_auto_merge_jw_threshold, i.e.
+    # NOT a first-name-prefix collision) and which has cleared the hard-conflict
+    # veto is auto-merged at this confidence instead of nagging the user.
+    "name_org_auto_merge_confidence": 0.85,
+    "name_org_auto_merge_jw_threshold": 0.93,
     "name_subset_confidence": 0.5,
     # Fuzzy thresholds
     "fuzzy_jaro_winkler_threshold": 0.85,
@@ -394,6 +400,18 @@ def detect_fuzzy_name_matches(
             # shared first-name prefixes inflate scores artificially.
             if jw_score < 0.93 and not same_org and not has_corporate_domain:
                 continue
+
+            # Name + org auto-merge (Andy 2026-06-10): a strong name match
+            # (jw >= name_org_auto_merge_jw_threshold, so NOT a first-name-prefix
+            # collision) at the same organisation -- having already cleared the
+            # hard-conflict veto above -- is a confident same-person merge. Lift
+            # it over the auto-merge line so the user is never asked to confirm
+            # the obvious. The jw gate deliberately leaves the 0.85-0.93 danger
+            # zone (e.g. "David Freer" ~ "David Gallagher" at the same employer)
+            # in review, where a shared first name could mask two real people.
+            if same_org and jw_score >= config["name_org_auto_merge_jw_threshold"]:
+                confidence = max(confidence, config["name_org_auto_merge_confidence"])
+                reasons.append("name+org auto-merge")
 
             detail_parts = [
                 f"Jaro-Winkler={jw_score:.3f}",
