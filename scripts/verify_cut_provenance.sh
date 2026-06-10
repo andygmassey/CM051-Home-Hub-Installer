@@ -114,6 +114,25 @@ while IFS='|' read -r kind target pattern desc; do
         info "graft from source-of-truth main before cutting"
       fi
       ;;
+    assistant_tag_grep)
+      # Verify a daemon-side (ostler-assistant) source fix is present in the
+      # exact tag the daemon tarball is built from. Gates UI / gateway fixes
+      # that have no vendored footprint -- e.g. the Hub web bundle, rebuilt
+      # from source at cut time. `target` = path inside ostler-assistant;
+      # `pattern` = regex that must appear in that file at the pinned tag.
+      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+        red "assistant_tag_grep ${target} :: ostler-assistant not at ${ASSISTANT_DIR} (${desc})"; continue
+      fi
+      if [[ -z "${DAEMON_TAG}" ]]; then
+        red "assistant_tag_grep ${target} :: no tag for pin '${DAEMON_PIN}' to inspect (${desc})"; continue
+      fi
+      if git -C "${ASSISTANT_DIR}" show "${DAEMON_TAG}:${target}" 2>/dev/null | grep -qE -- "${pattern}"; then
+        green "assistant_tag_grep ${DAEMON_TAG}:${target} ~ /${pattern}/ (${desc})"
+      else
+        red "assistant_tag_grep ${DAEMON_TAG}:${target} ~ /${pattern}/ NOT FOUND -- STALE DAEMON SOURCE (${desc})"
+        info "the daemon tag predates this fix; re-tag from a main HEAD that contains it"
+      fi
+      ;;
     *)
       red "unknown manifest kind '${kind}'"
       ;;

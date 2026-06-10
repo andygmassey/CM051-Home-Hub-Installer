@@ -18,9 +18,15 @@
 #   vendor_file  target=<path-rel-CM051>  pattern=<ignored>  -- file must exist.
 #   vendor_grep  target=<path-rel-CM051 file OR dir>  pattern=<regex>  -- pattern
 #                must be present (grep -rE) under target.
+#   assistant_tag_grep  target=<path-rel-ostler-assistant>  pattern=<regex>  --
+#                pattern must appear in that file AT the daemon tag the pin
+#                resolves to. Gates daemon-side / Hub-UI fixes with no vendored
+#                footprint (the web bundle is rebuilt from source at cut time).
 #
 # --- v1.0.0 launch blockers (the v0.4.8 walk defects) ---
 daemon_tag|a129fcc1|-|chat: qwen3.x think:false default so local chat returns text (#113, the dead-chat cure)
 vendor_file|vendor/doctor/agent/duplicate_decision.py|-|#171 Doctor Same-person decision module (the 404 Save button)
 vendor_grep|vendor/doctor/agent/web_ui.py|/api/v1/wiki/duplicates/decision|#171 Doctor decision route wired into web_ui
 vendor_grep|vendor/cm041/identity_resolver|name_org_auto_merge|#40 resolver same-org auto-merge (the unmerged same-org dupes)
+assistant_tag_grep|web/src/App.tsx|ReconnectingScreen|#566 passcode-flash fix (no 6-digit auto-render, calm reconnect)
+assistant_tag_grep|web/src/pages/AgentChat.tsx|useIdentity|assistant chosen-name in chat (header + greeting via /api/identity)
