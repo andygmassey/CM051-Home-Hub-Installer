@@ -1,0 +1,26 @@
+# cut_markers.manifest -- the "did the merged fix make the cut?" ledger.
+#
+# Every line is a fix MERGED to a source main that MUST be present in the
+# about-to-be-cut artefact. scripts/verify_cut_provenance.sh reads this file and
+# blocks the cut (gui/Makefile package + release.sh) if any marker is missing.
+# When a new launch-blocking fix lands, add ONE line here -- every future cut is
+# then gated on it. This is the mechanism that stops a merged-but-not-shipped fix
+# (dead chat, 404 Doctor, unmerged same-org dupes) from recurring.
+#
+# Format (pipe-delimited, 4 fields):
+#   kind | target | pattern | description
+#
+# kinds:
+#   daemon_tag   target=<commit-sha>  pattern=<ignored>  -- the ostler-assistant
+#                tag the daemon pin (gui/Makefile DAEMON_VERSION) resolves to MUST
+#                contain this commit as an ancestor. Catches a stale daemon
+#                tarball (pin says 0.4.8 but the v0.4.8 binary predates the fix).
+#   vendor_file  target=<path-rel-CM051>  pattern=<ignored>  -- file must exist.
+#   vendor_grep  target=<path-rel-CM051 file OR dir>  pattern=<regex>  -- pattern
+#                must be present (grep -rE) under target.
+#
+# --- v1.0.0 launch blockers (the v0.4.8 walk defects) ---
+daemon_tag|a129fcc1|-|chat: qwen3.x think:false default so local chat returns text (#113, the dead-chat cure)
+vendor_file|vendor/doctor/agent/duplicate_decision.py|-|#171 Doctor Same-person decision module (the 404 Save button)
+vendor_grep|vendor/doctor/agent/web_ui.py|/api/v1/wiki/duplicates/decision|#171 Doctor decision route wired into web_ui
+vendor_grep|vendor/cm041/identity_resolver|name_org_auto_merge|#40 resolver same-org auto-merge (the unmerged same-org dupes)
