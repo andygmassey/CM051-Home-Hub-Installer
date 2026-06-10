@@ -217,6 +217,26 @@ done
 [[ -d "${CM021_DIR}" ]] || die "--cm021 path not found: ${CM021_DIR}" 3
 
 # -----------------------------------------------------------------------------
+# Cut-provenance preflight (UNBYPASSABLE for a real cut)
+# -----------------------------------------------------------------------------
+# Proves every fix merged to a source main is actually present in this tree +
+# the pinned daemon tag. This is the wall between "merged" and "shipped" -- it
+# exists because v0.4.8 shipped a dead-chat daemon and a stale-vendored Doctor,
+# both of which were merged but never made the cut. Skipped only for --dry-run
+# (inspection, never a shippable artefact). See scripts/cut_markers.manifest.
+PROVENANCE_GATE="${CM051_DIR}/scripts/verify_cut_provenance.sh"
+if [[ "${DO_DRY_RUN}" -eq 0 ]]; then
+    echo "==> Cut-provenance preflight"
+    [[ -x "${PROVENANCE_GATE}" ]] || die "provenance gate missing/not executable: ${PROVENANCE_GATE}" 2
+    if ! "${PROVENANCE_GATE}"; then
+        die "cut-provenance preflight FAILED -- a merged fix is stale/missing. Fix the FAILs above, then re-cut. DO NOT SHIP." 2
+    fi
+    ok "cut-provenance preflight GREEN"
+else
+    warn "--dry-run: skipping cut-provenance preflight (inspection only, not a shippable cut)"
+fi
+
+# -----------------------------------------------------------------------------
 # Stage
 # -----------------------------------------------------------------------------
 

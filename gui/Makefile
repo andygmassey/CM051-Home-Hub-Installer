@@ -178,7 +178,7 @@ STEP          := @printf '\n[STEP] %s\n'
 .PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
-        sign-python-bundle download-daemon stage-daemon
+        sign-python-bundle download-daemon stage-daemon check-provenance
 
 all: debug
 
@@ -601,7 +601,24 @@ STEP_INLINE := printf '\n[STEP] %s\n'
 # Icon positions here MUST match the icon centres baked into
 # scripts/generate_dmg_background.py so the arrow lines up.
 # ---------------------------------------------------------------------------
-package: check-tools check-identity check-create-dmg
+# ---------------------------------------------------------------------------
+# Cut-provenance preflight -- UNBYPASSABLE gate on the DMG.
+# Proves every fix merged to a source main is present in this tree + the pinned
+# daemon tag before we seal the DMG. This is why v0.4.8's dead-chat daemon and
+# stale-vendored Doctor cannot ship again: package depends on this, so a RED
+# provenance check aborts the cut. Ledger: ../scripts/cut_markers.manifest.
+# ---------------------------------------------------------------------------
+check-provenance:
+	$(STEP) "Cut-provenance preflight (DMG)"
+	@OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
+	    ../scripts/verify_cut_provenance.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: cut-provenance preflight FAILED -- a merged fix is stale/missing." >&2; \
+	    echo "Fix the FAILs above (graft vendor / re-tag daemon), then re-cut. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
+package: check-tools check-identity check-create-dmg check-provenance
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
