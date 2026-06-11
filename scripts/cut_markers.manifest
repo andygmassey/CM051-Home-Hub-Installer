@@ -36,6 +36,7 @@ vendor_grep|vendor/cm041/identity_resolver|name_org_auto_merge|#40 resolver same
 assistant_tag_grep|web/src/App.tsx|ReconnectingScreen|#566 passcode-flash fix (no 6-digit auto-render, calm reconnect)
 assistant_tag_grep|web/src/pages/AgentChat.tsx|useIdentity|assistant chosen-name in chat (header + greeting via /api/identity)
 wiki_image_grep|wiki-site:/docs/overrides|pwg-hydration-temporary|#84 hydration banner CSS baked into the pinned wiki-site image
+wiki_image_grep|wiki-site:/docs/overrides|padding-left: 1.4rem|#76/#623 card+admonition left-inset CSS baked into the pinned wiki-site image (the collapsed-padding cure: image serves extra.css from this dir)
 wiki_image_grep|wiki-compiler:/app/compiler|hydration_temporary|#84 hydration panel renderer in the pinned wiki-compiler image
 wiki_image_grep|wiki-compiler:/app/compiler|duplicates/decision|#83 duplicates one-tap page in the pinned wiki-compiler image
 
