@@ -3614,6 +3614,36 @@ if [[ "$SKIP_PHASE2" == false ]]; then
 
 EXPORTS_DIR=""
 DETECTED_EXPORTS=()
+# #619 (2026-06-06): folders the scan could not read (TCC or POSIX
+# permission denied). Recorded so a denied folder is surfaced as an
+# actionable message rather than masquerading as an empty one.
+DENIED_FOLDERS=()
+
+# #619 diagnosis note (verify before assuming a prompt bug). The
+# announce-no-prompt symptom Andy sees is most likely a #446 artifact,
+# not a code bug here: the three folder-TCC grants persist for the
+# installer bundle (ai.ostler.installer) across dev wipes because
+# dev-wipe-studio.sh does not reset TCC for the installer bundle IDs.
+# With the grant already present the `ls` pre-warm finds access and
+# macOS shows no prompt, while the scan still works. To reproduce a
+# genuinely TCC-clean state, reset the three services for the bundle
+# before a run:
+#   tccutil reset SystemPolicyDownloadsFolder ai.ostler.installer
+#   tccutil reset SystemPolicyDesktopFolder   ai.ostler.installer
+#   tccutil reset SystemPolicyDocumentsFolder ai.ostler.installer
+# (macOS attributes folder TCC to the responsible app carrying the
+# NSDownloads/NSDesktop/NSDocumentsFolderUsageDescription keys in
+# gui/OstlerInstaller/Info.plist.) The hardening below is correct
+# regardless of that diagnosis: a denied folder must never read as
+# empty in silence.
+
+# #619: true if the directory can actually be listed. A folder blocked
+# by TCC or POSIX permissions still passes [[ -d ]] but fails `ls`;
+# without this check the find-scan below swallows the denial (its
+# `2>/dev/null || true`) and the folder looks empty.
+_gdpr_folder_readable() {
+    ls "$1" >/dev/null 2>&1
+}
 
 # CX-18 (2026-05-23): Studio retest #13 surfaced three unannounced
 # macOS folder-access prompts (Downloads, Desktop, Documents) firing
@@ -3803,6 +3833,17 @@ done
 for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$search_dir" ]] || continue
 
+    # #619: distinguish a permission-denied folder from an empty one.
+    # The find scans below all end `2>/dev/null || true`, so an access
+    # denial yields zero hits indistinguishable from "nothing here" --
+    # the customer's exports could be sitting in this folder, unreadable,
+    # and they would be told nothing was found. Record the denial and
+    # skip this folder's scan; the post-scan block surfaces it.
+    if ! _gdpr_folder_readable "$search_dir"; then
+        DENIED_FOLDERS+=("$search_dir")
+        continue
+    fi
+
     # LinkedIn: Connections.csv in a folder. The previous
     # `-path "*/linkedin*"` predicate was case-sensitive and
     # excluded LinkedIn's actual export folder name
@@ -3864,6 +3905,19 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     done < <(find "$search_dir" -maxdepth 4 -name "*.mbox" -size +1k 2>/dev/null | head -3 || true)
 done
 
+# #619: surface any folder the scan could not read. Without this, a
+# permission-denied folder is silently indistinguishable from an empty
+# one and the customer is told "no exports found" while their exports
+# sit unread. Name each denied folder and route the customer toward the
+# manual-exports path below (and toward granting access + re-running).
+if [[ ${#DENIED_FOLDERS[@]} -gt 0 ]]; then
+    echo ""
+    for denied_dir in "${DENIED_FOLDERS[@]}"; do
+        warn "$(printf "$MSG_WARN_FOLDER_ACCESS_DENIED_SCAN" "${denied_dir}")"
+    done
+    info "$MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE"
+fi
+
 if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     echo ""
     ok "$(printf "$MSG_OK_FOUND_GDPR_EXPORT_S" "${#DETECTED_EXPORTS[@]}")"
@@ -3877,7 +3931,15 @@ if [[ ${#DETECTED_EXPORTS[@]} -gt 0 ]]; then
     fi
 else
     echo ""
-    info "$MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP"
+    # #619: be honest about WHY nothing was found. If a folder was
+    # denied, "no exports found" is misleading -- the scan was blocked,
+    # not the folder empty. The manual-exports prompt below is the route
+    # in either case, so a denial is never a silent dead-end.
+    if [[ ${#DENIED_FOLDERS[@]} -gt 0 ]]; then
+        info "$MSG_INFO_GDPR_SCAN_BLOCKED_BY_PERMISSIONS"
+    else
+        info "$MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP"
+    fi
     echo "  That is fine -- you can import later. Request your data from:"
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
