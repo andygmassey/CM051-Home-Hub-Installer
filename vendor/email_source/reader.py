@@ -66,8 +66,19 @@ class EmailMessage:
     source_path: Optional[Path] = None
 
 
-def _decode(value: Optional[str]) -> str:
-    """Decode an RFC 2047 encoded-word header value to plain text."""
+def _decode(value: object) -> str:
+    """Decode an RFC 2047 encoded-word header value to plain text.
+
+    ``value`` may be a plain ``str`` OR an ``email.header.Header`` -- the stdlib
+    email parser hands back Header objects for some fields. Coerce to ``str``
+    first: a Header is not iterable, so the ``"=?" in`` membership test below
+    would otherwise raise ``TypeError: argument of type 'Header' is not
+    iterable`` and crash every email-source run (starving email conversations
+    and email last-contact).
+    """
+    if value is None:
+        return ""
+    value = str(value)
     if not value:
         return ""
     if "=?" not in value:

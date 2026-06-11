@@ -5591,6 +5591,27 @@ else
     info "$(printf "$MSG_INFO_REUSING_EXISTING_JWT_SECRET" "${OSTLER_ENV_FILE}")"
 fi
 
+# Wiki title propagation (#5). docker compose interpolates the literal
+# ${USER_FIRST_NAME:-} in docker-compose.yml (a quoted heredoc) at `up` time,
+# reading the compose-dir .env (THIS file) -- NOT config/.env, and not an
+# unexported shell var. USER_FIRST_NAME is captured to config/.env for the
+# host tools, but unless it also lands here the wiki-site title falls back to
+# "Personal wiki" instead of "{first_name}pedia". Write it to the compose .env
+# so every compose invocation (install-time up + the recompile LaunchAgent)
+# resolves it. Idempotent: replace any prior line, preserve the rest.
+umask_ufn_orig=$(umask)
+umask 0077
+touch "$OSTLER_ENV_FILE"
+chmod 600 "$OSTLER_ENV_FILE"
+if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^USER_FIRST_NAME=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
+chmod 600 "$OSTLER_ENV_FILE"
+umask "$umask_ufn_orig"
+unset umask_ufn_orig
+
 # Service token: separate file under secrets/. Reuse if present
 # (regenerating would invalidate any local CLI tool / assistant
 # instance that bootstrapped against the prior token).
@@ -12824,6 +12845,39 @@ fi
 
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
+
+# Whole-graph dedupe consolidation (#4) ----------------------------
+#
+# All person-populating sources (iCloud contacts/calendar + iMessage
+# Person nodes) are now in Oxigraph. Run the resolver's whole-graph
+# converge pass ONCE here so same-person duplicates that never shared an
+# incremental batch are merged BEFORE the search index + wiki are built.
+# --converge loops detect -> execute to a fixpoint so transitive 3+ node
+# clusters collapse fully (a single pass merges each node only once and
+# leaves the rest for review). This is pure orchestration over the
+# existing resolver: it changes no merge rule, threshold, or flag -- the
+# hard-conflict veto (two-Stuart-Baileys guard) and duplicates.yaml
+# decisions still apply every round. Oxigraph is the source of truth and
+# the people-search sweep below rebuilds the Qdrant `people` collection
+# from the merged graph, so a best-effort Qdrant merge here is enough.
+# Non-fatal: a dedupe hiccup must never block the install.
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    info "Merging duplicate contacts across your sources"
+    _DEDUPE_LOG=/tmp/ostler-hydrate-dedupe.log
+    if (
+        cd "$PIPELINE_DIR" && \
+        OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+        QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+        .venv/bin/python3 -m identity_resolver.batch_resolver \
+            --execute --converge \
+            --output /tmp/ostler-dedupe-report.yaml
+    ) >>"$_DEDUPE_LOG" 2>&1; then
+        info "Duplicate contacts merged"
+    else
+        warn "Whole-graph dedupe pass did not complete cleanly (see $_DEDUPE_LOG); continuing"
+    fi
+    unset _DEDUPE_LOG
+fi
 
 # People search index (#600) ---------------------------------------
 #
