@@ -1,0 +1,18 @@
+[
+  {
+    "snippet": {
+      "title": "Synthetic Workshop Channel",
+      "resourceId": {
+        "channelId": "UCsynthetic000000000001"
+      }
+    }
+  },
+  {
+    "snippet": {
+      "title": "Invented Cooking Lab",
+      "resourceId": {
+        "channelId": "UCsynthetic000000000002"
+      }
+    }
+  }
+]
