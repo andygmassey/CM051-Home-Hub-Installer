@@ -5591,6 +5591,27 @@ else
     info "$(printf "$MSG_INFO_REUSING_EXISTING_JWT_SECRET" "${OSTLER_ENV_FILE}")"
 fi
 
+# Wiki title propagation (#5). docker compose interpolates the literal
+# ${USER_FIRST_NAME:-} in docker-compose.yml (a quoted heredoc) at `up` time,
+# reading the compose-dir .env (THIS file) -- NOT config/.env, and not an
+# unexported shell var. USER_FIRST_NAME is captured to config/.env for the
+# host tools, but unless it also lands here the wiki-site title falls back to
+# "Personal wiki" instead of "{first_name}pedia". Write it to the compose .env
+# so every compose invocation (install-time up + the recompile LaunchAgent)
+# resolves it. Idempotent: replace any prior line, preserve the rest.
+umask_ufn_orig=$(umask)
+umask 0077
+touch "$OSTLER_ENV_FILE"
+chmod 600 "$OSTLER_ENV_FILE"
+if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^USER_FIRST_NAME=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
+chmod 600 "$OSTLER_ENV_FILE"
+umask "$umask_ufn_orig"
+unset umask_ufn_orig
+
 # Service token: separate file under secrets/. Reuse if present
 # (regenerating would invalidate any local CLI tool / assistant
 # instance that bootstrapped against the prior token).
