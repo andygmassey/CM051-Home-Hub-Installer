@@ -347,6 +347,43 @@ step()  {
     gui_phase "$id" "$title"
 }
 
+# Bash-native command timeout. The CLT prereq phase runs BEFORE Homebrew
+# (so coreutils' `gtimeout` is not yet installed) and macOS ships no
+# `timeout`, yet a half-open link to Apple's CDN can hang a network call
+# indefinitely without ever returning non-zero -- the exact .146
+# box-walk failure mode. This wraps any command with a wall-clock cap so
+# a stalled fetch is killed and the caller's retry/fallback can fire.
+# Later phases (ollama/colima/compose) prefer gtimeout where present;
+# this helper is for the pre-Homebrew window.
+# Usage: _ostler_run_timeout SECONDS cmd [args...]   (returns 124 on timeout)
+_ostler_run_timeout() {
+    local _secs="$1"; shift
+    local _marker; _marker="$(mktemp 2>/dev/null || echo "/tmp/ostler-to.$$.${RANDOM}")"
+    /bin/rm -f "$_marker" 2>/dev/null || true
+    "$@" &
+    local _cmd_pid=$!
+    (
+        sleep "$_secs"
+        # Mark that the deadline fired BEFORE killing, so the caller can
+        # distinguish a timeout from the command's own non-zero exit even
+        # though the watcher then lingers in its SIGKILL grace window.
+        : > "$_marker" 2>/dev/null || true
+        kill -TERM "$_cmd_pid" 2>/dev/null || true
+        sleep 3
+        kill -KILL "$_cmd_pid" 2>/dev/null || true
+    ) &
+    local _watch_pid=$!
+    local _rc=0
+    wait "$_cmd_pid" 2>/dev/null || _rc=$?
+    kill -TERM "$_watch_pid" 2>/dev/null || true
+    wait "$_watch_pid" 2>/dev/null || true
+    if [[ -e "$_marker" ]]; then
+        _rc=124  # normalise to coreutils' timeout exit code
+    fi
+    /bin/rm -f "$_marker" 2>/dev/null || true
+    return "$_rc"
+}
+
 # Retry a model pull up to 3 times with exponential backoff. A 6.6 GB
 # pull over hotel WiFi is fragile; a single network blip should not
 # abort the entire install at 80% progress.
@@ -354,8 +391,25 @@ ollama_pull_with_retry() {
     local model="$1"
     local attempt=1
     local backoff=10
+    # Wall-clock cap per attempt. ollama resumes by layer digest, so the
+    # existing retry/backoff already survives clean drops -- but a
+    # HALF-OPEN link (packets lost, TCP not reset) leaves `ollama pull`
+    # hanging without returning non-zero, so the retry loop never fires
+    # and the install wedges silently (.146 box-walk failure class).
+    # Killing a stalled attempt lets the resume kick in. 30 min is
+    # generous even for the 23 GB high-RAM model on a slow-but-live link.
+    local _pull_timeout="${OSTLER_OLLAMA_PULL_TIMEOUT:-1800}"
+    # String (not array) invoked unquoted, matching the hydrate blocks:
+    # under macOS bash 3.2 + `set -u`, "${empty_array[@]}" raises an
+    # unbound-variable error, whereas an empty string expands to nothing.
+    local _to_wrap=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _to_wrap="gtimeout $_pull_timeout"
+    elif command -v timeout >/dev/null 2>&1; then
+        _to_wrap="timeout $_pull_timeout"
+    fi
     while (( attempt <= 3 )); do
-        if ollama pull "$model"; then
+        if $_to_wrap ollama pull "$model"; then
             return 0
         fi
         if (( attempt < 3 )); then
@@ -1634,9 +1688,11 @@ gui_emit PCT "step=prereq_check" "pct=20"
 # also takes ~5 min). The wait-for-CLT loop has moved to the top of
 # the homebrew_install step (lower in this script), where it only
 # fires if CLT is still finishing.
-CLT_INSTALL_TRIGGERED=false
-if ! /usr/bin/xcode-select -p &>/dev/null; then
-    info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
+# GUI-dialog CLT trigger -- the battle-tested path (CX-23/54/71 focus
+# machinery). Factored into a function so the experimental headless path
+# below can fall back to it cleanly. Calling this directly reproduces the
+# exact pre-2026-06-11 behaviour (the default).
+_clt_trigger_gui() {
     /usr/bin/xcode-select --install 2>/dev/null || true
 
     # CX-23 (2026-05-24): macOS's CLT install dialog appears BEHIND
@@ -1661,9 +1717,6 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # CoreServices path on every modern macOS.
     open "/System/Library/CoreServices/Install Command Line Developer Tools.app" 2>/dev/null || true
 
-    CLT_INSTALL_TRIGGERED=true
-    ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
-
     # CX-54 (DMG #30, 2026-05-24) + CX-71 (DMG #44, 2026-05-25):
     # customers consistently miss that they can continue answering
     # installer questions while macOS's CLT installer downloads in
@@ -1677,7 +1730,6 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # OR customer cancelled). Subshell + disown so install.sh main
     # thread proceeds to the questions phase immediately.
     if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-        info "$MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND"
         (
             sleep 4
             _focus_loop_cap=15  # 15 iterations x 4 s = 60 s
@@ -1695,6 +1747,71 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
             done
         ) &
         disown 2>/dev/null || true
+    fi
+}
+
+CLT_INSTALL_TRIGGERED=false
+if ! /usr/bin/xcode-select -p &>/dev/null; then
+    info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
+
+    # EXPERIMENTAL headless-first CLT install (2026-06-11, .146 box-walk).
+    # The GUI `xcode-select --install` dialog (a) renders behind our window
+    # (the CX-23/54/71 focus hacks above exist only to fight that), and
+    # (b) when Apple's CDN is flaky it stalls with no signal until the
+    # 15-min homebrew-phase wait times out generically -- the .146 failure.
+    # `softwareupdate -i` needs no click, streams progress to the log, and
+    # exits non-zero on failure. We run it in the BACKGROUND so the
+    # questions phase still proceeds immediately, and fall back to the GUI
+    # dialog (+ focus machinery) if the CLT softwareupdate label cannot be
+    # resolved or the headless install does not land.
+    #
+    # DEFAULT OFF until fresh-Mac validated: on some macOS builds the CLT
+    # softwareupdate label install may require admin, and the background
+    # install vs the homebrew-phase XCODE_TIMEOUT wait need their timeouts
+    # reconciled (raise XCODE_TIMEOUT to cover OSTLER_CLT_HEADLESS_TIMEOUT
+    # when enabling). Flip OSTLER_CLT_HEADLESS default to 1 after a clean
+    # fresh-Mac walk confirms the headless path lands CLT and the GUI
+    # fallback still fires when it does not.
+    if [[ "${OSTLER_CLT_HEADLESS:-0}" == "1" ]]; then
+        (
+            _clt_probe="/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
+            /usr/bin/touch "$_clt_probe" 2>/dev/null || true
+            _clt_list_out="$(mktemp 2>/dev/null || echo "/tmp/ostler-clt-list.$$")"
+            # softwareupdate --list itself hits Apple's CDN and can hang on
+            # a half-open link; bound it (gtimeout is not yet installed at
+            # this pre-Homebrew phase, hence the bash-native helper).
+            _ostler_run_timeout 90 /usr/sbin/softwareupdate --list >"$_clt_list_out" 2>/dev/null || true
+            /bin/rm -f "$_clt_probe" 2>/dev/null || true
+            _clt_label="$(grep -E 'Label:.*Command Line Tools' "$_clt_list_out" 2>/dev/null \
+                | sed -E 's/^.*Label: *//' | sort -V | tail -n1)"
+            /bin/rm -f "$_clt_list_out" 2>/dev/null || true
+            _clt_headless_ok=0
+            if [[ -n "$_clt_label" ]]; then
+                echo "Headless CLT install: resolved softwareupdate label='${_clt_label}'" >> "$INSTALL_LOG"
+                if _ostler_run_timeout "${OSTLER_CLT_HEADLESS_TIMEOUT:-1200}" \
+                        /usr/sbin/softwareupdate -i "$_clt_label" --verbose >> "$INSTALL_LOG" 2>&1 \
+                    && /usr/bin/xcode-select -p &>/dev/null; then
+                    _clt_headless_ok=1
+                    echo "Headless CLT install: SUCCEEDED" >> "$INSTALL_LOG"
+                else
+                    echo "Headless CLT install: did not land -- falling back to GUI dialog" >> "$INSTALL_LOG"
+                fi
+            else
+                echo "Headless CLT install: no softwareupdate CLT label resolved -- falling back to GUI dialog" >> "$INSTALL_LOG"
+            fi
+            if [[ "$_clt_headless_ok" -ne 1 ]]; then
+                _clt_trigger_gui
+            fi
+        ) &
+        disown 2>/dev/null || true
+    else
+        _clt_trigger_gui
+    fi
+
+    CLT_INSTALL_TRIGGERED=true
+    ok "$MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND"
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        info "$MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND"
     fi
 else
     ok "$MSG_OK_GIT_AVAILABLE"
@@ -4983,10 +5100,36 @@ progress "Checking Homebrew and system tools" "homebrew_install"
 if ! /usr/bin/xcode-select -p &>/dev/null; then
     info "$MSG_INFO_WAITING_FOR_CLT_TO_FINISH"
     XCODE_WAIT=0
-    XCODE_TIMEOUT=900  # 15 minutes -- generous; CLI install is ~150 MB
+    # The CLT package is ~715 MB from Apple's software CDN (swcdn.apple.com),
+    # NOT ~150 MB -- the old comment under-stated it by ~5x. On a slow-but-
+    # live link 15 min can be too tight; operators on slow links can raise
+    # this via env. The .146 box-walk failed here when Apple's CDN was
+    # unreachable (40-50% packet loss) while GitHub/Cloudflare were fine.
+    XCODE_TIMEOUT="${XCODE_TIMEOUT:-900}"  # default 15 min; env-overridable
     LAST_HEARTBEAT=0
     until /usr/bin/xcode-select -p &>/dev/null; do
         if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
+            # Before the generic "did not complete" failure, probe whether
+            # this is specifically an Apple-CDN reachability problem (the
+            # .146 case) vs a general outage. Diagnostic goes to the log
+            # (developer-facing English; no new localised customer string).
+            # Bounded so the probe itself cannot hang the failure path.
+            {
+                echo "--- ERR-02 CLT timeout diagnostic ($(date '+%H:%M:%S')) ---"
+                if curl -fsS --connect-timeout 5 --max-time 8 -o /dev/null https://swcdn.apple.com/ 2>/dev/null; then
+                    echo "  Apple software CDN (swcdn.apple.com): REACHABLE"
+                else
+                    echo "  Apple software CDN (swcdn.apple.com): UNREACHABLE / slow"
+                fi
+                if curl -fsS --connect-timeout 5 --max-time 8 -o /dev/null https://github.com/ 2>/dev/null; then
+                    echo "  github.com: REACHABLE"
+                else
+                    echo "  github.com: UNREACHABLE / slow"
+                fi
+                echo "  -> If Apple's CDN is unreachable but GitHub is fine, the customer's"
+                echo "     connection to Apple specifically is struggling; retrying the install"
+                echo "     on a better connection (or: sudo softwareupdate -i the CLT label) fixes it."
+            } >> "$INSTALL_LOG" 2>&1
             fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
         fi
         sleep 10
@@ -5059,7 +5202,15 @@ else
     # https://docs.brew.sh/Installation#untar-anywhere-unsupported
     if [[ "${OSTLER_GUI:-0}" == "1" ]] && [[ -d /opt/homebrew ]] && [[ -w /opt/homebrew ]]; then
         echo "Using manual tarball install (prefix is pre-chowned)" >> "$BREW_INSTALL_LOG"
-        curl -fsSL https://github.com/Homebrew/brew/tarball/master 2>>"$BREW_INSTALL_LOG" \
+        # Match the bootstrap-tarball resilience (see line ~900): retry on
+        # transient/connection-refused failures + bounded connect time so a
+        # flaky link does not hard-fail the whole install. --max-time is
+        # generous (5 min) because the Homebrew tarball is larger than the
+        # installer tarball. If a mid-stream retry corrupts the pipe, the
+        # `brew --version` post-check below catches it.
+        curl -fsSL --retry 3 --retry-connrefused --retry-all-errors \
+            --connect-timeout 10 --max-time 300 \
+            https://github.com/Homebrew/brew/tarball/master 2>>"$BREW_INSTALL_LOG" \
             | tar xz --strip 1 -C /opt/homebrew 2>>"$BREW_INSTALL_LOG"
         BREW_EXIT=${PIPESTATUS[0]:-0}
         # If curl succeeded, validate via brew --version. If brew is
@@ -5077,7 +5228,7 @@ else
         # Fallback: official installer (used in dev mode where /opt/homebrew
         # is not pre-chowned, OR if pre-chown silently failed).
         echo "Falling back to official installer (prefix not pre-chowned)" >> "$BREW_INSTALL_LOG"
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL --retry 3 --retry-connrefused --retry-all-errors --connect-timeout 10 --max-time 120 https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" >> "$BREW_INSTALL_LOG" 2>&1
         BREW_EXIT=$?
     fi
     set -e
@@ -5194,10 +5345,27 @@ else
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
             colima_started=0
+            COLIMA_START_LOG="${LOGS_DIR:-/tmp}/colima-start.log"
+            # First `colima start` pulls a ~500 MB-1 GB Lima VM image from
+            # GitHub. On a flaky link the pull can stall without exiting,
+            # so the bounded retry loop never advances. Cap each attempt's
+            # wall-clock so a stall is killed and the next attempt re-runs
+            # from scratch. Capture stderr to a log instead of /dev/null so
+            # a genuine failure is diagnosable (the old 2>/dev/null hid the
+            # reason entirely).
+            COLIMA_START_TIMEOUT="${OSTLER_COLIMA_START_TIMEOUT:-600}"
+            # String (not array) invoked unquoted -- bash 3.2 + set -u
+            # safe (see ollama_pull_with_retry note).
+            _colima_to_wrap=""
+            if command -v gtimeout >/dev/null 2>&1; then
+                _colima_to_wrap="gtimeout $COLIMA_START_TIMEOUT"
+            elif command -v timeout >/dev/null 2>&1; then
+                _colima_to_wrap="timeout $COLIMA_START_TIMEOUT"
+            fi
             for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
                 info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
                 # Allocate enough resources for 3 containers.
-                if colima start --cpu 2 --memory 4 --disk 30 2>/dev/null \
+                if $_colima_to_wrap colima start --cpu 2 --memory 4 --disk 30 2>>"$COLIMA_START_LOG" \
                     && docker info &>/dev/null 2>&1; then
                     colima_started=1
                     break
@@ -7057,6 +7225,40 @@ cd "$OSTLER_DIR"
 # a missing wiki image (e.g. registry not yet wired) -- the data
 # layer comes up first; the wiki layer fails on its own phase
 # with its own error surface.
+#
+# Pull the base images first, in a bounded retry loop. This is the only
+# image pull in the first-install path with no resilience -- under
+# `set -euo pipefail` a single flaky `docker compose up` would hard-fail
+# with a generic compose error. Pulling separately (with a timeout +
+# retry) turns a transient registry/CDN blip into a recoverable step and
+# leaves `up` to do only local container creation. Images are pinned by
+# digest, so a partial pull cannot poison the cache.
+_compose_pull_timeout="${OSTLER_COMPOSE_PULL_TIMEOUT:-600}"
+# String (not array) invoked unquoted -- bash 3.2 + set -u safe.
+_compose_to_wrap=""
+if command -v gtimeout >/dev/null 2>&1; then
+    _compose_to_wrap="gtimeout $_compose_pull_timeout"
+elif command -v timeout >/dev/null 2>&1; then
+    _compose_to_wrap="timeout $_compose_pull_timeout"
+fi
+_compose_pull_ok=0
+for _compose_pull_attempt in 1 2 3; do
+    if $_compose_to_wrap docker compose pull qdrant oxigraph redis >>"$INSTALL_LOG" 2>&1; then
+        _compose_pull_ok=1
+        break
+    fi
+    # Diagnostic detail to the install log only (developer-facing, not a
+    # localised customer string). The customer sees the normal flow; if
+    # the images are genuinely unavailable, `up` below surfaces a clear
+    # localised error.
+    echo "WARN: data-layer image pull attempt ${_compose_pull_attempt}/3 failed" >> "$INSTALL_LOG"
+    if [[ "$_compose_pull_attempt" -lt 3 ]]; then
+        sleep 8
+    fi
+done
+if [[ "$_compose_pull_ok" -ne 1 ]]; then
+    echo "WARN: could not pre-pull data-layer images after 3 attempts (registry/CDN may be flaky); proceeding to 'up' which will surface its own error if images are unavailable" >> "$INSTALL_LOG"
+fi
 docker compose up -d qdrant oxigraph redis
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
