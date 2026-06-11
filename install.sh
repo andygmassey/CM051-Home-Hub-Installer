@@ -5693,7 +5693,20 @@ TOMLPREAMBLE
     echo "fallback = \"ollama\""
     echo
     echo "[providers.models.ollama]"
-    echo "base_url = \"http://localhost:11434/v1\""
+    # NO /v1 suffix. The "ollama" provider key resolves to the daemon's
+    # NATIVE Ollama provider (create_provider_with_url_and_options ->
+    # "ollama" arm in zeroclaw-providers/src/lib.rs), which POSTs to
+    # `{base_url}/api/chat` and carries the API-level `think` field. With a
+    # `/v1` suffix the native provider POSTs to the malformed
+    # `.../v1/api/chat` (its normalize_base_url strips `/api`+`/api/chat`
+    # but NOT `/v1`), so the qwen3.x think:false switch never lands and
+    # interactive chat returns empty/1-token replies. The `/v1`-stripping
+    # fix (commit 286ede80) only covers the `custom:` provider arm, not
+    # this `ollama` arm, so the base MUST be the bare host here. The `/v1`
+    # OpenAI-compatible surface is only for non-native custom: providers.
+    # Box-proven dead chat on the v1.0.0 .144 walk; see
+    # launch/BRIEF_chat_thinking_mode_v1.0.0.md.
+    echo "base_url = \"http://localhost:11434\""
     echo "model = \"${_ai_model_esc}\""
     echo "timeout_secs = 300"
 
