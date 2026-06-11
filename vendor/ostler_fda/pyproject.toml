@@ -8,6 +8,19 @@ version = "0.1.0"
 description = "macOS Full Disk Access data extractors for Ostler"
 requires-python = ">=3.10"
 
+# pwg_ingest.py talks to local Qdrant/Oxigraph over HTTP via httpx, so
+# httpx is a hard runtime dependency of this package. It MUST be declared
+# here: install.sh pip-installs ostler_fda into dedicated minimal per-source
+# venvs (email-ingest #161, whatsapp-source) that install nothing else, so
+# an undeclared httpx is simply absent -> `import httpx` fails at module
+# load and the WhatsApp + Browsing hydration steps crash mid-install
+# (the .145 box-walk install failure). It only ever worked because the
+# fat venvs (import-pipeline/cm019/cm048/knowledge/doctor) pull httpx
+# transitively; the minimal venvs do not.
+dependencies = [
+    "httpx>=0.27",
+]
+
 # The ostler_fda Python source lives directly in this directory
 # (the .py files are siblings of pyproject.toml). package-dir
 # maps the package name "ostler_fda" to "." so that
