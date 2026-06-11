@@ -2155,13 +2155,26 @@ DETECTED_PHONE=""
 # after this Phase-2 question block.)
 info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
 
-# Capture stderr separately so a Contacts permission denial (-1743) is
-# detected and surfaced cleanly instead of silently swallowed. The inner
-# `|| true` keeps the failure inside the $(...) subshell so set -E cannot
-# fire the ERR trap on a denial (cf. #640).
+# `my card` only resolves when Contacts.app is actually RUNNING. On a Mac
+# right after first setup -- or any login where the user has not opened
+# Contacts -- the app is cold, the AppleEvent fails with -600 "Application
+# isn't running", and the read returns empty with NO consent prompt. The
+# pre-fill then silently produces nothing: blank name/country defaults, an
+# empty wiki title, and empty self-handles (#646). This was the v1.0.0 .145
+# box-walk regression. Launch Contacts hidden in the background first (-g
+# keeps the installer in focus, -j launches it hidden) so the event lands
+# against a live app and the normal automation-consent prompt can appear.
+open -gja Contacts >/dev/null 2>&1 || true
+
+# Capture stderr separately so a Contacts permission denial (-1743) or a
+# cold-app failure (-600) is detected and surfaced cleanly instead of
+# silently swallowed. The inner `|| true` keeps the failure inside the
+# $(...) subshell so set -E cannot fire the ERR trap on a denial (cf. #640).
 CARD_STDERR=$(mktemp)
-CARD_DATA=$(osascript -e '
+_read_my_card() {
+    osascript -e '
 tell application "Contacts"
+    launch
     set myCard to my card
     set myName to name of myCard
     set firstName to first name of myCard
@@ -2182,11 +2195,23 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR" || true)
+end tell' 2>"$CARD_STDERR"
+}
+CARD_DATA=$(_read_my_card || true)
+# Cold-start race: if the first event beat Contacts to readiness (-600),
+# give the background launch a moment to take hold and read once more.
+if [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
+    sleep 2
+    CARD_DATA=$(_read_my_card || true)
+fi
 
-if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+if [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
     warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
+    # Contacts could not be brought up to read the card; continue without
+    # auto-fill rather than swallowing the failure silently as before.
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
 rm -f "$CARD_STDERR"
