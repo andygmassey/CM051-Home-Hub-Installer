@@ -2155,13 +2155,26 @@ DETECTED_PHONE=""
 # after this Phase-2 question block.)
 info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
 
-# Capture stderr separately so a Contacts permission denial (-1743) is
-# detected and surfaced cleanly instead of silently swallowed. The inner
-# `|| true` keeps the failure inside the $(...) subshell so set -E cannot
-# fire the ERR trap on a denial (cf. #640).
+# `my card` only resolves when Contacts.app is actually RUNNING. On a Mac
+# right after first setup -- or any login where the user has not opened
+# Contacts -- the app is cold, the AppleEvent fails with -600 "Application
+# isn't running", and the read returns empty with NO consent prompt. The
+# pre-fill then silently produces nothing: blank name/country defaults, an
+# empty wiki title, and empty self-handles (#646). This was the v1.0.0 .145
+# box-walk regression. Launch Contacts hidden in the background first (-g
+# keeps the installer in focus, -j launches it hidden) so the event lands
+# against a live app and the normal automation-consent prompt can appear.
+open -gja Contacts >/dev/null 2>&1 || true
+
+# Capture stderr separately so a Contacts permission denial (-1743) or a
+# cold-app failure (-600) is detected and surfaced cleanly instead of
+# silently swallowed. The inner `|| true` keeps the failure inside the
+# $(...) subshell so set -E cannot fire the ERR trap on a denial (cf. #640).
 CARD_STDERR=$(mktemp)
-CARD_DATA=$(osascript -e '
+_read_my_card() {
+    osascript -e '
 tell application "Contacts"
+    launch
     set myCard to my card
     set myName to name of myCard
     set firstName to first name of myCard
@@ -2182,11 +2195,23 @@ tell application "Contacts"
     end try
 
     return myName & "|" & firstName & "|" & myCountry & "|" & myEmail & "|" & myPhone
-end tell' 2>"$CARD_STDERR" || true)
+end tell' 2>"$CARD_STDERR"
+}
+CARD_DATA=$(_read_my_card || true)
+# Cold-start race: if the first event beat Contacts to readiness (-600),
+# give the background launch a moment to take hold and read once more.
+if [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
+    sleep 2
+    CARD_DATA=$(_read_my_card || true)
+fi
 
-if [[ -z "$CARD_DATA" ]] && grep -qE '\-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
+if [[ -z "$CARD_DATA" ]] && grep -qE -- '-1743|not authorized|errAEEventNotPermitted' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT"
     warn "$MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM"
+    warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
+elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
+    # Contacts could not be brought up to read the card; continue without
+    # auto-fill rather than swallowing the failure silently as before.
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
 rm -f "$CARD_STDERR"
@@ -12673,6 +12698,17 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
     # (which would re-emit triples the per-source hydrate_* blocks
     # already wrote). Output is the counts-only JSON pinned by
     # HR015 #134's privacy contract test.
+    # #640-class guard -- THE .145 box-walk install-FAILURE site. This
+    # command-sub runs inline python importing ostler_fda.pwg_ingest; under
+    # the global `set -Eeuo pipefail` + errtrace (-E) the ERR trap propagates
+    # INTO the $(...) subshell, so ANY non-zero there (the undeclared httpx
+    # that aborted this install, a malformed record, the absent `timeout`
+    # returning 127) fires _ostler_on_err -> gui_done fail and kills the WHOLE
+    # install. Browser/iMessage/People hydration is best-effort enrichment and
+    # must never be fatal. Suppress the ERR trap + errexit for just this
+    # capture, preserve rc for the timeout check, then restore both (mirrors
+    # the doctor-probe guard at ~13565).
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_BROWSING_JSON="$(
         $_HYDRATE_BROWSING_TIMEOUT_WRAP \
         "$_HYDRATE_BROWSING_PY" -c "
@@ -12684,6 +12720,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_BROWSING_TIMED_OUT=true
     fi
@@ -12799,6 +12836,11 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
     # re-emit triples for whatsapp / browser_history / etc whose
     # JSON also lives in the same fda_dir. Mirrors hydrate_browsing's
     # invocation shape (CX-86 #181).
+    # #640-class guard (best-effort hydrate; see the browsing block above for
+    # the full rationale): suppress the errtrace ERR trap + errexit around the
+    # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
+    # instead of aborting the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_IMESSAGE_JSON_OUT="$(
         $_HYDRATE_IMESSAGE_TIMEOUT_WRAP \
         "$_HYDRATE_IMESSAGE_PY" -c "
@@ -12810,6 +12852,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_IMESSAGE_TIMED_OUT=true
     fi
@@ -12927,6 +12970,11 @@ elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     # Inline python so we call ingest_people_to_qdrant directly: it reads
     # pwg:Person from Oxigraph, embeds + upserts to Qdrant `people`, and
     # self-creates the collection. Output is the counts-only JSON.
+    # #640-class guard (best-effort hydrate; see the browsing block above for
+    # the full rationale): suppress the errtrace ERR trap + errexit around the
+    # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
+    # instead of aborting the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_PEOPLE_JSON="$(
         $_HYDRATE_PEOPLE_TIMEOUT_WRAP \
         "$_HYDRATE_PEOPLE_PY" -c "
@@ -12937,6 +12985,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_PEOPLE_LOG" | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_PEOPLE_TIMED_OUT=true
     fi

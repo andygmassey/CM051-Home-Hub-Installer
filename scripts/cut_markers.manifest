@@ -48,3 +48,5 @@ vendor_grep|vendor/email_source/reader.py|is not iterable, so the|#3 email: coer
 vendor_grep|vendor/cm041/identity_resolver/batch_resolver.py|def converge|#4 dedupe: post-hydrate whole-graph converge pass to a fixpoint
 vendor_grep|install.sh|--execute --converge|#4 dedupe: install.sh runs the converge pass after hydrate, before people-index + wiki
 vendor_grep|install.sh|Wiki title propagation|#5 wiki: USER_FIRST_NAME propagated to the compose .env so the wiki title renders ({first}pedia)
+vendor_grep|install.sh|open -gja Contacts|#639 me-card: launch Contacts before the osascript so a cold app (-600 "isn't running") cannot silently blank name/country/phone pre-fill + self-handles (the .145 box-walk regression)
+vendor_grep|vendor/ostler_fda/pyproject.toml|httpx|ostler_fda must declare httpx (pwg_ingest imports it): the minimal email-ingest/whatsapp per-source venvs install only ostler_fda, so an undeclared httpx is absent and WhatsApp+Browsing hydration crash mid-install (the .145 box-walk install FAILURE)
