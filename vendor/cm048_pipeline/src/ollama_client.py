@@ -67,7 +67,13 @@ class OllamaClient:
         }
         if system:
             payload["system"] = system
-        if format_json:
+        # qwen3.x reasoning models (qwen3.5:9b is the shipped default) return
+        # an EMPTY response under Ollama's native JSON mode (format:"json"),
+        # which made the conversation extractor produce 0 conversations on the
+        # v1.0.0 box walk. Skip format:json for that family and rely on the
+        # caller's text->JSON extraction (_extract_json / bundle _parse_json,
+        # which already strip <think> blocks). `think` already defaults False.
+        if format_json and not model.lower().startswith("qwen3"):
             payload["format"] = "json"
         logger.info(
             "ollama.generate model=%s priority=%s prompt_chars=%d",
