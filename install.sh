@@ -1766,12 +1766,13 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # resolved or the headless install does not land.
     #
     # DEFAULT OFF until fresh-Mac validated: on some macOS builds the CLT
-    # softwareupdate label install may require admin, and the background
-    # install vs the homebrew-phase XCODE_TIMEOUT wait need their timeouts
-    # reconciled (raise XCODE_TIMEOUT to cover OSTLER_CLT_HEADLESS_TIMEOUT
-    # when enabling). Flip OSTLER_CLT_HEADLESS default to 1 after a clean
-    # fresh-Mac walk confirms the headless path lands CLT and the GUI
-    # fallback still fires when it does not.
+    # softwareupdate label install may require admin. The headless-install
+    # vs homebrew-phase XCODE_TIMEOUT race is now auto-reconciled in code at
+    # the wait-block (XCODE_TIMEOUT is bumped to outlast
+    # OSTLER_CLT_HEADLESS_TIMEOUT when this is enabled -- review: Archie, PR
+    # #292), so the two cannot be set inconsistently. Flip OSTLER_CLT_HEADLESS
+    # default to 1 after a clean fresh-Mac walk confirms the headless path
+    # lands CLT and the GUI fallback still fires when it does not.
     if [[ "${OSTLER_CLT_HEADLESS:-0}" == "1" ]]; then
         (
             _clt_probe="/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
@@ -5106,6 +5107,19 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     # this via env. The .146 box-walk failed here when Apple's CDN was
     # unreachable (40-50% packet loss) while GitHub/Cloudflare were fine.
     XCODE_TIMEOUT="${XCODE_TIMEOUT:-900}"  # default 15 min; env-overridable
+    # Auto-reconcile with the headless-CLT timeout (review: Archie, PR #292).
+    # When OSTLER_CLT_HEADLESS=1, the background `softwareupdate -i` runs up
+    # to OSTLER_CLT_HEADLESS_TIMEOUT (default 1200s); this wait MUST outlast
+    # it (plus slack for the GUI-fallback handoff) or it would ERR-02 at 15
+    # min while the headless install is still progressing -- the exact race
+    # we want to avoid. Enforce in code so the two env vars cannot be set
+    # inconsistently (a manual "remember to raise XCODE_TIMEOUT" note drifts).
+    if [[ "${OSTLER_CLT_HEADLESS:-0}" == "1" ]]; then
+        _clt_headless_min_wait=$(( ${OSTLER_CLT_HEADLESS_TIMEOUT:-1200} + 180 ))
+        if (( XCODE_TIMEOUT < _clt_headless_min_wait )); then
+            XCODE_TIMEOUT=$_clt_headless_min_wait
+        fi
+    fi
     LAST_HEARTBEAT=0
     until /usr/bin/xcode-select -p &>/dev/null; do
         if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
