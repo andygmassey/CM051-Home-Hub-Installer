@@ -971,6 +971,62 @@ class BatchResolver:
             )
             action.executed = True
 
+    def converge(
+        self,
+        max_rounds: int = 10,
+        backup_dir: str = "./backups",
+        dry_run: bool = False,
+    ) -> List[ResolverReport]:
+        """Whole-graph consolidation to a fixpoint.
+
+        ``detect()`` is already a whole-graph pass, but it merges each URI at
+        most once per run (the ``seen_uris`` guard in detect()), so a cluster
+        of 3+ nodes for the same person only partially collapses in a single
+        round -- the remainder spills to ``needs_review``. The under-merge seen
+        on a one-shot install is that gap: cross-source twins that never shared
+        an incremental batch are only reconciled by a whole-graph pass, and a
+        single pass leaves transitive 3+ clusters half-merged.
+
+        Running detect()->execute() repeatedly closes it: after each round the
+        merged-away nodes drop out (``_merge_oxigraph`` writes ``mergedInto``
+        and removes their Person type, so detect()'s filter skips them) and the
+        surviving node inherits their identifiers (step 1 of the merge), so the
+        next round picks up the transitive matches. The loop terminates when a
+        round yields zero auto-merges -- the fixpoint.
+
+        This is PURE ORCHESTRATION over the existing detect/execute. It adds NO
+        new rule, threshold, or flag and changes no individual merge decision
+        (the BW-2 hard-conflict veto and duplicates.yaml decisions still apply
+        unchanged, every round). It only ensures the existing decisions are
+        applied across the WHOLE graph after all sources have hydrated, instead
+        of per-source / per-batch only.
+
+        Returns the per-round reports (round 0 first). With ``dry_run`` it runs
+        a single detect() and does not execute, so a caller can preview the
+        first round's auto-merges without mutating the graph.
+        """
+        rounds: List[ResolverReport] = []
+        if dry_run:
+            rounds.append(self.detect())
+            return rounds
+        for i in range(max_rounds):
+            report = self.detect()
+            rounds.append(report)
+            n = len(report.auto_merges)
+            logger.info(
+                "Converge round %d: %d auto-merge(s), %d need review (of %d persons)",
+                i + 1, n, len(report.needs_review), report.total_persons,
+            )
+            if n == 0:
+                break
+            self.execute(report, backup_dir=backup_dir)
+        else:
+            logger.warning(
+                "Converge hit max_rounds=%d without a fixpoint; remaining "
+                "auto-merges left for the next run / review", max_rounds,
+            )
+        return rounds
+
     def close(self) -> None:
         self._client.close()
 
@@ -1071,6 +1127,17 @@ def main() -> None:
         help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
     )
     parser.add_argument(
+        "--converge", action="store_true",
+        help="Whole-graph consolidation: loop detect+merge to a fixpoint so "
+             "transitive 3+ node clusters fully collapse (run once after all "
+             "sources have hydrated). Requires --execute. Pure orchestration: "
+             "changes no merge rule or threshold.",
+    )
+    parser.add_argument(
+        "--max-rounds", type=int, default=10,
+        help="Safety cap on --converge rounds (default 10)",
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Enable verbose logging",
     )
@@ -1094,6 +1161,29 @@ def main() -> None:
     )
 
     try:
+        # Whole-graph convergence path: loop to a fixpoint, then report the
+        # final round. Used by the post-hydrate install pass so transitive
+        # clusters collapse fully rather than spilling to review.
+        if args.converge and args.execute:
+            rounds = resolver.converge(
+                max_rounds=args.max_rounds, backup_dir=args.backup_dir,
+            )
+            total_merged = sum(len(r.auto_merges) for r in rounds)
+            report = rounds[-1]
+            print(f"\n{'=' * 70}")
+            print("IDENTITY RESOLVER - WHOLE-GRAPH CONVERGENCE")
+            print(f"{'=' * 70}")
+            print(f"Rounds run:        {len(rounds)}")
+            print(f"Total merged:      {total_merged}")
+            print(f"Final persons:     {report.total_persons}")
+            print(f"Remaining review:  {len(report.needs_review)}")
+            yaml_report = format_report_yaml(report)
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(yaml_report)
+            print(f"Report written to {args.output}")
+            print(f"\n{'=' * 70}")
+            return
+
         report = resolver.detect()
 
         print(f"\n{'=' * 70}")
