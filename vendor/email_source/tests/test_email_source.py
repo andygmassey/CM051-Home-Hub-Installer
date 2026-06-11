@@ -446,3 +446,24 @@ def test_l3_domain_map_rides_through(tmp_path):
     ]
     assert thread_b
     assert thread_b[0]["metadata"]["privacy_level"] == "L3"
+
+
+# ---------------------------------------------------------------------------
+# Regression: _decode must survive an email.header.Header (the #3 crash)
+# ---------------------------------------------------------------------------
+
+def test_decode_accepts_header_object():
+    """The stdlib email parser hands some fields back as email.header.Header,
+    not str. _decode previously did `"=?" in value`, which raises
+    `TypeError: argument of type 'Header' is not iterable` and crashed every
+    email-source run. It must coerce to str first."""
+    from email.header import Header
+
+    assert reader._decode(Header("Test Sender", "utf-8")) == "Test Sender"
+    assert reader._decode(None) == ""
+    assert reader._decode("") == ""
+    assert reader._decode("Plain Name") == "Plain Name"
+    # an encoded-word Header round-trips through decode_header
+    enc = Header()
+    enc.append("Niño", "utf-8")
+    assert "Ni" in reader._decode(str(enc))

@@ -38,3 +38,12 @@ assistant_tag_grep|web/src/pages/AgentChat.tsx|useIdentity|assistant chosen-name
 wiki_image_grep|wiki-site:/docs/overrides|pwg-hydration-temporary|#84 hydration banner CSS baked into the pinned wiki-site image
 wiki_image_grep|wiki-compiler:/app/compiler|hydration_temporary|#84 hydration panel renderer in the pinned wiki-compiler image
 wiki_image_grep|wiki-compiler:/app/compiler|duplicates/decision|#83 duplicates one-tap page in the pinned wiki-compiler image
+
+# --- v1.0.0 recut blockers (the b82c58d9 .144 box-walk defects) ---
+vendor_grep|install.sh|NO /v1 suffix|#1 chat: ollama base_url written without /v1 so the native provider's think:false lands (dead-chat cure on .144 walk)
+vendor_grep|vendor/cm048_pipeline/src/ollama_client.py|format_json and not model.lower|#2 conversations: skip Ollama format:json for qwen3.x so extraction is not empty
+vendor_grep|vendor/cm048_pipeline/src/ollama_client.py|num_ctx|#2 conversations: num_ctx/num_predict so long transcripts are not truncated to a bare brace
+vendor_grep|vendor/email_source/reader.py|is not iterable, so the|#3 email: coerce Header to str in _decode (TypeError crashed every email-source run)
+vendor_grep|vendor/cm041/identity_resolver/batch_resolver.py|def converge|#4 dedupe: post-hydrate whole-graph converge pass to a fixpoint
+vendor_grep|install.sh|--execute --converge|#4 dedupe: install.sh runs the converge pass after hydrate, before people-index + wiki
+vendor_grep|install.sh|Wiki title propagation|#5 wiki: USER_FIRST_NAME propagated to the compose .env so the wiki title renders ({first}pedia)
