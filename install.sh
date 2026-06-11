@@ -12698,6 +12698,17 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
     # (which would re-emit triples the per-source hydrate_* blocks
     # already wrote). Output is the counts-only JSON pinned by
     # HR015 #134's privacy contract test.
+    # #640-class guard -- THE .145 box-walk install-FAILURE site. This
+    # command-sub runs inline python importing ostler_fda.pwg_ingest; under
+    # the global `set -Eeuo pipefail` + errtrace (-E) the ERR trap propagates
+    # INTO the $(...) subshell, so ANY non-zero there (the undeclared httpx
+    # that aborted this install, a malformed record, the absent `timeout`
+    # returning 127) fires _ostler_on_err -> gui_done fail and kills the WHOLE
+    # install. Browser/iMessage/People hydration is best-effort enrichment and
+    # must never be fatal. Suppress the ERR trap + errexit for just this
+    # capture, preserve rc for the timeout check, then restore both (mirrors
+    # the doctor-probe guard at ~13565).
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_BROWSING_JSON="$(
         $_HYDRATE_BROWSING_TIMEOUT_WRAP \
         "$_HYDRATE_BROWSING_PY" -c "
@@ -12709,6 +12720,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_BROWSING_TIMED_OUT=true
     fi
@@ -12824,6 +12836,11 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
     # re-emit triples for whatsapp / browser_history / etc whose
     # JSON also lives in the same fda_dir. Mirrors hydrate_browsing's
     # invocation shape (CX-86 #181).
+    # #640-class guard (best-effort hydrate; see the browsing block above for
+    # the full rationale): suppress the errtrace ERR trap + errexit around the
+    # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
+    # instead of aborting the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_IMESSAGE_JSON_OUT="$(
         $_HYDRATE_IMESSAGE_TIMEOUT_WRAP \
         "$_HYDRATE_IMESSAGE_PY" -c "
@@ -12835,6 +12852,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_IMESSAGE_TIMED_OUT=true
     fi
@@ -12952,6 +12970,11 @@ elif [[ -x "$_HYDRATE_PEOPLE_PY" ]]; then
     # Inline python so we call ingest_people_to_qdrant directly: it reads
     # pwg:Person from Oxigraph, embeds + upserts to Qdrant `people`, and
     # self-creates the collection. Output is the counts-only JSON.
+    # #640-class guard (best-effort hydrate; see the browsing block above for
+    # the full rationale): suppress the errtrace ERR trap + errexit around the
+    # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
+    # instead of aborting the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
     _HYDRATE_PEOPLE_JSON="$(
         $_HYDRATE_PEOPLE_TIMEOUT_WRAP \
         "$_HYDRATE_PEOPLE_PY" -c "
@@ -12962,6 +12985,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_PEOPLE_LOG" | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_PEOPLE_TIMED_OUT=true
     fi
