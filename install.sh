@@ -6045,6 +6045,27 @@ TOMLPREAMBLE
         echo "prompt = \"${_evening_prompt_esc}\""
         echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
     fi
+
+    # Skills surface lockdown for v1.0 (task #559).
+    #
+    # The bundled zeroclaw runtime already defaults skills.allow_scripts
+    # to false, but we write it explicitly so the customer's security
+    # posture never depends on an upstream default that could drift on a
+    # future runtime bump. allow_scripts = false blocks execution of
+    # script-like files (.sh / .bash / .ps1 / shebang shell files)
+    # carried by any skill, which is the script-execution /
+    # supply-chain half of the open Skills surface on a privacy product.
+    #
+    # registry_url is written empty so the bundled upstream registry
+    # default (a third-party skills registry) is never surfaced in the
+    # customer's config and bare-name registry installs resolve to
+    # nothing. The curated, install-from-source gallery is a
+    # later (Curator) release; v1.0 loads only the vetted skills Ostler
+    # drops into the workspace skills directory via the runtime dir scan.
+    echo
+    echo "[skills]"
+    echo "allow_scripts = false"
+    echo "registry_url = \"\""
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
 umask "$umask_orig"
