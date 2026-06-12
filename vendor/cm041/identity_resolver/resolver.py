@@ -517,32 +517,63 @@ class IdentityResolver:
         """Load all person nodes into the in-memory fuzzy-candidate index ONCE.
 
         Replaces the per-contact "SELECT all persons" that made _fuzzy_match
-        O(n^2) (CX-126 #660): the identical query, run a single time. Every
-        subsequent fuzzy match iterates this list in memory, and
-        register_person() keeps it current for persons created during the run.
+        O(n^2) (CX-126 #660): now run a single time. Every subsequent fuzzy
+        match iterates this list in memory, and register_person() keeps it
+        current for persons created during the run.
+
+        Two FLAT queries instead of one with a nested OPTIONAL chain. The
+        single-query form joined ``?person hasIdentifier ?lid . ?lid
+        identifierType "linkedin_url" ; identifierValue ?linkedinUrl`` as an
+        OPTIONAL across every Person -- a join Oxigraph evaluates poorly at
+        scale: on the live Studio install (~4,700 persons / ~4,300
+        identifiers) it measured 53s, OVER the resolver's own 30s HTTP
+        timeout, so even this once-per-run load pegged Oxigraph for minutes
+        and stalled the LinkedIn-messages import. Splitting it into (1) a flat
+        person+name+org SELECT and (2) a flat person->linkedin_url SELECT,
+        joined in Python by person URI, drops the cost to two cheap scans with
+        identical results.
         """
-        sparql = (
-            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
+        # Query 1: every person with their display name and (optional) org.
+        sparql_people = (
+            f"SELECT ?person ?name ?org WHERE {{ "
             f"  ?person a <{PWG}Person> ; "
             f"          <{PWG}displayName> ?name . "
             f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
-            f"  OPTIONAL {{ "
-            f"    ?person <{PWG}hasIdentifier> ?lid . "
-            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
-            f"         <{PWG}identifierValue> ?linkedinUrl . "
-            f"  }} "
             f"}}"
         )
-        results = self._sparql_query(sparql)
-        bindings = results.get("results", {}).get("bindings", [])
+        # Query 2: person -> linkedin_url, flat (no per-person OPTIONAL join).
+        sparql_linkedin = (
+            f"SELECT ?person ?linkedinUrl WHERE {{ "
+            f"  ?person <{PWG}hasIdentifier> ?lid . "
+            f'  ?lid <{PWG}identifierType> "linkedin_url" ; '
+            f"       <{PWG}identifierValue> ?linkedinUrl . "
+            f"}}"
+        )
+
+        linkedin_by_person: Dict[str, str] = {}
+        for row in (
+            self._sparql_query(sparql_linkedin)
+            .get("results", {})
+            .get("bindings", [])
+        ):
+            person = row.get("person", {}).get("value")
+            url = row.get("linkedinUrl", {}).get("value")
+            if person and url and person not in linkedin_by_person:
+                linkedin_by_person[person] = url
+
         candidates: List[Dict[str, Optional[str]]] = []
-        for row in bindings:
+        for row in (
+            self._sparql_query(sparql_people)
+            .get("results", {})
+            .get("bindings", [])
+        ):
+            person = row.get("person", {}).get("value")
             candidates.append(
                 {
-                    "person": row.get("person", {}).get("value"),
+                    "person": person,
                     "name": row.get("name", {}).get("value"),
                     "org": row.get("org", {}).get("value"),
-                    "linkedinUrl": row.get("linkedinUrl", {}).get("value"),
+                    "linkedinUrl": linkedin_by_person.get(person),
                 }
             )
         self._fuzzy_candidates = candidates
