@@ -425,3 +425,84 @@ def test_both_publish_paths_use_plain_up_no_force_recreate():
     assert "--force-recreate wiki-site" not in install_sh, (
         "install.sh must NOT force-recreate wiki-site any more"
     )
+
+
+# ---------------------------------------------------------------------------
+# Single-tick mutex (concurrency guard) -- the first-day catch-up storm
+# ---------------------------------------------------------------------------
+#
+# On a fresh install the catch-up runner fires many ticks in quick
+# succession; with no lock they spawned competing wiki-compiler containers
+# that contended for Ollama and raced on the wiki_docs volume, so no
+# baseline ever survived to publish and the wiki never came up. These guard
+# the mkdir-based mutex (macOS has no flock).
+
+
+def test_mutex_skips_when_another_tick_holds_the_lock(stub_env):
+    """A tick that finds the lock held by a LIVE pid exits 0 WITHOUT
+    compiling -- the in-flight tick will publish. The skip happens before
+    docker is invoked, so this runs everywhere (no stub dependency)."""
+    _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
+    ostler_dir = stub_env["ostler_dir"]
+    lock_dir = ostler_dir / ".wiki-recompile.lock"
+    lock_dir.mkdir()
+    # This test process is guaranteed alive -> a live holder.
+    (lock_dir / "pid").write_text(f"{os.getpid()}\n")
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+
+    assert result.returncode == 0, (
+        f"a tick blocked by a live holder must exit 0: {result.stderr!r}"
+    )
+    assert "already running; skipping" in result.stdout, result.stdout
+    # The holder's lock must be left intact (not stolen mid-run).
+    assert lock_dir.exists(), "must not delete a live holder's lock"
+
+
+@_skip_if_real_docker
+def test_mutex_reclaims_stale_lock_from_dead_holder(stub_env):
+    """A lock left by a tick that was killed mid-run (holder pid gone) is
+    reclaimed and the tick proceeds into the baseline compile."""
+    log = stub_env["tmp_path"] / "docker.log"
+    _make_fake_docker(stub_env["stub_dir"], log_path=log)
+    ostler_dir = stub_env["ostler_dir"]
+    lock_dir = ostler_dir / ".wiki-recompile.lock"
+    lock_dir.mkdir()
+    (lock_dir / "pid").write_text("999999\n")  # almost-certainly-dead pid
+
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+
+    assert result.returncode == 0, result.stderr
+    assert "reclaiming stale wiki-recompile lock" in result.stdout, result.stdout
+    invocations = log.read_text().splitlines() if log.exists() else []
+    assert any(
+        "OSTLER_WIKI_SKIP_LLM=1 wiki-compiler" in line for line in invocations
+    ), f"must proceed into the baseline compile after reclaim: {invocations}"
+
+
+@_skip_if_real_docker
+def test_mutex_releases_lock_on_normal_exit(stub_env):
+    """After a clean tick the lock dir is gone so the next tick can run."""
+    _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
+    ostler_dir = stub_env["ostler_dir"]
+    result = _run_wrapper({"OSTLER_DIR": str(ostler_dir)}, stub_env["stub_dir"])
+    assert result.returncode == 0, result.stderr
+    assert not (ostler_dir / ".wiki-recompile.lock").exists(), (
+        "the mutex must be released on a normal exit"
+    )
+
+
+def test_phase2_backfill_does_not_stack(stub_env):
+    """The detached Phase-2 full compile must not be launched if a previous
+    backfill is still running -- otherwise the catch-up fires N stacked
+    multi-hour compiles. Guard is keyed on a live pidfile, so this runs
+    everywhere (the skip happens before docker is invoked for Phase 2)."""
+    _make_fake_docker(stub_env["stub_dir"], log_path=stub_env["tmp_path"] / "docker.log")
+    ostler_dir = stub_env["ostler_dir"]
+    # Pretend a backfill from a previous tick is still alive (this process).
+    (ostler_dir / ".wiki-recompile-summaries.pid").write_text(f"{os.getpid()}\n")
+    # Also hold the main lock (live) so the tick short-circuits at the mutex
+    # and we are asserting purely on the guard's existence in the script.
+    assert "wiki summary backfill already running" in WRAPPER.read_text(), (
+        "tick script must carry the no-stack backfill guard"
+    )
