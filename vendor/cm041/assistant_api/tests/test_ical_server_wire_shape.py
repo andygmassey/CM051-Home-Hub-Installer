@@ -231,11 +231,12 @@ class TimelineDegradedShapeTests(unittest.TestCase):
 
 
 class TimelineMeetingDedupeTests(unittest.TestCase):
-    """BW-3: ``people_recent`` is a per-PERSON list, so a meeting with N
-    attendees comes back as N rows all carrying the same summary/date.
-    ``api_timeline`` must collapse them into ONE entry per distinct meeting
-    and merge the attendee names, rather than emitting the meeting once per
-    participant (the box-walk double-entry bug)."""
+    """BW-3 / #663: the timeline must emit ONE entry per distinct meeting with
+    attendee names merged, never the meeting once per participant (the box-walk
+    double-entry bug). The historic past-side now sources from the graph via
+    ``_timeline_from_graph`` (``SELECT ... GROUP BY ?m``), so the per-meeting
+    collapse happens at the SPARQL level; these tests pin that one graph row =
+    one timeline item with all attendees, and distinct meetings stay separate."""
 
     def _patch_no_calendar(self):
         """Silence the calendar half so only the meeting path is exercised."""
@@ -251,20 +252,19 @@ class TimelineMeetingDedupeTests(unittest.TestCase):
         )
 
     def test_three_attendee_meeting_collapses_to_one_entry(self):
-        # people_recent returns one row per person, same meeting on each.
-        recent = {
-            "contacts": [
-                {"name": "Alexandre", "last_meeting": "Dinner - Alexandre, Rhys & Andy",
-                 "meeting_date": "2026-06-01", "location": "Yu Chuan Club", "wiki_url": "w/alexandre"},
-                {"name": "Rhys", "last_meeting": "Dinner - Alexandre, Rhys & Andy",
-                 "meeting_date": "2026-06-01", "location": "Yu Chuan Club", "wiki_url": "w/rhys"},
-                {"name": "Andy", "last_meeting": "Dinner - Alexandre, Rhys & Andy",
-                 "meeting_date": "2026-06-01", "location": "Yu Chuan Club", "wiki_url": "w/andy"},
-            ]
-        }
+        # The historic past-side now comes from the graph (one row PER MEETING,
+        # attendees GROUP_CONCAT'd) via _sparql_select - the collapse happens at
+        # the SPARQL level, not in Python. A 3-attendee dinner is one graph row.
+        graph_rows = [{
+            "m": "urn:dinner-2026-06-01",
+            "date": "2026-06-01",
+            "summary": "Dinner - Alexandre, Rhys & Andy",
+            "location": "Yu Chuan Club",
+            "attendees": "Alexandre|Rhys|Andy",
+        }]
         p_run, p_gcal = self._patch_no_calendar()
         with p_run, p_gcal, mock.patch.object(
-            ical_server, "people_recent", return_value=recent
+            ical_server, "_sparql_select", return_value=graph_rows
         ):
             result = ical_server.api_timeline(days=7)
 
@@ -283,17 +283,16 @@ class TimelineMeetingDedupeTests(unittest.TestCase):
         self.assertEqual(len(entry_meetings), 1, "BW-3: entries[] must also dedupe")
 
     def test_distinct_meetings_stay_separate(self):
-        recent = {
-            "contacts": [
-                {"name": "Alexandre", "last_meeting": "Dinner", "meeting_date": "2026-06-01",
-                 "location": "", "wiki_url": ""},
-                {"name": "Bob", "last_meeting": "Campus tour", "meeting_date": "2026-07-08",
-                 "location": "", "wiki_url": ""},
-            ]
-        }
+        # Two distinct meetings = two graph rows = two timeline items.
+        graph_rows = [
+            {"m": "urn:dinner", "date": "2026-06-01", "summary": "Dinner",
+             "location": "", "attendees": "Alexandre"},
+            {"m": "urn:tour", "date": "2026-07-08", "summary": "Campus tour",
+             "location": "", "attendees": "Bob"},
+        ]
         p_run, p_gcal = self._patch_no_calendar()
         with p_run, p_gcal, mock.patch.object(
-            ical_server, "people_recent", return_value=recent
+            ical_server, "_sparql_select", return_value=graph_rows
         ):
             result = ical_server.api_timeline(days=30)
         meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
