@@ -39,6 +39,7 @@ wiki_image_grep|wiki-site:/docs/overrides|pwg-hydration-temporary|#84 hydration 
 wiki_image_grep|wiki-site:/docs/overrides|padding-left: 1.4rem|#76/#623 card+admonition left-inset CSS baked into the pinned wiki-site image (the collapsed-padding cure: image serves extra.css from this dir)
 wiki_image_grep|wiki-compiler:/app/compiler|hydration_temporary|#84 hydration panel renderer in the pinned wiki-compiler image
 wiki_image_grep|wiki-compiler:/app/compiler|duplicates/decision|#83 duplicates one-tap page in the pinned wiki-compiler image
+wiki_image_grep|wiki-compiler:/app/compiler|inspect.signature|#85 SKIP_LLM signature-introspection dispatch in the pinned wiki-compiler image (old leak shape used a hardcoded name=="evernote"; its absence + this presence proves the baseline-compile gate ships)
 
 # --- v1.0.0 recut blockers (the b82c58d9 .144 box-walk defects) ---
 vendor_grep|install.sh|NO /v1 suffix|#1 chat: ollama base_url written without /v1 so the native provider's think:false lands (dead-chat cure on .144 walk)
