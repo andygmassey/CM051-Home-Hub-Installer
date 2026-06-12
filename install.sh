@@ -11048,6 +11048,21 @@ else
                 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
 
+                # FDA_PANE_REFRESH (daemon parity for #572): force a fresh
+                # System Settings load before pointing the customer at the FDA
+                # pane. #572 added this to the INSTALLER FDA grant only; the
+                # daemon (OstlerAssistant) grant here never got it. The daemon
+                # pane usually opens with System Settings ALREADY open from the
+                # earlier installer grant, so it shows a STALE Full Disk Access
+                # list and OstlerAssistant looks "missing" for ~30-60s until the
+                # pane happens to refresh (the blank-window customers reported).
+                # killall + reopen guarantees the list is current. Best-effort;
+                # covers both the "System Settings" (macOS 13+) and legacy
+                # "System Preferences" process names.
+                killall "System Settings" >/dev/null 2>&1 || true
+                killall "System Preferences" >/dev/null 2>&1 || true
+                sleep 1
+
                 # Open System Settings to the Full Disk Access pane.
                 # The URL scheme is stable on macOS 13+; older macOS
                 # falls back to Privacy & Security top-level which
