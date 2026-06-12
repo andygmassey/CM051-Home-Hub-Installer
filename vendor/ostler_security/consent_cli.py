@@ -40,6 +40,7 @@ try:
     from legal import (  # noqa: E402
         ARTICLE_9_EU_CONSENT,
         EU_VOICE_SPEAKER_ID_CONSENT,
+        THIRD_PARTY_DATA_NOTICE,
         WHATSAPP_UNOFFICIAL_RISK_CONSENT,
     )
 except ImportError as exc:  # pragma: no cover - smoke
@@ -54,6 +55,13 @@ TICKBOX_REGISTRY = {
     ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
     WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
     EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
+    # #659: the third-party-data acknowledgement install.sh records for
+    # every region (tickbox id "third_party_data_personal_records"). It was
+    # defined in legal/consent_strings.py and called by install.sh but never
+    # registered here, so argparse `choices` rejected it (exit 2) and the
+    # consent was silently dropped (Doctor showed it "missing" despite an
+    # active accept).
+    THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
 }
 
 
