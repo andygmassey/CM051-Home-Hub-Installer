@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 
 import yaml
 
-_VALID_ACTIONS = {"merge", "distinct"}
+_VALID_ACTIONS = {"merge", "distinct", "split"}
 # short-id shape: hex tails plus a safe alphanumeric set. Crucially this rejects
 # path separators and dots, so a malformed/hostile id can never escape the
 # corrections dir or poison the YAML.
@@ -63,8 +63,8 @@ def validate_payload(body: Any) -> Dict[str, Any]:
         )
 
     ids = body.get("ids")
-    if not isinstance(ids, list) or len(ids) < 2:
-        raise ValidationError("ids must be a list of at least 2 short-ids")
+    if not isinstance(ids, list) or not ids:
+        raise ValidationError("ids must be a non-empty list of short-ids")
 
     seen: set = set()
     uniq: List[str] = []
@@ -74,8 +74,14 @@ def validate_payload(body: Any) -> Dict[str, Any]:
         if x not in seen:
             seen.add(x)
             uniq.append(x)
-    if len(uniq) < 2:
-        raise ValidationError("need at least 2 distinct short-ids")
+
+    # ``split`` flags ONE record as wrongly-fused (one contact that is really
+    # two people); ``merge``/``distinct`` are pairwise so they need 2+.
+    min_ids = 1 if action == "split" else 2
+    if len(uniq) < min_ids:
+        raise ValidationError(
+            f"action {action!r} needs at least {min_ids} distinct short-id(s)"
+        )
 
     return {"action": action, "ids": uniq}
 
@@ -84,6 +90,9 @@ def _entries_for(normalised: Dict[str, Any]) -> List[Dict[str, List[str]]]:
     action, ids = normalised["action"], normalised["ids"]
     if action == "merge":
         return [{"merge": list(ids)}]
+    if action == "split":
+        # split: flag the single fused record for separation on next refresh.
+        return [{"split": list(ids)}]
     # distinct: record every pair so the resolver vetoes each one independently.
     return [
         {"distinct": [ids[i], ids[j]]}
