@@ -83,6 +83,43 @@ fi
 cd "$OSTLER_DIR"
 
 # ---------------------------------------------------------------------------
+# Single-tick mutex (concurrency guard)
+# ---------------------------------------------------------------------------
+#
+# The first-day catch-up runner fires many ticks in quick succession, and
+# the daily schedule can overlap a still-running compile. With no lock the
+# ticks spawn competing `wiki-compiler` run containers that contend for
+# Ollama and race on the wiki_docs volume -- on a fresh install this storm
+# meant no baseline compile ever survived to publish (concurrent runners
+# interrupted one another, exit 130) and the wiki never came up. Serialise:
+# a tick that finds another already running exits 0 (success -- nothing to
+# do; the in-flight tick will publish) instead of piling on.
+#
+# macOS has no flock(1), so we use an atomic mkdir mutex with a PID file for
+# stale-lock recovery (a tick killed mid-run leaves the dir behind; if its
+# holder PID is gone we reclaim it).
+LOCK_DIR="${OSTLER_DIR}/.wiki-recompile.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    _holder_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+    if [ -n "${_holder_pid:-}" ] && kill -0 "$_holder_pid" 2>/dev/null; then
+        log "another wiki-recompile tick (pid ${_holder_pid}) is already running; skipping this tick"
+        exit 0
+    fi
+    log "reclaiming stale wiki-recompile lock (previous holder pid ${_holder_pid:-unknown} is gone)"
+    rm -rf "$LOCK_DIR"
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        log "could not acquire wiki-recompile lock after reclaim; another tick won the race -- skipping"
+        exit 0
+    fi
+fi
+printf '%s\n' "$$" > "${LOCK_DIR}/pid"
+# Release the mutex on any exit path (success, failure, or watchdog kill).
+# The detached Phase-2 backfill does NOT hold this lock -- the lock only
+# serialises the baseline compile + publish that decides whether the wiki
+# is up. Phase 2 has its own no-stack guard below.
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
+# ---------------------------------------------------------------------------
 # 1. Phase 1 -- fast baseline compile (OSTLER_WIKI_SKIP_LLM=1)
 # ---------------------------------------------------------------------------
 #
@@ -187,8 +224,25 @@ log "wiki baseline published and wiki-site verified up"
 # must not fail the tick, because the baseline is already live.
 _bg_log="${OSTLER_LOGS:-$OSTLER_DIR/logs}/wiki-recompile-summaries.log"
 mkdir -p "$(dirname "$_bg_log")" 2>/dev/null || true
-nohup docker compose --profile compile run --rm -T wiki-compiler </dev/null >"$_bg_log" 2>&1 &
-disown || true
-log "wiki summary backfill launched in background (full compile, see $_bg_log)"
+# No-stack guard: the first-day catch-up would otherwise launch one detached
+# full compile per tick -- N multi-hour summary passes hammering the box for
+# days. Only launch if no backfill from a previous tick is still running.
+_bg_pidfile="${OSTLER_DIR}/.wiki-recompile-summaries.pid"
+_bg_running=false
+if [ -f "$_bg_pidfile" ]; then
+    _bg_prev_pid="$(cat "$_bg_pidfile" 2>/dev/null || true)"
+    if [ -n "${_bg_prev_pid:-}" ] && kill -0 "$_bg_prev_pid" 2>/dev/null; then
+        _bg_running=true
+    fi
+fi
+if [ "$_bg_running" = true ]; then
+    log "wiki summary backfill already running (pid ${_bg_prev_pid}); not launching another"
+else
+    nohup docker compose --profile compile run --rm -T wiki-compiler </dev/null >"$_bg_log" 2>&1 &
+    _bg_new_pid=$!
+    printf '%s\n' "$_bg_new_pid" > "$_bg_pidfile"
+    disown || true
+    log "wiki summary backfill launched in background (full compile, see $_bg_log)"
+fi
 
 log "wiki recompile tick complete (baseline published; summaries backfilling)"
