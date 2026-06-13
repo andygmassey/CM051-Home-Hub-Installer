@@ -51,3 +51,4 @@ vendor_grep|install.sh|--execute --converge|#4 dedupe: install.sh runs the conve
 vendor_grep|install.sh|Wiki title propagation|#5 wiki: USER_FIRST_NAME propagated to the compose .env so the wiki title renders ({first}pedia)
 vendor_grep|install.sh|open -gja Contacts|#639 me-card: launch Contacts before the osascript so a cold app (-600 "isn't running") cannot silently blank name/country/phone pre-fill + self-handles (the .145 box-walk regression)
 vendor_grep|vendor/ostler_fda/pyproject.toml|httpx|ostler_fda must declare httpx (pwg_ingest imports it): the minimal email-ingest/whatsapp per-source venvs install only ostler_fda, so an undeclared httpx is absent and WhatsApp+Browsing hydration crash mid-install (the .145 box-walk install FAILURE)
+wiki_image_grep|wiki-compiler:/app/compiler|def settling_state|#87 post-install settling panel in the pinned wiki-compiler image (compiler/hydration.py)
