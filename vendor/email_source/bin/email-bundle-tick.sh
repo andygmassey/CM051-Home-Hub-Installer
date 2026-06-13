@@ -102,19 +102,30 @@ fi
 # starves live chat. Take an atomic, non-blocking lock (a mkdir, which
 # is atomic on every POSIX filesystem -- macOS ships no flock); if
 # another feed holds it, skip this tick (the watermark means the next
-# tick catches up). A lock older than 30 minutes is stolen: a tick never
-# legitimately runs that long, so an aged lock means a previous tick was
+# tick catches up). The lock is reclaimed only when its recorded holder
+# PID is dead -- never on age, because the wiki summary backfill holds this
+# same lock for hours; a dead holder PID means a previous tick was
 # killed mid-run.
 _ostler_lock="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
 mkdir -p "$(dirname "$_ostler_lock")" 2>/dev/null || true
-if [ -d "$_ostler_lock" ] && [ -n "$(find "$_ostler_lock" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
-    rmdir "$_ostler_lock" 2>/dev/null || true
-fi
 if ! mkdir "$_ostler_lock" 2>/dev/null; then
-    echo "email-bundle tick: another conversation feed holds the model slot; yielding this tick."
-    exit 0
+    # Lock held. Reclaim ONLY if the recorded holder PID is dead. A
+    # time-based steal would wrongly evict the wiki summary backfill, which
+    # holds this SAME lock for hours (v1.0.0 chat-saturation fix); if the
+    # holder is alive, yield this tick (the watermark catches up next tick).
+    _ostler_h="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
+    if [ -n "${_ostler_h:-}" ] && kill -0 "$_ostler_h" 2>/dev/null; then
+        echo "email-bundle tick: another LLM job (pid ${_ostler_h}) holds the model slot; yielding this tick."
+        exit 0
+    fi
+    rm -rf "$_ostler_lock" 2>/dev/null || true
+    if ! mkdir "$_ostler_lock" 2>/dev/null; then
+        echo "email-bundle tick: lost the race for the model slot; yielding this tick."
+        exit 0
+    fi
 fi
-trap 'rmdir "$_ostler_lock" 2>/dev/null || true' EXIT
+printf '%s\n' "$$" > "$_ostler_lock/pid"
+trap 'rm -rf "$_ostler_lock" 2>/dev/null || true' EXIT
 # --------------------------------------------------------------------
 
 cd "$SOURCE_DIR"

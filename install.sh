@@ -13284,8 +13284,41 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # nohup + </dev/null + disown so it survives install.sh exit and
         # its exit code can never gate install completion.
         WIKI_BG_LOG="${LOGS_DIR}/wiki-background-compile.log"
-        nohup docker compose --profile compile run --rm -T wiki-compiler \
-            </dev/null >"$WIKI_BG_LOG" 2>&1 &
+        # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) --
+        # This first-run full-summary compile is the single biggest Ollama
+        # producer on the box. It MUST share the one background-LLM slot lock
+        # with the conversation feeds (*-bundle-tick.sh). Without it, the
+        # backfill + one conversation feed run at once, fill both
+        # OLLAMA_NUM_PARALLEL=2 slots, and live chat (app AND iMessage /
+        # WhatsApp / email replies -- all go through the daemon's /api/chat)
+        # starves: measured 277s + truncated under load vs 1.5s idle on the
+        # .149 box. Holding the lock for the whole compile keeps background
+        # Ollama concurrency at 1, so the 2nd parallel slot is always free for
+        # a live reply.
+        #
+        # Blocking acquire with PID-LIVENESS reclaim (NOT a time-based steal):
+        # a real summary compile legitimately runs for hours, so any time
+        # threshold would let a conversation tick wrongly steal the lock mid
+        # compile. We reclaim only when the recorded holder PID is dead.
+        # ${OSTLER_INGEST_LOCK} is the identical path the tick wrappers use.
+        _wiki_slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
+        nohup bash -c '
+            set -u
+            _slot="$1"; _wd="$2"
+            cd "$_wd" || exit 1
+            mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
+            while ! mkdir "$_slot" 2>/dev/null; do
+                _h="$(cat "$_slot/pid" 2>/dev/null || true)"
+                if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
+                    sleep 10
+                else
+                    rm -rf "$_slot" 2>/dev/null || true
+                fi
+            done
+            printf "%s\n" "$$" > "$_slot/pid"
+            trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
+            docker compose --profile compile run --rm -T wiki-compiler </dev/null
+        ' _ "$_wiki_slot" "$OSTLER_DIR" >"$WIKI_BG_LOG" 2>&1 &
         disown 2>/dev/null || true
         info "$MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED"
     else
