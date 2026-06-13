@@ -238,11 +238,46 @@ fi
 if [ "$_bg_running" = true ]; then
     log "wiki summary backfill already running (pid ${_bg_prev_pid}); not launching another"
 else
-    nohup docker compose --profile compile run --rm -T wiki-compiler </dev/null >"$_bg_log" 2>&1 &
+    # --- Shared background-LLM slot lock (v1.0.0 chat-saturation fix) ------
+    # The full-summary backfill is the single biggest Ollama producer on the
+    # box. It MUST share the one background-LLM slot lock with the
+    # conversation feeds (imessage/email/whatsapp/spoken *-bundle-tick.sh).
+    # Otherwise the backfill + one conversation feed run at once, fill both
+    # OLLAMA_NUM_PARALLEL=2 slots, and live chat starves (measured on the
+    # .149 box: 277s + truncated under load vs 1.5s idle). Holding the lock
+    # for the whole compile keeps total background Ollama concurrency at 1,
+    # so the 2nd parallel slot is always free for chat.
+    #
+    # Blocking acquire with PID-LIVENESS reclaim -- NOT a time-based steal.
+    # A real summary compile legitimately runs for hours, so any time
+    # threshold would let a conversation tick wrongly declare the lock stale
+    # and steal it mid-compile, re-creating the 2-producer collision. We
+    # reclaim only when the recorded holder PID is actually dead. The
+    # conversation ticks take the SAME lock non-blocking and yield while we
+    # hold it. ${OSTLER_INGEST_LOCK} (default workspace/ingest-ollama.lock.d)
+    # is the identical path the tick wrappers use.
+    _slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
+    nohup bash -c '
+        set -u
+        _slot="$1"; _wd="$2"
+        cd "$_wd" || exit 1
+        mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
+        while ! mkdir "$_slot" 2>/dev/null; do
+            _h="$(cat "$_slot/pid" 2>/dev/null || true)"
+            if [ -n "${_h:-}" ] && kill -0 "$_h" 2>/dev/null; then
+                sleep 10
+            else
+                rm -rf "$_slot" 2>/dev/null || true
+            fi
+        done
+        printf "%s\n" "$$" > "$_slot/pid"
+        trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
+        docker compose --profile compile run --rm -T wiki-compiler </dev/null
+    ' _ "$_slot" "$OSTLER_DIR" >"$_bg_log" 2>&1 &
     _bg_new_pid=$!
     printf '%s\n' "$_bg_new_pid" > "$_bg_pidfile"
     disown || true
-    log "wiki summary backfill launched in background (full compile, see $_bg_log)"
+    log "wiki summary backfill launched in background (holds shared Ollama slot lock; full compile, see $_bg_log)"
 fi
 
 log "wiki recompile tick complete (baseline published; summaries backfilling)"
