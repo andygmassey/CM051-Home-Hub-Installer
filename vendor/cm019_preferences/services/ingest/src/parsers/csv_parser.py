@@ -91,10 +91,16 @@ class CSVParser(BaseParser):
         column_map = self._map_columns(reader.fieldnames or [])
 
         if "subject" not in column_map:
-            logger.warning(
+            # Not an error: the generic CSV parser is the fallback for arbitrary
+            # CSVs, and most (e.g. LinkedIn auxiliary exports -- Rich_Media,
+            # PhoneNumbers, Ad_Targeting, SearchQueries, Logins, Registration,
+            # Education, etc.) legitimately carry no preference "subject" column.
+            # Log at DEBUG so a clean install does not spam WARNINGs; a genuinely
+            # malformed preference CSV is still skipped (and visible at -v).
+            logger.debug(
                 f"CSV has no recognized subject column: {file_path}. "
                 f"Available columns: {reader.fieldnames}. "
-                f"Add column mapping or use a platform-specific parser."
+                f"Skipping (not a preference CSV)."
             )
             return
 
