@@ -6973,7 +6973,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:20f83016cd76e4034ac3d4ca416dbc418a7ca3a994f277886c0c9da4bfdf9490
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:17a5364be85dd9ddbf7814fe67723d19088dd5fc33edcec3b0aad8fd1013c7d3
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -10337,7 +10337,7 @@ fi
 
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.8})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.9}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.10}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an

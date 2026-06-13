@@ -52,3 +52,10 @@ vendor_grep|install.sh|Wiki title propagation|#5 wiki: USER_FIRST_NAME propagate
 vendor_grep|install.sh|open -gja Contacts|#639 me-card: launch Contacts before the osascript so a cold app (-600 "isn't running") cannot silently blank name/country/phone pre-fill + self-handles (the .145 box-walk regression)
 vendor_grep|vendor/ostler_fda/pyproject.toml|httpx|ostler_fda must declare httpx (pwg_ingest imports it): the minimal email-ingest/whatsapp per-source venvs install only ostler_fda, so an undeclared httpx is absent and WhatsApp+Browsing hydration crash mid-install (the .145 box-walk install FAILURE)
 wiki_image_grep|wiki-compiler:/app/compiler|def settling_state|#87 post-install settling panel in the pinned wiki-compiler image (compiler/hydration.py)
+
+# --- v1.0.0 re-cut blockers (536a3ca .149 box-walk: chat starve + no panel) ---
+vendor_grep|install.sh|ingest-ollama.lock.d|#307 chat: wiki first-run summary backfill joins the shared Ollama slot lock (install.sh site) -- residual chat-starvation cure
+vendor_grep|wiki-recompile/bin/wiki-recompile-tick.sh|ingest-ollama.lock.d|#307 chat: wiki recompile-tick backfill also holds the shared Ollama slot lock (2nd backfill site)
+wiki_image_grep|wiki-compiler:/app/compiler|within_install_window|#88 settling/progress panel off durable install anchor so a panel renders for the WHOLE first backfill
+wiki_image_grep|wiki-compiler:/app/compiler|intentionally NOT conflicts|#89 dedupe over-merge flags LinkedIn-only; work+personal phone/email no longer false-positive (108 -> ~43)
+assistant_tag_grep|crates/zeroclaw-gateway/src/warm_intro.rs|fn render_intro_message\(user_first_name:|#116 warm-intro opens by addressing the user by name (v0.4.10 daemon; two-arg signature only exists with this fix)
