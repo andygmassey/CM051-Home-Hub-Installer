@@ -2339,6 +2339,24 @@ DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower
 USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "$MSG_PROMPT_USER_ID_HELP" "" "user_id")"
 USER_ID=${USER_ID:-$DEFAULT_ID}
 
+# The "What should your assistant call you?" answer (USER_ID) is the
+# customer's EXPLICIT preferred form of address. It MUST win over the
+# me-card first name for every assistant + wiki surface: USER_FIRST_NAME
+# feeds the welcome iMessage, chat replies, daily briefs and the
+# {first_name}pedia wiki title. Before this, USER_FIRST_NAME was derived
+# above purely from the me-card "first name of myCard" (DETECTED_FIRST),
+# so a customer who answered "Andy" was still addressed by their formal
+# me-card name "Andrew" -- the question was asked, then ignored. Re-derive
+# USER_FIRST_NAME from the preferred answer, first letter capitalised for
+# display (USER_ID can arrive lower-cased from DEFAULT_ID). Fall back to
+# the earlier me-card/full-name derivation only if USER_ID is blank.
+if [[ -n "${USER_ID:-}" ]]; then
+    _uid_first="$(printf '%s' "${USER_ID:0:1}" | tr '[:lower:]' '[:upper:]')"
+    USER_FIRST_NAME="${_uid_first}${USER_ID:1}"
+    USER_FIRST_NAME="${USER_FIRST_NAME# }"
+    USER_FIRST_NAME="${USER_FIRST_NAME% }"
+fi
+
 # ── 2. Confirm country code ───────────────────────────────────────
 
 echo ""
