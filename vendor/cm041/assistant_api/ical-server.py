@@ -1330,6 +1330,273 @@ def _recency_label(last_contact_ts):
     return f"{months // 12}Y AGO"
 
 
+# Per-source last-contact predicates surfaced by person_enrichment. The
+# label is the en-GB channel name the iOS / Hub card groups by; ISO date
+# strings sort lexicographically so max() over the present sources is the
+# overall last-contact.
+_LAST_CONTACT_SOURCES = (
+    ("lcCalendar", "calendar"),
+    ("lcWhatsApp", "whatsapp"),
+    ("lcEmail", "email"),
+    ("lcIMessage", "imessage"),
+)
+
+
+def person_enrichment(slug):
+    """Handle GET /api/v1/people/{slug}/enrichment.
+
+    Per-slug enrichment payload for the iOS / Hub person card. Where
+    `/people/context?name=` is a fuzzy name search that can return
+    several matches, this endpoint resolves a single canonical person by
+    wiki slug (the same slug the People list, search results, and wiki
+    URLs already use as the stable identifier) and returns the richer
+    body the card wants beyond the list basics: organisation, role,
+    relationship, how-we-met, notes, birthday, identifiers, recent
+    meetings, the relationship signal, the MAX last-contact, and the
+    per-source last-contact breakdown.
+
+    Reader contract (verified against CM031 PWG Companion):
+      - `PersonResult` (Views/People/PeopleView.swift) decodes
+        {name, slug, organisation, role, last_contact}.
+      - `PersonDetail` (Views/People/PersonDetailView.swift) decodes
+        {name, phone, email, organisation, title, location, notes,
+        last_contact}.
+    Every flat field this endpoint emits maps to one of those keys or to
+    the existing `/people/context` shape; `last_contact_by_source`,
+    `identifiers`, `meetings`, `facts`, and `relationship_signal` are
+    additive and only present when the graph has the data, so an older
+    client that ignores them is unaffected.
+
+    Returns (response_dict, status_code):
+      - 400 if the slug is malformed (path-traversal / injection seeds).
+      - 404 {found: False} if no person resolves to the slug.
+      - 503 {degraded: True, ...} if Oxigraph is unreachable.
+      - 200 {found: True, person: {...}} on success.
+
+    Optional Qdrant enrichment (phone/email and a precomputed
+    `last_contact_ts` recency) is best-effort: a Qdrant failure never
+    fails the request, it just omits those fields. This mirrors the
+    degraded:true fallback contract used across the people readers.
+    """
+    # Validate slug (rejects path traversal, SPARQL injection, empty).
+    # Same guard as api_people_forget so the two slug-keyed routes agree.
+    if not _SLUG_PATTERN.match(slug or ""):
+        return {
+            "found": False,
+            "error": "Invalid slug. Expected lowercase ASCII letters, "
+                     "digits, hyphens (max 80 chars).",
+        }, 400
+
+    # Resolve slug -> person URI by recomputing _wiki_slug(displayName).
+    # Slug is not stored in the graph directly; it is derived from the
+    # display name by the wiki compiler (see api_people_forget).
+    try:
+        candidates = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person ?name WHERE {{\n'
+            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+            '}}'.format(ns=PWG_NS)
+        )
+    except Exception as exc:
+        return {
+            "found": False,
+            "degraded": True,
+            "reason": f"oxigraph_lookup_failed: {exc}",
+            "error": str(exc),
+        }, 503
+
+    person_uri = None
+    pname = ""
+    for cand in candidates:
+        cand_name = cand.get("name", "")
+        if _wiki_slug(cand_name) == slug:
+            person_uri = cand["person"]
+            pname = cand_name
+            break
+
+    if person_uri is None:
+        return {
+            "slug": slug,
+            "found": False,
+            "message": "No person found for slug '{}'.".format(slug),
+        }, 404
+
+    entry = {
+        "name": pname,
+        "slug": slug,
+        "person_uri": person_uri,
+        "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
+    }
+
+    # Core attributes + per-source last-contact predicates, in one query.
+    # Each source predicate is OPTIONAL so a missing channel does not
+    # drop the row. Mirrors the SELECT in person_context.
+    try:
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?org ?title ?rel ?howMet ?notes ?bday\n'
+            '       ?lcCalendar ?lcWhatsApp ?lcEmail ?lcIMessage WHERE {{\n'
+            '  OPTIONAL {{ <{uri}> pwg:organization ?org }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:jobTitle ?title }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:relationship ?rel }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:howWeMet ?howMet }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:lastContactCalendar ?lcCalendar }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:lastContactWhatsApp ?lcWhatsApp }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:lastContactEmail ?lcEmail }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:lastContactIMessage ?lcIMessage }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:notes ?notes }}\n'
+            '  OPTIONAL {{ <{uri}> pwg:birthday ?bday }}\n'
+            '}} LIMIT 1'.format(ns=PWG_NS, uri=person_uri)
+        )
+    except Exception as exc:
+        return {
+            "found": False,
+            "degraded": True,
+            "reason": f"oxigraph_query_failed: {exc}",
+            "error": str(exc),
+        }, 503
+
+    row = rows[0] if rows else {}
+    # British-English keys, matching person_context / the iOS Codables.
+    for src, dst in [("org", "organisation"), ("title", "title"),
+                     ("rel", "relationship"), ("howMet", "how_we_met"),
+                     ("notes", "notes"), ("bday", "birthday")]:
+        if row.get(src):
+            entry[dst] = row[src]
+    # `role` alias: PersonResult (search-result shape) keys on "role";
+    # PersonDetail keys on "title". Emit both off the same job-title
+    # predicate so either client decodes a value. Per #ARCH-01.
+    if row.get("title"):
+        entry["role"] = row["title"]
+
+    # Per-source last-contact + MAX. ISO date strings sort
+    # lexicographically, so max() over the present sources is correct.
+    by_source = {}
+    for src_key, label in _LAST_CONTACT_SOURCES:
+        val = row.get(src_key)
+        if val:
+            by_source[label] = val
+    if by_source:
+        entry["last_contact"] = max(by_source.values())
+        entry["last_contact_by_source"] = by_source
+
+    # Identifiers, facts, meetings, relationship signal: same sub-queries
+    # as person_context, keyed on the resolved URI. Each is independently
+    # OPTIONAL so a missing one never drops the payload.
+    try:
+        ids = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?type ?value WHERE {{\n'
+            '  <{uri}> pwg:hasIdentifier ?id .\n'
+            '  ?id pwg:identifierType ?type ; pwg:identifierValue ?value .\n'
+            '}}'.format(ns=PWG_NS, uri=person_uri)
+        )
+        if ids:
+            entry["identifiers"] = [
+                {"type": i["type"], "value": i["value"]} for i in ids
+            ]
+            # Surface the first phone / email at top level for the
+            # PersonDetail card (it decodes flat `phone` / `email`).
+            for ident in ids:
+                itype = (ident.get("type") or "").lower()
+                if itype == "phone" and "phone" not in entry:
+                    entry["phone"] = ident["value"]
+                elif itype == "email" and "email" not in entry:
+                    entry["email"] = ident["value"]
+
+        facts = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?text WHERE {{\n'
+            '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
+            '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
+            '}}'.format(ns=PWG_NS, uri=person_uri)
+        )
+        if facts:
+            entry["facts"] = [f["text"] for f in facts]
+
+        meetings = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?summary ?date ?location WHERE {{\n'
+            '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
+            '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
+            '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
+            '}} ORDER BY DESC(?date) LIMIT 10'.format(ns=PWG_NS, uri=person_uri)
+        )
+        if meetings:
+            entry["meetings"] = [{
+                "summary": m["summary"],
+                "date": m.get("date", "")[:10] if m.get("date") else "",
+                "location": m.get("location", ""),
+            } for m in meetings]
+
+        signals = _sparql_select(
+            'SELECT ?warmth ?trust ?observedAt WHERE {{\n'
+            '  ?signal <urn:pwg:about> ?person .\n'
+            '  ?signal <urn:pwg:warmth> ?warmth .\n'
+            '  ?signal <urn:pwg:trust> ?trust .\n'
+            '  ?signal <urn:pwg:observedAt> ?observedAt .\n'
+            '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'
+            '}} ORDER BY DESC(?observedAt) LIMIT 1'.format(slug=slug)
+        )
+        if signals:
+            sig = signals[0]
+            entry["relationship_signal"] = {
+                "warmth": sig.get("warmth", ""),
+                "trust": sig.get("trust", ""),
+                "observed_at": sig.get("observedAt", ""),
+            }
+    except Exception as exc:
+        # The core attributes already succeeded; treat a sub-query
+        # failure as a partial degrade rather than failing the card.
+        entry.setdefault("degraded", True)
+        entry.setdefault("reason", f"enrichment_subquery_failed: {exc}")
+
+    # Best-effort Qdrant top-up: phone / email if the graph lacked them,
+    # and the precomputed last_contact display string. A Qdrant failure
+    # is swallowed (the graph data is the source of truth here).
+    try:
+        body = json.dumps({
+            "filter": {"must": [
+                {"key": "person_uri", "match": {"value": person_uri}}
+            ]},
+            "limit": 1,
+            "with_payload": True,
+            "with_vector": False,
+        }).encode()
+        req = urllib.request.Request(
+            QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            qresult = json.loads(resp.read())
+        points = qresult.get("result", {}).get("points", [])
+        if points:
+            payload = points[0].get("payload", {})
+            if payload.get("phones") and "phone" not in entry:
+                phones = payload["phones"]
+                entry["phone"] = phones[0] if isinstance(phones, list) else phones
+            if payload.get("emails") and "email" not in entry:
+                emails = payload["emails"]
+                entry["email"] = emails[0] if isinstance(emails, list) else emails
+            if payload.get("last_contact") and "last_contact" not in entry:
+                entry["last_contact"] = payload["last_contact"]
+    except Exception:
+        # Qdrant unreachable / collection missing on a fresh box: the
+        # graph-derived fields stand on their own. Do not degrade the
+        # response over an optional top-up.
+        pass
+
+    out = {"slug": slug, "found": True, "person": entry}
+    # Flatten the person fields to the envelope top-level too, matching
+    # person_context's dual-shape contract so a client decoding either
+    # the nested or flat form works.
+    for k, v in entry.items():
+        if k not in ("slug", "found", "person"):
+            out[k] = v
+    return out, 200
+
+
 def people_list(sort=None, ceiling=10000):
     """List every person in the Qdrant `people` collection for the Hub.
 
@@ -1420,7 +1687,17 @@ def people_list(sort=None, ceiling=10000):
         name = p.get("display_name") or p.get("name") or ""
         if not name:
             continue
-        row = {"id": str(pt.get("id")), "name": name}
+        # slug + wiki_url let the Hub People row click through to the
+        # person's wiki page. Same slug derivation and WIKI_BASE_URL the
+        # sibling readers (people_search, people_recent, people_stale)
+        # already emit, so every people surface links the same way.
+        slug = _wiki_slug(name)
+        row = {
+            "id": str(pt.get("id")),
+            "name": name,
+            "slug": slug,
+            "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
+        }
         role = p.get("job_title") or p.get("organization") or ""
         if role:
             row["role"] = role
@@ -3084,6 +3361,26 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        # Per-slug person enrichment for the iOS / Hub person card.
+        # GET /api/v1/people/{slug}/enrichment
+        if (parsed.path.startswith("/api/v1/people/")
+                and parsed.path.endswith("/enrichment")):
+            slug = parsed.path[len("/api/v1/people/"):-len("/enrichment")]
+            try:
+                result, status = person_enrichment(slug)
+            except Exception as exc:
+                result, status = {
+                    "found": False,
+                    "degraded": True,
+                    "reason": str(exc),
+                    "error": str(exc),
+                }, 503
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -3095,6 +3392,7 @@ class Handler(BaseHTTPRequestHandler):
             "/people/stale?months=3&limit=5": "Contacts not spoken to in N months",
             "/people/recent?days=7&limit=5": "Recently met people (from meetings)",
             "/people/birthdays?days=7": "Upcoming birthdays",
+            "/api/v1/people/{slug}/enrichment": "Per-slug person card payload (org, role, identifiers, meetings, per-source last-contact)",
             "/email?q=is:unread": "Gmail query (default: unread)",
             "/api/v1/email/recent?hours=24&limit=20": "Recent emails (subject + snippet only)",
             "/api/v1/suggestions": "Composite: birthdays + stale contacts + recent meetings",
