@@ -157,7 +157,13 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.11
+DAEMON_VERSION       ?= 0.4.12
+# SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
+# (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
+# fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
+# so an unverified / wrong-version daemon can never reach the DMG. Bump in
+# lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
+DAEMON_SHA256        ?= 8784d9ec33ec4f8f749ee357cabbace42406eba69a65f3a5175e2776ab5e0859
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -330,7 +336,21 @@ download-daemon:
 	    rm -f "$(DAEMON_TARBALL_CACHE)"; \
 	    exit 1; \
 	fi; \
-	printf '[OK] ostler-assistant v%s cached at %s\n' "$(DAEMON_VERSION)" "$(DAEMON_TARBALL_CACHE)"
+	EXPECTED="$(DAEMON_SHA256)"; \
+	ACTUAL="$$(shasum -a 256 "$(DAEMON_TARBALL_CACHE)" | awk '{print $$1}')"; \
+	if [ "$$ACTUAL" != "$$EXPECTED" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: ostler-assistant daemon SHA-256 mismatch (fail-closed)." >&2; \
+	    echo "  expected: $$EXPECTED" >&2; \
+	    echo "  actual:   $$ACTUAL" >&2; \
+	    echo "  file:     $(DAEMON_TARBALL_CACHE)" >&2; \
+	    echo "  This blocks shipping an unverified or wrong-version daemon. If you" >&2; \
+	    echo "  intentionally bumped DAEMON_VERSION, update DAEMON_SHA256 to the new" >&2; \
+	    echo "  hub-v$(DAEMON_VERSION) tarball's published .sha256 and retry." >&2; \
+	    rm -f "$(DAEMON_TARBALL_CACHE)"; \
+	    exit 1; \
+	fi; \
+	printf '[OK] ostler-assistant v%s cached + SHA-256 verified at %s\n' "$(DAEMON_VERSION)" "$(DAEMON_TARBALL_CACHE)"
 
 # ---------------------------------------------------------------------------
 # CX-88 (DMG #48g): extract the cached daemon tarball into
