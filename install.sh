@@ -6108,6 +6108,52 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true &&
     info "$(printf "$MSG_INFO_NO_CHANNELS_CONFIGURED_RUN_LATER_BIN" "${OSTLER_DIR}")"
 fi
 
+# ── 3.5b Assistant identity belt-and-braces (B1, v1.0.0 LAST-CUT) ──
+#
+# The daemon seeds workspace/IDENTITY.md and workspace/SOUL.md on its
+# first run, templated from user_assistant_name. But its seeder only
+# writes when the file is absent (Rust: if !path.exists()), so a stale
+# workspace that pre-dates the customer rename keeps the old engine
+# codename and the assistant introduces itself by it. The installer
+# guarantees a fresh, codename-free identity here: write both files
+# from ${ASSISTANT_NAME} when they are absent OR still carry the old
+# codename. Never emit an engine or product word as the assistant's
+# identity; fall back to a neutral phrase when no name was chosen.
+ASSISTANT_WORKSPACE_DIR="${ASSISTANT_CONFIG_DIR}/workspace"
+_identity_name="${ASSISTANT_NAME:-your assistant}"
+mkdir -p "$ASSISTANT_WORKSPACE_DIR"
+for _idf in IDENTITY.md SOUL.md; do
+    _idf_path="${ASSISTANT_WORKSPACE_DIR}/${_idf}"
+    if [[ -f "$_idf_path" ]] && ! grep -qi 'zeroclaw' "$_idf_path" 2>/dev/null; then
+        continue
+    fi
+    if [[ "$_idf" == "IDENTITY.md" ]]; then
+        cat > "$_idf_path" <<IDENTITYEOF
+# IDENTITY.md -- Who Am I?
+
+I am ${_identity_name}, your personal assistant.
+
+## Traits
+- Helpful, precise, and safety-conscious
+- I prioritise clarity and correctness
+IDENTITYEOF
+    else
+        cat > "$_idf_path" <<SOULEOF
+# SOUL.md -- Who You Are
+
+You are ${_identity_name}, the user's personal assistant.
+
+## Core Principles
+- Be helpful and accurate
+- Respect user intent and boundaries
+- Ask before taking destructive actions
+- Prefer safe, reversible operations
+SOULEOF
+    fi
+done
+unset _idf _idf_path _identity_name
+ok "$(printf "%s" "Assistant identity seeded for ${ASSISTANT_NAME:-your assistant}")"
+
 # ── 3.6 Security setup ────────────────────────────────────────────
 
 progress "Encrypting your databases" "encrypt_db"
@@ -9987,6 +10033,25 @@ info "CX-35 checkpoint: setting up sidecar paths + mkdir state dir"
 PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
 PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
 mkdir -p "$PIPELINE_SIGNALS_DIR" || _mail_probe_failure_line="mkdir state dir"
+
+# ── Doctor first-run flag (B7 belt-and-braces, v1.0.0 LAST-CUT) ──
+#
+# The Doctor first-run wizard is gated on ${OSTLER_DIR}/.setup-complete
+# (doctor/agent/first_run.py::is_first_run). On the productised
+# single-machine install the services + hydrate are set up by this
+# installer, so by the time the customer opens Doctor the setup IS
+# complete -- pre-clear the flag here so they land on the real
+# dashboard, not the Docker-oriented first-run Setup Wizard. This is
+# the install-side guarantee that complements the Doctor's own
+# docker-binary detection fix. Idempotent and non-fatal (the if/else
+# keeps it set -e safe): a write failure must never abort the install.
+if [[ ! -f "${OSTLER_DIR}/.setup-complete" ]]; then
+    if printf 'completed\n' > "${OSTLER_DIR}/.setup-complete" 2>/dev/null; then
+        info "Doctor setup-complete flag written; dashboard shown on first open"
+    else
+        info "could not write ${OSTLER_DIR}/.setup-complete; Doctor may show the first-run wizard"
+    fi
+fi
 
 # Resolve the writer script with the same fallback chain as
 # progress_emitter.sh above (bundled / dev / post-install re-run).
