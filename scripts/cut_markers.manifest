@@ -63,3 +63,7 @@ assistant_tag_grep|crates/zeroclaw-gateway/src/warm_intro.rs|fn render_intro_mes
 # --- v0.4.11 re-cut: num_ctx chat fix (ostler-assistant #118) ---
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn resolve_num_ctx|#118 num_ctx pin -- fixes one-token /ws/chat (Ollama 4096 default truncated the ~41KB agent prompt)
 assistant_tag_grep|crates/zeroclaw-providers/src/ollama_gate.rs|pub\(crate\) async fn acquire|#117 foreground/background Ollama slot-priority admission gate (carried in v0.4.11 daemon). NOTE: parens ESCAPED -- verify_cut_provenance.sh greps with `grep -E`, so an unescaped (crate) is an ERE capture group matching literal "crate" and NEVER matches the source's literal "(crate)" -> false STALE-DAEMON RED (walled the 2026-06-15 v0.4.11 cut though #117 IS in the tag).
+
+# --- v1.0.0 last-cut: daemon B1/B3 fixes (hub-v0.4.12, ostler-assistant #120) ---
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|owner_cross_device_inbound_from_self_handle_is_not_dropped|#120 B3 iMessage self-handle over-broad-drop fix -- owner cross-device inbound reaches the agent (test exists only at v0.4.12)
+assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn seeded_identity_md|#120 B1 IDENTITY/SOUL seeded from user_assistant_name, never embeds the ZeroClaw codeword (fn added at v0.4.12)
