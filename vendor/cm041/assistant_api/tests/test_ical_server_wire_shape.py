@@ -497,6 +497,21 @@ class PeopleListEndpointTests(unittest.TestCase):
         for row in result["people"]:
             self.assertIn("id", row)
             self.assertIn("name", row)
+            # Each row must carry slug + wiki_url so the Hub People tab
+            # can link the row through to the person's wiki page. Same
+            # slug derivation + WIKI_BASE_URL as people_search/recent.
+            self.assertIn("slug", row,
+                          "people_list row must emit slug so the Hub "
+                          "People row can click through")
+            self.assertIn("wiki_url", row,
+                          "people_list row must emit wiki_url so the Hub "
+                          "People row can click through")
+            self.assertEqual(row["slug"], ical_server._wiki_slug(row["name"]))
+            self.assertEqual(
+                row["wiki_url"],
+                f"{ical_server.WIKI_BASE_URL}/People/{row['slug']}/",
+            )
+            self.assertTrue(row["wiki_url"].endswith(f"/People/{row['slug']}/"))
         by_name = {r["name"]: r for r in result["people"]}
         # job_title preferred, organization fallback for the row's role.
         self.assertEqual(by_name["Bob Example"]["role"], "Builder")
@@ -556,6 +571,132 @@ class PeopleListEndpointTests(unittest.TestCase):
                       "version alias table")
         self.assertIn('if parsed.path == "/people":', source,
                       "#596: a bare /people GET handler must exist")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/people/{slug}/enrichment – person-detail card payload.
+# Grafted from CM041 upstream so a People row (slug + wiki_url) resolves to
+# a 200 enrichment card instead of the deployed build's 404.
+# ---------------------------------------------------------------------------
+
+
+class PersonEnrichmentEndpointTests(unittest.TestCase):
+    """person_enrichment(slug) must resolve a known slug to a 200 card and
+    reject unknown / malformed slugs. SPARQL + Qdrant are mocked so the test
+    has no dependency on a running Oxigraph or Qdrant."""
+
+    _JANE_NAME = "Jane Doe"
+    _JANE_URI = "urn:pwg:person/jane-doe"
+
+    @staticmethod
+    def _qdrant_empty(*_args, **_kwargs):
+        class _Resp:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *exc):
+                return False
+
+            def read(self_inner):
+                import json as _json
+                return _json.dumps({"result": {"points": []}}).encode()
+
+        return _Resp()
+
+    def _make_fake_sparql(self, *, core_row, identifiers=None, meetings=None,
+                          candidates=None):
+        cand_rows = candidates if candidates is not None else [
+            {"person": self._JANE_URI, "name": self._JANE_NAME},
+            {"person": "urn:pwg:person/other", "name": "Other Person"},
+        ]
+
+        def fake_sparql(query):
+            if ("pwg:Person" in query and "displayName" in query
+                    and "lastContactCalendar" not in query
+                    and "hasIdentifier" not in query):
+                return cand_rows
+            if "lastContactCalendar" in query:
+                return [core_row] if core_row is not None else []
+            if "hasIdentifier" in query:
+                return identifiers or []
+            if "PersonFact" in query:
+                return []
+            if "pwg:Meeting" in query:
+                return meetings or []
+            if "urn:pwg:warmth" in query:
+                return []
+            return []
+
+        return fake_sparql
+
+    def test_known_slug_returns_200_with_person(self):
+        core_row = {
+            "org": "Example Corp",
+            "title": "VP Product",
+            "rel": "colleague",
+            "lcEmail": "2026-03-01",
+        }
+        identifiers = [
+            {"type": "phone", "value": "+10000000000"},
+            {"type": "email", "value": "jane@example.com"},
+        ]
+        fake = self._make_fake_sparql(core_row=core_row, identifiers=identifiers)
+        with mock.patch.object(ical_server, "_sparql_select", side_effect=fake), \
+                mock.patch("urllib.request.urlopen", self._qdrant_empty):
+            result, status = ical_server.person_enrichment("jane-doe")
+        self.assertEqual(status, 200, msg=f"body={result!r}")
+        self.assertTrue(result["found"])
+        self.assertEqual(result["slug"], "jane-doe")
+        person = result["person"]
+        # British-English keys, role alias, flat phone/email for the card.
+        self.assertEqual(person["organisation"], "Example Corp")
+        self.assertEqual(person["role"], "VP Product")
+        self.assertEqual(person["phone"], "+10000000000")
+        self.assertEqual(person["email"], "jane@example.com")
+        self.assertNotIn("organization", person)
+        # slug + wiki_url match the People-row identifier the click came from.
+        self.assertEqual(person["slug"], "jane-doe")
+        self.assertTrue(person["wiki_url"].endswith("/People/jane-doe/"))
+
+    def test_unknown_slug_returns_404(self):
+        fake = self._make_fake_sparql(
+            core_row={},
+            candidates=[{"person": "urn:pwg:person/x", "name": "Someone Else"}],
+        )
+        with mock.patch.object(ical_server, "_sparql_select", side_effect=fake):
+            result, status = ical_server.person_enrichment("no-such-person")
+        self.assertEqual(status, 404)
+        self.assertFalse(result["found"])
+        self.assertEqual(result["slug"], "no-such-person")
+
+    def test_malformed_slug_returns_400_without_querying(self):
+        with mock.patch.object(
+            ical_server, "_sparql_select",
+            side_effect=AssertionError("must not query on a bad slug"),
+        ):
+            result, status = ical_server.person_enrichment("UPPER case")
+        self.assertEqual(status, 400)
+        self.assertFalse(result["found"])
+        self.assertIn("error", result)
+
+    def test_oxigraph_unreachable_returns_503(self):
+        def boom(_query):
+            raise OSError("oxigraph unreachable")
+
+        with mock.patch.object(ical_server, "_sparql_select", side_effect=boom):
+            result, status = ical_server.person_enrichment("jane-doe")
+        self.assertEqual(status, 503)
+        self.assertTrue(result["degraded"])
+        self.assertFalse(result["found"])
+
+    def test_enrichment_route_registered_in_source(self):
+        source = ICAL_SERVER_PY.read_text(encoding="utf-8")
+        self.assertIn('endswith("/enrichment")', source,
+                      "the GET /api/v1/people/{slug}/enrichment route must be "
+                      "dispatched in do_GET so a clicked People row resolves "
+                      "to a 200 enrichment card, not a 404")
+        self.assertIn("def person_enrichment(", source,
+                      "person_enrichment must exist in the shipping copy")
 
 
 if __name__ == "__main__":
