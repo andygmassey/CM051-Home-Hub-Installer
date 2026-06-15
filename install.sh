@@ -5,7 +5,8 @@
 # Structure:
 #   Phase 1: Check prerequisites (automatic, no input)
 #   Phase 2: Collect ALL user input upfront (~2 minutes)
-#   Phase 3: Install everything unattended (~10-15 minutes)
+#   Phase 3: Install everything unattended (~15-60 minutes, depending
+#            on how much history is on your Mac)
 #   Phase 4: Health check + next steps
 #
 # What this does NOT do:
@@ -107,7 +108,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
     echo "  2. Asks you a few questions (~2 minutes)"
-    echo "  3. Installs everything automatically (~10-15 minutes)"
+    echo "  3. Installs everything automatically (~15-60 minutes, depending on your history)"
     echo "  4. You walk away and come back to a working system"
     echo ""
     echo "Environment variables (advanced - override before running):"
@@ -1745,8 +1746,10 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=85"
 
-# Power source check. On a MacBook, Phase 3 takes 10-15 minutes of
-# continuous Docker pulls and Ollama model downloads. The hub power
+# Power source check. On a MacBook, Phase 3 runs ~15-60 minutes of
+# continuous Docker pulls, Ollama model downloads and history
+# backfill (the upper end on a Mac with years of mail / messages).
+# The hub power
 # LaunchAgent installed at step 3.14 pauses Docker and Ollama when
 # the battery drops below the policy threshold, which can hang the
 # installer's readiness probes for the full timeout (90 s / 300 s).
@@ -4783,7 +4786,7 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away -- this takes about 10-15 minutes.${NC}"
+    echo -e "  ${GREEN}  You can walk away -- this takes 15-60 minutes, depending on how much history is on your Mac.${NC}"
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -5135,6 +5138,35 @@ if ! [[ -x /opt/homebrew/bin/brew ]]; then
 fi
 if ! command -v brew &>/dev/null; then
     fail_with_code "ERR-04-DMG48-HOMEBREW-NOT-ON-PATH" "$MSG_FAIL_HOMEBREW_NOT_ON_PATH"
+fi
+
+# ── 3.1b GNU coreutils (gtimeout) ──────────────────────────────────
+#
+# Stock macOS ships NO `timeout` and NO `gtimeout`. The hydrate_*
+# phases later in the install each pick a timeout wrapper
+# (gtimeout > timeout > empty) and, when both are absent, run the
+# ingest UNBOUNDED. An iMessage backfill has been observed running
+# 27 minutes (1647s) silently, which reads as a frozen GUI row and
+# the customer force-quits a still-healthy install.
+#
+# Homebrew is guaranteed present by this point (Phase 3.1 hard-fails
+# above if it is not), so install GNU coreutils now -- BEFORE the
+# first hydrate phase -- so `gtimeout` exists and the existing
+# wrap-pickers actually fire. Non-fatal: if the formula cannot be
+# poured the hydrate caps simply stay no-ops as before, but the
+# heartbeat added to the long hydrate steps still keeps the GUI
+# from looking hung.
+if ! command -v gtimeout &>/dev/null; then
+    info "$MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT"
+    brew install coreutils >/tmp/ostler-coreutils-install.log 2>&1 || true
+    if [[ -x /opt/homebrew/bin/brew ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    fi
+    if command -v gtimeout &>/dev/null; then
+        ok "$MSG_OK_COREUTILS_GTIMEOUT_INSTALLED"
+    else
+        warn "$MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE"
+    fi
 fi
 
 # ── 3.2 Docker ─────────────────────────────────────────────────────
@@ -7615,6 +7647,28 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
 
     info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
     "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+
+    # ostler_security is a HARD dependency of CM048's pipeline -- src/
+    # ingest.py imports ostler_security.database + ostler_security.posture
+    # at module load and refuses to run without them, yet CM048's
+    # pyproject.toml does NOT declare it (the two repos are deliberately
+    # decoupled on disk -- productisation Rule 0.5). Install the vendored
+    # source the same way the Hub venv does (Phase 3 ~L3352), BEFORE the
+    # pipeline so the dep is resolvable. Without this every conversation
+    # bundle exhausts at step 07, qdrant `conversations` stays at zero,
+    # and the wiki /Conversations/ section ships permanently empty.
+    if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
+        info "$MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV"
+        if ! "$CM048_VENV/bin/pip" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/tmp/ostler-cm048-security-pip.log; then
+            warn "$MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048"
+            if [[ -s /tmp/ostler-cm048-security-pip.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm048-security-pip.log | tail -5
+            fi
+        fi
+    else
+        warn "$MSG_WARN_OSTLER_SECURITY_SOURCE_MISSING_CM048"
+    fi
+
     if "$CM048_VENV/bin/pip" install --quiet "$CM048_DIR" 2>/tmp/ostler-cm048-pip.log; then
         info "$MSG_INFO_CM048_PIPELINE_INSTALLED_VENV"
     else
@@ -7638,14 +7692,27 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
             sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
         fi
 
-        # Health check via the symlink. pwg-convo uses argparse without
-        # a --version flag (subcommands carry the per-mode arguments),
-        # so we exercise --help which argparse adds automatically and
-        # exits 0. Confirms PATH-side wiring + venv binding.
-        if "$CM048_SYMLINK" --help >/dev/null 2>&1; then
+        # Health check. Two gates, both must pass:
+        #
+        #   1. `pwg-convo --help` exercises the argparse entrypoint and
+        #      confirms PATH-side wiring + venv binding (pwg-convo has no
+        #      --version flag; --help exits 0).
+        #
+        #   2. `import src.ingest` inside the CM048 venv actually loads
+        #      the pipeline module, which hard-imports ostler_security.
+        #      The bare --help probe PASSES even with ostler_security
+        #      missing -- argparse never touches src.ingest -- so on its
+        #      own it logged `cm048_setup status=ok` for a dead pipeline
+        #      (every conversation bundle then exhausting at step 07).
+        #      This second gate makes a missing dependency FAIL the step.
+        if "$CM048_SYMLINK" --help >/dev/null 2>&1 \
+           && "$CM048_VENV/bin/python3" -c 'import src.ingest' >/tmp/ostler-cm048-import.log 2>&1; then
             ok "$MSG_OK_CM048_PIPELINE_READY"
         else
             warn "$MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP"
+            if [[ -s /tmp/ostler-cm048-import.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm048-import.log | tail -5
+            fi
         fi
     else
         warn "$(printf "$MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML" "$CM048_BIN")"
@@ -7705,7 +7772,7 @@ fi
 #      returns empty (try/except in ical-server.py swallows it).
 #      See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F4.
 #
-#   2. ~/.zeroclaw/ical-query.sh -- a shell wrapper that ical-server
+#   2. ~/.ostler/ical/ical-query.sh -- a shell wrapper that ical-server
 #      invokes for iCloud / CalDAV events. Without it the wrapper
 #      shell-out raises FileNotFoundError and the iCloud calendar
 #      returns empty events (same silent-degrade pattern as gws).
@@ -7799,11 +7866,17 @@ else
     rm -rf "$GWS_TMPDIR"
 fi
 
-# 2. ~/.zeroclaw/ical-query.sh -- shell wrapper that ical-server
-# invokes for iCloud / CalDAV calendar events. The path is a legacy
-# artefact of how the bridge was first wired on Andy's instance;
-# rather than patching every call site we materialise the wrapper
-# at the path ical-server.py defaults to.
+# 2. ~/.ostler/ical/ical-query.sh -- shell wrapper that ical-server
+# invokes for iCloud / CalDAV calendar events.
+#
+# This used to live under ~/.zeroclaw/ -- a leak of the upstream
+# runtime's codename into a customer-visible path (the dir is created
+# and the path is printed in the install log pane). Repointed to
+# ~/.ostler/ical/ so nothing customer-facing references the codename.
+# ical-server.py reads its wrapper path from the ICAL_SCRIPT env var
+# (defaulting to the old ~/.zeroclaw path), so the launchd plist below
+# sets ICAL_SCRIPT to this new location explicitly -- the server still
+# finds the wrapper after the move.
 #
 # The wrapper hands off to a Python module under the customer's
 # Ostler venv. We write a stub that exits non-zero with a clear
@@ -7812,7 +7885,7 @@ fi
 # / OSTLER_ICLOUD_APP_PASSWORD env vars when present). Once those
 # env vars are set, the wrapper shells out to the python-caldav
 # library to fetch upcoming events as raw iCal text.
-ICAL_WRAPPER_DIR="${HOME}/.zeroclaw"
+ICAL_WRAPPER_DIR="${OSTLER_DIR}/ical"
 ICAL_WRAPPER="${ICAL_WRAPPER_DIR}/ical-query.sh"
 mkdir -p "$ICAL_WRAPPER_DIR"
 cat > "$ICAL_WRAPPER" <<'ICALWRAPEOF'
@@ -9263,6 +9336,8 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>127.0.0.1</string>
         <key>HOME</key>
         <string>${HOME}</string>
+        <key>ICAL_SCRIPT</key>
+        <string>${OSTLER_DIR}/ical/ical-query.sh</string>
     </dict>
 </dict>
 </plist>
@@ -12246,6 +12321,44 @@ _hydrate_sentinel_record() {
     } > "$sentinel"
 }
 
+# Progress heartbeat for the long-running hydrate phases.
+#
+# Even with the gtimeout cap in place (coreutils installed in Phase
+# 3.1b), a single hydrate step can legitimately churn for many minutes
+# on a Mac with years of history. Without a periodic progress line the
+# GUI sidebar row sits silent and reads as a frozen install. These two
+# helpers bracket the blocking ingest command-sub with a backgrounded
+# ticker that emits one progress line every _HYDRATE_HEARTBEAT_EVERY_S
+# seconds. Host-tooling-independent (pure bash + sleep), so it works
+# whether or not gtimeout is present.
+#
+# Usage:
+#   _hydrate_heartbeat_start "$MSG_HYDRATE_IMESSAGE_HEARTBEAT"
+#   ...blocking ingest command-sub...
+#   _hydrate_heartbeat_stop
+_HYDRATE_HEARTBEAT_EVERY_S="${OSTLER_HYDRATE_HEARTBEAT_EVERY_S:-30}"
+_HYDRATE_HEARTBEAT_PID=""
+_hydrate_heartbeat_start() {
+    local msg="${1:-}"
+    [[ -n "$msg" ]] || return 0
+    # Disable job-control chatter for the backgrounded ticker.
+    (
+        local waited=0
+        while true; do
+            sleep "$_HYDRATE_HEARTBEAT_EVERY_S"
+            waited=$((waited + _HYDRATE_HEARTBEAT_EVERY_S))
+            info "$(printf "$msg" "$waited")"
+        done
+    ) &
+    _HYDRATE_HEARTBEAT_PID=$!
+}
+_hydrate_heartbeat_stop() {
+    [[ -n "$_HYDRATE_HEARTBEAT_PID" ]] || return 0
+    kill "$_HYDRATE_HEARTBEAT_PID" >/dev/null 2>&1 || true
+    wait "$_HYDRATE_HEARTBEAT_PID" 2>/dev/null || true
+    _HYDRATE_HEARTBEAT_PID=""
+}
+
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
 _HYDRATE_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
@@ -12413,7 +12526,7 @@ unset _hydrate_contacts_accounts
 # CX-101 (DMG #48j, 2026-05-29): SWITCHED FROM meeting_syncer ->
 # CalDAV path TO FDA path (ostler_fda.calendar + pwg_ingest.
 # ingest_calendar). The old meeting_syncer path went via the
-# localhost ical-server which invoked ~/.zeroclaw/ical-query.sh
+# localhost ical-server which invoked ~/.ostler/ical/ical-query.sh
 # against caldav.icloud.com using OSTLER_ICLOUD_USER +
 # OSTLER_ICLOUD_APP_PASSWORD -- env vars install.sh NEVER captures.
 # Consequence: every clean install with default config hit the
@@ -12651,15 +12764,18 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
     # Chunk size kept at 30d so the apple_mail_mbox reader can stream
     # progress + recover from a per-chunk failure without restarting
     # the whole multi-year scan.
+    _hydrate_heartbeat_start "$MSG_HYDRATE_EMAIL_HEARTBEAT"
     if OSTLER_HOME="$HOME" $_HYDRATE_EMAIL_TIMEOUT_WRAP \
        "$_HYDRATE_EMAIL_PY" -m ostler_fda.apple_mail_mbox \
            --emit-mbox "$_HYDRATE_EMAIL_MBOX" \
            --backfill-days "$OSTLER_HYDRATE_EMAIL_DAYS" \
            --backfill-chunk-days 30 \
            >>"$_HYDRATE_EMAIL_LOG" 2>&1; then
+        _hydrate_heartbeat_stop
         :
     else
         rc=$?
+        _hydrate_heartbeat_stop
         # gtimeout returns 124 (signalled SIGTERM) or 137 (signalled
         # SIGKILL) when the cap is hit. Any other non-zero is a real
         # emit failure (e.g. FDA permission denied).
@@ -12732,8 +12848,11 @@ unset _HYDRATE_EMAIL_MBOX_DIR _HYDRATE_OXIGRAPH_EMAIL
 # abs floor >= 20 user-sent, rel floor >= 0.02 (2%), T2 confidence 0.7,
 # T3 = complete skip. See ostler_fda/whatsapp_history.py for full docstring.
 #
-# Same 90s wall-clock cap as hydrate_email (Q6 forward-look). On
-# timeout we emit MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES and let
+# 90s wall-clock cap, enforced by the gtimeout wrapper that Phase 3.1b
+# guarantees is present (GNU coreutils is brew-installed early so the
+# wrap-picker below actually fires; if coreutils is somehow absent the
+# step runs unbounded but the heartbeat keeps the GUI from looking
+# hung). On timeout we emit MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES and let
 # any subsequent run (Doctor-triggered rescan, future hourly tick)
 # finish the job. The customer's wiki still gets contacts + calendar
 # (B1) + email (B2) plus whatever WhatsApp landed in the 90s window.
@@ -12861,9 +12980,10 @@ unset _HYDRATE_CALENDAR_JSON _HYDRATE_CALENDAR_COUNT
 # (Q2 sign-off): backfilled rows land with empty topics/category;
 # the gateway's background enrichment tick chews through them.
 #
-# Same 90s wall-clock cap as hydrate_email + hydrate_whatsapp. On
-# timeout we emit MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES and
-# let the agent finish.
+# 90s wall-clock cap via the gtimeout wrapper (coreutils guaranteed by
+# Phase 3.1b; unbounded-but-heartbeated if absent), same as
+# hydrate_email + hydrate_whatsapp. On timeout we emit
+# MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES and let the agent finish.
 #
 # Privacy AC mirror B2 + CX-85: the --json output is counts only,
 # pinned by the privacy contract test in HR015 #134. No URLs, no
@@ -12988,7 +13108,11 @@ unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROM
 # the people-count is surfaced to the customer -- no handles, phone
 # numbers, or message text leaves the local process.
 #
-# Same 90s wall-clock cap as the other hydrate_* blocks. On timeout
+# 90s wall-clock cap via the gtimeout wrapper (coreutils guaranteed by
+# Phase 3.1b; unbounded-but-heartbeated if absent), same as the other
+# hydrate_* blocks. iMessage is the worst offender for long backfills
+# (a multi-year chat.db has been observed at 27 minutes pre-cap), so
+# the cap + the progress heartbeat both matter here most. On timeout
 # we emit MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES and let the
 # hourly tick (or Doctor-triggered rescan) finish whatever was
 # still pending.
@@ -13042,6 +13166,7 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
     # pwg_ingest command-sub so an in-subshell crash degrades to "skipped"
     # instead of aborting the whole install. Preserve rc for the timeout check.
     _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
+    _hydrate_heartbeat_start "$MSG_HYDRATE_IMESSAGE_HEARTBEAT"
     _HYDRATE_IMESSAGE_JSON_OUT="$(
         $_HYDRATE_IMESSAGE_TIMEOUT_WRAP \
         "$_HYDRATE_IMESSAGE_PY" -c "
@@ -13053,6 +13178,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
     )"
     rc=$?
+    _hydrate_heartbeat_stop
     set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_IMESSAGE_TIMED_OUT=true
