@@ -779,6 +779,17 @@ verify-dmg-contents:
 	        fi; \
 	    done; \
 	fi; \
+	DAEMON_SIGN_OK=1; \
+	DAEMON_APP_M="$$RES/assistant-agent/OstlerAssistant.app"; \
+	DAEMON_SIGN_TGT="$$DAEMON_APP_M"; \
+	[ -d "$$DAEMON_APP_M" ] || DAEMON_SIGN_TGT="$$DAEMON_INNER_BIN"; \
+	if [ -e "$$DAEMON_SIGN_TGT" ]; then \
+	    codesign -dvv "$$DAEMON_SIGN_TGT" 2>&1 | grep -q "Authority=Developer ID Application: Creative Machines Limited" || DAEMON_SIGN_OK=0; \
+	    codesign -dvv "$$DAEMON_SIGN_TGT" 2>&1 | grep -q "TeamIdentifier=$(TEAM_ID)" || DAEMON_SIGN_OK=0; \
+	    codesign -dvvv "$$DAEMON_SIGN_TGT" 2>&1 | grep -E "^CodeDirectory" | grep -q "runtime" || DAEMON_SIGN_OK=0; \
+	else \
+	    DAEMON_SIGN_OK=0; \
+	fi; \
 	hdiutil detach "$$MOUNT" >/dev/null 2>&1 || true; \
 	if [ -n "$$MISSING" ]; then \
 	    echo "ERROR: DMG payload missing in Resources/:$$MISSING" >&2; \
@@ -829,7 +840,14 @@ verify-dmg-contents:
 	    echo "       cached tarball at $(DAEMON_TARBALL_CACHE)." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + daemon present (Hub build-SHA $$HUB_SHA)"
+	if [ "$$DAEMON_SIGN_OK" = "0" ]; then \
+	    echo "ERROR: bundled daemon is NOT Developer-ID signed + hardened-runtime (Team $(TEAM_ID))." >&2; \
+	    echo "       The ostler-releases tarball is adhoc/linker-signed; sign-python-bundle must" >&2; \
+	    echo "       re-sign it Developer-ID --options runtime before packaging (CX-124 / step-4 gate)." >&2; \
+	    echo "       An adhoc daemon fails Apple notarisation AND Gatekeeper on the customer Mac." >&2; \
+	    exit 1; \
+	fi; \
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive
