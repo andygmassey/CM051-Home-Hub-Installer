@@ -59,3 +59,7 @@ vendor_grep|wiki-recompile/bin/wiki-recompile-tick.sh|ingest-ollama.lock.d|#307 
 wiki_image_grep|wiki-compiler:/app/compiler|within_install_window|#88 settling/progress panel off durable install anchor so a panel renders for the WHOLE first backfill
 wiki_image_grep|wiki-compiler:/app/compiler|intentionally NOT conflicts|#89 dedupe over-merge flags LinkedIn-only; work+personal phone/email no longer false-positive (108 -> ~43)
 assistant_tag_grep|crates/zeroclaw-gateway/src/warm_intro.rs|fn render_intro_message\(user_first_name:|#116 warm-intro opens by addressing the user by name (v0.4.10 daemon; two-arg signature only exists with this fix)
+
+# --- v0.4.11 re-cut: num_ctx chat fix (ostler-assistant #118) ---
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|fn resolve_num_ctx|#118 num_ctx pin -- fixes one-token /ws/chat (Ollama 4096 default truncated the ~41KB agent prompt)
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama_gate.rs|pub(crate) async fn acquire|#117 foreground/background Ollama slot-priority admission gate (carried in v0.4.11 daemon)
