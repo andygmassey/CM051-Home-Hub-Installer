@@ -13778,6 +13778,19 @@ fi
 # point probing a permission the customer has not consented to.
 
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+    # .152 walk (2026-06-16): the assistant's outbound-iMessage bridge
+    # drives the MAIN Messages.app via AppleScript. When Messages.app is
+    # not running, the send AppleEvent waits for it to cold-launch and
+    # times out with "AppleEvent timed out (-1712)" -- the welcome
+    # iMessage (and every later brief) silently never leaves the box.
+    # Warm Messages.app now so it is already up for the Automation probe
+    # below (a cold Messages can also -1712 the probe's `count of
+    # accounts`) and for the post-install welcome message. `-g` keeps it
+    # in the background (no focus steal mid-install) and `-a Messages`
+    # launches the main app via LaunchServices. Best-effort + non-fatal:
+    # a failure here must never abort the install.
+    open -ga Messages 2>/dev/null || true
+
     # CX-55 (DMG #30, 2026-05-24): pre-warn the customer that the
     # next step will trigger macOS's "OstlerInstaller wants to control
     # Messages" Automation permission dialog. Without warning, the
@@ -14219,6 +14232,38 @@ else
     # Companion later. Per fail-open: never block install on
     # subscription-state write failure.
     warn "$MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL"
+fi
+
+# ── Final assistant-daemon restart (FDA inheritance) ───────────────
+#
+# .152 walk (2026-06-16): iMessage was DEAD on a fresh install until
+# the assistant daemon was manually restarted. macOS evaluates Full
+# Disk Access at PROCESS LAUNCH. The assistant LaunchAgent is loaded
+# during the assistant-setup phase (~L11146), which runs BEFORE the
+# customer has dragged OstlerAssistant.app into the FDA pane during
+# the in-context FDA assist (~L11321). So the long-lived daemon spawns
+# WITHOUT FDA and keeps failing to open chat.db ("unable to open
+# database file: chat.db; restarting") for the rest of its life.
+#
+# The in-context assist DOES kickstart the daemon (~L11475), but only
+# when its post-grant re-probe reports "granted". TCC.db can lag a
+# second or two behind the customer's drag-grant, so on a slow fresh
+# Mac that re-probe routinely reports "still pending", the conditional
+# kickstart is skipped, and the daemon never inherits the access the
+# customer just granted. The Doctor card then re-probes live and reads
+# "granted", but nothing has restarted the daemon process itself.
+#
+# Fix: one unconditional, idempotent kickstart at the very end of the
+# install -- after every permission flow (installer FDA, daemon FDA,
+# iMessage Automation, the Phase 4 health-check) has had its turn.
+# `launchctl kickstart -k` restarts the agent in place so the freshly
+# granted TCC posture takes effect; it is a no-op if the agent is not
+# loaded. Gated on the iMessage channel being enabled (the only channel
+# that needs daemon-level FDA on chat.db) and best-effort / non-fatal so
+# it can never abort a successful install.
+if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == true ]]; then
+    info "$MSG_INFO_ASSISTANT_FINAL_RESTART_FDA"
+    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
 fi
 
 # ── Summary ────────────────────────────────────────────────────────

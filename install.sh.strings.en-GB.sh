@@ -23,6 +23,7 @@ MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (answer a few questions, th
 # ── Info messages (progress, context) ──
 
 MSG_INFO_AND_RE_RUN_OSTLER_FDA="and re-run: ostler-fda"
+MSG_INFO_ASSISTANT_FINAL_RESTART_FDA="Restarting the assistant so it picks up the Full Disk Access you just granted (needed to read your Messages history)."
 MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="Apple Mail accounts visible: %s (informational)"
 MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
 MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST="Apple Mail has cached messages. Ingest will pick them up on the next hourly tick."
