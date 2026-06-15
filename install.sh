@@ -7102,7 +7102,83 @@ cd "$OSTLER_DIR"
 # a missing wiki image (e.g. registry not yet wired) -- the data
 # layer comes up first; the wiki layer fails on its own phase
 # with its own error surface.
-docker compose up -d qdrant oxigraph redis
+# ── Cold-VM hardening for the graph DB bring-up ───────────────────
+# TNM 2026-06-15 (ERR-99-INSTALL-ABORT-L7105 on a fresh-wipe Studio
+# install). On a genuinely FRESH install the Colima VM has only just
+# cold-booted. The earlier "Docker running" gate proves the daemon
+# socket answers, but NOT that the guest VM's network is routable yet
+# -- and the FIRST docker operation at this phase is an image PULL of
+# qdrant / oxigraph / redis over that not-yet-warm network (these are
+# pulled from the registry, not bundled in the DMG). The bare
+# `docker compose up -d` below coupled the flaky pull to the bring-up
+# with NO retry, so a single cold-VM network blip failed under
+# `set -e` -> ERR trap -> the whole install aborted ~90% in. The
+# Qdrant readiness loop further down runs AFTER `up`, so it never
+# protected the pull.
+#
+# Fix, three guarded steps (each `if cmd; then` form so a non-zero
+# never trips errexit/the ERR trap until retries are exhausted):
+#   (1) re-confirm the daemon is reachable HERE-and-NOW (it may have
+#       been minutes since the install-docker phase),
+#   (2) PULL the three images separately with retry/backoff so a
+#       transient cold-VM network failure retries instead of aborting,
+#   (3) `up -d` (images cached now, so effectively instant) also with
+#       a short retry. Only a genuine, repeated failure is fatal, and
+#       then via fail_with_code (curated code + actionable recovery),
+#       never the synthetic ERR-99.
+#
+# Post-launch hardening (NOT done here, tracked v1.0.1): bundling the
+# 3 images into the DMG (docker save -> docker load) would remove this
+# net pull, but the install already pulls multi-GB from the net anyway
+# (the Ollama conversation model + the ~3.6 GB Vane image), so it would
+# not remove the network dependency. Making the pull resilient is the
+# proportionate v1.0.0 fix.
+
+# (1) Daemon reachable here-and-now (cold-VM socket forwarding can lag).
+_gdb_docker_ready=false
+for _ in $(seq 1 40); do
+    if docker info &>/dev/null 2>&1; then _gdb_docker_ready=true; break; fi
+    sleep 3
+done
+if [[ "$_gdb_docker_ready" != true ]]; then
+    fail_with_code "ERR-06-GRAPH-DB-DOCKER" "$MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY"
+fi
+unset _gdb_docker_ready
+
+# (2) Pull the data images with retry/backoff (the flaky cold-VM step).
+info "$MSG_INFO_PULLING_GRAPH_DB_IMAGES"
+_gdb_pulled=false
+_gdb_backoff=10
+for _gdb_attempt in 1 2 3 4 5; do
+    if docker compose pull qdrant oxigraph redis; then
+        _gdb_pulled=true; break
+    fi
+    if (( _gdb_attempt < 5 )); then
+        warn "$(printf "$MSG_WARN_GRAPH_DB_PULL_RETRY" "$_gdb_attempt" "5" "$_gdb_backoff")"
+        sleep "$_gdb_backoff"
+        _gdb_backoff=$(( _gdb_backoff * 2 ))
+    fi
+done
+if [[ "$_gdb_pulled" != true ]]; then
+    fail_with_code "ERR-06-GRAPH-DB-PULL" "$MSG_FAIL_GRAPH_DB_PULL_FAILED"
+fi
+unset _gdb_pulled _gdb_backoff _gdb_attempt
+
+# (3) Bring them up (images cached now -> fast) with a short retry.
+_gdb_up=false
+for _gdb_up_attempt in 1 2 3; do
+    if docker compose up -d qdrant oxigraph redis; then
+        _gdb_up=true; break
+    fi
+    if (( _gdb_up_attempt < 3 )); then
+        warn "$(printf "$MSG_WARN_GRAPH_DB_UP_RETRY" "$_gdb_up_attempt" "3")"
+        sleep 5
+    fi
+done
+if [[ "$_gdb_up" != true ]]; then
+    fail_with_code "ERR-06-GRAPH-DB-UP" "$MSG_FAIL_GRAPH_DB_UP_FAILED"
+fi
+unset _gdb_up _gdb_up_attempt
 ok "$MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878"
 
 # ── Pre-create optional Qdrant collections (#606) ────────────────
