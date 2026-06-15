@@ -91,9 +91,14 @@ fi
 export no_proxy="127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
 export NO_PROXY="$no_proxy"
 
-# The contract: write CONTEXT.md into the daemon's workspace dir
-# (== assistant-config dir), NOT the script's ~/.zeroclaw default.
-export ZEROCLAW_WORKSPACE_DIR="${OSTLER_DIR}/assistant-config"
+# The contract: write CONTEXT.md into the daemon's workspace dir,
+# NOT the script's ~/.zeroclaw default. The daemon's workspace is the
+# assistant-config/workspace subdir -- that is where the installer's
+# identity belt seeds IDENTITY.md and SOUL.md, and where the daemon
+# reads CONTEXT.md from. The generator uses ZEROCLAW_WORKSPACE_DIR
+# verbatim as its output dir (no /workspace append), so this value
+# must include the /workspace segment to match the identity belt.
+export ZEROCLAW_WORKSPACE_DIR="${OSTLER_DIR}/assistant-config/workspace"
 # Pin the digest source to the loopback ical-server. This is also
 # the script's default; set explicitly so the contract is visible
 # and a future ical-server port move is a one-line change here.

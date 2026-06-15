@@ -10,11 +10,13 @@
 # future edit or a stale re-vendor:
 #
 #   1. The vendored generator is present and intact.
-#   2. The tick wrapper writes CONTEXT.md into the assistant-config
-#      dir (the ZEROCLAW_WORKSPACE_DIR contract -- the original silent
-#      failure: the script's default env name does NOT match the
+#   2. The tick wrapper writes CONTEXT.md into the assistant-config/
+#      workspace dir (the ZEROCLAW_WORKSPACE_DIR contract -- the original
+#      silent failure: the script's default env name does NOT match the
 #      daemon's, so an unset value lands the digest where the daemon
-#      never looks).
+#      never looks. A second sweep found the explicit value was also
+#      one level too high -- missing the /workspace segment the identity
+#      belt writes IDENTITY.md/SOUL.md into -- now corrected).
 #   3. install.sh enables the http_request tool to reach loopback
 #      (allow_private_hosts), so the assistant can do live lookups.
 #   4. install.sh actually sources the context-refresh snippet
@@ -49,12 +51,16 @@ grep -q "ZEROCLAW_WORKSPACE_DIR" "$GENERATOR" \
 echo "vendor check: generate_pwg_context.py present and reads ZEROCLAW_WORKSPACE_DIR"
 
 # ---------------------------------------------------------------------------
-# 2. The contract: tick writes into the assistant-config dir
+# 2. The contract: tick writes into the daemon's workspace dir, which is
+#    the assistant-config/workspace subdir -- the SAME dir the installer's
+#    identity belt seeds IDENTITY.md/SOUL.md into. generate_pwg_context.py
+#    uses ZEROCLAW_WORKSPACE_DIR verbatim as its output dir (no /workspace
+#    append), so the value MUST include the /workspace segment.
 # ---------------------------------------------------------------------------
 [ -f "$TICK" ] || fail "$TICK missing"
-grep -qE 'export ZEROCLAW_WORKSPACE_DIR="\$\{OSTLER_DIR\}/assistant-config"' "$TICK" \
-    || fail "$TICK must export ZEROCLAW_WORKSPACE_DIR=\$OSTLER_DIR/assistant-config so CONTEXT.md lands where the daemon reads it"
-echo "contract check: tick pins ZEROCLAW_WORKSPACE_DIR to the assistant-config dir"
+grep -qE 'export ZEROCLAW_WORKSPACE_DIR="\$\{OSTLER_DIR\}/assistant-config/workspace"' "$TICK" \
+    || fail "$TICK must export ZEROCLAW_WORKSPACE_DIR=\$OSTLER_DIR/assistant-config/workspace so CONTEXT.md lands where the daemon reads it (same dir as IDENTITY.md/SOUL.md)"
+echo "contract check: tick pins ZEROCLAW_WORKSPACE_DIR to the assistant-config/workspace dir"
 
 # ---------------------------------------------------------------------------
 # 3. install.sh enables http_request for loopback
@@ -174,23 +180,24 @@ done
 # Drive the TICK end to end (not the generator directly): this proves
 # the full contract -- the tick derives ZEROCLAW_WORKSPACE_DIR from
 # OSTLER_DIR, bypasses any proxy for loopback, and runs the generator.
-# A live ical-server -> CONTEXT.md under $OSTLER_DIR/assistant-config.
+# A live ical-server -> CONTEXT.md under
+# $OSTLER_DIR/assistant-config/workspace (the daemon's workspace dir).
 OSTLER_DIR="$WORKDIR" \
 OSTLER_ICAL_BASE_URL="http://127.0.0.1:$PORT" \
     bash "$TICK"
 
-WS="$WORKDIR/assistant-config"
+WS="$WORKDIR/assistant-config/workspace"
 [ -f "$WS/CONTEXT.md" ] \
-    || fail "tick did not write CONTEXT.md into \$OSTLER_DIR/assistant-config ($WS)"
+    || fail "tick did not write CONTEXT.md into \$OSTLER_DIR/assistant-config/workspace ($WS)"
 grep -q "Jordan Blake" "$WS/CONTEXT.md" \
     || fail "CONTEXT.md did not include the synthetic person from the ical-server"
-echo "functional check: tick wrote CONTEXT.md into the assistant-config dir (proxy bypassed)"
+echo "functional check: tick wrote CONTEXT.md into the assistant-config/workspace dir (proxy bypassed)"
 
 # No-data path: server down -> exit 0, no file written (graceful no-op).
 OSTLER_DIR="$WORKDIR/down" \
 OSTLER_ICAL_BASE_URL="http://127.0.0.1:1" \
     bash "$TICK"
-[ ! -f "$WORKDIR/down/assistant-config/CONTEXT.md" ] \
+[ ! -f "$WORKDIR/down/assistant-config/workspace/CONTEXT.md" ] \
     || fail "tick wrote a digest when the ical-server was unreachable (should be a no-op)"
 echo "functional check: tick is a clean no-op when the ical-server is down"
 

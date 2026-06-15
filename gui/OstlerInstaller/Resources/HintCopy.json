@@ -23,7 +23,7 @@
     "id": "setup_complete_wrap_up",
     "title": "All set. You can walk away now.",
     "subtitle": "The installer will run on its own",
-    "why": "Your answers are saved. Phase 3 takes 10 to 15 minutes and runs unattended – Docker, Ollama, the knowledge graph, the assistant binary. You can come back when it's done. Nothing else needs your input.",
+    "why": "Your answers are saved. Phase 3 takes 15 to 60 minutes -- depending on how much history is on your Mac -- and runs unattended: Docker, Ollama, the knowledge graph, the assistant binary. You can come back when it's done. Nothing else needs your input.",
     "duration_estimate_s": 5,
     "long_running_threshold_s": 30,
     "illustration": null,
@@ -167,7 +167,7 @@
   "knowledge_setup": {
     "id": "knowledge_setup",
     "title": "Setting up the Knowledge service",
-    "subtitle": "Evernote ingest (CM024)",
+    "subtitle": "Evernote import",
     "why": "Installs the ostler-knowledge CLI under ~/.ostler/services/knowledge/. Lets you import an Evernote export into your local graph later from the Doctor dashboard. Your notes and images stay on your Mac.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 120,
