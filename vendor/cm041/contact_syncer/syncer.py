@@ -36,6 +36,7 @@ from contact_syncer.photo_storage import remove_photo, write_photo
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
 from identity_resolver.normalise import (  # type: ignore[import-untyped]
+    clean_display_name,
     normalise_email,
     normalise_phone,
 )
@@ -197,6 +198,15 @@ class ContactSyncer:
                 if contact_type == "business":
                     self._write_business_oxigraph(parsed)
                 else:
+                    # Person or unclassified -- clean the display name (strip
+                    # leading/trailing emoji+symbol runs, collapse duplicate
+                    # tokens like "AC AC") before it seeds the person node.
+                    # Only touch person rows; business names keep their raw
+                    # form. Empty result -> leave the original untouched so we
+                    # never blank a name we couldn't clean.
+                    _cleaned = clean_display_name(parsed.get("fn") or "")
+                    if _cleaned:
+                        parsed["fn"] = _cleaned
                     # Person or unclassified – create person node
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                     description = self._build_description(parsed)
@@ -403,6 +413,11 @@ class ContactSyncer:
                 if contact_type == "business":
                     self._write_business_oxigraph(parsed)
                 else:
+                    # Clean person display names (emoji/symbol edge-strip +
+                    # duplicate-token collapse) before seeding the node.
+                    _cleaned = clean_display_name(parsed.get("fn") or "")
+                    if _cleaned:
+                        parsed["fn"] = _cleaned
                     person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                     description = self._build_description(parsed)
                     qdrant_queue.append(

@@ -43,6 +43,7 @@ if _PARENT_DIR not in sys.path:
 
 from contact_syncer import config
 from identity_resolver.models import PersonIdentity
+from identity_resolver.normalise import clean_display_name
 from identity_resolver.resolver import IdentityResolver
 
 try:
@@ -92,6 +93,12 @@ def row_to_identity(row: Dict[str, str]) -> Tuple[PersonIdentity, Dict[str, str]
     first = (row.get("First Name") or "").strip()
     last = (row.get("Last Name") or "").strip()
     display = f"{first} {last}".strip()
+    # Strip emoji/symbol decorations and collapse duplicate tokens
+    # (e.g. a "🌼Gemma🌼 Brewster" LinkedIn first name). Keep the cleaned
+    # value only if non-empty so we never blank a name.
+    _cleaned_display = clean_display_name(display)
+    if _cleaned_display:
+        display = _cleaned_display
     url = (row.get("URL") or "").strip()
     email = (row.get("Email Address") or "").strip()
     company = (row.get("Company") or "").strip()

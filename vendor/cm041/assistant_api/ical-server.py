@@ -196,6 +196,56 @@ def _is_nameless_name(display_name):
     return False
 
 
+def _event_has_human_attendee(event):
+    """True when a calendar event has at least one named/emailed attendee.
+
+    Personal-admin entries (public holidays, parcel deliveries, reminders,
+    haircuts, car-hire confirmations) are typically all-day events with NO
+    attendee list. Real meetings either carry attendees or are timed. We treat
+    "has an attendee with a name or email" as the human-meeting signal; the
+    operator-self filtering is left to the meeting_syncer (which keys on
+    OWNER_EMAILS), because at the read-API layer we do not always know the
+    operator's own address and would rather keep a borderline event than drop a
+    real one.
+    """
+    attendees = event.get("attendees")
+    if not isinstance(attendees, list):
+        return False
+    for a in attendees:
+        if isinstance(a, dict) and (a.get("name") or a.get("email")):
+            return True
+        if isinstance(a, str) and a.strip():
+            return True
+    return False
+
+
+def _is_personal_admin_event(event):
+    """True when a calendar event is personal-admin, not a meeting.
+
+    Conservative rule (v152 wiki junk-data fix): an event is personal-admin
+    when it is ALL-DAY *and* has no human attendee. This catches public
+    holidays ("Father's Day", "Dragon Boat Festival"), deliveries
+    ("HKTV Mall delivery", "M&S Delivery"), reminders ("Haircut Alison") and
+    all-day confirmations -- all of which the calendar source emits as
+    attendee-less all-day entries.
+
+    Deliberately narrow to avoid dropping real events:
+      * a TIMED event is NEVER filtered, regardless of attendees (a solo
+        "Dentist 3pm" stays -- it is a real diary entry the user blocked);
+      * an all-day event WITH a human attendee is NEVER filtered (an all-day
+        offsite / workshop with colleagues stays).
+
+    Trade-off it accepts: a genuinely solo all-day block the user created
+    (e.g. an all-day "Focus: write report" with no attendees) is also hidden
+    from the meetings/timeline surface. That is acceptable -- such blocks are
+    not meetings either, and the user still sees them in their own calendar
+    app. We tag-and-drop at the read layer only; nothing is deleted upstream.
+    """
+    if not event.get("all_day"):
+        return False
+    return not _event_has_human_attendee(event)
+
+
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 PWG_NS = "https://pwg.dev/ontology#"
 
@@ -1827,6 +1877,12 @@ def people_birthdays(days=7):
         bday = r.get("bday", "")
         if not name or not bday or len(bday) < 5:
             continue
+        # Hide raw-handle "people" (bare phone numbers, WhatsApp JIDs) from the
+        # Birthdays surface, same render-time filter the People search / stale /
+        # recent endpoints use. Ref #664. The Qdrant point / graph node is never
+        # deleted -- only withheld from this listing.
+        if _is_nameless_name(name):
+            continue
         try:
             # Parse MM-DD or YYYY-MM-DD
             parts = bday.split("-")
@@ -1985,6 +2041,10 @@ def api_timeline(days=7):
         except Exception:
             pass
         for e in cal_events:
+            # Skip personal-admin all-day, attendee-less entries (holidays,
+            # deliveries, reminders) so "This Week" shows meetings only. See #v152.
+            if _is_personal_admin_event(e):
+                continue
             items.append({
                 "kind": "calendar",
                 "date": e.get("start", ""),
@@ -2989,6 +3049,14 @@ class Handler(BaseHTTPRequestHandler):
 
             # Sort all events by start time
             all_events.sort(key=lambda e: e.get("start", ""))
+
+            # Drop personal-admin entries (all-day, attendee-less holidays /
+            # deliveries / reminders) so the calendar surface shows meetings,
+            # not "Father's Day" / "M&S Delivery". Conservative: timed events
+            # and all-day events with attendees are kept. See #v152.
+            all_events = [
+                e for e in all_events if not _is_personal_admin_event(e)
+            ]
 
             # Deduplicate by summary + start (in case same event in both)
             seen = set()
