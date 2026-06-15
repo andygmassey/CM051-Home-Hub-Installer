@@ -134,7 +134,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    Default: pinned to the most recent ostler-installer release."
     echo ""
     echo "  PWG_PIPELINE_REPO"
-    echo "    Source repo for the import pipeline (CM041 People Graph)."
+    echo "    Source repo for the import pipeline (People Graph)."
     echo "    Default: empty (productised tarball bundles the pipeline)."
     echo "    Set this env var to a clone URL if you are running install.sh"
     echo "    directly without a tarball (e.g. dev or private beta access)."
@@ -153,7 +153,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    the Doctor LaunchAgent is skipped with a warn-only message."
     echo ""
     echo "  PWG_KNOWLEDGE_REPO"
-    echo "    Source repo for the Knowledge service (CM024 Evernote ingest)."
+    echo "    Source repo for the Knowledge service (Evernote ingest)."
     echo "    Default: empty (Knowledge service skipped warn-only; the"
     echo "    Doctor 'Import Evernote' surface, when the feature flag is"
     echo "    eventually flipped on, will surface 'service unavailable')."
@@ -162,7 +162,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    a dedicated venv at ~/.ostler/services/knowledge/."
     echo ""
     echo "  PWG_CM048_REPO"
-    echo "    Source repo for the CM048 conversation processing pipeline."
+    echo "    Source repo for the conversation memory engine."
     echo "    Default: empty (productised tarball bundles the pipeline at"
     echo "    Contents/Resources/cm048_pipeline/; install.sh discovers it"
     echo "    and pip-installs into a dedicated venv at"
@@ -183,7 +183,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo ""
     echo "  OLLAMA_HEADLINE_MODEL"
     echo "    Model used for short fact headlines in the wiki compiler"
-    echo "    (CM044). Larger narrative summaries use a separate model."
+    echo "    (the wiki). Larger narrative summaries use a separate model."
     echo "    Default: qwen3:8b"
     echo ""
     echo "  POWER_POLICY"
@@ -9267,7 +9267,7 @@ fi
 # path always runs; only the Doctor "Import Evernote" UI surface is
 # flag-gated. Knowledge is installed regardless of features.evernote_import.
 
-progress "Setting up Knowledge service (CM024)" "knowledge_setup"
+progress "Setting up Knowledge service" "knowledge_setup"
 
 KNOWLEDGE_DIR="${OSTLER_DIR}/services/knowledge"
 KNOWLEDGE_VENV="${KNOWLEDGE_DIR}/.venv"
