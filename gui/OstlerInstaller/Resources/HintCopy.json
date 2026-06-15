@@ -167,7 +167,7 @@
   "knowledge_setup": {
     "id": "knowledge_setup",
     "title": "Setting up the Knowledge service",
-    "subtitle": "Evernote ingest (CM024)",
+    "subtitle": "Evernote import",
     "why": "Installs the ostler-knowledge CLI under ~/.ostler/services/knowledge/. Lets you import an Evernote export into your local graph later from the Doctor dashboard. Your notes and images stay on your Mac.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 120,

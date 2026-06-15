@@ -24,6 +24,23 @@
 #          (iMessage observed at 27 min, silent / reads as a hang).
 # Fix B -- the install promised "10-15 minutes" in several places for a
 #          run that really takes ~47 min.
+#
+# Second sweep (last cut before ship):
+# Fix 6 -- the context-refresh tick wrapper set ZEROCLAW_WORKSPACE_DIR to
+#          ${OSTLER_DIR}/assistant-config WITHOUT the /workspace suffix
+#          the daemon expects. generate_pwg_context.py uses that env var
+#          verbatim as its output dir, so CONTEXT.md landed one level
+#          above the daemon's true workspace (where the identity belt
+#          writes IDENTITY.md/SOUL.md) and broad-question chat grounding
+#          was dead on every install.
+# Fix 7 -- gui HintCopy.json knowledge_setup.subtitle was "Evernote
+#          ingest (CM024)" -- a codename rendered live to the customer
+#          via HintPanelView.
+# Fix 8 -- the ical rename repointed ICAL_SCRIPT but the server still
+#          defaulted INGEST_DIR + SYNC_STATE_DIR to ~/.zeroclaw/, so a
+#          ~/.zeroclaw/ dir still grew on the customer's disk.
+# Fix 9 -- the battery warning still promised "20-40 minutes" after Fix B
+#          harmonised every other estimate to "15-60 minutes".
 
 set -euo pipefail
 
@@ -31,6 +48,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_SH="$REPO_ROOT/install.sh"
 STRINGS="$REPO_ROOT/install.sh.strings.en-GB.sh"
 HINTCOPY="$REPO_ROOT/gui/OstlerInstaller/Resources/HintCopy.json"
+TICK_WRAPPER="$REPO_ROOT/context-refresh/bin/context-refresh-tick.sh"
 FAILED=0
 
 failure() {
@@ -139,6 +157,74 @@ if ! grep -Eq '15-60 minutes|15 to 60 minutes' "$INSTALL_SH"; then
     failure "Fix B: install.sh never gives the honest 15-60 minute range"
 fi
 
+# ── Fix 6: CONTEXT.md is written to the daemon's true workspace dir ─
+# The identity belt writes IDENTITY.md/SOUL.md to
+# ${ASSISTANT_CONFIG_DIR}/workspace (== ${OSTLER_DIR}/assistant-config/
+# workspace). The tick wrapper sets ZEROCLAW_WORKSPACE_DIR -- used
+# verbatim by generate_pwg_context.py as its output dir -- which MUST
+# include the /workspace segment so CONTEXT.md lands in the same dir.
+if [[ ! -f "$TICK_WRAPPER" ]]; then
+    failure "Fix 6: context-refresh tick wrapper missing at $TICK_WRAPPER"
+else
+    if ! grep -Eq 'ZEROCLAW_WORKSPACE_DIR=.*OSTLER_DIR./assistant-config/workspace' "$TICK_WRAPPER"; then
+        failure "Fix 6: tick wrapper ZEROCLAW_WORKSPACE_DIR does not point at \${OSTLER_DIR}/assistant-config/workspace (CONTEXT.md misses the daemon workspace, chat grounding dead)"
+    fi
+    # Refuse the exact regression: the bare assistant-config dir with no
+    # /workspace suffix on the export line.
+    if grep -Eq '^export ZEROCLAW_WORKSPACE_DIR="\$\{OSTLER_DIR\}/assistant-config"$' "$TICK_WRAPPER"; then
+        failure "Fix 6: tick wrapper still sets ZEROCLAW_WORKSPACE_DIR to the bare assistant-config dir (missing /workspace)"
+    fi
+fi
+# The identity belt must still write to the /workspace subdir, so the
+# two paths genuinely match (guards against someone "fixing" Fix 6 by
+# moving the identity belt up a level instead).
+if ! grep -Eq 'ASSISTANT_WORKSPACE_DIR=.*ASSISTANT_CONFIG_DIR./workspace' "$INSTALL_SH"; then
+    failure "Fix 6: the identity belt no longer writes to \${ASSISTANT_CONFIG_DIR}/workspace -- the two paths must match there"
+fi
+
+# ── Fix 7: no codename in customer-rendered gui copy values ─────────
+VIEWCOPY="$REPO_ROOT/gui/OstlerInstaller/Resources/ViewCopy.json"
+if [[ -f "$HINTCOPY" ]] && grep -Eq 'Evernote ingest .CM024.' "$HINTCOPY"; then
+    failure "Fix 7: HintCopy.json knowledge_setup.subtitle still carries the CM024 codename (rendered live by HintPanelView)"
+fi
+# Sweep all rendered string VALUES (exclude developer-only _meta lines)
+# for CM0NN / HR0NN / OS0NN codenames.
+for jf in "$HINTCOPY" "$VIEWCOPY"; do
+    [[ -f "$jf" ]] || continue
+    if grep -vE '"_meta"' "$jf" | grep -Eq '(CM|HR|OS)0[0-9]{2,3}'; then
+        failure "Fix 7: a CM0NN/HR0NN/OS0NN codename survives in a rendered value of $(basename "$jf")"
+    fi
+done
+
+# ── Fix 8: ical-server INGEST_DIR + SYNC_STATE_DIR off ~/.zeroclaw ──
+# The launchd plist must export both to ~/.ostler/ical/ subdirs and the
+# installer must pre-create them, so no ~/.zeroclaw/ dir is ever made.
+if ! grep -Eq '<key>INGEST_DIR</key>' "$INSTALL_SH"; then
+    failure "Fix 8: the ical-server plist does not export INGEST_DIR -- the server defaults it to ~/.zeroclaw/ingest"
+fi
+if ! grep -Eq '<key>SYNC_STATE_DIR</key>' "$INSTALL_SH"; then
+    failure "Fix 8: the ical-server plist does not export SYNC_STATE_DIR -- the server defaults it to ~/.zeroclaw/sync-state"
+fi
+if ! grep -Eq 'OSTLER_DIR./ical/ingest</string>' "$INSTALL_SH"; then
+    failure "Fix 8: INGEST_DIR plist value is not pinned under \${OSTLER_DIR}/ical/ingest"
+fi
+if ! grep -Eq 'OSTLER_DIR./ical/sync-state</string>' "$INSTALL_SH"; then
+    failure "Fix 8: SYNC_STATE_DIR plist value is not pinned under \${OSTLER_DIR}/ical/sync-state"
+fi
+# Both dirs must be pre-created so the server never falls back / creates
+# the codename dir on its own.
+if ! grep -Eq 'mkdir -p .*ICAL_INGEST_DIR.*ICAL_SYNC_STATE_DIR|mkdir -p .*ICAL_SYNC_STATE_DIR' "$INSTALL_SH"; then
+    failure "Fix 8: the ical ingest / sync-state dirs are not pre-created by the installer"
+fi
+
+# ── Fix 9: battery warning harmonised to 15-60 minutes ─────────────
+if grep -Eq '20-40 minutes|20 to 40 minutes' "$STRINGS"; then
+    failure "Fix 9: a '20-40 minutes' duration straggler survives in the strings catalogue"
+fi
+if ! grep -Eq 'MSG_WARN_PHASE_3_TAKES_10_15_MINUTES=.*15-60 minutes' "$STRINGS"; then
+    failure "Fix 9: the battery-warning duration is not harmonised to 15-60 minutes"
+fi
+
 # ── No em-dashes introduced in the tracked files we touched ────────
 # (British-English / no-em-dash house rule; the new copy must use --.)
 for f in "$INSTALL_SH" "$STRINGS" "$HINTCOPY"; do
@@ -150,4 +236,4 @@ if [[ "$FAILED" -ne 0 ]]; then
     exit 1
 fi
 
-echo "PASS: tests/test_v1_sweep_install_gating.sh (all 5 sweep fixes wired)"
+echo "PASS: tests/test_v1_sweep_install_gating.sh (all 9 sweep fixes wired)"
