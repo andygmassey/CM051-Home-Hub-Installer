@@ -82,6 +82,27 @@
         -->
         <key>OSTLER_IMESSAGE_SELF_HANDLES</key>
         <string>OSTLER_IMESSAGE_SELF_HANDLES_VALUE</string>
+        <!--
+            OLLAMA_NUM_CTX (.153 cold-wipe walk, 2026-06-16): the daemon's
+            agent system prompt is ~7,000 tokens. Ollama's default context
+            window is 4096, so without this the prompt is silently truncated
+            to 4095 tokens and qwen returns an EMPTY completion, which the
+            gateway surfaces to the user as "500 Internal Server Error /
+            {error: EOF}". The daemon reads OLLAMA_NUM_CTX (and
+            OLLAMA_KEEP_ALIVE) from its env, but nothing was setting it, so
+            every real chat failed on a fresh install. 32768 fits the full
+            prompt with headroom (~6.8 GB VRAM for qwen3.5:9b -- well within
+            a customer Mac). Proven live on the .153 box: at ctx 4096 the
+            agent prompt returns empty; at 32768 it returns a real reply.
+            KEEP_ALIVE pins the model resident so it does not cold-reload
+            between turns. These are fixed product constants (not
+            customer-variable), so they are hard-coded here rather than
+            rendered by INSTALL_SNIPPET.
+        -->
+        <key>OLLAMA_NUM_CTX</key>
+        <string>32768</string>
+        <key>OLLAMA_KEEP_ALIVE</key>
+        <string>30m</string>
     </dict>
 
     <!--
