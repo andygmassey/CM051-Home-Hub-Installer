@@ -1,0 +1,1854 @@
+--- a/API.md
++++ b/API.md
+@@ -122,75 +122,6 @@
+     "last_contact": "2026-02-14",
+     "notes": "Co-founder of prior startup.",
+     "birthday": "1985-06-12"
+-  }
+-}
+-```
+-
+-### `GET /api/v1/people/{slug}/enrichment`
+-
+-Per-slug enrichment payload for the iOS / Hub person card. Where
+-`/people/context?name=` is a fuzzy name search that can return several
+-matches, this endpoint resolves a single canonical person by wiki slug
+-(the stable identifier the People list, search results, and wiki URLs
+-already use) and returns the richer body the card wants beyond the list
+-basics: organisation, role/title, relationship, how-we-met, notes,
+-birthday, identifiers, recent meetings, the relationship signal, the
+-MAX `last_contact`, and the per-source `last_contact_by_source`
+-breakdown.
+-
+-The slug is validated against the same pattern as
+-`POST /api/v1/people/{slug}/forget` (lowercase ASCII letters, digits,
+-hyphens, max 80 chars). Per-person fields use British-English keys and
+-the response mirrors `/people/context`'s dual shape (`{"person": {...}}`
+-plus the same fields lifted to the envelope top-level). `role` and
+-`title` both carry the job title so either CM031 client decodes a value.
+-
+-Best-effort Qdrant top-up adds `phone` / `email` and a display
+-`last_contact` when the graph lacked them; a Qdrant failure is swallowed
+-(the graph fields are the source of truth). Additive keys
+-(`last_contact_by_source`, `identifiers`, `meetings`, `facts`,
+-`relationship_signal`) appear only when the graph has the data.
+-
+-Status codes:
+-
+-- `400` malformed slug
+-- `404` `{"found": false}` no person resolves to the slug
+-- `503` `{"degraded": true}` Oxigraph unreachable
+-- `200` `{"found": true, "person": {...}}`
+-
+-```json
+-{
+-  "slug": "jane-doe",
+-  "found": true,
+-  "organisation": "Example Corp",
+-  "role": "VP Product",
+-  "last_contact": "2026-04-20",
+-  "person": {
+-    "name": "Jane Doe",
+-    "slug": "jane-doe",
+-    "person_uri": "urn:pwg:person/jane-doe",
+-    "wiki_url": "http://localhost:8044/People/jane-doe/",
+-    "organisation": "Example Corp",
+-    "title": "VP Product",
+-    "role": "VP Product",
+-    "relationship": "colleague",
+-    "last_contact": "2026-04-20",
+-    "last_contact_by_source": {
+-      "calendar": "2024-03-01",
+-      "whatsapp": "2026-04-20",
+-      "email": "2025-11-30",
+-      "imessage": "2026-01-05"
+-    },
+-    "phone": "+10000000000",
+-    "email": "jane@example.com",
+-    "identifiers": [
+-      {"type": "phone", "value": "+10000000000"},
+-      {"type": "email", "value": "jane@example.com"}
+-    ],
+-    "meetings": [
+-      {"summary": "Quarterly sync", "date": "2026-02-14", "location": "Room 1"}
+-    ],
+-    "relationship_signal": {"warmth": "0.7", "trust": "0.6", "observed_at": "2026-03-01T09:00:00Z"}
+   }
+ }
+ ```
+@@ -289,71 +220,7 @@
+ `entries[].timestamp` is normalised to ISO-8601 where parseable;
+ unparseable strings flow through unchanged so the client can render
+ them rather than silently nilling.
+-
+-### `GET /api/v1/meeting/upcoming?within_minutes=<n>`
+-
+-Enriched pre-meeting briefs for events starting within the next
+-``within_minutes`` (default 120). Read side of the pre-meeting brief
+-wiring -- the CM048 conversation processing pipeline writes
+-``pwg:OutstandingTodo`` triples to Oxigraph; the
+-``meeting_syncer/brief.py`` generator gathers calendar + People
+-Graph + TODO context; this endpoint exposes the result.
+-
+-```json
+-{
+-  "meetings": [
+-    {
+-      "meeting": "Discovery call with Alice",
+-      "start": "2026-05-30 10:30 BST",
+-      "start_iso": "20260530T103000",
+-      "uid": "cal-event-uid-abc123",
+-      "location": "Mortimer House",
+-      "maps_url": "https://www.google.com/maps/search/?api=1&query=Mortimer+House",
+-      "attendees": [
+-        {
+-          "name": "Alice Tester",
+-          "email": "alice@example.com",
+-          "wiki_url": "http://localhost:8044/People/alice-tester/",
+-          "organization": "Acme Ltd",
+-          "facts": ["Prefers async communication"],
+-          "times_met": 4,
+-          "last_met": "2026-04-12",
+-          "last_discussion_url": "http://localhost:8044/Conversations/2026-04-12_alice_zoom/",
+-          "outstanding_todos": [
+-            {
+-              "text": "Send the pitch deck",
+-              "owner": "user",
+-              "owner_display": "Operator",
+-              "deadline": "2026-05-30",
+-              "priority": "high",
+-              "source_conversation_date": "2026-04-12"
+-            }
+-          ]
+-        }
+-      ]
+-    }
+-  ],
+-  "within_minutes": 120,
+-  "count": 1
+-}
+-```
+ 
+-Full schema in `meeting_syncer/SCHEMA.md`.
+-
+-Consumers:
+-
+-- **CM051 LaunchAgent cron sender** polls every ~10 min with
+-  `within_minutes=20` and ships a WhatsApp message for each unsent
+-  meeting (idempotency via UID + sent-briefs DB).
+-- **CM031 iOS Companion `MeetingBriefService`** polls every 5 min
+-  with `within_minutes=120` and posts a local notification 15-20
+-  min before each meeting.
+-
+-Degraded-graceful: People Graph failure returns
+-`{"meetings": [], "degraded": true, "reason": "..."}` + HTTP 200
+-rather than 5xx so callers can keep polling without raising the
+-Hub-offline pill.
+-
+ ### `GET /api/v1/suggestions`
+ 
+ Composite for the iOS Today view. Three sections:
+@@ -460,6 +327,53 @@
+   `~/.zeroclaw/sync-state/` written by the sync paths. Missing markers
+   are treated as "never synced" rather than errors.
+ 
++### `GET /api/v1/recording/active`
++
++Read side of the Hub→iOS publish surface that drives CM031's Recording
++Live Activity. The CM042 capture producer writes
++`~/.ostler/recording_state.json` atomically (`.tmp` + rename, mode
++0600) whenever a meeting capture transitions state; this endpoint
++reads the same file.
++
++Contract:
++
++- File missing → `{"recording": null}` (200, never 404). This is the
++  steady-state response while no capture is running.
++- File mtime older than `RECORDING_STALE_SECONDS` (default 30 s) →
++  `{"recording": null}`. A stale heartbeat means the producer
++  crashed mid-capture; the iOS Live Activity should collapse rather
++  than freeze on a stuck pill.
++- Malformed JSON, missing required fields (`meeting_id`,
++  `started_at`, `state`), or an unrecognised `state` value →
++  `{"recording": null}`, with a warning printed to stderr. Never
++  5xxs.
++
++Active body:
++
++```json
++{
++  "recording": {
++    "meeting_id": "01HZX7QAMP9V8RKJC5X3T2W4Q1",
++    "started_at": "2026-05-20T10:15:00Z",
++    "state": "recording",
++    "hub_machine_name": "Andy-Hub",
++    "participant_count": 3,
++    "consent_basis": "one_party",
++    "jurisdiction": "GB"
++  }
++}
++```
++
++`state` is one of `recording`, `processing`, `transcript_saved`, or
++`error`. `consent_basis` is `one_party`, `all_party`, or `null`.
++`participant_count` and `jurisdiction` may be `null`. Read-only; no
++POST surface (the producer writes the file directly).
++
++| Env var                   | Default                              | Notes                              |
++| ------------------------- | ------------------------------------ | ---------------------------------- |
++| `RECORDING_STATE_FILE`    | `~/.ostler/recording_state.json`     | Producer-writer path; reader path. |
++| `RECORDING_STALE_SECONDS` | `30`                                 | Mtime age beyond which the file is treated as a crashed producer. |
++
+ ## Configuration
+ 
+ The four backend URL defaults below assume a single-machine deploy where
+--- a/ical-server.py
++++ b/ical-server.py
+@@ -7,7 +7,6 @@
+   GET /calendar/today              – today's events
+   GET /people/search?q=...         – semantic search across People Graph
+   GET /people/context?name=..      – everything known about a person
+-  GET /api/v1/people/{slug}/enrichment – per-slug person card payload (org, role, identifiers, meetings, per-source last-contact)
+   GET /people/stale?months=3       – contacts not spoken to recently
+   GET /people/recent?days=7        – recently met people
+   GET /people/birthdays?days=7     – upcoming birthdays
+@@ -15,16 +14,14 @@
+   GET /api/v1/email/recent         – recent emails (subject + snippet only)
+   GET /api/v1/suggestions          – composite today-view payload
+   GET /api/v1/timeline?days=7      – merged calendar + meetings
+-  GET /api/v1/meeting/upcoming?within_minutes=120 – pre-meeting briefs (next N minutes)
+   GET /api/v1/coach/recent         – coaching observations (CM048)
+   GET /api/v1/conversation/status/{id} – conversation processing status (CM048)
+   GET /api/v1/hub/health           – Hub status for iOS Companion pill (HR015 Hub portability)
+   GET /api/v1/hydration/status     – First-run wiki hydration progress for the homepage panel (CM044 #624)
+-  GET /api/v1/memory               – list facts Ostler has learnt about the user (CM031 iOS Memory tab v1.0)
++  GET /api/v1/recording/active     – Current capture state for the iOS Recording Live Activity (CM042 → CM031)
+   POST /api/v1/conversation/process – submit conversation for processing (CM048)
+   POST /api/v1/ingest/ios          – batch upload from iOS companion
+   POST /api/v1/people/{slug}/forget – GDPR Art. 17 right-of-erasure (one-click forget)
+-  POST /api/v1/memory/correct/{id} – correct ({"newValue":...}) or forget ({"forget":true}) a fact
+   GET /health                      – health check (pass ?detailed=1 for deps)
+ """
+ 
+@@ -106,9 +103,38 @@
+ from http.server import HTTPServer, BaseHTTPRequestHandler
+ from pathlib import Path
+ from urllib.parse import urlparse, parse_qs
+-from datetime import datetime, timedelta
++from datetime import datetime, timedelta, timezone
+ 
+-PORT = 8089
++# Port is env-overridable so the customer-install path can bind
++# this service to a different port (8090) and let Doctor's
++# reverse-proxy on :8089 forward iOS-bound /api/v1/* traffic to
++# it. The default is preserved for the legacy operator-instance
++# usage where ical-server owns :8089 directly. See CM051 install
++# phase 3.13a + Doctor's DOCTOR_PROXY_PATHS env-var wiring.
++def _resolve_port() -> int:
++    raw = os.environ.get("OSTLER_API_PORT", "8089")
++    try:
++        port = int(raw)
++    except (TypeError, ValueError):
++        print(
++            f"WARNING: OSTLER_API_PORT={raw!r} is not an integer; "
++            "falling back to 8089.",
++            file=sys.stderr,
++            flush=True,
++        )
++        return 8089
++    if not (1 <= port <= 65535):
++        print(
++            f"WARNING: OSTLER_API_PORT={port} is out of range; "
++            "falling back to 8089.",
++            file=sys.stderr,
++            flush=True,
++        )
++        return 8089
++    return port
++
++
++PORT = _resolve_port()
+ ICAL_SCRIPT = os.environ.get(
+     "ICAL_SCRIPT", os.path.expanduser("~/.zeroclaw/ical-query.sh")
+ )
+@@ -186,8 +212,6 @@
+ COACH_DB = PWG_HOME / "coach" / "observations.db"
+ PROCESSING_DIR = PWG_HOME / "processing"
+ CONVERSATIONS_DIR = PWG_HOME / "conversations"
+-OSTLER_VENV_PYTHON = os.environ.get("OSTLER_PYTHON", "")
+-OSTLER_PROJECT_DIR = os.environ.get("OSTLER_PROJECT_DIR", "")
+ 
+ # ── Wiki hydration status (CM044 #624) ───────────────────────────────
+ # The wiki compiler writes a small JSON progress file as it builds; this
+@@ -217,29 +241,14 @@
+     "https://tauri.localhost",
+ }
+ 
+-# ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
+-# The Memory tab is the customer's window into what Ostler has inferred
+-# about them. GET returns the user's own PersonFact rows from Oxigraph
+-# (capped at MEMORY_LIMIT, sorted by confidence x recency). POST writes
+-# an append-only correction row to MEMORY_CORRECTIONS_DB; the next GET
+-# overlays the correction so the displayed fact reflects the user's
+-# edit (or is dropped if the action was "forget").
+-#
+-# USER_ID is the same env var the contact_syncer + meeting_syncer +
+-# CM048 sinks all key on. On a customer Hub the installer sets this
+-# from the assistant-naming step. On Andy's instance it's "andy" by
+-# convention. We never silently default; the endpoint surfaces an
+-# empty list + `degraded:true` if USER_ID is unset, the same shape the
+-# other endpoints use for upstream-unavailable fallback.
+-USER_ID = os.environ.get("USER_ID", "").strip()
+-USER_URI = (
+-    f"https://pwg.dev/ontology#user_{USER_ID}" if USER_ID else ""
+-)
+-MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
+-MEMORY_CORRECTIONS_DB = Path(os.environ.get(
+-    "MEMORY_CORRECTIONS_DB",
+-    str(PWG_HOME / "memory" / "corrections.db"),
+-))
++# CM048 ships as its own venv'd service installed by CM051 install.sh
++# phase 3.10b. The installer symlinks
++# ${OSTLER_DIR}/services/cm048/.venv/bin/pwg-convo → /usr/local/bin/pwg-convo,
++# so any caller (this assistant_api, Doctor, ZeroClaw) invokes the
++# conversation pipeline as a CLI subprocess rather than importing it
++# as a library. The override exists for dev / private-beta installs
++# where CM048 may be installed elsewhere on PATH.
++PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
+ 
+ # ── Hub health endpoint (HR015 Hub portability) ──────────────────────
+ # Source of truth for the iOS Companion's Hub status pill.
+@@ -271,6 +280,29 @@
+ # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
+ # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
+ QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
++
++# ── Recording state endpoint (CM042 → CM031 Live Activity) ───────────
++# Source of truth for the iOS Companion's Recording Live Activity. The
++# CM042 producer writes ~/.ostler/recording_state.json atomically
++# (.tmp + rename, mode 0600) whenever a meeting capture transitions
++# state. Readers (this endpoint) treat a missing file as "no active
++# recording" and a stale file (older than RECORDING_STALE_SECONDS) as
++# the producer having crashed mid-stream, again returning null so the
++# Live Activity collapses rather than going stuck.
++RECORDING_STATE_FILE = Path(os.environ.get(
++    "RECORDING_STATE_FILE",
++    os.path.expanduser("~/.ostler/recording_state.json"),
++))
++RECORDING_STALE_SECONDS = float(
++    os.environ.get("RECORDING_STALE_SECONDS", "30")
++)
++# Allowed values for the `state` field. Anything else is treated as
++# malformed and the endpoint returns null + logs a warning. Kept in
++# sync with the CM042 producer enum and the CM031 consumer model.
++RECORDING_VALID_STATES = frozenset({
++    "recording", "processing", "transcript_saved", "error",
++})
++RECORDING_VALID_CONSENT = frozenset({"one_party", "all_party"})
+ 
+ try:
+     from zoneinfo import ZoneInfo
+@@ -331,8 +363,8 @@
+     """Parse an ATTENDEE or ORGANIZER iCal line into a dict.
+ 
+     Examples:
+-      ATTENDEE;CN=Danny Kwan;CUTYPE=INDIVIDUAL;EMAIL=danny@example.com;PARTSTAT=ACCEPTED:mailto:danny@example.com
+-      ORGANIZER;CN=Andrew Massey;EMAIL=andy@example.com:/principal/path
++      ATTENDEE;CN=Alice Example;CUTYPE=INDIVIDUAL;EMAIL=alice@example.com;PARTSTAT=ACCEPTED:mailto:alice@example.com
++      ORGANIZER;CN=Bob Example;EMAIL=bob@example.com:/principal/path
+     """
+     result = {}
+     # Extract CN=Name
+@@ -779,6 +811,20 @@
+ 
+ # ── Conversation processing (CM048 tier 1) ───────────────────────────
+ 
++def _invoke_pwg_convo(args, timeout=900):
++    """Invoke the pwg-convo CLI (CM048) as a subprocess.
++
++    Centralises the subprocess pattern so every caller within this
++    process uses the same binary discovery + timeout + capture rules.
++    Returns subprocess.CompletedProcess. Raises FileNotFoundError if
++    pwg-convo is not on PATH (caller decides how to surface that).
++    """
++    return subprocess.run(
++        [PWG_CONVO_BIN, *args],
++        capture_output=True, text=True, timeout=timeout,
++    )
++
++
+ def _conversation_process_background(conversation_id, transcript, metadata):
+     """Run CM048 processing in a background thread.
+ 
+@@ -786,9 +832,10 @@
+     invokes the CM048 processor. Updates state.json on completion or
+     failure.
+ 
+-    Invokes the CM048 CLI: .venv/bin/python -m src.cli process
+-    which calls src.processor.process() — the full pipeline
+-    (classify → enrich → signals → coach → facts → sinks).
++    Invokes the pwg-convo CLI installed by CM051 install.sh phase 3.10b
++    at /usr/local/bin/pwg-convo (overridable via PWG_CONVO_BIN env
++    var). The CLI runs src.processor.process() with the full pipeline
++    (classify, enrich, signals, coach, facts, sinks).
+     """
+     state_dir = PROCESSING_DIR / conversation_id
+     state_dir.mkdir(parents=True, exist_ok=True)
+@@ -818,17 +865,13 @@
+         json.dumps(state, indent=2), encoding="utf-8"
+     )
+ 
+-    # Invoke CM048 processor via its CLI entry point.
+-    # Saves transcript + metadata to state dir, then runs the full
+-    # pipeline: classify → enrich → signals → coach → facts → sinks.
++    # Invoke pwg-convo (CM048) as a CLI subprocess.
+     transcript_path = str(state_dir / "00_raw_transcript.md")
+     metadata_path = str(state_dir / "00_metadata.json")
+     try:
+-        result = subprocess.run(
+-            [OSTLER_VENV_PYTHON, "-m", "src.cli", "process",
+-             transcript_path, metadata_path],
+-            capture_output=True, text=True, timeout=900,  # 15 min max
+-            cwd=OSTLER_PROJECT_DIR,
++        result = _invoke_pwg_convo(
++            ["process", transcript_path, metadata_path],
++            timeout=900,  # 15 min max
+         )
+         if result.returncode == 0:
+             state["current_step"] = "completed"
+@@ -837,6 +880,18 @@
+             state["failed_step"] = "processor"
+             state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
+             state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
++    except FileNotFoundError:
++        # pwg-convo not on PATH. CM048 not installed (or install.sh
++        # 3.10b was skipped via --allow-plaintext). Log + surface as
++        # a failed step rather than crashing the whole assistant_api
++        # process; the rest of the API remains usable.
++        state["failed_step"] = "processor"
++        state["failure_reason"] = (
++            "Conversation processing service (pwg-convo) is not "
++            "installed. Re-run the Ostler installer or set "
++            "PWG_CONVO_BIN to its path."
++        )
++        state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
+     except subprocess.TimeoutExpired:
+         state["failed_step"] = "processor"
+         state["failure_reason"] = "Processing timed out (15 min limit)"
+@@ -863,11 +918,24 @@
+     if not transcript:
+         return {"error": "Missing 'transcript' field"}, 400
+ 
+-    if not OSTLER_VENV_PYTHON or not OSTLER_PROJECT_DIR:
++    # Front-load the CM048-installed check so the caller gets an
++    # immediate 503 instead of a queued job that fails later in the
++    # background. We probe pwg-convo --help (argparse-provided, exits
++    # 0); FileNotFoundError means the binary is not on PATH. Short
++    # timeout so a hung pwg-convo never blocks this endpoint.
++    try:
++        _invoke_pwg_convo(["--help"], timeout=5)
++    except FileNotFoundError:
+         return {
+-            "error": "Conversation processing not configured. Set OSTLER_PYTHON "
+-                     "and OSTLER_PROJECT_DIR environment variables."
++            "error": "Conversation processing service (pwg-convo) is not "
++                     "installed. Re-run the Ostler installer or set "
++                     "PWG_CONVO_BIN to its path."
+         }, 503
++    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
++        return {
++            "error": "Conversation processing service (pwg-convo) is "
++                     "installed but not responding. Check ~/.ostler/logs."
++        }, 503
+ 
+     # Generate conversation_id from metadata or UUID
+     date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
+@@ -1046,350 +1114,6 @@
+     return state, 200
+ 
+ 
+-# ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
+-#
+-# The Memory tab is the user's transparency surface: "what has Ostler
+-# actually inferred about me?" GET returns the user's own PersonFact
+-# rows from Oxigraph, overlaid with any corrections the user has
+-# previously made via POST /api/v1/memory/correct/{id}. The correction
+-# table is append-only, so the original fact is never overwritten in
+-# storage -- only the response shape reflects the latest correction.
+-#
+-# Wire shape (GET):
+-#   {
+-#     "facts": [
+-#       {
+-#         "id": <stable fact id, used as path-param for correct/forget>,
+-#         "predicate": <factDomain e.g. "calendar" / "career" / "address">,
+-#         "object": <human-readable fact text>,
+-#         "source": <factSource enum, e.g. "google_calendar">,
+-#         "source_label": <UI-friendly label, e.g. "from your calendar">,
+-#         "confidence": <0.0-1.0 float>,
+-#         "corrected": <bool, true if the user has corrected this fact>
+-#       }, ...
+-#     ],
+-#     "count": <int>,
+-#     "degraded": <bool, only present if upstream unreachable>
+-#   }
+-#
+-# Wire shape (POST /api/v1/memory/correct/{id}):
+-#   request:  {"newValue": "<new text>"}   OR  {"forget": true}
+-#   response: {"ok": true, "id": "<id>", "action": "correct"|"forget"}
+-
+-# Map factSource enum -> UI-friendly label.
+-# Kept in sync with the CM031 MemoryFactSource enum so iOS renders the
+-# same label even if the wire `source_label` is empty (defence in
+-# depth -- iOS still maps `source` independently).
+-_MEMORY_SOURCE_LABELS = {
+-    "google_calendar":     "from your calendar",
+-    "icloud_calendar":     "from your calendar",
+-    "imessage":            "from your iMessage",
+-    "whatsapp":            "from your WhatsApp",
+-    "email":               "from your email",
+-    "gmail":               "from your email",
+-    "linkedin":            "from your LinkedIn",
+-    "facebook":            "from Facebook",
+-    "safari":              "from your browser",
+-    "wiki":                "from your wiki",
+-    "manual":              "you told Ostler",
+-    "inferred":            "inferred",
+-}
+-
+-
+-def _memory_source_label(source: str) -> str:
+-    """Map a factSource enum value to a UI-friendly label.
+-
+-    Unknown sources fall back to a generic "from <source>" rather than
+-    leaking the raw enum to the customer.
+-    """
+-    if not source:
+-        return "inferred"
+-    return _MEMORY_SOURCE_LABELS.get(
+-        source, f"from {source.replace('_', ' ')}"
+-    )
+-
+-
+-def _memory_corrections_connect():
+-    """Open the memory_corrections SQLite database.
+-
+-    Uses the encrypted-DB wrapper from ostler_security when a key is
+-    configured, falling back (with a loud warning) to plaintext SQLite
+-    when running unencrypted. Mirrors the COACH_DB pattern in
+-    ``coach_recent`` so a customer Hub with no key set still works.
+-    """
+-    MEMORY_CORRECTIONS_DB.parent.mkdir(parents=True, exist_ok=True)
+-    db_path = str(MEMORY_CORRECTIONS_DB)
+-    if _ENCRYPTION_KEY:
+-        conn = _secure_connect(db_path, _ENCRYPTION_KEY)
+-    else:
+-        _warn_plaintext_once(db_path)
+-        conn = sqlite3.connect(db_path)
+-    conn.row_factory = sqlite3.Row
+-    return conn
+-
+-
+-def _ensure_memory_corrections_schema(conn) -> None:
+-    """Create the corrections table if it does not yet exist.
+-
+-    Append-only: every correction is a new row. Reads collapse to the
+-    latest row per ``fact_id`` (corrected_at DESC). The
+-    ``previous_value`` column captures what the user replaced so we can
+-    surface "you corrected this" without re-reading Oxigraph.
+-
+-    TODO(security, v1.0.1): chain rows with an HMAC over the previous
+-    row's digest so tamper-detection is possible. The brief calls this
+-    out but ostler_security does not yet expose an HMAC-chain helper;
+-    encryption-at-rest via SQLCipher is the v1.0 floor.
+-    """
+-    conn.execute(
+-        "CREATE TABLE IF NOT EXISTS memory_corrections (\n"
+-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+-        "  fact_id TEXT NOT NULL,\n"
+-        "  action TEXT NOT NULL,\n"
+-        "  previous_value TEXT,\n"
+-        "  new_value TEXT,\n"
+-        "  created_at TEXT NOT NULL\n"
+-        ")"
+-    )
+-    conn.execute(
+-        "CREATE INDEX IF NOT EXISTS idx_memory_corrections_fact_id "
+-        "ON memory_corrections(fact_id)"
+-    )
+-    conn.commit()
+-
+-
+-def _memory_load_corrections() -> dict:
+-    """Return the latest correction per fact_id as a dict.
+-
+-    Returns ``{fact_id: {"action": "correct"|"forget", "new_value":
+-    str|None, "created_at": str}}`` so callers can look up corrections
+-    by O(1). Missing DB or any read error returns an empty dict
+-    (corrections degrade silently; the user still sees their facts).
+-    """
+-    if not MEMORY_CORRECTIONS_DB.exists():
+-        return {}
+-    try:
+-        conn = _memory_corrections_connect()
+-    except Exception:
+-        return {}
+-    try:
+-        _ensure_memory_corrections_schema(conn)
+-        # latest row per fact_id (group-by-max pattern). SQLite handles
+-        # the correlated subquery efficiently because of the index.
+-        rows = conn.execute(
+-            "SELECT fact_id, action, new_value, created_at "
+-            "FROM memory_corrections AS c1 "
+-            "WHERE id = (SELECT MAX(id) FROM memory_corrections AS c2 "
+-            "            WHERE c2.fact_id = c1.fact_id)"
+-        ).fetchall()
+-    except Exception:
+-        return {}
+-    finally:
+-        conn.close()
+-    return {
+-        row["fact_id"]: {
+-            "action": row["action"],
+-            "new_value": row["new_value"],
+-            "created_at": row["created_at"],
+-        }
+-        for row in rows
+-    }
+-
+-
+-def _memory_fact_id(uri: str) -> str:
+-    """Stable id derived from the fact URI.
+-
+-    The full URI is too long + injection-shaped for a URL path param,
+-    so we strip the namespace prefix when present and use what remains
+-    (which is itself a UUID + "fact_" prefix from the writers). Both
+-    forms are accepted on the POST path -- we round-trip them through
+-    the corrections table verbatim.
+-    """
+-    prefix = "https://pwg.dev/ontology#"
+-    if uri.startswith(prefix):
+-        return uri[len(prefix):]
+-    return uri
+-
+-
+-def _memory_query_facts() -> list:
+-    """SPARQL: every PersonFact about the configured user.
+-
+-    Returns a list of raw fact dicts (uri, text, source, domain,
+-    confidence, validFrom). Empty list on any failure -- callers wrap
+-    into a degraded response. We accept facts where source/domain are
+-    missing (older writers may not have set them) and fall back to
+-    sensible defaults so the row still renders.
+-    """
+-    if not USER_URI:
+-        return []
+-    # Confidence is optional on the writer side; coalesce in Python
+-    # rather than the SPARQL query so we don't drop rows that lack it.
+-    sparql = (
+-        'PREFIX pwg: <{ns}>\n'
+-        'SELECT ?fact ?text ?source ?domain ?conf ?validFrom WHERE {{\n'
+-        '  ?fact a pwg:PersonFact ; pwg:aboutPerson <{user}> ; '
+-        'pwg:factText ?text .\n'
+-        '  OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
+-        '  OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
+-        '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
+-        '  OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
+-        '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
+-        '}}'.format(ns=PWG_NS, user=USER_URI)
+-    )
+-    return _sparql_select(sparql)
+-
+-
+-def api_memory_list():
+-    """Handle GET /api/v1/memory.
+-
+-    Returns the user's own facts overlaid with any user-applied
+-    corrections. Sorted by (confidence desc, validFrom desc) and capped
+-    at ``MEMORY_LIMIT``. Never 5xx: on upstream failure returns 200
+-    with ``{"facts": [], "count": 0, "degraded": true, "reason": ...}``
+-    so the iOS Memory tab can decide between empty-state and
+-    degraded-banner UX.
+-
+-    USER_ID guard: a Hub with no USER_ID configured cannot answer this
+-    endpoint meaningfully (we'd return a global fact dump). We return
+-    the degraded shape with reason="user_id_not_configured" so the iOS
+-    tab can prompt the user to finish onboarding.
+-    """
+-    if not USER_URI:
+-        return {
+-            "facts": [],
+-            "count": 0,
+-            "degraded": True,
+-            "reason": "user_id_not_configured",
+-        }
+-    try:
+-        raw_facts = _memory_query_facts()
+-    except Exception as exc:
+-        return {
+-            "facts": [],
+-            "count": 0,
+-            "degraded": True,
+-            "reason": f"oxigraph_unreachable: {exc}",
+-        }
+-
+-    corrections = _memory_load_corrections()
+-
+-    out = []
+-    for row in raw_facts:
+-        uri = row.get("fact", "")
+-        fact_id = _memory_fact_id(uri)
+-        text = row.get("text", "") or ""
+-        source = row.get("source", "") or ""
+-        domain = row.get("domain", "") or "fact"
+-        try:
+-            confidence = float(row.get("conf", 0.5))
+-        except (TypeError, ValueError):
+-            confidence = 0.5
+-        valid_from = row.get("validFrom", "") or ""
+-
+-        corrected = False
+-        correction = corrections.get(fact_id)
+-        if correction:
+-            if correction["action"] == "forget":
+-                # Hide forgotten facts. The row stays in Oxigraph (we
+-                # don't delete the original triple); the user's
+-                # explicit "forget" instruction simply withholds it
+-                # from this surface.
+-                continue
+-            if correction["action"] == "correct" and correction.get(
+-                "new_value"
+-            ):
+-                text = correction["new_value"]
+-                source = "user_correction"
+-                corrected = True
+-
+-        out.append({
+-            "id": fact_id,
+-            "predicate": domain,
+-            "object": text,
+-            "source": source,
+-            "source_label": (
+-                "you corrected this"
+-                if corrected else _memory_source_label(source)
+-            ),
+-            "confidence": round(confidence, 3),
+-            "corrected": corrected,
+-            "valid_from": valid_from,
+-        })
+-
+-    # Sort by (confidence desc, valid_from desc). Stable for ties so
+-    # the order stays deterministic between calls -- the iOS list uses
+-    # the order to drive its diffable data source.
+-    out.sort(
+-        key=lambda f: (f["confidence"], f["valid_from"]),
+-        reverse=True,
+-    )
+-    out = out[:MEMORY_LIMIT]
+-    return {"facts": out, "count": len(out)}
+-
+-
+-def api_memory_correct(fact_id: str, payload: dict):
+-    """Handle POST /api/v1/memory/correct/{fact_id}.
+-
+-    Body shape: ``{"newValue": "<text>"}`` for an edit OR
+-    ``{"forget": true}`` for a "this is wrong, forget it" instruction.
+-    Returns ``{"ok": true, "id": <fact_id>, "action": "correct"|"forget"}``.
+-
+-    Append-only: every call is a new row in the corrections table. The
+-    next GET /api/v1/memory overlays the latest correction per fact_id
+-    onto the underlying PersonFact, so the user sees the corrected
+-    value immediately without us mutating the Oxigraph triple.
+-
+-    Validation: fact_id must be non-empty + slug-shaped (the writers
+-    produce uuid5-derived hex strings prefixed with ``fact_``). We
+-    accept the URI form too in case the iOS client forgets to strip the
+-    prefix; both round-trip cleanly because we key on the literal value.
+-    """
+-    if not fact_id or len(fact_id) > 200:
+-        return {"error": "Invalid fact_id"}, 400
+-
+-    is_forget = bool(payload.get("forget"))
+-    new_value = payload.get("newValue")
+-    if not is_forget and (not isinstance(new_value, str) or not new_value.strip()):
+-        return {
+-            "error": "Body must include either 'newValue' (string) "
+-                     "or 'forget' (boolean true)."
+-        }, 400
+-    if new_value and len(new_value) > 4096:
+-        return {"error": "newValue too long (max 4096 chars)."}, 400
+-
+-    action = "forget" if is_forget else "correct"
+-    stored_new_value = None if is_forget else new_value.strip()
+-    now = datetime.utcnow().isoformat() + "Z"
+-
+-    try:
+-        conn = _memory_corrections_connect()
+-    except Exception as exc:
+-        return {
+-            "ok": False,
+-            "degraded": True,
+-            "reason": f"corrections_db_unreachable: {exc}",
+-        }, 503
+-    try:
+-        _ensure_memory_corrections_schema(conn)
+-        conn.execute(
+-            "INSERT INTO memory_corrections "
+-            "(fact_id, action, previous_value, new_value, created_at) "
+-            "VALUES (?, ?, ?, ?, ?)",
+-            (fact_id, action, None, stored_new_value, now),
+-        )
+-        conn.commit()
+-    except Exception as exc:
+-        conn.close()
+-        return {
+-            "ok": False,
+-            "degraded": True,
+-            "reason": f"corrections_db_write_failed: {exc}",
+-        }, 503
+-    conn.close()
+-
+-    return {"ok": True, "id": fact_id, "action": action}, 200
+-
+-
+ def person_context(name):
+     """Gather everything known about a person by name."""
+     esc = name.replace("\\", "\\\\").replace('"', '\\"')
+@@ -1525,11 +1249,91 @@
+     return {"query": name, "found": True, "matches": results, "count": len(results)}
+ 
+ 
+-# Per-source last-contact predicates. The graph keeps one timestamp per
+-# channel; the API surfaces both the MAX (flat `last_contact`, which the
+-# iOS Codable already decodes) and the per-source breakdown (additive,
+-# only emitted when at least one source binds). Source labels are the
+-# British-English channel names the rest of the API uses.
++def people_stale(months=3, limit=5):
++    """Find contacts not spoken to in N months (from Qdrant last_contact)."""
++    import time
++    cutoff_ts = int(time.time()) - (months * 30 * 86400)
++    try:
++        body = {
++            "filter": {
++                "must": [
++                    {"key": "last_contact_ts", "range": {"gt": 0, "lt": cutoff_ts}},
++                    {"key": "contact_type", "match": {"value": "person"}},
++                ]
++            },
++            "limit": limit,
++            "with_payload": True,
++            "with_vector": False,
++        }
++        data = json.dumps(body).encode()
++        req = urllib.request.Request(
++            QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
++            data=data,
++            headers={"Content-Type": "application/json"},
++        )
++        with urllib.request.urlopen(req, timeout=10) as resp:
++            result = json.loads(resp.read())
++    except Exception as exc:
++        return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
++
++    contacts = []
++    now = time.time()
++    for pt in result.get("result", {}).get("points", []):
++        p = pt.get("payload", {})
++        name = p.get("display_name", "")
++        lc_ts = p.get("last_contact_ts", 0)
++        if not name or not lc_ts:
++            continue
++        # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
++        # Stale / reconnect list. Render-time filter only. Ref #664.
++        if _is_nameless_name(name):
++            continue
++        months_since = int((now - lc_ts) / (30 * 86400))
++        contacts.append({
++            "name": name,
++            "slug": _wiki_slug(name),
++            "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
++            "last_contact": p.get("last_contact", ""),
++            "months_since_contact": months_since,
++            # F-2 (2026-05-27): emit `organisation` (en-GB) to match the iOS
++            # Reconnect strip's subtitle decoder. The RHS still reads the
++            # Qdrant payload's American-spelled key (set upstream by CM041).
++            "organisation": p.get("organization", ""),
++        })
++    contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
++    return {"contacts": contacts[:limit]}
++
++
++def _recency_label(last_contact_ts):
++    """Coarse uppercase relative-time label for the Hub People row.
++
++    Mirrors the terse iOS Reconnect strip style ("3D AGO", "2MO AGO").
++    Returns "" when no timestamp is known, so the row simply omits it.
++    """
++    if not last_contact_ts:
++        return ""
++    import time
++    delta = int(time.time()) - int(last_contact_ts)
++    if delta < 0:
++        return ""
++    hours = delta // 3600
++    if hours < 1:
++        return "JUST NOW"
++    if hours < 24:
++        return f"{hours}H AGO"
++    days = hours // 24
++    if days < 30:
++        return f"{days}D AGO"
++    months = days // 30
++    if months < 12:
++        return f"{months}MO AGO"
++    return f"{months // 12}Y AGO"
++
++
++# Per-source last-contact predicates surfaced by person_enrichment. The
++# label is the en-GB channel name the iOS / Hub card groups by; ISO date
++# strings sort lexicographically so max() over the present sources is the
++# overall last-contact.
+ _LAST_CONTACT_SOURCES = (
+     ("lcCalendar", "calendar"),
+     ("lcWhatsApp", "whatsapp"),
+@@ -1793,58 +1597,173 @@
+     return out, 200
+ 
+ 
+-def people_stale(months=3, limit=5):
+-    """Find contacts not spoken to in N months (from Qdrant last_contact)."""
+-    import time
+-    cutoff_ts = int(time.time()) - (months * 30 * 86400)
++def people_list(sort=None, ceiling=10000):
++    """List every person in the Qdrant `people` collection for the Hub.
++
++    The Hub dashboard People page reads this; its header count is the length
++    of `people`, so we return the FULL set (paginated scroll, not a top-N) and
++    let the page count it. Same `contact_type == "person"` filter as
++    people_search / people_stale, so the Hub count matches the wiki People
++    count and the iOS People tab once #600 hydrate has populated Qdrant.
++
++    Counts + light rows only (id, name, role, recency); no facts or notes
++    cross this boundary. A missing `people` collection (fresh box, contacts
++    not yet granted) is the empty-by-design path: return an empty list
++    calmly, NOT an error, so all three surfaces show a calm empty-state.
++    """
++    points = []
++    next_offset = None
++    page = 256
+     try:
+-        body = {
+-            "filter": {
+-                "must": [
+-                    {"key": "last_contact_ts", "range": {"gt": 0, "lt": cutoff_ts}},
+-                    {"key": "contact_type", "match": {"value": "person"}},
+-                ]
+-            },
+-            "limit": limit,
+-            "with_payload": True,
+-            "with_vector": False,
+-        }
+-        data = json.dumps(body).encode()
+-        req = urllib.request.Request(
+-            QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
+-            data=data,
+-            headers={"Content-Type": "application/json"},
+-        )
+-        with urllib.request.urlopen(req, timeout=10) as resp:
+-            result = json.loads(resp.read())
++        while len(points) < ceiling:
++            body = {
++                "filter": {
++                    "must": [
++                        {"key": "contact_type", "match": {"value": "person"}},
++                    ]
++                },
++                "limit": page,
++                "with_payload": True,
++                "with_vector": False,
++            }
++            if next_offset is not None:
++                body["offset"] = next_offset
++            data = json.dumps(body).encode()
++            req = urllib.request.Request(
++                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
++                data=data,
++                headers={"Content-Type": "application/json"},
++            )
++            with urllib.request.urlopen(req, timeout=10) as resp:
++                result = json.loads(resp.read()).get("result", {}) or {}
++            batch = result.get("points", []) or []
++            points.extend(batch)
++            next_offset = result.get("next_page_offset")
++            if not batch or not next_offset:
++                break
+     except Exception as exc:
+-        return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
++        # A 404 here means the `people` collection does not exist yet, which is
++        # the empty-by-design path (no contacts granted). Report it calmly, not
++        # as a fault. Anything else (Qdrant down, etc.) is a genuine degrade.
++        if getattr(exc, "code", None) == 404:
++            return {"people": [], "total": 0}
++        return {"people": [], "total": 0, "degraded": True,
++                "reason": str(exc), "error": str(exc)}
+ 
+-    contacts = []
+-    now = time.time()
+-    for pt in result.get("result", {}).get("points", []):
+-        p = pt.get("payload", {})
+-        name = p.get("display_name", "")
+-        lc_ts = p.get("last_contact_ts", 0)
+-        if not name or not lc_ts:
+-            continue
+-        # Hide raw-handle "people" (WhatsApp JIDs, bare numbers) from the
+-        # Stale / reconnect list. Render-time filter only. Ref #664.
+-        if _is_nameless_name(name):
+-            continue
+-        months_since = int((now - lc_ts) / (30 * 86400))
+-        contacts.append({
++    # Batched identifier join (one query, grouped in Python -- never N+1).
++    # The Qdrant payload already carries phones/emails for CardDAV-sourced
++    # points, but LinkedIn URLs (and identifiers for non-CardDAV people, e.g.
++    # email/LinkedIn-only contacts) live only in Oxigraph as pwg:hasIdentifier
++    # nodes. Pull every identifier in a single SELECT and group by person URI;
++    # a degraded Oxigraph just leaves the payload values untouched.
++    ident_by_uri = {}
++    try:
++        ident_rows = _sparql_select(
++            'PREFIX pwg: <{ns}>\n'
++            'SELECT ?person ?type ?value WHERE {{\n'
++            '  ?person pwg:hasIdentifier ?id .\n'
++            '  ?id pwg:identifierType ?type ; pwg:identifierValue ?value .\n'
++            '}}'.format(ns=PWG_NS)
++        )
++        for r in ident_rows:
++            uri = r.get("person")
++            typ = (r.get("type") or "").strip()
++            val = (r.get("value") or "").strip()
++            if not uri or typ not in ("phone", "email", "linkedin_url") or not val:
++                continue
++            bucket = ident_by_uri.setdefault(
++                uri, {"phone": [], "email": [], "linkedin_url": []}
++            )
++            if val not in bucket[typ]:
++                bucket[typ].append(val)
++    except Exception:
++        # Identifiers are enrichment, not load-bearing: a degraded Oxigraph
++        # must not blank the People list. Fall back to payload-only contact info.
++        ident_by_uri = {}
++
++    people = []
++    for pt in points:
++        p = pt.get("payload", {}) or {}
++        name = p.get("display_name") or p.get("name") or ""
++        if not name:
++            continue
++        # slug + wiki_url let the Hub People row click through to the
++        # person's wiki page. Same slug derivation and WIKI_BASE_URL the
++        # sibling readers (people_search, people_recent, people_stale)
++        # already emit, so every people surface links the same way.
++        slug = _wiki_slug(name)
++        row = {
++            "id": str(pt.get("id")),
+             "name": name,
+-            "slug": _wiki_slug(name),
+-            "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
+-            "last_contact": p.get("last_contact", ""),
+-            "months_since_contact": months_since,
+-            "organization": p.get("organization", ""),
+-        })
+-    contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
+-    return {"contacts": contacts[:limit]}
++            "slug": slug,
++            "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
++        }
++        role = p.get("job_title") or p.get("organization") or ""
++        if role:
++            row["role"] = role
++        lc_ts = p.get("last_contact_ts", 0) or 0
++        recency = _recency_label(lc_ts)
++        if recency:
++            row["recency"] = recency
++        row["_lc_ts"] = lc_ts
++
++        # Sort keys -- prefer the parsed given/family name, fall back to a
++        # split of the display name so LinkedIn/email-only people still sort.
++        given = (p.get("given_name") or "").strip()
++        family = (p.get("family_name") or "").strip()
++        if not given and not family:
++            parts = name.strip().split()
++            given = parts[0] if parts else ""
++            family = parts[-1] if len(parts) > 1 else ""
++        row["_first"] = given.casefold()
++        row["_last"] = (family or given).casefold()
++
++        # Contact fields: payload first (CardDAV), Oxigraph identifiers backfill.
++        uri = p.get("person_uri") or ""
++        ids = ident_by_uri.get(uri, {})
++        phones = [x for x in (p.get("phones") or []) if x]
++        emails = [x for x in (p.get("emails") or []) if x]
++        for x in ids.get("phone", []):
++            if x not in phones:
++                phones.append(x)
++        for x in ids.get("email", []):
++            if x not in emails:
++                emails.append(x)
++        linkedin = ids.get("linkedin_url", [])
++        if phones:
++            row["phone"] = phones[0]
++        if emails:
++            row["email"] = emails[0]
++        if linkedin:
++            row["linkedin"] = linkedin[0]
+ 
++        people.append(row)
+ 
++    reverse = False
++    key = None
++    if sort == "recency":
++        key = lambda r: r.get("_lc_ts", 0)
++        reverse = True
++    elif sort == "firstname":
++        key = lambda r: (r.get("_first", ""), r.get("_last", ""))
++    elif sort == "lastname":
++        key = lambda r: (r.get("_last", ""), r.get("_first", ""))
++    if key is not None:
++        people.sort(key=key, reverse=reverse)
++
++    # Per-row jump letter for the A|B|C rail (alphabetical sorts only). The
++    # client renders the rail from these and scrolls to the first match.
++    for row in people:
++        if sort in ("firstname", "lastname"):
++            src = row.get("_first" if sort == "firstname" else "_last", "")
++            ch = src[:1].upper()
++            row["jump"] = ch if "A" <= ch <= "Z" else "#"
++        row.pop("_lc_ts", None)
++        row.pop("_first", None)
++        row.pop("_last", None)
++    return {"people": people, "total": len(people)}
++
++
+ def people_recent(days=7, limit=5):
+     """Find people with recent meetings (for follow-up suggestions)."""
+     from datetime import datetime, timedelta, timezone
+@@ -2037,117 +1956,8 @@
+     out["reconnect"] = out["stale_contacts"]
+     out["follow_up"] = out["recent_meetings"]
+     return out
+-
+-
+-def api_meeting_upcoming(within_minutes=120):
+-    """Return enriched pre-meeting briefs for events starting within
+-    ``within_minutes`` from now.
+-
+-    This is the read side of the pre-meeting brief wiring: CM048
+-    extracts outstanding TODOs and writes them to Oxigraph; the
+-    CM041 ``meeting_syncer/brief.py`` generator gathers calendar +
+-    People Graph + TODO context into a structured brief payload;
+-    this endpoint exposes that payload to two consumers:
+-
+-    1. The CM051 LaunchAgent cron sender, which polls every ~10 min
+-       and pushes a WhatsApp message ~15-20 min before each meeting.
+-    2. The CM031 iOS Companion ``MeetingBriefService``, which polls
+-       on a 5-minute cadence and surfaces a local notification +
+-       in-app brief view.
+-
+-    Time-window semantics:
+-    - ``within_minutes`` is the LOOK-AHEAD window from now.
+-    - Events whose ``start_iso`` is in the past are filtered out
+-      (the brief is read once the meeting starts).
+-    - Default 120 minutes matches the iOS poll cadence (5-minute
+-      poll + 15-minute notify trigger + headroom).
+-
+-    Read-only. Falls through to a degraded payload (``meetings: []``
+-    + ``degraded: true``) on People Graph failure rather than 5xx --
+-    the iOS notification surface treats a degraded response as
+-    "no upcoming meetings" and the cron sender skips delivery.
+-    """
+-    from datetime import datetime, timezone, timedelta
+-
+-    # Re-import the brief module fresh per call so test patches on
+-    # brief.pre_meeting_brief / brief._sparql_query take effect
+-    # without a server restart. Cheap (module already in sys.modules
+-    # after first call).
+-    try:
+-        import sys as _sys
+-        from pathlib import Path as _P
+-        # The brief module lives next to this server file in the
+-        # repo: ../meeting_syncer/brief.py. Add the repo root once.
+-        _repo_root = _P(__file__).resolve().parent.parent
+-        if str(_repo_root) not in _sys.path:
+-            _sys.path.insert(0, str(_repo_root))
+-        from meeting_syncer import brief as _brief
+-    except Exception as exc:
+-        return {
+-            "meetings": [],
+-            "within_minutes": within_minutes,
+-            "degraded": True,
+-            "reason": f"brief module unavailable: {exc}",
+-        }
+-
+-    # Look-ahead window. brief.pre_meeting_brief takes a `days`
+-    # parameter; convert minutes to days (ceil to ensure we don't
+-    # miss an event right at the boundary).
+-    days_lookahead = max(1, int((within_minutes + 1439) // 1440))
+ 
+-    try:
+-        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
+-    except Exception as exc:
+-        return {
+-            "meetings": [],
+-            "within_minutes": within_minutes,
+-            "degraded": True,
+-            "reason": str(exc)[:200],
+-        }
+ 
+-    # Filter to events starting within the window.
+-    now = datetime.now(timezone.utc)
+-    window_end = now + timedelta(minutes=within_minutes)
+-
+-    def _parse_start(b):
+-        """Return a tz-aware UTC datetime, or None if unparseable."""
+-        raw = b.get("start_iso") or b.get("start") or ""
+-        if not raw:
+-            return None
+-        # iCal-style local time, e.g. "20260530T103000"
+-        if len(raw) == 15 and "T" in raw and raw.replace("T", "").isdigit():
+-            try:
+-                dt = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+-                # Assume local-tz; convert to UTC. Without tz info
+-                # we can't be exact -- treat as UTC for filtering.
+-                return dt.replace(tzinfo=timezone.utc)
+-            except ValueError:
+-                return None
+-        # ISO-8601 with offset
+-        try:
+-            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+-        except (ValueError, AttributeError):
+-            return None
+-
+-    upcoming = []
+-    for b in all_briefs:
+-        dt = _parse_start(b)
+-        if dt is None:
+-            # Unparseable start: include rather than silently drop
+-            # so the operator can see a malformed event. The cron
+-            # sender skips events without a parseable start.
+-            upcoming.append(b)
+-            continue
+-        if now <= dt <= window_end:
+-            upcoming.append(b)
+-
+-    return {
+-        "meetings": upcoming,
+-        "within_minutes": within_minutes,
+-        "count": len(upcoming),
+-    }
+-
+-
+ def api_timeline(days=7):
+     """Merged timeline of calendar events + recent meetings.
+ 
+@@ -2188,15 +1998,29 @@
+     # Past: meetings from the graph
+     try:
+         recent = people_recent(days=days, limit=20).get("contacts", [])
++        # people_recent is a per-PERSON list: a meeting with N attendees comes
++        # back as N rows, all carrying the same summary/date. Collapsing them
++        # by (summary, date) yields one timeline entry per distinct meeting and
++        # merges the attendee names, so a meeting no longer appears once per
++        # participant (BW-3 / timeline double-entries).
++        meeting_by_key = {}
+         for c in recent:
+-            items.append({
+-                "kind": "meeting",
+-                "date": c.get("meeting_date", ""),
+-                "summary": c.get("last_meeting", ""),
+-                "participants": [c.get("name", "")],
+-                "location": c.get("location", ""),
+-                "wiki_url": c.get("wiki_url", ""),
+-            })
++            key = (c.get("last_meeting", ""), c.get("meeting_date", ""))
++            entry = meeting_by_key.get(key)
++            if entry is None:
++                entry = {
++                    "kind": "meeting",
++                    "date": c.get("meeting_date", ""),
++                    "summary": c.get("last_meeting", ""),
++                    "participants": [],
++                    "location": c.get("location", ""),
++                    "wiki_url": c.get("wiki_url", ""),
++                }
++                meeting_by_key[key] = entry
++                items.append(entry)
++            name = c.get("name", "")
++            if name and name not in entry["participants"]:
++                entry["participants"].append(name)
+     except Exception as exc:
+         items.append({"kind": "meeting_error", "error": str(exc)})
+ 
+@@ -2262,6 +2086,10 @@
+         return {"error": "body must be a JSON object"}, 400
+ 
+     items = payload.get("items")
++    if items is None:
++        # Alias for iOS PWGUploadService.UploadBatch, which sends `points`.
++        # Wire-shape contract (F-10b, 2026-05-27): server accepts either key.
++        items = payload.get("points")
+     if not isinstance(items, list):
+         return {"error": "items must be an array"}, 400
+ 
+@@ -2281,11 +2109,75 @@
+         }
+         with open(path, "w", encoding="utf-8") as f:
+             f.write(json.dumps(record) + "\n")
+-        return {"ok": True, "batch_id": batch_id, "item_count": len(items), "path": path}, 200
++        # `accepted` mirrors `item_count` for the iOS UploadResult decoder
++        # (F-10, 2026-05-27). Keep both keys for downstream compatibility.
++        return {
++            "ok": True,
++            "batch_id": batch_id,
++            "item_count": len(items),
++            "accepted": len(items),
++            "path": path,
++        }, 200
+     except Exception as exc:
+         return {"error": str(exc)}, 500
+ 
+ 
++def api_subscription_receipt(payload):
++    """Accept a StoreKit receipt push from the iOS Companion (G1).
++
++    Payload shape (from CM031's SubscriptionService): ``{"receipt_b64":
++    "<base64 receipt>", "expires_at": "<ISO-8601 datetime>"}``.
++
++    On a valid body the handler persists state via
++    ``subscription_gate.refresh_from_companion`` and replies with the
++    resulting status dict (``{"status": "active|grace|inactive"}``).
++
++    Apple-restraint posture: the Hub never forwards the receipt to
++    Apple's verifyReceipt endpoint. Server-side StoreKit 2 validation is
++    the Companion's responsibility; the Hub trusts the paired-channel
++    handshake (see install-time pairing) and uses the receipt only as a
++    support breadcrumb in the on-disk state file.
++
++    Returns (body, status_code) for the do_POST dispatcher.
++    """
++    # subscription_gate is lazily imported so missing-helper installs (or
++    # very old vendor snapshots) cannot break unrelated POST routes at
++    # module load time.
++    try:
++        # The vendored module sits alongside ical-server.py; the do_POST
++        # dispatcher runs with the assistant_api/ directory on sys.path
++        # already (because the file imports sibling modules elsewhere).
++        import subscription_gate  # type: ignore[import-not-found]
++    except ImportError as exc:
++        return {"error": f"subscription_gate unavailable: {exc}"}, 500
++
++    if not isinstance(payload, dict):
++        return {"error": "body must be a JSON object"}, 400
++
++    receipt_b64 = payload.get("receipt_b64")
++    expires_at = payload.get("expires_at")
++
++    if not isinstance(receipt_b64, str) or not receipt_b64.strip():
++        return {"error": "receipt_b64 must be a non-empty string"}, 400
++
++    if not isinstance(expires_at, str) or not expires_at.strip():
++        return {"error": "expires_at must be an ISO-8601 string"}, 400
++
++    # Validate expires_at parses as ISO-8601. Mirrors the parse rule used
++    # by subscription_gate._parse_iso so we 400 before writing state.
++    try:
++        datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
++    except (ValueError, TypeError):
++        return {"error": "expires_at is not a valid ISO-8601 datetime"}, 400
++
++    try:
++        subscription_gate.refresh_from_companion(receipt_b64, expires_at)
++        status = subscription_gate.state_dict().get("status", "inactive")
++        return {"status": status}, 200
++    except Exception as exc:
++        return {"error": f"refresh failed: {exc}"}, 500
++
++
+ # ── Hub health helpers ───────────────────────────────────────────────
+ # Each helper returns a (key, result_dict) tuple so the parallel runner
+ # can fan out work and collect named results. Every helper is wrapped in
+@@ -2294,10 +2186,15 @@
+ 
+ 
+ def _read_sync_marker(path):
+-    """Read an ISO-8601 UTC timestamp from a marker file.
++    """Read raw stripped contents from a marker file.
+ 
+     Returns the stripped contents if the file exists and is readable,
+     otherwise None. Never raises.
++
++    NOTE: this helper is intentionally permissive – it is also used by
++    `_hub_queue_depth()` which writes integer text, not ISO-8601. For
++    callers that want an ISO-8601 timestamp specifically, use
++    `_read_iso8601_marker()` which validates + normalises the value.
+     """
+     try:
+         if path.exists():
+@@ -2308,6 +2205,185 @@
+     return None
+ 
+ 
++def _read_iso8601_marker(path):
++    """Read and validate an ISO-8601 UTC timestamp from a marker file.
++
++    F-3 (2026-05-27): hardens the iOS-facing health surface against
++    malformed marker contents. A garbled marker file now returns None
++    rather than leaking an unparseable string back to the Companion
++    (which would then fail JSON-decoding into Date).
++
++    Returns a normalised "%Y-%m-%dT%H:%M:%SZ" string on success, or
++    None if the file is missing, empty, unreadable, or contains a value
++    that is not a recognised ISO-8601 form. Never raises.
++    """
++    raw = _read_sync_marker(path)
++    if not raw:
++        return None
++    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y%m%dT%H%M%S"):
++        try:
++            dt = datetime.strptime(raw, fmt)
++        except ValueError:
++            continue
++        if dt.tzinfo is None:
++            dt = dt.replace(tzinfo=timezone.utc)
++        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
++    return None
++
++
++def api_recording_active():
++    """Read the current recording state for the CM031 Live Activity.
++
++    Wire contract (shared with the CM042 producer + CM031 consumer):
++
++    - State file path: ``RECORDING_STATE_FILE``
++      (default ``~/.ostler/recording_state.json``).
++    - File missing → ``{"recording": null}``.
++    - File mtime older than ``RECORDING_STALE_SECONDS`` (default 30s) →
++      ``{"recording": null}``. We treat a stale heartbeat as a crashed
++      producer rather than a live recording.
++    - Malformed JSON, missing ``meeting_id`` / ``started_at`` / ``state``,
++      or an unknown ``state`` value → ``{"recording": null}`` (logged at
++      WARN, never 5xx).
++    - Active body shape:
++
++      ``{
++          "recording": {
++            "meeting_id": "<ULID>",
++            "started_at": "<RFC3339 UTC>",
++            "state": "recording" | "processing" | "transcript_saved" | "error",
++            "hub_machine_name": "<string>",
++            "participant_count": <int>?,
++            "consent_basis": "one_party" | "all_party" | null,
++            "jurisdiction": "<ISO>" | null
++          }
++      }``
++
++    Read-only. Never raises. Returns a JSON-serialisable dict in every
++    branch so the handler can wrap it in a 200 unconditionally.
++    """
++    from datetime import datetime, timezone
++
++    # File missing → null (not a 404; the iOS Live Activity treats null
++    # as "collapse the surface"). Use os.stat so we can read mtime in
++    # the same syscall block.
++    try:
++        st = RECORDING_STATE_FILE.stat()
++    except FileNotFoundError:
++        return {"recording": None}
++    except OSError as exc:
++        print(
++            f"WARNING: recording state stat failed at "
++            f"{RECORDING_STATE_FILE}: {exc}",
++            file=sys.stderr,
++            flush=True,
++        )
++        return {"recording": None}
++
++    # Staleness check. The producer is expected to heartbeat by
++    # re-writing the file (atomic .tmp + rename bumps mtime) every few
++    # seconds while the capture is active. A mtime older than the
++    # staleness window means the producer is dead or stuck and the iOS
++    # Live Activity should collapse.
++    now_utc = datetime.now(timezone.utc)
++    try:
++        mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
++    except (OverflowError, OSError, ValueError):
++        return {"recording": None}
++    age_seconds = (now_utc - mtime).total_seconds()
++    if age_seconds > RECORDING_STALE_SECONDS:
++        return {"recording": None}
++
++    # File present and fresh: parse + validate. Any structural problem
++    # demotes to null so the consumer never sees half-populated bodies.
++    try:
++        raw = RECORDING_STATE_FILE.read_text(encoding="utf-8")
++    except OSError as exc:
++        print(
++            f"WARNING: recording state read failed at "
++            f"{RECORDING_STATE_FILE}: {exc}",
++            file=sys.stderr,
++            flush=True,
++        )
++        return {"recording": None}
++
++    try:
++        data = json.loads(raw)
++    except json.JSONDecodeError as exc:
++        print(
++            f"WARNING: recording state JSON malformed at "
++            f"{RECORDING_STATE_FILE}: {exc}",
++            file=sys.stderr,
++            flush=True,
++        )
++        return {"recording": None}
++
++    if not isinstance(data, dict):
++        print(
++            f"WARNING: recording state top-level not an object at "
++            f"{RECORDING_STATE_FILE}",
++            file=sys.stderr,
++            flush=True,
++        )
++        return {"recording": None}
++
++    # Required fields. The producer is contractually obliged to emit
++    # all three on every write; if any is missing we treat the whole
++    # payload as unusable rather than guessing.
++    meeting_id = data.get("meeting_id")
++    started_at = data.get("started_at")
++    state = data.get("state")
++    if not (
++        isinstance(meeting_id, str) and meeting_id
++        and isinstance(started_at, str) and started_at
++        and isinstance(state, str) and state in RECORDING_VALID_STATES
++    ):
++        print(
++            f"WARNING: recording state missing or invalid required "
++            f"fields at {RECORDING_STATE_FILE}: "
++            f"meeting_id={type(meeting_id).__name__} "
++            f"started_at={type(started_at).__name__} "
++            f"state={state!r}",
++            file=sys.stderr,
++            flush=True,
++        )
++        return {"recording": None}
++
++    # Optional fields. Coerce to None on a type mismatch rather than
++    # propagating wrong-shape values to iOS, which would force a
++    # Codable failure on the consumer side.
++    hub_machine_name = data.get("hub_machine_name")
++    if not isinstance(hub_machine_name, str):
++        hub_machine_name = ""
++
++    participant_count = data.get("participant_count")
++    if not isinstance(participant_count, int) or isinstance(participant_count, bool):
++        # bool is a subclass of int in Python; reject it explicitly so
++        # the iOS Codable Int decode does not silently take True/False.
++        participant_count = None
++
++    consent_basis = data.get("consent_basis")
++    if consent_basis is not None and consent_basis not in RECORDING_VALID_CONSENT:
++        consent_basis = None
++
++    jurisdiction = data.get("jurisdiction")
++    if jurisdiction is not None and (
++        not isinstance(jurisdiction, str) or not jurisdiction
++    ):
++        jurisdiction = None
++
++    recording = {
++        "meeting_id": meeting_id,
++        "started_at": started_at,
++        "state": state,
++        "hub_machine_name": hub_machine_name,
++        "participant_count": participant_count,
++        "consent_basis": consent_basis,
++        "jurisdiction": jurisdiction,
++    }
++    return {"recording": recording}
++
++
+ def _hub_check_zeroclaw():
+     """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
+ 
+@@ -2420,7 +2496,7 @@
+     Absence of a marker is treated as unhealthy but not an error – fresh
+     installs have never synced.
+     """
+-    ts = _read_sync_marker(CALDAV_LAST_REFRESH_FILE)
++    ts = _read_iso8601_marker(CALDAV_LAST_REFRESH_FILE)
+     if ts:
+         return {"healthy": True, "last_refresh": ts}
+     return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
+@@ -2543,7 +2619,9 @@
+     except Exception:
+         queue_depth = 0
+ 
+-    last_sync = _read_sync_marker(LAST_SYNC_FILE)
++    # F-3 (2026-05-27): validate + normalise so the Companion never gets a
++    # garbled timestamp string back from /api/v1/hub/health.
++    last_sync = _read_iso8601_marker(LAST_SYNC_FILE)
+ 
+     # Derive hub_status from service health + queue depth.
+     all_healthy = all(s.get("healthy") for s in services.values())
+@@ -2832,6 +2910,7 @@
+     # paths so existing handler blocks serve both. Legacy callers keep
+     # working; CM031 (PWG Companion) gets its versioned URLs.
+     _VERSIONED_TO_LEGACY = {
++        "/api/v1/people":           "/people",
+         "/api/v1/people/search":    "/people/search",
+         "/api/v1/people/context":   "/people/context",
+         "/api/v1/people/stale":     "/people/stale",
+@@ -3024,6 +3103,20 @@
+                 result = people_stale(months=months, limit=limit)
+             except Exception as e:
+                 result = {"contacts": [], "degraded": True, "reason": str(e), "error": str(e)}
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
++        if parsed.path == "/people":
++            params = parse_qs(parsed.query)
++            sort = params.get("sort", [None])[0]
++            try:
++                result = people_list(sort=sort)
++            except Exception as e:
++                result = {"people": [], "total": 0, "degraded": True,
++                          "reason": str(e), "error": str(e)}
+             self.send_response(200)
+             self.send_header("Content-Type", "application/json")
+             self.end_headers()
+@@ -3117,35 +3210,6 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
+-        # Pre-meeting brief endpoint. Read-only; degrades to
+-        # meetings=[] on People Graph failure rather than 5xx so the
+-        # iOS notification surface and the cron sender can keep
+-        # polling without raising the operator-visible Hub-offline
+-        # pill on a transient Oxigraph blip.
+-        if parsed.path == "/api/v1/meeting/upcoming":
+-            params = parse_qs(parsed.query)
+-            within_minutes, err = _safe_int(params, "within_minutes", 120)
+-            if err:
+-                self.send_response(400)
+-                self.send_header("Content-Type", "application/json")
+-                self.end_headers()
+-                self.wfile.write(json.dumps(err).encode())
+-                return
+-            try:
+-                result = api_meeting_upcoming(within_minutes=within_minutes)
+-            except Exception as exc:
+-                result = {
+-                    "meetings": [],
+-                    "within_minutes": within_minutes,
+-                    "degraded": True,
+-                    "reason": str(exc)[:200],
+-                }
+-            self.send_response(200)
+-            self.send_header("Content-Type", "application/json")
+-            self.end_headers()
+-            self.wfile.write(json.dumps(result, indent=2).encode())
+-            return
+-
+         if parsed.path == "/api/v1/timeline":
+             params = parse_qs(parsed.query)
+             days, err = _safe_int(params, "days", 7)
+@@ -3158,7 +3222,11 @@
+             try:
+                 result = api_timeline(days=days)
+             except Exception as exc:
+-                result = {"items": [], "days": days, "count": 0,
++                # `entries` mirrors `items` per the iOS ServerTimelineResponse
++                # decoder (F-1, 2026-05-27). Without it the Companion drops
++                # straight to its hard-error path instead of the soft-degraded
++                # empty state.
++                result = {"items": [], "entries": [], "days": days, "count": 0,
+                           "degraded": True, "reason": str(exc), "error": str(exc)}
+             self.send_response(200)
+             self.send_header("Content-Type", "application/json")
+@@ -3209,26 +3277,6 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
+-        # Memory tab: list facts about the user (CM031 iOS Companion
+-        # v1.0 LB). Never 5xx -- api_memory_list returns the degraded
+-        # shape on any upstream failure so the iOS Memory tab can pick
+-        # between empty-state and degraded-banner UX.
+-        if parsed.path == "/api/v1/memory":
+-            try:
+-                result = api_memory_list()
+-            except Exception as exc:
+-                result = {
+-                    "facts": [],
+-                    "count": 0,
+-                    "degraded": True,
+-                    "reason": f"unexpected_error: {exc}",
+-                }
+-            self.send_response(200)
+-            self.send_header("Content-Type", "application/json")
+-            self.end_headers()
+-            self.wfile.write(json.dumps(result, indent=2).encode())
+-            return
+-
+         # Hub health endpoint (HR015 Hub portability). Must never 5xx;
+         # on catastrophic failure we fall through to offline_local so the
+         # iOS pill can still make a decision.
+@@ -3253,10 +3301,11 @@
+             return
+ 
+         # Wiki first-run hydration panel (CM044 #624). Reachable through
+-        # the Doctor auth proxy at /api/v1/* (add to DOCTOR_PROXY_PATHS).
+-        # CORS is emitted on this route only, allowlisted to the wiki and
+-        # Tauri Hub origins. Degrades calm: any failure returns a pending
+-        # payload with 200 so the panel never breaks the homepage.
++        # the Doctor auth proxy at /api/v1/* (DOCTOR_PROXY_PATHS includes
++        # this path). CORS is emitted on this route only, allowlisted to
++        # the wiki and Tauri Hub origins. Degrades calm: any failure
++        # returns a pending payload with 200 so the panel never breaks
++        # the homepage.
+         if parsed.path == "/api/v1/hydration/status":
+             try:
+                 result = api_hydration_status()
+@@ -3270,27 +3319,32 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
+-        # Conversation processing status (CM048)
+-        # Per-slug person enrichment for the iOS / Hub person card.
+-        # GET /api/v1/people/{slug}/enrichment
+-        if (parsed.path.startswith("/api/v1/people/")
+-                and parsed.path.endswith("/enrichment")):
+-            slug = parsed.path[len("/api/v1/people/"):-len("/enrichment")]
++        # Recording state (CM042 producer → CM031 Live Activity).
++        # Read-only. Never 5xx: any failure demotes to recording=null so
++        # the iOS Live Activity collapses cleanly. See api_recording_active
++        # for the full wire contract.
++        if parsed.path == "/api/v1/recording/active":
+             try:
+-                result, status = person_enrichment(slug)
++                result = api_recording_active()
+             except Exception as exc:
+-                result, status = {
+-                    "found": False,
+-                    "degraded": True,
+-                    "reason": str(exc),
+-                    "error": str(exc),
+-                }, 503
+-            self.send_response(status)
++                # Defensive belt-and-braces: api_recording_active is
++                # already written to never raise, but if a future
++                # refactor regresses that guarantee we still hand the
++                # consumer a usable null response rather than 500.
++                print(
++                    f"WARNING: api_recording_active raised "
++                    f"unexpectedly: {exc}",
++                    file=sys.stderr,
++                    flush=True,
++                )
++                result = {"recording": None}
++            self.send_response(200)
+             self.send_header("Content-Type", "application/json")
+             self.end_headers()
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
++        # Conversation processing status (CM048)
+         if parsed.path.startswith("/api/v1/conversation/status/"):
+             conversation_id = parsed.path.split("/api/v1/conversation/status/", 1)[1]
+             conversation_id = conversation_id.strip("/")
+@@ -3307,6 +3361,26 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
++        # Per-slug person enrichment for the iOS / Hub person card.
++        # GET /api/v1/people/{slug}/enrichment
++        if (parsed.path.startswith("/api/v1/people/")
++                and parsed.path.endswith("/enrichment")):
++            slug = parsed.path[len("/api/v1/people/"):-len("/enrichment")]
++            try:
++                result, status = person_enrichment(slug)
++            except Exception as exc:
++                result, status = {
++                    "found": False,
++                    "degraded": True,
++                    "reason": str(exc),
++                    "error": str(exc),
++                }, 503
++            self.send_response(status)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
+         self.send_response(404)
+         self.send_header("Content-Type", "application/json")
+         self.end_headers()
+@@ -3315,22 +3389,20 @@
+             "/calendar/today": "Today's events",
+             "/people/search?q=fintech": "Semantic people search",
+             "/people/context?name=Danny": "Everything known about a person (+ relationship signals)",
+-            "/api/v1/people/{slug}/enrichment": "Per-slug person card payload (org, role, identifiers, meetings, per-source last-contact)",
+             "/people/stale?months=3&limit=5": "Contacts not spoken to in N months",
+             "/people/recent?days=7&limit=5": "Recently met people (from meetings)",
+             "/people/birthdays?days=7": "Upcoming birthdays",
++            "/api/v1/people/{slug}/enrichment": "Per-slug person card payload (org, role, identifiers, meetings, per-source last-contact)",
+             "/email?q=is:unread": "Gmail query (default: unread)",
+             "/api/v1/email/recent?hours=24&limit=20": "Recent emails (subject + snippet only)",
+             "/api/v1/suggestions": "Composite: birthdays + stale contacts + recent meetings",
+             "/api/v1/timeline?days=7": "Merged calendar + meetings timeline",
+-            "/api/v1/meeting/upcoming?within_minutes=120": "Enriched pre-meeting briefs for events starting within the window",
+             "/api/v1/coach/recent?hours=168&limit=10": "Recent coaching observations (CM048)",
+             "/api/v1/conversation/status/{id}": "Conversation processing status (CM048)",
+             "/api/v1/hub/health": "Hub status for iOS Companion pill (online / catching_up / offline_local)",
+-            "/api/v1/memory": "Facts Ostler has learnt about the user (CM031 Memory tab)",
++            "/api/v1/recording/active": "Current capture state for the iOS Recording Live Activity (CM042 producer → CM031 consumer)",
+             "POST /api/v1/conversation/process": "Submit conversation for processing (CM048)",
+             "POST /api/v1/ingest/ios": "Batch upload from the iOS companion (application/json)",
+-            "POST /api/v1/memory/correct/{id}": "Correct or forget a memory fact (body: {\"newValue\":...} or {\"forget\":true})",
+             "/health": "Health check (pass ?detailed=1 for dependency checks)",
+         }}).encode())
+ 
+@@ -3421,17 +3493,14 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
+-        # Memory tab correction: POST /api/v1/memory/correct/{fact_id}.
+-        # Body is {"newValue": "..."} or {"forget": true}. The fact_id
+-        # is the URI suffix (or the full URI) returned by
+-        # GET /api/v1/memory. Append-only: every call is a new row in
+-        # memory_corrections, with the latest row per fact_id winning
+-        # on the next GET.
+-        if parsed.path.startswith("/api/v1/memory/correct/"):
+-            fact_id = parsed.path[len("/api/v1/memory/correct/"):]
+-            fact_id = fact_id.strip("/")
++        if parsed.path == "/api/v1/subscription/receipt":
++            # G1 (2026-05-27): iOS Companion pushes a fresh StoreKit
++            # receipt after every transaction success / restore + on
++            # every app foreground. The Hub's subscription_gate (G0,
++            # PR #190) persists the state for ongoing-intelligence
++            # pipelines to consult via is_active_or_grace().
+             try:
+-                result, status = api_memory_correct(fact_id, payload)
++                result, status = api_subscription_receipt(payload)
+             except Exception as exc:
+                 result, status = {"error": str(exc)}, 500
+             self.send_response(status)
+@@ -3454,7 +3523,7 @@
+     # LAN exposure for dev or for users who don't want Tailscale.
+     BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
+     print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
+-    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/meeting/upcoming, /api/v1/hub/health, /api/v1/memory, POST /api/v1/ingest/ios, POST /api/v1/people/{slug}/forget, POST /api/v1/memory/correct/{id}, /health")
++    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/hub/health, /api/v1/recording/active, POST /api/v1/ingest/ios, POST /api/v1/subscription/receipt, POST /api/v1/people/{slug}/forget, /health")
+     if BIND_HOST == "0.0.0.0":
+         print(
+             "WARNING: OSTLER_API_BIND=0.0.0.0 exposes the Assistant API on "

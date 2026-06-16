@@ -1,0 +1,1506 @@
+--- a/agent/apple_style.css
++++ b/agent/apple_style.css
+@@ -26,13 +26,8 @@
+    ========================================================================== */
+ 
+ /* Outfit for display, IBM Plex Sans for body, IBM Plex Mono for mono.
+-   PRIVACY: the Google Fonts @import is removed -- a privacy-first local
+-   product must not beacon the customer's IP + timestamp to googleapis.com
+-   on every dashboard open. The --font-* tokens below already declare full
+-   -apple-system / system-ui fallbacks, so the UI renders cleanly on the
+-   native stack. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex woff2 via
+-   @font-face if the branded type is wanted back -- do NOT re-add the
+-   googleapis @import. */
++   Loaded from Google Fonts; system-ui fallbacks for offline. */
++@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+ 
+ * { margin: 0; padding: 0; box-sizing: border-box; }
+ 
+--- a/agent/diagnostic_rules.py
++++ b/agent/diagnostic_rules.py
+@@ -143,7 +143,6 @@
+ )
+ from status_collector import (
+     detect_ostler_prefix,
+-    is_native_deployment,
+     is_ostler_container,
+ )
+ 
+@@ -152,23 +151,8 @@
+     """Detect common first-install problems."""
+     findings = []
+ 
+-    # "Docker Desktop not installed" critical.
+-    #
+-    # Suppressed on the productised native build. NOTE: native here does
+-    # NOT mean "no Docker" -- the data tier (Qdrant/Oxigraph/Redis) runs
+-    # in containers via Colima even on the native build. This rule is
+-    # suppressed because its fix-command is *Docker-Desktop-specific*
+-    # (Colima needs no Docker Desktop install), so it is a false-RED
+-    # there and would lead the support-email report. A genuine data-tier
+-    # outage is already covered by the per-service unreachable rules, so
+-    # nothing is lost by dropping this Docker-Desktop check. The legacy
+-    # Docker-Desktop dev deploy opts back in via OSTLER_DEPLOY_MODE=docker.
+-    # See is_native_deployment().
+-    if (
+-        not is_native_deployment()
+-        and snapshot.docker_version is None
+-        and not snapshot.docker_containers
+-    ):
++    # No Docker at all
++    if snapshot.docker_version is None and not snapshot.docker_containers:
+         findings.append({
+             "severity": "critical",
+             "title": DOCKER_NOT_INSTALLED_TITLE,
+--- a/agent/duplicate_decision.py
++++ b/agent/duplicate_decision.py
+@@ -25,7 +25,7 @@
+ 
+ import yaml
+ 
+-_VALID_ACTIONS = {"merge", "distinct"}
++_VALID_ACTIONS = {"merge", "distinct", "split"}
+ # short-id shape: hex tails plus a safe alphanumeric set. Crucially this rejects
+ # path separators and dots, so a malformed/hostile id can never escape the
+ # corrections dir or poison the YAML.
+@@ -63,8 +63,8 @@
+         )
+ 
+     ids = body.get("ids")
+-    if not isinstance(ids, list) or len(ids) < 2:
+-        raise ValidationError("ids must be a list of at least 2 short-ids")
++    if not isinstance(ids, list) or not ids:
++        raise ValidationError("ids must be a non-empty list of short-ids")
+ 
+     seen: set = set()
+     uniq: List[str] = []
+@@ -74,9 +74,15 @@
+         if x not in seen:
+             seen.add(x)
+             uniq.append(x)
+-    if len(uniq) < 2:
+-        raise ValidationError("need at least 2 distinct short-ids")
+ 
++    # ``split`` flags ONE record as wrongly-fused (one contact that is really
++    # two people); ``merge``/``distinct`` are pairwise so they need 2+.
++    min_ids = 1 if action == "split" else 2
++    if len(uniq) < min_ids:
++        raise ValidationError(
++            f"action {action!r} needs at least {min_ids} distinct short-id(s)"
++        )
++
+     return {"action": action, "ids": uniq}
+ 
+ 
+@@ -84,6 +90,9 @@
+     action, ids = normalised["action"], normalised["ids"]
+     if action == "merge":
+         return [{"merge": list(ids)}]
++    if action == "split":
++        # split: flag the single fused record for separation on next refresh.
++        return [{"split": list(ids)}]
+     # distinct: record every pair so the resolver vetoes each one independently.
+     return [
+         {"distinct": [ids[i], ids[j]]}
+--- a/agent/first_run.py
++++ b/agent/first_run.py
+@@ -269,7 +269,7 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>{WIZARD_TITLE_TAG}</title>
+     <style>
+-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
++        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+         * {{ margin:0; padding:0; box-sizing:border-box; }}
+         :root {{
+             /* Ostler dark palette (mirrors apple_style.css). The wizard
+--- a/agent/import_evernote_runner.py
++++ b/agent/import_evernote_runner.py
+@@ -45,31 +45,6 @@
+ from typing import Any, Dict, List
+ 
+ 
+-# Sentinel that separates sequential phases in the command after ``--``.
+-# Doctor passes ``convert ... --and-then embed ...`` so the supervisor
+-# runs convert, then embed ONLY if convert succeeded. A command with no
+-# sentinel is a single phase, preserving the original one-command contract.
+-PHASE_SENTINEL = "--and-then"
+-
+-
+-def _split_phases(tokens: List[str]) -> List[List[str]]:
+-    """Split a flat token list into sequential command phases on the
+-    ``--and-then`` sentinel. Empty phases (a leading/trailing/double
+-    sentinel) are dropped so the runner never tries to exec ``[]``."""
+-    phases: List[List[str]] = []
+-    current: List[str] = []
+-    for tok in tokens:
+-        if tok == PHASE_SENTINEL:
+-            if current:
+-                phases.append(current)
+-                current = []
+-            continue
+-        current.append(tok)
+-    if current:
+-        phases.append(current)
+-    return phases
+-
+-
+ def _parse_args(argv: List[str]) -> argparse.Namespace:
+     parser = argparse.ArgumentParser(
+         description="Evernote import supervisor (Doctor-internal).",
+@@ -83,8 +58,7 @@
+     parser.add_argument(
+         "command",
+         nargs=argparse.REMAINDER,
+-        help="The command(s) to execute; precede with -- to disambiguate. "
+-             "Multiple phases may be chained with the --and-then sentinel.",
++        help="The command to execute; precede with -- to disambiguate.",
+     )
+     args = parser.parse_args(argv)
+     # argparse REMAINDER preserves the leading ``--`` token; drop it.
+@@ -92,9 +66,6 @@
+         args.command = args.command[1:]
+     if not args.command:
+         parser.error("no command supplied after --")
+-    args.phases = _split_phases(args.command)
+-    if not args.phases:
+-        parser.error("no command supplied after --")
+     return args
+ 
+ 
+@@ -119,69 +90,30 @@
+ def main(argv: List[str]) -> int:
+     args = _parse_args(argv)
+ 
+-    # Run phases in order; stop at the first non-zero exit so a failed
+-    # convert never runs embed against a half-written staging tree. The
+-    # state file records which phase was last attempted so Doctor can
+-    # tell "convert failed" from "embed failed".
+-    exit_code = 0
+-    phase_index = 0
+-    for phase_index, phase_cmd in enumerate(args.phases):
+-        try:
+-            result = subprocess.run(phase_cmd, check=False)
+-            exit_code = result.returncode
+-        except FileNotFoundError as exc:
+-            # The bundled ``ostler-knowledge`` was not found on PATH.
+-            # Surface as a non-zero exit and a note in the state file --
+-            # Doctor's UI shows the failure to the operator who can then
+-            # check that the installer ran.
+-            exit_code = 127
+-            sys.stderr.write(f"runner: command not found: {exc}\n")
+-        except OSError as exc:
+-            exit_code = 1
+-            sys.stderr.write(f"runner: failed to exec command: {exc}\n")
+-        if exit_code != 0:
+-            break
++    try:
++        result = subprocess.run(args.command, check=False)
++        exit_code = result.returncode
++    except FileNotFoundError as exc:
++        # The bundled ``ostler-knowledge`` was not found on PATH.
++        # Surface as a non-zero exit and a note in the state file --
++        # Doctor's UI shows the failure to the operator who can then
++        # check that the installer ran.
++        exit_code = 127
++        sys.stderr.write(f"runner: command not found: {exc}\n")
++    except OSError as exc:
++        exit_code = 1
++        sys.stderr.write(f"runner: failed to exec command: {exc}\n")
+ 
+-    # Graceful-degrade status. The phases are ordered so the *last* one is
+-    # the non-critical enrichment step -- for a knowledge import that is
+-    # ``embed`` (indexing into Qdrant for search), preceded by ``convert``
+-    # (writing the markdown that IS the import). Because the loop above
+-    # stops at the first non-zero exit, reaching the last phase means every
+-    # earlier phase exited 0. So a non-zero exit *on the last phase of a
+-    # multi-phase run* means the data landed and only search indexing
+-    # failed (Qdrant/Ollama down) -- a degraded success, not a hard
+-    # failure. The operator's notes ARE imported; search catches up on a
+-    # re-run. We surface it as ``partial`` so the UI shows amber + a
+-    # "search pending" note rather than a red "failed". A single-phase run
+-    # (no --and-then) keeps the original succeeded/failed contract.
+-    phases_total = len(args.phases)
+-    is_last_phase = phase_index == phases_total - 1
+-    if exit_code == 0:
+-        status = "succeeded"
+-    elif phases_total > 1 and is_last_phase:
+-        status = "partial"
+-    else:
+-        status = "failed"
+-
+     completed_at = datetime.now(timezone.utc).isoformat()
+     state = {
+         "job_id": args.job_id,
+-        "status": status,
++        "status": "succeeded" if exit_code == 0 else "failed",
+         "exit_code": exit_code,
+-        "phase_index": phase_index,
+-        "phases_total": phases_total,
+         "started_at": args.started_at,
+         "completed_at": completed_at,
+         "log_path": args.log_path,
+         "enex_path": args.enex_path,
+     }
+-    if status == "partial":
+-        # Human-facing hint the UI surfaces verbatim.
+-        state["note"] = (
+-            "Notes imported. Search indexing did not complete "
+-            "(the embedding service may be offline); it will catch up "
+-            "on the next import."
+-        )
+ 
+     try:
+         _atomic_write_json(Path(args.state), state)
+--- a/agent/import_evernote.py
++++ b/agent/import_evernote.py
+@@ -68,58 +68,12 @@
+ DEFAULT_LOG_DIR = DEFAULT_OSTLER_DIR / "logs"
+ DEFAULT_STATE_DIR = DEFAULT_OSTLER_DIR / "state"
+ DEFAULT_STAGING_DIR = DEFAULT_OSTLER_DIR / "data" / "knowledge-staging"
+-DEFAULT_METADATA_DB = DEFAULT_OSTLER_DIR / "data" / "knowledge-metadata.db"
+ 
+ LOCK_FILENAME = "import-evernote.lock"
+ LOG_FILENAME_PREFIX = "import-evernote-"
+ STATE_FILENAME_PREFIX = "import-evernote-"
+ 
+ DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+-
+-# The knowledge source this import handles. ``evernote`` for now; the
+-# Notion/Obsidian sources reuse this same convert+embed path with a
+-# different value, which selects the ``<source>_knowledge`` collection.
+-DEFAULT_SOURCE = "evernote"
+-
+-# Canonical Ostler Hub embedding model. The install pre-creates the
+-# knowledge Qdrant collections at 768 dims (nomic-embed-text), so embed
+-# MUST use the same model or every upsert fails the dimension check and
+-# the wiki Knowledge section stays silently empty. Overridable for
+-# operators who standardise on a different 768-dim model.
+-DEFAULT_EMBED_MODEL = "nomic-embed-text"
+-
+-
+-def _embed_model() -> str:
+-    return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+-
+-
+-def _collection_for_source(source: str) -> str:
+-    """The Qdrant collection the wiki + MCP read for a given source."""
+-    return f"{source}_knowledge"
+-
+-
+-# Privacy cap: the highest compartment level (sensitivity) that may be
+-# embedded into the searchable collection. Default 2 keeps L3
+-# (compartment_level 3, "private") notes OUT of search. They are still
+-# converted to markdown in the staging tree -- just never indexed into
+-# Qdrant. This matters because the wiki Knowledge reader does NOT filter
+-# by level at render time, so excluding L3 at embed is the only thing
+-# standing between a private note and the browsable wiki. Overridable via
+-# env for an operator who deliberately wants their full corpus searchable
+-# on their single-user box.
+-DEFAULT_MAX_COMPARTMENT_LEVEL = 2
+-
+-
+-def _max_compartment_level() -> int:
+-    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
+-    if raw is None:
+-        return DEFAULT_MAX_COMPARTMENT_LEVEL
+-    try:
+-        return int(raw)
+-    except (TypeError, ValueError):
+-        # A garbled override must never widen the cap and leak L3; fall
+-        # back to the safe default.
+-        return DEFAULT_MAX_COMPARTMENT_LEVEL
+ 
+ # Job IDs are ``YYYYMMDDTHHMMSSZ-<8 hex>``. The format is deliberately
+ # narrow so the regex can double as a path-traversal defence on
+@@ -307,19 +261,15 @@
+ def start_import(
+     enex_path: Path,
+     *,
+-    source: str = DEFAULT_SOURCE,
+     _now: Optional[datetime] = None,
+     _lock_dir: Optional[Path] = None,
+     _log_dir: Optional[Path] = None,
+     _state_dir: Optional[Path] = None,
+     _staging_dir: Optional[Path] = None,
+-    _metadata_db: Optional[Path] = None,
+     _binary: Optional[str] = None,
+     _subprocess: Any = None,
+     _runner: Optional[Path] = None,
+     _python: Optional[str] = None,
+-    _embed_model_name: Optional[str] = None,
+-    _max_compartment_level_value: Optional[int] = None,
+ ) -> Dict[str, Any]:
+     """Fork ``ostler-knowledge`` via the supervisor wrapper.
+ 
+@@ -333,13 +283,6 @@
+     log_dir = Path(_log_dir or DEFAULT_LOG_DIR).expanduser()
+     state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
+     staging_dir = Path(_staging_dir or DEFAULT_STAGING_DIR).expanduser()
+-    metadata_db = Path(_metadata_db or DEFAULT_METADATA_DB).expanduser()
+-    embed_model = _embed_model_name or _embed_model()
+-    max_level = (
+-        _max_compartment_level_value
+-        if _max_compartment_level_value is not None
+-        else _max_compartment_level()
+-    )
+ 
+     # Resolve subprocess at call time (not in the default arg) so
+     # ``monkeypatch.setattr(ie, "subprocess", rec)`` in tests actually
+@@ -386,28 +329,6 @@
+ 
+         try:
+             try:
+-                # Phase 1: convert the export to markdown in the staging
+-                # tree. Phase 2: embed that markdown into the source's
+-                # Qdrant collection so the wiki + MCP actually have
+-                # something to read -- this is the step whose absence
+-                # left Knowledge silently empty. nomic-embed-text/768
+-                # matches the collection the installer pre-creates; the
+-                # runner runs embed ONLY if convert exits 0.
+-                convert_phase = [
+-                    binary, "convert", "--source", source,
+-                    str(enex_path), "--output", str(staging_dir),
+-                ]
+-                embed_phase = [
+-                    binary, "embed", str(staging_dir),
+-                    "--collection", _collection_for_source(source),
+-                    "--embedding-model", embed_model,
+-                    # Privacy gate: keep L3 ("private") notes out of the
+-                    # searchable collection the wiki + MCP read. The
+-                    # reader does not re-filter by level, so this is the
+-                    # only barrier.
+-                    "--max-compartment-level", str(max_level),
+-                    "--db-path", str(metadata_db),
+-                ]
+                 proc = sub.Popen(
+                     [
+                         python, str(runner),
+@@ -418,9 +339,8 @@
+                         "--enex-path", str(enex_path),
+                         "--started-at", started_at,
+                         "--",
+-                        *convert_phase,
+-                        "--and-then",
+-                        *embed_phase,
++                        binary, "convert", "--source", "evernote",
++                        str(enex_path), "--output", str(staging_dir),
+                     ],
+                     stdout=log_handle,
+                     stderr=sub.STDOUT,
+--- a/agent/pair_status.py
++++ b/agent/pair_status.py
+@@ -78,15 +78,8 @@
+ 
+ 
+ def gateway_port() -> int:
+-    """Resolve the gateway port from env, mirroring zeroclaw-config's order.
+-
+-    OSTLER_CHAT_GATEWAY_PORT is the canonical override the installer writes
+-    and the one chat_token.py reads (see _zeroclaw_port there). It must be
+-    consulted first; without it the Pair panel falls through to the default
+-    (42617), which is dead on the productised single-machine install, so the
+-    panel reports the gateway as down even though it is live on :8000.
+-    """
+-    for var in ("OSTLER_CHAT_GATEWAY_PORT", "ZEROCLAW_GATEWAY_PORT", "PORT"):
++    """Resolve the gateway port from env, mirroring zeroclaw-config's order."""
++    for var in ("ZEROCLAW_GATEWAY_PORT", "PORT"):
+         raw = os.environ.get(var)
+         if raw:
+             try:
+--- a/agent/requirements.txt
++++ b/agent/requirements.txt
+@@ -1,4 +1,4 @@
+-fastapi>=0.136.3,<1.0
++fastapi>=0.115.0,<1.0
+ uvicorn>=0.32.0,<1.0
+ httpx>=0.28.1,<1.0
+ pyyaml>=6.0,<7.0
+--- a/agent/status_collector.py
++++ b/agent/status_collector.py
+@@ -90,32 +90,6 @@
+     return "ostler-"
+ 
+ 
+-# Architecture signal. The productised Ostler build is single-machine
+-# native (launchd, native processes -- NOT a second Docker *host*);
+-# HR015 locked this directive 2026-05-09. NOTE: "native" does NOT mean
+-# "no Docker" -- the data tier (Qdrant/Oxigraph/Redis) runs in
+-# containers via Colima even on the native build. The legacy gamingrig
+-# dev deploy runs the same services under Docker Desktop. The two builds
+-# want different Doctor diagnostics: the native build needs no Docker
+-# *Desktop* install (Colima provides the runtime), so the
+-# "Docker Desktop not installed / not running" rules are false-RED
+-# criticals there and must be suppressed -- a real data-tier outage is
+-# already covered by the per-service unreachable rules. The legacy
+-# Docker-Desktop deploy opts back into those rules by exporting
+-# ``OSTLER_DEPLOY_MODE=docker`` (set on the dev compose). The productised
+-# default is native, so the customer never sees a spurious Docker-Desktop
+-# critical lead the support-email report.
+-def is_native_deployment() -> bool:
+-    """True on the productised single-machine native build.
+-
+-    Reads ``OSTLER_DEPLOY_MODE``. Anything other than the explicit
+-    legacy value ``docker`` (case-insensitive) resolves to native --
+-    the productised default -- so a fresh customer install with the
+-    env var unset gets the native (Docker-rule-suppressed) posture.
+-    """
+-    return os.environ.get("OSTLER_DEPLOY_MODE", "native").strip().lower() != "docker"
+-
+-
+ @dataclass
+ class OllamaModelInfo:
+     name: str
+@@ -216,34 +190,8 @@
+ # ---------------------------------------------------------------------------
+ # Collector functions – each gathers one category of safe data
+ # ---------------------------------------------------------------------------
+-
+-
+-def _docker_bin() -> str:
+-    """Resolve the docker executable.
+ 
+-    The Doctor runs as a launchd LaunchAgent, whose PATH does not include
+-    Homebrew's /opt/homebrew/bin (nor /usr/local/bin on Intel). A bare
+-    "docker" lookup therefore raises FileNotFoundError, so every
+-    Docker-derived signal (version, containers) reads as absent even when
+-    Docker is installed and running. On the native single-machine install
+-    this strands the first-run wizard on Step 1 forever. Resolve an
+-    absolute path so Docker is detected regardless of the launchd PATH.
+-    """
+-    found = shutil.which("docker")
+-    if found:
+-        return found
+-    for candidate in (
+-        "/opt/homebrew/bin/docker",
+-        "/usr/local/bin/docker",
+-        "/usr/bin/docker",
+-    ):
+-        if os.path.exists(candidate):
+-            return candidate
+-    # Fall back to the bare name so behaviour is unchanged when docker is
+-    # genuinely absent (FileNotFoundError handled by the callers).
+-    return "docker"
+ 
+-
+ def collect_docker_containers() -> tuple[list[DockerContainerInfo], str | None]:
+     """
+     Get Docker container names, images, and states.
+@@ -252,7 +200,7 @@
+     try:
+         result = subprocess.run(
+             [
+-                _docker_bin(), "ps", "-a",
++                "docker", "ps", "-a",
+                 "--format", "{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}",
+             ],
+             capture_output=True,
+@@ -285,7 +233,7 @@
+     """Get Docker version string."""
+     try:
+         result = subprocess.run(
+-            [_docker_bin(), "version", "--format", "{{.Server.Version}}"],
++            ["docker", "version", "--format", "{{.Server.Version}}"],
+             capture_output=True,
+             text=True,
+             timeout=5,
+--- a/agent/web_ui_copy.py
++++ b/agent/web_ui_copy.py
+@@ -260,10 +260,6 @@
+ 
+ DASHBOARD_PAIR_IOS_LINK = (
+     ' &ndash; <a href="/pair-ios">Pair iOS device</a>'
+-)
+-
+-DASHBOARD_CONFIG_LINK = (
+-    ' &ndash; <a href="/config">Configuration</a>'
+ )
+ 
+ DASHBOARD_ALERT_REPORT_FAIL = (
+@@ -436,39 +432,7 @@
+     "The QR is shown only on this Mac. The Companion sends the pairing "
+     "token back the first time it pairs &ndash; after that, the Hub "
+     "remembers the device by a key, not the token."
+-)
+-
+-
+-# ── Configuration panel (backlog #261) ──────────────────────────────
+-#
+-# Copy for the /config surface. Reads + edits the customer-safe settings
+-# file at ~/.ostler/config/config.yaml. Secrets are never rendered.
+-
+-
+-CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
+-CONFIG_HEADING = "Configuration"
+-CONFIG_SUBTITLE = (
+-    'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
+-)
+-CONFIG_SECTION_READONLY = "Other settings"
+-CONFIG_READONLY_INTRO = (
+-    "These settings are shown for reference and are not editable here. "
+-    "Anything sensitive is shown only as set or not set, never as its "
+-    "value."
+ )
+-CONFIG_BTN_SAVE = "Save changes"
+-CONFIG_BTN_SAVING = "Saving..."
+-CONFIG_OPT_UNSET = "Not set"
+-CONFIG_SECRET_SET = "Set"
+-CONFIG_SECRET_UNSET = "Not set"
+-CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
+-CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
+-CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
+-CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
+-CONFIG_META_FOOTER = (
+-    "Settings are stored locally in your config file. Nothing is sent "
+-    "anywhere. Secrets are never shown on this page."
+-)
+ 
+ 
+ # ── Console banner (printed at __main__) ─────────────────────────────
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
+@@ -37,7 +37,6 @@
+     collect_full_snapshot,
+     SystemSnapshot,
+     detect_ostler_prefix,
+-    is_native_deployment,
+     is_ostler_container,
+     EXPECTED_OSTLER_SERVICES,
+ )
+@@ -77,22 +76,6 @@
+     DASHBOARD_HELP_PARAGRAPH_1,
+     DASHBOARD_HELP_PARAGRAPH_2,
+     DASHBOARD_HOSTNAME_UNKNOWN,
+-    CONFIG_BTN_SAVE,
+-    CONFIG_BTN_SAVING,
+-    CONFIG_ERR_LOAD_PREFIX,
+-    CONFIG_ERR_SAVE_GENERIC,
+-    CONFIG_ERR_SAVE_PREFIX,
+-    CONFIG_HEADING,
+-    CONFIG_META_FOOTER,
+-    CONFIG_OPT_UNSET,
+-    CONFIG_READONLY_INTRO,
+-    CONFIG_SAVED,
+-    CONFIG_SECRET_SET,
+-    CONFIG_SECRET_UNSET,
+-    CONFIG_SECTION_READONLY,
+-    CONFIG_SUBTITLE,
+-    CONFIG_TITLE_TAG,
+-    DASHBOARD_CONFIG_LINK,
+     DASHBOARD_IMPORT_EVERNOTE_LINK,
+     DASHBOARD_PAIR_IOS_LINK,
+     DASHBOARD_LAST_CHECKED_JUST_NOW,
+@@ -297,24 +280,12 @@
+     # Check Docker containers. Detect the deployment's prefix dynamically
+     # so we work for productised installs (ostler-) and the dev compose
+     # setup (pwg-).
+-    #
+-    # This Docker-container management section is suppressed on the
+-    # productised native build. NOTE: native does NOT mean "no Docker" --
+-    # the data tier (Qdrant/Oxigraph/Redis) runs in containers via Colima
+-    # even here. The section is suppressed because its criticals are framed
+-    # around Docker *Desktop* container management, which is false-RED on a
+-    # healthy native install (Colima, not Docker Desktop) and leads the
+-    # support-email report. A genuine data-tier outage is already surfaced
+-    # by the per-service unreachable rules, so suppressing this loses no
+-    # coverage. The legacy Docker-Desktop dev deploy opts back in via
+-    # OSTLER_DEPLOY_MODE=docker. See is_native_deployment().
+-    docker_deployment = not is_native_deployment()
+     prefix = detect_ostler_prefix(snapshot)
+     expected_containers = {f"{prefix}{svc}" for svc in EXPECTED_OSTLER_SERVICES}
+     running_names = {c.name for c in snapshot.docker_containers if c.state == "running"}
+     missing = expected_containers - running_names
+ 
+-    if docker_deployment and not snapshot.docker_containers:
++    if not snapshot.docker_containers:
+         findings.append({
+             "severity": "critical",
+             "title": DOCKER_NOT_RUNNING_TITLE,
+@@ -323,7 +294,7 @@
+             "fix_command": DOCKER_NOT_RUNNING_FIX_COMMAND,
+             "risk": "low",
+         })
+-    elif docker_deployment and missing:
++    elif missing:
+         for name in missing:
+             findings.append({
+                 "severity": "critical",
+@@ -784,7 +755,7 @@
+            (assets/ostler.css on os001) shifted to a dark-mode admin
+            dashboard palette. Components: header, status-grid + status-card,
+            findings + fix-box, disk + model lists, chat. */
+-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
++        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+ 
+         :root {{
+             --ostler-ink: #0d0b08;
+@@ -1312,7 +1283,7 @@
+         </div>
+ 
+         <div class="meta" id="metaInfo">
+-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
++            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}
+         </div>
+     </div>
+ 
+@@ -1577,7 +1548,7 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>{HISTORY_TITLE_TAG}</title>
+     <style>
+-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
++        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+         :root {{
+             --ostler-ink: #0d0b08;
+             --ostler-panel: #1a1612;
+@@ -1809,45 +1780,6 @@
+     return result
+ 
+ 
+-@app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
+-async def api_wiki_duplicates_decision(request: Request):
+-    """Record a duplicate-contact decision (#3 duplicates UX).
+-
+-    The CM044 "Possible duplicate contacts" page renders Combine /
+-    Not-the-same buttons that POST here. We append the decision to
+-    ``duplicates.yaml`` in the corrections dir; the CM041 resolver enacts
+-    it on the next sweep (merge = forced union, distinct = permanent
+-    never-merge) and the page reads it back to stop re-nagging. Thin HTTP
+-    plumbing only -- schema + write live in ``duplicate_decision.py``.
+-    """
+-    from duplicate_decision import (
+-        ValidationError as _DupError,
+-        validate_payload as _validate,
+-        write_decision as _write,
+-    )
+-
+-    try:
+-        body = await request.json()
+-    except Exception as exc:
+-        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+-
+-    try:
+-        normalised = _validate(body)
+-    except _DupError as exc:
+-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+-
+-    try:
+-        result = _write(normalised)
+-    except _DupError as exc:
+-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+-    except Exception as exc:
+-        return JSONResponse(
+-            {"error": f"could not record decision: {exc}"}, status_code=500,
+-        )
+-
+-    return result
+-
+-
+ @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
+ async def api_chat_token(request: Request):
+     """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
+@@ -1906,19 +1838,8 @@
+ from proxy import register_proxy_routes
+ 
+ _registered_proxy_paths = register_proxy_routes(app)
+-
+-
+-def _config_section_order() -> tuple[str, ...]:
+-    """Section display order for the Configuration panel.
+-
+-    Imported lazily from ``config_panel`` so the panel's renderer and
+-    its backend share one source of truth for section ordering.
+-    """
+-    from config_panel import SECTION_ORDER
+ 
+-    return SECTION_ORDER
+ 
+-
+ # ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
+ #
+ # Four routes back the Doctor "Import Evernote" surface. All four
+@@ -1956,7 +1877,7 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>{EVERNOTE_TITLE_TAG}</title>
+     <style>
+-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
++        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+         :root {{
+             --ostler-ink: #0d0b08;
+             --ostler-ink-deep: #07060a;
+@@ -2150,7 +2071,6 @@
+         }}
+         .status-pill.running {{ background: var(--yellow); }}
+         .status-pill.succeeded {{ background: var(--green); }}
+-        .status-pill.partial {{ background: #d4a052; }}
+         .status-pill.failed {{ background: var(--red); }}
+         .status-meta {{
+             font-family: var(--font-mono);
+@@ -2297,12 +2217,9 @@
+             if (state.exit_code !== null && state.exit_code !== undefined) {{
+                 bits.push('exit ' + state.exit_code);
+             }}
+-            // A degraded ('partial') import carries a human-facing note
+-            // explaining what landed and what is pending; surface it.
+-            if (state.note) bits.push(state.note);
+             statusMeta.textContent = bits.join(' \\u00b7 ');
+ 
+-            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
++            if (status === 'succeeded' || status === 'failed') {{
+                 resetRow.style.display = '';
+                 stopPolling();
+                 // One last tail fetch to make sure the final output is shown.
+@@ -2561,7 +2478,7 @@
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>{PAIR_IOS_TITLE_TAG}</title>
+     <style>
+-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
++        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+         :root {{
+             --ostler-ink: #0d0b08;
+             --ostler-ink-deep: #07060a;
+@@ -2971,550 +2888,45 @@
+     )
+ 
+ 
+-# ── Configuration panel (backlog #261) ───────────────────────────────
+-#
+-# A view-and-edit surface for the customer-safe Ostler settings file at
+-# ``~/.ostler/config/config.yaml``. Read-first: it always renders the
+-# current config; a small strict whitelist of fields (channel toggles,
+-# model, schedule times, privacy default) can be edited and written
+-# back. Secrets are never rendered -- secret-looking keys show
+-# "set"/"not set" only. See ``config_panel.py`` for the schema, the
+-# whitelist, validation, and the atomic write.
++@app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
++async def api_wiki_duplicates_decision(request: Request):
++    """Record a duplicate-contact decision (#3 duplicates UX).
+ 
+-
+-def _render_config_page() -> str:
+-    """Render the Doctor Configuration panel.
+-
+-    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+-    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+-    visually next to ``/doctor`` and ``/pair-ios``.
+-
+-    The form is built client-side from the ``/api/v1/config`` view
+-    model, so the whitelist and current values live in one place
+-    (``config_panel.py``) and the page stays in sync automatically.
++    The CM044 "Possible duplicate contacts" page renders Combine /
++    Not-the-same buttons that POST here. We append the decision to
++    ``duplicates.yaml`` in the corrections dir; the CM041 resolver enacts
++    it on the next sweep (merge = forced union, distinct = permanent
++    never-merge) and the page reads it back to stop re-nagging. Thin HTTP
++    plumbing only -- schema + write live in ``duplicate_decision.py``.
+     """
+-    return f"""<!DOCTYPE html>
+-<html lang="en">
+-<head>
+-    <meta charset="UTF-8">
+-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+-    <title>{CONFIG_TITLE_TAG}</title>
+-    <style>
+-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+-        :root {{
+-            --ostler-ink: #0d0b08;
+-            --ostler-ink-deep: #07060a;
+-            --ostler-panel: #1a1612;
+-            --ostler-panel-elev: #221c16;
+-            --ostler-chassis: #ECE8DD;
+-            --ostler-accent: #C84545;
+-            --ostler-accent-hover: #D76060;
+-            --ostler-accent-warm: #E26A6A;
+-            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+-            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+-            --text: var(--ostler-chassis);
+-            --text-secondary: rgba(236, 232, 221, 0.74);
+-            --text-muted: rgba(236, 232, 221, 0.50);
+-            --text-faint: rgba(236, 232, 221, 0.32);
+-            --green: #5cb579;
+-            --red: #d96666;
+-            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+-            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+-            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+-            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+-        }}
+-        * {{ margin:0; padding:0; box-sizing:border-box; }}
+-        body {{
+-            font-family: var(--font-body);
+-            font-size: 15px;
+-            line-height: 1.5;
+-            background: var(--ostler-ink);
+-            color: var(--text);
+-            min-height: 100vh;
+-            padding: 2.5rem 1.75rem;
+-            -webkit-font-smoothing: antialiased;
+-            -moz-osx-font-smoothing: grayscale;
+-        }}
+-        a {{ color: var(--ostler-accent); text-decoration: none; }}
+-        a:hover {{ color: var(--ostler-accent-hover); }}
+-        .container {{ max-width: 640px; margin: 0 auto; }}
+-        h1 {{
+-            font-family: var(--font-display);
+-            font-size: 1.7rem;
+-            font-weight: 600;
+-            letter-spacing: -0.02em;
+-            margin-bottom: 0.3rem;
+-        }}
+-        .subtitle {{
+-            font-family: var(--font-mono);
+-            font-size: 0.78rem;
+-            letter-spacing: 0.04em;
+-            color: var(--text-muted);
+-            margin-bottom: 2rem;
+-        }}
+-        .subtitle a {{ color: var(--text-muted); }}
+-        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+-        .section-title {{
+-            font-family: var(--font-display);
+-            font-size: 0.72rem;
+-            text-transform: uppercase;
+-            letter-spacing: 0.18em;
+-            color: var(--text-muted);
+-            margin-bottom: 0.85rem;
+-            font-weight: 500;
+-        }}
+-        .panel {{
+-            background: var(--ostler-panel);
+-            border: 1px solid var(--ostler-hairline-faint);
+-            border-radius: 12px;
+-            padding: 1.4rem 1.5rem;
+-            box-shadow: var(--shadow-soft);
+-            margin-bottom: 1.4rem;
+-        }}
+-        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+-        .field {{
+-            display: flex;
+-            align-items: flex-start;
+-            justify-content: space-between;
+-            gap: 1rem;
+-            padding: 0.85rem 0;
+-            border-top: 1px solid var(--ostler-hairline-faint);
+-        }}
+-        .field:first-of-type {{ border-top: none; padding-top: 0.2rem; }}
+-        .field-text {{ flex: 1 1 auto; min-width: 0; }}
+-        .field-label {{
+-            font-family: var(--font-display);
+-            font-weight: 500;
+-            font-size: 0.95rem;
+-            color: var(--text);
+-        }}
+-        .field-help {{
+-            font-size: 0.8rem;
+-            color: var(--text-muted);
+-            margin-top: 0.2rem;
+-            line-height: 1.5;
+-        }}
+-        .field-control {{ flex: 0 0 auto; padding-top: 0.1rem; }}
+-        select {{
+-            font-family: var(--font-body);
+-            font-size: 0.88rem;
+-            color: var(--text);
+-            background: var(--ostler-ink-deep);
+-            border: 1px solid var(--ostler-hairline-soft);
+-            border-radius: 8px;
+-            padding: 0.45rem 0.7rem;
+-            min-width: 9rem;
+-        }}
+-        input[type="time"] {{
+-            font-family: var(--font-mono);
+-            font-size: 0.88rem;
+-            color: var(--text);
+-            background: var(--ostler-ink-deep);
+-            border: 1px solid var(--ostler-hairline-soft);
+-            border-radius: 8px;
+-            padding: 0.4rem 0.6rem;
+-            color-scheme: dark;
+-        }}
+-        select:focus, input:focus {{
+-            outline: none;
+-            border-color: var(--ostler-accent);
+-        }}
+-        /* Toggle switch */
+-        .toggle {{
+-            position: relative;
+-            display: inline-block;
+-            width: 44px;
+-            height: 26px;
+-        }}
+-        .toggle input {{ opacity: 0; width: 0; height: 0; }}
+-        .toggle .slider {{
+-            position: absolute;
+-            cursor: pointer;
+-            inset: 0;
+-            background: var(--ostler-ink-deep);
+-            border: 1px solid var(--ostler-hairline-soft);
+-            border-radius: 999px;
+-            transition: background 0.18s, border-color 0.18s;
+-        }}
+-        .toggle .slider::before {{
+-            content: "";
+-            position: absolute;
+-            height: 18px;
+-            width: 18px;
+-            left: 3px;
+-            top: 3px;
+-            background: var(--text-secondary);
+-            border-radius: 50%;
+-            transition: transform 0.18s, background 0.18s;
+-        }}
+-        .toggle input:checked + .slider {{
+-            background: var(--ostler-accent);
+-            border-color: var(--ostler-accent);
+-        }}
+-        .toggle input:checked + .slider::before {{
+-            transform: translateX(18px);
+-            background: var(--ostler-chassis);
+-        }}
+-        .toggle input:focus-visible + .slider {{
+-            outline: 2px solid var(--ostler-accent);
+-            outline-offset: 2px;
+-        }}
+-        .readonly-row {{
+-            display: flex;
+-            align-items: baseline;
+-            justify-content: space-between;
+-            gap: 1rem;
+-            padding: 0.5rem 0;
+-            border-top: 1px solid var(--ostler-hairline-faint);
+-            font-size: 0.86rem;
+-        }}
+-        .readonly-row:first-of-type {{ border-top: none; }}
+-        .readonly-key {{
+-            font-family: var(--font-mono);
+-            color: var(--text-secondary);
+-            word-break: break-all;
+-        }}
+-        .readonly-val {{
+-            font-family: var(--font-mono);
+-            color: var(--text-muted);
+-            text-align: right;
+-        }}
+-        .badge {{
+-            font-family: var(--font-display);
+-            font-size: 0.68rem;
+-            text-transform: uppercase;
+-            letter-spacing: 0.1em;
+-            padding: 0.15rem 0.5rem;
+-            border-radius: 999px;
+-            border: 1px solid var(--ostler-hairline-soft);
+-            color: var(--text-muted);
+-        }}
+-        .badge.set {{ color: var(--green); border-color: rgba(92,181,121,0.4); }}
+-        .badge.secret {{ color: var(--text-faint); }}
+-        .button-row {{
+-            display: flex;
+-            gap: 0.6rem;
+-            align-items: center;
+-            margin-top: 1.1rem;
+-            flex-wrap: wrap;
+-        }}
+-        button.primary {{
+-            font-family: var(--font-display);
+-            font-weight: 500;
+-            font-size: 0.85rem;
+-            padding: 0.65rem 1.5rem;
+-            border-radius: 999px;
+-            cursor: pointer;
+-            background: var(--ostler-accent);
+-            color: var(--ostler-chassis);
+-            border: 1px solid var(--ostler-accent);
+-            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+-        }}
+-        button.primary:hover {{
+-            background: var(--ostler-accent-hover);
+-            transform: translateY(-1px);
+-        }}
+-        button.primary:disabled {{
+-            background: var(--ostler-panel);
+-            color: var(--text-muted);
+-            border-color: var(--ostler-hairline-faint);
+-            cursor: not-allowed;
+-            transform: none;
+-        }}
+-        button:focus-visible {{
+-            outline: 2px solid var(--ostler-accent);
+-            outline-offset: 2px;
+-        }}
+-        .config-path {{
+-            font-family: var(--font-mono);
+-            font-size: 0.78rem;
+-            color: var(--text-faint);
+-        }}
+-        .banner {{
+-            padding: 0.75rem 1rem;
+-            border-radius: 8px;
+-            font-size: 0.86rem;
+-            margin-bottom: 1.2rem;
+-            border-left: 3px solid var(--red);
+-            background: rgba(217, 102, 102, 0.10);
+-            color: var(--text);
+-            display: none;
+-        }}
+-        .banner.visible {{ display: block; }}
+-        .banner.ok {{
+-            border-left-color: var(--green);
+-            background: rgba(92, 181, 121, 0.10);
+-        }}
+-        .empty {{ color: var(--text-muted); font-size: 0.86rem; }}
+-        .meta-bottom {{
+-            font-family: var(--font-mono);
+-            font-size: 0.72rem;
+-            letter-spacing: 0.04em;
+-            color: var(--text-faint);
+-            margin-top: 2rem;
+-            padding-top: 1.1rem;
+-            border-top: 1px solid var(--ostler-hairline-faint);
+-            line-height: 1.55;
+-        }}
+-        @media (max-width: 720px) {{
+-            body {{ padding: 1.4rem 1rem; }}
+-            h1 {{ font-size: 1.4rem; }}
+-            .field {{ flex-direction: column; }}
+-            .field-control {{ align-self: flex-start; }}
+-        }}
+-    </style>
+-</head>
+-<body>
+-    <div class="container">
+-        <h1>{CONFIG_HEADING}</h1>
+-        <div class="subtitle">
+-            {CONFIG_SUBTITLE}
+-        </div>
++    from duplicate_decision import (
++        ValidationError as _DupError,
++        validate_payload as _validate,
++        write_decision as _write,
++    )
+ 
+-        <div id="statusBanner" class="banner"></div>
++    try:
++        body = await request.json()
++    except Exception as exc:
++        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+ 
+-        <div id="editPanels"></div>
+-
+-        <div id="readonlyPanel" class="panel" style="display:none">
+-            <div class="section-title">{CONFIG_SECTION_READONLY}</div>
+-            <p>{CONFIG_READONLY_INTRO}</p>
+-            <div id="readonlyRows"></div>
+-        </div>
+-
+-        <div class="button-row">
+-            <button type="button" class="primary" id="saveBtn">{CONFIG_BTN_SAVE}</button>
+-            <span class="config-path" id="configPath"></span>
+-        </div>
+-
+-        <div class="meta-bottom">
+-            {CONFIG_META_FOOTER}
+-        </div>
+-    </div>
+-
+-    <script>
+-    (function() {{
+-        const editPanels = document.getElementById('editPanels');
+-        const readonlyPanel = document.getElementById('readonlyPanel');
+-        const readonlyRows = document.getElementById('readonlyRows');
+-        const saveBtn = document.getElementById('saveBtn');
+-        const statusBanner = document.getElementById('statusBanner');
+-        const configPathEl = document.getElementById('configPath');
+-
+-        const SECTION_ORDER = {json.dumps(list(_config_section_order()))};
+-
+-        function showStatus(msg, ok) {{
+-            statusBanner.textContent = msg;
+-            statusBanner.className = 'banner visible' + (ok ? ' ok' : '');
+-        }}
+-        function clearStatus() {{
+-            statusBanner.className = 'banner';
+-            statusBanner.textContent = '';
+-        }}
+-
+-        function esc(s) {{
+-            const d = document.createElement('div');
+-            d.textContent = s == null ? '' : String(s);
+-            return d.innerHTML;
+-        }}
+-
+-        function controlFor(field) {{
+-            const id = 'cfg_' + field.key;
+-            if (field.kind === 'bool') {{
+-                const checked = field.value === true ? ' checked' : '';
+-                return '<label class="toggle"><input type="checkbox" id="' + id +
+-                    '" data-key="' + esc(field.key) + '" data-kind="bool"' + checked +
+-                    '><span class="slider"></span></label>';
+-            }}
+-            if (field.kind === 'enum') {{
+-                let opts = '';
+-                if (field.value == null) {{
+-                    opts += '<option value="" selected>{CONFIG_OPT_UNSET}</option>';
+-                }}
+-                field.choices.forEach(function(c) {{
+-                    const sel = (c === field.value) ? ' selected' : '';
+-                    opts += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
+-                }});
+-                return '<select id="' + id + '" data-key="' + esc(field.key) +
+-                    '" data-kind="enum">' + opts + '</select>';
+-            }}
+-            if (field.kind === 'time') {{
+-                const v = field.value == null ? '' : esc(field.value);
+-                return '<input type="time" id="' + id + '" data-key="' + esc(field.key) +
+-                    '" data-kind="time" value="' + v + '">';
+-            }}
+-            return '';
+-        }}
+-
+-        function renderEdit(view) {{
+-            editPanels.innerHTML = '';
+-            const bySection = {{}};
+-            view.editable.forEach(function(f) {{
+-                (bySection[f.section] = bySection[f.section] || []).push(f);
+-            }});
+-            SECTION_ORDER.forEach(function(section) {{
+-                const fields = bySection[section];
+-                if (!fields || !fields.length) return;
+-                let rows = '';
+-                fields.forEach(function(f) {{
+-                    rows += '<div class="field"><div class="field-text">' +
+-                        '<div class="field-label">' + esc(f.label) + '</div>' +
+-                        '<div class="field-help">' + esc(f.help) + '</div></div>' +
+-                        '<div class="field-control">' + controlFor(f) + '</div></div>';
+-                }});
+-                editPanels.insertAdjacentHTML('beforeend',
+-                    '<div class="panel"><div class="section-title">' + esc(section) +
+-                    '</div>' + rows + '</div>');
+-            }});
+-        }}
+-
+-        function renderReadonly(view) {{
+-            if (!view.read_only || !view.read_only.length) {{
+-                readonlyPanel.style.display = 'none';
+-                return;
+-            }}
+-            readonlyPanel.style.display = '';
+-            let rows = '';
+-            view.read_only.forEach(function(r) {{
+-                let right;
+-                if (r.is_secret) {{
+-                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
+-                    right = '<span class="' + cls + '">' +
+-                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
+-                }} else {{
+-                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
+-                }}
+-                rows += '<div class="readonly-row"><span class="readonly-key">' +
+-                    esc(r.key) + '</span>' + right + '</div>';
+-            }});
+-            readonlyRows.innerHTML = rows;
+-        }}
+-
+-        function render(view) {{
+-            renderEdit(view);
+-            renderReadonly(view);
+-            configPathEl.textContent = view.config_path || '';
+-        }}
+-
+-        function load() {{
+-            fetch('/api/v1/config')
+-                .then(function(r) {{ return r.json(); }})
+-                .then(function(view) {{
+-                    if (view.error) {{ showStatus(view.error, false); return; }}
+-                    clearStatus();
+-                    render(view);
+-                }})
+-                .catch(function(err) {{
+-                    showStatus('{CONFIG_ERR_LOAD_PREFIX}' + err, false);
+-                }});
+-        }}
+-
+-        function collectUpdates() {{
+-            const updates = {{}};
+-            const controls = editPanels.querySelectorAll('[data-key]');
+-            controls.forEach(function(el) {{
+-                const key = el.getAttribute('data-key');
+-                const kind = el.getAttribute('data-kind');
+-                if (kind === 'bool') {{
+-                    updates[key] = el.checked;
+-                }} else {{
+-                    const v = el.value;
+-                    if (v !== '') updates[key] = v;
+-                }}
+-            }});
+-            return updates;
+-        }}
+-
+-        function save() {{
+-            const updates = collectUpdates();
+-            const label = saveBtn.textContent;
+-            saveBtn.disabled = true;
+-            saveBtn.textContent = '{CONFIG_BTN_SAVING}';
+-            fetch('/api/v1/config', {{
+-                method: 'POST',
+-                headers: {{'Content-Type': 'application/json'}},
+-                body: JSON.stringify(updates)
+-            }})
+-                .then(function(r) {{ return r.json().then(function(b) {{ return {{ok: r.ok, body: b}}; }}); }})
+-                .then(function(res) {{
+-                    if (!res.ok) {{
+-                        showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
+-                        return;
+-                    }}
+-                    render(res.body);
+-                    showStatus('{CONFIG_SAVED}', true);
+-                }})
+-                .catch(function(err) {{
+-                    showStatus('{CONFIG_ERR_SAVE_PREFIX}' + err, false);
+-                }})
+-                .finally(function() {{
+-                    saveBtn.disabled = false;
+-                    saveBtn.textContent = label;
+-                }});
+-        }}
+-
+-        saveBtn.addEventListener('click', save);
+-        load();
+-    }})();
+-    </script>
+-</body>
+-</html>"""
+-
+-
+-@app.get("/config", response_class=HTMLResponse)
+-async def config_page():
+-    """Render the Doctor Configuration panel (backlog #261)."""
+-    return HTMLResponse(_render_config_page())
+-
+-
+-@app.get("/api/v1/config", response_class=JSONResponse)
+-async def api_config_get():
+-    """Return the current config view model.
+-
+-    Secrets are never included as values: secret-looking keys are
+-    reported presence-only (set / not set). See ``config_panel.py``.
+-    """
+-    from config_panel import ConfigError as _ConfigError, read_config_view
+-
+     try:
+-        return JSONResponse(read_config_view(), status_code=200)
+-    except _ConfigError as exc:
++        normalised = _validate(body)
++    except _DupError as exc:
+         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+ 
+-
+-@app.post("/api/v1/config", response_class=JSONResponse)
+-async def api_config_post(request: Request):
+-    """Validate + persist a whitelist of safe config edits.
+-
+-    Same cross-site guard as the pair-regenerate route: reject any POST
+-    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
+-    malicious local tab cannot mutate the customer's config under them.
+-    Only whitelisted, non-secret fields are writable; everything else is
+-    rejected by ``config_panel.write_config``.
+-    """
+-    sec_fetch_site = request.headers.get("sec-fetch-site")
+-    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+-        return JSONResponse(
+-            {"error": "Cross-site request refused"},
+-            status_code=403,
+-        )
+-
+-    from config_panel import ConfigError as _ConfigError, write_config
+-
+     try:
+-        body = await request.json()
++        result = _write(normalised)
++    except _DupError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+     except Exception as exc:
+         return JSONResponse(
+-            {"error": f"invalid JSON: {exc}"}, status_code=400,
++            {"error": f"could not record decision: {exc}"}, status_code=500,
+         )
+ 
+-    try:
+-        view = write_config(body)
+-    except _ConfigError as exc:
+-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++    return result
+ 
+-    return JSONResponse(view, status_code=200)
+ 
+-
+ # ── Main ─────────────────────────────────────────────────────────────
+ 
+ 
+--- a/README.md
++++ b/README.md
+@@ -1,100 +1,86 @@
+-# Ostler Doctor
++# vendor/doctor/
+ 
+-Local-only diagnostic dashboard for Ostler installations. Checks your services, identifies problems, tells you how to fix them. Runs entirely on your Mac – no cloud, no external calls, no data leaves your machine.
++Vendored copy of the Ostler Doctor diagnostic dashboard. Source of truth:
++`HR015 - Gaming PC/doctor/agent/`.
+ 
+-> **Note for i18n:** The word "Doctor" is the English label. Translated labels should fit the same meaning (someone who diagnoses and helps fix issues) in the target language.
++## Why vendor
+ 
+-## What it does
++`install.sh` probes `${SCRIPT_DIR}/doctor/agent/` at section 3.14h
++(`Setting up Ostler Doctor diagnostic dashboard`, install.sh:4794) and
++stages those files into `${OSTLER_DIR}/doctor/` so the launchd-managed
++service can `python3 -m doctor.agent.web_ui` against the customer's
++local Hub at `http://127.0.0.1:8089/doctor`. When `SCRIPT_DIR` is the
++installer `.app`'s `Contents/Resources/`, `doctor/agent/` must travel
++inside the bundle.
+ 
+-- **Web dashboard** at http://localhost:8089/doctor – live system status, diagnostic findings, copy-paste fix commands
+-- **First-run wizard** – guides new users through Docker, Ollama, and service setup step by step
+-- **Built-in diagnostic rules** – 30+ rules covering installation, runtime, performance, and configuration issues
+-- **Auto-refresh** – polls every 10 seconds, shows last-checked indicator, toggle on/off
+-- **Send by Email** – one-click button pre-populates your email client with the diagnostic report, ready to send to support
+-- **History** – tracks last 10 snapshots, shows how services changed over time
+-- **Copy-to-clipboard** – every fix command has a one-click copy button
++The pre-vendor behaviour was a soft skip: if the bundled copy was
++missing and `PWG_DOCTOR_REPO` was not set, install.sh continued without
++the dashboard. That left customers without the iframe target that
++`Ostler.app`'s Pairing tab points at (`http://127.0.0.1:8089/pair-ios`,
++served by Doctor's `web_ui.py`). Vendoring makes the customer install
++path self-contained for the v1.0 launch.
+ 
+-## What it does NOT do
++## What is included
+ 
+-- Access your knowledge graph, conversations, contacts, or any personal data
+-- Execute commands on your machine (it suggests, you run)
+-- Send any data to any server, ever
+-- Require an internet connection
++Pure-Python runtime under `agent/`. Listed in `install.sh:4802` as the
++`${SCRIPT_DIR}/doctor/agent/` payload.
+ 
+-## Quick start
++- `__init__.py` (empty, marks the package)
++- `.env.example` (DOCTOR_PORT, GATEWAY_URL, OLLAMA_URL placeholders)
++- `apple_style.css` (Dashboard chrome)
++- `banner_copy.py`, `diagnostic_copy.py`, `first_run_copy.py`,
++  `web_ui_copy.py`, `dashboard_components.py` (Rule 0.9 catalogues +
++  rendered components)
++- `chat_token.py` (chat-token mint endpoint for the iOS companion)
++- `pair_status.py` (paircode + QR status the `/pair-ios` route serves)
++- `imessage_tcc_posture.py` (iMessage Full Disk Access posture marker
++  reader, rendered by `dashboard_components.py`)
++- `diagnostic_rules.py`, `status_collector.py` (the diagnostic engine)
++- `first_run.py` (first-launch wizard panels)
++- `import_evernote.py`, `import_evernote_runner.py` (Evernote ingest UI
++  + runner; gated by user action, safe to ship dormant)
++- `proxy.py`, `wiki_correct.py` (wiki proxy + corrector)
++- `web_ui.py` (FastAPI entry point: `/doctor`, `/pair-ios`,
++  `/api/v1/pair/status`, `/api/v1/pair/regenerate`, panels)
++- `requirements.txt` (`fastapi`, `uvicorn`, `httpx`, `pyyaml`, `qrcode`)
+ 
+-```bash
+-# Install dependencies
+-cd doctor/agent
+-pip install -r requirements.txt
++Last synced from HR015 `doctor/agent/` @ `f085fc0b` (the pairing-panel
++and iMessage TCC posture features that landed upstream after the prior
++~2026-05-27 sync). A vendor-freshness guard,
++`vendor/doctor/test_vendor_pairing.sh`, fails the build if a future
++re-sync drops the `/pair-ios` route or `pair_status.py`.
+ 
+-# Run
+-python web_ui.py
++## What is NOT included
+ 
+-# Open in browser
+-open http://localhost:8089/doctor
+-```
++- `test_*.py` (10 files, CI-only) - never installed on a customer Mac.
++- `__pycache__/`, `.pytest_cache/` - build artefacts.
+ 
+-The Ostler installer sets this up automatically with a launchd plist.
++## How to sync
+ 
+-## Architecture
++Until `make vendor-sync` lands (post-launch chore), syncing is manual:
+ 
+-```
+-User's Mac Mini
+-┌─────────────────────────────┐
+-│ Web Dashboard :8089/doctor  │
+-│   ├─ Status Collector       │
+-│   ├─ Rules Engine           │
+-│   ├─ First-Run Wizard       │
+-│   └─ "Send by Email" button │
+-│                             │
+-│ Collects (local only):      │
+-│   ✓ Docker status           │
+-│   ✓ Ollama models           │
+-│   ✓ Disk usage              │
+-│   ✓ Service health          │
+-│   ✓ Network checks          │
+-└─────────────────────────────┘
++```bash
++SRC="$HOME/Documents/Projects/HR015 - Gaming PC/doctor/agent"
++DST="$(git rev-parse --show-toplevel)/vendor/doctor/agent"
+ 
+-Nothing is sent anywhere automatically.
+-If you choose "Send by Email" the report
+-opens in your mail client for you to send.
++rm -rf "$DST"
++mkdir -p "$DST"
++for f in "$SRC"/*.py "$SRC"/*.css "$SRC"/*.txt "$SRC"/.env.example; do
++  [ -f "$f" ] || continue
++  base=$(basename "$f")
++  case "$base" in
++    test_*) continue ;;
++  esac
++  cp "$f" "$DST/"
++done
+ ```
+ 
+-## Files
++Open a PR titled `chore(vendor): sync doctor agent from HR015 @ <sha>`
++and link the upstream commit.
+ 
+-| File | Purpose |
+-|------|---------|
+-| `web_ui.py` | Dashboard rendering + API endpoints |
+-| `status_collector.py` | Collects system diagnostics |
+-| `diagnostic_rules.py` | 30+ rules organised by category |
+-| `first_run.py` | First-run setup wizard (4-step guided flow) |
+-| `dashboard_components.py` | Reusable HTML components |
+-| `apple_style.css` | Apple Diagnostic-inspired dark theme |
+-| `test_diagnostic_rules.py` | 41 tests for the rules engine |
+-| `test_first_run.py` | 7 tests for the setup wizard |
++## Rule
+ 
+-(`safe_endpoints.py`, the cloud-era HTTP API, has been archived along
+-with the rest of the cloud component and is not shipped.)
+-
+-## Configuration
+-
+-| Variable | Default | Description |
+-|----------|---------|-------------|
+-| `DOCTOR_PORT` | 8089 | Web dashboard port |
+-| `QDRANT_URL` | http://localhost:6333 | Qdrant health check |
+-| `OXIGRAPH_URL` | http://localhost:7878 | Oxigraph health check |
+-| `REDIS_URL` | redis://localhost:6379 | Redis connectivity |
+-| `OLLAMA_URL` | http://localhost:11434 | Ollama API |
+-| `DOCTOR_SUPPORT_EMAIL` | support@creativemachines.ai | Pre-populated in "Send by Email" button |
+-
+-## Tests
+-
+-```bash
+-cd doctor/agent
+-python -m pytest test_diagnostic_rules.py test_first_run.py -v
+-```
+-
+-## Cloud version (future)
+-
+-A cloud-backed version that uses Claude Haiku to generate natural-language support answers was designed but archived pre-launch. The archive is internal-only and not shipped with the installer.
++HR015 is the upstream source of truth. Bug fixes go upstream first
++(in `HR015 - Gaming PC/doctor/agent/`), then flow into this vendored
++copy via a sync PR. Never edit `vendor/doctor/agent/` in place to fix
++a bug - the next sync wipes it.

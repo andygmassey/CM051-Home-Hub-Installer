@@ -1,0 +1,49 @@
+--- a/src/filters.py
++++ b/src/filters.py
+@@ -79,8 +79,11 @@
+         'nike.com',
+         'adidas.com',
+         'uniqlo.com',
+-        'lanecrawford.com', 'email.lanecrawford.com',
+-        'newbalance.co.uk', 'email.newbalance.co.uk',
++        # NOTE: operator-specific retailer entries were stripped on
++        # 2026-05-26 during the CX-83 vendoring. CM021 upstream has
++        # them baked in; the productised customer build keeps the
++        # list operator-agnostic. v1.1 task: rebase CM021 upstream
++        # to make these locale-driven instead of hard-coded.
+         'saintandsofia.com',
+         'net-a-porter.com',
+         'mrporter.com',
+--- a/src/parsers/__init__.py
++++ b/src/parsers/__init__.py
+@@ -1,30 +1,15 @@
+ """
+ Email parsers for various formats.
+-
+-Supported formats:
+-- MBOX: Gmail exports (MboxParser, FastMboxParser)
+-- EMLX: Apple Mail local storage (EmlxParser)
+-- EML: iCloud Mail exports, standard RFC 822 (EmlParser)
+ """
+ 
+ from .mbox_parser import MboxParser, ParsedEmail, parse_mbox
+ from .fast_mbox_parser import FastMboxParser, FastEmail, fast_parse
+-from .emlx_parser import EmlxParser, EmlxMetadata, find_apple_mail_root, list_apple_mail_accounts
+-from .eml_parser import EmlParser
+ 
+ __all__ = [
+-    # MBOX parsers
+     'MboxParser',
+     'ParsedEmail',
+     'parse_mbox',
+     'FastMboxParser',
+     'FastEmail',
+     'fast_parse',
+-    # EMLX parser (Apple Mail local)
+-    'EmlxParser',
+-    'EmlxMetadata',
+-    'find_apple_mail_root',
+-    'list_apple_mail_accounts',
+-    # EML parser (iCloud Mail exports)
+-    'EmlParser',
+ ]

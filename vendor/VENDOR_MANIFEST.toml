@@ -1,0 +1,260 @@
+# VENDOR_MANIFEST.toml -- the source of truth for vendor freshness.
+# ================================================================
+#
+# The Ostler DMG ships VENDORED copies of upstream source trees. A bug fixed
+# in a source repo does NOT reach the customer until it is grafted into the
+# matching vendor/ tree. This manifest pins, per vendored tree, exactly which
+# source commit the vendor was last grafted from, plus a checked-in patch
+# capturing the legitimate vendor-side divergence (en-dash house style, extra
+# imports, vendor-only files). scripts/verify_vendor_fresh.sh enforces it;
+# scripts/sync_vendor.sh updates it.
+#
+# Schema (flat, no nested tables -- a tiny dependency-free reader parses it):
+#   [[tree]]
+#   name            = "cm041/contact_syncer"   # logical id + path under vendor/divergences
+#   vendor_path     = "vendor/cm041/contact_syncer"
+#   source_repo     = "$CM041"  or an absolute path  (env placeholders expand)
+#   source_path     = "contact_syncer"          # subpath within the source repo ("." = root)
+#   pinned_sha      = "<full sha>"  |  "WORKING_TREE" (non-git source, e.g. CM019)
+#   divergence_patch= "vendor/divergences/<id>.patch"   # "" if byte-identical
+#   exclude         = ["tests/", "__pycache__/"]        # source paths NOT vendored
+#   verify          = "full" | "skip"           # "skip" => WARN, never silently pass
+#   note            = "free text"
+#
+# Source repo paths are overridable for operators/CI:
+#   - per tree:  VENDOR_SRC_CM041_CONTACT_SYNCER=/path
+#   - per base:  export CM041=/path  (the $CM041 placeholder below expands)
+#
+# Pinned SHAs captured 2026-06-16 from the local source checkouts:
+#   CM041  8b3135cc   CM048  659d6639   CM021  0d73344f
+#   CM024  43d6c5da   HR015  1bb0a0db   CM019  (not a git repo)
+
+# ---- CM041 (PWG People Graph) sub-trees ----------------------------------
+
+[[tree]]
+name             = "cm041/contact_syncer"
+vendor_path      = "vendor/cm041/contact_syncer"
+source_repo      = "$CM041"
+source_path      = "contact_syncer"
+pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
+divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+note             = "Legit divergence: identity_resolver.normalise import + en-dash house style. Pending graft #49 (observed_at) will land in CM041 then must be synced here."
+
+[[tree]]
+name             = "cm041/identity_resolver"
+vendor_path      = "vendor/cm041/identity_resolver"
+source_repo      = "$CM041"
+source_path      = "identity_resolver"
+pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
+divergence_patch = "vendor/divergences/cm041_identity_resolver.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+note             = "Vendor-only file canonical_name.py (vendor-side graft) captured in the patch."
+
+[[tree]]
+name             = "cm041/meeting_syncer"
+vendor_path      = "vendor/cm041/meeting_syncer"
+source_repo      = "$CM041"
+source_path      = "meeting_syncer"
+pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
+divergence_patch = "vendor/divergences/cm041_meeting_syncer.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+
+[[tree]]
+name             = "cm041/assistant_api"
+vendor_path      = "vendor/cm041/assistant_api"
+source_repo      = "$CM041"
+source_path      = "assistant_api"
+pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
+divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
+verify           = "full"
+note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh (vendor-side grafts). ical-server.py local additions captured in patch."
+
+# ---- CM048 (Conversation Processing) -------------------------------------
+
+[[tree]]
+name             = "cm048_pipeline"
+vendor_path      = "vendor/cm048_pipeline"
+source_repo      = "$CM048"
+source_path      = "."
+pinned_sha       = "659d66393b755834b62559771d095d0702172ba9"
+divergence_patch = ""
+exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
+verify           = "skip"
+note             = "The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full."
+
+# ---- CM021 (Email Intelligence) ------------------------------------------
+
+[[tree]]
+name             = "cm021"
+vendor_path      = "vendor/cm021"
+source_repo      = "$CM021"
+source_path      = "."
+pinned_sha       = "0d73344fcb5c9ed068c10f0cf65829b2f06c554d"
+divergence_patch = "vendor/divergences/cm021.patch"
+exclude          = ["tests/", "docs/", "scripts/", "config/", "prompts/", "templates/", "output/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "CHANGELOG.md", "EMAIL_INTELLIGENCE_BRIEF.md", "MBOX_ANALYSIS.md", "README.md", "test_vendor_import.sh"]
+verify           = "full"
+
+# ---- HR015 (Gaming PC) sub-trees -----------------------------------------
+
+[[tree]]
+name             = "ostler_fda"
+vendor_path      = "vendor/ostler_fda"
+source_repo      = "$HR015/ostler_fda"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/ostler_fda.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
+verify           = "full"
+note             = "Pending graft #191 (createdAt) will land in HR015 ostler_fda then must be synced here."
+
+[[tree]]
+name             = "ostler_security"
+vendor_path      = "vendor/ostler_security"
+source_repo      = "$HR015/ostler_security"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/ostler_security.patch"
+exclude          = ["tests/", "bin/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+
+[[tree]]
+name             = "legal"
+vendor_path      = "vendor/legal"
+source_repo      = "$HR015/legal"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/legal.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+
+[[tree]]
+name             = "doctor"
+vendor_path      = "vendor/doctor"
+source_repo      = "$HR015/doctor"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/doctor.patch"
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh"]
+verify           = "full"
+
+[[tree]]
+name             = "email_ingest"
+vendor_path      = "vendor/email_ingest"
+source_repo      = "$HR015/email-ingest"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/email_ingest.patch"
+exclude          = ["tests/", "__pycache__/"]
+verify           = "full"
+
+[[tree]]
+name             = "imessage_bridge"
+vendor_path      = "vendor/imessage_bridge"
+source_repo      = "$HR015/imessage-bridge"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/imessage_bridge.patch"
+exclude          = ["tests/", "__pycache__/", "test_vendor_import.sh"]
+verify           = "full"
+
+[[tree]]
+name             = "hub_power"
+vendor_path      = "vendor/hub_power"
+source_repo      = "$HR015/hub-power"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = "vendor/divergences/hub_power.patch"
+exclude          = ["tests/", "__pycache__/"]
+verify           = "full"
+
+[[tree]]
+name             = "LICENSES"
+vendor_path      = "vendor/LICENSES"
+source_repo      = "$HR015/LICENSES"
+source_path      = "."
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+divergence_patch = ""
+exclude          = ["__pycache__/"]
+verify           = "full"
+note             = "Byte-identical to source -- no divergence patch needed."
+
+# ---- Trees that cannot be SHA-verified (recorded for provenance) ---------
+
+[[tree]]
+name             = "cm019_preferences"
+vendor_path      = "vendor/cm019_preferences"
+source_repo      = "$CM019/02 - Code"
+source_path      = "."
+pinned_sha       = "WORKING_TREE"
+divergence_patch = ""
+exclude          = ["__pycache__/"]
+verify           = "skip"
+note             = "CM019 is NOT a git repo -- no commit to pin. Vendor sub-tree (services/, ontology/) also remaps non-trivially into '02 - Code/'. Verification deferred until CM019 is gitified or the layout is reconciled. WARN, never silent pass."
+
+[[tree]]
+name             = "cm024_knowledge"
+vendor_path      = "vendor/cm024_knowledge"
+source_repo      = "$CM024"
+source_path      = "ostler_knowledge"
+pinned_sha       = "43d6c5da8268e7cb2c51855ff54913b9469e36ac"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "skip"
+note             = "Canonical source is GitHub andygmassey/evernote-knowledge (per vendor/README.md), NOT this local CM024 checkout; package was also renamed (source ostler_knowledge/ -> vendor src/). Structural remap. WARN until the GitHub canonical is wired as the source and the rename is encoded."
+
+# ---- Conversation-feed bundles: upstream not on disk ---------------------
+# email_source / imessage_source / whatsapp_source / spoken_source.
+# Their git history (CM051 commit bf9106e: "align test scrub with HR015
+# af4ae65 (vendor==source)") names HR015 as upstream, but the matching HR015
+# source dir was removed/relocated since af4ae65 and is not on disk. Recorded
+# so the gate WARNs (never silently passes) until the HR015 source path is
+# recovered.
+
+[[tree]]
+name             = "email_source"
+vendor_path      = "vendor/email_source"
+source_repo      = "$HR015/email-source"
+source_path      = "."
+pinned_sha       = "af4ae65"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/"]
+verify           = "skip"
+note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+
+[[tree]]
+name             = "imessage_source"
+vendor_path      = "vendor/imessage_source"
+source_repo      = "$HR015/imessage-source"
+source_path      = "."
+pinned_sha       = "af4ae65"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/"]
+verify           = "skip"
+note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+
+[[tree]]
+name             = "whatsapp_source"
+vendor_path      = "vendor/whatsapp_source"
+source_repo      = "$HR015/whatsapp-source"
+source_path      = "."
+pinned_sha       = "af4ae65"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/"]
+verify           = "skip"
+note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+
+[[tree]]
+name             = "spoken_source"
+vendor_path      = "vendor/spoken_source"
+source_repo      = "$HR015/spoken-source"
+source_path      = "."
+pinned_sha       = "af4ae65"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/"]
+verify           = "skip"
+note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
