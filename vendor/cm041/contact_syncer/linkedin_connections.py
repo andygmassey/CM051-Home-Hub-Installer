@@ -520,11 +520,17 @@ def upsert_qdrant(
 
     # Parse connected_on date for last_contact
     last_contact = connected_on or now_iso[:10]
+    # observed_at records the REAL source date (the LinkedIn connection
+    # date) so the wiki's time-ordered views show when the relationship
+    # was actually established, not the install/import date. Only set it
+    # when connected_on genuinely parsed -- never fabricate a date.
+    observed_at = ""
     try:
         # LinkedIn format: "31 Dec 2025"
         dt = datetime.strptime(connected_on, "%d %b %Y")
         last_contact = dt.strftime("%Y-%m-%d")
         last_contact_ts = int(dt.timestamp())
+        observed_at = dt.strftime("%Y-%m-%dT00:00:00+00:00")
     except (ValueError, TypeError):
         last_contact_ts = int(time.time())
 
@@ -547,6 +553,8 @@ def upsert_qdrant(
         "created_at": now_iso,
         "updated_at": now_iso,
     }
+    if observed_at:
+        payload["observed_at"] = observed_at
 
     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
     point = PointStruct(

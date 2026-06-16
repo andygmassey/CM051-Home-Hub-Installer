@@ -1160,8 +1160,18 @@ def ingest_people_to_qdrant() -> dict:
     try:
         rows = _sparql_query(
             "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-            "SELECT ?person ?name WHERE {\n"
+            "SELECT ?person ?name ?createdAt WHERE {\n"
             "  ?person a pwg:Person ; pwg:displayName ?name .\n"
+            # pwg:createdAt holds the REAL historical contact-creation date
+            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
+            # written by contact_syncer) -- distinct from the install-time
+            # stamp. The time-ordered wiki views (year pages, person
+            # timeline, "recent") key on observed_at/created_at, so without
+            # surfacing this here the FDA-sourced people are ABSENT from
+            # those views, not just stamped wrong. OPTIONAL: a person with
+            # no real date stays omitted from time views (consistent with
+            # the iCloud-contacts decision) -- we never fabricate now().
+            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
             "}"
         )
     except Exception as exc:
@@ -1170,13 +1180,27 @@ def ingest_people_to_qdrant() -> dict:
         )
         return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
 
-    # Dedup by person URI; keep the first display name seen.
+    # Dedup by person URI; keep the first display name seen. A person may
+    # produce more than one row when they carry several pwg:createdAt
+    # values (the contact_syncer "update if earlier" path can leave more
+    # than one historic date across re-runs), so track the EARLIEST real
+    # createdAt across all rows for the URI -- the time-ordered views
+    # anchor on the person's true first-seen date rather than whichever row
+    # SPARQL returned first.
     persons: dict[str, str] = {}
+    created_by_uri: dict[str, str] = {}
     for r in rows:
         uri = (r.get("person", {}).get("value") or "").strip()
         name = (r.get("name", {}).get("value") or "").strip()
-        if uri and name and uri not in persons:
+        if not uri or not name:
+            continue
+        if uri not in persons:
             persons[uri] = name
+        created_at = (r.get("createdAt", {}).get("value") or "").strip()
+        if created_at:
+            existing = created_by_uri.get(uri)
+            if not existing or created_at < existing:
+                created_by_uri[uri] = created_at
 
     if not persons:
         logger.info("People sweep: no pwg:Person in Oxigraph to populate.")
@@ -1187,22 +1211,34 @@ def ingest_people_to_qdrant() -> dict:
     try:
         _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, _PEOPLE_VECTOR_DIM)
         vectors = _ollama_embed_batch([name for _, name in items])
-        points = [
-            {
+        points = []
+        for (uri, name), vec in zip(items, vectors):
+            payload = {
+                "display_name": name,
+                "person_uri": uri,
+                # Both ical-server read paths filter on this exact
+                # value; without it the iOS People tab sees nothing.
+                "contact_type": "person",
+            }
+            # Surface the REAL pwg:createdAt date so the time-ordered wiki
+            # views (year pages, person timeline, "recent people") can
+            # place this person. The CM044 readers key on observed_at
+            # first, then fall back to created_at, so write BOTH from the
+            # same real date. Omit entirely when there is no real date: a
+            # no-real-date FDA person stays absent from time views rather
+            # than being stamped with a fabricated now() (consistent with
+            # the iCloud-contacts decision).
+            real_created = created_by_uri.get(uri)
+            if real_created:
+                payload["observed_at"] = real_created
+                payload["created_at"] = real_created
+            points.append({
                 # Stable id: same person URI re-upserts in place across
                 # re-installs rather than duplicating the row.
                 "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"person|{uri}")),
                 "vector": vec,
-                "payload": {
-                    "display_name": name,
-                    "person_uri": uri,
-                    # Both ical-server read paths filter on this exact
-                    # value; without it the iOS People tab sees nothing.
-                    "contact_type": "person",
-                },
-            }
-            for (uri, name), vec in zip(items, vectors)
-        ]
+                "payload": payload,
+            })
         sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
     except Exception as exc:
         logger.warning(

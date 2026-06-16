@@ -287,6 +287,14 @@ def upsert_qdrant(
     last_contact = friended_on or now_iso[:10]
     last_contact_ts = timestamp or int(time.time())
 
+    # observed_at records the REAL source date (the Facebook friendship
+    # date) so the wiki's time-ordered views show when the relationship
+    # was actually established, not the install/import date. Only set it
+    # when friended_on is present -- never fabricate a date.
+    observed_at = ""
+    if friended_on:
+        observed_at = f"{friended_on}T00:00:00+00:00"
+
     payload = {
         "person_id": person_id,
         "person_uri": person_uri,
@@ -306,6 +314,8 @@ def upsert_qdrant(
         "created_at": now_iso,
         "updated_at": now_iso,
     }
+    if observed_at:
+        payload["observed_at"] = observed_at
 
     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
     point = PointStruct(
