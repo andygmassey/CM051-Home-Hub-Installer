@@ -262,6 +262,10 @@ DASHBOARD_PAIR_IOS_LINK = (
     ' &ndash; <a href="/pair-ios">Pair iOS device</a>'
 )
 
+DASHBOARD_CONFIG_LINK = (
+    ' &ndash; <a href="/config">Configuration</a>'
+)
+
 DASHBOARD_ALERT_REPORT_FAIL = (
     "Could not prepare report. Please try again."
 )
@@ -432,6 +436,38 @@ PAIR_IOS_META_FOOTER_HTML = (
     "The QR is shown only on this Mac. The Companion sends the pairing "
     "token back the first time it pairs &ndash; after that, the Hub "
     "remembers the device by a key, not the token."
+)
+
+
+# ── Configuration panel (backlog #261) ──────────────────────────────
+#
+# Copy for the /config surface. Reads + edits the customer-safe settings
+# file at ~/.ostler/config/config.yaml. Secrets are never rendered.
+
+
+CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
+CONFIG_HEADING = "Configuration"
+CONFIG_SUBTITLE = (
+    'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
+)
+CONFIG_SECTION_READONLY = "Other settings"
+CONFIG_READONLY_INTRO = (
+    "These settings are shown for reference and are not editable here. "
+    "Anything sensitive is shown only as set or not set, never as its "
+    "value."
+)
+CONFIG_BTN_SAVE = "Save changes"
+CONFIG_BTN_SAVING = "Saving..."
+CONFIG_OPT_UNSET = "Not set"
+CONFIG_SECRET_SET = "Set"
+CONFIG_SECRET_UNSET = "Not set"
+CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
+CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
+CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
+CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
+CONFIG_META_FOOTER = (
+    "Settings are stored locally in your config file. Nothing is sent "
+    "anywhere. Secrets are never shown on this page."
 )
 
 
