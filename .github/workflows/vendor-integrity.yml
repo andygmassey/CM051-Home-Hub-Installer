@@ -22,6 +22,7 @@ on:
       - 'tests/test_vendor_fresh_gate.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
+      - 'tests/test_doctor_web_ui_strings_complete.py'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
   push:
@@ -72,6 +73,15 @@ jobs:
 
       - name: Vendor entrypoint-resolution guard
         run: python3 tests/test_vendor_entrypoint_resolution.py
+
+      # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
+      # constants `from web_ui_copy` -- the import-resolution guard above
+      # checks the MODULE resolves but NOT the NAMES, so a stale string
+      # catalogue (web_ui.py bumped, web_ui_copy.py left behind) sailed
+      # through and crash-looped Doctor on the .154 walk -> Hub
+      # People/Timeline LOAD FAILED. This closes that gap.
+      - name: Doctor web_ui string-catalogue completeness guard
+        run: python3 -m unittest tests.test_doctor_web_ui_strings_complete -v
 
       - name: Browser-history vendor regression
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
