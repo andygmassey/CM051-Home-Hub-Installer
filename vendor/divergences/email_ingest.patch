@@ -1,0 +1,88 @@
+--- a/bin/email-ingest-tick.sh
++++ b/bin/email-ingest-tick.sh
+@@ -28,7 +28,7 @@
+ #   OSTLER_DIR         (default ~/.ostler) -- artefact root
+ #   OSTLER_HOME        (default $HOME)     -- ostler-fda needs this
+ #   OSTLER_PYTHON      (default python3)   -- python interpreter
+-#   OSTLER_BACKFILL_DAYS (default 365)     -- first-tick clamp
++#   OSTLER_BACKFILL_DAYS (default 1825)    -- first-tick clamp
+ #   OSTLER_BACKFILL_CHUNK_DAYS (default 30) -- backward-sweep chunk
+ #
+ # British English throughout.
+@@ -37,14 +37,18 @@
+ 
+ # Resolve config with sensible defaults so a manual run (e.g. "what
+ # would the LaunchAgent do?") works without env-var ceremony.
+-# 365 + 30 ship the two-checkpoint progressive-backfill model from
+-# Andy's #48 review (2026-05-01): tick 1 covers the last year;
+-# subsequent ticks crawl 30 more days back per tick until the whole
+-# mailbox is covered, then forward-only forever.
++# CX-94 (DMG #48g, 2026-05-29): default backfill bumped from 365
++# (1 year) to 1825 (5 years) so a fresh customer install lands on
++# a wiki populated with their full multi-year correspondence.
++# The 30-day chunk size is unchanged -- the apple_mail_mbox reader
++# stream-processes per chunk + the LaunchAgent's checkpoint state
++# survives across ticks so a slow first-run progressively catches
++# up over a handful of hourly ticks rather than blocking the
++# install on the full multi-year scan.
+ OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
+ OSTLER_HOME="${OSTLER_HOME:-$HOME}"
+ OSTLER_PYTHON="${OSTLER_PYTHON:-python3}"
+-OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-365}"
++OSTLER_BACKFILL_DAYS="${OSTLER_BACKFILL_DAYS:-1825}"
+ OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
+ 
+ # Where to drop the hourly mbox. One file per hour means a re-run
+--- a/INSTALL_SNIPPET.sh
++++ b/INSTALL_SNIPPET.sh
+@@ -94,10 +94,22 @@
+ esc_home="$(printf '%s' "$EMAIL_INGEST_HOME_RESOLVED"        | sed 's/[&/\]/\\&/g')"
+ esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/g')"
+ 
++# OSTLER_VENV_PYTHON: absolute path to a python3 binary that has
++# `ostler_fda` installed (created by CM051 install.sh's email-ingest
++# venv setup). If unset/empty we fall back to the literal "python3"
++# so the tick script's PATH-based default kicks in; the operator
++# will see a ModuleNotFoundError at runtime, but the LaunchAgent
++# itself still loads, which is the degraded-but-survivable shape.
++# Reference: CX-17 (retest 2026-05-23) — system python lookup was
++# the launch-blocker root cause.
++OSTLER_PYTHON_PATH_VALUE="${OSTLER_VENV_PYTHON:-python3}"
++esc_python="$(printf '%s' "$OSTLER_PYTHON_PATH_VALUE"        | sed 's/[&/\]/\\&/g')"
++
+ sed \
+     -e "s/OSTLER_BIN/$esc_bin/g" \
+     -e "s/OSTLER_HOME/$esc_home/g" \
+     -e "s/OSTLER_LOGS/$esc_logs/g" \
++    -e "s/OSTLER_PYTHON_PATH/$esc_python/g" \
+     "$EMAIL_INGEST_PLIST_SRC" > "$RENDERED_PLIST"
+ 
+ chmod 0644 "$RENDERED_PLIST"
+--- a/launchd/com.creativemachines.ostler.email-ingest.plist
++++ b/launchd/com.creativemachines.ostler.email-ingest.plist
+@@ -78,6 +78,25 @@
+     <string>OSTLER_LOGS/email-ingest.err</string>
+ 
+     <!--
++        OSTLER_PYTHON tells the tick script which python interpreter
++        to use. Without this, the tick falls through to PATH-`python3`
++        which on a stock macOS is /Library/Developer/CommandLineTools
++        /usr/bin/python3 -- the system python with no installed
++        site-packages. The tick imports ostler_fda.apple_mail_mbox,
++        which only exists inside the dedicated email-ingest venv
++        created by CM051's install.sh. Failing to set this caused
++        the LAUNCH-BLOCKER ModuleNotFoundError seen in retest #N
++        (2026-05-23). The installer renders OSTLER_PYTHON_PATH ->
++        ${OSTLER_DIR}/services/email-ingest/.venv/bin/python3 at
++        install time.
++    -->
++    <key>EnvironmentVariables</key>
++    <dict>
++        <key>OSTLER_PYTHON</key>
++        <string>OSTLER_PYTHON_PATH</string>
++    </dict>
++
++    <!--
+         Background priority. Email ingest is not latency-critical;
+         we don't want it competing with foreground work for I/O on
+         the user's daily-driver Mac.

@@ -1,0 +1,141 @@
+--- a/consent_cli.py
++++ b/consent_cli.py
+@@ -40,6 +40,7 @@
+     from legal import (  # noqa: E402
+         ARTICLE_9_EU_CONSENT,
+         EU_VOICE_SPEAKER_ID_CONSENT,
++        THIRD_PARTY_DATA_NOTICE,
+         WHATSAPP_UNOFFICIAL_RISK_CONSENT,
+     )
+ except ImportError as exc:  # pragma: no cover - smoke
+@@ -54,6 +55,13 @@
+     ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
+     WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
+     EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
++    # #659: the third-party-data acknowledgement install.sh records for
++    # every region (tickbox id "third_party_data_personal_records"). It was
++    # defined in legal/consent_strings.py and called by install.sh but never
++    # registered here, so argparse `choices` rejected it (exit 2) and the
++    # consent was silently dropped (Doctor showed it "missing" despite an
++    # active accept).
++    THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
+ }
+ 
+ 
+--- a/database.py
++++ b/database.py
+@@ -25,16 +25,23 @@
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# Try to import SQLCipher; fall back to plain sqlite3 with a warning
++# Try to import SQLCipher; fall back to plain sqlite3 with a warning.
++#
++# Migrated from pysqlcipher3 to sqlcipher3 on 2026-05-22 (Studio retest
++# #9 launch blocker). pysqlcipher3 1.2.0 (last PyPI release 2020-03)
++# is abandoned and its setup.py never finds the SQLCipher headers on
++# macOS, so the install always failed at encrypt_db. sqlcipher3 0.6.2
++# ships prebuilt arm64/x86_64 wheels; dbapi2 import shape is
++# identical, so this is a one-line swap.
+ try:
+-    from pysqlcipher3 import dbapi2 as sqlcipher
++    from sqlcipher3 import dbapi2 as sqlcipher
+     HAS_SQLCIPHER = True
+ except ImportError:
+     sqlcipher = None  # type: ignore
+     HAS_SQLCIPHER = False
+     logger.warning(
+-        "pysqlcipher3 not installed. Databases will NOT be encrypted. "
+-        "Install with: pip install pysqlcipher3"
++        "sqlcipher3 not installed. Databases will NOT be encrypted. "
++        "Install with: pip install sqlcipher3"
+     )
+ 
+ 
+@@ -80,15 +87,15 @@
+         # pattern the 2026-04-28 fixes removed from CM048 and the
+         # other two downstream services -- propagating the same
+         # discipline here so the security boundary holds even when
+-        # ostler_security itself is the package missing pysqlcipher3.
++        # ostler_security itself is the package missing sqlcipher3.
+         # If the operator genuinely wants plaintext, they should call
+         # this function with encryption_key_hex=None.
+         raise RuntimeError(
+-            f"pysqlcipher3 is not installed but an encryption key was "
++            f"sqlcipher3 is not installed but an encryption key was "
+             f"provided for {db_path!r}. Refusing to open the database "
+             f"in plaintext mode -- this would silently leak encrypted-"
+             f"-at-rest expectations. Install with: "
+-            f"pip install pysqlcipher3, or call get_db_connection "
++            f"pip install sqlcipher3, or call get_db_connection "
+             f"without an encryption_key_hex if plaintext is intentional."
+         )
+ 
+@@ -118,7 +125,7 @@
+         or SQLCipher not available).
+     """
+     if not HAS_SQLCIPHER:
+-        logger.error("Cannot migrate: pysqlcipher3 not installed")
++        logger.error("Cannot migrate: sqlcipher3 not installed")
+         return False
+ 
+     db_path = Path(db_path)
+--- a/migrate_dbs_cli.py
++++ b/migrate_dbs_cli.py
+@@ -119,8 +119,8 @@
+ 
+     if not HAS_SQLCIPHER:
+         print(
+-            "ERROR: pysqlcipher3 is not installed in this Python environment. "
+-            "Install it first: pip install pysqlcipher3",
++            "ERROR: sqlcipher3 is not installed in this Python environment. "
++            "Install it first: pip install sqlcipher3",
+             file=sys.stderr,
+         )
+         return 2
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -17,19 +17,25 @@
+ # Pinned versions for supply chain safety (AV-7). Update deliberately,
+ # not automatically. pyproject is now the source of truth for installs.
+ #
+-# pysqlcipher3 is intentionally an OPTIONAL dependency. The SQLCipher
+-# C library has to be installed via Homebrew first, which we cannot
+-# guarantee in every test/dev environment. ostler_security.database
+-# already handles pysqlcipher3 being absent gracefully (HAS_SQLCIPHER
+-# flag, falls through to plain sqlite3 with a warning). For full
+-# encryption support, install with `pip install ostler_security[encrypted]`.
++# sqlcipher3 is intentionally an OPTIONAL dependency. We don't want
++# to drag in a 3 MB native wheel in dev/test environments that don't
++# need encryption. ostler_security.database already handles sqlcipher3
++# being absent gracefully (HAS_SQLCIPHER flag, falls through to plain
++# sqlite3 with a warning). For full encryption support, install with
++# `pip install ostler_security[encrypted]`.
++#
++# Migrated from pysqlcipher3 to sqlcipher3 on 2026-05-22 (Studio
++# retest #9 launch blocker). pysqlcipher3 1.2.0 (last PyPI release
++# 2020-03) was unbuildable on macOS regardless of Python version --
++# its setup.py ignored every build-flag env var. sqlcipher3 0.6.2
++# ships prebuilt arm64/x86_64 macOS wheels.
+ dependencies = [
+     "cryptography>=46.0.1,<47.0.0",
+ ]
+ 
+ [project.optional-dependencies]
+ encrypted = [
+-    "pysqlcipher3>=1.2.0,<2.0.0",
++    "sqlcipher3>=0.6.0,<0.7.0",
+ ]
+ # OPF (OpenAI Privacy Filter) runtime – pulled in only when the
+ # caller actually needs the privacy classifier. Switched from
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -3,7 +3,7 @@
+ # TODO: add --require-hashes once hash values are captured for all platforms
+ 
+ cryptography>=46.0.1,<47.0.0
+-pysqlcipher3>=1.2.0,<2.0.0
++sqlcipher3>=0.6.0,<0.7.0
+ 
+ # OPF (OpenAI Privacy Filter) runtime. Optional install group in
+ # pyproject.toml ([opf]); listed here so a plain `pip install -r

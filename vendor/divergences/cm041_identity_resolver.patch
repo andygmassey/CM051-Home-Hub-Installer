@@ -1,0 +1,663 @@
+--- a/batch_resolver.py
++++ b/batch_resolver.py
+@@ -1,4 +1,4 @@
+-"""Batch identity resolver – detects and merges duplicate person nodes.
++"""Batch identity resolver — detects and merges duplicate person nodes.
+ 
+ Scans all person nodes in Oxigraph (and optionally Qdrant), applies multiple
+ detection strategies with confidence scoring, and merges confirmed duplicates.
+@@ -66,7 +66,7 @@
+     "fuzzy_levenshtein_max_distance": 2,
+     # Phone normalisation
+     "default_country_code": 852,
+-    # Common free email domains – too generic to count as a signal for fuzzy matching
++    # Common free email domains — too generic to count as a signal for fuzzy matching
+     "common_email_domains": {
+         "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
+         "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
+@@ -74,10 +74,10 @@
+         "protonmail.com", "proton.me", "163.com", "qq.com",
+     },
+     # Minimum Jaro-Winkler score between names for phone match to be high-confidence.
+-    # Below this, shared phone is likely an office switchboard – downgrade to review.
++    # Below this, shared phone is likely an office switchboard — downgrade to review.
+     "phone_name_similarity_threshold": 0.6,
+     # Minimum Jaro-Winkler score between names for email match to stay high-confidence.
+-    # Below this, shared email is likely an inherited/shared account – downgrade to review.
++    # Below this, shared email is likely an inherited/shared account — downgrade to review.
+     "email_name_similarity_threshold": 0.7,
+     # BW-2 correction loop: operator merge/distinct decisions live here as
+     # duplicates.yaml. distinct pairs are a permanent never-merge block;
+@@ -244,7 +244,7 @@
+ 
+     If the display names are very different (JW < threshold), this may be an
+     inherited or shared email account (e.g. deceased spouse's email used by
+-    surviving partner) – downgrade confidence to send to review instead of
++    surviving partner) — downgrade confidence to send to review instead of
+     auto-merge.
+     """
+     email_index: Dict[str, List[str]] = defaultdict(list)
+@@ -291,7 +291,7 @@
+     """Strategy 3: Shared phone number after normalisation (confidence 0.95).
+ 
+     If the names are very different (JW < threshold), this is likely a shared
+-    office/switchboard number – downgrade confidence to send to review instead
++    office/switchboard number — downgrade confidence to send to review instead
+     of auto-merge.
+     """
+     phone_index: Dict[str, List[str]] = defaultdict(list)
+@@ -770,7 +770,7 @@
+         f"  ?entry <{PWG}aboutPerson> <{discard_uri}> }}"
+     )
+ 
+-    # 5. Merge scalar properties – copy from discard where keep is missing
++    # 5. Merge scalar properties — copy from discard where keep is missing
+     scalar_props = [
+         "displayName", "givenName", "familyName", "organization",
+         "jobTitle", "relationship", "howWeMet", "notes", "birthday",
+@@ -808,7 +808,7 @@
+     try:
+         from qdrant_client import QdrantClient
+     except ImportError:
+-        logger.warning("qdrant-client not installed – skipping Qdrant merge")
++        logger.warning("qdrant-client not installed — skipping Qdrant merge")
+         return
+ 
+     client = QdrantClient(url=qdrant_url, timeout=30)
+@@ -970,6 +970,62 @@
+                 action.keep_uri, action.discard_uri,
+             )
+             action.executed = True
++
++    def converge(
++        self,
++        max_rounds: int = 10,
++        backup_dir: str = "./backups",
++        dry_run: bool = False,
++    ) -> List[ResolverReport]:
++        """Whole-graph consolidation to a fixpoint.
++
++        ``detect()`` is already a whole-graph pass, but it merges each URI at
++        most once per run (the ``seen_uris`` guard in detect()), so a cluster
++        of 3+ nodes for the same person only partially collapses in a single
++        round -- the remainder spills to ``needs_review``. The under-merge seen
++        on a one-shot install is that gap: cross-source twins that never shared
++        an incremental batch are only reconciled by a whole-graph pass, and a
++        single pass leaves transitive 3+ clusters half-merged.
++
++        Running detect()->execute() repeatedly closes it: after each round the
++        merged-away nodes drop out (``_merge_oxigraph`` writes ``mergedInto``
++        and removes their Person type, so detect()'s filter skips them) and the
++        surviving node inherits their identifiers (step 1 of the merge), so the
++        next round picks up the transitive matches. The loop terminates when a
++        round yields zero auto-merges -- the fixpoint.
++
++        This is PURE ORCHESTRATION over the existing detect/execute. It adds NO
++        new rule, threshold, or flag and changes no individual merge decision
++        (the BW-2 hard-conflict veto and duplicates.yaml decisions still apply
++        unchanged, every round). It only ensures the existing decisions are
++        applied across the WHOLE graph after all sources have hydrated, instead
++        of per-source / per-batch only.
++
++        Returns the per-round reports (round 0 first). With ``dry_run`` it runs
++        a single detect() and does not execute, so a caller can preview the
++        first round's auto-merges without mutating the graph.
++        """
++        rounds: List[ResolverReport] = []
++        if dry_run:
++            rounds.append(self.detect())
++            return rounds
++        for i in range(max_rounds):
++            report = self.detect()
++            rounds.append(report)
++            n = len(report.auto_merges)
++            logger.info(
++                "Converge round %d: %d auto-merge(s), %d need review (of %d persons)",
++                i + 1, n, len(report.needs_review), report.total_persons,
++            )
++            if n == 0:
++                break
++            self.execute(report, backup_dir=backup_dir)
++        else:
++            logger.warning(
++                "Converge hit max_rounds=%d without a fixpoint; remaining "
++                "auto-merges left for the next run / review", max_rounds,
++            )
++        return rounds
+ 
+     def close(self) -> None:
+         self._client.close()
+@@ -980,7 +1036,7 @@
+ def format_report_yaml(report: ResolverReport) -> str:
+     """Format the report as YAML-like text for human review."""
+     lines = [
+-        "# Identity Resolver – Dry Run Report",
++        "# Identity Resolver — Dry Run Report",
+         f"# Generated: {datetime.now(timezone.utc).isoformat()}",
+         "",
+         f"total_persons: {report.total_persons}",
+@@ -1032,7 +1088,7 @@
+ 
+ def main() -> None:
+     parser = argparse.ArgumentParser(
+-        description="Batch identity resolver – detect and merge duplicate person nodes",
++        description="Batch identity resolver — detect and merge duplicate person nodes",
+     )
+     parser.add_argument(
+         "--dry-run", action="store_true", default=True,
+@@ -1071,6 +1127,17 @@
+         help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
+     )
+     parser.add_argument(
++        "--converge", action="store_true",
++        help="Whole-graph consolidation: loop detect+merge to a fixpoint so "
++             "transitive 3+ node clusters fully collapse (run once after all "
++             "sources have hydrated). Requires --execute. Pure orchestration: "
++             "changes no merge rule or threshold.",
++    )
++    parser.add_argument(
++        "--max-rounds", type=int, default=10,
++        help="Safety cap on --converge rounds (default 10)",
++    )
++    parser.add_argument(
+         "--verbose", "-v", action="store_true",
+         help="Enable verbose logging",
+     )
+@@ -1094,6 +1161,29 @@
+     )
+ 
+     try:
++        # Whole-graph convergence path: loop to a fixpoint, then report the
++        # final round. Used by the post-hydrate install pass so transitive
++        # clusters collapse fully rather than spilling to review.
++        if args.converge and args.execute:
++            rounds = resolver.converge(
++                max_rounds=args.max_rounds, backup_dir=args.backup_dir,
++            )
++            total_merged = sum(len(r.auto_merges) for r in rounds)
++            report = rounds[-1]
++            print(f"\n{'=' * 70}")
++            print("IDENTITY RESOLVER - WHOLE-GRAPH CONVERGENCE")
++            print(f"{'=' * 70}")
++            print(f"Rounds run:        {len(rounds)}")
++            print(f"Total merged:      {total_merged}")
++            print(f"Final persons:     {report.total_persons}")
++            print(f"Remaining review:  {len(report.needs_review)}")
++            yaml_report = format_report_yaml(report)
++            with open(args.output, "w", encoding="utf-8") as f:
++                f.write(yaml_report)
++            print(f"Report written to {args.output}")
++            print(f"\n{'=' * 70}")
++            return
++
+         report = resolver.detect()
+ 
+         print(f"\n{'=' * 70}")
+@@ -1156,7 +1246,7 @@
+             with open(args.output, "w", encoding="utf-8") as f:
+                 f.write(yaml_report)
+         else:
+-            print("\nDry run – no changes made. Use --execute to apply merges.")
++            print("\nDry run — no changes made. Use --execute to apply merges.")
+ 
+     finally:
+         resolver.close()
+--- a/resolver.py
++++ b/resolver.py
+@@ -4,7 +4,7 @@
+ import logging
+ import uuid
+ from datetime import datetime, timezone
+-from typing import Optional
++from typing import Dict, List, Optional
+ 
+ import httpx
+ 
+@@ -18,10 +18,30 @@
+ 
+ class IdentityResolver:
+ 
+-    def __init__(self, oxigraph_url: str, default_country_code: int = 852):
++    def __init__(
++        self,
++        oxigraph_url: str,
++        default_country_code: int = 852,
++        timeout: float = 30.0,
++    ):
+         self.oxigraph_url = oxigraph_url.rstrip("/")
+         self.default_country_code = default_country_code
+-        self._client = httpx.Client(timeout=30.0)
++        self._client = httpx.Client(timeout=timeout)
++        # Resolution health counters - the safety net's audit trail (#660).
++        # Every contact that hits a resolver query error degrades to "create
++        # as new" (a recoverable possible-duplicate) rather than being dropped
++        # by the import loop, and is counted here so a degraded import can
++        # never silently pass for a clean one. See log_resolution_summary().
++        self.stats: dict[str, int] = {"total": 0, "degraded": 0}
++        # CX-126 (#660): in-memory fuzzy-candidate index. _fuzzy_match used to
++        # re-run an unbounded "SELECT all persons" against Oxigraph for EVERY
++        # contact -> O(n^2). On a real LinkedIn export (3,810 connections) that
++        # query measured 8s at ~900 people and grows super-linearly, so the
++        # install crawled then effectively hung. We now load the candidate set
++        # ONCE (lazily, on the first fuzzy match) and append each newly-created
++        # person via register_person(), so matching is in-memory (microseconds)
++        # with identical results. None = not yet loaded.
++        self._fuzzy_candidates: Optional[List[Dict[str, Optional[str]]]] = None
+ 
+     # -- Public API -----------------------------------------------------------
+ 
+@@ -39,11 +59,53 @@
+                 pass False to avoid false matches via first-name collisions
+                 (e.g. "Sandra Andersson" matching "Sandra Stewart" via
+                 Jaro-Winkler prefix bonus on "Sand").
++
++        Safety net (#660): this method NEVER raises a resolver-query error. If
++        any tier's Oxigraph call fails (a 30s timeout against a large graph, a
++        transport error, or a 5xx), the contact degrades to a "new" result so
++        the caller still creates a person node - a recoverable possible-
++        duplicate that Tidy Contacts can later merge - rather than the import
++        loop catching the exception and silently dropping the row (the
++        ~1,300-contact loss the O(n^2) stall would otherwise have caused). The
++        degradation is logged per-contact and counted in `self.stats`.
+         """
++        self.stats["total"] += 1
++        try:
++            return self._resolve_tiers(identity, use_fuzzy=use_fuzzy)
++        except httpx.HTTPError as exc:
++            self.stats["degraded"] += 1
++            logger.warning(
++                "Resolver degraded for '%s' (%s: %s) - creating as NEW to "
++                "avoid dropping the contact; review via log_resolution_summary()",
++                identity.display_name,
++                type(exc).__name__,
++                exc,
++            )
++            return MatchResult(
++                person_uri=None,
++                match_type="new",
++                confidence=0.0,
++                details=(
++                    f"Resolver degraded ({type(exc).__name__}); created as new "
++                    "to avoid dropping the contact"
++                ),
++            )
++
++    def _resolve_tiers(
++        self,
++        identity: PersonIdentity,
++        use_fuzzy: bool = True,
++    ) -> MatchResult:
++        """Tiered match logic. May raise httpx.HTTPError on a query failure;
++        the public resolve() wraps this and degrades to "new" so a failure
++        never drops a contact. TNM's in-memory candidate index lands inside the
++        Tier-3 path here; this error boundary sits outside it by design."""
+         # Tier 1: Exact match on any single identifier
+         for id_type, id_value in self._iter_identifiers(identity):
+             person_uri = self.find_by_identifier(id_type, id_value)
+-            if person_uri:
++            if person_uri and self._identifier_match_trustworthy(
++                id_type, person_uri, identity
++            ):
+                 return MatchResult(
+                     person_uri=person_uri,
+                     match_type="exact_identifier",
+@@ -55,7 +117,11 @@
+         found_uris: dict[str, tuple[str, str]] = {}
+         for id_type, id_value in self._iter_identifiers(identity):
+             uri = self.find_by_identifier(id_type, id_value)
+-            if uri and uri not in found_uris:
++            if (
++                uri
++                and uri not in found_uris
++                and self._identifier_match_trustworthy(id_type, uri, identity)
++            ):
+                 found_uris[uri] = (id_type, id_value)
+ 
+         if len(found_uris) == 1:
+@@ -92,7 +158,7 @@
+             if fuzzy:
+                 return fuzzy
+ 
+-        # Tier 4: No match — signal that a new person should be created
++        # Tier 4: No match - signal that a new person should be created
+         return MatchResult(
+             person_uri=None,
+             match_type="new",
+@@ -100,6 +166,38 @@
+             details="No matching person found",
+         )
+ 
++    def resolution_summary(self) -> dict[str, int]:
++        """Resolution health counters for the current resolver instance.
++
++        Callers driving a bulk import should read this at the end of the run.
++        A non-zero `degraded` means some contacts were created as new
++        (possible duplicates) because their resolver query failed mid-import -
++        the rows were preserved, not dropped, but dedup did not run for them.
++        """
++        return dict(self.stats)
++
++    def log_resolution_summary(self) -> None:
++        """Emit a single end-of-run line; ERROR (not silent) if any contact
++        degraded, so a partially-failed import can never read as a clean one.
++        Wire this into the import loop after the final contact (#660)."""
++        degraded = self.stats["degraded"]
++        total = self.stats["total"]
++        if degraded:
++            logger.error(
++                "Identity resolution finished with %d/%d contacts DEGRADED to "
++                "new (rows preserved as possible duplicates, NOT dropped). The "
++                "resolver was failing queries mid-import - investigate before "
++                "trusting dedup; affected contacts can be merged via Tidy "
++                "Contacts. See #660.",
++                degraded,
++                total,
++            )
++        else:
++            logger.info(
++                "Identity resolution finished cleanly: %d contacts, 0 degraded.",
++                total,
++            )
++
+     def create_person(self, identity: PersonIdentity, user_id: str) -> str:
+         short_id = uuid.uuid4().hex[:12]
+         person_uri = f"{PWG}person_{short_id}"
+@@ -252,82 +350,158 @@
+             return bindings[0]["person"]["value"]
+         return None
+ 
++    # Identifier types that a different person can legitimately also carry:
++    # a reused family email address, a shared office switchboard number. A
++    # match on one of these is NOT by itself proof of same-person, so we only
++    # trust it when the display names also agree -- otherwise a one-shot import
++    # would collapse e.g. a mother/daughter who reused an email, or two
++    # colleagues on the same DID line (BW-1). The unique-by-construction
++    # identifiers (icloud_contact_uid, linkedin_url, whatsapp_lid) are always
++    # trusted. The strict exact-normalised-name check is deliberately
++    # conservative: name VARIANTS (e.g. "Granny Ritchie" / "Margaret Ritchie")
++    # stay separate rather than risk a wrong merge -- relaxing that to a fuzzy
++    # threshold is the BW-2 design follow-up.
++    _SHAREABLE_ID_TYPES = {"email", "phone"}
++
++    @staticmethod
++    def _normalise_name(name: Optional[str]) -> str:
++        return " ".join((name or "").strip().lower().split())
++
++    def _person_display_name(self, person_uri: str) -> Optional[str]:
++        sparql = (
++            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }} "
++            f"LIMIT 1"
++        )
++        results = self._sparql_query(sparql)
++        bindings = results.get("results", {}).get("bindings", [])
++        if bindings:
++            return bindings[0]["name"]["value"]
++        return None
++
++    def _identifier_match_trustworthy(
++        self, id_type: str, matched_uri: str, identity: PersonIdentity
++    ) -> bool:
++        """Whether an identifier match should be acted on (BW-1).
++
++        Unique identifiers are always trusted. A SHAREABLE identifier
++        (email/phone) is trusted only when the incoming and matched display
++        names are present and equal once normalised; otherwise we cannot
++        prove same-person, so we decline the match and let the caller create a
++        new node (a recoverable duplicate that Tidy Contacts can merge) rather
++        than risk an irreversible wrong merge.
++        """
++        if id_type not in self._SHAREABLE_ID_TYPES:
++            return True
++        incoming = self._normalise_name(identity.display_name)
++        if not incoming:
++            return False
++        existing = self._normalise_name(self._person_display_name(matched_uri))
++        if not existing:
++            return False
++        return incoming == existing
++
+     # -- Private helpers ------------------------------------------------------
+ 
+     def _fuzzy_match(
+         self, name: str, org: Optional[str] = None,
+         exclude_linkedin_url: Optional[str] = None,
+     ) -> Optional[MatchResult]:
+-        # Include LinkedIn URL identifiers so we can reject conflicting matches
+-        sparql = (
+-            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
+-            f"  ?person a <{PWG}Person> ; "
+-            f"          <{PWG}displayName> ?name . "
+-            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
+-            f"  OPTIONAL {{ "
+-            f"    ?person <{PWG}hasIdentifier> ?lid . "
+-            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
+-            f"         <{PWG}identifierValue> ?linkedinUrl . "
+-            f"  }} "
+-            f"}}"
+-        )
+-        results = self._sparql_query(sparql)
+-        bindings = results.get("results", {}).get("bindings", [])
++        # CX-126 (#660): match against the in-memory candidate index, loaded
++        # once and appended on create, instead of re-running an unbounded
++        # all-persons SELECT for every contact (the O(n^2) that hung the
++        # install). Identical match results; microseconds instead of seconds.
++        if self._fuzzy_candidates is None:
++            self._load_fuzzy_candidates()
+ 
+         best_uri: Optional[str] = None
+         best_score: float = 0.0
+         best_name: str = ""
+-        org_confirmed = False
++        best_org_conflict = False
+ 
+-        for row in bindings:
+-            candidate_name = row["name"]["value"]
+-            score = _jaro_winkler(name.lower(), candidate_name.lower())
++        # Best candidate that ALSO shares the organisation, tracked separately.
++        # A same-name+same-org match is the strongest signal and is preferred
++        # over a higher-scoring but org-conflicting candidate (two real people
++        # who happen to share a name, e.g. the same name at two employers).
++        conf_uri: Optional[str] = None
++        conf_score: float = 0.0
++        conf_name: str = ""
+ 
++        for row in self._fuzzy_candidates:
++            candidate_name = row.get("name") or ""
++            if not candidate_name:
++                continue
++
+             # Hard blocker: if BOTH the incoming identity and the candidate
+             # have LinkedIn URLs and they are DIFFERENT, this is definitely
+             # not the same person. Two different LinkedIn profiles = two
+             # different people, regardless of name similarity.
+             if exclude_linkedin_url:
+-                candidate_linkedin = row.get("linkedinUrl", {}).get("value")
++                candidate_linkedin = row.get("linkedinUrl")
+                 if candidate_linkedin and candidate_linkedin != exclude_linkedin_url:
+                     continue
+ 
++            score = _jaro_winkler(name.lower(), candidate_name.lower())
++            candidate_org = row.get("org")
++            same_org = (
++                org is not None
++                and candidate_org is not None
++                and org.lower() == candidate_org.lower()
++            )
++            diff_org = (
++                org is not None
++                and candidate_org is not None
++                and org.lower() != candidate_org.lower()
++            )
++
++            if same_org and score > conf_score:
++                conf_score = score
++                conf_uri = row["person"]
++                conf_name = candidate_name
++
+             if score > best_score:
+                 best_score = score
+-                best_uri = row["person"]["value"]
++                best_uri = row["person"]
+                 best_name = candidate_name
+-                candidate_org = row.get("org", {}).get("value")
+-                org_confirmed = (
+-                    org is not None
+-                    and candidate_org is not None
+-                    and org.lower() == candidate_org.lower()
+-                )
++                best_org_conflict = diff_org
+ 
+-        # Threshold tiers:
+-        # - 0.85 + org confirmed → high-confidence match
+-        # - 0.93 no org → still reliable (typos, stylised variants, etc.)
+-        # - 0.85–0.93 no org → NOT a match. Jaro-Winkler's 4-char prefix
+-        #   bonus pushes first-name collisions ("Sandra Andersson" ~
+-        #   "Sandra Stewart" scored 0.867) above 0.85 on shared-prefix alone,
+-        #   which blew up our People Graph on 2026-04-11. We still log
+-        #   these as candidates so they can be reviewed, but we don't
+-        #   return a match. See CM043/TODO.md follow-ups for context.
+-        if best_score > 0.85 and org_confirmed:
++        # Threshold tiers (org-conflict-guarded):
++        # 1. >0.85 + same org -> high-confidence match (strongest signal).
++        # 2. >=0.93 + no org CONFLICT -> reliable (typos, stylised variants,
++        #    or one side simply has no org recorded). Merges "Jay Livens".
++        # 3. >=0.93 but the best candidate's org CONFLICTS -> two different
++        #    people who share a name (e.g. two real "Stuart Bailey"s at
++        #    different employers). Do NOT merge; log for review.
++        # 4. 0.85-0.93 no org -> NOT a match. Jaro-Winkler's 4-char prefix
++        #    bonus pushes first-name collisions ("Sandra Andersson" ~
++        #    "Sandra Stewart" scored 0.867) above 0.85 on shared-prefix
++        #    alone, which blew up our People Graph on 2026-04-11.
++        if conf_score > 0.85:
+             return MatchResult(
+-                person_uri=best_uri,
++                person_uri=conf_uri,
+                 match_type="fuzzy_name",
+-                confidence=best_score,
+-                details=f"Fuzzy match: '{name}' ~ '{best_name}' (score={best_score:.3f}, org confirmed)",
++                confidence=conf_score,
++                details=f"Fuzzy match: '{name}' ~ '{conf_name}' (score={conf_score:.3f}, org confirmed)",
+             )
+ 
+-        if best_score >= 0.93:
++        if best_score >= 0.93 and not best_org_conflict:
+             return MatchResult(
+                 person_uri=best_uri,
+                 match_type="fuzzy_name",
+                 confidence=best_score * 0.8,
+-                details=f"Fuzzy match: '{name}' ~ '{best_name}' (score={best_score:.3f}, high similarity no org)",
++                details=f"Fuzzy match: '{name}' ~ '{best_name}' (score={best_score:.3f}, high similarity, no org conflict)",
+             )
+ 
++        if best_score >= 0.93 and best_org_conflict:
++            # Same name, conflicting organisation: almost always two distinct
++            # people. Hold for review rather than wrongly fusing them.
++            logger.info(
++                "Same-name candidate BLOCKED by org conflict (likely distinct people): '%s' ~ '%s' (score=%.3f)",
++                name,
++                best_name,
++                best_score,
++            )
++            return None
++
+         if best_score > 0.85:
+             # Log-only: shared-prefix first-name collisions live here
+             logger.info(
+@@ -339,6 +513,97 @@
+ 
+         return None
+ 
++    def _load_fuzzy_candidates(self) -> None:
++        """Load all person nodes into the in-memory fuzzy-candidate index ONCE.
++
++        Replaces the per-contact "SELECT all persons" that made _fuzzy_match
++        O(n^2) (CX-126 #660): now run a single time. Every subsequent fuzzy
++        match iterates this list in memory, and register_person() keeps it
++        current for persons created during the run.
++
++        Two FLAT queries instead of one with a nested OPTIONAL chain. The
++        single-query form joined ``?person hasIdentifier ?lid . ?lid
++        identifierType "linkedin_url" ; identifierValue ?linkedinUrl`` as an
++        OPTIONAL across every Person -- a join Oxigraph evaluates poorly at
++        scale: on the live Studio install (~4,700 persons / ~4,300
++        identifiers) it measured 53s, OVER the resolver's own 30s HTTP
++        timeout, so even this once-per-run load pegged Oxigraph for minutes
++        and stalled the LinkedIn-messages import. Splitting it into (1) a flat
++        person+name+org SELECT and (2) a flat person->linkedin_url SELECT,
++        joined in Python by person URI, drops the cost to two cheap scans with
++        identical results.
++        """
++        # Query 1: every person with their display name and (optional) org.
++        sparql_people = (
++            f"SELECT ?person ?name ?org WHERE {{ "
++            f"  ?person a <{PWG}Person> ; "
++            f"          <{PWG}displayName> ?name . "
++            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
++            f"}}"
++        )
++        # Query 2: person -> linkedin_url, flat (no per-person OPTIONAL join).
++        sparql_linkedin = (
++            f"SELECT ?person ?linkedinUrl WHERE {{ "
++            f"  ?person <{PWG}hasIdentifier> ?lid . "
++            f'  ?lid <{PWG}identifierType> "linkedin_url" ; '
++            f"       <{PWG}identifierValue> ?linkedinUrl . "
++            f"}}"
++        )
++
++        linkedin_by_person: Dict[str, str] = {}
++        for row in (
++            self._sparql_query(sparql_linkedin)
++            .get("results", {})
++            .get("bindings", [])
++        ):
++            person = row.get("person", {}).get("value")
++            url = row.get("linkedinUrl", {}).get("value")
++            if person and url and person not in linkedin_by_person:
++                linkedin_by_person[person] = url
++
++        candidates: List[Dict[str, Optional[str]]] = []
++        for row in (
++            self._sparql_query(sparql_people)
++            .get("results", {})
++            .get("bindings", [])
++        ):
++            person = row.get("person", {}).get("value")
++            candidates.append(
++                {
++                    "person": person,
++                    "name": row.get("name", {}).get("value"),
++                    "org": row.get("org", {}).get("value"),
++                    "linkedinUrl": linkedin_by_person.get(person),
++                }
++            )
++        self._fuzzy_candidates = candidates
++
++    def register_person(
++        self,
++        person_uri: str,
++        name: str,
++        org: Optional[str] = None,
++        linkedin_url: Optional[str] = None,
++    ) -> None:
++        """Append a newly-created person to the in-memory fuzzy index.
++
++        A caller that creates a NEW person after resolve() returns no match
++        must call this so later contacts in the same run dedupe against it --
++        parity with the old query-Oxigraph-every-time behaviour. No-op when the
++        index has not been loaded yet (a later first load will include the
++        person anyway).
++        """
++        if self._fuzzy_candidates is None or not name:
++            return
++        self._fuzzy_candidates.append(
++            {
++                "person": person_uri,
++                "name": name,
++                "org": org,
++                "linkedinUrl": linkedin_url,
++            }
++        )
++
+     def _iter_identifiers(
+         self, identity: PersonIdentity
+     ) -> list[tuple[str, str]]:

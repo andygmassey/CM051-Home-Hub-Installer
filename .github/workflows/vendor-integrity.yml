@@ -15,7 +15,11 @@ on:
   pull_request:
     paths:
       - 'vendor/**'
+      - 'scripts/verify_vendor_fresh.sh'
+      - 'scripts/sync_vendor.sh'
+      - 'scripts/_vendor_lib.sh'
       - 'tests/test_no_divergent_vendor_twin.sh'
+      - 'tests/test_vendor_fresh_gate.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/vendor_import_resolution_baseline.txt'
@@ -38,8 +42,30 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Divergent non-shipping twin guard
+      - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         run: bash tests/test_no_divergent_vendor_twin.sh
+
+      # Cross-repo vendor-freshness gate. The old twin guard above is BLIND to
+      # the real failure mode -- it compares vendor/<pkg> against a top-level
+      # ./<pkg> that does NOT exist inside CM051, so it trivially passes while
+      # a fix that landed in the SOURCE repo (CM041/CM048/ostler_fda/...) never
+      # reaches the customer. verify_vendor_fresh.sh closes that gap by diffing
+      # each vendored tree against its pinned source commit (+ a recorded
+      # divergence patch).
+      #
+      # On a CI runner the upstream source repos are not checked out, so the
+      # cross-repo trees degrade to WARN (never a silent pass). What CI DOES
+      # enforce here: the self-test proves the gate still catches drift (clean
+      # -> GREEN; a rotted vendored file -> RED; source-ahead-of-pin -> RED),
+      # and the manifest/patches stay internally consistent.
+      #
+      # The REAL cross-repo gate (all source repos present, VENDOR_FRESH_STRICT=1)
+      # runs as a blocking step in the HR015 cut -- see WORKSTREAM A follow-up.
+      - name: Vendor-freshness gate self-test
+        run: bash tests/test_vendor_fresh_gate.sh
+
+      - name: Vendor-freshness gate (degraded -- source repos absent on CI)
+        run: bash scripts/verify_vendor_fresh.sh
 
       - name: Vendor import-resolution guard
         run: python3 tests/test_vendor_import_resolution.py
