@@ -93,7 +93,7 @@ MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools needed. macOS will ask for permission to install – look for a small grey dialog (if you don't see it, press Cmd+Tab or check your Dock). Click Install. The tools download in the background while you answer the questions below."
-MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still waiting for Command Line Tools (elapsed: %ss)..."
+MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still setting up Command Line Tools (%ss). If a small grey macOS dialog is asking to install developer tools, click Install on it -- this step is waiting for that. (Cmd+Tab or check the Dock if you can't see it.)"
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Waiting for Command Line Tools to finish installing (almost there)..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the last 5 years of mail."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
@@ -695,7 +695,7 @@ MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. 
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
 MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only. Linux support coming soon."
-MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 10 minutes. Run 'xcode-select --install' manually, accept the dialog, then re-run this installer."
+MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 15 minutes. Open Terminal and run 'xcode-select --install', click Install on the macOS dialog and wait for it to finish, then re-run this installer."
 
 # ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
 #    `launch/TNM_BRIEF_dmg48_three_blockers_2026-05-27.md` in the
