@@ -5710,6 +5710,51 @@ if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
     rm -f "${OSTLER_ENV_FILE}.bak"
 fi
 printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
+
+# Operator self-identity for the wiki self/me-card exclusion (CM044 PR #92).
+# The wiki compiler drops the operator's OWN person node from Featured
+# Contact / top Frequent Collaborator / Upcoming Birthdays by matching:
+#   - WIKI_OPERATOR_EMAILS: comma-separated operator email addresses (exact
+#     match against the person node's emails). Primary signal.
+#   - WIKI_OPERATOR_NAME:   the operator's full display name. Fallback match.
+# Both are interpolated into the wiki-compiler env block (docker-compose.yml)
+# from THIS compose .env at `compose run` time, exactly like USER_FIRST_NAME.
+# Source values are the me-card identity captured at Q3: USER_EMAIL (me-card
+# email) + USER_NAME (me-card full name). Empty values are safe -- the
+# compiler treats "" as "no self-exclusion" and renders normally.
+#
+# WIKI_OPERATOR_EMAILS = me-card email plus any email-shaped self-handles,
+# de-duplicated, no leading/trailing commas. ASSISTANT_SELF_HANDLES is built
+# later (iMessage self-echo guard), so we assemble the email list inline here
+# from the values already in scope.
+_wiki_operator_emails=""
+for _wiki_op_email in "${USER_EMAIL:-}"; do
+    _wiki_op_email="${_wiki_op_email# }"; _wiki_op_email="${_wiki_op_email% }"
+    [[ -n "$_wiki_op_email" ]] || continue
+    # email-shaped only (must contain an @); skip anything phone-like.
+    [[ "$_wiki_op_email" == *"@"* ]] || continue
+    case ",${_wiki_operator_emails}," in
+        *",${_wiki_op_email},"*) continue ;;  # already present (de-dup)
+    esac
+    if [[ -z "$_wiki_operator_emails" ]]; then
+        _wiki_operator_emails="$_wiki_op_email"
+    else
+        _wiki_operator_emails="${_wiki_operator_emails},${_wiki_op_email}"
+    fi
+done
+unset _wiki_op_email
+if grep -q '^WIKI_OPERATOR_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^WIKI_OPERATOR_NAME=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'WIKI_OPERATOR_NAME=%s\n' "${USER_NAME:-}" >> "$OSTLER_ENV_FILE"
+if grep -q '^WIKI_OPERATOR_EMAILS=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^WIKI_OPERATOR_EMAILS=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'WIKI_OPERATOR_EMAILS=%s\n' "${_wiki_operator_emails}" >> "$OSTLER_ENV_FILE"
+unset _wiki_operator_emails
+
 chmod 600 "$OSTLER_ENV_FILE"
 umask "$umask_ufn_orig"
 unset umask_ufn_orig
@@ -7106,6 +7151,14 @@ services:
       # ~/.ostler/.env or the env block at install time.
       - PWG_USER_ID=${PWG_USER_ID:-}
       - PWG_AI_CHAT_WINGS=${PWG_AI_CHAT_WINGS:-}
+      # Operator self-identity for the wiki self/me-card exclusion (CM044
+      # PR #92). Without these the operator's OWN person node surfaces as the
+      # #1 Featured Contact / top Frequent Collaborator (meetings with self)
+      # / in Upcoming Birthdays. Sourced from the me-card identity (USER_NAME
+      # full name + USER_EMAIL) and written to the compose .env by the
+      # installer alongside USER_FIRST_NAME. Empty = no self-exclusion (safe).
+      - WIKI_OPERATOR_NAME=${WIKI_OPERATOR_NAME:-}
+      - WIKI_OPERATOR_EMAILS=${WIKI_OPERATOR_EMAILS:-}
       - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}

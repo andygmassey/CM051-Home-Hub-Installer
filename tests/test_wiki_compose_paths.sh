@@ -112,6 +112,33 @@ assert_contains "wiki-output-dir-env" \
     "WIKI_OUTPUT_DIR=/wiki"
 echo "PASS: WIKI_OUTPUT_DIR=/wiki env is set"
 
+# ── Operator self/me-card exclusion (CM044 PR #92) ───────────
+# The wiki compiler reads WIKI_OPERATOR_NAME + WIKI_OPERATOR_EMAILS to drop
+# the operator's OWN person node from Featured Contact / Frequent
+# Collaborator / Upcoming Birthdays. The compose env block must reference
+# both (interpolated from the compose .env), or the exclusion is inert.
+assert_contains "wiki-operator-name-env" \
+    "WIKI_OPERATOR_NAME=\${WIKI_OPERATOR_NAME:-}"
+echo "PASS: WIKI_OPERATOR_NAME passed to the wiki-compiler env"
+assert_contains "wiki-operator-emails-env" \
+    "WIKI_OPERATOR_EMAILS=\${WIKI_OPERATOR_EMAILS:-}"
+echo "PASS: WIKI_OPERATOR_EMAILS passed to the wiki-compiler env"
+
+# ── The two vars must be WRITTEN to the compose .env so docker compose
+#    interpolates them at `compose run` time (same mechanism as
+#    USER_FIRST_NAME -- the env block reference above is otherwise inert). ──
+if ! grep -qF "printf 'WIKI_OPERATOR_NAME=%s\\n' \"\${USER_NAME:-}\" >> \"\$OSTLER_ENV_FILE\"" "$INSTALL_SCRIPT"; then
+    echo "FAIL [wiki-operator-name-envfile]: install.sh does not write WIKI_OPERATOR_NAME (from USER_NAME) to the compose .env" >&2
+    exit 1
+fi
+echo "PASS: install.sh writes WIKI_OPERATOR_NAME (from USER_NAME) to the compose .env"
+
+if ! grep -qF "printf 'WIKI_OPERATOR_EMAILS=%s\\n' \"\${_wiki_operator_emails}\" >> \"\$OSTLER_ENV_FILE\"" "$INSTALL_SCRIPT"; then
+    echo "FAIL [wiki-operator-emails-envfile]: install.sh does not write WIKI_OPERATOR_EMAILS to the compose .env" >&2
+    exit 1
+fi
+echo "PASS: install.sh writes WIKI_OPERATOR_EMAILS (from USER_EMAIL me-card) to the compose .env"
+
 # ── Volume rename: wiki-docs (with hyphen) for CM044 parity ──
 assert_contains "volume-decl-renamed" \
     "wiki-docs:"
