@@ -1109,6 +1109,35 @@ else
 fi
 unset _ostler_emitter_candidate
 
+# ── Release manifest emitter (WORKSTREAM C / C1) ───────────────────
+#
+# Sources lib/release_manifest.sh, which defines emit_release_manifest.
+# install.sh calls that once at the end of a successful install (Phase
+# 4) to write ~/.ostler/ostler-release.json -- the single runtime record
+# of "what version is actually deployed". Same search order as the
+# progress emitter (bundled lib/ first, post-install ~/.ostler/lib/
+# second). A missing manifest lib is a soft no-op: the install must not
+# fail just because the version surface cannot be written. The Doctor
+# version surface degrades to "unknown", which is strictly safer than a
+# blank that looks legitimate.
+_ostler_manifest_lib=""
+if [[ -n "${OSTLER_RELEASE_MANIFEST_LIB:-}" && -f "${OSTLER_RELEASE_MANIFEST_LIB}" ]]; then
+    _ostler_manifest_lib="${OSTLER_RELEASE_MANIFEST_LIB}"
+elif [[ -f "${SCRIPT_DIR}/lib/release_manifest.sh" ]]; then
+    _ostler_manifest_lib="${SCRIPT_DIR}/lib/release_manifest.sh"
+elif [[ -f "${HOME}/.ostler/lib/release_manifest.sh" ]]; then
+    _ostler_manifest_lib="${HOME}/.ostler/lib/release_manifest.sh"
+fi
+if [[ -n "${_ostler_manifest_lib}" ]]; then
+    # shellcheck source=lib/release_manifest.sh
+    source "${_ostler_manifest_lib}"
+else
+    # No manifest lib on disk (older bundle / partial tree). Provide a
+    # no-op so the Phase 4 call site never aborts under set -u / set -e.
+    emit_release_manifest() { :; }
+fi
+unset _ostler_manifest_lib
+
 # ── Three-state data-source detection (CX-100, CX-101) ────────────
 #
 # Per launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
@@ -3811,6 +3840,15 @@ done
 exit "$found_any"
 OSTLER_DETECT_EXPORTS_EOF
 chmod +x "${HOME}/.ostler/lib/ostler-detect-exports.sh" 2>/dev/null || true
+
+# WORKSTREAM C / C1: stage lib/release_manifest.sh into ~/.ostler/lib so a
+# post-install re-run (the Phase 1 customer-update path) can still source
+# emit_release_manifest even if it is invoked from a tree where SCRIPT_DIR
+# no longer carries the bundled lib. Best-effort; the primary path is the
+# bundled ${SCRIPT_DIR}/lib copy resolved at the top of install.sh.
+if [[ -f "${SCRIPT_DIR}/lib/release_manifest.sh" ]]; then
+    cp "${SCRIPT_DIR}/lib/release_manifest.sh" "${HOME}/.ostler/lib/release_manifest.sh" 2>/dev/null || true
+fi
 
 # Auto-unzip any signature-bearing export zips in the scan dirs FIRST, so the
 # content detection below (and the parsers) can read a still-zipped download.
@@ -13991,6 +14029,27 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     fi
 else
     info "$MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING"
+fi
+
+# ── Release manifest emit (WORKSTREAM C / C1) ────────────────────
+#
+# Write ~/.ostler/ostler-release.json now that every component is
+# installed and the generated docker-compose.yml (with the pinned wiki
+# image SHAs) exists on disk. This is the single runtime-queryable
+# record of "what version is actually deployed" -- the thing whose
+# absence cost a whole night on the .152 walk. The Doctor version
+# surface reads it; a customer-update flow will diff against it.
+#
+# emit_release_manifest is sourced from lib/release_manifest.sh near the
+# top of install.sh (or a no-op if that lib is absent). It NEVER aborts
+# the install -- a missing manifest degrades the Doctor surface to
+# "unknown", which is strictly safer than a blank that looks legitimate.
+# Re-run safe: it overwrites the manifest atomically (temp + mv), so a
+# re-run-as-update refreshes the deployed-version record in place.
+if emit_release_manifest; then
+    ok "$MSG_OK_RELEASE_MANIFEST_WRITTEN"
+else
+    info "$MSG_INFO_RELEASE_MANIFEST_DEFERRED"
 fi
 
 # ── Show recovery key (saved from Phase 3.6 setup_passphrase) ─────

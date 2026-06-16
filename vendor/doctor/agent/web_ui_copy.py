@@ -501,3 +501,31 @@ IMESSAGE_TCC_SOURCE_PREFIX_FMT = "Source: {source}"
 IMESSAGE_TCC_STDERR_LABEL = "Probe stderr fragment"
 IMESSAGE_TCC_FULL_MARKER_LABEL = "Full posture marker"
 
+
+# ── Version surface (WORKSTREAM C / C2) ───────────────────────────────
+#
+# The deployed-version tile. Reads ~/.ostler/ostler-release.json and
+# shows what version is actually deployed -- the knowability whose
+# absence cost a whole night on the .152 walk. All operator-facing copy
+# lives here per Rule 0.9 (extractable from day one).
+
+VERSION_SURFACE_SECTION_TITLE = "Deployed version"
+VERSION_SURFACE_VERSION_FMT = "Ostler {version}"
+VERSION_SURFACE_CHANNEL_FMT = "Channel: {channel}"
+VERSION_SURFACE_INSTALLER_FMT = "Installer: {installer}"
+VERSION_SURFACE_DAEMON_FMT = "Assistant daemon: {daemon}"
+VERSION_SURFACE_WIKI_SITE_FMT = "Wiki site image: {sha}"
+VERSION_SURFACE_WIKI_COMPILER_FMT = "Wiki compiler image: {sha}"
+VERSION_SURFACE_BUILT_AT_FMT = "Built: {built_at}"
+VERSION_SURFACE_INSTALLED_AT_FMT = "Installed: {installed_at}"
+VERSION_SURFACE_SOURCE_REPOS_LABEL = "Source-repo pins"
+VERSION_SURFACE_PIN_UNKNOWN = "not pinned"
+VERSION_SURFACE_NEWER_SCHEMA_HINT = (
+    "This manifest was written by a newer Ostler than this Doctor knows; "
+    "some fields may not be shown."
+)
+VERSION_SURFACE_UNKNOWN_TITLE = "Version unknown"
+VERSION_SURFACE_UNKNOWN_DETAIL = (
+    "No release manifest found yet (~/.ostler/ostler-release.json). It is "
+    "written when the installer finishes; re-run the installer to refresh it."
+)
