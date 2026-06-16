@@ -70,3 +70,13 @@ assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn seeded_identity_md|#1
 
 # --- v1.0.0 cut: daemon P0 graph tool (hub-v0.4.13, ostler-assistant #121) ---
 assistant_tag_grep|crates/zeroclaw-runtime/src/tools/mod.rs|PwgPeopleTool|#608/#121 P0 graph tool registered in the daemon: the agent gets the loopback-only pwg_people lookup tool so Hub chat answers personal-data questions from the graph (the dead-brain cure). Matches the `pub use ...::PwgPeopleTool` + `PwgPeopleTool::new(` registration at v0.4.13.
+
+# --- v1.0.0 recut: daemon .153-walk fixes (hub-v0.4.14, ostler-assistant #126) ---
+# These three markers gate every future cut on the daemon carrying B2/B3/B4. Each
+# pattern is ERE-safe (no unescaped parens -- see the #117 escaped-parens note above)
+# and was VERIFIED present at v0.4.14 and ABSENT at v0.4.13 (freshness proof) before
+# encoding. verify_cut_provenance.sh greps `git show <DAEMON_TAG>:<path>`; DAEMON_TAG
+# resolves to v0.4.14 from the 0.4.14 pin.
+assistant_tag_grep|crates/zeroclaw-gateway/src/pwg_proxy.rs|people service is still starting|#667 B3: the gateway pwg_proxy serves /api/v1/{people,timeline,calendar,suggestions} from the loopback ical-server INDEPENDENT of web_dist_dir, so the Hub People/Timeline panes load on a clean install (no developer-only build-the-frontend 503). pwg_proxy.rs is a whole new file at v0.4.14 (absent at v0.4.13), so this also proves daemon freshness.
+assistant_tag_grep|crates/zeroclaw-runtime/src/agent/system_prompt.rs|Capability Honesty|#559 B4: capability-honesty system-prompt block bounds the assistant's advertised surface to the shipped feature set (no Slack/Telegram/Jira/Pushover/model-switch/polls over-promise). Added at v0.4.14.
+assistant_tag_grep|crates/zeroclaw-providers/src/ollama.rs|Default TRUE: Ostler ships qwen3|#608 B2 (P0): Ollama native tool-calling defaults ON so the live chat agent actually calls pwg_people (the dead-brain cure). This distinctive comment exists only with the native-default-TRUE fix (absent at v0.4.13).
