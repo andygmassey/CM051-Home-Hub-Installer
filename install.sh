@@ -13312,19 +13312,41 @@ unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
 if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
     info "Merging duplicate contacts across your sources"
     _DEDUPE_LOG=/tmp/ostler-hydrate-dedupe.log
-    if (
+    # Run the converge pass in the BACKGROUND so we can emit a liveness
+    # heartbeat while it works. The pass writes all stdout to $_DEDUPE_LOG,
+    # so without a heartbeat the GUI shows one line and then nothing for the
+    # whole run -- on the .153 cold-wipe walk this step sat silent for ~25
+    # minutes on a large address book and read as a frozen install. The
+    # loop below proves the step is alive every 30 s. Heartbeat-only: it
+    # does NOT change any merge rule, threshold, or the non-fatal posture.
+    (
         cd "$PIPELINE_DIR" && \
         OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
         QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
         .venv/bin/python3 -m identity_resolver.batch_resolver \
             --execute --converge \
             --output /tmp/ostler-dedupe-report.yaml
-    ) >>"$_DEDUPE_LOG" 2>&1; then
+    ) >>"$_DEDUPE_LOG" 2>&1 &
+    _DEDUPE_PID=$!
+    _DEDUPE_WAITED=0
+    while kill -0 "$_DEDUPE_PID" 2>/dev/null; do
+        sleep 30
+        _DEDUPE_WAITED=$(( _DEDUPE_WAITED + 30 ))
+        # Guard with `if` (not `&&`) so a process that finished during the
+        # sleep emits no stray line, and so a false result cannot trip the
+        # script's `set -e` / ERR trap.
+        if kill -0 "$_DEDUPE_PID" 2>/dev/null; then
+            info "Still merging duplicate contacts -- large address books can take several minutes (${_DEDUPE_WAITED}s elapsed)"
+        fi
+    done
+    # The child has exited; reap it for its real status. `wait` in an `if`
+    # condition is errexit-exempt, so a non-zero exit stays non-fatal.
+    if wait "$_DEDUPE_PID"; then
         info "Duplicate contacts merged"
     else
         warn "Whole-graph dedupe pass did not complete cleanly (see $_DEDUPE_LOG); continuing"
     fi
-    unset _DEDUPE_LOG
+    unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED
 fi
 
 # People search index (#600) ---------------------------------------
