@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 import httpx
 
+from .canonical_name import choose_canonical_display_name
 from .models import MatchResult, PersonIdentity
 from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
@@ -203,9 +204,22 @@ class IdentityResolver:
         person_uri = f"{PWG}person_{short_id}"
         now = datetime.now(timezone.utc).isoformat()
 
+        # Choose ONE canonical display name. Prefer a real Contacts name
+        # (given+family); reject junk values like unix logins ("root"), bare
+        # emails or automation aliases so they never seed a person's identity.
+        # Falls back to the supplied display_name so the node is never nameless.
+        display_name = (
+            choose_canonical_display_name(
+                [identity.display_name] if identity.display_name else [],
+                given_name=identity.given_name,
+                family_name=identity.family_name,
+            )
+            or identity.display_name
+        )
+
         triples = [
             f"<{person_uri}> a <{PWG}Person>",
-            f'<{person_uri}> <{PWG}displayName> "{_escape(identity.display_name)}"',
+            f'<{person_uri}> <{PWG}displayName> "{_escape(display_name)}"',
             f'<{person_uri}> <{PWG}privacyLevel> "L2"',
             f'<{person_uri}> <{PWG}createdAt> "{now}"^^<http://www.w3.org/2001/XMLSchema#dateTime>',
             f"<{person_uri}> <{PWG}belongsToUser> <{PWG}user_{_escape(user_id)}>",
@@ -334,7 +348,59 @@ class IdentityResolver:
             f"}}"
         )
 
+        # 6. Collapse any accumulated displayName values on the kept node to a
+        #    single canonical value. Step 4 copies every displayName from the
+        #    discard when keep has none, so a merge can leave the node with
+        #    several (e.g. "Andrew Massey", "root", "me@..."). Pick one.
+        self.canonicalise_display_name(keep_uri)
+
         logger.info("Merged %s into %s", discard_uri, keep_uri)
+
+    def canonicalise_display_name(self, person_uri: str) -> Optional[str]:
+        """Collapse a person's possibly-multiple displayName values to ONE.
+
+        Reads every ``pwg:displayName`` plus ``givenName``/``familyName`` on the
+        node, chooses the canonical value (real Contacts name preferred, system
+        aliases / bare emails / phone numbers rejected), then DELETE-then-INSERTs
+        the single chosen value. No-op if the node has zero or one displayName.
+
+        Returns the chosen display name (or None if the node had no usable name).
+        """
+        results = self._sparql_query(
+            f"SELECT ?name ?given ?family WHERE {{ "
+            f"  <{person_uri}> <{PWG}displayName> ?name . "
+            f"  OPTIONAL {{ <{person_uri}> <{PWG}givenName> ?given }} "
+            f"  OPTIONAL {{ <{person_uri}> <{PWG}familyName> ?family }} "
+            f"}}"
+        )
+        bindings = results.get("results", {}).get("bindings", [])
+        if len(bindings) <= 1:
+            return bindings[0]["name"]["value"] if bindings else None
+
+        candidates = [b["name"]["value"] for b in bindings if b.get("name")]
+        given = next(
+            (b["given"]["value"] for b in bindings if b.get("given")), None
+        )
+        family = next(
+            (b["family"]["value"] for b in bindings if b.get("family")), None
+        )
+
+        canonical = choose_canonical_display_name(
+            candidates, given_name=given, family_name=family
+        )
+        if not canonical:
+            return None
+
+        self._sparql_update(
+            f"DELETE {{ <{person_uri}> <{PWG}displayName> ?old }} "
+            f"WHERE {{ <{person_uri}> <{PWG}displayName> ?old }} ; "
+            f'INSERT DATA {{ <{person_uri}> <{PWG}displayName> "{_escape(canonical)}" }}'
+        )
+        logger.info(
+            "Canonicalised displayName for %s -> %r (was %d values)",
+            person_uri, canonical, len(candidates),
+        )
+        return canonical
 
     def find_by_identifier(self, id_type: str, id_value: str) -> Optional[str]:
         sparql = (

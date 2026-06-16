@@ -18,6 +18,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from identity_resolver.models import PersonIdentity
+from identity_resolver.normalise import clean_display_name
 from identity_resolver.resolver import IdentityResolver
 
 from meeting_syncer import config
@@ -342,8 +343,12 @@ class MeetingSyncer:
             )
             return None
 
+        # Clean emoji/symbol decorations + duplicate tokens from the attendee
+        # display name before it seeds a person node. Keep the cleaned value
+        # only if non-empty (else fall back to the raw name/email).
+        cleaned_name = clean_display_name(name) if name else ""
         identity = PersonIdentity(
-            display_name=name or email,
+            display_name=cleaned_name or name or email,
             emails=[email] if email else [],
         )
         # use_fuzzy=False: calendar attendees share the "common first name"

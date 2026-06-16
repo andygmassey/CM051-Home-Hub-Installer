@@ -34,6 +34,7 @@ if _PARENT_DIR not in sys.path:
 
 from identity_resolver.normalise import _jaro_winkler, normalise_email, normalise_phone
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
+from identity_resolver.canonical_name import choose_canonical_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -798,7 +799,54 @@ def _merge_oxigraph(
         f"DELETE DATA {{ <{discard_uri}> a <{PWG}Person> }}"
     )
 
+    # 8. Collapse accumulated displayName values on the kept node to ONE
+    #    canonical value. Step 5 copies every displayName off the discard when
+    #    keep has none, so without this a merge leaves several (e.g.
+    #    "Andrew Massey" + "root" + "me@..."). Pick one.
+    _canonicalise_display_name_oxigraph(url, client, keep_uri)
+
     logger.info("Oxigraph merge: %s → %s", discard_uri, keep_uri)
+
+
+def _canonicalise_display_name_oxigraph(
+    url: str, client: httpx.Client, person_uri: str,
+) -> Optional[str]:
+    """Collapse a person's possibly-multiple displayName values to ONE canonical.
+
+    Mirror of ``IdentityResolver.canonicalise_display_name`` for the batch path.
+    Prefers a real Contacts name (given+family); rejects system aliases, bare
+    emails and raw phone numbers. No-op for zero/one displayName.
+    """
+    rows = _sparql_query(url, client,
+        f"SELECT ?name ?given ?family WHERE {{ "
+        f"  <{person_uri}> <{PWG}displayName> ?name . "
+        f"  OPTIONAL {{ <{person_uri}> <{PWG}givenName> ?given }} "
+        f"  OPTIONAL {{ <{person_uri}> <{PWG}familyName> ?family }} "
+        f"}}"
+    )
+    if len(rows) <= 1:
+        return rows[0].get("name") if rows else None
+
+    candidates = [r["name"] for r in rows if r.get("name")]
+    given = next((r["given"] for r in rows if r.get("given")), None)
+    family = next((r["family"] for r in rows if r.get("family")), None)
+
+    canonical = choose_canonical_display_name(
+        candidates, given_name=given, family_name=family
+    )
+    if not canonical:
+        return None
+
+    _sparql_update(url, client,
+        f"DELETE {{ <{person_uri}> <{PWG}displayName> ?old }} "
+        f"WHERE {{ <{person_uri}> <{PWG}displayName> ?old }} ; "
+        f'INSERT DATA {{ <{person_uri}> <{PWG}displayName> "{_escape(canonical)}" }}'
+    )
+    logger.info(
+        "Canonicalised displayName for %s -> %r (was %d values)",
+        person_uri, canonical, len(candidates),
+    )
+    return canonical
 
 
 def _merge_qdrant(
