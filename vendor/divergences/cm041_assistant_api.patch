@@ -271,7 +271,7 @@
  ICAL_SCRIPT = os.environ.get(
      "ICAL_SCRIPT", os.path.expanduser("~/.zeroclaw/ical-query.sh")
  )
-@@ -186,8 +212,6 @@
+@@ -236,8 +262,6 @@
  COACH_DB = PWG_HOME / "coach" / "observations.db"
  PROCESSING_DIR = PWG_HOME / "processing"
  CONVERSATIONS_DIR = PWG_HOME / "conversations"
@@ -280,7 +280,7 @@
  
  # ── Wiki hydration status (CM044 #624) ───────────────────────────────
  # The wiki compiler writes a small JSON progress file as it builds; this
-@@ -217,29 +241,14 @@
+@@ -267,29 +291,14 @@
      "https://tauri.localhost",
  }
  
@@ -318,11 +318,10 @@
  
  # ── Hub health endpoint (HR015 Hub portability) ──────────────────────
  # Source of truth for the iOS Companion's Hub status pill.
-@@ -271,6 +280,29 @@
- # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
+@@ -322,6 +331,29 @@
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
-+
+ 
 +# ── Recording state endpoint (CM042 → CM031 Live Activity) ───────────
 +# Source of truth for the iOS Companion's Recording Live Activity. The
 +# CM042 producer writes ~/.ostler/recording_state.json atomically
@@ -345,10 +344,11 @@
 +    "recording", "processing", "transcript_saved", "error",
 +})
 +RECORDING_VALID_CONSENT = frozenset({"one_party", "all_party"})
- 
++
  try:
      from zoneinfo import ZoneInfo
-@@ -331,8 +363,8 @@
+     _LOCAL_TZ = ZoneInfo(TIMEZONE)
+@@ -381,8 +413,8 @@
      """Parse an ATTENDEE or ORGANIZER iCal line into a dict.
  
      Examples:
@@ -359,10 +359,11 @@
      """
      result = {}
      # Extract CN=Name
-@@ -779,6 +811,20 @@
+@@ -828,7 +860,21 @@
+ 
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
- 
++
 +def _invoke_pwg_convo(args, timeout=900):
 +    """Invoke the pwg-convo CLI (CM048) as a subprocess.
 +
@@ -375,12 +376,12 @@
 +        [PWG_CONVO_BIN, *args],
 +        capture_output=True, text=True, timeout=timeout,
 +    )
-+
+ 
 +
  def _conversation_process_background(conversation_id, transcript, metadata):
      """Run CM048 processing in a background thread.
  
-@@ -786,9 +832,10 @@
+@@ -836,9 +882,10 @@
      invokes the CM048 processor. Updates state.json on completion or
      failure.
  
@@ -394,7 +395,7 @@
      """
      state_dir = PROCESSING_DIR / conversation_id
      state_dir.mkdir(parents=True, exist_ok=True)
-@@ -818,17 +865,13 @@
+@@ -868,17 +915,13 @@
          json.dumps(state, indent=2), encoding="utf-8"
      )
  
@@ -416,7 +417,7 @@
          )
          if result.returncode == 0:
              state["current_step"] = "completed"
-@@ -837,6 +880,18 @@
+@@ -887,6 +930,18 @@
              state["failed_step"] = "processor"
              state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
              state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
@@ -435,7 +436,7 @@
      except subprocess.TimeoutExpired:
          state["failed_step"] = "processor"
          state["failure_reason"] = "Processing timed out (15 min limit)"
-@@ -863,11 +918,24 @@
+@@ -913,10 +968,23 @@
      if not transcript:
          return {"error": "Missing 'transcript' field"}, 400
  
@@ -454,19 +455,20 @@
 +            "error": "Conversation processing service (pwg-convo) is not "
 +                     "installed. Re-run the Ostler installer or set "
 +                     "PWG_CONVO_BIN to its path."
-         }, 503
++        }, 503
 +    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
 +        return {
 +            "error": "Conversation processing service (pwg-convo) is "
 +                     "installed but not responding. Check ~/.ostler/logs."
-+        }, 503
+         }, 503
  
      # Generate conversation_id from metadata or UUID
-     date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
-@@ -1046,350 +1114,6 @@
+@@ -1094,352 +1162,8 @@
+     except Exception as exc:
+         return {"error": f"Failed to read state: {exc}"}, 500
      return state, 200
- 
- 
+-
+-
 -# ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
 -#
 -# The Memory tab is the user's transparency surface: "what has Ostler
@@ -547,8 +549,8 @@
 -        conn = sqlite3.connect(db_path)
 -    conn.row_factory = sqlite3.Row
 -    return conn
--
--
+ 
+ 
 -def _ensure_memory_corrections_schema(conn) -> None:
 -    """Create the corrections table if it does not yet exist.
 -
@@ -814,7 +816,7 @@
  def person_context(name):
      """Gather everything known about a person by name."""
      esc = name.replace("\\", "\\\\").replace('"', '\\"')
-@@ -1525,11 +1249,91 @@
+@@ -1575,11 +1299,91 @@
      return {"query": name, "found": True, "matches": results, "count": len(results)}
  
  
@@ -911,32 +913,84 @@
  _LAST_CONTACT_SOURCES = (
      ("lcCalendar", "calendar"),
      ("lcWhatsApp", "whatsapp"),
-@@ -1793,58 +1597,173 @@
+@@ -1841,34 +1645,8 @@
+         if k not in ("slug", "found", "person"):
+             out[k] = v
      return out, 200
+-
+-
+-def _recency_label(last_contact_ts):
+-    """Coarse uppercase relative-time label for the Hub People row.
  
- 
--def people_stale(months=3, limit=5):
--    """Find contacts not spoken to in N months (from Qdrant last_contact)."""
+-    Mirrors the terse iOS Reconnect strip style ("3D AGO", "2MO AGO").
+-    Returns "" when no timestamp is known, so the row simply omits it.
+-    """
+-    if not last_contact_ts:
+-        return ""
 -    import time
--    cutoff_ts = int(time.time()) - (months * 30 * 86400)
-+def people_list(sort=None, ceiling=10000):
-+    """List every person in the Qdrant `people` collection for the Hub.
-+
-+    The Hub dashboard People page reads this; its header count is the length
-+    of `people`, so we return the FULL set (paginated scroll, not a top-N) and
-+    let the page count it. Same `contact_type == "person"` filter as
-+    people_search / people_stale, so the Hub count matches the wiki People
-+    count and the iOS People tab once #600 hydrate has populated Qdrant.
-+
+-    delta = int(time.time()) - int(last_contact_ts)
+-    if delta < 0:
+-        return ""
+-    hours = delta // 3600
+-    if hours < 1:
+-        return "JUST NOW"
+-    if hours < 24:
+-        return f"{hours}H AGO"
+-    days = hours // 24
+-    if days < 30:
+-        return f"{days}D AGO"
+-    months = days // 30
+-    if months < 12:
+-        return f"{months}MO AGO"
+-    return f"{months // 12}Y AGO"
+ 
+-
+ def people_list(sort=None, ceiling=10000):
+     """List every person in the Qdrant `people` collection for the Hub.
+ 
+@@ -1878,15 +1656,10 @@
+     people_search / people_stale, so the Hub count matches the wiki People
+     count and the iOS People tab once #600 hydrate has populated Qdrant.
+ 
+-    Each row carries slug + wiki_url (same _wiki_slug derivation and
+-    WIKI_BASE_URL the sibling readers emit) so the Hub People tab can link the
+-    row through to the person's wiki page, and the slug resolves the
+-    GET /api/v1/people/{slug}/enrichment person-detail card.
+-
+-    Counts + light rows only (id, name, slug, wiki_url, role, recency); no
+-    facts or notes cross this boundary. A missing `people` collection (fresh
+-    box, contacts not yet granted) is the empty-by-design path: return an empty
+-    list calmly, NOT an error, so all three surfaces show a calm empty-state.
 +    Counts + light rows only (id, name, role, recency); no facts or notes
 +    cross this boundary. A missing `people` collection (fresh box, contacts
 +    not yet granted) is the empty-by-design path: return an empty list
 +    calmly, NOT an error, so all three surfaces show a calm empty-state.
-+    """
-+    points = []
-+    next_offset = None
-+    page = 256
-     try:
+     """
+     points = []
+     next_offset = None
+@@ -1965,8 +1738,9 @@
+         if not name:
+             continue
+         # slug + wiki_url let the Hub People row click through to the
+-        # person's wiki page (and resolve the enrichment card). Same slug
+-        # derivation and WIKI_BASE_URL as people_search / people_recent.
++        # person's wiki page. Same slug derivation and WIKI_BASE_URL the
++        # sibling readers (people_search, people_recent, people_stale)
++        # already emit, so every people surface links the same way.
+         slug = _wiki_slug(name)
+         row = {
+             "id": str(pt.get("id")),
+@@ -2038,58 +1812,6 @@
+         row.pop("_first", None)
+         row.pop("_last", None)
+     return {"people": people, "total": len(people)}
+-
+-
+-def people_stale(months=3, limit=5):
+-    """Find contacts not spoken to in N months (from Qdrant last_contact)."""
+-    import time
+-    cutoff_ts = int(time.time()) - (months * 30 * 86400)
+-    try:
 -        body = {
 -            "filter": {
 -                "must": [
@@ -956,42 +1010,9 @@
 -        )
 -        with urllib.request.urlopen(req, timeout=10) as resp:
 -            result = json.loads(resp.read())
-+        while len(points) < ceiling:
-+            body = {
-+                "filter": {
-+                    "must": [
-+                        {"key": "contact_type", "match": {"value": "person"}},
-+                    ]
-+                },
-+                "limit": page,
-+                "with_payload": True,
-+                "with_vector": False,
-+            }
-+            if next_offset is not None:
-+                body["offset"] = next_offset
-+            data = json.dumps(body).encode()
-+            req = urllib.request.Request(
-+                QDRANT_URL.rstrip("/") + "/collections/people/points/scroll",
-+                data=data,
-+                headers={"Content-Type": "application/json"},
-+            )
-+            with urllib.request.urlopen(req, timeout=10) as resp:
-+                result = json.loads(resp.read()).get("result", {}) or {}
-+            batch = result.get("points", []) or []
-+            points.extend(batch)
-+            next_offset = result.get("next_page_offset")
-+            if not batch or not next_offset:
-+                break
-     except Exception as exc:
+-    except Exception as exc:
 -        return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
-+        # A 404 here means the `people` collection does not exist yet, which is
-+        # the empty-by-design path (no contacts granted). Report it calmly, not
-+        # as a fault. Anything else (Qdrant down, etc.) is a genuine degrade.
-+        if getattr(exc, "code", None) == 404:
-+            return {"people": [], "total": 0}
-+        return {"people": [], "total": 0, "degraded": True,
-+                "reason": str(exc), "error": str(exc)}
- 
+-
 -    contacts = []
 -    now = time.time()
 -    for pt in result.get("result", {}).get("points", []):
@@ -1006,51 +1027,7 @@
 -            continue
 -        months_since = int((now - lc_ts) / (30 * 86400))
 -        contacts.append({
-+    # Batched identifier join (one query, grouped in Python -- never N+1).
-+    # The Qdrant payload already carries phones/emails for CardDAV-sourced
-+    # points, but LinkedIn URLs (and identifiers for non-CardDAV people, e.g.
-+    # email/LinkedIn-only contacts) live only in Oxigraph as pwg:hasIdentifier
-+    # nodes. Pull every identifier in a single SELECT and group by person URI;
-+    # a degraded Oxigraph just leaves the payload values untouched.
-+    ident_by_uri = {}
-+    try:
-+        ident_rows = _sparql_select(
-+            'PREFIX pwg: <{ns}>\n'
-+            'SELECT ?person ?type ?value WHERE {{\n'
-+            '  ?person pwg:hasIdentifier ?id .\n'
-+            '  ?id pwg:identifierType ?type ; pwg:identifierValue ?value .\n'
-+            '}}'.format(ns=PWG_NS)
-+        )
-+        for r in ident_rows:
-+            uri = r.get("person")
-+            typ = (r.get("type") or "").strip()
-+            val = (r.get("value") or "").strip()
-+            if not uri or typ not in ("phone", "email", "linkedin_url") or not val:
-+                continue
-+            bucket = ident_by_uri.setdefault(
-+                uri, {"phone": [], "email": [], "linkedin_url": []}
-+            )
-+            if val not in bucket[typ]:
-+                bucket[typ].append(val)
-+    except Exception:
-+        # Identifiers are enrichment, not load-bearing: a degraded Oxigraph
-+        # must not blank the People list. Fall back to payload-only contact info.
-+        ident_by_uri = {}
-+
-+    people = []
-+    for pt in points:
-+        p = pt.get("payload", {}) or {}
-+        name = p.get("display_name") or p.get("name") or ""
-+        if not name:
-+            continue
-+        # slug + wiki_url let the Hub People row click through to the
-+        # person's wiki page. Same slug derivation and WIKI_BASE_URL the
-+        # sibling readers (people_search, people_recent, people_stale)
-+        # already emit, so every people surface links the same way.
-+        slug = _wiki_slug(name)
-+        row = {
-+            "id": str(pt.get("id")),
-             "name": name,
+-            "name": name,
 -            "slug": _wiki_slug(name),
 -            "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
 -            "last_contact": p.get("last_contact", ""),
@@ -1059,79 +1036,10 @@
 -        })
 -    contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
 -    return {"contacts": contacts[:limit]}
-+            "slug": slug,
-+            "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
-+        }
-+        role = p.get("job_title") or p.get("organization") or ""
-+        if role:
-+            row["role"] = role
-+        lc_ts = p.get("last_contact_ts", 0) or 0
-+        recency = _recency_label(lc_ts)
-+        if recency:
-+            row["recency"] = recency
-+        row["_lc_ts"] = lc_ts
-+
-+        # Sort keys -- prefer the parsed given/family name, fall back to a
-+        # split of the display name so LinkedIn/email-only people still sort.
-+        given = (p.get("given_name") or "").strip()
-+        family = (p.get("family_name") or "").strip()
-+        if not given and not family:
-+            parts = name.strip().split()
-+            given = parts[0] if parts else ""
-+            family = parts[-1] if len(parts) > 1 else ""
-+        row["_first"] = given.casefold()
-+        row["_last"] = (family or given).casefold()
-+
-+        # Contact fields: payload first (CardDAV), Oxigraph identifiers backfill.
-+        uri = p.get("person_uri") or ""
-+        ids = ident_by_uri.get(uri, {})
-+        phones = [x for x in (p.get("phones") or []) if x]
-+        emails = [x for x in (p.get("emails") or []) if x]
-+        for x in ids.get("phone", []):
-+            if x not in phones:
-+                phones.append(x)
-+        for x in ids.get("email", []):
-+            if x not in emails:
-+                emails.append(x)
-+        linkedin = ids.get("linkedin_url", [])
-+        if phones:
-+            row["phone"] = phones[0]
-+        if emails:
-+            row["email"] = emails[0]
-+        if linkedin:
-+            row["linkedin"] = linkedin[0]
  
-+        people.append(row)
  
-+    reverse = False
-+    key = None
-+    if sort == "recency":
-+        key = lambda r: r.get("_lc_ts", 0)
-+        reverse = True
-+    elif sort == "firstname":
-+        key = lambda r: (r.get("_first", ""), r.get("_last", ""))
-+    elif sort == "lastname":
-+        key = lambda r: (r.get("_last", ""), r.get("_first", ""))
-+    if key is not None:
-+        people.sort(key=key, reverse=reverse)
-+
-+    # Per-row jump letter for the A|B|C rail (alphabetical sorts only). The
-+    # client renders the rail from these and scrolls to the first match.
-+    for row in people:
-+        if sort in ("firstname", "lastname"):
-+            src = row.get("_first" if sort == "firstname" else "_last", "")
-+            ch = src[:1].upper()
-+            row["jump"] = ch if "A" <= ch <= "Z" else "#"
-+        row.pop("_lc_ts", None)
-+        row.pop("_first", None)
-+        row.pop("_last", None)
-+    return {"people": people, "total": len(people)}
-+
-+
  def people_recent(days=7, limit=5):
-     """Find people with recent meetings (for follow-up suggestions)."""
-     from datetime import datetime, timedelta, timezone
-@@ -2037,117 +1956,8 @@
+@@ -2290,115 +2012,6 @@
      out["reconnect"] = out["stale_contacts"]
      out["follow_up"] = out["recent_meetings"]
      return out
@@ -1192,7 +1100,7 @@
 -    # parameter; convert minutes to days (ceil to ensure we don't
 -    # miss an event right at the boundary).
 -    days_lookahead = max(1, int((within_minutes + 1439) // 1440))
- 
+-
 -    try:
 -        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
 -    except Exception as exc:
@@ -1202,7 +1110,7 @@
 -            "degraded": True,
 -            "reason": str(exc)[:200],
 -        }
- 
+-
 -    # Filter to events starting within the window.
 -    now = datetime.now(timezone.utc)
 -    window_end = now + timedelta(minutes=within_minutes)
@@ -1244,12 +1152,10 @@
 -        "within_minutes": within_minutes,
 -        "count": len(upcoming),
 -    }
--
--
- def api_timeline(days=7):
-     """Merged timeline of calendar events + recent meetings.
  
-@@ -2188,15 +1998,29 @@
+ 
+ def api_timeline(days=7):
+@@ -2445,15 +2058,29 @@
      # Past: meetings from the graph
      try:
          recent = people_recent(days=days, limit=20).get("contacts", [])
@@ -1287,7 +1193,7 @@
      except Exception as exc:
          items.append({"kind": "meeting_error", "error": str(exc)})
  
-@@ -2262,6 +2086,10 @@
+@@ -2519,6 +2146,10 @@
          return {"error": "body must be a JSON object"}, 400
  
      items = payload.get("items")
@@ -1298,7 +1204,7 @@
      if not isinstance(items, list):
          return {"error": "items must be an array"}, 400
  
-@@ -2281,11 +2109,75 @@
+@@ -2538,11 +2169,75 @@
          }
          with open(path, "w", encoding="utf-8") as f:
              f.write(json.dumps(record) + "\n")
@@ -1375,7 +1281,7 @@
  # ── Hub health helpers ───────────────────────────────────────────────
  # Each helper returns a (key, result_dict) tuple so the parallel runner
  # can fan out work and collect named results. Every helper is wrapped in
-@@ -2294,10 +2186,15 @@
+@@ -2551,10 +2246,15 @@
  
  
  def _read_sync_marker(path):
@@ -1392,10 +1298,12 @@
      """
      try:
          if path.exists():
-@@ -2308,6 +2205,185 @@
+@@ -2563,8 +2263,187 @@
+     except Exception:
+         return None
      return None
- 
- 
++
++
 +def _read_iso8601_marker(path):
 +    """Read and validate an ISO-8601 UTC timestamp from a marker file.
 +
@@ -1449,12 +1357,12 @@
 +            "jurisdiction": "<ISO>" | null
 +          }
 +      }``
-+
+ 
 +    Read-only. Never raises. Returns a JSON-serialisable dict in every
 +    branch so the handler can wrap it in a 200 unconditionally.
 +    """
 +    from datetime import datetime, timezone
-+
+ 
 +    # File missing → null (not a 404; the iOS Live Activity treats null
 +    # as "collapse the surface"). Use os.stat so we can read mtime in
 +    # the same syscall block.
@@ -1578,7 +1486,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -2420,7 +2496,7 @@
+@@ -2677,7 +2556,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -1587,7 +1495,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -2543,7 +2619,9 @@
+@@ -2800,7 +2679,9 @@
      except Exception:
          queue_depth = 0
  
@@ -1598,24 +1506,31 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -2832,6 +2910,7 @@
-     # paths so existing handler blocks serve both. Legacy callers keep
-     # working; CM031 (PWG Companion) gets its versioned URLs.
-     _VERSIONED_TO_LEGACY = {
-+        "/api/v1/people":           "/people",
-         "/api/v1/people/search":    "/people/search",
-         "/api/v1/people/context":   "/people/context",
-         "/api/v1/people/stale":     "/people/stale",
-@@ -3024,6 +3103,20 @@
-                 result = people_stale(months=months, limit=limit)
-             except Exception as e:
-                 result = {"contacts": [], "degraded": True, "reason": str(e), "error": str(e)}
-+            self.send_response(200)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
+@@ -3223,20 +3104,6 @@
+             }, indent=2).encode())
+             return
+ 
+-        if parsed.path == "/people":
+-            params = parse_qs(parsed.query)
+-            sort = params.get("sort", [None])[0]
+-            try:
+-                result = people_list(sort=sort)
+-            except Exception as e:
+-                result = {"people": [], "total": 0, "degraded": True,
+-                          "reason": str(e), "error": str(e)}
+-            self.send_response(200)
+-            self.send_header("Content-Type", "application/json")
+-            self.end_headers()
+-            self.wfile.write(json.dumps(result, indent=2).encode())
+-            return
+-
+         if parsed.path == "/people/search":
+             params = parse_qs(parsed.query)
+             q = params.get("q", [""])[0]
+@@ -3310,6 +3177,20 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
 +        if parsed.path == "/people":
 +            params = parse_qs(parsed.query)
 +            sort = params.get("sort", [None])[0]
@@ -1624,10 +1539,16 @@
 +            except Exception as e:
 +                result = {"people": [], "total": 0, "degraded": True,
 +                          "reason": str(e), "error": str(e)}
-             self.send_response(200)
-             self.send_header("Content-Type", "application/json")
-             self.end_headers()
-@@ -3117,35 +3210,6 @@
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
+         if parsed.path == "/people/recent":
+             params = parse_qs(parsed.query)
+             days, err = _safe_int(params, "days", 7)
+@@ -3397,35 +3278,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -1663,7 +1584,7 @@
          if parsed.path == "/api/v1/timeline":
              params = parse_qs(parsed.query)
              days, err = _safe_int(params, "days", 7)
-@@ -3158,7 +3222,11 @@
+@@ -3438,7 +3290,11 @@
              try:
                  result = api_timeline(days=days)
              except Exception as exc:
@@ -1676,7 +1597,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -3209,26 +3277,6 @@
+@@ -3489,26 +3345,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -1703,7 +1624,7 @@
          # Hub health endpoint (HR015 Hub portability). Must never 5xx;
          # on catastrophic failure we fall through to offline_local so the
          # iOS pill can still make a decision.
-@@ -3253,10 +3301,11 @@
+@@ -3533,10 +3369,11 @@
              return
  
          # Wiki first-run hydration panel (CM044 #624). Reachable through
@@ -1719,7 +1640,7 @@
          if parsed.path == "/api/v1/hydration/status":
              try:
                  result = api_hydration_status()
-@@ -3270,27 +3319,32 @@
+@@ -3550,27 +3387,32 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -1766,7 +1687,7 @@
          if parsed.path.startswith("/api/v1/conversation/status/"):
              conversation_id = parsed.path.split("/api/v1/conversation/status/", 1)[1]
              conversation_id = conversation_id.strip("/")
-@@ -3307,6 +3361,26 @@
+@@ -3587,31 +3429,48 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -1793,8 +1714,10 @@
          self.send_response(404)
          self.send_header("Content-Type", "application/json")
          self.end_headers()
-@@ -3315,22 +3389,20 @@
+         self.wfile.write(json.dumps({"error": "Not found", "endpoints": {
+             "/calendar?days=N": "Events for next N days (iCloud + Google Calendar)",
              "/calendar/today": "Today's events",
+-            "/api/v1/people?sort=recency": "Full people list for the Hub People tab (id, name, slug, wiki_url, role, recency)",
              "/people/search?q=fintech": "Semantic people search",
              "/people/context?name=Danny": "Everything known about a person (+ relationship signals)",
 -            "/api/v1/people/{slug}/enrichment": "Per-slug person card payload (org, role, identifiers, meetings, per-source last-contact)",
@@ -1818,7 +1741,7 @@
              "/health": "Health check (pass ?detailed=1 for dependency checks)",
          }}).encode())
  
-@@ -3421,17 +3493,14 @@
+@@ -3702,17 +3561,14 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -1843,7 +1766,7 @@
              except Exception as exc:
                  result, status = {"error": str(exc)}, 500
              self.send_response(status)
-@@ -3454,7 +3523,7 @@
+@@ -3735,7 +3591,7 @@
      # LAN exposure for dev or for users who don't want Tailscale.
      BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
      print(f"Assistant API running on http://{BIND_HOST}:{PORT}")

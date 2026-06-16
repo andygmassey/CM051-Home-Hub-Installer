@@ -6,7 +6,7 @@
  
  Scans all person nodes in Oxigraph (and optionally Qdrant), applies multiple
  detection strategies with confidence scoring, and merges confirmed duplicates.
-@@ -66,7 +66,7 @@
+@@ -67,7 +67,7 @@
      "fuzzy_levenshtein_max_distance": 2,
      # Phone normalisation
      "default_country_code": 852,
@@ -15,7 +15,7 @@
      "common_email_domains": {
          "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
          "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
-@@ -74,10 +74,10 @@
+@@ -75,10 +75,10 @@
          "protonmail.com", "proton.me", "163.com", "qq.com",
      },
      # Minimum Jaro-Winkler score between names for phone match to be high-confidence.
@@ -28,7 +28,7 @@
      "email_name_similarity_threshold": 0.7,
      # BW-2 correction loop: operator merge/distinct decisions live here as
      # duplicates.yaml. distinct pairs are a permanent never-merge block;
-@@ -244,7 +244,7 @@
+@@ -245,7 +245,7 @@
  
      If the display names are very different (JW < threshold), this may be an
      inherited or shared email account (e.g. deceased spouse's email used by
@@ -37,7 +37,7 @@
      auto-merge.
      """
      email_index: Dict[str, List[str]] = defaultdict(list)
-@@ -291,7 +291,7 @@
+@@ -292,7 +292,7 @@
      """Strategy 3: Shared phone number after normalisation (confidence 0.95).
  
      If the names are very different (JW < threshold), this is likely a shared
@@ -46,7 +46,7 @@
      of auto-merge.
      """
      phone_index: Dict[str, List[str]] = defaultdict(list)
-@@ -770,7 +770,7 @@
+@@ -771,7 +771,7 @@
          f"  ?entry <{PWG}aboutPerson> <{discard_uri}> }}"
      )
  
@@ -55,7 +55,7 @@
      scalar_props = [
          "displayName", "givenName", "familyName", "organization",
          "jobTitle", "relationship", "howWeMet", "notes", "birthday",
-@@ -808,7 +808,7 @@
+@@ -856,7 +856,7 @@
      try:
          from qdrant_client import QdrantClient
      except ImportError:
@@ -64,7 +64,7 @@
          return
  
      client = QdrantClient(url=qdrant_url, timeout=30)
-@@ -970,6 +970,62 @@
+@@ -1018,6 +1018,62 @@
                  action.keep_uri, action.discard_uri,
              )
              action.executed = True
@@ -127,7 +127,7 @@
  
      def close(self) -> None:
          self._client.close()
-@@ -980,7 +1036,7 @@
+@@ -1028,7 +1084,7 @@
  def format_report_yaml(report: ResolverReport) -> str:
      """Format the report as YAML-like text for human review."""
      lines = [
@@ -136,7 +136,7 @@
          f"# Generated: {datetime.now(timezone.utc).isoformat()}",
          "",
          f"total_persons: {report.total_persons}",
-@@ -1032,7 +1088,7 @@
+@@ -1080,7 +1136,7 @@
  
  def main() -> None:
      parser = argparse.ArgumentParser(
@@ -145,7 +145,7 @@
      )
      parser.add_argument(
          "--dry-run", action="store_true", default=True,
-@@ -1071,6 +1127,17 @@
+@@ -1119,6 +1175,17 @@
          help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
      )
      parser.add_argument(
@@ -163,7 +163,7 @@
          "--verbose", "-v", action="store_true",
          help="Enable verbose logging",
      )
-@@ -1094,6 +1161,29 @@
+@@ -1142,6 +1209,29 @@
      )
  
      try:
@@ -193,7 +193,7 @@
          report = resolver.detect()
  
          print(f"\n{'=' * 70}")
-@@ -1156,7 +1246,7 @@
+@@ -1204,7 +1294,7 @@
              with open(args.output, "w", encoding="utf-8") as f:
                  f.write(yaml_report)
          else:
@@ -213,7 +213,7 @@
  
  import httpx
  
-@@ -18,10 +18,30 @@
+@@ -19,10 +19,30 @@
  
  class IdentityResolver:
  
@@ -246,7 +246,7 @@
  
      # -- Public API -----------------------------------------------------------
  
-@@ -39,11 +59,53 @@
+@@ -40,11 +60,53 @@
                  pass False to avoid false matches via first-name collisions
                  (e.g. "Sandra Andersson" matching "Sandra Stewart" via
                  Jaro-Winkler prefix bonus on "Sand").
@@ -301,7 +301,7 @@
                  return MatchResult(
                      person_uri=person_uri,
                      match_type="exact_identifier",
-@@ -55,7 +117,11 @@
+@@ -56,7 +118,11 @@
          found_uris: dict[str, tuple[str, str]] = {}
          for id_type, id_value in self._iter_identifiers(identity):
              uri = self.find_by_identifier(id_type, id_value)
@@ -314,7 +314,7 @@
                  found_uris[uri] = (id_type, id_value)
  
          if len(found_uris) == 1:
-@@ -92,7 +158,7 @@
+@@ -93,7 +159,7 @@
              if fuzzy:
                  return fuzzy
  
@@ -323,7 +323,7 @@
          return MatchResult(
              person_uri=None,
              match_type="new",
-@@ -100,6 +166,38 @@
+@@ -101,6 +167,38 @@
              details="No matching person found",
          )
  
@@ -362,10 +362,11 @@
      def create_person(self, identity: PersonIdentity, user_id: str) -> str:
          short_id = uuid.uuid4().hex[:12]
          person_uri = f"{PWG}person_{short_id}"
-@@ -252,82 +350,158 @@
+@@ -317,83 +415,159 @@
+         if bindings:
              return bindings[0]["person"]["value"]
          return None
- 
++
 +    # Identifier types that a different person can legitimately also carry:
 +    # a reused family email address, a shared office switchboard number. A
 +    # match on one of these is NOT by itself proof of same-person, so we only
@@ -398,7 +399,7 @@
 +        self, id_type: str, matched_uri: str, identity: PersonIdentity
 +    ) -> bool:
 +        """Whether an identifier match should be acted on (BW-1).
-+
+ 
 +        Unique identifiers are always trusted. A SHAREABLE identifier
 +        (email/phone) is trusted only when the incoming and matched display
 +        names are present and equal once normalised; otherwise we cannot
@@ -563,7 +564,7 @@
          if best_score > 0.85:
              # Log-only: shared-prefix first-name collisions live here
              logger.info(
-@@ -339,6 +513,97 @@
+@@ -405,6 +579,97 @@
  
          return None
  

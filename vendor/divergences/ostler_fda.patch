@@ -262,9 +262,7 @@
 -    collection: str, vector_size: int, distance: str = "Cosine"
 -) -> None:
 -    """Create a Qdrant collection if it does not already exist.
-+def _qdrant_ensure_collection(collection: str, dim: int) -> None:
-+    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
- 
+-
 -    On a fresh single-Mac install nothing pre-creates the Qdrant
 -    collections (``install.sh graph_db_start`` brings the container up
 -    empty). A bare PUT of points into a missing collection lands 0 rows
@@ -272,17 +270,20 @@
 -    -- otherwise the iOS People tab / Hub People card / semantic search
 -    stay blank by design. See HR015 #600 + the
 -    feedback_qdrant_collections_no_self_create_fresh_install memory.
-+    Single-Mac product: there is no gateway to lazily create the
-+    collection, and nothing else on a fresh install creates
-+    safari_history. Qdrant rejects a PUT of points into a missing
-+    collection (404), which would silently land zero rows. So the
-+    direct writer ensures its own collection first.
++def _qdrant_ensure_collection(collection: str, dim: int) -> None:
++    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
  
 -    Idempotent: a GET on an existing collection short-circuits, so a
 -    re-install does not clobber existing vectors. A genuinely missing
 -    collection (404 on GET) is created with the given vector size +
 -    distance. Any other error is logged and re-raised so the caller can
 -    decide whether to fail loud.
++    Single-Mac product: there is no gateway to lazily create the
++    collection, and nothing else on a fresh install creates
++    safari_history. Qdrant rejects a PUT of points into a missing
++    collection (404), which would silently land zero rows. So the
++    direct writer ensures its own collection first.
++
 +    Idempotent and non-destructive: an existing collection is left
 +    untouched (a dim mismatch is logged, never auto-recreated, so a
 +    customer's data is never dropped). Failures are swallowed: a
@@ -350,7 +351,7 @@
          vectors = _ollama_embed_batch([item["doc"] for item in queue])
          points = [
              {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
-@@ -1109,520 +1123,122 @@
+@@ -1109,565 +1123,158 @@
      }
  
  
@@ -432,11 +433,19 @@
 -    (``[asdict(b) for b in bookmarks]``) with keys: title, url, domain,
 -    folder. A missing file is skipped silently (the source was not
 -    enabled); a malformed file logs and contributes nothing.
--    """
++    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
++    and upserts a point per person carrying the payload contract the iOS
++    People tab + Hub People-card read: ``display_name``, ``person_uri``,
++    and ``contact_type == "person"`` (the filter BOTH the search and
++    scroll endpoints require -- a point without it is invisible to the
++    tab). Self-creates the collection at 768-dim. Counts only in the
++    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
++    degrades the count rather than aborting the installer.
+     """
 -    path = fda_dir / "safari_bookmarks.json"
 -    if not path.exists():
 -        return []
--    try:
+     try:
 -        data = json.loads(path.read_text(encoding="utf-8"))
 -    except (OSError, json.JSONDecodeError) as exc:
 -        logger.warning(
@@ -473,15 +482,7 @@
 -      ``points_created``   : alias of ``sent``
 -      ``skipped_sensitive``: bookmarks dropped by the blocklist
 -      ``total``            : ingestible bookmarks considered
-+    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
-+    and upserts a point per person carrying the payload contract the iOS
-+    People tab + Hub People-card read: ``display_name``, ``person_uri``,
-+    and ``contact_type == "person"`` (the filter BOTH the search and
-+    scroll endpoints require -- a point without it is invisible to the
-+    tab). Self-creates the collection at 768-dim. Counts only in the
-+    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
-+    degrades the count rather than aborting the installer.
-     """
+-    """
 -    bookmarks = _load_safari_bookmarks(fda_dir)
 -    if not bookmarks:
 -        logger.info("No bookmarks to ingest.")
@@ -510,7 +511,22 @@
 -        folder = (b.get("folder") or "").strip()
 -        strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
 -            folder, _BOOKMARK_DEFAULT_STRENGTH
--        )
++        rows = _sparql_query(
++            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
++            "SELECT ?person ?name ?createdAt WHERE {\n"
++            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
++            # pwg:createdAt holds the REAL historical contact-creation date
++            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
++            # written by contact_syncer) -- distinct from the install-time
++            # stamp. The time-ordered wiki views (year pages, person
++            # timeline, "recent") key on observed_at/created_at, so without
++            # surfacing this here the FDA-sourced people are ABSENT from
++            # those views, not just stamped wrong. OPTIONAL: a person with
++            # no real date stays omitted from time views (consistent with
++            # the iCloud-contacts decision) -- we never fabricate now().
++            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
++            "}"
+         )
 -
 -        # Embedding document: title carries the human-readable signal;
 -        # domain anchors it. Mirrors the browsing path's doc construction
@@ -572,7 +588,7 @@
 -            vector_size = len(vec)
 -            break
 -
-     try:
+-    try:
 -        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
 -    except Exception as exc:
 -        logger.warning(
@@ -614,12 +630,7 @@
 -        logger.warning(
 -            "Bookmarks: had %d to ingest but 0 landed in Qdrant '%s'.",
 -            len(queue), PREFERENCES_QDRANT_COLLECTION,
-+        rows = _sparql_query(
-+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-+            "SELECT ?person ?name WHERE {\n"
-+            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
-+            "}"
-         )
+-        )
 -        return {
 -            "status": "error",
 -            "sent": 0,
@@ -697,7 +708,7 @@
 -    people_rows = _sparql_query(
 -        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
 -        "SELECT ?uri ?displayName ?contactType ?org ?jobTitle "
--        "?givenName ?familyName WHERE {\n"
+-        "?givenName ?familyName ?createdAt WHERE {\n"
 -        "  ?uri a pwg:Person ;\n"
 -        "       pwg:displayName ?displayName .\n"
 -        "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
@@ -705,6 +716,16 @@
 -        "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
 -        "  OPTIONAL { ?uri pwg:givenName ?givenName }\n"
 -        "  OPTIONAL { ?uri pwg:familyName ?familyName }\n"
+-        # pwg:createdAt holds the REAL historical contact-creation date
+-        # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date written
+-        # by contact_syncer) -- distinct from the install-time stamp. The
+-        # time-ordered wiki views (year pages, person timeline, "recent")
+-        # key on observed_at/created_at, so without surfacing this here the
+-        # FDA-sourced people are ABSENT from those views, not just stamped
+-        # wrong. OPTIONAL: a person with no real date stays omitted from
+-        # time views (consistent with the iCloud-contacts decision) -- we
+-        # never fabricate now().
+-        "  OPTIONAL { ?uri pwg:createdAt ?createdAt }\n"
 -        "}"
 -    )
 -
@@ -735,14 +756,31 @@
 -            if id_value not in emails_by_uri[uri]:
 -                emails_by_uri[uri].append(id_value)
 -
+-    # A person may produce more than one row when they carry several
+-    # pwg:createdAt values (the contact_syncer "update if earlier" path can
+-    # leave more than one historic date across re-runs). Keep the first row
+-    # for the scalar fields, but track the EARLIEST createdAt across all
+-    # rows for the URI so the time-ordered views anchor on the person's
+-    # true first-seen date rather than whichever row SPARQL returned first.
 -    people: list[dict] = []
 -    seen_uris: set[str] = set()
+-    index_by_uri: dict[str, int] = {}
 -    for row in people_rows:
 -        uri = (row.get("uri", {}) or {}).get("value", "")
 -        display_name = (row.get("displayName", {}) or {}).get("value", "").strip()
--        if not uri or not display_name or uri in seen_uris:
+-        if not uri or not display_name:
+-            continue
+-        created_at = (row.get("createdAt", {}) or {}).get("value", "").strip()
+-        if uri in seen_uris:
+-            # Already have this person; only fold in an earlier real date.
+-            if created_at:
+-                idx = index_by_uri[uri]
+-                existing = people[idx]["created_at"]
+-                if not existing or created_at < existing:
+-                    people[idx]["created_at"] = created_at
 -            continue
 -        seen_uris.add(uri)
+-        index_by_uri[uri] = len(people)
 -        people.append({
 -            "uri": uri,
 -            "display_name": display_name,
@@ -754,6 +792,11 @@
 -            "family_name": (row.get("familyName", {}) or {}).get("value", ""),
 -            "phones": phones_by_uri.get(uri, []),
 -            "emails": emails_by_uri.get(uri, []),
+-            # Real historical first-seen date (may be ""). Surfaced to the
+-            # Qdrant payload as observed_at/created_at so time-ordered views
+-            # can place this person. Empty -> omitted from those views (no
+-            # now() fabrication).
+-            "created_at": created_at,
 -        })
 -    return people
 -
@@ -810,18 +853,8 @@
  
 -    if not people:
 -        logger.info("No people in Oxigraph to index.")
-+    # Dedup by person URI; keep the first display name seen.
-+    persons: dict[str, str] = {}
-+    for r in rows:
-+        uri = (r.get("person", {}).get("value") or "").strip()
-+        name = (r.get("name", {}).get("value") or "").strip()
-+        if uri and name and uri not in persons:
-+            persons[uri] = name
-+
-+    if not persons:
-+        logger.info("People sweep: no pwg:Person in Oxigraph to populate.")
-         return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
- 
+-        return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
+-
 -    docs = [_person_embed_doc(p) for p in people]
 -    vectors = _ollama_embed_batch(docs)
 -
@@ -853,47 +886,96 @@
 -        # Stable point id: same URI re-runs upsert in place rather than
 -        # duplicating rows on re-install.
 -        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, uri))
+-        payload = {
+-            "person_uri": uri,
+-            "person_id": point_id,
+-            "display_name": person["display_name"],
+-            "contact_type": person["contact_type"] or "person",
+-            "organization": person["organization"],
+-            "job_title": person["job_title"],
+-            "given_name": person["given_name"],
+-            "family_name": person["family_name"],
+-            "phones": person["phones"],
+-            "emails": person["emails"],
+-            "privacy_level": DEFAULT_PRIVACY,
+-            "source": "fda_people_index",
+-            "last_contact": "",
+-        }
+-        # Surface the REAL pwg:createdAt date so the time-ordered wiki
+-        # views (year pages, person timeline, "recent people") can place
+-        # this person. The CM044 readers key on observed_at first, then
+-        # fall back to created_at, so write BOTH from the same real date.
+-        # Omit entirely when there is no real date: a no-real-date FDA
+-        # person stays absent from time views rather than being stamped
+-        # with a fabricated now() (consistent with the iCloud-contacts
+-        # decision).
+-        created_at = (person.get("created_at") or "").strip()
++    # Dedup by person URI; keep the first display name seen. A person may
++    # produce more than one row when they carry several pwg:createdAt
++    # values (the contact_syncer "update if earlier" path can leave more
++    # than one historic date across re-runs), so track the EARLIEST real
++    # createdAt across all rows for the URI -- the time-ordered views
++    # anchor on the person's true first-seen date rather than whichever row
++    # SPARQL returned first.
++    persons: dict[str, str] = {}
++    created_by_uri: dict[str, str] = {}
++    for r in rows:
++        uri = (r.get("person", {}).get("value") or "").strip()
++        name = (r.get("name", {}).get("value") or "").strip()
++        if not uri or not name:
++            continue
++        if uri not in persons:
++            persons[uri] = name
++        created_at = (r.get("createdAt", {}).get("value") or "").strip()
+         if created_at:
+-            payload["observed_at"] = created_at
+-            payload["created_at"] = created_at
 -        points.append({
 -            "id": point_id,
 -            "vector": vec,
--            "payload": {
--                "person_uri": uri,
--                "person_id": point_id,
--                "display_name": person["display_name"],
--                "contact_type": person["contact_type"] or "person",
--                "organization": person["organization"],
--                "job_title": person["job_title"],
--                "given_name": person["given_name"],
--                "family_name": person["family_name"],
--                "phones": person["phones"],
--                "emails": person["emails"],
--                "privacy_level": DEFAULT_PRIVACY,
--                "source": "fda_people_index",
--                "last_contact": "",
--            },
+-            "payload": payload,
 -        })
--
++            existing = created_by_uri.get(uri)
++            if not existing or created_at < existing:
++                created_by_uri[uri] = created_at
+ 
++    if not persons:
++        logger.info("People sweep: no pwg:Person in Oxigraph to populate.")
++        return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
++
 +    items = list(persons.items())  # [(uri, name), ...] -- stable order
      sent = 0
      try:
 +        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, _PEOPLE_VECTOR_DIM)
 +        vectors = _ollama_embed_batch([name for _, name in items])
-+        points = [
-+            {
++        points = []
++        for (uri, name), vec in zip(items, vectors):
++            payload = {
++                "display_name": name,
++                "person_uri": uri,
++                # Both ical-server read paths filter on this exact
++                # value; without it the iOS People tab sees nothing.
++                "contact_type": "person",
++            }
++            # Surface the REAL pwg:createdAt date so the time-ordered wiki
++            # views (year pages, person timeline, "recent people") can
++            # place this person. The CM044 readers key on observed_at
++            # first, then fall back to created_at, so write BOTH from the
++            # same real date. Omit entirely when there is no real date: a
++            # no-real-date FDA person stays absent from time views rather
++            # than being stamped with a fabricated now() (consistent with
++            # the iCloud-contacts decision).
++            real_created = created_by_uri.get(uri)
++            if real_created:
++                payload["observed_at"] = real_created
++                payload["created_at"] = real_created
++            points.append({
 +                # Stable id: same person URI re-upserts in place across
 +                # re-installs rather than duplicating the row.
 +                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"person|{uri}")),
 +                "vector": vec,
-+                "payload": {
-+                    "display_name": name,
-+                    "person_uri": uri,
-+                    # Both ical-server read paths filter on this exact
-+                    # value; without it the iOS People tab sees nothing.
-+                    "contact_type": "person",
-+                },
-+            }
-+            for (uri, name), vec in zip(items, vectors)
-+        ]
++                "payload": payload,
++            })
          sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
      except Exception as exc:
          logger.warning(
@@ -944,7 +1026,7 @@
      }
  
  
-@@ -1655,7 +1271,6 @@
+@@ -1700,7 +1307,6 @@
          ("photos", ingest_photos_people),
          ("apple_mail", ingest_mail_contacts),
          ("browser_history", ingest_browser_history),
@@ -952,7 +1034,7 @@
      ]:
          try:
              results[name] = func(fda_dir)
-@@ -1663,16 +1278,6 @@
+@@ -1708,16 +1314,6 @@
              logger.warning("[warn] %s ingestion failed: %s", name, e)
              results[name] = {"status": "error", "error": str(e)}
  

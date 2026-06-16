@@ -26,8 +26,12 @@
 #   - per base:  export CM041=/path  (the $CM041 placeholder below expands)
 #
 # Pinned SHAs captured 2026-06-16 from the local source checkouts:
-#   CM041  8b3135cc   CM048  659d6639   CM021  0d73344f
+#   CM041  5b93782   CM048  659d6639   CM021  0d73344f
 #   CM024  43d6c5da   HR015  1bb0a0db   CM019  (not a git repo)
+# v1.0.0 cut re-pin (2026-06-16): CM041 8b3135cc -> 5b93782 (post-merge head of
+#   #46 people_list/reconverge + #47 displayName + #48 junk-data + #49 observed_at);
+#   ostler_fda 1bb0a0db -> a15d82f (post-merge head of #191 FDA createdAt). The other
+#   HR015 trees stay at 1bb0a0db (their source paths are unchanged across that range).
 
 # ---- CM041 (PWG People Graph) sub-trees ----------------------------------
 
@@ -36,19 +40,19 @@ name             = "cm041/contact_syncer"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
 source_path      = "contact_syncer"
-pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
-divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
+pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+  divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "Legit divergence: identity_resolver.normalise import + en-dash house style. Pending graft #49 (observed_at) will land in CM041 then must be synced here."
+note             = "Legit divergence: identity_resolver.normalise import + en-dash house style. Graft #49 (observed_at) landed in CM041 (#325/#326) and is synced here at 5b93782."
 
 [[tree]]
 name             = "cm041/identity_resolver"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
-pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
-divergence_patch = "vendor/divergences/cm041_identity_resolver.patch"
+pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+  divergence_patch = "vendor/divergences/cm041_identity_resolver.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
 note             = "Vendor-only file canonical_name.py (vendor-side graft) captured in the patch."
@@ -58,8 +62,8 @@ name             = "cm041/meeting_syncer"
 vendor_path      = "vendor/cm041/meeting_syncer"
 source_repo      = "$CM041"
 source_path      = "meeting_syncer"
-pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
-divergence_patch = "vendor/divergences/cm041_meeting_syncer.patch"
+pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+  divergence_patch = "vendor/divergences/cm041_meeting_syncer.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
 
@@ -68,8 +72,8 @@ name             = "cm041/assistant_api"
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
-pinned_sha       = "8b3135cceaba88d64223e27a6f2ffd30816d4e57"
-divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
+pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+  divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
 verify           = "full"
 note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh (vendor-side grafts). ical-server.py local additions captured in patch."
@@ -106,11 +110,11 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/ostler_fda.patch"
+pinned_sha       = "a15d82f39653857045265655232294da881302c9"
+  divergence_patch = "vendor/divergences/ostler_fda.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
 verify           = "full"
-note             = "Pending graft #191 (createdAt) will land in HR015 ostler_fda then must be synced here."
+note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f."
 
 [[tree]]
 name             = "ostler_security"
@@ -138,7 +142,7 @@ vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
 pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/doctor.patch"
+  divergence_patch = "vendor/divergences/doctor.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh"]
 verify           = "full"
 

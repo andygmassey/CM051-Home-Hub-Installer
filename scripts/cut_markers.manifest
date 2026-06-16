@@ -67,3 +67,6 @@ assistant_tag_grep|crates/zeroclaw-providers/src/ollama_gate.rs|pub\(crate\) asy
 # --- v1.0.0 last-cut: daemon B1/B3 fixes (hub-v0.4.12, ostler-assistant #120) ---
 assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|owner_cross_device_inbound_from_self_handle_is_not_dropped|#120 B3 iMessage self-handle over-broad-drop fix -- owner cross-device inbound reaches the agent (test exists only at v0.4.12)
 assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|fn seeded_identity_md|#120 B1 IDENTITY/SOUL seeded from user_assistant_name, never embeds the ZeroClaw codeword (fn added at v0.4.12)
+
+# --- v1.0.0 cut: daemon P0 graph tool (hub-v0.4.13, ostler-assistant #121) ---
+assistant_tag_grep|crates/zeroclaw-runtime/src/tools/mod.rs|PwgPeopleTool|#608/#121 P0 graph tool registered in the daemon: the agent gets the loopback-only pwg_people lookup tool so Hub chat answers personal-data questions from the graph (the dead-brain cure). Matches the `pub use ...::PwgPeopleTool` + `PwgPeopleTool::new(` registration at v0.4.13.

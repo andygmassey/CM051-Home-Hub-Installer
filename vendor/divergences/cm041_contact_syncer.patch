@@ -1,6 +1,6 @@
 --- a/facebook_friends.py
 +++ b/facebook_friends.py
-@@ -420,6 +420,20 @@
+@@ -430,6 +430,20 @@
                          config.DEFAULT_PRIVACY_LEVEL,
                      )
                  counts["created"] += 1
@@ -46,7 +46,7 @@
              if qdrant and not dry_run:
 --- a/linkedin_connections.py
 +++ b/linkedin_connections.py
-@@ -638,7 +638,13 @@
+@@ -653,7 +653,13 @@
      for i, row in enumerate(rows, 1):
          identity, extra = row_to_identity(row)
  
@@ -61,7 +61,7 @@
              counts["skipped"] += 1
              continue
  
-@@ -710,6 +716,21 @@
+@@ -725,6 +731,21 @@
                      )
                  counts["created"] += 1
  
@@ -114,18 +114,20 @@
  from __future__ import annotations
  
  import argparse
-@@ -35,6 +35,10 @@
+@@ -35,7 +35,11 @@
  from contact_syncer.photo_storage import remove_photo, write_photo
  
  from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+-from identity_resolver.normalise import clean_display_name  # type: ignore[import-untyped]
 +from identity_resolver.normalise import (  # type: ignore[import-untyped]
++    clean_display_name,
 +    normalise_email,
 +    normalise_phone,
 +)
  
  # Qdrant client
  from qdrant_client import QdrantClient
-@@ -118,7 +122,7 @@
+@@ -119,7 +123,7 @@
              current_ctag = ""
  
          if current_ctag and current_ctag == old_ctag and old_etags:
@@ -134,7 +136,7 @@
              return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
  
          # Step 2: Get ETags and determine changes
-@@ -131,8 +135,8 @@
+@@ -132,8 +136,8 @@
                  f"{len(deleted_hrefs)} deleted."
              )
          else:
@@ -145,7 +147,7 @@
              vcard_texts = self.carddav.get_all_vcards()
              current_etags = self.carddav.get_etags()
              deleted_hrefs = []
-@@ -160,7 +164,7 @@
+@@ -161,7 +165,7 @@
              if i % 100 == 0 or i == total:
                  pct = int(i / total * 100) if total else 0
                  print(
@@ -154,7 +156,7 @@
                      f"{counts['person']} people, {counts['business']} businesses, "
                      f"{counts['errors']} errors"
                  )
-@@ -180,7 +184,7 @@
+@@ -181,7 +185,7 @@
              uid_for_log = parsed.get("uid")
              fn_for_log = parsed.get("fn")
  
@@ -163,16 +165,16 @@
              # contact cannot crash the whole sync.
              try:
                  contact_type = classify_contact(parsed)
-@@ -193,7 +197,7 @@
-                 if contact_type == "business":
-                     self._write_business_oxigraph(parsed)
-                 else:
+@@ -203,7 +207,7 @@
+                     _cleaned = clean_display_name(parsed.get("fn") or "")
+                     if _cleaned:
+                         parsed["fn"] = _cleaned
 -                    # Person or unclassified — create person node
 +                    # Person or unclassified – create person node
                      person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
                      description = self._build_description(parsed)
                      qdrant_queue.append(
-@@ -321,35 +325,54 @@
+@@ -331,35 +335,54 @@
          def _log(msg: str) -> None:
              print(msg, file=sys.stderr)
  
@@ -248,7 +250,7 @@
              return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
  
          counts = {"person": 0, "business": 0, "unclassified": 0, "errors": 0}
-@@ -435,7 +458,219 @@
+@@ -450,6 +473,218 @@
          }
  
      # -- helpers --------------------------------------------------------------
@@ -347,7 +349,7 @@
 +                    logger.warning("ZABCDRECORD read failed in %s: %s", db_path, exc)
 +                    conn.close()
 +                    continue
- 
++
 +                # Pre-fetch emails + phones + addresses for all rows
 +                # in this DB, then group by parent PK. One pass each
 +                # rather than N queries.
@@ -464,11 +466,10 @@
 +            seen_uids.add(key)
 +            deduped.append(vc)
 +        return deduped
-+
+ 
      def _build_description(
          self, parsed: Dict[str, Any], facts: Optional[List[str]] = None
-     ) -> str:
-@@ -639,7 +874,7 @@
+@@ -654,7 +889,7 @@
              emails=emails,
          )
  
@@ -477,7 +478,7 @@
          # has a strong identifier (iCloud UID). Fuzzy name matching is disabled
          # here to prevent first-name collisions (e.g. "Sandra Andersson" being
          # incorrectly merged into "Sandra Stewart" via Jaro-Winkler prefix
-@@ -658,6 +893,18 @@
+@@ -673,6 +908,18 @@
              person_uri = f"https://pwg.dev/ontology#person_{person_id}"
              self._persist_photo(person_uri, parsed)
              self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
@@ -496,7 +497,7 @@
  
          return person_id, person_uri
  
-@@ -666,7 +913,7 @@
+@@ -681,7 +928,7 @@
  
          Side-effect: mutates ``parsed["profile_photo_path"]`` to the final
          path, or leaves it absent if the card had no photo. Failures are
@@ -505,7 +506,7 @@
          contact record from syncing.
          """
          photo = parsed.get("photo")
-@@ -719,7 +966,7 @@
+@@ -734,7 +981,7 @@
              triples.append(f'<{person_uri}> pwg:notes "{notes}"')
          if birthday:
              triples.append(f'<{person_uri}> pwg:birthday "{birthday}"^^xsd:date')
@@ -514,7 +515,7 @@
          # FOAF is the de-facto vocabulary for person-to-depicting-image; we
          # use foaf:img (the primary image) rather than foaf:depiction (any
          # image containing the person). The value is a file URI because the
-@@ -745,11 +992,19 @@
+@@ -760,11 +1007,19 @@
  
          for idx, phone in enumerate(parsed.get("phones", [])):
              id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
@@ -535,7 +536,7 @@
              )
              if phone.get("label"):
                  id_triples.append(
-@@ -758,11 +1013,13 @@
+@@ -773,11 +1028,13 @@
  
          for idx, email in enumerate(parsed.get("emails", [])):
              id_uri = f"https://pwg.dev/ontology#id_{person_id}_email{idx}"
@@ -550,7 +551,7 @@
              )
              if email.get("label"):
                  id_triples.append(
-@@ -785,7 +1042,7 @@
+@@ -800,7 +1057,7 @@
  
          Updates mutable scalar properties (displayName/org/jobTitle/contactType)
          AND merges any new identifiers (iCloud UID, phones, emails) from the
@@ -559,7 +560,7 @@
          identifier that already exists is a no-op.
          """
          fn = (parsed.get("fn") or "").replace('"', '\\"')
-@@ -839,10 +1096,13 @@
+@@ -854,10 +1111,13 @@
          for phone in parsed.get("phones", []):
              v = phone.get("value") if isinstance(phone, dict) else None
              if v:
@@ -573,7 +574,7 @@
                  new_ids.append(("email", v, email.get("label") if isinstance(email, dict) else None))
  
          for idx, (id_type, id_value, label) in enumerate(new_ids):
-@@ -1044,10 +1304,10 @@
+@@ -1059,10 +1319,10 @@
                  ),
              )
          except Exception as exc:
