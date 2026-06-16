@@ -44,11 +44,30 @@ Pure-Python runtime under `agent/`. Listed in `install.sh:4802` as the
   `/api/v1/pair/status`, `/api/v1/pair/regenerate`, panels)
 - `requirements.txt` (`fastapi`, `uvicorn`, `httpx`, `pyyaml`, `qrcode`)
 
-Last synced from HR015 `doctor/agent/` @ `f085fc0b` (the pairing-panel
-and iMessage TCC posture features that landed upstream after the prior
-~2026-05-27 sync). A vendor-freshness guard,
-`vendor/doctor/test_vendor_pairing.sh`, fails the build if a future
-re-sync drops the `/pair-ios` route or `pair_status.py`.
+Last synced from HR015 `doctor/agent/` @ `1bb0a0d` (HR015 origin/main,
+2026-06-16). This sync was a **surgical subset** carrying HR015 #187
+(`6636fdd`, "native-aware Docker rules") to kill the false
+"Docker not installed / not running" criticals that led the Doctor
+dashboard on the productised native build (the data tier runs in Colima
+containers, not Docker Desktop, so the Docker-Desktop check is a
+false-RED). The .152 cold-wipe walk (2026-06-16) still showed those
+criticals because the vendored copy predated #187.
+
+Files re-vendored from upstream in this sync:
+`diagnostic_rules.py`, `status_collector.py`, `web_ui.py`,
+`apple_style.css`, `first_run.py`, and the new `config_panel.py`
+(a lazy import target of the updated `web_ui.py`).
+
+Files deliberately NOT overwritten -- these are **ahead of HR015**
+(CM051-local, not yet upstreamed): `duplicate_decision.py` +
+`test_duplicate_decision_split.py` (CM051 PR #302's `split` action). A
+blind whole-directory `rm -rf` + copy (the generic recipe below) would
+have regressed #302; future syncs must graft, preserving the local
+`split` work until it lands upstream.
+
+A vendor-freshness guard, `vendor/doctor/test_vendor_pairing.sh`, fails
+the build if a future re-sync drops the `/pair-ios` route, `pair_status.py`,
+or leaves a `web_ui.py` import without its vendored module.
 
 ## What is NOT included
 

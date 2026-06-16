@@ -143,6 +143,7 @@ from diagnostic_copy import (
 )
 from status_collector import (
     detect_ostler_prefix,
+    is_native_deployment,
     is_ostler_container,
 )
 
@@ -151,8 +152,23 @@ def check_first_install(snapshot: Any) -> list[dict]:
     """Detect common first-install problems."""
     findings = []
 
-    # No Docker at all
-    if snapshot.docker_version is None and not snapshot.docker_containers:
+    # "Docker Desktop not installed" critical.
+    #
+    # Suppressed on the productised native build. NOTE: native here does
+    # NOT mean "no Docker" -- the data tier (Qdrant/Oxigraph/Redis) runs
+    # in containers via Colima even on the native build. This rule is
+    # suppressed because its fix-command is *Docker-Desktop-specific*
+    # (Colima needs no Docker Desktop install), so it is a false-RED
+    # there and would lead the support-email report. A genuine data-tier
+    # outage is already covered by the per-service unreachable rules, so
+    # nothing is lost by dropping this Docker-Desktop check. The legacy
+    # Docker-Desktop dev deploy opts back in via OSTLER_DEPLOY_MODE=docker.
+    # See is_native_deployment().
+    if (
+        not is_native_deployment()
+        and snapshot.docker_version is None
+        and not snapshot.docker_containers
+    ):
         findings.append({
             "severity": "critical",
             "title": DOCKER_NOT_INSTALLED_TITLE,

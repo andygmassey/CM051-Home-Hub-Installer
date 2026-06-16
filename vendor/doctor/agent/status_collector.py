@@ -90,6 +90,32 @@ def detect_ostler_prefix(snapshot: "SystemSnapshot") -> str:
     return "ostler-"
 
 
+# Architecture signal. The productised Ostler build is single-machine
+# native (launchd, native processes -- NOT a second Docker *host*);
+# HR015 locked this directive 2026-05-09. NOTE: "native" does NOT mean
+# "no Docker" -- the data tier (Qdrant/Oxigraph/Redis) runs in
+# containers via Colima even on the native build. The legacy gamingrig
+# dev deploy runs the same services under Docker Desktop. The two builds
+# want different Doctor diagnostics: the native build needs no Docker
+# *Desktop* install (Colima provides the runtime), so the
+# "Docker Desktop not installed / not running" rules are false-RED
+# criticals there and must be suppressed -- a real data-tier outage is
+# already covered by the per-service unreachable rules. The legacy
+# Docker-Desktop deploy opts back into those rules by exporting
+# ``OSTLER_DEPLOY_MODE=docker`` (set on the dev compose). The productised
+# default is native, so the customer never sees a spurious Docker-Desktop
+# critical lead the support-email report.
+def is_native_deployment() -> bool:
+    """True on the productised single-machine native build.
+
+    Reads ``OSTLER_DEPLOY_MODE``. Anything other than the explicit
+    legacy value ``docker`` (case-insensitive) resolves to native --
+    the productised default -- so a fresh customer install with the
+    env var unset gets the native (Docker-rule-suppressed) posture.
+    """
+    return os.environ.get("OSTLER_DEPLOY_MODE", "native").strip().lower() != "docker"
+
+
 @dataclass
 class OllamaModelInfo:
     name: str
@@ -192,6 +218,32 @@ class SystemSnapshot:
 # ---------------------------------------------------------------------------
 
 
+def _docker_bin() -> str:
+    """Resolve the docker executable.
+
+    The Doctor runs as a launchd LaunchAgent, whose PATH does not include
+    Homebrew's /opt/homebrew/bin (nor /usr/local/bin on Intel). A bare
+    "docker" lookup therefore raises FileNotFoundError, so every
+    Docker-derived signal (version, containers) reads as absent even when
+    Docker is installed and running. On the native single-machine install
+    this strands the first-run wizard on Step 1 forever. Resolve an
+    absolute path so Docker is detected regardless of the launchd PATH.
+    """
+    found = shutil.which("docker")
+    if found:
+        return found
+    for candidate in (
+        "/opt/homebrew/bin/docker",
+        "/usr/local/bin/docker",
+        "/usr/bin/docker",
+    ):
+        if os.path.exists(candidate):
+            return candidate
+    # Fall back to the bare name so behaviour is unchanged when docker is
+    # genuinely absent (FileNotFoundError handled by the callers).
+    return "docker"
+
+
 def collect_docker_containers() -> tuple[list[DockerContainerInfo], str | None]:
     """
     Get Docker container names, images, and states.
@@ -200,7 +252,7 @@ def collect_docker_containers() -> tuple[list[DockerContainerInfo], str | None]:
     try:
         result = subprocess.run(
             [
-                "docker", "ps", "-a",
+                _docker_bin(), "ps", "-a",
                 "--format", "{{.Names}}\t{{.Image}}\t{{.State}}\t{{.Status}}",
             ],
             capture_output=True,
@@ -233,7 +285,7 @@ def collect_docker_version() -> str | None:
     """Get Docker version string."""
     try:
         result = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
+            [_docker_bin(), "version", "--format", "{{.Server.Version}}"],
             capture_output=True,
             text=True,
             timeout=5,

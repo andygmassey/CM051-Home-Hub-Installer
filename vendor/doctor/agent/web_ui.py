@@ -37,6 +37,7 @@ from status_collector import (
     collect_full_snapshot,
     SystemSnapshot,
     detect_ostler_prefix,
+    is_native_deployment,
     is_ostler_container,
     EXPECTED_OSTLER_SERVICES,
 )
@@ -76,6 +77,22 @@ from web_ui_copy import (
     DASHBOARD_HELP_PARAGRAPH_1,
     DASHBOARD_HELP_PARAGRAPH_2,
     DASHBOARD_HOSTNAME_UNKNOWN,
+    CONFIG_BTN_SAVE,
+    CONFIG_BTN_SAVING,
+    CONFIG_ERR_LOAD_PREFIX,
+    CONFIG_ERR_SAVE_GENERIC,
+    CONFIG_ERR_SAVE_PREFIX,
+    CONFIG_HEADING,
+    CONFIG_META_FOOTER,
+    CONFIG_OPT_UNSET,
+    CONFIG_READONLY_INTRO,
+    CONFIG_SAVED,
+    CONFIG_SECRET_SET,
+    CONFIG_SECRET_UNSET,
+    CONFIG_SECTION_READONLY,
+    CONFIG_SUBTITLE,
+    CONFIG_TITLE_TAG,
+    DASHBOARD_CONFIG_LINK,
     DASHBOARD_IMPORT_EVERNOTE_LINK,
     DASHBOARD_PAIR_IOS_LINK,
     DASHBOARD_LAST_CHECKED_JUST_NOW,
@@ -280,12 +297,24 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
     # Check Docker containers. Detect the deployment's prefix dynamically
     # so we work for productised installs (ostler-) and the dev compose
     # setup (pwg-).
+    #
+    # This Docker-container management section is suppressed on the
+    # productised native build. NOTE: native does NOT mean "no Docker" --
+    # the data tier (Qdrant/Oxigraph/Redis) runs in containers via Colima
+    # even here. The section is suppressed because its criticals are framed
+    # around Docker *Desktop* container management, which is false-RED on a
+    # healthy native install (Colima, not Docker Desktop) and leads the
+    # support-email report. A genuine data-tier outage is already surfaced
+    # by the per-service unreachable rules, so suppressing this loses no
+    # coverage. The legacy Docker-Desktop dev deploy opts back in via
+    # OSTLER_DEPLOY_MODE=docker. See is_native_deployment().
+    docker_deployment = not is_native_deployment()
     prefix = detect_ostler_prefix(snapshot)
     expected_containers = {f"{prefix}{svc}" for svc in EXPECTED_OSTLER_SERVICES}
     running_names = {c.name for c in snapshot.docker_containers if c.state == "running"}
     missing = expected_containers - running_names
 
-    if not snapshot.docker_containers:
+    if docker_deployment and not snapshot.docker_containers:
         findings.append({
             "severity": "critical",
             "title": DOCKER_NOT_RUNNING_TITLE,
@@ -294,7 +323,7 @@ def run_local_diagnostics(snapshot: SystemSnapshot) -> list[dict]:
             "fix_command": DOCKER_NOT_RUNNING_FIX_COMMAND,
             "risk": "low",
         })
-    elif missing:
+    elif docker_deployment and missing:
         for name in missing:
             findings.append({
                 "severity": "critical",
@@ -755,7 +784,7 @@ def render_dashboard(
            (assets/ostler.css on os001) shifted to a dark-mode admin
            dashboard palette. Components: header, status-grid + status-card,
            findings + fix-box, disk + model lists, chat. */
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
 
         :root {{
             --ostler-ink: #0d0b08;
@@ -1283,7 +1312,7 @@ def render_dashboard(
         </div>
 
         <div class="meta" id="metaInfo">
-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}
+            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
         </div>
     </div>
 
@@ -1548,7 +1577,7 @@ def render_history(history_entries: list[dict]) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{HISTORY_TITLE_TAG}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-panel: #1a1612;
@@ -1780,6 +1809,45 @@ async def api_wiki_correct(request: Request):
     return result
 
 
+@app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
+async def api_wiki_duplicates_decision(request: Request):
+    """Record a duplicate-contact decision (#3 duplicates UX).
+
+    The CM044 "Possible duplicate contacts" page renders Combine /
+    Not-the-same buttons that POST here. We append the decision to
+    ``duplicates.yaml`` in the corrections dir; the CM041 resolver enacts
+    it on the next sweep (merge = forced union, distinct = permanent
+    never-merge) and the page reads it back to stop re-nagging. Thin HTTP
+    plumbing only -- schema + write live in ``duplicate_decision.py``.
+    """
+    from duplicate_decision import (
+        ValidationError as _DupError,
+        validate_payload as _validate,
+        write_decision as _write,
+    )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    try:
+        normalised = _validate(body)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    try:
+        result = _write(normalised)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"could not record decision: {exc}"}, status_code=500,
+        )
+
+    return result
+
+
 @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
 async def api_chat_token(request: Request):
     """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
@@ -1840,6 +1908,17 @@ from proxy import register_proxy_routes
 _registered_proxy_paths = register_proxy_routes(app)
 
 
+def _config_section_order() -> tuple[str, ...]:
+    """Section display order for the Configuration panel.
+
+    Imported lazily from ``config_panel`` so the panel's renderer and
+    its backend share one source of truth for section ordering.
+    """
+    from config_panel import SECTION_ORDER
+
+    return SECTION_ORDER
+
+
 # ── CM024 Evernote import (feature-flagged, launch-scope brief 2026-05-13) ──
 #
 # Four routes back the Doctor "Import Evernote" surface. All four
@@ -1877,7 +1956,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{EVERNOTE_TITLE_TAG}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
@@ -2071,6 +2150,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
+        .status-pill.partial {{ background: #d4a052; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -2217,9 +2297,12 @@ def _render_import_evernote_page(active_job_id=None) -> str:
             if (state.exit_code !== null && state.exit_code !== undefined) {{
                 bits.push('exit ' + state.exit_code);
             }}
+            // A degraded ('partial') import carries a human-facing note
+            // explaining what landed and what is pending; surface it.
+            if (state.note) bits.push(state.note);
             statusMeta.textContent = bits.join(' \\u00b7 ');
 
-            if (status === 'succeeded' || status === 'failed') {{
+            if (status === 'succeeded' || status === 'failed' || status === 'partial') {{
                 resetRow.style.display = '';
                 stopPolling();
                 // One last tail fetch to make sure the final output is shown.
@@ -2478,7 +2561,7 @@ def _render_pair_ios_page() -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{PAIR_IOS_TITLE_TAG}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
@@ -2888,43 +2971,548 @@ async def api_pair_regenerate(request: Request):
     )
 
 
-@app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
-async def api_wiki_duplicates_decision(request: Request):
-    """Record a duplicate-contact decision (#3 duplicates UX).
+# ── Configuration panel (backlog #261) ───────────────────────────────
+#
+# A view-and-edit surface for the customer-safe Ostler settings file at
+# ``~/.ostler/config/config.yaml``. Read-first: it always renders the
+# current config; a small strict whitelist of fields (channel toggles,
+# model, schedule times, privacy default) can be edited and written
+# back. Secrets are never rendered -- secret-looking keys show
+# "set"/"not set" only. See ``config_panel.py`` for the schema, the
+# whitelist, validation, and the atomic write.
 
-    The CM044 "Possible duplicate contacts" page renders Combine /
-    Not-the-same buttons that POST here. We append the decision to
-    ``duplicates.yaml`` in the corrections dir; the CM041 resolver enacts
-    it on the next sweep (merge = forced union, distinct = permanent
-    never-merge) and the page reads it back to stop re-nagging. Thin HTTP
-    plumbing only -- schema + write live in ``duplicate_decision.py``.
+
+def _render_config_page() -> str:
+    """Render the Doctor Configuration panel.
+
+    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
+    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
+    visually next to ``/doctor`` and ``/pair-ios``.
+
+    The form is built client-side from the ``/api/v1/config`` view
+    model, so the whitelist and current values live in one place
+    (``config_panel.py``) and the page stays in sync automatically.
     """
-    from duplicate_decision import (
-        ValidationError as _DupError,
-        validate_payload as _validate,
-        write_decision as _write,
-    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{CONFIG_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-panel: #1a1612;
+            --ostler-panel-elev: #221c16;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-accent-warm: #E26A6A;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --ostler-hairline-faint: rgba(236, 232, 221, 0.08);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --text-faint: rgba(236, 232, 221, 0.32);
+            --green: #5cb579;
+            --red: #d96666;
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 640px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.3rem;
+        }}
+        .subtitle {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }}
+        .subtitle a {{ color: var(--text-muted); }}
+        .subtitle a:hover {{ color: var(--ostler-accent-warm); text-decoration: underline; }}
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+            font-weight: 500;
+        }}
+        .panel {{
+            background: var(--ostler-panel);
+            border: 1px solid var(--ostler-hairline-faint);
+            border-radius: 12px;
+            padding: 1.4rem 1.5rem;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 1.4rem;
+        }}
+        .panel p {{ color: var(--text-secondary); margin-bottom: 0.85rem; }}
+        .field {{
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.85rem 0;
+            border-top: 1px solid var(--ostler-hairline-faint);
+        }}
+        .field:first-of-type {{ border-top: none; padding-top: 0.2rem; }}
+        .field-text {{ flex: 1 1 auto; min-width: 0; }}
+        .field-label {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.95rem;
+            color: var(--text);
+        }}
+        .field-help {{
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+            line-height: 1.5;
+        }}
+        .field-control {{ flex: 0 0 auto; padding-top: 0.1rem; }}
+        select {{
+            font-family: var(--font-body);
+            font-size: 0.88rem;
+            color: var(--text);
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.45rem 0.7rem;
+            min-width: 9rem;
+        }}
+        input[type="time"] {{
+            font-family: var(--font-mono);
+            font-size: 0.88rem;
+            color: var(--text);
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 8px;
+            padding: 0.4rem 0.6rem;
+            color-scheme: dark;
+        }}
+        select:focus, input:focus {{
+            outline: none;
+            border-color: var(--ostler-accent);
+        }}
+        /* Toggle switch */
+        .toggle {{
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 26px;
+        }}
+        .toggle input {{ opacity: 0; width: 0; height: 0; }}
+        .toggle .slider {{
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 999px;
+            transition: background 0.18s, border-color 0.18s;
+        }}
+        .toggle .slider::before {{
+            content: "";
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            top: 3px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: transform 0.18s, background 0.18s;
+        }}
+        .toggle input:checked + .slider {{
+            background: var(--ostler-accent);
+            border-color: var(--ostler-accent);
+        }}
+        .toggle input:checked + .slider::before {{
+            transform: translateX(18px);
+            background: var(--ostler-chassis);
+        }}
+        .toggle input:focus-visible + .slider {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        .readonly-row {{
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.5rem 0;
+            border-top: 1px solid var(--ostler-hairline-faint);
+            font-size: 0.86rem;
+        }}
+        .readonly-row:first-of-type {{ border-top: none; }}
+        .readonly-key {{
+            font-family: var(--font-mono);
+            color: var(--text-secondary);
+            word-break: break-all;
+        }}
+        .readonly-val {{
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            text-align: right;
+        }}
+        .badge {{
+            font-family: var(--font-display);
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            border: 1px solid var(--ostler-hairline-soft);
+            color: var(--text-muted);
+        }}
+        .badge.set {{ color: var(--green); border-color: rgba(92,181,121,0.4); }}
+        .badge.secret {{ color: var(--text-faint); }}
+        .button-row {{
+            display: flex;
+            gap: 0.6rem;
+            align-items: center;
+            margin-top: 1.1rem;
+            flex-wrap: wrap;
+        }}
+        button.primary {{
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 0.85rem;
+            padding: 0.65rem 1.5rem;
+            border-radius: 999px;
+            cursor: pointer;
+            background: var(--ostler-accent);
+            color: var(--ostler-chassis);
+            border: 1px solid var(--ostler-accent);
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+        }}
+        button.primary:hover {{
+            background: var(--ostler-accent-hover);
+            transform: translateY(-1px);
+        }}
+        button.primary:disabled {{
+            background: var(--ostler-panel);
+            color: var(--text-muted);
+            border-color: var(--ostler-hairline-faint);
+            cursor: not-allowed;
+            transform: none;
+        }}
+        button:focus-visible {{
+            outline: 2px solid var(--ostler-accent);
+            outline-offset: 2px;
+        }}
+        .config-path {{
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            color: var(--text-faint);
+        }}
+        .banner {{
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.86rem;
+            margin-bottom: 1.2rem;
+            border-left: 3px solid var(--red);
+            background: rgba(217, 102, 102, 0.10);
+            color: var(--text);
+            display: none;
+        }}
+        .banner.visible {{ display: block; }}
+        .banner.ok {{
+            border-left-color: var(--green);
+            background: rgba(92, 181, 121, 0.10);
+        }}
+        .empty {{ color: var(--text-muted); font-size: 0.86rem; }}
+        .meta-bottom {{
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            color: var(--text-faint);
+            margin-top: 2rem;
+            padding-top: 1.1rem;
+            border-top: 1px solid var(--ostler-hairline-faint);
+            line-height: 1.55;
+        }}
+        @media (max-width: 720px) {{
+            body {{ padding: 1.4rem 1rem; }}
+            h1 {{ font-size: 1.4rem; }}
+            .field {{ flex-direction: column; }}
+            .field-control {{ align-self: flex-start; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{CONFIG_HEADING}</h1>
+        <div class="subtitle">
+            {CONFIG_SUBTITLE}
+        </div>
+
+        <div id="statusBanner" class="banner"></div>
+
+        <div id="editPanels"></div>
+
+        <div id="readonlyPanel" class="panel" style="display:none">
+            <div class="section-title">{CONFIG_SECTION_READONLY}</div>
+            <p>{CONFIG_READONLY_INTRO}</p>
+            <div id="readonlyRows"></div>
+        </div>
+
+        <div class="button-row">
+            <button type="button" class="primary" id="saveBtn">{CONFIG_BTN_SAVE}</button>
+            <span class="config-path" id="configPath"></span>
+        </div>
+
+        <div class="meta-bottom">
+            {CONFIG_META_FOOTER}
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const editPanels = document.getElementById('editPanels');
+        const readonlyPanel = document.getElementById('readonlyPanel');
+        const readonlyRows = document.getElementById('readonlyRows');
+        const saveBtn = document.getElementById('saveBtn');
+        const statusBanner = document.getElementById('statusBanner');
+        const configPathEl = document.getElementById('configPath');
+
+        const SECTION_ORDER = {json.dumps(list(_config_section_order()))};
+
+        function showStatus(msg, ok) {{
+            statusBanner.textContent = msg;
+            statusBanner.className = 'banner visible' + (ok ? ' ok' : '');
+        }}
+        function clearStatus() {{
+            statusBanner.className = 'banner';
+            statusBanner.textContent = '';
+        }}
+
+        function esc(s) {{
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }}
+
+        function controlFor(field) {{
+            const id = 'cfg_' + field.key;
+            if (field.kind === 'bool') {{
+                const checked = field.value === true ? ' checked' : '';
+                return '<label class="toggle"><input type="checkbox" id="' + id +
+                    '" data-key="' + esc(field.key) + '" data-kind="bool"' + checked +
+                    '><span class="slider"></span></label>';
+            }}
+            if (field.kind === 'enum') {{
+                let opts = '';
+                if (field.value == null) {{
+                    opts += '<option value="" selected>{CONFIG_OPT_UNSET}</option>';
+                }}
+                field.choices.forEach(function(c) {{
+                    const sel = (c === field.value) ? ' selected' : '';
+                    opts += '<option value="' + esc(c) + '"' + sel + '>' + esc(c) + '</option>';
+                }});
+                return '<select id="' + id + '" data-key="' + esc(field.key) +
+                    '" data-kind="enum">' + opts + '</select>';
+            }}
+            if (field.kind === 'time') {{
+                const v = field.value == null ? '' : esc(field.value);
+                return '<input type="time" id="' + id + '" data-key="' + esc(field.key) +
+                    '" data-kind="time" value="' + v + '">';
+            }}
+            return '';
+        }}
+
+        function renderEdit(view) {{
+            editPanels.innerHTML = '';
+            const bySection = {{}};
+            view.editable.forEach(function(f) {{
+                (bySection[f.section] = bySection[f.section] || []).push(f);
+            }});
+            SECTION_ORDER.forEach(function(section) {{
+                const fields = bySection[section];
+                if (!fields || !fields.length) return;
+                let rows = '';
+                fields.forEach(function(f) {{
+                    rows += '<div class="field"><div class="field-text">' +
+                        '<div class="field-label">' + esc(f.label) + '</div>' +
+                        '<div class="field-help">' + esc(f.help) + '</div></div>' +
+                        '<div class="field-control">' + controlFor(f) + '</div></div>';
+                }});
+                editPanels.insertAdjacentHTML('beforeend',
+                    '<div class="panel"><div class="section-title">' + esc(section) +
+                    '</div>' + rows + '</div>');
+            }});
+        }}
+
+        function renderReadonly(view) {{
+            if (!view.read_only || !view.read_only.length) {{
+                readonlyPanel.style.display = 'none';
+                return;
+            }}
+            readonlyPanel.style.display = '';
+            let rows = '';
+            view.read_only.forEach(function(r) {{
+                let right;
+                if (r.is_secret) {{
+                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
+                    right = '<span class="' + cls + '">' +
+                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
+                }} else {{
+                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
+                }}
+                rows += '<div class="readonly-row"><span class="readonly-key">' +
+                    esc(r.key) + '</span>' + right + '</div>';
+            }});
+            readonlyRows.innerHTML = rows;
+        }}
+
+        function render(view) {{
+            renderEdit(view);
+            renderReadonly(view);
+            configPathEl.textContent = view.config_path || '';
+        }}
+
+        function load() {{
+            fetch('/api/v1/config')
+                .then(function(r) {{ return r.json(); }})
+                .then(function(view) {{
+                    if (view.error) {{ showStatus(view.error, false); return; }}
+                    clearStatus();
+                    render(view);
+                }})
+                .catch(function(err) {{
+                    showStatus('{CONFIG_ERR_LOAD_PREFIX}' + err, false);
+                }});
+        }}
+
+        function collectUpdates() {{
+            const updates = {{}};
+            const controls = editPanels.querySelectorAll('[data-key]');
+            controls.forEach(function(el) {{
+                const key = el.getAttribute('data-key');
+                const kind = el.getAttribute('data-kind');
+                if (kind === 'bool') {{
+                    updates[key] = el.checked;
+                }} else {{
+                    const v = el.value;
+                    if (v !== '') updates[key] = v;
+                }}
+            }});
+            return updates;
+        }}
+
+        function save() {{
+            const updates = collectUpdates();
+            const label = saveBtn.textContent;
+            saveBtn.disabled = true;
+            saveBtn.textContent = '{CONFIG_BTN_SAVING}';
+            fetch('/api/v1/config', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify(updates)
+            }})
+                .then(function(r) {{ return r.json().then(function(b) {{ return {{ok: r.ok, body: b}}; }}); }})
+                .then(function(res) {{
+                    if (!res.ok) {{
+                        showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
+                        return;
+                    }}
+                    render(res.body);
+                    showStatus('{CONFIG_SAVED}', true);
+                }})
+                .catch(function(err) {{
+                    showStatus('{CONFIG_ERR_SAVE_PREFIX}' + err, false);
+                }})
+                .finally(function() {{
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = label;
+                }});
+        }}
+
+        saveBtn.addEventListener('click', save);
+        load();
+    }})();
+    </script>
+</body>
+</html>"""
+
+
+@app.get("/config", response_class=HTMLResponse)
+async def config_page():
+    """Render the Doctor Configuration panel (backlog #261)."""
+    return HTMLResponse(_render_config_page())
+
+
+@app.get("/api/v1/config", response_class=JSONResponse)
+async def api_config_get():
+    """Return the current config view model.
+
+    Secrets are never included as values: secret-looking keys are
+    reported presence-only (set / not set). See ``config_panel.py``.
+    """
+    from config_panel import ConfigError as _ConfigError, read_config_view
+
+    try:
+        return JSONResponse(read_config_view(), status_code=200)
+    except _ConfigError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.post("/api/v1/config", response_class=JSONResponse)
+async def api_config_post(request: Request):
+    """Validate + persist a whitelist of safe config edits.
+
+    Same cross-site guard as the pair-regenerate route: reject any POST
+    whose ``Sec-Fetch-Site`` is present and not same-origin, so a
+    malicious local tab cannot mutate the customer's config under them.
+    Only whitelisted, non-secret fields are writable; everything else is
+    rejected by ``config_panel.write_config``.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"},
+            status_code=403,
+        )
+
+    from config_panel import ConfigError as _ConfigError, write_config
 
     try:
         body = await request.json()
     except Exception as exc:
-        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
-
-    try:
-        normalised = _validate(body)
-    except _DupError as exc:
-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-
-    try:
-        result = _write(normalised)
-    except _DupError as exc:
-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-    except Exception as exc:
         return JSONResponse(
-            {"error": f"could not record decision: {exc}"}, status_code=500,
+            {"error": f"invalid JSON: {exc}"}, status_code=400,
         )
 
-    return result
+    try:
+        view = write_config(body)
+    except _ConfigError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    return JSONResponse(view, status_code=200)
 
 
 # ── Main ─────────────────────────────────────────────────────────────
