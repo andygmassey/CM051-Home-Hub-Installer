@@ -5006,15 +5006,31 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
     XCODE_WAIT=0
     XCODE_TIMEOUT=900  # 15 minutes -- generous; CLI install is ~150 MB
     LAST_HEARTBEAT=0
+    XCODE_REPOPPED=0
     until /usr/bin/xcode-select -p &>/dev/null; do
         if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
             fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
         fi
         sleep 10
         XCODE_WAIT=$((XCODE_WAIT + 10))
-        # Heartbeat every 30s so the GUI watchdog stays quiet + customer
-        # sees progress. Without this, install.sh emits nothing for the
-        # entire CLT download and the watchdog fires WARN/ERROR.
+        # .153 cold-wipe walk: the wait is driven by the macOS "install
+        # developer tools?" GUI dialog, which the customer must CLICK. If
+        # they look away (as on .153) the only repeated line was a passive
+        # "Still waiting...", reading as a download in progress -- so they
+        # never clicked, and a dismissed/lost dialog would silently burn the
+        # full 15-min timeout into ERR-02. Two safe, no-sudo mitigations:
+        #
+        # (a) Re-pop the dialog ONCE at ~2 min. `xcode-select --install` is
+        #     user-level; if the install is genuinely running it no-ops, if
+        #     the dialog was dismissed it comes back. `|| true` keeps it
+        #     errexit-safe.
+        if [[ $XCODE_REPOPPED -eq 0 && $XCODE_WAIT -ge 120 ]]; then
+            /usr/bin/xcode-select --install &>/dev/null || true
+            XCODE_REPOPPED=1
+        fi
+        # (b) Heartbeat every 30s so the GUI watchdog stays quiet AND the
+        # customer sees an ACTIONABLE line (click the dialog), not a passive
+        # "still waiting" that hides the pending click.
         if (( XCODE_WAIT - LAST_HEARTBEAT >= 30 )); then
             info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
             LAST_HEARTBEAT=$XCODE_WAIT
