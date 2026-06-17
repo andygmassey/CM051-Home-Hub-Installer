@@ -83,6 +83,23 @@
         <key>OSTLER_IMESSAGE_SELF_HANDLES</key>
         <string>OSTLER_IMESSAGE_SELF_HANDLES_VALUE</string>
         <!--
+            OSTLER_IMESSAGE_SELF_CHAT (self-chat reachability, 2026-06-17):
+            lets the customer text the assistant from their OWN Apple ID
+            (Note to Self) and get a reply, with no second account. With this
+            on, the chat.db poll also reads the operator's own messages
+            (is_from_me=1) but ONLY within a self-chat (a conversation whose
+            single participant is the account owner), scoped by a verified
+            predicate that excludes every normal outgoing message
+            (crates/zeroclaw-channels/src/imessage.rs POLL_QUERY_SELF_CHAT).
+            The daemon refuses to enable it unless a non-empty identity prefix
+            is in force, because that prefix is the echo guard that stops the
+            assistant re-ingesting its own self-chat replies. Fixed product
+            constant (the core "text your assistant" promise), so hard-coded
+            here rather than rendered by INSTALL_SNIPPET.
+        -->
+        <key>OSTLER_IMESSAGE_SELF_CHAT</key>
+        <string>true</string>
+        <!--
             OLLAMA_NUM_CTX (.153 cold-wipe walk, 2026-06-16): the daemon's
             agent system prompt is ~7,000 tokens. Ollama's default context
             window is 4096, so without this the prompt is silently truncated
@@ -91,7 +108,7 @@
             {error: EOF}". The daemon reads OLLAMA_NUM_CTX (and
             OLLAMA_KEEP_ALIVE) from its env, but nothing was setting it, so
             every real chat failed on a fresh install. 32768 fits the full
-            prompt with headroom (~6.8 GB VRAM for qwen3.5:9b -- well within
+            prompt with headroom (~6.8 GB VRAM for qwen3.5:9b, well within
             a customer Mac). Proven live on the .153 box: at ctx 4096 the
             agent prompt returns empty; at 32768 it returns a real reply.
             KEEP_ALIVE pins the model resident so it does not cold-reload
