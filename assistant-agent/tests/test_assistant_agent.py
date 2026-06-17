@@ -221,6 +221,11 @@ def test_snippet_renders_plist_and_substitutes_every_placeholder(tmp_path):
     macos_binary = setup["ostler_dir"] / "OstlerAssistant.app" / "Contents" / "MacOS" / "ostler-assistant"
     assert data["ProgramArguments"][0] == str(macos_binary)
     assert data["EnvironmentVariables"]["ZEROCLAW_WORKSPACE"] == str(setup["config_dir"])
+    # Self-chat reachability must ship ON in the daemon env, or texting the
+    # assistant from the operator's own Apple ID silently does nothing (the
+    # core "text your assistant" promise). Hard-coded constant in the plist
+    # template; lock it here so a future plist edit cannot drop it unnoticed.
+    assert data["EnvironmentVariables"]["OSTLER_IMESSAGE_SELF_CHAT"] == "true"
     assert data["StandardOutPath"] == str(setup["logs_dir"] / "ostler-assistant.log")
     assert data["StandardErrorPath"] == str(setup["logs_dir"] / "ostler-assistant.err")
     assert data["WorkingDirectory"] == str(setup["home_dir"])
