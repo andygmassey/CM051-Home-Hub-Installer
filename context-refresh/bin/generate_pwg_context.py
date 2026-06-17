@@ -38,6 +38,17 @@ from pathlib import Path
 # be assembled from a remote host.
 BASE_URL = os.environ.get("OSTLER_ICAL_BASE_URL", "http://127.0.0.1:8090")
 
+# Oxigraph (the PWG triple store) also binds to loopback. User-asserted facts
+# -- things the customer explicitly confirmed to the assistant ("Alison is my
+# wife"), banked by CM041's assert endpoint as pwg:PersonFact nodes -- live
+# here, not behind an ical-server endpoint. We read them directly with a small
+# SPARQL SELECT, mirroring the ical-server's own query helper. Default is
+# pinned to localhost so the digest can never be assembled from a remote host.
+OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "http://127.0.0.1:7878")
+
+# The PWG ontology namespace, matching the ical-server / contact_syncer.
+PWG_NS = "https://pwg.dev/ontology#"
+
 # Hard cap on the digest size. CONTEXT.md is injected into every system prompt,
 # so it must stay small. BOOTSTRAP_MAX_CHARS in the daemon defaults to 20000;
 # we stay well under that on purpose so the digest never dominates the prompt.
@@ -52,6 +63,11 @@ MAX_PEOPLE = 6
 MAX_MEETINGS = 5
 MAX_PREFERENCES = 6
 MAX_ORGS = 6
+
+# User-asserted facts are authoritative and go at the top of the digest, so we
+# allow more of them than the mined sections -- but still bounded so a runaway
+# graph cannot blow the prompt budget.
+MAX_USER_ASSERTED = 50
 
 # Privacy levels we will NOT surface in the digest. The digest is baseline
 # always-on context, so anything marked private (L3) is withheld. Endpoints
@@ -91,6 +107,45 @@ def _get_json(path: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _sparql_select(sparql: str) -> list[dict] | None:
+    """Run a SPARQL SELECT on the local Oxigraph, return list of binding dicts.
+
+    Mirrors the ical-server's own ``_sparql_select`` shape (one value per
+    binding key) but degrades like ``_get_json``: returns None on any failure
+    (store down, timeout, non-200, malformed JSON) so the section can be
+    omitted without crashing the LaunchAgent. Never raises.
+    """
+    req = urllib.request.Request(
+        OXIGRAPH_URL.rstrip("/") + "/query",
+        data=sparql.encode("utf-8"),
+        headers={
+            "Content-Type": "application/sparql-query",
+            "Accept": "application/sparql-results+json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECS) as resp:
+            if resp.status != 200:
+                return None
+            raw = resp.read()
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    bindings = data.get("results", {}).get("bindings", [])
+    if not isinstance(bindings, list):
+        return None
+    return [
+        {k: v["value"] for k, v in b.items() if isinstance(v, dict) and "value" in v}
+        for b in bindings
+        if isinstance(b, dict)
+    ]
+
+
 def _is_withheld(record: dict) -> bool:
     """True when a record is marked private (L3) and must not be surfaced."""
     level = str(record.get("privacy_level") or record.get("level") or "").lower()
@@ -98,6 +153,52 @@ def _is_withheld(record: dict) -> bool:
 
 
 # ── Section builders ─────────────────────────────────────────────────────────
+
+
+def _user_asserted_section() -> list[str]:
+    """Facts the customer explicitly confirmed to the assistant.
+
+    These are pwg:PersonFact nodes carrying pwg:factSource "user_asserted"
+    (banked by CM041's assert endpoint when the customer says something like
+    "Alison is my wife"). They are authoritative, so they sit at the very top
+    of the digest -- the assistant should always know them. Most-recent-first,
+    bounded by MAX_USER_ASSERTED, de-duplicated on the rendered line.
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?text ?name ?rel ?created WHERE {{\n'
+        '  ?f a pwg:PersonFact ;\n'
+        '     pwg:factSource "user_asserted" ;\n'
+        '     pwg:factText ?text .\n'
+        '  OPTIONAL {{ ?f pwg:aboutPerson ?p .\n'
+        '             OPTIONAL {{ ?p pwg:displayName ?name }}\n'
+        '             OPTIONAL {{ ?p pwg:relationshipType ?rel }} }}\n'
+        '  OPTIONAL {{ ?f pwg:createdAt ?created }}\n'
+        '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
+        '}} ORDER BY DESC(?created) LIMIT {limit}'.format(
+            ns=PWG_NS, limit=MAX_USER_ASSERTED * 3
+        )
+    )
+    if not rows:
+        return []
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        line = f"- {text}"
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(line)
+        if len(lines) >= MAX_USER_ASSERTED:
+            break
+    return lines
 
 
 def _people_section() -> list[str]:
@@ -231,12 +332,13 @@ def build_digest() -> str | None:
     None when nothing useful could be gathered (server down / empty graph), so
     the caller can leave any prior digest in place.
     """
+    user_asserted = _user_asserted_section()
     people = _people_section()
     upcoming, recent = _meetings_section()
     preferences = _preferences_section()
     orgs = _orgs_section()
 
-    if not (people or upcoming or recent or preferences or orgs):
+    if not (user_asserted or people or upcoming or recent or preferences or orgs):
         return None
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -250,6 +352,20 @@ def build_digest() -> str | None:
     )
     out.append(f"_Last updated: {now}._")
     out.append("")
+
+    # User-asserted facts are authoritative -- things the customer told the
+    # assistant directly -- so they lead the digest, above anything mined or
+    # derived from activity.
+    if user_asserted:
+        out.append("## Confirmed by you")
+        out.append("")
+        out.append(
+            "Facts the person confirmed to you directly. Treat these as "
+            "authoritative; they override anything inferred below."
+        )
+        out.append("")
+        out.extend(user_asserted)
+        out.append("")
 
     if people:
         out.append("## People you interact with most")
