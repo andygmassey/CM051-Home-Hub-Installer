@@ -7130,7 +7130,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:cc0226a411a29601a380f45defd3f45f7ed0e22f3fed1be942732d519effca71
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:b417dbf2392008f47031063f260f1d03403a94b409276ccdd175a7086c82dc60
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
