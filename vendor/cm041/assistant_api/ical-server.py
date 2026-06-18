@@ -2014,14 +2014,70 @@ def api_suggestions():
     return out
 
 
-def api_timeline(days=7):
-    """Merged timeline of calendar events + recent meetings.
+def _timeline_from_graph(past_days=730, limit=200):
+    """Historic timeline rows from the People Graph - one entry PER MEETING.
 
-    Returns a chronologically-sorted list combining:
-      - Google + iCloud calendar events for the next `days` days
-      - Past meetings in the last `days` days from the People Graph
+    The Timeline is mainly a HISTORIC view, so its primary source is the graph
+    (pwg:Meeting nodes ingested from the user's calendar history at install),
+    NOT the live calendar API - that only looks forward and is usually
+    unconfigured on a fresh customer box. One row per meeting (collapsing
+    attendees with GROUP_CONCAT) over a wide window (default ~2 years), newest
+    first. Per-meeting collapse also avoids the timeline double-entry bug
+    (#663 / BW-3) at the source instead of post-hoc in Python.
 
-    Output shape: {items: [{kind, date, summary, participants?, location?}]}
+    Returns ``(rows, error)`` - ``error`` is a string when the graph query
+    failed (so the caller can surface a degraded marker), else None.
+    """
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
+    try:
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?m ?date (SAMPLE(?summary) AS ?summary) '
+            '(SAMPLE(?location) AS ?location) '
+            '(GROUP_CONCAT(DISTINCT ?name; SEPARATOR="|") AS ?attendees)\n'
+            'WHERE {{\n'
+            '  ?m a pwg:Meeting ; pwg:meetingDate ?date .\n'
+            '  OPTIONAL {{ ?m pwg:meetingAttendee ?p . ?p pwg:displayName ?name }}\n'
+            '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
+            '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
+            '  FILTER(?date >= "{cutoff}")\n'
+            '}} GROUP BY ?m ?date ORDER BY DESC(?date) LIMIT {limit}'.format(
+                ns=PWG_NS, cutoff=cutoff, limit=max(1, limit)
+            )
+        )
+    except Exception as exc:
+        return [], str(exc)
+
+    out = []
+    for r in rows:
+        attendees_raw = r.get("attendees", "") or ""
+        participants = [a for a in attendees_raw.split("|")
+                        if a and not _is_nameless_name(a)]
+        out.append({
+            "kind": "meeting",
+            "date": (r.get("date") or "")[:10],
+            "summary": r.get("summary", ""),
+            "participants": participants,
+            "location": r.get("location", ""),
+        })
+    return out, None
+
+
+def api_timeline(days=7, past_days=730, limit=200):
+    """Mainly-historic life timeline: past meetings/events + a short forward look.
+
+    The Timeline is a HISTORIC view first. Its backbone is the People Graph
+    (meeting/event nodes ingested from the user's calendar history at install),
+    queried back ``past_days`` days (default ~2 years) - NOT the live calendar
+    API, which only looks forward and is usually unconfigured on a fresh box.
+    The live calendar is still queried for the next ``days`` days as a
+    best-effort "upcoming" strip where it is configured.
+
+    Output shape: {items: [{kind, date, summary, participants?, location?}],
+                   entries: [...CM031 shape...], days, past_days, limit, count}
+    Rows are newest-first and capped at ``limit``.
     """
     items = []
 
@@ -2055,37 +2111,21 @@ def api_timeline(days=7):
     except Exception as exc:
         items.append({"kind": "calendar_error", "error": str(exc)})
 
-    # Past: meetings from the graph
-    try:
-        recent = people_recent(days=days, limit=20).get("contacts", [])
-        # people_recent is a per-PERSON list: a meeting with N attendees comes
-        # back as N rows, all carrying the same summary/date. Collapsing them
-        # by (summary, date) yields one timeline entry per distinct meeting and
-        # merges the attendee names, so a meeting no longer appears once per
-        # participant (BW-3 / timeline double-entries).
-        meeting_by_key = {}
-        for c in recent:
-            key = (c.get("last_meeting", ""), c.get("meeting_date", ""))
-            entry = meeting_by_key.get(key)
-            if entry is None:
-                entry = {
-                    "kind": "meeting",
-                    "date": c.get("meeting_date", ""),
-                    "summary": c.get("last_meeting", ""),
-                    "participants": [],
-                    "location": c.get("location", ""),
-                    "wiki_url": c.get("wiki_url", ""),
-                }
-                meeting_by_key[key] = entry
-                items.append(entry)
-            name = c.get("name", "")
-            if name and name not in entry["participants"]:
-                entry["participants"].append(name)
-    except Exception as exc:
-        items.append({"kind": "meeting_error", "error": str(exc)})
+    # Past (the main event): historic meetings/events from the graph, one row
+    # per meeting, back `past_days` days. This is what makes the Timeline a
+    # historic view rather than a 7-day-forward calendar peek. The graph query
+    # (GROUP BY ?m) collapses attendees at the source, so the per-meeting
+    # double-entry (#663 / BW-3) cannot recur.
+    past_rows, past_err = _timeline_from_graph(past_days=past_days, limit=limit)
+    if past_err is not None:
+        items.append({"kind": "meeting_error", "error": past_err})
+    else:
+        items.extend(past_rows)
 
-    # Sort by date (strings sort ISO-8601 correctly)
-    items.sort(key=lambda i: i.get("date") or "")
+    # Newest first (it is mainly a historic timeline), then cap.
+    items.sort(key=lambda i: i.get("date") or "", reverse=True)
+    if limit:
+        items = items[:limit]
 
     # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
     # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
@@ -2127,6 +2167,8 @@ def api_timeline(days=7):
         "items": items,
         "entries": entries,
         "days": days,
+        "past_days": past_days,
+        "limit": limit,
         "count": len(items),
     }
 
@@ -3281,6 +3323,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/timeline":
             params = parse_qs(parsed.query)
             days, err = _safe_int(params, "days", 7)
+            if not err:
+                past_days, err = _safe_int(params, "past_days", 730)
+            if not err:
+                limit, err = _safe_int(params, "limit", 200)
             if err:
                 self.send_response(400)
                 self.send_header("Content-Type", "application/json")
@@ -3288,7 +3334,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(err).encode())
                 return
             try:
-                result = api_timeline(days=days)
+                result = api_timeline(days=days, past_days=past_days, limit=limit)
             except Exception as exc:
                 # `entries` mirrors `items` per the iOS ServerTimelineResponse
                 # decoder (F-1, 2026-05-27). Without it the Companion drops
