@@ -3088,6 +3088,72 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
         fi
         set -e
         gui_log info "CX-37 probe: exiting"
+
+        # CX-130 (v1.0.1): hoist the "account exists but Mail.app has
+        # not fetched yet -> open Mail and wait while it syncs" prompt
+        # out of the unattended Phase 3 and into this questions phase,
+        # exactly as CX-37 did for the "no Mail account" prompt above.
+        #
+        # The shipped install fired this populate-wait at ~L10263 inside
+        # the Phase-3 execution region (the "you can walk away now"
+        # stretch), so a customer who left the install running came back
+        # to a blocking "Open Apple Mail?" dialog ~16% in. Asking it HERE,
+        # while the customer is already answering questions, keeps Phase 3
+        # interaction-free. The Phase-3 block remains as a fallback for the
+        # case where this early prompt did not run (e.g. FDA not yet
+        # granted at question time, or the GUI was off then on).
+        #
+        # Same belt-and-braces shape as the CX-37 probe: wrap in `set +e`
+        # so a probe sub-step failure can never kill the install -- worst
+        # case we skip the early prompt and the Phase-3 fallback fires.
+        # Guarded on the SAME conditions as the Phase-3 block: accounts > 0
+        # (source of truth via Accounts4.sqlite), Mail.app has not pulled
+        # a message yet, GUI on. FDA must be readable or the account count
+        # is unreliable (CX-103) -- reuse _has_fda to skip cleanly.
+        gui_log info "CX-130 populate probe: entering"
+        set +e
+        if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
+           && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+           && [[ -z "${MAIL_POPULATE_PROMPT_SHOWN_EARLY:-}" ]] \
+           && _has_fda; then
+            _early_pop_accounts="$(_accountsdb_count_mail)"
+            _early_pop_accounts="${_early_pop_accounts:-0}"
+            gui_log info "CX-130 populate probe: accountsdb mail count=[${_early_pop_accounts}]"
+            if [[ "$_early_pop_accounts" -gt 0 ]] 2>/dev/null \
+               && ! _store_populated_mail; then
+                # State 2: accounts configured but Mail.app has not pulled
+                # anything yet. Offer to open Mail + wait while it syncs.
+                # CX-110: pass "Mail" (canonical bundle name) to the
+                # `open -a` path; customer-facing copy still reads
+                # "Apple Mail" via the help string.
+                _early_pop_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${_early_pop_accounts}")"
+                if _three_state_wait_for_populate \
+                    "mail" \
+                    "Mail" \
+                    "" \
+                    "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE" \
+                    "$_early_pop_help"; then
+                    # Mail synced during the wait. The Phase-3 probe re-runs
+                    # _store_populated_mail and will now see the populated
+                    # store, so it writes mail_has_fetched=true to the
+                    # pipeline_signals.json sidecar + emits the gui_emit
+                    # MAIL_ACCOUNTS_FOUND marker for Doctor. We do not write
+                    # the sidecar here because the writer + signals path are
+                    # only resolved in Phase 3; re-detection in Phase 3
+                    # carries the side-effects without duplication.
+                    gui_log info "CX-130 populate probe: Mail populated during early wait"
+                fi
+                unset _early_pop_help
+            fi
+            # Mark the early prompt as shown so the Phase-3 populate block
+            # SKIPS -- asking twice mid-install would be worse than asking
+            # once early. The Phase-3 sidecar write + gui_emit still run.
+            MAIL_POPULATE_PROMPT_SHOWN_EARLY=1
+            export MAIL_POPULATE_PROMPT_SHOWN_EARLY
+            unset _early_pop_accounts
+        fi
+        set -e
+        gui_log info "CX-130 populate probe: exiting"
     fi
 
     # Folder / label scoping. Connecting the assistant to the main
@@ -10265,9 +10331,20 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
     # so headless tests don't block. If the customer declines OR
     # the wait times out, we fall through to the existing
     # "configured but empty" copy + Doctor follow-up.
+    #
+    # CX-130 (v1.0.1): skip this Phase-3 interactive wait if the early
+    # Phase-2 prompt already offered it. MAIL_POPULATE_PROMPT_SHOWN_EARLY
+    # is set by the questions-phase populate probe (mirrors CX-37's
+    # MAIL_PROMPT_SHOWN_EARLY for the account prompt) so the autonomous
+    # Phase-3 stretch never blocks on this dialog. The detection +
+    # sidecar write above still ran, so Doctor sees the correct state.
+    # This block remains as the fallback for installs where the early
+    # prompt did not run (FDA not yet granted at question time, GUI
+    # toggled on after Phase 2, etc.).
     if [[ "$MAIL_ACCOUNTS_FOUND" -gt 0 ]] \
        && [[ "$MAIL_HAS_FETCHED" != "true" ]] \
-       && [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+       && [[ "${OSTLER_GUI:-0}" == "1" ]] \
+       && [[ -z "${MAIL_POPULATE_PROMPT_SHOWN_EARLY:-}" ]]; then
         _open_mail_help="$(printf "$MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP" "${MAIL_ACCOUNTS_FOUND}")"
         # CX-110 (DMG #48l, 2026-05-29): pass "Mail" not "Apple Mail" to
         # the LaunchServices `open -a` path. LaunchServices fuzzy-matches
