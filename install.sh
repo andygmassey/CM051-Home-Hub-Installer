@@ -6102,7 +6102,27 @@ TOMLPREAMBLE
     # Disk Access read of Apple Mail's Envelope Index; no IMAP/SMTP creds.
     # When USER_EMAIL is unknown we omit the block entirely (absent = inert),
     # never enabling a deny-all reply loop with an unknown owner.
-    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true && -n "${USER_EMAIL:-}" ]]; then
+    #
+    # v0.4.17 GATE (2026-06-18, Andy decision): the Apple Mail COMMS *reply*
+    # channel is held OFF for this cut. The live .157 walk exposed three
+    # defects in the daemon channel (ostler-assistant), all of which must be
+    # fixed + verified before re-enable:
+    #   (A) a NoReply outcome still emitted an outbound email whose body was
+    #       the internal "[No reply sent: ...]" history marker;
+    #   (B) no self-echo / owner-loop guard, so an auto-reply landing back in
+    #       the watched local mailbox can re-trigger -> a reply loop into the
+    #       operator's own inbox;
+    #   (C) on connect the channel processed the existing mail backlog
+    #       (~3 min/email, pegging Ollama) instead of only mail arriving after
+    #       start; needs a high-water-mark.
+    # We omit the [channels.apple_mail] block so the daemon ships it inert
+    # (AppleMailConfig default enabled=false). Email INGEST ([channels.email]
+    # apple_mail = true, above) is UNAFFECTED and still drains mail into the
+    # graph. Flip OSTLER_APPLE_MAIL_COMMS_GATE back to "on" (or remove this
+    # guard) once A+B+C are fixed. Tracked in ARCHIE_TNM_CHANNEL.
+    OSTLER_APPLE_MAIL_COMMS_GATE="${OSTLER_APPLE_MAIL_COMMS_GATE:-off}"
+    if [[ "$OSTLER_APPLE_MAIL_COMMS_GATE" == on \
+       && "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true && -n "${USER_EMAIL:-}" ]]; then
         _apple_mail_owner_esc=$(printf '%s' "$USER_EMAIL" | sed 's/"/\\"/g')
         echo
         echo "[channels.apple_mail]"
