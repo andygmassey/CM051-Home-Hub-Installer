@@ -91,3 +91,7 @@ wiki_image_grep|wiki-compiler:/app/compiler|final post-complete re-render|#97/#6
 # --- v1.0.0 recut: headless dead-brain fix (hub-v0.4.16; ostler-assistant #131) ---
 # Verified present at v0.4.16 and ABSENT at v0.4.15 (freshness) before encoding.
 assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|Read-only PWG knowledge-graph lookup|#131 the headless dead-brain fix: pwg_people + remember_fact are added to default_auto_approve() so the headless daemon (iMessage / scheduled runs, no human to approve) stops returning "Denied by user." for every graph lookup under level=supervised. ensure_default_auto_approve() (called in load_or_init) also self-heals existing installs. This distinctive comment exists only with #131 -- present at v0.4.16, ABSENT at v0.4.15 (also proves daemon freshness). ERE-safe.
+
+# --- v1.0.1 cut: iMessage date-floor replay (hub-v0.4.18; ostler-assistant #135) ---
+# Verified present at v0.4.18 and ABSENT at v0.4.17 (freshness) before encoding.
+assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|date_floor_filters_old_high_rowid_synced_message|#135 iMessage date-floor replay fix: both poll queries are floored (AND m.date > ?2) so an iCloud back-fill of OLD messages carrying HIGH ROWIDs is not replayed as "new" on daemon restart (the old-message-spam trap). This regression test exists only with #135 -- present at v0.4.18, ABSENT at v0.4.17 (also proves daemon freshness). ERE-safe.
