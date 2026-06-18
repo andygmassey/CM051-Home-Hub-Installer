@@ -9586,6 +9586,8 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>127.0.0.1</string>
         <key>HOME</key>
         <string>${HOME}</string>
+        <key>USER_ID</key>
+        <string>${USER_ID}</string>
         <key>ICAL_SCRIPT</key>
         <string>${OSTLER_DIR}/ical/ical-query.sh</string>
         <key>INGEST_DIR</key>

@@ -29,8 +29,10 @@ import subprocess
 import json
 import re
 import os
+import hashlib
 import sqlite3
 import sys
+import unicodedata
 
 # SECURITY: encrypted database wrapper from ostler_security.
 #
@@ -146,18 +148,58 @@ OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "http://localhost:7878")
 EMBED_OLLAMA_URL = os.environ.get("EMBED_OLLAMA_URL", "http://localhost:11434")
 
 
+# Non-decomposable Latin letters that NFKD leaves intact (they are atomic
+# code points, not base+combining-mark). Mapped to an ASCII transliteration
+# so an accented international name yields a clean, stable, collision-resistant
+# slug rather than a hyphen-riddled or empty one.
+_SLUG_TRANSLIT = {
+    "ø": "o", "Ø": "o",
+    "ß": "ss",
+    "æ": "ae", "Æ": "ae",
+    "œ": "oe", "Œ": "oe",
+    "ð": "d", "Ð": "d",
+    "þ": "th", "Þ": "th",
+    "ł": "l", "Ł": "l",
+    "đ": "d", "Đ": "d",
+    "ı": "i",
+    "ŋ": "n",
+}
+
+
 def _wiki_slug(name):
     """Compute a wiki page slug from a display name.
 
-    Matches the slugify() function in the wiki compiler so URLs resolve
-    to the right page.
+    Mirrors the wiki compiler's intent (filesystem-/URL-safe ASCII slug) but
+    is Unicode-correct for international names, which the prior naive
+    ``[^a-z0-9]`` filter was not:
+
+      * accented Latin letters are folded to their ASCII base via NFKD
+        decomposition + combining-mark removal ("Jorg" not "j-rg"); the
+        non-decomposable letters (ø ß æ ł ...) are transliterated first.
+        So "Muller" and "Müller" both slug to "muller" (correct -- the slug
+        is the URL key, accent-insensitive matching is desirable).
+      * a name that folds to nothing under the ASCII filter (e.g. a CJK or
+        Cyrillic name such as "山田太郎" or "Владимир") would previously have
+        collapsed to the literal "unknown", so EVERY such person collided on
+        a single "unknown" slug. We now derive a short, stable hex suffix
+        from the original name ("person-ad8d3fea7a") so distinct non-Latin
+        names get distinct slugs.
+
+    The stored ``pwg:displayName`` keeps the original accents verbatim -- this
+    function only governs the URL/page key.
     """
     if not name:
         return "unknown"
-    s = name.strip().lower()
+    pre = "".join(_SLUG_TRANSLIT.get(c, c) for c in name)
+    folded = unicodedata.normalize("NFKD", pre)
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    s = folded.strip().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s)
     s = re.sub(r"-+", "-", s).strip("-")
-    return s[:80] if s else "unknown"
+    if s:
+        return s[:80]
+    digest = hashlib.sha1(name.strip().encode("utf-8")).hexdigest()[:10]
+    return f"person-{digest}"
 
 
 # Characters allowed in a "bare identifier" (phone-like) handle.
@@ -3120,6 +3162,20 @@ def api_memory_assert(payload, now=None):
 
     if not isinstance(payload, dict):
         return {"error": "Request body must be a JSON object."}, 400
+
+    # 0. USER_ID guard. The asserted fact carries ``pwg:belongsToUser
+    # <USER_URI>``. With USER_ID unset, USER_URI is "" and we would emit
+    # ``pwg:belongsToUser <>`` -- an empty *relative* IRI that Oxigraph's
+    # /update endpoint silently resolves against the request URL, writing
+    # garbage provenance. The read path (api_memory_list) already guards on
+    # USER_URI and degrades; the WRITE path must too, so a mis-onboarded Hub
+    # fails loudly instead of corrupting the graph.
+    if not USER_URI:
+        return {
+            "status": "error",
+            "degraded": True,
+            "reason": "user_id_not_configured",
+        }, 503
 
     # 1. Validate + sanitise every string. subject + fact_text required.
     subject, err = _validate_asserted_string(
