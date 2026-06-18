@@ -16,6 +16,7 @@ Endpoints:
   GET /api/v1/timeline?days=7      – merged calendar + meetings
   GET /api/v1/coach/recent         – coaching observations (CM048)
   GET /api/v1/conversation/status/{id} – conversation processing status (CM048)
+  GET /api/v1/conversation/{id}/speakers – Hub-inferred speaker-identity suggestions (CM048, text-only)
   GET /api/v1/hub/health           – Hub status for iOS Companion pill (HR015 Hub portability)
   GET /api/v1/hydration/status     – First-run wiki hydration progress for the homepage panel (CM044 #624)
   GET /api/v1/recording/active     – Current capture state for the iOS Recording Live Activity (CM042 → CM031)
@@ -1162,6 +1163,62 @@ def api_conversation_status(conversation_id):
     except Exception as exc:
         return {"error": f"Failed to read state: {exc}"}, 500
     return state, 200
+
+
+def _safe_conversation_dir(conversation_id):
+    """Resolve PROCESSING_DIR/<conversation_id> with path-traversal defence.
+
+    The conversation_id arrives in the URL path and is used as a directory
+    name. A malformed id ('../', absolute path, separators) must not let a
+    caller read outside the processing root. Returns the resolved Path or
+    None if it would escape PROCESSING_DIR.
+    """
+    candidate = (PROCESSING_DIR / conversation_id).resolve()
+    root = PROCESSING_DIR.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def api_conversation_speakers(conversation_id):
+    """Handle GET /api/v1/conversation/{id}/speakers.
+
+    Serves the speaker-identity feedback CM048 produced for this
+    conversation (06_speaker_feedback.json) back to the capture device so
+    it can bind each Hub-inferred name to its LOCAL voiceprint, keyed by
+    the opaque voice_fingerprint_ref the device originally attached.
+
+    PRIVACY (locked invariant, HR015 DESIGN section 4): this route only
+    ever returns TEXT identity suggestions plus the opaque ref the device
+    itself supplied. No voice embedding is stored on the Hub or returned;
+    the Hub holds no voiceprint registry. The biometric never crosses the
+    wire in either direction.
+
+    Response shape mirrors docs/speaker_label_feedback.schema.json
+    (CM048). Returns 202 (not 404) when the conversation exists but the
+    speaker-feedback step has not produced its artefact yet, so the device
+    knows to poll again rather than give up.
+    """
+    conv_dir = _safe_conversation_dir(conversation_id)
+    if conv_dir is None:
+        return {"error": "Invalid conversation_id"}, 400
+    if not conv_dir.exists():
+        return {"error": f"Conversation '{conversation_id}' not found"}, 404
+    feedback_file = conv_dir / "06_speaker_feedback.json"
+    if not feedback_file.exists():
+        return {
+            "conversation_id": conversation_id,
+            "status": "pending",
+            "labels": [],
+            "unresolved_labels": [],
+        }, 202
+    try:
+        feedback = json.loads(feedback_file.read_text())
+    except Exception as exc:
+        return {"error": f"Failed to read speaker feedback: {exc}"}, 500
+    return feedback, 200
 
 
 def person_context(name):
@@ -3785,6 +3842,27 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Conversation processing status (CM048)
+        if (
+            parsed.path.startswith("/api/v1/conversation/")
+            and parsed.path.endswith("/speakers")
+        ):
+            # /api/v1/conversation/{id}/speakers -> Hub-inferred speaker
+            # identity feedback for the device to confirm + bind locally.
+            middle = parsed.path[len("/api/v1/conversation/"):-len("/speakers")]
+            conversation_id = middle.strip("/")
+            if not conversation_id:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Missing conversation_id"}).encode())
+                return
+            result, status = api_conversation_speakers(conversation_id)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path.startswith("/api/v1/conversation/status/"):
             conversation_id = parsed.path.split("/api/v1/conversation/status/", 1)[1]
             conversation_id = conversation_id.strip("/")
@@ -3839,6 +3917,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/v1/timeline?days=7": "Merged calendar + meetings timeline",
             "/api/v1/coach/recent?hours=168&limit=10": "Recent coaching observations (CM048)",
             "/api/v1/conversation/status/{id}": "Conversation processing status (CM048)",
+            "/api/v1/conversation/{id}/speakers": "Hub-inferred speaker-identity suggestions for the device to confirm (CM048, text-only, opaque voice_fingerprint_ref)",
             "/api/v1/hub/health": "Hub status for iOS Companion pill (online / catching_up / offline_local)",
             "/api/v1/recording/active": "Current capture state for the iOS Recording Live Activity (CM042 producer → CM031 consumer)",
             "POST /api/v1/conversation/process": "Submit conversation for processing (CM048)",

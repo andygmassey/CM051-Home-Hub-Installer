@@ -267,5 +267,32 @@ if ! grep -qF "WIKI_HYDRATION_STATUS_FILE=/state/wiki_hydration.json" "$INSTALL_
 fi
 echo "PASS: #624 hydration panel wired (handler + proxy path + bind-mount + env)"
 
+# -------------------------------------------------------------------
+# Part 9: speaker-identity round-route -- GET /api/v1/conversation/{id}/speakers.
+# -------------------------------------------------------------------
+# The TEXT-only speaker-naming round-route (HR015 DESIGN section 4):
+# CM048 infers who each "Speaker N" is and writes 06_speaker_feedback.json;
+# this Hub route serves it back so the device can bind the name to its
+# LOCAL voiceprint via the opaque voice_fingerprint_ref. CM031's consumer
+# polls it on processing-complete. The silent-bail shape this guards: a
+# re-vendor of CM041 that drops the graft -> the iOS consumer hits a 404
+# and speaker suggestions silently never surface. Lock both legs:
+#   (a) the api_conversation_speakers handler is present in the vendored
+#       ical-server.py, and
+#   (b) the do_GET dispatch routes the /speakers suffix to it (so the
+#       handler is actually reachable, not just defined).
+
+if ! grep -q "def api_conversation_speakers" "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py is missing the api_conversation_speakers handler" >&2
+    echo "      (CM048 speaker round-route producer-before-consumer graft lost)" >&2
+    exit 1
+fi
+if ! grep -qF 'endswith("/speakers")' "$ICAL_SERVER_PY"; then
+    echo "FAIL: ical-server.py do_GET does not dispatch /api/v1/conversation/{id}/speakers" >&2
+    echo "      (handler defined but unreachable -> iOS consumer 404s)" >&2
+    exit 1
+fi
+echo "PASS: speaker-feedback round-route wired (handler + /speakers dispatch)"
+
 echo ""
 echo "PASS: vendor/cm041/assistant_api/ regression test green"
