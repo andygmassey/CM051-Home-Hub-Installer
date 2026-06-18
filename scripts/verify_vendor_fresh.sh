@@ -27,10 +27,22 @@
 # available the tree is reported as "could not verify (source repo not
 # found)" and counted as a WARNING -- never a silent pass.
 #
-# Exit: 0 = all verifiable trees fresh; 1 = at least one stale/divergent
-# tree; warnings alone do not fail the gate (CI without all source repos
-# checked out still runs the verifiable subset). Set VENDOR_FRESH_STRICT=1
-# to make warnings fatal (the cut should run strict).
+# Exit: 0 = all verifiable trees fresh; 1 = at least one stale/divergent tree,
+# OR (FAIL-CLOSED DEFAULT) any tree that could not be verified.
+#
+# FAIL-CLOSED BY DEFAULT (changed 2026-06-18, ORM -- the v0.4.17 recurrence-killer):
+# an UNVERIFIABLE tree (source repo unreachable, sha absent, or verify=skip) is a
+# RED, not a warning. Rationale: when a tree's source cannot be materialised, the
+# gate CANNOT run its source-advanced-past-pin check -- which is the EXACT blind
+# spot that shipped the stale vendored ical-server green (CM041 #51 / 4931c53 was
+# ahead of the assistant_api pin, but the source was unreachable in the cut so the
+# tree only WARNed and the cut passed). "Could not verify a SHIPPING tree" must
+# never be a pass. The cut inherits this safety with zero config.
+#
+# OPT-OUT (dev / CI that knowingly lacks cross-repo sources -- NEVER the cut):
+#   VENDOR_FRESH_ALLOW_UNVERIFIED=1  (or legacy VENDOR_FRESH_STRICT=0)
+# downgrades unverifiable trees to warnings. It is loud and explicit by design --
+# the unsafe mode must be a deliberate choice, never the default a cut falls into.
 
 set -euo pipefail
 
@@ -38,7 +50,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/_vendor_lib.sh
 . "$SCRIPT_DIR/_vendor_lib.sh"
 
-STRICT="${VENDOR_FRESH_STRICT:-0}"
+# Fail-closed by default. STRICT=1 means "unverifiable => RED". The explicit
+# opt-out (ALLOW_UNVERIFIED=1, or legacy VENDOR_FRESH_STRICT=0) flips it to lenient.
+if [ "${VENDOR_FRESH_ALLOW_UNVERIFIED:-0}" = "1" ] || [ "${VENDOR_FRESH_STRICT:-1}" = "0" ]; then
+    STRICT=0
+else
+    STRICT=1
+fi
 
 fail=0
 warn=0
@@ -147,13 +165,17 @@ if [ "$fail" -gt 0 ]; then
 fi
 
 if [ "$warn" -gt 0 ] && [ "$STRICT" = "1" ]; then
-    echo "GATE: RED (strict) -- $warn tree(s) could not be verified and VENDOR_FRESH_STRICT=1." >&2
+    echo "GATE: RED (fail-closed) -- $warn tree(s) could not be verified (source unreachable / sha absent / verify=skip)." >&2
+    echo "      An unverifiable SHIPPING tree is treated as STALE: the source-advanced-past-pin check could not run," >&2
+    echo "      which is exactly how the stale vendored ical-server (CM041 #51) shipped green. Make every source repo" >&2
+    echo "      reachable and re-run, or -- dev/CI only, NEVER the cut -- set VENDOR_FRESH_ALLOW_UNVERIFIED=1." >&2
     exit 1
 fi
 
 if [ "$warn" -gt 0 ]; then
-    echo "GATE: GREEN with $warn warning(s) -- some source repos were not locally available."
-    echo "      (run the cut with all source repos checked out + VENDOR_FRESH_STRICT=1 to make these fatal)"
+    echo "GATE: GREEN with $warn warning(s) -- UNVERIFIED trees ALLOWED because VENDOR_FRESH_ALLOW_UNVERIFIED=1 (lenient)."
+    echo "      This opt-out is for dev / CI without cross-repo sources. The CUT must NOT use it -- it re-opens the"
+    echo "      exact blind spot that shipped the stale ical-server. Run with all sources reachable for a real verdict."
 else
     echo "GATE: GREEN -- every vendored tree matches its pinned source."
 fi
