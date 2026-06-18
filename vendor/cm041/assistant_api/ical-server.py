@@ -225,7 +225,7 @@ def _is_personal_admin_event(event):
     Conservative rule (v152 wiki junk-data fix): an event is personal-admin
     when it is ALL-DAY *and* has no human attendee. This catches public
     holidays ("Father's Day", "Dragon Boat Festival"), deliveries
-    ("HKTV Mall delivery", "M&S Delivery"), reminders ("Haircut Alison") and
+    ("HKTV Mall delivery", "M&S Delivery"), reminders ("Haircut") and
     all-day confirmations -- all of which the calendar source emits as
     attendee-less all-day entries.
 
@@ -2976,6 +2976,332 @@ def api_hydration_status():
     }
 
 
+# ── BEGIN GRAFT: #51 POST /api/v1/memory/assert (learning-loop write, layer 1) ──
+# Grafted VERBATIM from CM041 origin/main assistant_api/ical-server.py (commit 4931c53+).
+# Banks user-asserted facts durably into Oxigraph. See do_POST dispatch below.
+# USER_ID/USER_URI are required by api_memory_assert (pwg:belongsToUser).
+
+USER_ID = os.environ.get("USER_ID", "").strip()
+USER_URI = (
+    f"https://pwg.dev/ontology#user_{USER_ID}" if USER_ID else ""
+)
+
+
+_SPARQL_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sparql_escape_literal(value):
+    """Escape a Python string so it is safe inside a double-quoted SPARQL
+    literal (``"..."``).
+
+    This is the single load-bearing defence against SPARQL injection on
+    the user-asserted-fact write path: every user-supplied string flows
+    through here before it is interpolated into a SPARQL UPDATE. A naive
+    f-string would let a value such as ``foo" . <x> <y> <z> . #`` break out
+    of the literal and inject arbitrary triples.
+
+    Per the SPARQL 1.1 grammar (STRING_LITERAL with ECHAR), inside a
+    double-quoted literal we must escape backslash and double-quote, and
+    represent the line-structural characters (newline, carriage return,
+    tab) with their backslash escapes -- a raw newline is not permitted in
+    a single-line STRING_LITERAL. Backslash is escaped FIRST so we do not
+    double-process the escapes we introduce afterwards.
+
+    Returns the escaped string (without the surrounding quotes). The caller
+    is expected to have already length-checked and control-char-rejected
+    the value via ``_validate_asserted_string``; this function is a pure
+    escaper and does not validate.
+    """
+    if value is None:
+        return ""
+    s = str(value)
+    s = s.replace("\\", "\\\\")   # backslash first
+    s = s.replace('"', '\\"')     # then double-quote
+    s = s.replace("\r", "\\r")
+    s = s.replace("\n", "\\n")
+    s = s.replace("\t", "\\t")
+    return s
+
+
+def _validate_asserted_string(value, *, field, required=True, max_len=200):
+    """Validate + normalise a user-supplied string for the assert path.
+
+    Returns ``(cleaned, None)`` on success or ``(None, error_dict)`` on
+    failure, where ``error_dict`` is a ready-to-return ``{"error": ...}``
+    body. Rules:
+
+      - Must be a string (or None when ``required`` is False).
+      - Stripped of surrounding whitespace.
+      - Non-empty when ``required``.
+      - No control characters (defence in depth alongside the SPARQL
+        escaper -- a control byte is rejected, never silently stripped).
+      - No longer than ``max_len`` characters (after stripping).
+    """
+    if value is None:
+        if required:
+            return None, {"error": f"'{field}' is required."}
+        return "", None
+    if not isinstance(value, str):
+        return None, {"error": f"'{field}' must be a string."}
+    cleaned = value.strip()
+    if required and not cleaned:
+        return None, {"error": f"'{field}' must not be empty."}
+    if len(cleaned) > max_len:
+        return None, {
+            "error": f"'{field}' too long (max {max_len} characters)."
+        }
+    if _SPARQL_CONTROL_CHARS.search(cleaned):
+        return None, {
+            "error": f"'{field}' contains disallowed control characters."
+        }
+    return cleaned, None
+
+
+# Wiki-recompile queue lives under ~/.ostler/queue/. The customer install
+# (CM051) creates this directory. The daily wiki-recompile LaunchAgent
+# picks up `wiki_recompile_pending` and triggers a rebuild.
+
+
+_ASSERT_STRONG_MATCH_SCORE = float(
+    os.environ.get("ASSERT_STRONG_MATCH_SCORE", "0.80")
+)
+# Two hits are "plausibly the same person" (so we disambiguate rather than
+# pick the top one) when the runner-up is within this margin of the leader.
+_ASSERT_DISAMBIGUATION_MARGIN = float(
+    os.environ.get("ASSERT_DISAMBIGUATION_MARGIN", "0.05")
+)
+
+
+def _mint_person_uri():
+    """Mint a new Person URI in the same shape contact_syncer uses.
+
+    contact_syncer mints ``https://pwg.dev/ontology#person_<12-hex>`` from
+    a uuid4. We keep that shape so a user-asserted Person node is
+    indistinguishable from a contact-synced one downstream. Returns
+    ``(person_uri, person_id)``.
+    """
+    person_id = uuid.uuid4().hex[:12]
+    return f"{PWG_NS}person_{person_id}", person_id
+
+
+def _resolve_person_uri_by_name(name):
+    """Return the Person URI whose displayName equals *name*, or None.
+
+    Mirrors the slug-recompute lookup in ``api_people_forget`` but matches
+    on the raw displayName so we attach to the exact node people_search
+    pointed at. On more-than-one displayName collision we return the first
+    -- the disambiguation decision has already been taken upstream by the
+    people_search scoring, so any residual tie here is between identical
+    display names and either node is an acceptable attach point.
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?person WHERE {{\n'
+        '  ?person a pwg:Person ; pwg:displayName "{name}" .\n'
+        '}} LIMIT 1'.format(ns=PWG_NS, name=_sparql_escape_literal(name))
+    )
+    if rows:
+        return rows[0].get("person")
+    return None
+
+
+def api_memory_assert(payload, now=None):
+    """Handle POST /api/v1/memory/assert.
+
+    Durably bank a user-asserted fact into Oxigraph. ``payload`` is the
+    parsed JSON body; ``now`` is an injectable datetime (defaults to
+    ``datetime.now(timezone.utc)``) so tests can pin the timestamp.
+
+    Returns ``(body, status)``. See the module-level comment above for the
+    behaviour contract. Degrades gracefully (no 5xx) on Oxigraph failure,
+    mirroring ``api_people_forget``'s degraded_reasons pattern.
+    """
+    from datetime import timezone
+
+    if not isinstance(payload, dict):
+        return {"error": "Request body must be a JSON object."}, 400
+
+    # 1. Validate + sanitise every string. subject + fact_text required.
+    subject, err = _validate_asserted_string(
+        payload.get("subject"), field="subject", required=True
+    )
+    if err:
+        return err, 400
+    fact_text, err = _validate_asserted_string(
+        payload.get("fact_text"), field="fact_text", required=True
+    )
+    if err:
+        return err, 400
+    relationship, err = _validate_asserted_string(
+        payload.get("relationship"), field="relationship", required=False
+    )
+    if err:
+        return err, 400
+    asserted_via, err = _validate_asserted_string(
+        payload.get("asserted_via"), field="asserted_via",
+        required=False, max_len=80
+    )
+    if err:
+        return err, 400
+
+    # 2. Identity-resolve `subject` via people_search.
+    try:
+        search = people_search(subject, limit=5)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "degraded": True,
+            "reason": f"identity_resolution_failed: {exc}",
+        }, 503
+
+    results = search.get("results", []) if isinstance(search, dict) else []
+    strong = [r for r in results
+              if r.get("score", 0) >= _ASSERT_STRONG_MATCH_SCORE]
+
+    created_person = False
+    person_uri = None
+    person_slug = None
+
+    if len(strong) >= 2:
+        # Two or more plausible matches within the disambiguation margin ->
+        # ask, write NOTHING. If the leader is clearly ahead of the
+        # runner-up we still proceed with the leader.
+        strong_sorted = sorted(
+            strong, key=lambda r: r.get("score", 0), reverse=True
+        )
+        leader = strong_sorted[0].get("score", 0)
+        runner_up = strong_sorted[1].get("score", 0)
+        if (leader - runner_up) <= _ASSERT_DISAMBIGUATION_MARGIN:
+            candidates = []
+            for r in strong_sorted:
+                candidates.append({
+                    "name": r.get("name", ""),
+                    "slug": r.get("slug", ""),
+                    "uri": _resolve_person_uri_by_name(r.get("name", "")),
+                })
+            return {
+                "status": "needs_disambiguation",
+                "candidates": candidates,
+            }, 200
+        # Clear leader: fall through and attach to it.
+        chosen = strong_sorted[0]
+        person_slug = chosen.get("slug")
+        person_uri = _resolve_person_uri_by_name(chosen.get("name", ""))
+    elif len(strong) == 1:
+        chosen = strong[0]
+        person_slug = chosen.get("slug")
+        person_uri = _resolve_person_uri_by_name(chosen.get("name", ""))
+
+    # A strong search hit whose name no longer resolves in Oxigraph (stale
+    # Qdrant point) falls through to minting -- better a fresh node than a
+    # dropped fact.
+    if person_uri is None:
+        created_person = True
+        person_uri, _person_id = _mint_person_uri()
+        person_slug = _wiki_slug(subject)
+
+    now = now or datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    # 3. Build the SPARQL UPDATE. Mint a uuid fact id (shape matches the
+    # existing fact_<hex> ids the readers expect). All user strings are
+    # escaped via _sparql_escape_literal -- the single injection defence.
+    fact_id = "fact_" + uuid.uuid4().hex[:12]
+    fact_uri = f"{PWG_NS}{fact_id}"
+
+    esc_subject = _sparql_escape_literal(subject)
+    esc_fact = _sparql_escape_literal(fact_text)
+    esc_rel = _sparql_escape_literal(relationship) if relationship else ""
+    esc_via = _sparql_escape_literal(asserted_via) if asserted_via else ""
+
+    # When we minted a new Person, give it the minimal node shape
+    # contact_syncer writes so the wiki + people list can render it.
+    person_seed_triples = ""
+    if created_person:
+        person_seed_triples = (
+            f'  <{person_uri}> a pwg:Person ;\n'
+            f'    pwg:displayName "{esc_subject}" ;\n'
+            f'    pwg:source "user_asserted" ;\n'
+            f'    pwg:createdAt "{now_iso}" .\n'
+        )
+
+    # The reified PersonFact. We write BOTH pwg:factConfidence (the brief's
+    # canonical confidence predicate, typed xsd:decimal) AND pwg:confidence
+    # (the predicate the Memory-tab reader selects), so the fact is both
+    # spec-correct and visible to the existing read path. pwg:authoritative
+    # true + factSource "user_asserted" mark it as outranking mined facts.
+    fact_triples = (
+        f'  <{fact_uri}> a pwg:PersonFact ;\n'
+        f'    pwg:aboutPerson <{person_uri}> ;\n'
+        f'    pwg:factText "{esc_fact}" ;\n'
+        f'    pwg:factSource "user_asserted" ;\n'
+        f'    pwg:factConfidence "1.0"^^xsd:decimal ;\n'
+        f'    pwg:confidence "1.0"^^xsd:decimal ;\n'
+        f'    pwg:authoritative true ;\n'
+        f'    pwg:factDomain "relationship" ;\n'
+        f'    pwg:createdAt "{now_iso}" ;\n'
+        f'    pwg:validFrom "{now_iso}" ;\n'
+        f'    pwg:belongsToUser <{USER_URI}> .\n'
+    )
+    if esc_via:
+        fact_triples += (
+            f'  <{fact_uri}> pwg:assertedVia "{esc_via}" .\n'
+        )
+
+    insert_block = (
+        "PREFIX pwg: <{ns}>\n"
+        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+        "INSERT DATA {{\n"
+        "{person}{fact}"
+        "}}"
+    ).format(ns=PWG_NS, person=person_seed_triples, fact=fact_triples)
+
+    # The relationship scalars live on the Person, so they are
+    # DELETE-then-INSERT (replace any prior value) rather than additive.
+    # Done as a separate UPDATE statement in the same request, sequenced
+    # after the INSERT so a fresh Person node already exists.
+    relationship_update = ""
+    if relationship:
+        relationship_update = (
+            ";\n"
+            "PREFIX pwg: <{ns}>\n"
+            "DELETE {{ <{uri}> pwg:relationship ?r }}\n"
+            "WHERE {{ <{uri}> pwg:relationship ?r }};\n"
+            "PREFIX pwg: <{ns}>\n"
+            "DELETE {{ <{uri}> pwg:relationshipType ?rt }}\n"
+            "WHERE {{ <{uri}> pwg:relationshipType ?rt }};\n"
+            "PREFIX pwg: <{ns}>\n"
+            'INSERT DATA {{ <{uri}> pwg:relationship "{rel}" ;\n'
+            '  pwg:relationshipType "{rel}" . }}'
+        ).format(ns=PWG_NS, uri=person_uri, rel=esc_rel)
+
+    sparql = insert_block + relationship_update
+
+    # 4 + 5. Write, queue recompile, respond. Degrade on Oxigraph error.
+    try:
+        _sparql_update(sparql)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "degraded": True,
+            "reason": f"oxigraph_update_failed: {exc}",
+        }, 503
+
+    queued = _queue_wiki_recompile(person_slug or _wiki_slug(subject))
+
+    return {
+        "status": "created_person" if created_person else "stored",
+        "person_uri": person_uri,
+        "person_slug": person_slug,
+        "fact_id": fact_id,
+        "relationship": relationship or None,
+        "wiki_recompile_queued": queued,
+    }, 200
+
+
+# ── END GRAFT: #51 POST /api/v1/memory/assert ──
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
@@ -3623,6 +3949,22 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        # User-asserted fact: POST /api/v1/memory/assert (CM041 #51, grafted).
+        # Banks a fact the user stated in chat (e.g. "<name> is my partner")
+        # as an authoritative, user_asserted PersonFact in Oxigraph -- the
+        # write half of the learning loop (layer 1). Mirrors the POST
+        # branches above for body-read + response style.
+        if parsed.path == "/api/v1/memory/assert":
+            try:
+                result, status = api_memory_assert(payload)
+            except Exception as exc:
+                result, status = {"error": str(exc)}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -3637,7 +3979,7 @@ if __name__ == "__main__":
     # LAN exposure for dev or for users who don't want Tailscale.
     BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
     print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
-    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/hub/health, /api/v1/recording/active, POST /api/v1/ingest/ios, POST /api/v1/subscription/receipt, POST /api/v1/people/{slug}/forget, /health")
+    print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/hub/health, /api/v1/recording/active, POST /api/v1/ingest/ios, POST /api/v1/subscription/receipt, POST /api/v1/people/{slug}/forget, POST /api/v1/memory/assert, /health")
     if BIND_HOST == "0.0.0.0":
         print(
             "WARNING: OSTLER_API_BIND=0.0.0.0 exposes the Assistant API on "

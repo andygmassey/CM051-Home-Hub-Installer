@@ -72,11 +72,11 @@ name             = "cm041/assistant_api"
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
-pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+pinned_sha       = "c6939f86bf81bc86c0f1eda6c6160f5248f51f27"
   divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
 verify           = "full"
-note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh (vendor-side grafts). ical-server.py local additions captured in patch."
+note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh (vendor-side grafts). ical-server.py local additions captured in patch. Pin bumped 5b93782 -> c6939f8 for the #51 POST /api/v1/memory/assert graft (learning-loop L1 write). c6939f8 is the #51 commit on CM041 branch feat/user-asserted-facts-v1.0.1 (origin/feat/user-asserted-facts-v1.0.1) -- the assert code is byte-identical to origin/main's 4931c53/#51; it deliberately excludes the unrelated #44 api_timeline rework, which is NOT in scope for this graft. Pinning to this SHA (the source repo HEAD the freshness gate measures against) keeps the gate fail-closed AND green for the grafted content."
 
 # ---- CM048 (Conversation Processing) -------------------------------------
 
