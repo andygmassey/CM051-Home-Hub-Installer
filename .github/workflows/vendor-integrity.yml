@@ -20,6 +20,7 @@ on:
       - 'scripts/_vendor_lib.sh'
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_vendor_fresh_gate.sh'
+      - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
@@ -67,6 +68,15 @@ jobs:
 
       - name: Vendor-freshness gate (degraded -- source repos absent on CI)
         run: bash scripts/verify_vendor_fresh.sh
+
+      # Pipeline-contract guard: the vendored /api/v1/conversation/process
+      # handler must inject the derived conversation_id into the metadata it
+      # writes to 00_metadata.json, else CM048's CLI rejects every POSTed
+      # transcript (the iOS Watch ingest path) with exit 2 and the
+      # conversation is silently dropped. Catches a re-vendor that loses the
+      # graft even if source and vendor regress together.
+      - name: Conversation-process metadata conversation_id guard
+        run: bash tests/test_conversation_process_metadata_conversation_id.sh
 
       - name: Vendor import-resolution guard
         run: python3 tests/test_vendor_import_resolution.py

@@ -893,9 +893,22 @@ def _conversation_process_background(conversation_id, transcript, metadata):
     # Save raw transcript
     (state_dir / "00_raw_transcript.md").write_text(transcript, encoding="utf-8")
 
-    # Save metadata
+    # Save metadata. CM048's CLI (src/cli.py cmd_process) rejects any
+    # metadata.json that lacks a truthy ``conversation_id`` with exit
+    # code 2 ("metadata.json must include a conversation_id"). The
+    # caller (api_conversation_process) already derives the canonical
+    # conversation_id but historically only passed it as the state-dir
+    # name, never into the metadata dict, so every POSTed transcript
+    # (e.g. the iOS Watch path) failed at the processor hop and was
+    # silently dropped after the raw-file write. Inject it here so the
+    # persisted metadata always satisfies the processor contract.
+    # Default channel to "spoken" so an iOS/CM042 transcript routes
+    # through CM048's spoken channel adapter when the caller omits it.
+    metadata_out = dict(metadata)
+    metadata_out["conversation_id"] = conversation_id
+    metadata_out.setdefault("channel", "spoken")
     (state_dir / "00_metadata.json").write_text(
-        json.dumps(metadata, indent=2, default=str), encoding="utf-8"
+        json.dumps(metadata_out, indent=2, default=str), encoding="utf-8"
     )
 
     # Initial state
