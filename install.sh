@@ -5382,6 +5382,33 @@ else
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <!--
+        The Hub runs ONE shared local model slot. Live chat and the
+        background conversation feeds (iMessage / email / WhatsApp /
+        spoken) all summarise through it. Two settings keep chat snappy
+        on a fresh install while the historic backlog is still draining:
+
+          OLLAMA_NUM_PARALLEL=2 -- serve two requests against the one
+            loaded model concurrently. Combined with the single-flight
+            lock the conversation feeds take (they never run more than
+            one summary at a time), this reserves a slot so a chat turn
+            never queues behind a minute-long backfill summary. It is
+            RAM-cheap: the model weights are shared across slots; only a
+            second (small, 4K-context) KV cache is added -- safe even on
+            a 16GB Mac.
+
+          OLLAMA_KEEP_ALIVE=-1 -- keep the model resident instead of
+            unloading it after each idle gap. Stops the cold-reload
+            thrash that made the first chat after a quiet spell take
+            tens of seconds.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OLLAMA_NUM_PARALLEL</key>
+        <string>2</string>
+        <key>OLLAMA_KEEP_ALIVE</key>
+        <string>-1</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>${OLLAMA_LOG_DIR}/ollama.log</string>
     <key>StandardErrorPath</key>
@@ -5885,6 +5912,27 @@ TOMLPREAMBLE
         echo "allowed_senders = []"
     fi
     unset _email_section_active
+
+    # #134 (v1.0.1): the Apple Mail COMMS channel -- email the assistant from
+    # your OWN address (the email analogue of the iMessage Note-to-Self) and
+    # get a reply. Distinct from the [channels.email] INGEST flags above, which
+    # only drain mail INTO the graph. The daemon activates this channel from
+    # [channels.apple_mail] (AppleMailConfig: default enabled=false, deny-all
+    # allowed_senders), so WITHOUT this block the channel ships inert. Enable
+    # it out-of-the-box only when the customer opted into Apple Mail AND we know
+    # their own address: owner-only allowed_senders means the assistant replies
+    # solely to mail FROM the operator (no third-party auto-reply). Local Full
+    # Disk Access read of Apple Mail's Envelope Index; no IMAP/SMTP creds.
+    # When USER_EMAIL is unknown we omit the block entirely (absent = inert),
+    # never enabling a deny-all reply loop with an unknown owner.
+    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true && -n "${USER_EMAIL:-}" ]]; then
+        _apple_mail_owner_esc=$(printf '%s' "$USER_EMAIL" | sed 's/"/\\"/g')
+        echo
+        echo "[channels.apple_mail]"
+        echo "enabled = true"
+        echo "allowed_senders = [\"${_apple_mail_owner_esc}\"]"
+        unset _apple_mail_owner_esc
+    fi
 
     if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         # Web mode (wa-rs). Pair-code linking happens at runtime
