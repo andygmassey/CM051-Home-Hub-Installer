@@ -2110,27 +2110,31 @@ if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
 fi
 osascript -e 'tell application "Calendar" to count calendars' >/dev/null 2>&1 || true
 
-# FDA_PREWARM (#572, 2026-06-09): register OstlerInstaller in the
-# System Settings > Full Disk Access list NOW, at the top of the install,
-# by attempting a read of the FDA-gated databases. macOS only lists an
-# app in that pane once it has ATTEMPTED an FDA-protected read and been
-# denied -- it never proactively prompts for FDA. Previously the first
-# such attempt happened at the FDA probe immediately before we open
-# System Settings (~line 6390), so the TCC list had not refreshed yet and
-# the customer was told to "find Ostler and turn it on" against a list
-# that did not yet contain it for ~30-60s. Priming here -- minutes ahead
-# of the grant prompt -- means the entry is already present and
-# toggle-ready when the pane opens. The reads are DENIED on a fresh Mac
-# (they grant nothing, so the real FDA probe + grant flow downstream is
-# unchanged), silent, and add no popup (FDA has no auto-prompt dialog).
-# Best-effort: never fails the install.
+# FDA_PREWARM (#572, 2026-06-09; refined 2026-06-13): register
+# OstlerInstaller in the System Settings > Full Disk Access list early by
+# attempting a read of an FDA-gated database. macOS only lists an app in
+# that pane once it has ATTEMPTED an FDA-protected read.
+#
+# 2026-06-13 (.149 walk): the original list ALSO prewarmed
+# ~/Library/Messages/chat.db and the Mail Envelope Index, on the comment's
+# assumption that FDA reads are "silent, no popup". That is FALSE on
+# current macOS -- reading chat.db fires the "Allow Ostler to read your
+# messages" TCC dialog. Prewarming them HERE popped that dialog ~30s into
+# the install, decoupled from the in-context FDA guidance and against a
+# pane that did not yet show the entry. So Messages/Mail are deliberately
+# NOT prewarmed here any more: the in-context FDA probe
+# (FDA_ASSIST_TRIGGER, ~line 6491) reads them just before the grant
+# assist, which already refreshes the System Settings pane
+# (FDA_PANE_REFRESH, ~line 6580) -- so the dialog now fires where the
+# guidance is, and the entry is present when the pane opens. Safari
+# History.db reads silently and stays, keeping the Files entry warm for
+# the common case. Best-effort: never fails the install.
 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-    for _fda_prime in \
-        "$HOME/Library/Safari/History.db" \
-        "$HOME/Library/Messages/chat.db" \
-        "$HOME/Library/Mail/V10/MailData/Envelope Index"; do
-        [[ -e "$_fda_prime" ]] && head -c 1 "$_fda_prime" >/dev/null 2>&1 || true
-    done
+    # Safari only -- chat.db / Mail are NOT prewarmed here because their
+    # reads fire a user-facing TCC dialog (see note above). They are read
+    # in context at the FDA probe + assist downstream.
+    _fda_prime="$HOME/Library/Safari/History.db"
+    [[ -e "$_fda_prime" ]] && head -c 1 "$_fda_prime" >/dev/null 2>&1 || true
     unset _fda_prime
 fi
 
