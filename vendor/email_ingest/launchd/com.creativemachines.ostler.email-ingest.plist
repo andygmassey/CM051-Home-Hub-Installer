@@ -90,10 +90,25 @@
         ${OSTLER_DIR}/services/email-ingest/.venv/bin/python3 at
         install time.
     -->
+    <!--
+        PWG_EMAIL_INGEST is the ABSOLUTE path to CM021's
+        pwg-email-ingest console script for the ingest leg. Under
+        launchd the agent inherits a minimal PATH
+        (/usr/bin:/bin:/usr/sbin:/sbin) that does NOT include the
+        email-ingest venv's bin/, so a bare `pwg-email-ingest` lookup
+        always missed and EVERY harvested message was silently dropped
+        before reaching the graph (the "Emitted N message(s)" then
+        "not on PATH" / exit-127 shape). The installer renders
+        PWG_EMAIL_INGEST_PATH ->
+        ${OSTLER_DIR}/services/email-ingest/.venv/bin/pwg-email-ingest
+        at install time, mirroring OSTLER_PYTHON_PATH above.
+    -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>OSTLER_PYTHON</key>
         <string>OSTLER_PYTHON_PATH</string>
+        <key>PWG_EMAIL_INGEST</key>
+        <string>PWG_EMAIL_INGEST_PATH</string>
     </dict>
 
     <!--
