@@ -455,6 +455,95 @@ class ContactSyncer:
 
     # -- helpers --------------------------------------------------------------
 
+    @staticmethod
+    def _read_child_values(
+        conn: Any,
+        *,
+        table: str,
+        owner_candidates: Tuple[str, ...],
+        value_candidates: Tuple[str, ...],
+        label: str,
+    ) -> Dict[int, List[str]]:
+        """Read a ``{owner_pk: [value, ...]}`` map from an AddressBook child
+        table (e.g. ZABCDEMAILADDRESS, ZABCDPHONENUMBER).
+
+        AddressBook child-table column names drift across macOS versions, so
+        we introspect the table with PRAGMA and pick the first owner / value
+        column that actually exists rather than hard-coding a single shape.
+
+        Unlike the previous bare ``except OperationalError: pass`` this logs
+        loudly when the table is missing or no value column resolves, so a
+        silent phone-only export (the email-drop bug) surfaces in the log
+        instead of looking like "this person just had no email".
+        """
+        import sqlite3 as _sqlite3
+
+        out: Dict[int, List[str]] = {}
+        try:
+            cols = {
+                row["name"]
+                for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+        except _sqlite3.OperationalError as exc:
+            logger.warning(
+                "AddressBook %s table absent or unreadable (%s); "
+                "%s addresses will not reach the graph from this store.",
+                table,
+                exc,
+                label,
+            )
+            return out
+
+        if not cols:
+            logger.warning(
+                "AddressBook %s table has no columns; no %s values extracted.",
+                table,
+                label,
+            )
+            return out
+
+        owner_col = next((c for c in owner_candidates if c in cols), None)
+        value_col = next((c for c in value_candidates if c in cols), None)
+        if not owner_col or not value_col:
+            logger.warning(
+                "AddressBook %s missing expected columns "
+                "(owner one of %s -> %s; value one of %s -> %s; present=%s). "
+                "No %s values extracted from this store.",
+                table,
+                owner_candidates,
+                owner_col,
+                value_candidates,
+                value_col,
+                sorted(cols),
+                label,
+            )
+            return out
+
+        try:
+            for row in conn.execute(
+                f"SELECT {owner_col} as pk, {value_col} as val FROM {table}"
+            ).fetchall():
+                pk = row["pk"]
+                val = row["val"]
+                if pk is None or val is None:
+                    continue
+                clean = str(val).strip()
+                if not clean:
+                    continue
+                bucket = out.setdefault(pk, [])
+                # Skip case-insensitive duplicates (a card can carry the same
+                # address under several labels); keep first-seen casing.
+                if not any(clean.lower() == seen.lower() for seen in bucket):
+                    bucket.append(clean)
+        except _sqlite3.OperationalError as exc:
+            logger.warning(
+                "AddressBook %s read failed (%s); no %s values extracted.",
+                table,
+                exc,
+                label,
+            )
+        return out
+
     def _read_abcddb_as_vcards(self) -> List[str]:
         """Read every populated AddressBook-v22.abcddb under ~/Library
         and synthesise minimal vCard 3.0 text per record so the existing
@@ -550,28 +639,39 @@ class ContactSyncer:
                     conn.close()
                     continue
 
-                # Pre-fetch emails + phones + addresses for all rows
-                # in this DB, then group by parent PK. One pass each
-                # rather than N queries.
-                emails_by_pk: Dict[int, List[str]] = {}
-                try:
-                    for er in conn.execute(
-                        "SELECT ZOWNER as pk, ZADDRESS as addr FROM ZABCDEMAILADDRESS"
-                    ).fetchall():
-                        if er["addr"]:
-                            emails_by_pk.setdefault(er["pk"], []).append(str(er["addr"]))
-                except _sqlite3.OperationalError:
-                    pass
+                # Pre-fetch emails + phones for all rows in this DB, then
+                # group by parent PK. One pass each rather than N queries.
+                #
+                # The child link-tables (ZABCDEMAILADDRESS / ZABCDPHONENUMBER)
+                # vary in column naming across macOS versions exactly like
+                # ZABCDRECORD does, so we introspect each table and pick the
+                # owner + value columns that are actually present instead of
+                # hard-coding one shape. Hard-coding ZADDRESS was a silent
+                # email drop: when iCloud's Sequoia store carried the address
+                # only in ZADDRESSNORMALIZED (ZADDRESS NULL/absent), the fixed
+                # query returned no usable rows and -- because the failure was
+                # swallowed with a bare ``pass`` -- every Contacts card reached
+                # the graph phone-only with zero log line. Phones never hit
+                # this because ZFULLNUMBER is stable across the same versions,
+                # which is why card->phone coverage was 97% while card->email
+                # was ~1%. We now (a) try the known value-column candidates in
+                # order, (b) log loudly if none resolve, so a phone-only export
+                # can never silently ship again.
+                emails_by_pk = self._read_child_values(
+                    conn,
+                    table="ZABCDEMAILADDRESS",
+                    owner_candidates=("ZOWNER",),
+                    value_candidates=("ZADDRESS", "ZADDRESSNORMALIZED"),
+                    label="email",
+                )
 
-                phones_by_pk: Dict[int, List[str]] = {}
-                try:
-                    for pr in conn.execute(
-                        "SELECT ZOWNER as pk, ZFULLNUMBER as num FROM ZABCDPHONENUMBER"
-                    ).fetchall():
-                        if pr["num"]:
-                            phones_by_pk.setdefault(pr["pk"], []).append(str(pr["num"]))
-                except _sqlite3.OperationalError:
-                    pass
+                phones_by_pk = self._read_child_values(
+                    conn,
+                    table="ZABCDPHONENUMBER",
+                    owner_candidates=("ZOWNER",),
+                    value_candidates=("ZFULLNUMBER", "ZLASTFOURDIGITS"),
+                    label="phone",
+                )
 
                 def _s(v) -> str:
                     if v is None:
