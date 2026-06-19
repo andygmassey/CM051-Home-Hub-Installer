@@ -38,6 +38,13 @@ venv/
 dist/
 build/
 
+# W8 / F6: the signed Safari extension .app.zip is a binary build artefact
+# produced by CM020's bin/build-safari-extension.sh and staged here by ORM at
+# cut time. It is large + signed-per-cut, so it is NOT committed to git; the
+# vendor/extensions/ directory is kept tracked via its .gitkeep so the path
+# exists for the staging step.
+vendor/extensions/OstlerSafariExtension.app.zip
+
 # IDE
 .vscode/
 .idea/

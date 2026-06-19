@@ -51,6 +51,12 @@ VERSION=""
 DO_VERIFY=0
 DO_DRY_RUN=0
 DO_NOTES_SKELETON=0
+# W8 / F6: stage the Safari extension by default. The artefact is absent
+# only on a deliberate dev/partial build; a real cut MUST ship it, so the
+# default is "required" and the build fails loudly if it is missing (this
+# is the whole point -- the artefact used to be silently absent). Pass
+# --no-safari-extension to opt out for a dev/inspection build.
+SKIP_SAFARI_EXTENSION=0
 DIFF_AGAINST_TAG=""
 
 GREEN='\033[0;32m'
@@ -116,6 +122,23 @@ CM021_SOURCES=(
 
 # Special: copy HR015/contact_syncer/requirements.txt -> install/requirements.txt
 HR015_AGGREGATE_REQUIREMENTS_SRC="contact_syncer/requirements.txt"
+
+# Safari Web Extension artefact (W8 / F6). The signed + notarised + stapled
+# .app.zip is produced by CM020's bin/build-safari-extension.sh as
+# dist/OstlerSafariExtension-<version>.app.zip and staged by ORM at cut time
+# into CM051/vendor/extensions/ (it is a binary build artefact, NOT committed
+# to git -- see .gitignore note). release.sh and the gui postBuildScript both
+# read it from this single, fixed path and rename to the versionless name
+# install.sh's section 3.17 consumer expects
+# (${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip).
+#
+# ORM HOOK: before a cut, produce + stage the artefact:
+#   (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+#   then        cp dist/OstlerSafariExtension-<version>.app.zip \
+#                  "${CM051_DIR}/vendor/extensions/OstlerSafariExtension.app.zip"
+# The artefact MUST be Developer-ID signed (V95N2B8X7A) + notarised + stapled;
+# a --dry-run (unsigned) artefact will fail Gatekeeper and must never ship.
+SAFARI_EXTENSION_VENDOR_SRC="vendor/extensions/OstlerSafariExtension.app.zip"
 
 # Forbidden patterns (extended grep regex). One match anywhere in the staged
 # tree fails the build. See RELEASE.md for the policy.
@@ -204,6 +227,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run)            DO_DRY_RUN=1; shift ;;
         --diff-against-tag)   DIFF_AGAINST_TAG="$2"; shift 2 ;;
         --notes-skeleton)     DO_NOTES_SKELETON=1; shift ;;
+        --no-safari-extension) SKIP_SAFARI_EXTENSION=1; shift ;;
         -h|--help)
             sed -n '2,30p' "${BASH_SOURCE[0]}"
             exit 0
@@ -291,6 +315,41 @@ for src in "${CM021_SOURCES[@]}"; do
     for pat in "${RSYNC_EXCLUDES[@]}"; do EXCLUDE_FLAGS+=(--exclude="${pat}"); done
     rsync -a "${EXCLUDE_FLAGS[@]}" "${SRC}" "${INSTALL_DIR}/cm021/"
 done
+
+# -----------------------------------------------------------------------------
+# Stage the Safari Web Extension (W8 / F6) into install/extensions/
+# -----------------------------------------------------------------------------
+# install.sh section 3.17 probes ${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip
+# and copies it to /Applications. For the curl|bash tarball path that means
+# install/extensions/OstlerSafariExtension.app.zip must be present in the
+# tarball. We source the signed artefact from CM051/vendor/extensions/ (staged
+# there by ORM from CM020's build output -- see SAFARI_EXTENSION_VENDOR_SRC).
+#
+# LOUD FAIL: if the artefact is missing this is a release defect, not a
+# graceful skip. The old behaviour silently shipped a tarball with no
+# extension and install.sh hit its info-level skip branch, which is exactly
+# how this gap went unnoticed across cuts. A real cut now fails here.
+# Use --no-safari-extension for a deliberate dev/partial build.
+SAFARI_EXTENSION_SRC="${CM051_DIR}/${SAFARI_EXTENSION_VENDOR_SRC}"
+if [[ "${SKIP_SAFARI_EXTENSION}" -eq 1 ]]; then
+    warn "--no-safari-extension: NOT staging the Safari extension (dev/partial build)"
+elif [[ -f "${SAFARI_EXTENSION_SRC}" ]]; then
+    echo "==> Staging Safari extension from ${SAFARI_EXTENSION_VENDOR_SRC}"
+    mkdir -p "${INSTALL_DIR}/extensions"
+    # Rename to the versionless name install.sh's consumer expects. CM020
+    # emits OstlerSafariExtension-<version>.app.zip; the installer probes the
+    # fixed name OstlerSafariExtension.app.zip.
+    cp "${SAFARI_EXTENSION_SRC}" "${INSTALL_DIR}/extensions/OstlerSafariExtension.app.zip"
+    ok "Safari extension staged into install/extensions/"
+else
+    die "Safari extension artefact missing: ${SAFARI_EXTENSION_SRC}
+      W8 / F6: ORM must build + sign + notarise + stage it before cutting.
+        (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+        then        cp dist/OstlerSafariExtension-<version>.app.zip \\
+                       '${SAFARI_EXTENSION_SRC}'
+      The artefact MUST be Developer-ID signed (V95N2B8X7A) + notarised +
+      stapled. Pass --no-safari-extension only for a deliberate dev build." 3
+fi
 
 echo "==> Aggregating requirements.txt from HR015/${HR015_AGGREGATE_REQUIREMENTS_SRC}"
 cp "${HR015_DIR}/${HR015_AGGREGATE_REQUIREMENTS_SRC}" "${INSTALL_DIR}/requirements.txt"

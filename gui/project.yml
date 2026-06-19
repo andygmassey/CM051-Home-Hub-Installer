@@ -355,6 +355,43 @@ targets:
           - $(SRCROOT)/../vendor/imessage_source
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/imessage_source
+      - name: Bundle Safari extension into Resources
+        script: |
+          set -euo pipefail
+          # W8 / F6: stage the signed Safari Web Extension .app.zip into
+          # Contents/Resources/extensions/ so install.sh section 3.17 finds it
+          # at ${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip and copies
+          # it to /Applications. The artefact is produced by CM020's
+          # bin/build-safari-extension.sh and staged by ORM at cut time into
+          # CM051/vendor/extensions/OstlerSafariExtension.app.zip (a binary
+          # build artefact, NOT committed -- see .gitignore note).
+          #
+          # LOUD FAIL: a missing artefact is a release defect, not a graceful
+          # skip. The DMG used to ship with no extensions/ dir at all, so
+          # install.sh hit its silent info-level skip and the extension never
+          # installed on any customer. The build now fails here instead.
+          #
+          # ORM HOOK: before the .app build, produce + stage the artefact:
+          #   (in CM020)  xcodegen generate && bin/build-safari-extension.sh
+          #   then        cp dist/OstlerSafariExtension-<version>.app.zip \
+          #                  vendor/extensions/OstlerSafariExtension.app.zip
+          # It MUST be Developer-ID signed (V95N2B8X7A) + notarised + stapled.
+          VENDOR_SRC="${SRCROOT}/../vendor/extensions/OstlerSafariExtension.app.zip"
+          if [ ! -f "${VENDOR_SRC}" ]; then
+              echo "error: vendor/extensions/OstlerSafariExtension.app.zip is missing." >&2
+              echo "       W8 / F6: ORM must build + sign + notarise + stage the Safari" >&2
+              echo "       extension before the .app build. See gui/project.yml comment." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/extensions"
+          # Rename to the versionless name the installer consumer probes.
+          cp "${VENDOR_SRC}" "${DEST}/extensions/OstlerSafariExtension.app.zip"
+          /usr/bin/xattr -cr "${DEST}/extensions"
+        inputFiles:
+          - $(SRCROOT)/../vendor/extensions/OstlerSafariExtension.app.zip
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/extensions/OstlerSafariExtension.app.zip
       - name: Bundle Doctor agent into Resources
         script: |
           set -euo pipefail
