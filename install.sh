@@ -8446,6 +8446,67 @@ except Exception:
     _PREFS_POINTS="${_PREFS_POINTS:-0}"
     if [[ "$_PREFS_POINTS" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
+
+        # ── Category coverage guard (CX: silent-blank Food / Music) ─────
+        # Preferences landed, but the headline wiki pages (Food, Music,
+        # Professional) and every Topic page read a `category` field off the
+        # Qdrant payload. If points arrive carrying no/wrong category they
+        # reach NO page, so the wiki renders "Nothing here yet" while the
+        # service is green -- exactly the failure that hid food=0 / music=0
+        # behind a healthy install. Surface it loudly here rather than
+        # leaving the operator to discover blank pages later. Counts-only,
+        # no item content leaves the process; non-fatal (warn, never abort).
+        _cat_count() {
+            # Count points whose payload.category == $1. Empty/!ready -> 0.
+            curl -sf -m 5 -H 'Content-Type: application/json' \
+                -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
+                -d "{\"exact\":true,\"filter\":{\"must\":[{\"key\":\"category\",\"match\":{\"value\":\"$1\"}}]}}" \
+                2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null
+        }
+        _FOOD_POINTS="$(_cat_count food)";          _FOOD_POINTS="${_FOOD_POINTS:-0}"
+        _MUSIC_POINTS="$(_cat_count music)";         _MUSIC_POINTS="${_MUSIC_POINTS:-0}"
+        _PROF_POINTS="$(_cat_count professional)";   _PROF_POINTS="${_PROF_POINTS:-0}"
+
+        # Count points with no category at all (orphans that reach no Topic
+        # page). Qdrant `is_empty` matches null/absent payload keys.
+        _UNCAT_POINTS="$(
+            curl -sf -m 5 -H 'Content-Type: application/json' \
+                -X POST "${QDRANT_URL:-http://localhost:6333}/collections/preferences/points/count" \
+                -d '{"exact":true,"filter":{"must":[{"is_empty":{"key":"category"}}]}}' \
+                2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _UNCAT_POINTS="${_UNCAT_POINTS:-0}"
+
+        # All three headline categories empty despite points landing = the
+        # category-mapping/ingest leg dropped them. Loud warning.
+        if [[ "$_FOOD_POINTS" -eq 0 && "$_MUSIC_POINTS" -eq 0 && "$_PROF_POINTS" -eq 0 ]]; then
+            warn "$(printf "$MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES" "$_PREFS_POINTS")"
+            warn "$MSG_WARN_PREFS_HEADLINE_HINT"
+        fi
+
+        # >25% of points with no category at all = mapping gap; they will
+        # never surface on a Topic page. Integer maths (no bc dependency).
+        if [[ "$_UNCAT_POINTS" -gt 0 ]] \
+           && [[ $(( _UNCAT_POINTS * 100 / _PREFS_POINTS )) -gt 25 ]]; then
+            warn "$(printf "$MSG_WARN_PREFS_UNCATEGORISED" \
+                "$_UNCAT_POINTS" "$_PREFS_POINTS" \
+                "$(( _UNCAT_POINTS * 100 / _PREFS_POINTS ))")"
+        fi
+
+        unset -f _cat_count
+        unset _FOOD_POINTS _MUSIC_POINTS _PROF_POINTS _UNCAT_POINTS
     fi
     unset _PREFS_POINTS
 elif [[ -n "${EXPORTS_DIR:-}" ]]; then
