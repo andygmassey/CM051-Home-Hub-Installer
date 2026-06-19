@@ -9944,6 +9944,13 @@ fi
 EMAIL_INGEST_VENV_DIR="${OSTLER_DIR}/services/email-ingest"
 EMAIL_INGEST_VENV="${EMAIL_INGEST_VENV_DIR}/.venv"
 EMAIL_INGEST_VENV_PYTHON="${EMAIL_INGEST_VENV}/bin/python3"
+# Absolute path to CM021's pwg-email-ingest console script inside the
+# venv. Set ONLY after the CM021 pip-install below succeeds, then passed
+# to the snippet so the LaunchAgent plist's PWG_EMAIL_INGEST env resolves
+# the binary under launchd's minimal PATH. Empty until proven installed,
+# so we never render a path to a binary that is not there (the tick's
+# LOUD guard then fails loudly rather than dropping harvested mail).
+EMAIL_INGEST_VENV_BIN=""
 OSTLER_FDA_SRC=""
 
 if [[ -d "${SCRIPT_DIR}/ostler_fda" && -f "${SCRIPT_DIR}/ostler_fda/pyproject.toml" ]]; then
@@ -9998,6 +10005,14 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         if [[ -n "$CM021_SRC" ]]; then
             if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$CM021_SRC" 2>/tmp/ostler-cm021-pip.log; then
                 ok "$MSG_OK_PWG_EMAIL_INGEST_INSTALLED"
+                # CM021's [project.scripts] entry point lands the console
+                # script here. Record the absolute path so the snippet can
+                # render it into the LaunchAgent plist's PWG_EMAIL_INGEST
+                # env var (the launchd-PATH-independence fix). Only set on
+                # success so a failed install leaves it empty.
+                if [[ -x "$EMAIL_INGEST_VENV/bin/pwg-email-ingest" ]]; then
+                    EMAIL_INGEST_VENV_BIN="$EMAIL_INGEST_VENV/bin/pwg-email-ingest"
+                fi
             else
                 warn "$MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST"
                 if [[ -s /tmp/ostler-cm021-pip.log ]]; then
@@ -10022,6 +10037,7 @@ if [[ -n "$EMAIL_INGEST_SNIPPET" && -f "$EMAIL_INGEST_SNIPPET" ]]; then
        OSTLER_DIR="$OSTLER_DIR" \
        LOGS_DIR="$LOGS_DIR" \
        OSTLER_VENV_PYTHON="$EMAIL_INGEST_VENV_PYTHON" \
+       OSTLER_EMAIL_INGEST_BIN="$EMAIL_INGEST_VENV_BIN" \
        bash "$EMAIL_INGEST_SNIPPET"; then
         ok "$MSG_OK_EMAIL_INGEST_LAUNCHAGENT_LOADED_LABEL_COM"
         info "$MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST"
