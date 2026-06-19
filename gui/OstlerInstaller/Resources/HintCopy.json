@@ -12,7 +12,7 @@
   "setup_questions": {
     "id": "setup_questions",
     "title": "A few questions",
-    "subtitle": "Two minutes, then you can walk away",
+    "subtitle": "About two minutes; setup keeps going on its own afterwards",
     "why": "Your name, your country, your timezone, your assistant's name. These shape everything Ostler does later, but you only answer them once.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 300,
@@ -21,9 +21,9 @@
   },
   "setup_complete_wrap_up": {
     "id": "setup_complete_wrap_up",
-    "title": "All set. You can walk away now.",
-    "subtitle": "The installer will run on its own",
-    "why": "Your answers are saved. Phase 3 takes 15 to 60 minutes -- depending on how much history is on your Mac -- and runs unattended: Docker, Ollama, the knowledge graph, the assistant binary. You can come back when it's done. Nothing else needs your input.",
+    "title": "Questions done. Setup continues in the background.",
+    "subtitle": "Roughly 15 to 60 minutes; it runs on its own",
+    "why": "Your answers are saved. The install now runs unattended for roughly 15 to 60 minutes, depending on how much history is on your Mac: Docker, Ollama, the knowledge graph, the assistant binary. Long quiet stretches are normal while things download and set up. You can leave it running and check back later. Nothing else needs your input.",
     "duration_estimate_s": 5,
     "long_running_threshold_s": 30,
     "illustration": null,
