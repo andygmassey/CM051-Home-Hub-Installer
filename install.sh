@@ -4933,7 +4933,7 @@ done
 # while Phase 3 kicks off. The step itself is a no-op marker -- the
 # GUI renders the HintCopy "setup_complete_wrap_up" block until the
 # next step (homebrew_install) fires its STEP_BEGIN.
-step "Questions done -- Ostler is installing now. It runs on its own from here, so you can walk away." "setup_complete_wrap_up"
+step "$MSG_STEP_SETUP_COMPLETE_WRAP_UP" "setup_complete_wrap_up"
 
 fi  # end of SKIP_PHASE2 check (GDPR scan + consent)
 
