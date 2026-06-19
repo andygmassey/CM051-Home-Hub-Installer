@@ -103,6 +103,10 @@ MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installe
 MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; iOS Companion endpoints will be limited."
 MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="When the Tailscale window appears, sign in with Apple / Google / Microsoft."
 MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="Opening Tailscale so you can sign in..."
+# WALK-1 (Wave 2.1): pre-announce the one late, optional Tailscale sign-in
+# step so the unattended middle holds no surprise prompts. TODO(i18n):
+# de/fr/es/it translations needed -- do NOT machine-translate.
+MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Noted – you can walk away while Ostler installs. Near the end there is one short optional step: signing in to Tailscale so your iPhone and Watch can reach this Mac from anywhere. We will open your browser for it then."
 MSG_INFO_TAILSCALE_SKIPPED="Tailscale skipped – iOS Companion will only work on your home Wi-Fi. You can set this up later from Settings."
 MSG_INFO_TAILSCALE_STILL_WAITING="Still waiting for Tailscale sign-in (%ss elapsed) – please complete sign-in in the Tailscale window."
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
