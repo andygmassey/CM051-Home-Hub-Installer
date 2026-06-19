@@ -32,6 +32,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 
 
 # ── Parsing ──────────────────────────────────────────────────────────
@@ -134,6 +135,7 @@ def write_twitter_signal(oxigraph_url: str, person_uri: str, user_id: str) -> No
         f'  <{signal_uri}> a pwg:RelationshipSignal .\n'
         f'  <{signal_uri}> pwg:about <{person_uri}> .\n'
         f'  <{signal_uri}> pwg:signalType "twitter_synced_contact" .\n'
+        f'  <{signal_uri}> pwg:privacyLevel "{_pm.level_for(rdf_type="RelationshipSignal", source="twitter_synced_contact")}" .\n'
         f'  <{signal_uri}> pwg:signalDate "{now}"^^xsd:dateTime .\n'
         f'  <{signal_uri}> pwg:userId "{user_id}" .\n'
         f"}}"

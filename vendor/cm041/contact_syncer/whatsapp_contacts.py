@@ -28,6 +28,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 
 
 # ── Parsing ──────────────────────────────────────────────────────────
@@ -107,6 +108,9 @@ def write_whatsapp_signal(oxigraph_url: str, person_uri: str, phone: str, user_i
     signal_uri = f"https://pwg.dev/ontology#signal_{signal_id}"
     now = datetime.now(timezone.utc).isoformat()
 
+    # WhatsApp is a private channel -> L1 (private, never publishable).
+    level = _pm.level_for(rdf_type="RelationshipSignal", source="whatsapp_contact")
+
     # Add signal
     sparql = (
         "PREFIX pwg: <https://pwg.dev/ontology#>\n"
@@ -115,6 +119,7 @@ def write_whatsapp_signal(oxigraph_url: str, person_uri: str, phone: str, user_i
         f'  <{signal_uri}> a pwg:RelationshipSignal .\n'
         f'  <{signal_uri}> pwg:about <{person_uri}> .\n'
         f'  <{signal_uri}> pwg:signalType "whatsapp_contact" .\n'
+        f'  <{signal_uri}> pwg:privacyLevel "{level}" .\n'
         f'  <{signal_uri}> pwg:signalDate "{now}"^^xsd:dateTime .\n'
         f'  <{signal_uri}> pwg:userId "{user_id}" .\n'
         f"}}"

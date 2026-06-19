@@ -40,11 +40,11 @@ name             = "cm041/contact_syncer"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
 source_path      = "contact_syncer"
-pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+pinned_sha       = "ba59711d10db23b24ce2b3c860d5c523f8d94c8c"
   divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "Legit divergence: identity_resolver.normalise import + en-dash house style. Graft #49 (observed_at) landed in CM041 (#325/#326) and is synced here at 5b93782."
+note             = "Legit divergence: identity_resolver.normalise import (incl. normalise_phone) + BW-1 phone-normalisation graft + en-dash house style. Synced to CM041 main ba59711 (rescue cut: privacy model/owner-node/backfill + email normalisation adopted upstream)."
 
 [[tree]]
 name             = "cm041/identity_resolver"

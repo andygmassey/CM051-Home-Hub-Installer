@@ -38,6 +38,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -193,6 +194,10 @@ def create_person_oxigraph(
     triples.append(f"<{person_uri}> pwg:hasSignal <{signal_uri}>")
     triples.append(f"<{signal_uri}> a pwg:RelationshipSignal")
     triples.append(f'<{signal_uri}> pwg:signalType "facebook_friend"')
+    triples.append(
+        f'<{signal_uri}> pwg:privacyLevel '
+        f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"'
+    )
     if extra.get("friended_on"):
         triples.append(
             f'<{signal_uri}> pwg:signalDate "{_escape(extra["friended_on"])}"'
@@ -222,6 +227,8 @@ def enrich_person_oxigraph(
         f"<{person_uri}> pwg:hasSignal <{signal_uri}>",
         f"<{signal_uri}> a pwg:RelationshipSignal",
         f'<{signal_uri}> pwg:signalType "facebook_friend"',
+        f'<{signal_uri}> pwg:privacyLevel '
+        f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"',
     ]
     if extra.get("friended_on"):
         triples.append(

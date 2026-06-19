@@ -39,6 +39,7 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
+from contact_syncer import privacy_model as _pm
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
 
@@ -181,6 +182,7 @@ def write_conversation_signal(
         f'  <{signal_uri}> a pwg:RelationshipSignal .\n'
         f'  <{signal_uri}> pwg:about <{person_uri}> .\n'
         f'  <{signal_uri}> pwg:signalType "linkedin_messaging" .\n'
+        f'  <{signal_uri}> pwg:privacyLevel "{_pm.level_for(rdf_type="RelationshipSignal", source="linkedin_messaging")}" .\n'
         f'  <{signal_uri}> pwg:signalDate "{last_msg_str}"^^xsd:dateTime .\n'
         f'  <{signal_uri}> pwg:totalMessages "{total}"^^xsd:integer .\n'
         f'  <{signal_uri}> pwg:userMessages "{user_msgs}"^^xsd:integer .\n'
