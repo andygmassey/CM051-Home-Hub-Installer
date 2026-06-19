@@ -912,6 +912,11 @@ MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
 # days to 5 years -- customer copy updated to match the new behaviour.
 MSG_HYDRATE_CALENDAR_STARTED="Loading your last 90 days of calendar (longer history backfills in the background)"
 MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
+# Places ingest (2026-06-19): aggregate meeting/photo location signals into
+# browsable Places for the wiki. British English, no em-dashes.
+MSG_HYDRATE_PLACES_STARTED="Building your Places from the locations you meet at"
+MSG_HYDRATE_PLACES_DONE="Built your Places section"
+MSG_HYDRATE_PLACES_SKIPPED="No location signals found yet; Places will fill in as your calendar populates"
 MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki. Ostler is writing a short summary for each of your key people, organisations and topics, so on a large address book this can take from a few minutes up to around an hour. It only happens once, runs entirely on your Mac, and is safe to leave."
 
 # CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.

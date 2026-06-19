@@ -13798,6 +13798,51 @@ unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
 unset _INITIAL_HYDRATE_VENV _INITIAL_HYDRATE_PY _INITIAL_HYDRATE_LOG
 unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER
 
+# PLACES INGEST (CM044 Places section, 2026-06-19). The wiki Places page
+# (CM044 compiler/pages/place_pages.py) reads ONLY the Qdrant `preferences`
+# collection filtered to category=place. Nothing ever wrote those points, so
+# the page always rendered its empty state even though the graph holds real
+# location signals: every meeting carries a pwg:meetingLocation literal (96
+# meetings / dozens of distinct strings on Andy's box) and nothing ever
+# promoted those into a browsable Place. This step closes that leg with NO
+# CM044 change: it reads pwg:meetingLocation (+ pwg:photoPlace if present)
+# back out of Oxigraph, de-dupes by normalised string, and upserts one
+# area_preference point per distinct place into preferences/category=place
+# with the exact payload shape place_pages.py reads.
+#
+# Ordering: runs AFTER every Oxigraph writer above (hydrate_graph
+# contacts/calendar -> meeting locations land here) and the dedupe_merge
+# sweep, and BEFORE wiki_compile, so the first wiki compile already sees a
+# populated Places section. The contact_syncer.places_ingest module ships in
+# the import-pipeline venv ($PIPELINE_PY) alongside contact_syncer.syncer --
+# same venv that carries httpx + qdrant-client. Best-effort + idempotent
+# (deterministic uuid5 point IDs): a failure is logged and install continues;
+# a re-run upserts the same points rather than duplicating them.
+if [[ -x "$PIPELINE_PY" ]]; then
+    info "$MSG_HYDRATE_PLACES_STARTED"
+    _PLACES_EMBED_URL="${EMBED_OLLAMA_URL:-http://localhost:11434}"
+    _PLACES_EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+    _PLACES_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _PLACES_TIMEOUT_WRAP="gtimeout 120"
+    elif command -v timeout >/dev/null 2>&1; then
+        _PLACES_TIMEOUT_WRAP="timeout 120"
+    fi
+    (
+        cd "$PIPELINE_DIR" \
+        && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+           EMBED_OLLAMA_URL="$_PLACES_EMBED_URL" \
+           EMBED_MODEL="$_PLACES_EMBED_MODEL" \
+           $_PLACES_TIMEOUT_WRAP \
+           .venv/bin/python -m contact_syncer.places_ingest --verbose
+    ) >>/tmp/ostler-places-ingest.log 2>&1 \
+        && ok "$MSG_HYDRATE_PLACES_DONE" \
+        || info "$MSG_HYDRATE_PLACES_SKIPPED"
+    _hydrate_sentinel_record "places" "status=run"
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP
+fi
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
