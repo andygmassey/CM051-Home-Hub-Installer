@@ -795,6 +795,22 @@ MSG_INFO_INSTALLER_FDA_PREWARN="Briefing you on the Full Disk Access grant flow.
 MSG_INFO_INSTALLER_FDA_ASSIST_OPENING="Opening System Settings so you can grant Full Disk Access to the installer..."
 MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED="Full Disk Access granted to the installer. Reading Safari, Notes, iMessages and Mail next."
 MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED="Full Disk Access still not granted. Continuing without it; you can re-run the installer later to extract Safari / Notes / iMessages."
+# WALK-1 (Wave 2.1): the installer Full Disk Access grant is now asked
+# upfront in Phase 2. These two lines reassure the customer that the long
+# middle is unattended, and pre-announce the one permission we cannot
+# front-load: the daemon's Messages-history grant (its binary does not
+# exist until late Phase 3). Mirrors the Tailscale sign-in pre-announce.
+# TODO(i18n): de/fr/es/it translations needed -- do NOT machine-translate.
+MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE="Full Disk Access for the installer is sorted. From here the long install runs on its own – you can walk away."
+MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="One more permission (Messages history for your assistant) comes near the end, once your assistant is installed – we will point you to it then."
+# WALK-1 (Wave 2.1): the single late recovery modal. It fires ONLY for a
+# customer who saw the upfront FDA ask but did not grant it, just before
+# extraction. Granting now, or continuing with less data, both let the
+# install complete. TODO(i18n): de/fr/es/it needed -- do NOT machine-translate.
+MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE="Full Disk Access still needed"
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler is about to read your Mac data, but Full Disk Access for OstlerInstaller is still off. Find \"OstlerInstaller\" in System Settings (now open at Full Disk Access) and turn it on."
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2="Or just click Continue to finish the install with less data – you can grant it and re-run the extractor later."
+MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON="Continue"
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
 MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.
