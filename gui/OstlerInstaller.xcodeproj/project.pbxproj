@@ -19,9 +19,9 @@
 		1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */; };
 		2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A68D9D961170201BC0E5A7 /* StepCatalog.swift */; };
 		297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */; };
+		2AFE7F7954CBD0B88DC81C24 /* AppIconSource-ink.svg in Resources */ = {isa = PBXBuildFile; fileRef = 9930CEB0B4699812C7CF9060 /* AppIconSource-ink.svg */; };
 		2BCD8DD70C9BCF001725BC88 /* LicenseEntryDropzoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */; };
 		2D47AB35E1FB087DE3838834 /* ProgressDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */; };
-		AA45400000000000000000B1 /* TerminationExitCodeReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA45400000000000000000F1 /* TerminationExitCodeReconcileTests.swift */; };
 		32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */; };
 		35F58AE80A7E5EDE1D91C87A /* Outfit-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */; };
 		3F2BBCBFC481F5B4DD84D30E /* ErrorCodeBannerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */; };
@@ -30,6 +30,7 @@
 		42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */; };
 		4356B5C68B06550290E1A2E5 /* PermissionsPrewarmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */; };
 		47875F42C956EED5EB0353A5 /* PermissionsIntroView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */; };
+		4D4F8EDE2DB63519463E4666 /* generate_appicon.py in Resources */ = {isa = PBXBuildFile; fileRef = 2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */; };
 		518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */; };
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
 		5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */; };
@@ -69,6 +70,8 @@
 		CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */; };
 		D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */; };
 		D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */; };
+		D387536C382D818490141312 /* ICON_HASHES.txt in Resources */ = {isa = PBXBuildFile; fileRef = 18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */; };
+		D593E67900B5C491B3B2F624 /* TerminationExitCodeReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */; };
 		D687020DA04D1B854FB03E39 /* FailureStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42B30C4B72F0216B459295F7 /* FailureStateMachineTests.swift */; };
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
 		DAB32AEC4502408333718B31 /* PermissionsPrewarmSequencingTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D6A276A313E76D98FEA20 /* PermissionsPrewarmSequencingTest.swift */; };
@@ -76,6 +79,7 @@
 		E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A13898725BE34B1AC2D3AD /* BiometricProbe.swift */; };
 		E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */; };
 		E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */; };
+		E34095B158EB713C918CD59E /* test_icon_geometry.py in Resources */ = {isa = PBXBuildFile; fileRef = 4B61CA4E5C5CB6A987FF9652 /* test_icon_geometry.py */; };
 		E4167BB8AF02DBB95D688811 /* LicenseVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */; };
 		E5316E9CFE905AC4CFFAA6C0 /* Outfit-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 7872CDF57A4C636DE0B8BAB0 /* Outfit-Bold.ttf */; };
 		E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */; };
@@ -105,11 +109,13 @@
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
+		18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ICON_HASHES.txt; sourceTree = "<group>"; };
 		1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLimitReachedView.swift; sourceTree = "<group>"; };
 		1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Regular.ttf"; sourceTree = "<group>"; };
 		206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeBannerTest.swift; sourceTree = "<group>"; };
 		260069E8B35BBB27233D9472 /* InstallCompleteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallCompleteView.swift; sourceTree = "<group>"; };
 		290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerTheme.swift; sourceTree = "<group>"; };
+		2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = generate_appicon.py; sourceTree = "<group>"; };
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
 		40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationGateTests.swift; sourceTree = "<group>"; };
@@ -119,6 +125,7 @@
 		42B30C4B72F0216B459295F7 /* FailureStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailureStateMachineTests.swift; sourceTree = "<group>"; };
 		49E6B2DE1EC06DA03AC2E651 /* LicenseVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseVerifierTests.swift; sourceTree = "<group>"; };
 		4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailSupportMailtoTest.swift; sourceTree = "<group>"; };
+		4B61CA4E5C5CB6A987FF9652 /* test_icon_geometry.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_icon_geometry.py; sourceTree = "<group>"; };
 		524B76726D10373975055BD0 /* GatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
 		578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistration.swift; sourceTree = "<group>"; };
 		58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPhaseAdvanceTests.swift; sourceTree = "<group>"; };
@@ -143,11 +150,11 @@
 		87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistenceTests.swift; sourceTree = "<group>"; };
 		88E69616403717DA4E9247AC /* TailscaleConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailscaleConnectView.swift; sourceTree = "<group>"; };
 		88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressDecoderTests.swift; sourceTree = "<group>"; };
-		AA45400000000000000000F1 /* TerminationExitCodeReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationExitCodeReconcileTests.swift; sourceTree = "<group>"; };
 		8B1D6C35562EADC4DD07B5B0 /* PermissionsIntroView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroView.swift; sourceTree = "<group>"; };
 		8D51C5C78001404B9496EC66 /* OstlerInstallerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OstlerInstallerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressProtocol.swift; sourceTree = "<group>"; };
 		9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkifyHelpTextTests.swift; sourceTree = "<group>"; };
+		9930CEB0B4699812C7CF9060 /* AppIconSource-ink.svg */ = {isa = PBXFileReference; path = "AppIconSource-ink.svg"; sourceTree = "<group>"; };
 		9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseMismatchUXTests.swift; sourceTree = "<group>"; };
 		9E1974AECCE8C351193A5257 /* DialogIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DialogIcon.icns; sourceTree = "<group>"; };
 		9EA7B9285055EFB24937AA9A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -156,6 +163,7 @@
 		AA415C1B21A151B849E39CE1 /* ViewCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewCopy.swift; sourceTree = "<group>"; };
 		AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerCoordinator.swift; sourceTree = "<group>"; };
 		B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogRedactorTests.swift; sourceTree = "<group>"; };
+		B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationExitCodeReconcileTests.swift; sourceTree = "<group>"; };
 		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryShortIdHeuristicTests.swift; sourceTree = "<group>"; };
@@ -273,13 +281,13 @@
 				70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */,
 				6F6D6A276A313E76D98FEA20 /* PermissionsPrewarmSequencingTest.swift */,
 				88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */,
-				AA45400000000000000000F1 /* TerminationExitCodeReconcileTests.swift */,
 				83899BF5EEEC0C2F975B0421 /* ReuseSettingsExplanationTests.swift */,
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 				58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */,
 				E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */,
 				E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */,
 				DCE2A31F120A9538AB52609C /* StringsCatalogueYNSuffixTest.swift */,
+				B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */,
 				7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */,
 			);
 			path = OstlerInstallerTests;
@@ -325,11 +333,14 @@
 				EF64A6B46A3BD66D6097C846 /* App.swift */,
 				9EA7B9285055EFB24937AA9A /* Assets.xcassets */,
 				524B76726D10373975055BD0 /* GatewayClient.swift */,
+				2EAED9BF2C1D82930A1EBABB /* generate_appicon.py */,
+				18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */,
 				7EC2E5CA6E396F6D43EF3FED /* Info.plist */,
 				AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */,
 				5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */,
 				E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */,
 				8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */,
+				4B61CA4E5C5CB6A987FF9652 /* test_icon_geometry.py */,
 				F449E7484435D5081F7CC53C /* Auth */,
 				70F3A6F3FB38114D1EC93F45 /* Bootstrap */,
 				FE9676D0B0AB2FB88EC5C6C6 /* Resources */,
@@ -343,6 +354,7 @@
 		FE9676D0B0AB2FB88EC5C6C6 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				9930CEB0B4699812C7CF9060 /* AppIconSource-ink.svg */,
 				9E1974AECCE8C351193A5257 /* DialogIcon.icns */,
 				648CD2F16A53E31F71B7BD82 /* HintCopy.json */,
 				143B97F50F4AF5CC13BFCECB /* ViewCopy.json */,
@@ -387,6 +399,7 @@
 				1F163102D8C7D318C87083D0 /* Bundle email_source conversation feed into Resources */,
 				CBD6E8B35AD4F80C403FFB45 /* Bundle spoken_source conversation feed into Resources */,
 				D55F6B625ACEC9B0E77B5DD5 /* Bundle imessage_source conversation feed into Resources */,
+				CE85A99D177D639EDE4CC934 /* Bundle Safari extension into Resources */,
 				A594C4AF71E56E7417E3B57B /* Bundle Doctor agent into Resources */,
 				C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */,
 				ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */,
@@ -398,6 +411,7 @@
 				A960ED2414DB9CC1D912777E /* Bundle imessage-bridge LaunchAgent + producer into Resources */,
 				E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */,
 				F91168F12AE17E931B5752D1 /* Bundle wiki-recompile (daily wiki rebuild LaunchAgent) */,
+				2CDDFF80388B996EC772CBB7 /* Bundle context-refresh (#608 personal-context digest LaunchAgent) */,
 				76832E6CF8371198DB115450 /* Bundle legal Python package (consent-string constants) */,
 				2662C5C53104DBE527D98B0F /* Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources */,
 				BE798CA5C879050E43B4A9DA /* Bundle scripts/deferred-register-device.sh into Resources/scripts */,
@@ -458,12 +472,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2AFE7F7954CBD0B88DC81C24 /* AppIconSource-ink.svg in Resources */,
 				1C0CC5EED1EDDEDE6E62BDCD /* Assets.xcassets in Resources */,
 				C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */,
 				6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */,
 				1C7B2F24D57A40800C9D9BE3 /* IBMPlexSans-Medium.ttf in Resources */,
 				66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */,
 				868BCD8B2726182CE4DF212B /* IBMPlexSans-SemiBold.ttf in Resources */,
+				D387536C382D818490141312 /* ICON_HASHES.txt in Resources */,
 				83288FDC0ACD0A451D7984C8 /* JetBrainsMono-Medium.ttf in Resources */,
 				698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */,
 				04D973B9B26B7BD22BE77086 /* OFL.txt in Resources */,
@@ -472,6 +488,8 @@
 				4053CDA189BD519216F95530 /* Outfit-Regular.ttf in Resources */,
 				35F58AE80A7E5EDE1D91C87A /* Outfit-SemiBold.ttf in Resources */,
 				98C877552A588390D0F9D15B /* ViewCopy.json in Resources */,
+				4D4F8EDE2DB63519463E4666 /* generate_appicon.py in Resources */,
+				E34095B158EB713C918CD59E /* test_icon_geometry.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,6 +614,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# CX-83: CM021 is the canonical email-ingest substrate. It\n# ships the pwg-email-ingest console script that the\n# vendor/email_ingest/bin/email-ingest-tick.sh LaunchAgent\n# has been calling on every hourly tick since shipping.\n# Until this lift the CLI was a phantom -- tick.sh ran\n# `command -v pwg-email-ingest`, found nothing, exited 127\n# on every tick. The hourly mail ingestion has never run\n# on a customer install.\n#\n# CRITICAL bundle layout: cm021 (NOT vendor/cm021) at the\n# Resources root. install.sh resolves the source via\n# `${SCRIPT_DIR}/cm021/pyproject.toml`, matching the\n# ostler_fda + cm048_pipeline conventions.\n#\n# Naming-collision note: CM021 (email-intelligence repo) is\n# the email-ingest substrate. CM046 (PWG-Email-Intelligence\n# repo) is research-only (signature mining, header mining,\n# relationship scoring) and stays out of the v1.0 customer\n# build. Every future agent will hit this confusion -- the\n# CM021 / CM046 split is intentional.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nVENDOR_ROOT=\"${SRCROOT}/../vendor/cm021\"\nif [ ! -d \"${VENDOR_ROOT}\" ]; then\n  echo \"error: vendor/cm021/ missing.\" >&2\n  echo \"       Expected: ${VENDOR_ROOT}\" >&2\n  echo \"       Re-sync from the CM021 email-intelligence repo.\" >&2\n  exit 1\nfi\nif [ ! -f \"${VENDOR_ROOT}/pyproject.toml\" ]; then\n  echo \"error: vendor/cm021/pyproject.toml missing.\" >&2\n  echo \"       The CLI install pip-installs from this path; without\" >&2\n  echo \"       the manifest the install.sh hydrate_email step degrades\" >&2\n  echo \"       to MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING.\" >&2\n  exit 1\nfi\n# Remove any stale prior copy. Build phases run incrementally\n# so without this step a vendor-tree rename or delete would\n# leave the old tree in place.\nrm -rf \"${DEST}/cm021\"\nmkdir -p \"${DEST}/cm021\"\ncp -R \"${VENDOR_ROOT}/pyproject.toml\" \"${DEST}/cm021/pyproject.toml\"\ncp -R \"${VENDOR_ROOT}/src\"            \"${DEST}/cm021/src\"\n/usr/bin/xattr -cr \"${DEST}/cm021\"\n";
+		};
+		2CDDFF80388B996EC772CBB7 /* Bundle context-refresh (#608 personal-context digest LaunchAgent) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../context-refresh/INSTALL_SNIPPET.sh",
+			);
+			name = "Bundle context-refresh (#608 personal-context digest LaunchAgent)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/context-refresh/INSTALL_SNIPPET.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh probes ${SCRIPT_DIR}/context-refresh/INSTALL_SNIPPET.sh\n# to install the context-refresh LaunchAgent (#608). It runs\n# generate_pwg_context.py to write ~/.ostler/assistant-config/\n# CONTEXT.md -- the personal-graph digest the daemon injects\n# into every system prompt so the assistant answers personal\n# questions from the graph instead of as a generic LLM.\n# Without this bundle the GUI install falls through to the\n# elif reuse branch (only true on re-install) or skips, and\n# the assistant ships disconnected from the graph (the #608\n# launch blocker). Mirrors the wiki-recompile bundle above.\n#\n# Source-of-truth: CM051 repo root /context-refresh/.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../context-refresh\"\nif [ ! -d \"${SRC}\" ] || [ ! -f \"${SRC}/INSTALL_SNIPPET.sh\" ]; then\n  echo \"ERROR: context-refresh/ not found at ${SRC} (need INSTALL_SNIPPET.sh)\" >&2\n  echo \"       CM051 repo root must contain context-refresh/INSTALL_SNIPPET.sh.\" >&2\n  exit 1\nfi\necho \"Bundling context-refresh from ${SRC} into Resources/context-refresh/\"\nmkdir -p \"${DEST}/context-refresh\"\ncp -R \"${SRC}/\"* \"${DEST}/context-refresh/\"\n/usr/bin/xattr -cr \"${DEST}/context-refresh\" || true\nchmod 755 \"${DEST}/context-refresh/INSTALL_SNIPPET.sh\"\n";
 		};
 		37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -813,6 +851,26 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/spoken_source\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/spoken_source/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/spoken_source\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/spoken_source/\"\n/usr/bin/xattr -cr \"${DEST}/spoken_source\"\n";
 		};
+		CE85A99D177D639EDE4CC934 /* Bundle Safari extension into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/extensions/OstlerSafariExtension.app.zip",
+			);
+			name = "Bundle Safari extension into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/extensions/OstlerSafariExtension.app.zip",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# W8 / F6: stage the signed Safari Web Extension .app.zip into\n# Contents/Resources/extensions/ so install.sh section 3.17 finds it\n# at ${SCRIPT_DIR}/extensions/OstlerSafariExtension.app.zip and copies\n# it to /Applications. The artefact is produced by CM020's\n# bin/build-safari-extension.sh and staged by ORM at cut time into\n# CM051/vendor/extensions/OstlerSafariExtension.app.zip (a binary\n# build artefact, NOT committed -- see .gitignore note).\n#\n# LOUD FAIL: a missing artefact is a release defect, not a graceful\n# skip. The DMG used to ship with no extensions/ dir at all, so\n# install.sh hit its silent info-level skip and the extension never\n# installed on any customer. The build now fails here instead.\n#\n# ORM HOOK: before the .app build, produce + stage the artefact:\n#   (in CM020)  xcodegen generate && bin/build-safari-extension.sh\n#   then        cp dist/OstlerSafariExtension-<version>.app.zip \\\n#                  vendor/extensions/OstlerSafariExtension.app.zip\n# It MUST be Developer-ID signed (V95N2B8X7A) + notarised + stapled.\nVENDOR_SRC=\"${SRCROOT}/../vendor/extensions/OstlerSafariExtension.app.zip\"\nif [ ! -f \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/extensions/OstlerSafariExtension.app.zip is missing.\" >&2\n    echo \"       W8 / F6: ORM must build + sign + notarise + stage the Safari\" >&2\n    echo \"       extension before the .app build. See gui/project.yml comment.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/extensions\"\n# Rename to the versionless name the installer consumer probes.\ncp \"${VENDOR_SRC}\" \"${DEST}/extensions/OstlerSafariExtension.app.zip\"\n/usr/bin/xattr -cr \"${DEST}/extensions\"\n";
+		};
 		D55F6B625ACEC9B0E77B5DD5 /* Bundle imessage_source conversation feed into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -877,7 +935,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is exported by gui/Makefile's release target\n# before invoking xcodebuild; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\nif [ -n \"${OSTLER_APP_PATH:-}\" ] && [ -d \"${OSTLER_APP_PATH}\" ]; then\n  echo \"Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/\"\n  cp -R \"${OSTLER_APP_PATH}\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on plain `` at *generation* time (replacing it\n# with the empty string when unset in the generator's env), which\n# silently broke hub bundling after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
 		};
 		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1032,13 +1090,13 @@
 				B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */,
 				DAB32AEC4502408333718B31 /* PermissionsPrewarmSequencingTest.swift in Sources */,
 				2D47AB35E1FB087DE3838834 /* ProgressDecoderTests.swift in Sources */,
-				AA45400000000000000000B1 /* TerminationExitCodeReconcileTests.swift in Sources */,
 				07E7852B3C38DC22171FE85C /* ReuseSettingsExplanationTests.swift in Sources */,
 				78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */,
 				ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */,
 				A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */,
 				6294421D4362E4D2BB657559 /* StringsCatalogueEmDashTest.swift in Sources */,
 				0DC239B7F1A049A5293EEF7D /* StringsCatalogueYNSuffixTest.swift in Sources */,
+				D593E67900B5C491B3B2F624 /* TerminationExitCodeReconcileTests.swift in Sources */,
 				CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

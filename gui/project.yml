@@ -231,13 +231,22 @@ targets:
           # installer + drag-to-Applications) yet install.sh's source-
           # preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle
           # at runtime when install.sh runs from inside Contents/Resources.
-          # OSTLER_APP_PATH is exported by gui/Makefile's release target
-          # before invoking xcodebuild; if absent or missing the build
+          # OSTLER_APP_PATH is passed as an xcodebuild build setting by
+          # gui/Makefile's release target; if absent or missing the build
           # logs a warning and the customer install will skip the Hub-app
           # step (install.sh's existing source-not-found warning).
-          if [ -n "${OSTLER_APP_PATH:-}" ] && [ -d "${OSTLER_APP_PATH}" ]; then
-            echo "Bundling Ostler.app from ${OSTLER_APP_PATH} into Resources/"
-            cp -R "${OSTLER_APP_PATH}" "${DEST}/Ostler.app"
+          #
+          # IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`
+          # default form FIRST. xcodegen performs its own ${VAR} substitution
+          # on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it
+          # with the empty string when unset in the generator's env), which
+          # silently broke hub bundling after a `make regen`. The `:-` form
+          # is passed through literally to the shell, so we read the build
+          # setting through it once and use a plain shell var thereafter.
+          OSTLER_APP_SRC="${OSTLER_APP_PATH:-}"
+          if [ -n "$OSTLER_APP_SRC" ] && [ -d "$OSTLER_APP_SRC" ]; then
+            echo "Bundling Ostler.app from $OSTLER_APP_SRC into Resources/"
+            cp -R "$OSTLER_APP_SRC" "${DEST}/Ostler.app"
             /usr/bin/xattr -cr "${DEST}/Ostler.app" || true
           else
             echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2

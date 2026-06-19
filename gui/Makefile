@@ -436,6 +436,13 @@ release: check-tools check-identity download-python
 	# detritus not allowed". Strip them from inputs before archive.
 	/usr/bin/xattr -cr "OstlerInstaller" "OstlerInstaller.xcodeproj" || true
 	/usr/bin/xattr -cr "../install.sh" "../lib/progress_emitter.sh" || true
+	# OSTLER_APP_PATH must be passed as an explicit build setting (not just an
+	# exported env var) so xcodebuild's "Bundle install.sh / Ostler.app" script
+	# phase sees it. xcodebuild scrubs the environment for PhaseScriptExecution;
+	# only build settings reliably pass through. A regenerated project.yml-based
+	# .xcodeproj does NOT bake OSTLER_APP_PATH in, so without this the hub-bundle
+	# phase silently logs "OSTLER_APP_PATH not set" and the DMG ships Hub-less
+	# (caught by verify-dmg-contents). See 2026-06-19 cut.
 	xcodebuild \
 	    -project $(PROJECT) \
 	    -scheme $(SCHEME) \
@@ -445,6 +452,7 @@ release: check-tools check-identity download-python
 	    DEVELOPMENT_TEAM=$(TEAM_ID) \
 	    CODE_SIGN_STYLE=Manual \
 	    CODE_SIGN_IDENTITY="$(CODESIGN_ID)" \
+	    OSTLER_APP_PATH="$(OSTLER_APP_PATH)" \
 	    archive
 	$(STEP) "Exporting Developer ID archive → $(DIST_DIR)/"
 	xcodebuild \
