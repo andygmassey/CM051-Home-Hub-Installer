@@ -12,32 +12,38 @@ entitlement. Per spec §2.3, keeping the Contacts surface in a tiny
 dedicated binary is itself a safety property: the write surface stays small
 and reviewable.
 
-**This first increment is READ + BACKUP ONLY.** It is the safe foundation
-the rest of BW-A builds on (spec §9, build-order item 1: "Ship this even
-before the merge stage — it's independently useful and de-risks the
-framework").
+The read + backup foundation shipped first (spec §9, build-order item 1).
+This package now also carries the **destructive merge writer** (spec §9
+item 3): `preview`, `merge` and `undo`.
 
-### Subcommands in this increment
+### Subcommands
 
 | Command | What it does |
 |---|---|
 | `ostler-contacts backup [--out <dir>]` | Reads all Contacts via `CNContactStore`, exports a full vCard via `CNContactVCardSerialization` to `~/Documents/Ostler/Backups/Contacts/<timestamp>/AllContacts.vcf`, writes a `manifest.json` (count + SHA-256), round-trip-verifies the backup, prints the path. This is the backup-FIRST gate the safety contract (rule 1) depends on. |
 | `ostler-contacts list` | Reads Contacts, prints `identifier <tab> name` + a total. Proves read access works. |
+| `ostler-contacts preview --survivor <id> --victims <id,...>` | Read-only. Resolves the group, builds the field union and emits the before/after diff (`conflicts`, `adds`) plus the `group_hash`/`confirm_token` as JSON. NO write. |
+| `ostler-contacts merge --survivor <id> --victims <id,...> --confirm-token <tok> [--journal <path>]` | **DESTRUCTIVE.** Atomic `CNSaveRequest` that `.update`s the survivor (lossless union of victim fields) AND `.delete`s each victim in ONE request. Refuses unless `OSTLER_TIDY_CONTACTS_ENABLED=true` AND a valid `--confirm-token` for this exact group is presented. Writes + fsyncs the undo-journal entry BEFORE the save (journal-first). |
+| `ostler-contacts undo --journal <path>` | Restores the survivor to its pre-merge vCard and re-creates each deleted victim from the journal. Re-created cards get NEW identifiers (field-lossless, identity-lossy per spec §6 caveat). |
 | `ostler-contacts version` / `help` | Self-describing. |
 
-### What is DELIBERATELY ABSENT
+### Safety properties (spec §0 contract)
 
-There is **no write path** in this package:
-
-- no `CNSaveRequest`
-- no `.update(...)` / `.delete(...)`
-- no field-union / merge logic
-- no undo journal write
-- no `--confirm-token`
-
-The destructive half (`preview`, `merge`, `undo`) lands in later PRs
-(spec §9 items 2–4). `grep -r CNSaveRequest .` over this package returns
-zero matches by design.
+- **Pure CNContact, zero osascript.** No `osascript` / `NSAppleScript` /
+  `tell application "Contacts"` anywhere. Pinned by
+  `tests/test_ostler_contacts_no_osascript.sh` (CX-453 posture, spec §8.2 #6).
+- **Flag OFF by default** (rule 4): the `merge` write path hard-refuses
+  unless `OSTLER_TIDY_CONTACTS_ENABLED=true`. The refusal fires BEFORE any
+  Contacts access, so it is verifiable headlessly.
+- **One-shot, group-bound confirm-token** (rule 3): the token equals the
+  `group_hash` (`sha256(survivor + sorted victims)`). A token minted for one
+  group cannot authorise another.
+- **Journal-first ordering** (rule 6): the undo record is appended +
+  `fsync`ed before the `CNSaveRequest`, so the save is the only thing that
+  can be lost, never the undo record.
+- **Lossless toward survivor** (spec §2.2): the union never drops a survivor
+  value; conflicting single-value fields keep the survivor's and surface the
+  discarded value ("kept A, discarded B").
 
 ## Layout
 
@@ -50,8 +56,12 @@ ostler-contacts/
       BackupManifest.swift   #   SHA-256 + count manifest
       VCardBackup.swift      #   serialise / parse / round-trip verify
       FeatureFlag.swift      #   OSTLER_TIDY_CONTACTS_ENABLED (defined; off by default)
-    ostler-contacts/         # thin CLI: arg parsing + live CNContactStore reads
-      main.swift
+      ConfirmToken.swift     #   one-shot group-bound token derive/verify (rule 3)
+      FieldUnion.swift       #   lossless-toward-survivor union (spec §2.2)
+      MergeGate.swift        #   single refusal point: flag + token + sanity
+      UndoJournal.swift      #   journal-first NDJSON undo entries (spec §6)
+    ostler-contacts/         # thin CLI: arg parsing, live CNContactStore reads,
+      main.swift             #   the CNSaveRequest writer + undo restore
   Tests/OstlerContactsCoreTests/
   Entitlements/
     ostler-contacts.entitlements   # com.apple.security.personal-information.addressbook
@@ -74,11 +84,33 @@ clean in CI with no TCC prompt.
 
 ## On-box only (cannot be exercised in CI)
 
-The live `backup` / `list` reads hit `CNContactStore`, which fires the
-macOS Contacts TCC prompt the first time. On an unsigned local/CI run the
-prompt does not render and access is denied — that is expected. The
-read-from-real-Contacts path is verified on-box against a real signed
-binary.
+The live `backup` / `list` / `preview` / `merge` / `undo` paths hit
+`CNContactStore`, which fires the macOS Contacts TCC prompt the first time.
+On an unsigned local/CI run the prompt does not render and access is denied:
+that is expected. The headless `swift test` suite covers every piece of
+logic that does NOT need the live store (token, gate, field union, journal,
+vCard round-trip). The `CNSaveRequest` commit itself (update + delete in one
+request) needs a real, entitled, signed binary against a throwaway Contacts
+account, so it is a documented manual test.
+
+### Manual real-Mac test plan (throwaway Contacts account, NEVER the real book)
+
+1. In Contacts.app create a separate test account/container; add two
+   duplicate cards (e.g. "Jay Livens" with phone X, and "Jay Livens" with
+   email Y). Note their identifiers via `ostler-contacts list`.
+2. `ostler-contacts backup` -> confirm `AllContacts.vcf` + `manifest.json`
+   land under `~/Documents/Ostler/Backups/Contacts/<ts>/`.
+3. `OSTLER_TIDY_CONTACTS_ENABLED=true ostler-contacts preview --survivor <S>
+   --victims <V>` -> read off the `confirm_token` from the JSON.
+4. `OSTLER_TIDY_CONTACTS_ENABLED=true ostler-contacts merge --survivor <S>
+   --victims <V> --confirm-token <tok>` -> survivor now has BOTH phone X and
+   email Y; victim is gone; `journal.ndjson` has one line.
+5. `ostler-contacts undo --journal <journal_path>` -> survivor back to its
+   pre-merge fields; a new "Jay Livens" card re-created (NEW identifier, per
+   spec §6 caveat).
+6. Flag-off check (headless OK): `unset OSTLER_TIDY_CONTACTS_ENABLED;
+   ostler-contacts merge ...` -> exits non-zero "Tidy Contacts is OFF"
+   before touching Contacts.
 
 ## Signing / shipping (later step)
 
@@ -93,6 +125,8 @@ PR.
 
 ## Feature flag
 
-`OSTLER_TIDY_CONTACTS_ENABLED` (spec §7) is defined and defaults to OFF. In
-a later PR it hard-gates the *write* subcommands. In this PR it does **not**
-gate `backup` / `list` — both are pure reads and harmless regardless.
+`OSTLER_TIDY_CONTACTS_ENABLED` (spec §7) defaults to OFF. It hard-gates the
+`merge` write path (refusal before any Contacts access). It does **not**
+gate `backup` / `list` / `preview` (pure reads, harmless regardless), and it
+does **not** gate `undo` (turning the feature off must never trap a user
+with an un-undoable merge).
