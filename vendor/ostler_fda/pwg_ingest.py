@@ -155,6 +155,33 @@ def _whatsapp_display_name(jid: str) -> str:
         return "+" + local
     return local
 
+def _is_provisional_display_name(value: str) -> bool:
+    """True when ``value`` is a raw phone/handle placeholder, not a name.
+
+    WhatsApp/iMessage chat-only contacts get a ``+<e164>`` (or bare
+    handle) placeholder because the extractor reads JIDs/handles only --
+    no pushName, no Contacts match. Those placeholders must be marked
+    PROVISIONAL so (a) the identity resolver may freely overwrite them
+    when a real name later arrives from contact_syncer / CM046, and (b)
+    surfaces can suppress the "+44 7700 900123 as a name" leak (#576).
+
+    Mirrors cm041.identity_resolver.canonical_name._looks_like_phone
+    (>= 5 digits, phone-shaped) but is kept local: ostler_fda ships
+    independently of cm041 and must not take a hard import on it.
+    """
+    if not value:
+        return True
+    v = value.strip()
+    if not v:
+        return True
+    if "@" in v and "." in v.split("@", 1)[1]:
+        # A bare email used as a name is also a placeholder, not a name.
+        return True
+    digits = sum(c.isdigit() for c in v)
+    phoneish = all(c in "+()-. \t0123456789" for c in v)
+    return phoneish and digits >= 5
+
+
 def _whatsapp_phone_e164(jid: str) -> str:
     """E.164 phone string for an ``@s.whatsapp.net`` JID, used as the phone
     ``identifierValue`` so a WhatsApp contact shares ONE key with the same
@@ -209,6 +236,14 @@ def ingest_imessage(fda_dir: Path) -> dict:
                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                     f'<{uri}> pwg:source "imessage_fda"',
                 ]
+                # #576: the iMessage participant is a raw handle (phone or
+                # email) used as the displayName. Flag the phone/email-only
+                # case as provisional so the resolver may overwrite it with a
+                # Contacts name and surfaces can suppress the bare-number leak.
+                if _is_provisional_display_name(participant):
+                    triples.append(
+                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
+                    )
 
                 # Add identifier
                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
@@ -449,6 +484,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                     f'<{uri}> pwg:source "whatsapp_fda"',
                 ]
+                # #576: flag the bare-number placeholder so the resolver
+                # may overwrite it and surfaces can suppress it as a name.
+                if _is_provisional_display_name(display):
+                    triples.append(
+                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
+                    )
                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
                 triples.extend([
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",

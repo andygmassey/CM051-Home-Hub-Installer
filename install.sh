@@ -13615,6 +13615,71 @@ fi
 unset _HYDRATE_IMESSAGE_VENV _HYDRATE_IMESSAGE_PY
 unset _HYDRATE_IMESSAGE_FDA_DIR _HYDRATE_IMESSAGE_JSON_FILE
 
+# ── Conversation-ingest landing guard (CM044 fix) ──────────────────
+#
+# THE silent-100%-drop tripwire. The conversation pipeline has two legs
+# per channel and BOTH have failed silently in the field:
+#   1. Synchronous (here): hydrate_whatsapp / hydrate_imessage run
+#      ostler_fda.pwg_ingest, which turns the extract JSONs into
+#      people-graph FACTS (Person nodes + chat identifiers) in Oxigraph.
+#   2. Asynchronous (launchd bundle ticks): the whatsapp/imessage body
+#      feeds drive CM048 -> Qdrant `conversations` points + structured
+#      facts. Those run AFTER install on their own schedule.
+#
+# This guard asserts the SYNCHRONOUS contract loudly: if a channel's
+# extract JSON carried >0 conversations but ZERO chat-identifier facts
+# reached Oxigraph, something is structurally broken (not "no data") and
+# we must say so rather than let a customer believe their messages are in
+# the graph. It is a loud WARN (not fatal): hydrate is best-effort and
+# the async leg may still drain, but a green install must never HIDE a
+# total drop. The async Qdrant leg is verified post-install by Doctor's
+# conversation-feed probe (it cannot be asserted at install time because
+# the first bundle tick has not run yet).
+_CONV_GUARD_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_CONV_GUARD_OX="${OXIGRAPH_URL:-http://localhost:7878}"
+_conv_guard_check() {
+    # $1 = channel label, $2 = extract json filename, $3 = identifierLabel
+    local _label="$1" _json="${_CONV_GUARD_FDA_DIR}/$2" _idlabel="$3"
+    [[ -s "$_json" ]] || return 0
+    # How many conversations did extraction emit?
+    local _n
+    _n="$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$_json'))
+    print(len(d) if isinstance(d,list) else int(d.get('conversations',d.get('count',0)) or 0))
+except Exception:
+    print(0)" 2>/dev/null)"
+    _n="${_n:-0}"
+    [[ "$_n" -gt 0 ]] || return 0
+    # How many chat-identifier facts landed in Oxigraph for this channel?
+    local _q _landed
+    _q="PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(?id) AS ?c) WHERE { ?id a pwg:PersonIdentifier ; pwg:identifierLabel \"${_idlabel}\" . }"
+    _landed="$(curl -s --get "${_CONV_GUARD_OX}/query" \
+        --data-urlencode "query=${_q}" \
+        -H 'Accept: application/sparql-results+json' 2>/dev/null \
+        | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d['results']['bindings'][0]['c']['value'])
+except Exception:
+    print(0)" 2>/dev/null)"
+    _landed="${_landed:-0}"
+    if [[ "$_landed" -eq 0 ]]; then
+        warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See /tmp/ostler-hydrate-${_label}.log."
+    else
+        info "Conversation-ingest guard: ${_label} ${_landed} chat-identity fact(s) in the graph (extract had ${_n})."
+    fi
+}
+# Only meaningful when Oxigraph is reachable; a down graph is reported
+# elsewhere and must not double-fire here.
+if curl -s -o /dev/null --max-time 5 "${_CONV_GUARD_OX}/" 2>/dev/null; then
+    _conv_guard_check whatsapp whatsapp_conversations.json WHATSAPP
+    _conv_guard_check imessage imessage_conversations.json IMESSAGE
+fi
+unset _CONV_GUARD_FDA_DIR _CONV_GUARD_OX
+
 # Whole-graph dedupe consolidation (#4) ----------------------------
 #
 # All person-populating sources (iCloud contacts/calendar + iMessage
