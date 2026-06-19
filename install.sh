@@ -4617,6 +4617,41 @@ while true; do
     esac
 done
 
+# ── 10b-ts. Tailscale DECISION -- hoisted upfront (WALK-1 / Wave 2.1) ──
+#
+# WALK-1 (2026-06-19, Andy's live walk): the Tailscale setup/skip CHOICE
+# used to fire deep in Phase 3 (~L12255, roughly 86% through the install),
+# breaking the locked "answer the questions upfront, then walk away"
+# promise -- a customer who left the install running came back to a
+# blocking "Connect your iPhone and Watch / setup or skip" dialog mid-run.
+#
+# Fix: collect the DECISION here, in the Phase-2 questions block, exactly
+# as CX-37 / CX-130 hoisted the Apple Mail prompts. The actual Tailscale
+# install + browser sign-in stays in Phase 3 (it needs Homebrew + the
+# tailscale binary, both established later), but it is now PRE-ANNOUNCED
+# below and runs without any surprise decision prompt: the late code reads
+# the answer collected here via TAILSCALE_CONFIRM_SHOWN_EARLY and never
+# re-prompts. So the long unattended middle has zero human decision gates;
+# the only late interaction is the expected, pre-announced sign-in step
+# (URL printed + browser opened + a timed wait), which is informational,
+# not a blocking question.
+#
+# Belt-and-braces like the Mail probes: a non-GUI (TTY) operator still
+# gets the gui_read fallback; the SHOWN_EARLY guard is set unconditionally
+# once we have asked (or decided not to ask), so the Phase-3 site is fully
+# driven by the upfront answer.
+if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+    TAILSCALE_CONFIRM_SHOWN_EARLY=1
+    export TAILSCALE_CONFIRM TAILSCALE_CONFIRM_SHOWN_EARLY
+    # Pre-announce the late sign-in step so the customer knows that, while
+    # they CAN walk away for the unattended middle, there is one short
+    # optional step waiting for them near the end if they chose "setup".
+    if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
+        info "$MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE"
+    fi
+fi
+
 # ── 10c. Final install confirmation (every region) ────────────────
 
 echo ""
@@ -12338,7 +12373,17 @@ progress "Connect your iPhone and Watch" "tailscale_connect"
 
 OSTLER_TAILSCALE_IP=""
 
-TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+# WALK-1 (Wave 2.1): the setup/skip DECISION is now collected upfront in
+# the Phase-2 questions block (search "10b-ts. Tailscale DECISION") and
+# carried here via TAILSCALE_CONFIRM + TAILSCALE_CONFIRM_SHOWN_EARLY, so
+# the autonomous middle never surfaces a surprise prompt. Only if the
+# early prompt did NOT run (e.g. Phase 2 was skipped on a reuse install,
+# or the GUI was off then on) do we fall back to asking here -- the same
+# belt-and-braces shape the Mail probes use. The actual install + browser
+# sign-in below was pre-announced in Phase 2.
+if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+fi
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     # ── Path A: Homebrew FORMULA + userspace networking (#604) ──────

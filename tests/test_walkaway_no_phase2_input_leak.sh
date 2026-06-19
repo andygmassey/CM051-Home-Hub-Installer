@@ -50,14 +50,48 @@ if awk -v b="$BOUNDARY" 'NR>b && /gui_read/,/\)"/ {print}' "$INSTALL_SH" \
 fi
 echo "PASS: no mail_extend_history prompt in the Phase-3 execution region"
 
+# ── WALK-1: the Tailscale setup/skip DECISION must be in Phase 2 ───────
+# A tailscale_confirm gui_read must exist BEFORE the boundary (the hoist),
+# and any tailscale_confirm gui_read AFTER the boundary must be a guarded
+# fallback (wrapped in a TAILSCALE_CONFIRM_SHOWN_EARLY check), never an
+# unconditional surprise prompt in the unattended middle.
+ts_early_line="$(grep -n '"tailscale_confirm")' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+[[ -n "$ts_early_line" ]] || fail "tailscale_confirm gui_read not found at all (hoist regressed?)"
+[[ "$ts_early_line" -lt "$BOUNDARY" ]] \
+    || fail "the FIRST tailscale_confirm gui_read is at line $ts_early_line, AFTER the Phase-3 boundary ($BOUNDARY) -- the setup/skip DECISION must be collected upfront in Phase 2"
+echo "PASS: tailscale_confirm DECISION is in Phase 2 (line $ts_early_line < $BOUNDARY)"
+
+# If a tailscale_confirm gui_read remains after the boundary, it must be
+# preceded (within 6 lines) by a TAILSCALE_CONFIRM_SHOWN_EARLY guard.
+ts_late_line="$(awk -v b="$BOUNDARY" 'NR>b && /"tailscale_confirm")/ {print NR; exit}' "$INSTALL_SH")"
+if [[ -n "$ts_late_line" ]]; then
+    guard_window_start=$((ts_late_line - 6))
+    if ! sed -n "${guard_window_start},${ts_late_line}p" "$INSTALL_SH" \
+        | grep -q 'TAILSCALE_CONFIRM_SHOWN_EARLY'; then
+        fail "the post-boundary tailscale_confirm gui_read at line $ts_late_line is NOT guarded by TAILSCALE_CONFIRM_SHOWN_EARLY -- it would fire as a surprise prompt mid-install"
+    fi
+    echo "PASS: post-boundary tailscale_confirm (line $ts_late_line) is a guarded fallback"
+else
+    echo "NOTE: no tailscale_confirm gui_read after the boundary (decision fully hoisted)"
+fi
+
 # ── Every gui_read after the boundary must be on the interactive allowlist ──
-# These genuinely need the customer present mid-install and cannot be
-# pre-answered in Phase 2:
-#   tailscale_confirm                -> iPhone/Watch pairing is interactive
+# These genuinely need the customer present mid-install OR are guarded
+# fallbacks that only fire when the Phase-2 prompt did not run (reuse
+# install / GUI toggled off then on):
 #   imessage_automation_incoming_ack -> acknowledge pre-warn for an OS dialog
 #   save_keychain                    -> recovery key is generated in Phase 3.6
 #   mail_not_connected               -> guarded fallback (only if the Phase-2
 #                                       prompt was not shown); informational
+#   tailscale_confirm                -> WALK-1 (Wave 2.1): the setup/skip
+#                                       DECISION is now hoisted into Phase 2;
+#                                       this remaining gui_read is a GUARDED
+#                                       fallback wrapped in
+#                                       [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]
+#                                       so it can ONLY fire when the upfront
+#                                       prompt did not run -- same shape as
+#                                       mail_not_connected. The normal
+#                                       walk-away path never hits it.
 ALLOWLIST=" tailscale_confirm imessage_automation_incoming_ack save_keychain mail_not_connected "
 
 post_tags="$(awk -v b="$BOUNDARY" '
