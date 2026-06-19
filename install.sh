@@ -13982,6 +13982,84 @@ unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
 unset _INITIAL_HYDRATE_VENV _INITIAL_HYDRATE_PY _INITIAL_HYDRATE_LOG
 unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER
 
+# PLACES INGEST (CM044 Places section, 2026-06-19). The wiki Places page
+# (CM044 compiler/pages/place_pages.py) reads ONLY the Qdrant `preferences`
+# collection filtered to category=place. Nothing ever wrote those points, so
+# the page always rendered its empty state even though the graph holds real
+# location signals: every meeting carries a pwg:meetingLocation literal (96
+# meetings / dozens of distinct strings on Andy's box) and nothing ever
+# promoted those into a browsable Place. This step closes that leg with NO
+# CM044 change: it reads pwg:meetingLocation (+ pwg:photoPlace if present)
+# back out of Oxigraph, de-dupes by normalised string, and upserts one
+# area_preference point per distinct place into preferences/category=place
+# with the exact payload shape place_pages.py reads.
+#
+# Ordering: runs AFTER every Oxigraph writer above (hydrate_graph
+# contacts/calendar -> meeting locations land here) and the dedupe_merge
+# sweep, and BEFORE wiki_compile, so the first wiki compile already sees a
+# populated Places section. The contact_syncer.places_ingest module ships in
+# the import-pipeline venv ($PIPELINE_PY) alongside contact_syncer.syncer --
+# same venv that carries httpx + qdrant-client. Best-effort + idempotent
+# (deterministic uuid5 point IDs): a failure is logged and install continues;
+# a re-run upserts the same points rather than duplicating them.
+if [[ -x "$PIPELINE_PY" ]]; then
+    info "$MSG_HYDRATE_PLACES_STARTED"
+    _PLACES_EMBED_URL="${EMBED_OLLAMA_URL:-http://localhost:11434}"
+    _PLACES_EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+    _PLACES_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _PLACES_TIMEOUT_WRAP="gtimeout 120"
+    elif command -v timeout >/dev/null 2>&1; then
+        _PLACES_TIMEOUT_WRAP="timeout 120"
+    fi
+    # Capture the exit code explicitly (do NOT collapse to `&& ok || info`):
+    # the module exits 0 for BOTH success AND the benign no-signals case, and
+    # exits non-zero ONLY on a real failure -- its own loud guard
+    # (status=error_empty_result: signals present but 0 Place points), a
+    # config error, or an unexpected crash. Mapping every non-zero to the
+    # benign "no signals yet" message silenced exactly the silent-failure
+    # class the guard exists for. So: branch on the exit code, and on failure
+    # grep the log for the guard signature to choose a precise, VISIBLE warn.
+    # `|| _places_rc=$?` keeps `set -e` from aborting the install on a
+    # non-zero places exit (this step is best-effort + non-fatal); _places_rc
+    # defaults to 0 and is overwritten only on failure.
+    _places_rc=0
+    (
+        cd "$PIPELINE_DIR" \
+        && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+           EMBED_OLLAMA_URL="$_PLACES_EMBED_URL" \
+           EMBED_MODEL="$_PLACES_EMBED_MODEL" \
+           $_PLACES_TIMEOUT_WRAP \
+           .venv/bin/python -m contact_syncer.places_ingest --verbose
+    ) >>/tmp/ostler-places-ingest.log 2>&1 || _places_rc=$?
+    # The log is appended across runs (>>); only this run's tail is relevant,
+    # so scope the signature greps to the tail rather than the whole file.
+    _places_log_tail="$(tail -n 40 /tmp/ostler-places-ingest.log 2>/dev/null)"
+    if [[ "$_places_rc" -eq 0 ]]; then
+        # Success. Distinguish "built some Places" from the genuinely benign
+        # "no location signals yet" case (module prints "0 meeting locations
+        # + 0 photo places") so the no-signals message stays honest.
+        if printf '%s' "$_places_log_tail" \
+                | grep -q "from 0 meeting locations + 0 photo places"; then
+            info "$MSG_HYDRATE_PLACES_SKIPPED"
+        else
+            ok "$MSG_HYDRATE_PLACES_DONE"
+        fi
+    elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
+        # The module's own loud guard fired: signals exist but no Places were
+        # produced/written. Surface it loudly (non-fatal: a re-run is safe).
+        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+    else
+        # Non-zero exit with no guard line = config error / unexpected crash.
+        # Still non-fatal, but visible -- not mislabelled as "no signals yet".
+        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+    fi
+    _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
+          _places_rc _places_log_tail
+fi
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
