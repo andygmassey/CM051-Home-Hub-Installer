@@ -36,17 +36,53 @@ def _classification() -> Classification:
     )
 
 
-# ── chat-identifier normalisation matches pwg_ingest keying ──────────
+# ── chat-identifier derivation matches pwg_ingest keying ─────────────
+#
+# Two distinct concerns, deliberately separated after the dangling-edge
+# bug: the URI *key* (``_participant_uri_key``) MUST equal the string
+# pwg_ingest feeds to ``_person_id_from_identifier`` (raw JID for
+# WhatsApp); the human-facing *chatIdentifier literal*
+# (``_normalise_chat_identifier``) may stay normalised (e164 phone).
 
-def test_whatsapp_jid_normalises_to_e164_phone():
-    # WhatsApp JID -> "+<e164>" so it folds with the same number from
-    # Contacts / iMessage (dedup RULE 1).
+
+def _pwg_ingest_person_uri(participant: str) -> str:
+    """Mirror ostler_fda.pwg_ingest's Person-URI derivation EXACTLY.
+
+    pwg_ingest.ingest_whatsapp / ingest_imessage both do, byte-for-byte::
+
+        person_id = _person_id_from_identifier(participant)
+        uri       = _person_uri(person_id)
+
+    where ``_person_id_from_identifier`` is
+    ``uuid5(NAMESPACE_URL, "https://pwg.dev/person/" + p.strip().lower())``
+    and ``_person_uri`` is ``"https://pwg.dev/ontology#person_" + id``.
+    For WhatsApp, ``participant`` is the RAW JID (line ~468); for
+    iMessage, the bare handle (line ~220). No e164 normalisation is
+    applied to the URI key on either side -- that was the bug.
+    """
+    clean = participant.strip().lower()
+    pid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+    return f"https://pwg.dev/ontology#person_{pid}"
+
+
+def test_whatsapp_uri_key_is_raw_jid():
+    # The URI key keeps the RAW JID (matches pwg_ingest); it must NOT be
+    # stripped to e164, which was the dangling-edge bug.
+    assert ingest._participant_uri_key(
+        "whatsapp", "447700900123@s.whatsapp.net"
+    ) == "447700900123@s.whatsapp.net"
+
+
+def test_whatsapp_chat_identifier_literal_stays_e164():
+    # The surfaced literal stays "+<e164>" for readability / RULE 1 fold.
     assert ingest._normalise_chat_identifier(
         "whatsapp", "447700900123@s.whatsapp.net"
     ) == "+447700900123"
 
 
 def test_imessage_handle_passes_through():
+    assert ingest._participant_uri_key("im", "+447700900123") == "+447700900123"
+    assert ingest._participant_uri_key("im", "friend@example.com") == "friend@example.com"
     assert ingest._normalise_chat_identifier(
         "im", "+447700900123"
     ) == "+447700900123"
@@ -55,14 +91,30 @@ def test_imessage_handle_passes_through():
     ) == "friend@example.com"
 
 
-def test_person_uri_matches_pwg_ingest_derivation():
-    # The reconstructed Person URI MUST equal what ostler_fda.pwg_ingest
-    # would create for the same identifier, else the conversation links
-    # to a phantom node instead of the real contact.
-    ident = "+447700900123"
-    pid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{ident.lower()}"))
-    expected = f"https://pwg.dev/ontology#person_{pid}"
-    assert ingest._person_graph_uri(ingest._person_id_from_identifier(ident)) == expected
+def test_whatsapp_person_uri_matches_pwg_ingest_raw_jid_keying():
+    # THE regression test for the dangling-edge bug. The bridge's
+    # reconstructed Person URI for a WhatsApp participant MUST equal the
+    # URI pwg_ingest creates for the SAME raw JID, else the
+    # pwg:participatedIn / pwg:hasParticipant edge dangles to a phantom.
+    raw_jid = "447700900123@s.whatsapp.net"
+    bridge_uri = ingest._person_graph_uri(
+        ingest._person_id_from_identifier(
+            ingest._participant_uri_key("whatsapp", raw_jid)
+        )
+    )
+    assert bridge_uri == _pwg_ingest_person_uri(raw_jid)
+
+
+def test_imessage_person_uri_matches_pwg_ingest_handle_keying():
+    # iMessage was already correct; pin it so a future refactor can't
+    # regress the handle-verbatim keying.
+    handle = "+447700900123"
+    bridge_uri = ingest._person_graph_uri(
+        ingest._person_id_from_identifier(
+            ingest._participant_uri_key("im", handle)
+        )
+    )
+    assert bridge_uri == _pwg_ingest_person_uri(handle)
 
 
 # ── participant-identity triples ─────────────────────────────────────
@@ -78,14 +130,30 @@ def test_participant_identity_links_whatsapp_jid_to_person_node():
     }
     triples = ingest._participant_identity_triples("2026-03-04_chat", meta, _settings())
     blob = "\n".join(triples)
-    ident = "+447700900123"
-    pid = ingest._person_id_from_identifier(ident)
-    person_uri = ingest._person_graph_uri(pid)
+    # The URI is keyed off the RAW JID (matches pwg_ingest), NOT e164.
+    raw_jid = "447700900123@s.whatsapp.net"
+    person_uri = _pwg_ingest_person_uri(raw_jid)
     # The conversation links to the REAL person node, both directions.
     assert f"<{person_uri}> <urn:pwg:participatedIn> <urn:pwg:conversation/2026-03-04_chat>" in blob
     assert "<urn:pwg:hasParticipant>" in blob
     assert '<urn:pwg:hasChatChannel> "whatsapp"' in blob
+    # The surfaced literal stays the readable e164 phone.
     assert '<urn:pwg:chatIdentifier> "+447700900123"' in blob
+
+
+def test_participant_identity_skips_whatsapp_lid():
+    # `@lid` is WhatsApp's opaque linked-id; pwg_ingest never creates a
+    # Person node for it, so the bridge must not emit a dangling edge.
+    meta = {
+        "channel": "whatsapp",
+        "participants": [
+            {"id": "user", "display": "You", "role": "user"},
+            {"id": "opaque", "display": "Unknown", "role": "other",
+             "jid": "1234567890@lid"},
+        ],
+    }
+    triples = ingest._participant_identity_triples("c-lid", meta, _settings())
+    assert triples == []
 
 
 def test_participant_identity_skips_user_and_unkeyed():

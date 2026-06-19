@@ -134,15 +134,42 @@ def _person_graph_uri(person_id: str) -> str:
     return f"https://pwg.dev/ontology#person_{person_id}"
 
 
+def _participant_uri_key(channel: str, raw: str) -> str:
+    """The EXACT string pwg_ingest feeds to ``_person_id_from_identifier``
+    when it keys this participant's Person node URI.
+
+    This is the only thing that decides whether the conversation's
+    ``pwg:participatedIn`` / ``pwg:hasParticipant`` edge resolves to the
+    real Person node or dangles to a phantom URI, so it MUST match
+    ostler_fda.pwg_ingest byte-for-byte (modulo the shared
+    ``.strip().lower()`` inside ``_person_id_from_identifier``).
+
+    pwg_ingest keys a WhatsApp participant by the **raw JID**
+    (``<e164>@s.whatsapp.net``) -- ``ingest_whatsapp`` passes the JID
+    verbatim into ``_person_id_from_identifier`` (it only NORMALISES the
+    number for the displayed phone ``identifierValue``, NOT for the URI
+    key). iMessage/SMS participants arrive as a bare handle which
+    pwg_ingest keys verbatim. So: raw JID for WhatsApp, verbatim handle
+    otherwise.
+    """
+    if not raw:
+        return ""
+    return raw.strip()
+
+
 def _normalise_chat_identifier(channel: str, raw: str) -> str:
-    """Normalise a participant's chat identifier to the SAME string
-    pwg_ingest keys their Person node by.
+    """Human-facing chat identifier literal (NOT the URI key).
 
     WhatsApp participants arrive as a JID (``<e164>@s.whatsapp.net``);
-    pwg_ingest keys the WhatsApp contact by the ``+<e164>`` phone string
-    (so the WhatsApp number folds with the same number from Contacts /
-    iMessage under dedup RULE 1). iMessage/SMS participants arrive as a
-    bare handle (phone or email) which pwg_ingest keys verbatim.
+    this presents the ``+<e164>`` phone so the surfaced
+    ``pwg:chatIdentifier`` reads as a phone (and mirrors pwg_ingest's
+    own ``identifierValue`` via ``_whatsapp_phone_e164``). iMessage/SMS
+    handles pass through verbatim.
+
+    NOTE: this is deliberately NOT used to derive the Person URI key --
+    see ``_participant_uri_key``. Keying the URI off the e164 form here
+    was the original dangling-edge bug (the URI no longer matched
+    pwg_ingest's raw-JID-keyed node).
     """
     if not raw:
         return ""
@@ -156,16 +183,20 @@ def _normalise_chat_identifier(channel: str, raw: str) -> str:
 def _participant_identifier(channel: str, entry: dict) -> str:
     """Pull the raw chat identifier from a participant dict.
 
-    WhatsApp renderer carries it as ``jid``; iMessage threader as
-    ``handle``. Both fall back to nothing for the operator's own
-    ``user`` row (role == "user"), which never maps to a contact node.
+    Returns the RAW chat identifier (JID for WhatsApp, handle for
+    iMessage) -- the URI-key derivation (``_participant_uri_key``) and
+    the display normalisation (``_normalise_chat_identifier``) are
+    applied by the caller. WhatsApp renderer carries it as ``jid``;
+    iMessage threader as ``handle``. Both fall back to nothing for the
+    operator's own ``user`` row (role == "user"), which never maps to a
+    contact node.
     """
     if not isinstance(entry, dict):
         return ""
     if (entry.get("role") or "").lower() == "user":
         return ""
     raw = entry.get("jid") or entry.get("handle") or ""
-    return _normalise_chat_identifier(channel, raw)
+    return raw.strip()
 
 
 def _load_metadata(state_dir: Path) -> dict:
@@ -553,12 +584,25 @@ def _participant_identity_triples(
     out: list[str] = []
     seen: set[str] = set()
     for entry in participants:
-        ident = _participant_identifier(channel, entry)
-        if not ident or ident in seen:
+        raw = _participant_identifier(channel, entry)
+        if not raw:
             continue
-        seen.add(ident)
-        person_id = _person_id_from_identifier(ident)
+        # `@lid` is WhatsApp's opaque linked-id, not a phone or a name.
+        # pwg_ingest refuses to create a Person node from it (BW-4), so a
+        # participant edge keyed off it would dangle. Skip it here too.
+        if raw.endswith("@lid"):
+            continue
+        # The URI key MUST be derived from the SAME string pwg_ingest
+        # keys the Person node by (raw JID for WhatsApp), else the edge
+        # dangles to a phantom node. The surfaced chatIdentifier literal
+        # may stay normalised (e164 phone) for readability.
+        uri_key = _participant_uri_key(channel, raw)
+        if not uri_key or uri_key in seen:
+            continue
+        seen.add(uri_key)
+        person_id = _person_id_from_identifier(uri_key)
         person_uri = _person_graph_uri(person_id)
+        ident = _normalise_chat_identifier(channel, raw)
         # The Person URI is a full http(s) IRI -> valid Turtle in
         # angle brackets. The identifier literal is escaped defensively
         # even though it is phone/email-shaped.
