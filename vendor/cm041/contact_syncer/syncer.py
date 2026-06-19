@@ -522,8 +522,14 @@ class ContactSyncer:
             return out
 
         owner_col = next((c for c in owner_candidates if c in cols), None)
-        value_col = next((c for c in value_candidates if c in cols), None)
-        if not owner_col or not value_col:
+        # Select EVERY candidate value column that exists, not just the first.
+        # The drift case is a present-but-NULL primary (e.g. ZADDRESS empty,
+        # the address living in ZADDRESSNORMALIZED): picking the first column
+        # that merely EXISTS would read the NULL and silently drop the address.
+        # Per row we take the first NON-NULL/non-empty value across them, in
+        # candidate order.
+        value_cols = [c for c in value_candidates if c in cols]
+        if not owner_col or not value_cols:
             logger.warning(
                 "AddressBook %s missing expected columns "
                 "(owner one of %s -> %s; value one of %s -> %s; present=%s). "
@@ -532,21 +538,32 @@ class ContactSyncer:
                 owner_candidates,
                 owner_col,
                 value_candidates,
-                value_col,
+                value_cols,
                 sorted(cols),
                 label,
             )
             return out
 
+        select_cols = ", ".join(f"{c} as v{i}" for i, c in enumerate(value_cols))
         try:
             for row in conn.execute(
-                f"SELECT {owner_col} as pk, {value_col} as val FROM {table}"
+                f"SELECT {owner_col} as pk, {select_cols} FROM {table}"
             ).fetchall():
                 pk = row["pk"]
-                val = row["val"]
-                if pk is None or val is None:
+                if pk is None:
                     continue
-                clean = str(val).strip()
+                # First non-NULL / non-empty value across the candidate
+                # columns, in candidate order (e.g. ZADDRESS, then fall back
+                # to ZADDRESSNORMALIZED when ZADDRESS is present-but-NULL).
+                clean = ""
+                for i in range(len(value_cols)):
+                    val = row[f"v{i}"]
+                    if val is None:
+                        continue
+                    candidate = str(val).strip()
+                    if candidate:
+                        clean = candidate
+                        break
                 if not clean:
                     continue
                 bucket = out.setdefault(pk, [])

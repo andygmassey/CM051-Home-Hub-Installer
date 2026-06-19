@@ -67,16 +67,29 @@ except Exception as _exc:  # pragma: no cover - partial slice without CM041 deps
     )
 
 
-def _make_db(tmp: Path, *, email_col: str = "ZADDRESS") -> Path:
+def _make_db(
+    tmp: Path,
+    *,
+    email_col: str = "ZADDRESS",
+    both_email_cols: bool = False,
+) -> Path:
     """Build an AddressBook-v22.abcddb fixture under a fake home tree.
 
     Returns the fake HOME path (so the caller can monkeypatch Path.home).
     The contacts live under Sources/<uuid>/ as on a real iCloud customer.
+
+    ``both_email_cols`` creates BOTH ``ZADDRESS`` and ``ZADDRESSNORMALIZED``
+    (the realistic Sequoia-drift shape where the primary column is present
+    but may be NULL per-row).
     """
     src = tmp / "Library" / "Application Support" / "AddressBook" / "Sources" / "UUID-1"
     src.mkdir(parents=True)
     db = src / "AddressBook-v22.abcddb"
     con = sqlite3.connect(db)
+    if both_email_cols:
+        email_cols_sql = "ZADDRESS TEXT, ZADDRESSNORMALIZED TEXT"
+    else:
+        email_cols_sql = f"{email_col} TEXT"
     con.executescript(
         f"""
         CREATE TABLE ZABCDRECORD (
@@ -85,7 +98,7 @@ def _make_db(tmp: Path, *, email_col: str = "ZADDRESS") -> Path:
             ZORGANIZATION TEXT, ZJOBTITLE TEXT, ZNOTE TEXT
         );
         CREATE TABLE ZABCDEMAILADDRESS (
-            Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER, {email_col} TEXT
+            Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER, {email_cols_sql}
         );
         CREATE TABLE ZABCDPHONENUMBER (
             Z_PK INTEGER PRIMARY KEY, ZOWNER INTEGER, ZFULLNUMBER TEXT
@@ -191,6 +204,56 @@ def test_email_in_addressnormalized_column_is_read(tmp_path, monkeypatch):
 
     cards = _read(tmp_path, monkeypatch)
     assert "EMAIL;TYPE=INTERNET:dave@example.com" in cards[0]
+
+
+def test_present_but_null_zaddress_falls_back_to_normalized(tmp_path, monkeypatch):
+    """The realistic drift shape: ZADDRESS column is PRESENT but NULL for the
+    row, with the address living in ZADDRESSNORMALIZED.
+
+    Picking the first column that merely EXISTS (ZADDRESS) would read the NULL
+    and silently drop the address -- i.e. it would NOT fix the very case the
+    fix is named for. The reader must take the first NON-NULL value across the
+    candidate columns, so ZADDRESSNORMALIZED supplies the address here.
+    """
+    db = _make_db(tmp_path, both_email_cols=True)
+    con = sqlite3.connect(db)
+    con.execute(
+        "INSERT INTO ZABCDRECORD (Z_PK, ZUNIQUEID, ZFIRSTNAME, ZLASTNAME) "
+        "VALUES (1, 'uid-1', 'Faye', 'Loe')"
+    )
+    # ZADDRESS present-but-NULL; the real value only in ZADDRESSNORMALIZED.
+    con.execute(
+        "INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS, ZADDRESSNORMALIZED) "
+        "VALUES (1, NULL, 'faye@example.com')"
+    )
+    con.commit()
+    con.close()
+
+    cards = _read(tmp_path, monkeypatch)
+    assert "EMAIL;TYPE=INTERNET:faye@example.com" in cards[0]
+
+
+def test_present_zaddress_wins_over_normalized(tmp_path, monkeypatch):
+    """Candidate order is honoured: when ZADDRESS has a value it is preferred
+    over ZADDRESSNORMALIZED (the working 205/205 case stays unchanged)."""
+    db = _make_db(tmp_path, both_email_cols=True)
+    con = sqlite3.connect(db)
+    con.execute(
+        "INSERT INTO ZABCDRECORD (Z_PK, ZUNIQUEID, ZFIRSTNAME, ZLASTNAME) "
+        "VALUES (1, 'uid-1', 'Gail', 'Moe')"
+    )
+    con.execute(
+        "INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS, ZADDRESSNORMALIZED) "
+        "VALUES (1, 'Gail@Example.com', 'gail@example.com')"
+    )
+    con.commit()
+    con.close()
+
+    cards = _read(tmp_path, monkeypatch)
+    card = cards[0]
+    # ZADDRESS (first candidate, preserves casing) wins; only one EMAIL line.
+    assert "EMAIL;TYPE=INTERNET:Gail@Example.com" in card
+    assert card.count("EMAIL;TYPE=INTERNET:") == 1
 
 
 def test_empty_and_null_email_values_skipped(tmp_path, monkeypatch):
