@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- ostler-contacts native CNContact helper (Big Win BW-A).
+	     This is the ONLY component (besides OstlerInstaller.app) that
+	     carries the Contacts entitlement and the right to read the
+	     address book. The Developer-ID-signed, hardened-runtime binary
+	     needs this declared alongside Info.plist NSContactsUsageDescription
+	     for CNContactStore.requestAccess to render the TCC prompt instead
+	     of silently denying (same contract as the installer; see
+	     gui/OstlerInstaller/OstlerInstaller.entitlements CX-46 note).
+
+	     STEP 1 (this PR) uses it for READ + vCard backup only. The same
+	     entitlement also authorises the later CNSaveRequest write path,
+	     which is deliberately NOT present in this package yet. -->
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+</dict>
+</plist>
