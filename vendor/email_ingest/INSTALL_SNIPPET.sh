@@ -105,10 +105,29 @@ esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/
 OSTLER_PYTHON_PATH_VALUE="${OSTLER_VENV_PYTHON:-python3}"
 esc_python="$(printf '%s' "$OSTLER_PYTHON_PATH_VALUE"        | sed 's/[&/\]/\\&/g')"
 
+# OSTLER_EMAIL_INGEST_BIN: absolute path to CM021's pwg-email-ingest
+# console script inside the email-ingest venv (created by CM051
+# install.sh's CM021 pip-install). Rendered into the plist's
+# PWG_EMAIL_INGEST env var so the tick's ingest leg resolves the binary
+# under launchd's minimal PATH. If unset/empty we fall back to the
+# literal "pwg-email-ingest" so a dev run with the venv on PATH still
+# works; the tick's LOUD guard then fails the tick if the binary is
+# genuinely absent rather than dropping harvested mail silently.
+# This is the sibling fix to OSTLER_VENV_PYTHON: that wired the emit
+# leg's interpreter, this wires the ingest leg's binary. Without it the
+# emit leg succeeded and EVERY harvested message was dropped at the
+# ingest leg with "not on PATH" / exit 127.
+OSTLER_EMAIL_INGEST_BIN_VALUE="${OSTLER_EMAIL_INGEST_BIN:-pwg-email-ingest}"
+esc_ingest="$(printf '%s' "$OSTLER_EMAIL_INGEST_BIN_VALUE"   | sed 's/[&/\]/\\&/g')"
+
+# PWG_EMAIL_INGEST_PATH is rendered before OSTLER_PYTHON_PATH purely for
+# readability; the two placeholders share no common substring so the
+# order is byte-safe either way.
 sed \
     -e "s/OSTLER_BIN/$esc_bin/g" \
     -e "s/OSTLER_HOME/$esc_home/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
+    -e "s/PWG_EMAIL_INGEST_PATH/$esc_ingest/g" \
     -e "s/OSTLER_PYTHON_PATH/$esc_python/g" \
     "$EMAIL_INGEST_PLIST_SRC" > "$RENDERED_PLIST"
 
