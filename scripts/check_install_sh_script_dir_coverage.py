@@ -61,20 +61,10 @@ EXCEPTIONS: dict[str, str] = {
         "where install.sh runs from a sibling of the staged Ostler.app. "
         "Production path is the same OSTLER_APP_PATH-driven bundle."
     ),
-    "extensions/OstlerSafariExtension.app.zip": (
-        "F6 deferred per CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md. "
-        "See 'extensions' EXCEPTION."
-    ),
     "ostler-import.sh": (
         "F10 deferred per CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md. "
         "install.sh has a working inline fallback that materialises ostler-import "
         "via a heredoc when the bundled script is absent."
-    ),
-    "extensions": (
-        "F6 deferred per CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md. "
-        "OstlerSafariExtension.app.zip ships from CM020's build-safari-extension.sh; "
-        "until CM020's build pipeline is wired into release the .app.zip is absent and "
-        "install.sh's existing info-log graceful-skip handles it."
     ),
     "requirements.txt": (
         "Covered by release.sh's HR015_AGGREGATE_REQUIREMENTS_SRC and the "
@@ -129,6 +119,14 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
+    # W8 / F6: the Safari extension is now staged by the "Bundle Safari
+    # extension into Resources" postBuildScript (and by release.sh for the
+    # tarball path). Enforce the postBuildScript's presence so a future
+    # removal of the staging step goes red instead of silently regressing.
+    "extensions": ["vendor/extensions/OstlerSafariExtension.app.zip"],
+    "extensions/OstlerSafariExtension.app.zip": [
+        "vendor/extensions/OstlerSafariExtension.app.zip"
+    ],
 }
 
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')

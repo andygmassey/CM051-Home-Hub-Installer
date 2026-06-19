@@ -15063,7 +15063,19 @@ else
                 mv "/Applications/SafariHistoryExt.app" "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
             fi
             ok "$(printf "$MSG_OK_SAFARI_EXTENSION_INSTALLED" "${SAFARI_APP_INSTALL_PATH}")"
-            echo "     Enable it in Safari Settings → Extensions → Ostler"
+            # First-launch registration: Safari only surfaces a Web Extension
+            # after its containing app has been launched at least once
+            # (LaunchServices registration). Launch it headlessly (-gj: in the
+            # background, hidden) so the extension appears in Safari Settings ->
+            # Extensions without the user hunting for it. Fire and forget;
+            # macOS will not let an installer programmatically enable the
+            # extension -- the user must tick the box themselves (see below).
+            if [[ -d "$SAFARI_APP_INSTALL_PATH" ]]; then
+                open -gj -a "$SAFARI_APP_INSTALL_PATH" 2>/dev/null || true
+            fi
+            # The enable step is a macOS-mandated MANUAL action and cannot be
+            # automated; point the user straight at the toggle.
+            echo "     $MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE"
         else
             warn "$MSG_WARN_SAFARI_EXTENSION_COPY_FAILED_YOU_CAN"
             warn "$(printf "$MSG_WARN_BUNDLE" "${EXTENSIONS_BUNDLE}")"
