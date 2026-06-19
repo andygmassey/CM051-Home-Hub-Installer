@@ -13828,6 +13828,18 @@ if [[ -x "$PIPELINE_PY" ]]; then
     elif command -v timeout >/dev/null 2>&1; then
         _PLACES_TIMEOUT_WRAP="timeout 120"
     fi
+    # Capture the exit code explicitly (do NOT collapse to `&& ok || info`):
+    # the module exits 0 for BOTH success AND the benign no-signals case, and
+    # exits non-zero ONLY on a real failure -- its own loud guard
+    # (status=error_empty_result: signals present but 0 Place points), a
+    # config error, or an unexpected crash. Mapping every non-zero to the
+    # benign "no signals yet" message silenced exactly the silent-failure
+    # class the guard exists for. So: branch on the exit code, and on failure
+    # grep the log for the guard signature to choose a precise, VISIBLE warn.
+    # `|| _places_rc=$?` keeps `set -e` from aborting the install on a
+    # non-zero places exit (this step is best-effort + non-fatal); _places_rc
+    # defaults to 0 and is overwritten only on failure.
+    _places_rc=0
     (
         cd "$PIPELINE_DIR" \
         && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
@@ -13836,11 +13848,32 @@ if [[ -x "$PIPELINE_PY" ]]; then
            EMBED_MODEL="$_PLACES_EMBED_MODEL" \
            $_PLACES_TIMEOUT_WRAP \
            .venv/bin/python -m contact_syncer.places_ingest --verbose
-    ) >>/tmp/ostler-places-ingest.log 2>&1 \
-        && ok "$MSG_HYDRATE_PLACES_DONE" \
-        || info "$MSG_HYDRATE_PLACES_SKIPPED"
-    _hydrate_sentinel_record "places" "status=run"
-    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP
+    ) >>/tmp/ostler-places-ingest.log 2>&1 || _places_rc=$?
+    # The log is appended across runs (>>); only this run's tail is relevant,
+    # so scope the signature greps to the tail rather than the whole file.
+    _places_log_tail="$(tail -n 40 /tmp/ostler-places-ingest.log 2>/dev/null)"
+    if [[ "$_places_rc" -eq 0 ]]; then
+        # Success. Distinguish "built some Places" from the genuinely benign
+        # "no location signals yet" case (module prints "0 meeting locations
+        # + 0 photo places") so the no-signals message stays honest.
+        if printf '%s' "$_places_log_tail" \
+                | grep -q "from 0 meeting locations + 0 photo places"; then
+            info "$MSG_HYDRATE_PLACES_SKIPPED"
+        else
+            ok "$MSG_HYDRATE_PLACES_DONE"
+        fi
+    elif printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
+        # The module's own loud guard fired: signals exist but no Places were
+        # produced/written. Surface it loudly (non-fatal: a re-run is safe).
+        warn "$MSG_HYDRATE_PLACES_GUARD_WARN"
+    else
+        # Non-zero exit with no guard line = config error / unexpected crash.
+        # Still non-fatal, but visible -- not mislabelled as "no signals yet".
+        warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
+    fi
+    _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
+    unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
+          _places_rc _places_log_tail
 fi
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
