@@ -976,6 +976,7 @@ MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts. Ostler reads them thr
 MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CONTACTS_READ_FAILED="Your contacts are on this Mac but Ostler imported 0 of them, which is unexpected. The import will retry automatically in the background. If it persists, re-run hydration from Settings or check the install log."
 MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
+MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see /tmp/ostler-hydrate-contacts.log and re-run hydration from Settings once resolved."
 MSG_HYDRATE_CONTACTS_RESYNC_REBUILDING_WIKI="New contacts imported; rebuilding your wiki in the background."
 MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
 MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see /tmp/ostler-hydrate-calendar.log, then re-run hydration from Settings."

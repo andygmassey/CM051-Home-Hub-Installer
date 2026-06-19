@@ -12838,6 +12838,39 @@ except Exception:
     # only so an unset var on some path cannot wrongly cry "denied").
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_CONTACTS_DONE" "$_HYDRATE_CONTACTS_COUNT")"
+        # EMAIL-COVERAGE GUARD (post-hydrate): contacts landed, but a
+        # phone-only export looks identical to success at the count level.
+        # The card->email coverage bug (card->phone ~97%, card->email ~1%)
+        # shipped silently for exactly this reason. Compare phone vs email
+        # identifier counts in the graph and warn LOUDLY when phones are
+        # plentiful but emails are essentially absent, so the next person to
+        # read the install log sees the drop instead of an apparently clean
+        # "Imported N contacts". Best-effort: a SPARQL/curl hiccup must not
+        # fail the install, so every step is guarded and defaults to silent.
+        _guard_email_coverage() {
+            command -v curl >/dev/null 2>&1 || return 0
+            local q_phone q_email phones emails
+            q_phone='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "phone" }'
+            q_email='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
+            phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
+                -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
+                | tail -n 1 | tr -dc '0-9')"
+            emails="$(curl -s --max-time 15 --data-urlencode "query=${q_email}" \
+                -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
+                | tail -n 1 | tr -dc '0-9')"
+            phones="${phones:-0}"
+            emails="${emails:-0}"
+            # Only meaningful when there is a real phone population to compare
+            # against. Threshold: >=20 phones present, but emails under 5% of
+            # the phone count -> the phone-only-export signature.
+            if [[ "$phones" -ge 20 ]] \
+               && [[ $((emails * 20)) -lt "$phones" ]]; then
+                warn "$(printf "$MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW" \
+                    "$_HYDRATE_CONTACTS_COUNT" "$phones" "$emails")"
+            fi
+        }
+        _guard_email_coverage || true
+        unset -f _guard_email_coverage 2>/dev/null || true
     elif [[ "${FDA_GRANTED:-true}" != "true" ]] || ! _has_fda; then
         # Fail LOUD on FDA denial -- never a silent 0-contact pass. The
         # abcddb read needs Full Disk Access; without it nothing can be
