@@ -217,12 +217,17 @@ if ! grep -Eq 'mkdir -p .*ICAL_INGEST_DIR.*ICAL_SYNC_STATE_DIR|mkdir -p .*ICAL_S
     failure "Fix 8: the ical ingest / sync-state dirs are not pre-created by the installer"
 fi
 
-# ── Fix 9: battery warning harmonised to 15-60 minutes ─────────────
+# ── Fix 9: Phase-3 install duration is the honest figure, no stale stragglers ──
+#   #350 (W7, #573/#596) deliberately supersedes the older "15-60 minutes"
+#   harmonisation with honest per-phase figures: the heavy Phase 3 (Docker +
+#   Ollama + first-time setup) is "30 to 60 minutes" — matching the live
+#   install walk. The guard still pins an exact figure for this key + rejects
+#   the old "20-40 minutes" straggler.
 if grep -Eq '20-40 minutes|20 to 40 minutes' "$STRINGS"; then
     failure "Fix 9: a '20-40 minutes' duration straggler survives in the strings catalogue"
 fi
-if ! grep -Eq 'MSG_WARN_PHASE_3_TAKES_10_15_MINUTES=.*15-60 minutes' "$STRINGS"; then
-    failure "Fix 9: the battery-warning duration is not harmonised to 15-60 minutes"
+if ! grep -Eq 'MSG_WARN_PHASE_3_TAKES_10_15_MINUTES=.*30 to 60 minutes' "$STRINGS"; then
+    failure "Fix 9: the Phase-3 install duration is not the honest '30 to 60 minutes' figure"
 fi
 
 # ── Fix 10: Apple Health read-back proxied across the Doctor (#680) ─
