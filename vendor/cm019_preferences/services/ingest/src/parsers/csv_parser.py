@@ -53,11 +53,69 @@ class CSVParser(BaseParser):
         ],
         "type": ["type", "preference_type", "pref_type", "kind"],
         "strength": ["strength", "rating", "score", "value", "intensity"],
-        "category": ["category", "cat", "group", "type", "genre"],
+        # NB: "type" deliberately removed from the category aliases. It also
+        # appears under the "type" (preference-type) key above, so a CSV with a
+        # `type` column (Like/Dislike/...) was wrongly mapping the preference
+        # TYPE into the category field -- producing junk categories like "Like"
+        # and pre-empting the subject inference below. A preference type is not
+        # a category.
+        "category": ["category", "cat", "group", "genre"],
         "compartment": ["compartment", "compartment_level", "privacy", "level"],
         "context": ["context", "situation", "when", "where"],
         "date": ["date", "created_at", "observed_at", "timestamp", "time", "datetime"]
     }
+
+    # Subject-keyword -> canonical category fallback.
+    #
+    # A generic CSV with no `category` column previously produced points with
+    # category=None. The wiki reads `category` off every preference: the Food
+    # page filters category == "food", the Music page category == "music", and
+    # each Topic page is one distinct category value. A None category reaches
+    # NO page, so those points silently vanish from the wiki. This map gives an
+    # uncategorised row a best-effort canonical category (the exact strings the
+    # wiki readers expect) from keywords in its subject. It is intentionally
+    # conservative -- only confident hits map to a specific category; everything
+    # else falls back to "interest" (a real category that renders a Topic page)
+    # rather than None. Categories here match the canonical vocabulary used by
+    # the platform parsers (spotify/uber/etc.) and enrich's VALID_CATEGORIES.
+    SUBJECT_CATEGORY_KEYWORDS = {
+        "music": (
+            "song", "album", "artist", "band", "track", "playlist", "spotify",
+            "concert", "gig", "vinyl", "guitar", "jazz", "techno", "hip hop",
+            "hip-hop",
+        ),
+        "food": (
+            "restaurant", "cuisine", "dish", "recipe", "cafe", "café", "coffee",
+            "pizza", "sushi", "ramen", "burger", "cooking", "dining", "bakery",
+            "wine", "beer", "cocktail", "vegan", "vegetarian", "takeaway",
+        ),
+        "movie": ("movie", "film", "cinema", "director", "documentary"),
+        "tv": ("tv show", "tv series", "episode", "season", "netflix series"),
+        "book": ("book", "novel", "author", "reading", "audiobook"),
+        "podcast": ("podcast",),
+        "place": (
+            "travel", "destination", "city", "country", "hotel", "holiday",
+            "vacation", "flight", "beach",
+        ),
+        "professional": (
+            "career", "skill", "industry", "linkedin", "job", "profession",
+            "certification", "conference",
+        ),
+    }
+
+    def _infer_category(self, subject: str) -> str:
+        """Best-effort canonical category from the subject text.
+
+        Returns a specific category when a confident keyword matches, else
+        "interest" -- never an empty/None value, so the point always reaches
+        a wiki Topic page instead of silently disappearing.
+        """
+        text = (subject or "").lower()
+        for category, keywords in self.SUBJECT_CATEGORY_KEYWORDS.items():
+            for kw in keywords:
+                if kw in text:
+                    return category
+        return "interest"
 
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a CSV."""
@@ -152,8 +210,12 @@ class CSVParser(BaseParser):
         strength_str = row.get(column_map.get("strength", ""), "")
         strength = self.classify_strength(strength_str) if strength_str else 0.5
 
-        # Get category
+        # Get category: explicit CSV column wins, then the caller-supplied
+        # default, then a subject-keyword inference so a row never lands with
+        # no category (which would make it invisible to every wiki page).
         category = row.get(column_map.get("category", ""), "").strip() or default_category
+        if not category:
+            category = self._infer_category(subject)
 
         # Get compartment level
         compartment_str = row.get(column_map.get("compartment", ""), "")

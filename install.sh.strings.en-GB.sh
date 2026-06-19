@@ -1015,6 +1015,14 @@ MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in 
 # (about the item, never the user); this string is a count.
 MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched %s preferences"
 
+# Category-coverage guard (CX: silently-blank Food / Music pages). Warned
+# when preferences landed but none carry a headline category, or when a
+# large share carry no category at all -- so the operator sees it at
+# install time rather than discovering empty wiki pages later. Counts only.
+MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES="Imported %s preferences, but none landed under Food, Music or Professional. Your Food and Music wiki pages will be empty."
+MSG_WARN_PREFS_HEADLINE_HINT="This usually means no music/food export (Spotify, Apple Music, Uber Eats, Google Takeout) was present, or the data was not categorised. Add those exports and re-run from Settings, then rebuild the wiki."
+MSG_WARN_PREFS_UNCATEGORISED="%s of %s preferences (%s%%) have no category and will not appear on any topic page. Check the source export format."
+
 # Preference enrichment pipeline setup (CM019, own venv at
 # ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
 MSG_CM019_SETUP_STARTED="Setting up preference enrichment (one-off)"
