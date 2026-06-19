@@ -2052,8 +2052,8 @@ echo -e "    1. ${BOLD}Contacts${NC}              Your name + your address book"
 echo -e "    2. ${BOLD}Calendar${NC}              Meetings + events in your graph"
 echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
 echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
-echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc."
-echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history"
+echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
+echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
 echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you"
 echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
@@ -2136,6 +2136,216 @@ if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
     _fda_prime="$HOME/Library/Safari/History.db"
     [[ -e "$_fda_prime" ]] && head -c 1 "$_fda_prime" >/dev/null 2>&1 || true
     unset _fda_prime
+fi
+
+# ── 9-fda. Full Disk Access (installer) -- hoisted upfront (WALK-1 / Wave 2.1) ──
+#
+# WALK-1 (2026-06-19, Andy's live walk): the installer Full Disk Access
+# grant dialog used to fire deep in the Phase-3 fda_extract step (~the
+# 86% point), breaking the locked "answer the questions upfront, then
+# walk away" promise -- a customer who left the install running came
+# back to a blocking FDA grant modal mid-run.
+#
+# Fix: lift-and-shift the installer FDA grant assist HERE, into the
+# Phase-2 questions block, right after the permissions briefing
+# (PERMS_OK) and the Safari FDA_PREWARM above, and BEFORE the me-card
+# read -- so the FDA toggle and any macOS "Quit & Reopen" relaunch
+# happen before the customer has typed any answers. This mirrors the
+# CX-37 / CX-130 Apple Mail hoist and the Wave 2.1 Tailscale decision
+# hoist (TAILSCALE_CONFIRM_SHOWN_EARLY). The late fda_extract site
+# (search "INSTALLER_FDA_SHOWN_EARLY") becomes a guarded fallback plus
+# an UNCONDITIONAL re-probe, so a deferred / declined / relaunch-settled
+# grant is always recovered before the extractor runs, never silently
+# skipped.
+#
+# Honest limits (do NOT over-claim):
+#   * No auto-grant. macOS requires the human to toggle the app in
+#     System Settings; we open the pane, pre-warm the entry, present a
+#     blocking modal and re-probe -- the ceiling, same as the proven
+#     late assist this lifts.
+#   * The grant path is pure bash + osascript + `head -c 1`; it does NOT
+#     need the Python venv or the FDA module (both established later), so
+#     hoisting it above encrypt_db / the module copy is safe (spec 1.3).
+#   * Promotion of the pre-FDA staging tree stays LATE (the late
+#     fda_extract catch-all). We do NOT promote here -- promoting in
+#     Phase 2 would populate ~/.ostler/ before a later abort and re-trip
+#     the CX-87 Phase-2-skip bug. The early block only sets FDA_GRANTED
+#     plus the INSTALLER_FDA_SHOWN_EARLY guard.
+#   * The DAEMON FDA grant (ai.ostler.assistant) CANNOT be front-loaded
+#     -- its binary does not exist until late Phase 3. It is pre-announced
+#     in the briefing copy above and granted late; we do not claim "zero
+#     late prompts".
+if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
+    # Honest read-probe (same shape as the late fda_extract probe): a
+    # first-byte read of an FDA-gated SQLite DB. macOS TCC denies open()
+    # on these without FDA, so `head -c 1` exits non-zero on denial --
+    # unlike `[[ -r ]]` / `ls` which only check directory-entry perms
+    # (the DMG #48c false-positive trap).
+    _fda_read_probe_early() {
+        [[ -e "$1" ]] && head -c 1 "$1" >/dev/null 2>&1
+    }
+    INSTALLER_FDA_PROBE_PATHS_EARLY=(
+        "$HOME/Library/Safari/History.db"
+        "$HOME/Library/Messages/chat.db"
+        "$HOME/Library/Mail/V10/MailData/Envelope Index"
+    )
+    _fda_early_tried=0
+    _fda_early_ok=0
+    for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
+        [[ -e "$probe" ]] || continue
+        _fda_early_tried=$((_fda_early_tried + 1))
+        if _fda_read_probe_early "$probe"; then
+            _fda_early_ok=$((_fda_early_ok + 1))
+        fi
+    done
+    # Conservative posture: only believe FDA is granted when at least one
+    # probe ran AND every attempted probe succeeded. No probe path exists
+    # (clean Mac, no Safari / Messages / Mail ever opened) -> default
+    # false so the assist fires once; a spurious prompt is recoverable,
+    # missing extraction is not.
+    if [[ $_fda_early_tried -gt 0 && $_fda_early_ok -eq $_fda_early_tried ]]; then
+        FDA_GRANTED=true
+    else
+        FDA_GRANTED=false
+    fi
+
+    if [[ "$FDA_GRANTED" == false ]]; then
+        warn "$MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL"
+        warn "$MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM"
+
+        # Pre-warn modal (CX-87 shape). The crucial guidance is the
+        # "Quit & Reopen" hint -- macOS fires that dialog straight after
+        # the customer toggles FDA on for OstlerInstaller.app, and a
+        # click on Later silently breaks the grant for this process. The
+        # CX-87 pre-launch staging tree (OSTLER_PRELAUNCH_DIR) keeps
+        # ~/.ostler/ empty until the late promote, so a Quit & Reopen
+        # here relaunches into a clean Phase 2 (no auto-skip).
+        info "$MSG_INFO_INSTALLER_FDA_PREWARN"
+        _prewarn_msg="$(printf '%s\n\n%s\n\n%s' \
+            "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1" \
+            "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2" \
+            "$MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3")"
+        _prewarn_msg_esc="${_prewarn_msg//\"/\\\"}"
+        _prewarn_title_esc="${MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE//\"/\\\"}"
+        _prewarn_button_esc="${MSG_PROMPT_INSTALLER_FDA_PREWARN_BUTTON//\"/\\\"}"
+        _prewarn_icon_path=""
+        if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+            _prewarn_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+            _prewarn_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+        elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+            _prewarn_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+            _prewarn_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+        fi
+        if [[ -n "$_prewarn_icon_path" ]]; then
+            _prewarn_icon_path_esc="${_prewarn_icon_path//\"/\\\"}"
+            _prewarn_icon_clause="with icon file POSIX file \"${_prewarn_icon_path_esc}\""
+        else
+            _prewarn_icon_clause="with icon note"
+        fi
+        osascript \
+            -e 'tell application "System Events" to activate' \
+            -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" ${_prewarn_icon_clause}" \
+            >/dev/null 2>&1 || true
+        unset _prewarn_msg _prewarn_msg_esc _prewarn_title_esc \
+              _prewarn_button_esc _prewarn_icon_path \
+              _prewarn_icon_path_esc _prewarn_icon_clause
+
+        info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
+        # FDA_PANE_REFRESH (#572, 2026-06-09): force a fresh System
+        # Settings load before pointing the customer at the FDA pane. A
+        # Settings window left open from an earlier prompt can show a
+        # STALE Full Disk Access list that predates the OstlerInstaller
+        # entry primed at install start -- killall + reopen guarantees the
+        # list is current. Kept VERBATIM from the late assist; the #279
+        # race fix is reused unchanged. Best-effort.
+        killall "System Settings" >/dev/null 2>&1 || true
+        killall "System Preferences" >/dev/null 2>&1 || true
+        sleep 1
+        open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+
+        _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2" \
+            "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3")"
+        _installer_fda_msg_esc="${_installer_fda_msg//\"/\\\"}"
+        _installer_fda_title_esc="${MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE//\"/\\\"}"
+        _installer_fda_button_esc="${MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON//\"/\\\"}"
+
+        _installer_fda_icon_path=""
+        if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+            _installer_fda_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+            _installer_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+        elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+            _installer_fda_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+        elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+            _installer_fda_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+        fi
+        if [[ -n "$_installer_fda_icon_path" ]]; then
+            _installer_fda_icon_path_esc="${_installer_fda_icon_path//\"/\\\"}"
+            _installer_fda_icon_clause="with icon file POSIX file \"${_installer_fda_icon_path_esc}\""
+        else
+            _installer_fda_icon_clause="with icon note"
+        fi
+
+        # Pause briefly to let System Settings finish its window animation
+        # before raising the modal, then activate + display so the dialog
+        # renders in front of Settings (#279 z-order fix, kept verbatim).
+        sleep 1
+        osascript \
+            -e 'tell application "System Events" to activate' \
+            -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
+            >/dev/null 2>&1 || true
+        unset _installer_fda_msg _installer_fda_msg_esc \
+              _installer_fda_title_esc _installer_fda_button_esc \
+              _installer_fda_icon_path _installer_fda_icon_path_esc \
+              _installer_fda_icon_clause
+
+        # Re-probe: macOS refreshes the TCC posture for the caller binary
+        # as soon as the user toggles it on, so a direct read returns the
+        # live state without re-exec. Same honest read-probe so a false
+        # positive cannot creep back in.
+        sleep 2
+        _fda_early_retried=0
+        _fda_early_reok=0
+        for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
+            [[ -e "$probe" ]] || continue
+            _fda_early_retried=$((_fda_early_retried + 1))
+            if _fda_read_probe_early "$probe"; then
+                _fda_early_reok=$((_fda_early_reok + 1))
+            fi
+        done
+        if [[ $_fda_early_retried -gt 0 && $_fda_early_reok -eq $_fda_early_retried ]]; then
+            FDA_GRANTED=true
+        fi
+        if [[ "$FDA_GRANTED" == true ]]; then
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
+        else
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
+        fi
+        unset _fda_early_retried _fda_early_reok
+    fi
+    unset _fda_early_tried _fda_early_ok
+
+    # Mark the upfront grant as shown so the late fda_extract site runs
+    # as a guarded fallback (assist suppressed) but ALWAYS re-probes.
+    # Promotion of the staging tree deliberately does NOT happen here
+    # (spec 3.4) -- it stays at the late catch-all.
+    INSTALLER_FDA_SHOWN_EARLY=1
+    export INSTALLER_FDA_SHOWN_EARLY FDA_GRANTED
+
+    # WALK-1 (Wave 2.1): now that the installer FDA grant is behind us at
+    # the START, reassure the customer that the long middle is unattended,
+    # and PRE-ANNOUNCE the one genuinely-late permission we cannot
+    # front-load: the DAEMON Full Disk Access (Messages history for the
+    # assistant). Its binary (ai.ostler.assistant) does not exist until
+    # late Phase 3, so its TCC grant cannot be hoisted -- we flag it here
+    # exactly as the Tailscale sign-in step is pre-announced, so it is
+    # expected rather than a surprise. We do NOT claim "zero late prompts".
+    info "$MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE"
+    info "$MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE"
 fi
 
 # ── Auto-detect from macOS contact card ────────────────────────────
@@ -6900,7 +7110,17 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         # then re-probe. If granted, the extractor downstream runs
         # with full FDA. Gated on OSTLER_GUI=1; TTY-only installs
         # fall through to the previous text-only message.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        #
+        # WALK-1 (Wave 2.1): the FULL grant assist (pre-warn + pane
+        # refresh + blocking modal) now also requires INSTALLER_FDA_SHOWN_EARLY
+        # to be UNSET. The grant is hoisted into the Phase-2 questions
+        # block (search "9-fda. Full Disk Access (installer)"), so on the
+        # normal walk-away path this late assist is suppressed -- it only
+        # fires for a reuse install / GUI-toggled-late edge where the
+        # upfront block did not run. Either way, an UNCONDITIONAL re-probe
+        # plus a short recovery modal run BELOW (outside this guard) so a
+        # deferred / declined / relaunch-settled grant is always recovered.
+        if [[ "${OSTLER_GUI:-0}" == "1" && -z "${INSTALLER_FDA_SHOWN_EARLY:-}" ]]; then
             # CX-87 (DMG #48g, 2026-05-29): pre-warn modal before the
             # FDA grant flow. Same shape as the CX-47
             # (Downloads/Desktop/Documents) and CX-55 (iMessage
@@ -7040,6 +7260,97 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             echo ""
         fi
     fi
+
+    # WALK-1 (Wave 2.1): UNCONDITIONAL re-probe before run_all(). The
+    # upfront Phase-2 grant (9-fda) may have been DEFERRED by the
+    # customer, or macOS may have needed the Quit & Reopen relaunch to
+    # settle the toggle -- in both cases FDA can be live now even though
+    # the early FDA_GRANTED came back false (and the guarded assist above
+    # was suppressed). Re-read the live TCC posture here so the extractor
+    # below sees the truth, never a stale "false". Same honest read-probe.
+    if [[ "$HAS_FDA_MODULE" == true ]]; then
+        FDA_FINAL_REPROBE_TRIED=0
+        FDA_FINAL_REPROBE_SUCCEEDED=0
+        for probe in "${FDA_PROBE_PATHS[@]}"; do
+            [[ -e "$probe" ]] || continue
+            FDA_FINAL_REPROBE_TRIED=$((FDA_FINAL_REPROBE_TRIED + 1))
+            if _fda_read_probe "$probe"; then
+                FDA_FINAL_REPROBE_SUCCEEDED=$((FDA_FINAL_REPROBE_SUCCEEDED + 1))
+            fi
+        done
+        if [[ $FDA_FINAL_REPROBE_TRIED -gt 0 && $FDA_FINAL_REPROBE_SUCCEEDED -eq $FDA_FINAL_REPROBE_TRIED ]]; then
+            FDA_GRANTED=true
+        fi
+        unset FDA_FINAL_REPROBE_TRIED FDA_FINAL_REPROBE_SUCCEEDED
+
+        # WALK-1 (Wave 2.1, spec 3.5): one targeted late recovery modal,
+        # and ONLY for the customer who saw the early ask but did not grant
+        # (INSTALLER_FDA_SHOWN_EARLY set, still not granted). This is the
+        # single honest late prompt we accept -- it never fires on the
+        # normal walk-away path (where FDA was granted upfront) and never
+        # fires for the reuse / GUI-late edge (which got the full assist
+        # above instead). The customer can grant now or continue with less
+        # data; deferring still completes the install (graceful degrade
+        # below is unchanged).
+        if [[ "$FDA_GRANTED" == false && -n "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
+            info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
+            killall "System Settings" >/dev/null 2>&1 || true
+            killall "System Preferences" >/dev/null 2>&1 || true
+            sleep 1
+            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+
+            _fda_recover_msg="$(printf '%s\n\n%s' \
+                "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1" \
+                "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2")"
+            _fda_recover_msg_esc="${_fda_recover_msg//\"/\\\"}"
+            _fda_recover_title_esc="${MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE//\"/\\\"}"
+            _fda_recover_button_esc="${MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON//\"/\\\"}"
+            _fda_recover_icon_path=""
+            if [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _fda_recover_icon_path="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _fda_recover_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _fda_recover_icon_path="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _fda_recover_icon_path="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            fi
+            if [[ -n "$_fda_recover_icon_path" ]]; then
+                _fda_recover_icon_path_esc="${_fda_recover_icon_path//\"/\\\"}"
+                _fda_recover_icon_clause="with icon file POSIX file \"${_fda_recover_icon_path_esc}\""
+            else
+                _fda_recover_icon_clause="with icon note"
+            fi
+            sleep 1
+            osascript \
+                -e 'tell application "System Events" to activate' \
+                -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
+                >/dev/null 2>&1 || true
+            unset _fda_recover_msg _fda_recover_msg_esc _fda_recover_title_esc \
+                  _fda_recover_button_esc _fda_recover_icon_path \
+                  _fda_recover_icon_path_esc _fda_recover_icon_clause
+
+            # Final re-probe after the recovery grant.
+            sleep 2
+            FDA_RECOVER_TRIED=0
+            FDA_RECOVER_SUCCEEDED=0
+            for probe in "${FDA_PROBE_PATHS[@]}"; do
+                [[ -e "$probe" ]] || continue
+                FDA_RECOVER_TRIED=$((FDA_RECOVER_TRIED + 1))
+                if _fda_read_probe "$probe"; then
+                    FDA_RECOVER_SUCCEEDED=$((FDA_RECOVER_SUCCEEDED + 1))
+                fi
+            done
+            if [[ $FDA_RECOVER_TRIED -gt 0 && $FDA_RECOVER_SUCCEEDED -eq $FDA_RECOVER_TRIED ]]; then
+                FDA_GRANTED=true
+                info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
+            else
+                info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
+            fi
+            unset FDA_RECOVER_TRIED FDA_RECOVER_SUCCEEDED
+        fi
+    fi
+
     # CX-87 (DMG #48g): catch-all promotion of the staging tree.
     # The branches above call _ostler_promote_prelaunch_tree from
     # within their happy paths; this idempotent re-call guarantees

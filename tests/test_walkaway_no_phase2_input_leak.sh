@@ -75,6 +75,34 @@ else
     echo "NOTE: no tailscale_confirm gui_read after the boundary (decision fully hoisted)"
 fi
 
+# ── WALK-1 (Wave 2.1): the installer FDA grant must be hoisted to Phase 2 ──
+# The installer Full Disk Access grant is an osascript MODAL, not a tagged
+# gui_read, so the gui_read scan above cannot see it. Pin it structurally:
+#   (a) the upfront grant sets INSTALLER_FDA_SHOWN_EARLY=1 BEFORE the boundary;
+#   (b) the late fda_extract assist is GUARDED by -z INSTALLER_FDA_SHOWN_EARLY
+#       (so the normal walk-away path never re-prompts mid-install);
+#   (c) an UNCONDITIONAL final re-probe still runs before the run_all import
+#       (a deferred / declined / relaunch-settled grant is always recovered).
+fda_early_line="$(grep -n 'INSTALLER_FDA_SHOWN_EARLY=1' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+[[ -n "$fda_early_line" ]] || fail "INSTALLER_FDA_SHOWN_EARLY=1 not set anywhere -- the upfront installer-FDA hoist regressed"
+[[ "$fda_early_line" -lt "$BOUNDARY" ]] \
+    || fail "INSTALLER_FDA_SHOWN_EARLY=1 is at line $fda_early_line, AFTER the Phase-3 boundary ($BOUNDARY) -- the installer FDA grant must be hoisted into Phase 2"
+echo "PASS: installer FDA grant is hoisted to Phase 2 (INSTALLER_FDA_SHOWN_EARLY set at line $fda_early_line < $BOUNDARY)"
+
+# (b) the late fda_extract assist gate must carry the guard.
+fda_late_gate="$(awk -v b="$BOUNDARY" 'NR>b && /OSTLER_GUI:-0.*== "1" && -z "\${INSTALLER_FDA_SHOWN_EARLY:-}"/ {print NR; exit}' "$INSTALL_SH")"
+[[ -n "$fda_late_gate" ]] \
+    || fail "the late fda_extract FDA assist gate is not guarded by INSTALLER_FDA_SHOWN_EARLY -- it would re-prompt for FDA mid-install on the walk-away path"
+echo "PASS: late fda_extract assist is a guarded fallback (line $fda_late_gate, behind INSTALLER_FDA_SHOWN_EARLY)"
+
+# (c) an unconditional final re-probe must precede the run_all import.
+run_all_line="$(grep -n '^from ostler_fda.extract_all import run_all' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+reprobe_line="$(grep -n 'FDA_FINAL_REPROBE_TRIED' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+[[ -n "$reprobe_line" ]] || fail "the unconditional final FDA re-probe (FDA_FINAL_REPROBE_TRIED) is missing -- a deferred grant would be silently skipped"
+[[ -n "$run_all_line" && "$reprobe_line" -lt "$run_all_line" ]] \
+    || fail "the unconditional final FDA re-probe (line $reprobe_line) must precede the run_all import (line $run_all_line)"
+echo "PASS: unconditional final FDA re-probe (line $reprobe_line) precedes run_all import (line $run_all_line)"
+
 # ── Every gui_read after the boundary must be on the interactive allowlist ──
 # These genuinely need the customer present mid-install OR are guarded
 # fallbacks that only fire when the Phase-2 prompt did not run (reuse
