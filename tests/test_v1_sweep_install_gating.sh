@@ -225,6 +225,22 @@ if ! grep -Eq 'MSG_WARN_PHASE_3_TAKES_10_15_MINUTES=.*15-60 minutes' "$STRINGS";
     failure "Fix 9: the battery-warning duration is not harmonised to 15-60 minutes"
 fi
 
+# ── Fix 10: Apple Health read-back proxied across the Doctor (#680) ─
+# The opt-in health path writes via /api/v1/ingest/ios (already in the
+# proxy list) but the GET /api/v1/health/day read-back must ALSO be
+# forwarded, or the phone/assistant 404s the day's physiology across
+# the auth boundary even once the CM041 health branch ships.
+if ! grep -Eq '<key>DOCTOR_PROXY_PATHS</key>' "$INSTALL_SH"; then
+    failure "Fix 10: DOCTOR_PROXY_PATHS key is missing from install.sh"
+fi
+# Assert the path inside the rendered <string> list (adjacent to the
+# already-proxied ingest route), not merely anywhere in the file -- the
+# explanatory comment above also names the path, so a bare grep would be
+# a false pass if the list itself dropped it.
+if ! grep -Eq '/api/v1/ingest/ios,/api/v1/health/day' "$INSTALL_SH"; then
+    failure "Fix 10: /api/v1/health/day is not in the Doctor proxy path list -- the health read-back will 404"
+fi
+
 # ── No em-dashes introduced in the tracked files we touched ────────
 # (British-English / no-em-dash house rule; the new copy must use --.)
 for f in "$INSTALL_SH" "$STRINGS" "$HINTCOPY"; do

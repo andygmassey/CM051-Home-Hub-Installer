@@ -9523,14 +9523,23 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
         <string>8089</string>
         <key>DOCTOR_SUPPORT_EMAIL</key>
         <string>support@ostler.ai</string>
-        <!-- CX-P0A (2026-05-26): forward the 13 iOS /api/v1/* paths to
+        <!-- CX-P0A (2026-05-26): forward the iOS /api/v1/* paths to
              the loopback-bound ical-server on 127.0.0.1:8090. Without
              this list Doctor 404s every iOS Companion call beyond
              /api/v1/auth/chat-token + /api/v1/wiki/correct. The two
              path-parameter routes use FastAPI {slug}/{id} syntax so the
-             proxy's request.url.path forwarding substitutes them. -->
+             proxy's request.url.path forwarding substitutes them.
+             #680 (2026-06-19): /api/v1/health/day is the read-back for
+             the opt-in Apple Health path. The phone (and the assistant)
+             POST health_daily_summary points to /api/v1/ingest/ios
+             (already proxied) where the ical-server writes a per-day
+             pwg:HealthObservation into the graph; the GET reads that
+             day's physiology back joined to its life-context. Without
+             this entry the Doctor 404s the read-back even once the
+             CM041 health branch ships, so the write lands but nothing
+             can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
         <!-- #652 (THE FIX): point the Doctor's chat-token mint at the SAME
