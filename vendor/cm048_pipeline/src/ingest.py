@@ -99,6 +99,123 @@ from .settings import Settings
 logger = logging.getLogger(__name__)
 
 
+# ── Participant-identity bridge (CM044 conversations-ingest fix) ─────
+#
+# The gist-sink writers below historically had no access to the
+# conversation metadata, so a conversation's Qdrant points carried no
+# `channel` tag and its Oxigraph facts/signals could not be linked back
+# to the JID/handle-keyed `pwg:Person` nodes that ostler_fda.pwg_ingest
+# creates for the SAME contacts. Result: a graph that "mentioned"
+# whatsapp/imessage facts but could not answer "who did I talk to"
+# structurally, because the conversation participants were never tied to
+# the people graph.
+#
+# These helpers reconstruct the exact Person URI pwg_ingest keys a
+# contact by (uuid5 over the normalised phone/email identifier), so a
+# conversation can emit a `pwg:participatedIn` edge from the real Person
+# node to the conversation. The key derivation here MUST stay
+# byte-identical to ostler_fda.pwg_ingest._person_id_from_identifier /
+# _person_uri / _whatsapp_phone_e164 -- it is duplicated (not imported)
+# because CM048 ships independently of ostler_fda and must not take a
+# hard dependency on it. See the ORM upstream-twin note in the PR body.
+
+
+def _person_id_from_identifier(identifier: str) -> str:
+    """Stable person id from a phone number or email.
+
+    MUST match ostler_fda.pwg_ingest._person_id_from_identifier.
+    """
+    clean = identifier.strip().lower()
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
+
+
+def _person_graph_uri(person_id: str) -> str:
+    """Person node URI. MUST match ostler_fda.pwg_ingest._person_uri."""
+    return f"https://pwg.dev/ontology#person_{person_id}"
+
+
+def _participant_uri_key(channel: str, raw: str) -> str:
+    """The EXACT string pwg_ingest feeds to ``_person_id_from_identifier``
+    when it keys this participant's Person node URI.
+
+    This is the only thing that decides whether the conversation's
+    ``pwg:participatedIn`` / ``pwg:hasParticipant`` edge resolves to the
+    real Person node or dangles to a phantom URI, so it MUST match
+    ostler_fda.pwg_ingest byte-for-byte (modulo the shared
+    ``.strip().lower()`` inside ``_person_id_from_identifier``).
+
+    pwg_ingest keys a WhatsApp participant by the **raw JID**
+    (``<e164>@s.whatsapp.net``) -- ``ingest_whatsapp`` passes the JID
+    verbatim into ``_person_id_from_identifier`` (it only NORMALISES the
+    number for the displayed phone ``identifierValue``, NOT for the URI
+    key). iMessage/SMS participants arrive as a bare handle which
+    pwg_ingest keys verbatim. So: raw JID for WhatsApp, verbatim handle
+    otherwise.
+    """
+    if not raw:
+        return ""
+    return raw.strip()
+
+
+def _normalise_chat_identifier(channel: str, raw: str) -> str:
+    """Human-facing chat identifier literal (NOT the URI key).
+
+    WhatsApp participants arrive as a JID (``<e164>@s.whatsapp.net``);
+    this presents the ``+<e164>`` phone so the surfaced
+    ``pwg:chatIdentifier`` reads as a phone (and mirrors pwg_ingest's
+    own ``identifierValue`` via ``_whatsapp_phone_e164``). iMessage/SMS
+    handles pass through verbatim.
+
+    NOTE: this is deliberately NOT used to derive the Person URI key --
+    see ``_participant_uri_key``. Keying the URI off the e164 form here
+    was the original dangling-edge bug (the URI no longer matched
+    pwg_ingest's raw-JID-keyed node).
+    """
+    if not raw:
+        return ""
+    raw = raw.strip()
+    if channel == "whatsapp":
+        local = raw.split("@", 1)[0] if "@" in raw else raw
+        return ("+" + local) if local.isdigit() else raw
+    return raw
+
+
+def _participant_identifier(channel: str, entry: dict) -> str:
+    """Pull the raw chat identifier from a participant dict.
+
+    Returns the RAW chat identifier (JID for WhatsApp, handle for
+    iMessage) -- the URI-key derivation (``_participant_uri_key``) and
+    the display normalisation (``_normalise_chat_identifier``) are
+    applied by the caller. WhatsApp renderer carries it as ``jid``;
+    iMessage threader as ``handle``. Both fall back to nothing for the
+    operator's own ``user`` row (role == "user"), which never maps to a
+    contact node.
+    """
+    if not isinstance(entry, dict):
+        return ""
+    if (entry.get("role") or "").lower() == "user":
+        return ""
+    raw = entry.get("jid") or entry.get("handle") or ""
+    return raw.strip()
+
+
+def _load_metadata(state_dir: Path) -> dict:
+    """Best-effort read of the persisted conversation metadata.
+
+    Step 00 writes ``00_metadata.json`` with at least ``channel`` and
+    ``participants``. A missing/garbled file degrades to ``{}`` so the
+    sink writers keep working on legacy state dirs.
+    """
+    meta_path = state_dir / "00_metadata.json"
+    if not meta_path.exists():
+        return {}
+    try:
+        data = read_json(meta_path)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # pragma: no cover - defensive
+        return {}
+
+
 # ── Public entry point ──────────────────────────────────────────────
 
 
@@ -109,12 +226,22 @@ def write_all(
     classification: Classification,
     settings: Settings,
     dry_run: bool = False,
+    metadata: dict | None = None,
 ) -> dict:
     """Write every step's output to its destination sink.
 
     Returns a dict summarising what was written (counts per sink),
     useful for logs and tests.
+
+    ``metadata`` carries the conversation's ``channel`` + ``participants``
+    so the gist sinks can (a) tag Qdrant points with the channel and
+    (b) link the Oxigraph facts/signals to the JID/handle-keyed Person
+    nodes. When omitted it is read from ``state_dir/00_metadata.json``;
+    a missing file degrades the channel tag / participant edges to no-op
+    rather than failing the write.
     """
+    if metadata is None:
+        metadata = _load_metadata(state_dir)
     summary: dict = {
         "md": None,
         "qdrant_points": 0,
@@ -131,12 +258,14 @@ def write_all(
 
     # 2. Qdrant: conversation chunks + facts
     summary["qdrant_points"] = _write_qdrant(
-        state_dir, conversation_id, classification, settings, dry_run
+        state_dir, conversation_id, classification, settings, dry_run,
+        metadata=metadata,
     )
 
     # 3. Oxigraph: relationship signals + facts as RDF
     summary["oxigraph_triples"] = _write_oxigraph(
-        state_dir, conversation_id, classification, settings, dry_run
+        state_dir, conversation_id, classification, settings, dry_run,
+        metadata=metadata,
     )
 
     # 4. SQLite: coach observation
@@ -184,6 +313,7 @@ def _write_qdrant(
     classification: Classification,
     settings: Settings,
     dry_run: bool,
+    metadata: dict | None = None,
 ) -> int:
     """Write conversation summary + per-fact Qdrant points.
 
@@ -195,12 +325,22 @@ def _write_qdrant(
     from .ollama_client import OllamaClient
     from .linker import extract_summary_for_linking
 
+    if metadata is None:
+        metadata = _load_metadata(state_dir)
+    # `channel` discriminates whatsapp / im / sms / email / spoken in the
+    # one `conversations` collection. Before this every point was an
+    # un-channelled `source=human_conversation`, so nothing downstream
+    # could tell a WhatsApp point from an iMessage point. Keep `source`
+    # for back-compat; ADD the channel tag.
+    channel = (metadata.get("channel") or "").strip().lower() or None
+
     client = OllamaClient(base_url=settings.ollama_url)
     points = []
     base_payload = {
         "user_id": settings.user_id,
         "visibility": "private",
         "source": "human_conversation",
+        "channel": channel,
         "conversation_id": conversation_id,
         "classification_slug": classification.suggested_type_slug,
         "sensitivity_level": classification.sensitivity.level,
@@ -288,8 +428,11 @@ def _write_oxigraph(
     classification: Classification,
     settings: Settings,
     dry_run: bool,
+    metadata: dict | None = None,
 ) -> int:
     """Write relationship signals + facts as RDF triples."""
+    if metadata is None:
+        metadata = _load_metadata(state_dir)
     triples: list[str] = []
 
     # Conversation metadata — setting is required for the Foundry
@@ -297,6 +440,16 @@ def _write_oxigraph(
     triples.extend(_conversation_to_triples(
         conversation_id, classification, settings
     ))
+
+    # Participant-identity edges. Link the conversation to the SAME
+    # `pwg:Person` nodes ostler_fda.pwg_ingest keys by JID/handle, so the
+    # graph can answer "who did I talk to / what did they say"
+    # structurally. Without this, a conversation's facts float free of the
+    # people graph (the live-box symptom: facts mention whatsapp but no
+    # Person carries a chat identity).
+    triples.extend(
+        _participant_identity_triples(conversation_id, metadata, settings)
+    )
 
     # Signals
     signals_dir = state_dir / "03_relationship_signals"
@@ -394,6 +547,76 @@ def _conversation_to_triples(
         f'  <urn:pwg:stakes> "{safe_stakes}" .',
     ]
     return ["\n".join(t)]
+
+
+def _participant_identity_triples(
+    conversation_id: str,
+    metadata: dict,
+    settings: Settings,
+) -> list[str]:
+    """Link a conversation to the JID/handle-keyed Person nodes.
+
+    For every non-user participant carrying a resolvable chat identifier
+    (WhatsApp JID / iMessage handle), emit:
+
+        <person>  pwg:participatedIn  <conversation> .
+        <person>  pwg:hasChatChannel  "whatsapp" .
+        <conversation>  pwg:hasParticipant  <person> .
+
+    The ``<person>`` URI is reconstructed to match exactly the node
+    ostler_fda.pwg_ingest creates for the same contact, so the
+    conversation and the person graph share one node and Samantha can
+    answer "who did I talk to" by walking ``pwg:hasParticipant``.
+
+    Participants with no chat identifier (the operator's own ``user``
+    row, or an LLM-only slug with no JID/handle) are skipped -- we never
+    fabricate a Person node from a name we cannot key.
+    """
+    channel = (metadata.get("channel") or "").strip().lower()
+    participants = metadata.get("participants") or []
+    if not isinstance(participants, list):
+        return []
+
+    conv_uri = _urn(f"conversation/{conversation_id}")
+    safe_user = escape_turtle_literal(settings.user_id)
+    safe_channel = escape_turtle_literal(channel or "unknown")
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in participants:
+        raw = _participant_identifier(channel, entry)
+        if not raw:
+            continue
+        # `@lid` is WhatsApp's opaque linked-id, not a phone or a name.
+        # pwg_ingest refuses to create a Person node from it (BW-4), so a
+        # participant edge keyed off it would dangle. Skip it here too.
+        if raw.endswith("@lid"):
+            continue
+        # The URI key MUST be derived from the SAME string pwg_ingest
+        # keys the Person node by (raw JID for WhatsApp), else the edge
+        # dangles to a phantom node. The surfaced chatIdentifier literal
+        # may stay normalised (e164 phone) for readability.
+        uri_key = _participant_uri_key(channel, raw)
+        if not uri_key or uri_key in seen:
+            continue
+        seen.add(uri_key)
+        person_id = _person_id_from_identifier(uri_key)
+        person_uri = _person_graph_uri(person_id)
+        ident = _normalise_chat_identifier(channel, raw)
+        # The Person URI is a full http(s) IRI -> valid Turtle in
+        # angle brackets. The identifier literal is escaped defensively
+        # even though it is phone/email-shaped.
+        safe_ident = escape_turtle_literal(ident)
+        block = "\n".join([
+            _turtle_prefixes(),
+            f"<{person_uri}> <urn:pwg:participatedIn> {conv_uri} ;",
+            f'  <urn:pwg:hasChatChannel> "{safe_channel}" ;',
+            f'  <urn:pwg:chatIdentifier> "{safe_ident}" ;',
+            f'  <urn:pwg:userId> "{safe_user}" .',
+            f"{conv_uri} <urn:pwg:hasParticipant> <{person_uri}> .",
+        ])
+        out.append(block)
+    return out
 
 
 def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> list[str]:
