@@ -14354,11 +14354,18 @@ unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER
 # contacts/calendar -> meeting locations land here) and the dedupe_merge
 # sweep, and BEFORE wiki_compile, so the first wiki compile already sees a
 # populated Places section. The contact_syncer.places_ingest module ships in
-# the import-pipeline venv ($PIPELINE_PY) alongside contact_syncer.syncer --
-# same venv that carries httpx + qdrant-client. Best-effort + idempotent
+# the import-pipeline venv (${PIPELINE_DIR}/.venv) alongside contact_syncer.syncer
+# -- same venv that carries httpx + qdrant-client. Best-effort + idempotent
 # (deterministic uuid5 point IDs): a failure is logged and install continues;
 # a re-run upserts the same points rather than duplicating them.
-if [[ -x "$PIPELINE_PY" ]]; then
+#
+# Guard on the venv python derived from $PIPELINE_DIR (the in-scope var the
+# body's `cd "$PIPELINE_DIR" && .venv/bin/python` already uses), NOT a bare
+# $PIPELINE_PY: that name is only ever assigned inside the generated
+# ostler-contact-resync heredoc, never in this script's own scope, so under
+# `set -u` the test aborted the whole install (ERR-99 initial_hydrate). The
+# ${PIPELINE_DIR:-} default keeps the test set -u-safe even if unset.
+if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     info "$MSG_HYDRATE_PLACES_STARTED"
     _PLACES_EMBED_URL="${EMBED_OLLAMA_URL:-http://localhost:11434}"
     _PLACES_EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
