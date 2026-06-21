@@ -736,8 +736,10 @@ USER_FACING_ROOT="${HOME}/Documents/Ostler"
 # emits for every wired human channel -- WhatsApp first (the gating
 # floor), then iMessage / email / meeting-voice. The bundle feeds
 # write under ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
-# (AI Conversations live in a SEPARATE tree, added in v1.0.1.)
-USER_TREE_SUBDIRS=("Wiki" "Conversations" "Transcripts" "Daily-Briefs" "Captures" "Exports")
+# (AI Conversations live in a SEPARATE tree, wired in v1.0.1 -- the
+# "AI Conversations" subdir below; CM052's pwg-ai-convo writes the
+# AI-chat bundles there, kept apart from the human Conversations tree.)
+USER_TREE_SUBDIRS=("Wiki" "Conversations" "AI Conversations" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 
 # ── DMG #48 install transcript ────────────────────────────────────
 #
@@ -1515,6 +1517,15 @@ KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 # dev / CI shells. Override:
 # PWG_CM048_REPO="https://github.com/your-org/cm048.git" ./install.sh
 CM048_REPO="${PWG_CM048_REPO:-}"
+
+# CM052 AI-conversations ingest (pwg-ai-convo). Same productisation
+# rule as CM048: the vendored package ships in the .app bundle; dev
+# installs without the tarball can set PWG_CM052_REPO to clone the
+# upstream repo. Unlike CM048 a missing CM052 bundle is WARN-only,
+# not a hard fail -- AI Conversations is an additive v1.0.1 wing and
+# its absence must not block the whole install. Override:
+# PWG_CM052_REPO="https://github.com/your-org/cm052.git" ./install.sh
+CM052_REPO="${PWG_CM052_REPO:-}"
 
 # Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
 # LICENSES/ tree. Same productisation rule: bundled tarball is the
@@ -8343,6 +8354,139 @@ else
     } > "$_cm048_settings"
     chmod 0600 "$_cm048_settings"
     info "$(printf "$MSG_INFO_CM048_SETTINGS_WRITTEN" "$_cm048_model" "${RAM_GB:-?}")"
+fi
+
+# ── 3.10b3 CM052 AI Conversations ingest (pwg-ai-convo) ──────────
+#
+# CM052 unifies AI-chat exports (Claude Code, ChatGPT export, etc.)
+# into the 4-artefact ConversationBundle shape and writes them under
+# ${USER_FACING_ROOT}/AI Conversations/, kept separate from the human
+# Conversations tree. The vendored package ships in the .app at
+# ${SCRIPT_DIR}/cm052/; dev installs without the tarball can set
+# PWG_CM052_REPO to clone the upstream repo.
+#
+# Deliberately UNLIKE the CM048 block above:
+#   * A missing CM052 bundle is WARN-only, never a hard fail. AI
+#     Conversations is an additive v1.0.1 wing (private/L3 by default);
+#     its absence must not block the whole install the way a missing
+#     conversation-memory engine does.
+#   * No ostler_security install step. CM052's only runtime deps are
+#     httpx + PyYAML (declared in its pyproject.toml); it never imports
+#     ostler_security, so there is nothing extra to vendor in.
+#   * The second health gate imports src.cm052.cli (the CLI module),
+#     not a pipeline module -- CM052 has no ostler_security-shaped
+#     hidden dependency, so the bare --help probe plus a real import is
+#     sufficient to confirm the venv is wired.
+
+progress "Setting up AI conversations" "cm052_setup"
+
+CM052_DIR="${OSTLER_DIR}/services/cm052"
+CM052_VENV="${CM052_DIR}/.venv"
+CM052_BIN="${CM052_VENV}/bin/pwg-ai-convo"
+CM052_SYMLINK="/usr/local/bin/pwg-ai-convo"
+CM052_SOURCE_OK=false
+
+mkdir -p "$(dirname "$CM052_DIR")"
+
+if [[ -d "${SCRIPT_DIR}/cm052" && -f "${SCRIPT_DIR}/cm052/pyproject.toml" ]]; then
+    # Productised path: vendored package bundled in the .app
+    info "$(printf "$MSG_INFO_INSTALLING_CM052_FROM" "${SCRIPT_DIR}/cm052")"
+    rm -rf "$CM052_DIR"
+    mkdir -p "$CM052_DIR"
+    cp -R "${SCRIPT_DIR}/cm052/" "$CM052_DIR/"
+    CM052_SOURCE_OK=true
+elif [[ -n "$CM052_REPO" ]]; then
+    # Dev / private-beta path: PWG_CM052_REPO override
+    info "$(printf "$MSG_INFO_INSTALLING_CM052_FROM" "$CM052_REPO")"
+    CM052_CLONE_LOG="$(mktemp -t ostler-cm052-clone.XXXXXX.log)"
+    if [[ -d "$CM052_DIR/.git" ]]; then
+        info "$(printf "$MSG_INFO_EXISTING_CHECKOUT_UPDATING" "$CM052_DIR")"
+        if git -C "$CM052_DIR" fetch --quiet origin 2>"$CM052_CLONE_LOG" \
+            && git -C "$CM052_DIR" reset --hard --quiet origin/main 2>>"$CM052_CLONE_LOG"; then
+            CM052_SOURCE_OK=true
+            rm -f "$CM052_CLONE_LOG"
+        else
+            warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
+            if [[ -s "$CM052_CLONE_LOG" ]]; then
+                sed -e 's/^/    /' "$CM052_CLONE_LOG" | head -5
+            fi
+            rm -f "$CM052_CLONE_LOG"
+            CM052_SOURCE_OK=true
+        fi
+    elif git clone --quiet --depth 1 "$CM052_REPO" "$CM052_DIR" 2>"$CM052_CLONE_LOG"; then
+        info "$(printf "$MSG_INFO_CLONED" "$CM052_DIR")"
+        CM052_SOURCE_OK=true
+        rm -f "$CM052_CLONE_LOG"
+    else
+        warn "$MSG_WARN_CM052_CLONE_FAILED"
+        if [[ -s "$CM052_CLONE_LOG" ]]; then
+            warn "$MSG_WARN_GIT_SAID"
+            sed -e 's/^/    /' "$CM052_CLONE_LOG" | head -5
+        fi
+        rm -f "$CM052_CLONE_LOG"
+    fi
+else
+    # No bundle, no override -- WARN-only. AI Conversations stays an
+    # empty wing until the engine is present; the rest of Ostler runs.
+    warn "$MSG_WARN_CM052_SKIPPED_NOT_BUNDLED"
+    warn "$MSG_WARN_CM052_UNAVAILABLE"
+fi
+
+if [[ "$CM052_SOURCE_OK" == true && -f "$CM052_DIR/pyproject.toml" ]]; then
+    info "$(printf "$MSG_INFO_CREATING_PYTHON_VENV" "$CM052_VENV")"
+    "$PYTHON3_BIN" -m venv "$CM052_VENV"
+
+    info "$MSG_INFO_INSTALLING_CM052_INTO_VENV"
+    "$CM052_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+
+    if "$CM052_VENV/bin/pip" install --quiet "$CM052_DIR" 2>/tmp/ostler-cm052-pip.log; then
+        info "$MSG_INFO_CM052_INSTALLED_VENV"
+    else
+        warn "$MSG_WARN_PIP_INSTALL_FAILED_CM052"
+        if [[ -s /tmp/ostler-cm052-pip.log ]]; then
+            sed -e 's/^/    /' /tmp/ostler-cm052-pip.log | tail -5
+        fi
+    fi
+
+    if [[ -x "$CM052_BIN" ]]; then
+        info "$(printf "$MSG_INFO_SYMLINKING" "$CM052_BIN" "$CM052_SYMLINK")"
+        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already been
+        # chowned to the user by the parent .app's AuthorizationHelper,
+        # so a plain `ln -sf` writes user-side with no further sudo
+        # prompt. Matches the CM048 / ostler-knowledge symlink pattern.
+        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+            ln -sf "$CM052_BIN" "$CM052_SYMLINK" \
+                || sudo ln -sf "$CM052_BIN" "$CM052_SYMLINK"
+        else
+            sudo ln -sf "$CM052_BIN" "$CM052_SYMLINK"
+        fi
+
+        # Health check. Two gates, both must pass:
+        #
+        #   1. `pwg-ai-convo --help` exercises the argparse entrypoint
+        #      and confirms PATH-side wiring + venv binding (argparse
+        #      --help short-circuits and exits 0 before any required-arg
+        #      validation, so a bare --help is a clean liveness probe).
+        #
+        #   2. `import src.cm052.cli` inside the venv loads the CLI
+        #      module, confirming the package actually installed and its
+        #      deps (httpx + PyYAML) resolved. Unlike CM048 there is no
+        #      ostler_security-shaped hidden dependency, so this pair is
+        #      sufficient.
+        if "$CM052_SYMLINK" --help >/dev/null 2>&1 \
+           && "$CM052_VENV/bin/python3" -c 'import src.cm052.cli' >/tmp/ostler-cm052-import.log 2>&1; then
+            ok "$MSG_OK_CM052_READY"
+        else
+            warn "$MSG_WARN_CM052_HEALTH_CHECK_FAILED"
+            if [[ -s /tmp/ostler-cm052-import.log ]]; then
+                sed -e 's/^/    /' /tmp/ostler-cm052-import.log | tail -5
+            fi
+        fi
+    else
+        warn "$(printf "$MSG_WARN_CM052_CONSOLE_SCRIPT_NOT_CREATED" "$CM052_BIN")"
+    fi
+elif [[ "$CM052_SOURCE_OK" == true ]]; then
+    warn "$MSG_WARN_CM052_REPO_RESOLVED_BUT_PYPROJECT"
 fi
 
 # ── 3.10c Calendar / Gmail bridge for ical-server.py ─────────────
