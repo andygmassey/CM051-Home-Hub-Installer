@@ -171,6 +171,14 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    private-beta installs. Missing pipeline AND no override is"
     echo "    a hard fail unless --allow-plaintext is passed."
     echo ""
+    echo "  PWG_CM059_REPO"
+    echo "    Source repo for the interest-profile emitter (compiles the"
+    echo "    preferences artefact read by the assistant). Default: empty"
+    echo "    (productised tarball bundles the compiler at"
+    echo "    Contents/Resources/cm059_editor/). Set to a clone URL for dev"
+    echo "    or private-beta installs; missing source AND no override skips"
+    echo "    the emit step warn-only."
+    echo ""
     echo "  PWG_NOTICES_BASE_URL"
     echo "    Base URL for raw-fetching THIRD_PARTY_NOTICES.md and the"
     echo "    LICENSES/ tree when neither the tarball nor the hub-power"
@@ -1515,6 +1523,19 @@ KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 # dev / CI shells. Override:
 # PWG_CM048_REPO="https://github.com/your-org/cm048.git" ./install.sh
 CM048_REPO="${PWG_CM048_REPO:-}"
+
+# CM059 interest-profile emitter. Pure-stdlib compiler that queries the
+# local Oxigraph for the customer's compiled preferences and writes
+# ~/.ostler/preferences/interest_profile.json. The CM041 /api/v1/preferences
+# route reads that artefact (precedence OSTLER_INTEREST_PROFILE >
+# OSTLER_PREFERENCES_DIR/interest_profile.json > the default) and the
+# assistant's pwg_preferences tool proxies the route, so this artefact is
+# what powers the headline "what are my tastes" answer. The productised
+# tarball bundles the compiler under ${SCRIPT_DIR}/cm059_editor/; without
+# bundling AND without an override the emit step is skipped warn-only
+# (additive feature, never blocks the install).
+# PWG_CM059_REPO="https://github.com/your-org/cm059.git" ./install.sh
+CM059_REPO="${PWG_CM059_REPO:-}"
 
 # Base URL for fallback fetch of THIRD_PARTY_NOTICES.md and the
 # LICENSES/ tree. Same productisation rule: bundled tarball is the
@@ -8860,6 +8881,70 @@ elif [[ -n "${EXPORTS_DIR:-}" ]]; then
     info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
 fi
 unset _PREFS_DROPZONE _IMPORT_DIRS
+
+# ── Interest profile emitter (preferences artefact) ──────────────
+#
+# Runs the CM059 emitter to compile ~/.ostler/preferences/
+# interest_profile.json from the preference triples now in Oxigraph
+# (the import step above loaded them). The CM041 /api/v1/preferences
+# route reads this artefact and the assistant's pwg_preferences tool
+# proxies it, so without this step "what are my tastes" returns
+# nothing. Pure-stdlib emitter (urllib to Oxigraph), so no venv/pip --
+# just run the module against the bundled source tree.
+#
+# Source resolution mirrors the knowledge/cm048 pattern: bundled vendor
+# copy at ${SCRIPT_DIR}/cm059_editor/ > PWG_CM059_REPO clone > skip
+# warn-only. The artefact is additive (the headline prefs answer), so a
+# missing emitter must never abort the install.
+INTEREST_PROFILE_DIR="${OSTLER_DIR}/preferences"
+INTEREST_PROFILE_JSON="${INTEREST_PROFILE_DIR}/interest_profile.json"
+CM059_SRC=""
+if [[ -d "${SCRIPT_DIR}/cm059_editor" \
+      && -f "${SCRIPT_DIR}/cm059_editor/compiler/emit_artefact.py" ]]; then
+    CM059_SRC="${SCRIPT_DIR}/cm059_editor"
+    info "$MSG_INFO_INTEREST_PROFILE_BUNDLED"
+elif [[ -n "$CM059_REPO" ]]; then
+    CM059_SRC="${OSTLER_DIR}/services/cm059-editor"
+    _CM059_CLONE_LOG="$(mktemp -t ostler-cm059-clone.XXXXXX.log)"
+    if [[ -d "${CM059_SRC}/.git" ]]; then
+        if git -C "$CM059_SRC" fetch --quiet origin 2>"$_CM059_CLONE_LOG" \
+            && git -C "$CM059_SRC" reset --hard --quiet origin/main 2>>"$_CM059_CLONE_LOG"; then
+            :
+        else
+            warn "$MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT"
+        fi
+    elif ! git clone --quiet --depth 1 "$CM059_REPO" "$CM059_SRC" 2>"$_CM059_CLONE_LOG"; then
+        warn "$MSG_WARN_INTEREST_PROFILE_CLONE_FAILED"
+        [[ -s "$_CM059_CLONE_LOG" ]] && sed -e 's/^/    /' "$_CM059_CLONE_LOG" | head -5
+        CM059_SRC=""
+    fi
+    rm -f "$_CM059_CLONE_LOG"
+    unset _CM059_CLONE_LOG
+else
+    info "$MSG_INFO_INTEREST_PROFILE_SOURCE_NOT_BUNDLED"
+fi
+
+if [[ -n "$CM059_SRC" && -f "${CM059_SRC}/compiler/emit_artefact.py" ]]; then
+    mkdir -p "$INTEREST_PROFILE_DIR"
+    # Run in a subshell so the cd does not disturb the installer CWD. The
+    # `if (...)` consumes the subshell exit status, so a failing emit is a
+    # warn, never an errexit/ERR-trap abort.
+    if ( cd "$CM059_SRC" \
+         && OSTLER_OXIGRAPH_URL="${OSTLER_OXIGRAPH_URL:-http://localhost:7878}" \
+            "${PYTHON3_BIN:-python3}" -m compiler.emit_artefact --out "$INTEREST_PROFILE_JSON" \
+       ) >/tmp/ostler-interest-profile.log 2>&1; then
+        if [[ -s "$INTEREST_PROFILE_JSON" ]]; then
+            ok "$(printf "$MSG_OK_INTEREST_PROFILE_WRITTEN" "$INTEREST_PROFILE_JSON")"
+        else
+            warn "$MSG_WARN_INTEREST_PROFILE_EMPTY"
+        fi
+    else
+        warn "$MSG_WARN_INTEREST_PROFILE_EMIT_FAILED"
+        [[ -s /tmp/ostler-interest-profile.log ]] \
+            && sed -e 's/^/    /' /tmp/ostler-interest-profile.log | tail -5
+    fi
+fi
+unset INTEREST_PROFILE_DIR INTEREST_PROFILE_JSON CM059_SRC
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
