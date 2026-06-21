@@ -4673,36 +4673,47 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     # "speaker_identification_only" so a future emotion feature
     # cannot quietly reuse this consent.
     #
-    # Decline does NOT abort the install. It just keeps cm041 voice
-    # ingestion off. The Rust gate at cm041 startup honours the
-    # decision (refuses to start WhisperKit when EU + declined).
+    # Decline does NOT abort the install. Speaker-ID is an iOS Companion
+    # (CM031) capability: voice fingerprints are enrolled and matched
+    # ON THE iPHONE, in an encrypted store that is never synced. The Hub
+    # never holds a voiceprint -- it stores only text speaker LABELS.
+    # There is therefore no Hub-side enforcement gate; the consent
+    # decision is recorded here and honoured by the Companion app, which
+    # does not enrol voices when consent is declined or absent.
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Recognising voices on calls${NC}"
+    echo -e "  ${BOLD}Recognising voices on calls (in the Ostler iPhone app)${NC}"
     echo ""
-    echo "  Ostler can label transcripts with who is speaking – for"
-    echo "  example, \"Speaker A\", \"Speaker B\" – by storing a numeric"
-    echo "  fingerprint of each voice locally on this Mac. Under UK and"
-    echo "  EU privacy law this is biometric data, so we have to ask"
-    echo "  first."
+    echo "  The Ostler iPhone Companion app can label transcripts with who"
+    echo "  is speaking - for example, \"Speaker A\", \"Speaker B\" - by storing"
+    echo "  a numeric fingerprint of each voice in an encrypted store ON YOUR"
+    echo "  iPHONE. The fingerprints never leave your phone and are never sent"
+    echo "  to this Mac or to us; the Mac only ever receives the text label"
+    echo "  (the name), never the fingerprint. Under UK and EU privacy law a"
+    echo "  voice fingerprint is biometric data, so we ask before the"
+    echo "  Companion enrols any voices."
     echo ""
     echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a recording you make."
     echo -e "  ${BOLD}What we do not do.${NC} Detect mood, emotion, sentiment, stress"
     echo "  or any other inferred psychological state from voice."
     echo ""
-    echo "  The fingerprints stay on this Mac. We never receive them. You"
-    echo "  can turn this off any time in Settings -> Privacy -> Voice"
-    echo "  recognition; turning it off deletes any fingerprints already"
-    echo "  stored."
+    echo "  The fingerprints stay on your iPhone. We never receive them, and"
+    echo "  neither does this Mac. You can turn this off any time in the"
+    echo "  iPhone app under Settings -> Voice recognition; turning it off"
+    echo "  deletes any fingerprints already stored on the phone. If you"
+    echo "  never install the iPhone Companion, no voice fingerprint is ever"
+    echo "  created."
     echo ""
-    echo -e "  ${DIM}Legal note: Voice fingerprints stored on this Mac are"
-    echo -e "  biometric data under UK GDPR Article 9(1). Your explicit"
+    echo -e "  ${DIM}Legal note: Voice fingerprints stored on your iPhone by the"
+    echo -e "  Ostler Companion app are biometric data under UK GDPR Article"
+    echo -e "  9(1). Your explicit"
     echo -e "  consent above (Article 9(2)(a)) is the lawful basis for"
     echo -e "  processing. You are the data controller (Article 4(7));"
-    echo -e "  Creative Machines never receives the fingerprints. For"
+    echo -e "  Creative Machines never receives the fingerprints, and they are"
+    echo -e "  never sent to this Mac. For"
     echo -e "  personal and household use, Article 2(2)(c) further limits"
-    echo -e "  scope. Withdrawing consent in Settings deletes stored"
+    echo -e "  scope. Withdrawing consent in the iPhone app deletes stored"
     echo -e "  fingerprints.${NC}"
     echo ""
     while true; do
@@ -6941,7 +6952,7 @@ PY
         _consent_cli_record blocking \
             voice_speaker_id_eu \
             "$OSTLER_CONSENT_VOICE_EU_DECISION" \
-            "Could not persist EU voice consent (continuing - cm041 will refuse to start)"
+            "Could not persist EU voice consent (continuing - honoured by the iOS Companion, not a Hub gate)"
     fi
 
     # Third-party-data acknowledgement (every region). Decline aborts
