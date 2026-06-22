@@ -86,11 +86,11 @@ name             = "cm048_pipeline"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
-pinned_sha       = "659d66393b755834b62559771d095d0702172ba9"
+pinned_sha       = "ad37a0ad854b01448cc9b4cb44dfa1a4dce25a0e"
 divergence_patch = ""
-exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
+exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", ".github/", ".githooks/", ".env.example", ".gitignore", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
 verify           = "skip"
-note             = "The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full."
+note             = "v1.0.1 cut re-vendor 2026-06-22: pin bumped 659d6639 -> ad37a0a (CM048 main HEAD, re-vendored from the HEALTHY GitHub clone andygmassey/CM048-PWG-Conversation-Processing -- the old sick local checkout could not be materialised). Brings PR #43 (outstanding_todos.normalise_deadline relative-due-date resolution + detect_status completion detection) and PR #42 (privacy.py 'sms': 'L2' so green-bubble SMS stops falling through to the L3 silent-drop). New source modules src/outstanding_todos.py + src/last_contact_updater.py and prompts/06_speaker_inference.md were pulled in (imported/loaded by the refreshed ingest.py/processor.py). Vendor-only grafts PRESERVED by hand: src/copy.py (Rule 0.9 customer-string catalogue) + prompts/__init__.py + tests/test_conversation_identity_wiring.py, AND the copy-catalogue wiring in src/{api_endpoint,reminders_push,conversation_writer}.py (these import `from . import copy as _copy`; source still inlines those strings, so they were NOT refreshed -- the vendored copy-catalogue version is ahead). No facebook_messenger default was added (none exists upstream either). verify stays 'skip' (WARN, never silent pass) because of the 3 vendor-only files + the 3 copy-catalogue grafts + curated exclusions; a naive full structural diff would false-fail until a divergence patch is generated for the copy-catalogue files."
 
 # ---- CM021 (Email Intelligence) ------------------------------------------
 

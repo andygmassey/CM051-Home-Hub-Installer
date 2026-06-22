@@ -138,6 +138,26 @@ Replace its in-app extraction call with an HTTP POST.
 finalisation (same POST). Speaker-label feedback consumed by the
 iOS app on next sync.
 
+**C.2a Speaker-identity inference - BUILT (2026-06-18).** The `06_speaker_feedback`
+step is no longer an empty placeholder. `processor._step_speaker_feedback`
+now runs a real LLM pass (prompt `prompts/06_speaker_inference.md`) that,
+for each generic "Speaker N" turn in the transcript, infers the most
+likely real person from the dialogue context plus a candidate list
+assembled from the request participants and the `pwg:Person` people
+graph. It emits a schema-valid `SpeakerLabelFeedback`
+(`docs/speaker_label_feedback.schema.json`): resolved speakers go in
+`labels` with `apply_mode` derived from confidence (>=0.9 auto, >=0.7
+suggest, else review_required); the rest go in `unresolved_labels`. This
+is the producer half of the TEXT-only speaker-naming round-route
+(HR015 `DESIGN_capture_ingest_and_speaker_identity.md` section 4). PRIVACY: no
+voice embedding is read or emitted; each label only carries the opaque,
+device-supplied `voice_fingerprint_ref`, which the step re-stamps from
+the device's own metadata (the model cannot influence it). The Hub
+serves this artefact over `GET /api/v1/conversation/{id}/speakers`
+(CM041 ical-server + CM051 vendored twin); CM031 fetches it on
+processing-complete and binds the confirmed name to the LOCAL voiceprint
+via the ref. Tests: `tests/test_speaker_inference.py`.
+
 **C.3 CM044 wiki compiler patches:**
 - New section on Person pages: "Relationship signals" (rolled up from
   Oxigraph)

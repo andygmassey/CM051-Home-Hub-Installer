@@ -87,6 +87,7 @@ from pathlib import Path
 import httpx
 
 from .turtle_escape import escape_turtle_literal
+from . import outstanding_todos as _outstanding_todos
 from .schemas import (
     Classification,
     ExtractedFact,
@@ -235,10 +236,9 @@ def write_all(
 
     ``metadata`` carries the conversation's ``channel`` + ``participants``
     so the gist sinks can (a) tag Qdrant points with the channel and
-    (b) link the Oxigraph facts/signals to the JID/handle-keyed Person
+    (b) link the conversation to the JID/handle-keyed people-graph Person
     nodes. When omitted it is read from ``state_dir/00_metadata.json``;
-    a missing file degrades the channel tag / participant edges to no-op
-    rather than failing the write.
+    a missing file degrades the channel tag / participant edges to no-op.
     """
     if metadata is None:
         metadata = _load_metadata(state_dir)
@@ -327,11 +327,10 @@ def _write_qdrant(
 
     if metadata is None:
         metadata = _load_metadata(state_dir)
-    # `channel` discriminates whatsapp / im / sms / email / spoken in the
-    # one `conversations` collection. Before this every point was an
-    # un-channelled `source=human_conversation`, so nothing downstream
-    # could tell a WhatsApp point from an iMessage point. Keep `source`
-    # for back-compat; ADD the channel tag.
+    # `channel` discriminates whatsapp / imessage / sms / email / spoken
+    # in the points. Legacy points carried only the un-channelled
+    # `source=human_conversation`, so nothing downstream could filter or
+    # label by channel. Keep `source` for back-compat; ADD the channel tag.
     channel = (metadata.get("channel") or "").strip().lower() or None
 
     client = OllamaClient(base_url=settings.ollama_url)
@@ -441,12 +440,10 @@ def _write_oxigraph(
         conversation_id, classification, settings
     ))
 
-    # Participant-identity edges. Link the conversation to the SAME
-    # `pwg:Person` nodes ostler_fda.pwg_ingest keys by JID/handle, so the
-    # graph can answer "who did I talk to / what did they say"
-    # structurally. Without this, a conversation's facts float free of the
-    # people graph (the live-box symptom: facts mention whatsapp but no
-    # Person carries a chat identity).
+    # Participant-identity bridge: link the conversation to the
+    # JID/handle-keyed Person nodes ostler_fda.pwg_ingest creates, so
+    # "who did I talk to" walks pwg:hasParticipant structurally. No-op
+    # when metadata lacks resolvable participants.
     triples.extend(
         _participant_identity_triples(conversation_id, metadata, settings)
     )
@@ -465,6 +462,15 @@ def _write_oxigraph(
         if isinstance(facts, list):
             for fact in facts:
                 triples.extend(_fact_to_triples(conversation_id, fact, settings))
+
+    # Outstanding todos (pre-meeting brief input). Each todo is linked
+    # to every non-user participant of the source conversation so the
+    # brief subagent (CM041 meeting_syncer/brief.py) can query
+    # pwg:OutstandingTodo triples by attendee URI and surface them on
+    # the next meeting with that person. Best-effort: missing sidecar
+    # is a silent no-op (the extractor warns at run time).
+    for todo in _outstanding_todos.load_sidecar(state_dir):
+        triples.extend(_todo_to_triples(conversation_id, todo, settings))
 
     if not triples:
         return 0
@@ -565,8 +571,8 @@ def _participant_identity_triples(
 
     The ``<person>`` URI is reconstructed to match exactly the node
     ostler_fda.pwg_ingest creates for the same contact, so the
-    conversation and the person graph share one node and Samantha can
-    answer "who did I talk to" by walking ``pwg:hasParticipant``.
+    conversation and the person graph share one node and the assistant
+    can answer "who did I talk to" by walking ``pwg:hasParticipant``.
 
     Participants with no chat identifier (the operator's own ``user``
     row, or an LLM-only slug with no JID/handle) are skipped -- we never
@@ -652,6 +658,93 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
         f'  <urn:pwg:observedAt> "{safe_observed_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .',
     ]
     return ["\n".join(t)]
+
+
+def _todo_to_triples(
+    conversation_id: str,
+    todo: "_outstanding_todos.OutstandingTodo",
+    settings: Settings,
+) -> list[str]:
+    """Emit pwg:OutstandingTodo triples for one extracted action item.
+
+    Schema (mirrors brief.py's SPARQL on the consumer side):
+
+    - ``<urn:pwg:todo/<todo_id>> a <urn:pwg:OutstandingTodo>``
+    - ``pwg:fromConversation`` → the source conversation URI
+    - ``pwg:aboutPerson`` → one triple per non-user participant
+      (so a 3-person meeting fans out 3 ``aboutPerson`` triples)
+    - ``pwg:owner`` → the structured owner id (``"user"`` /
+      ``"other:<slug>"`` / ``UNOWNED`` sentinel)
+    - ``pwg:ownerDisplay`` → the literal display name from the table
+    - ``pwg:todoText`` → the action item verbatim
+    - ``pwg:deadline`` → ISO date literal, omitted if null
+    - ``pwg:priority`` → ``"high" | "medium" | "low"``, omitted if null
+    - ``pwg:status`` → ``"open"`` (future v1.0.1 closes from later convos)
+    - ``pwg:todoCreatedAt`` → RFC3339 UTC of extractor run
+    - ``pwg:visibility`` → ``"private"`` (always)
+    - ``pwg:userId`` → owning operator's id
+
+    All literal interpolations route through ``escape_turtle_literal``
+    so an LLM-extracted action text containing a stray quote or newline
+    cannot terminate the literal early and inject triples.
+    """
+    todo_uri = _urn(f"todo/{todo.todo_id}")
+    conv_uri = _urn(f"conversation/{conversation_id}")
+
+    safe_user = escape_turtle_literal(settings.user_id)
+    safe_owner = escape_turtle_literal(todo.owner)
+    safe_owner_display = escape_turtle_literal(todo.owner_display)
+    # action_text uses json.dumps for the same reason fact text does
+    # (JSON-quoting is a superset of Turtle string-literal quoting).
+    action_quoted = json.dumps(todo.action_text)
+    safe_status = escape_turtle_literal(todo.status)
+    safe_created_at = escape_turtle_literal(todo.created_at)
+    safe_source_date = escape_turtle_literal(todo.source_conversation_date)
+
+    lines = [
+        _turtle_prefixes(),
+        f"{todo_uri} a <urn:pwg:OutstandingTodo> ;",
+        f'  <urn:pwg:fromConversation> {conv_uri} ;',
+        f'  <urn:pwg:userId> "{safe_user}" ;',
+        f'  <urn:pwg:visibility> "private" ;',
+        f'  <urn:pwg:owner> "{safe_owner}" ;',
+        f'  <urn:pwg:ownerDisplay> "{safe_owner_display}" ;',
+        f'  <urn:pwg:todoText> {action_quoted} ;',
+        f'  <urn:pwg:status> "{safe_status}" ;',
+        f'  <urn:pwg:todoCreatedAt> "{safe_created_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;',
+        f'  <urn:pwg:sourceConversationDate> "{safe_source_date}" ;',
+    ]
+    if todo.deadline:
+        safe_deadline = escape_turtle_literal(todo.deadline)
+        lines.append(
+            f'  <urn:pwg:deadline> "{safe_deadline}"^^<http://www.w3.org/2001/XMLSchema#date> ;'
+        )
+    if todo.priority:
+        safe_priority = escape_turtle_literal(todo.priority)
+        lines.append(
+            f'  <urn:pwg:priority> "{safe_priority}" ;'
+        )
+    # aboutPerson fan-out: one triple per non-user participant. Each
+    # subject_person_id is the conversation metadata ``id`` (e.g.
+    # ``other:alice-chen``) which the brief subagent maps to a
+    # ``pwg:person`` URI via _urn(subject.replace(":", "/")) on the
+    # consumer side (mirroring _fact_to_triples).
+    person_lines = []
+    for person_id in todo.subject_person_ids:
+        person_uri = _urn(person_id.replace(":", "/"))
+        person_lines.append(
+            f'  <urn:pwg:aboutPerson> {person_uri} ;'
+        )
+    if not person_lines:
+        # No non-user participants. Skip (brief use case doesn't apply).
+        return []
+    # Replace the trailing semicolon on the last person line with a
+    # period so the Turtle block terminates cleanly.
+    lines.extend(person_lines[:-1])
+    last = person_lines[-1].rstrip(" ;") + " ."
+    lines.append(last)
+
+    return ["\n".join(lines)]
 
 
 def _fact_to_triples(conversation_id: str, fact: dict, settings: Settings) -> list[str]:

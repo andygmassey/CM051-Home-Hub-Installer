@@ -21,17 +21,7 @@ pwg-convo = "src.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "prompts*"]
-
-# The pipeline's LLM steps load prompt templates from a `prompts/`
-# directory that sits as a sibling of `src/` in site-packages
-# (src/prompts.py resolves Path(__file__).parent.parent / "prompts").
-# Without this, pip installs only `src*` and every conversation dies at
-# step 01_classify with "Prompt not found", so no conversation ever
-# reaches its sinks. `prompts/` carries an __init__.py purely so
-# setuptools treats it as a package and ships its .md data files.
-[tool.setuptools.package-data]
-prompts = ["*.md"]
+include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
