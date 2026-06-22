@@ -2054,7 +2054,7 @@ echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
 echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
 echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
 echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
-echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you"
+echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
 echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
@@ -2870,6 +2870,62 @@ case "$CHANNEL_CHOICE" in
         CHANNEL_EMAIL_ENABLED=true
         ;;
 esac
+
+# ── Messages Automation prompt — FRONT-LOADED (v1.0.2, P1) ────────
+#
+# Previously the macOS "OstlerInstaller wants to control Messages"
+# Automation prompt fired only at section 3.18 (~95% through install),
+# which on the .156 walk landed ~75 s AFTER the success banner -- i.e.
+# the customer saw "all done", walked away, then got ambushed by a
+# system permission popup. That breaks the launch promise that NOTHING
+# prompts after the success screen.
+#
+# The Automation grant depends only on (a) the iMessage channel being
+# chosen -- known NOW, immediately after CHANNEL_CHOICE above -- and
+# (b) Messages.app being launchable. Neither needs the late daemon or
+# channel config, so we trigger the consent prompt HERE, in the same
+# attention window as the FDA + Contacts prompts, while the customer is
+# still answering questions. The late 3.18 block then becomes a
+# RE-PROBE only (it records posture but no longer fires a fresh prompt
+# or a second pre-warn modal) -- guarded by IMESSAGE_AUTOMATION_PRIMED_EARLY.
+#
+# Keeping the grant (vs dropping it like Mail's AppleScript) is
+# deliberate: driving the main Messages.app via AppleScript is how the
+# assistant SENDS iMessages as the user. We only move WHEN it is asked,
+# not whether.
+IMESSAGE_AUTOMATION_PRIMED_EARLY=false
+if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && "${OSTLER_GUI:-0}" == "1" ]]; then
+    # Warm the main Messages.app so the probe's `count of accounts`
+    # AppleEvent does not -1712 against a cold app. `-g` keeps it in the
+    # background (no focus steal mid-install). Best-effort + non-fatal.
+    open -ga Messages 2>/dev/null || true
+
+    # Pre-warn ack so the "wants to control Messages" popup is expected,
+    # not an ambush. Mirrors the 3.18 wording. Short cooldown so it does
+    # not stack on the FDA/Contacts dialogs that just closed.
+    info "$MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION"
+    sleep 2
+    _="$(gui_read \
+        "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE" \
+        acknowledge \
+        "" \
+        "$MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP" \
+        "" \
+        "imessage_automation_incoming_ack_early")"
+    info "$MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY"
+
+    # READ-ONLY probe that requires the SAME Automation grant a real send
+    # would -- this is what triggers the macOS consent prompt. We discard
+    # the posture here (3.18 records the authoritative snapshot); the only
+    # side-effect we want now is the prompt landing in the attention
+    # window. Test-shim escape hatch honoured so harnesses never osascript.
+    if [[ -z "${PWG_IMESSAGE_PROBE_OUTCOME:-}" ]]; then
+        osascript -e 'tell application "Messages" to count of accounts' \
+            >/dev/null 2>&1 || true
+    fi
+    IMESSAGE_AUTOMATION_PRIMED_EARLY=true
+fi
+export IMESSAGE_AUTOMATION_PRIMED_EARLY
 
 # ── WhatsApp risk tickbox (A7 - locked 2026-05-02) ────────────────
 #
@@ -9636,6 +9692,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/d
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.dedupe-catchup" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
@@ -9659,6 +9717,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
@@ -13068,6 +13127,163 @@ _hydrate_heartbeat_stop() {
     _HYDRATE_HEARTBEAT_PID=""
 }
 
+# ── Deferred whole-graph dedupe converge (v1.0.2, P0) ─────────────
+#
+# Installs a bounded, self-removing LaunchAgent that finishes the
+# identity-resolver converge pass in the BACKGROUND after install, so the
+# install critical path is never blocked for the ~25-60 min a full
+# converge can take on a large address book. Modelled byte-for-byte on
+# the wiki-recompile catch-up agent (3.14d-bis): a wrapper that runs the
+# pass to completion (via the same `--execute --converge` fixpoint the
+# install used), writes a .done marker so it can self-remove, triggers a
+# wiki recompile so late merges surface, and boots out its own agent once
+# the converge completes (or a try-cap is hit so it can never loop
+# forever). Reuses the wiki-recompile-tick.sh that already exists; adds
+# NO new merge logic. Non-fatal throughout: a failed agent just leaves
+# the daily recompile + the resolver's own incremental passes to catch up.
+#
+# Called from the install-time converge block ONLY when that block did
+# not fully complete within the install budget (no .done marker). When
+# the install pass already converged, this agent is never installed.
+_install_dedupe_catchup_agent() {
+    local label="com.creativemachines.ostler.dedupe-catchup"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_DEDUPE_CATCHUP_INTERVAL_S:-600}"
+    local max_tries="${OSTLER_DEDUPE_CATCHUP_MAX_TRIES:-12}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-dedupe-catchup"
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Self-removing, bounded catch-up wrapper. Single-quoted heredoc: no
+    # install-time expansion -- it resolves OSTLER_DIR / PIPELINE_DIR at
+    # run time, exactly like ostler-wiki-recompile-catchup does. The
+    # PIPELINE_DIR location is the resolver's home; resolve it the same
+    # way the install body does (it lives under the assistant pipeline).
+    cat > "$wrapper" <<'DCUEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+OSTLER_DIR="${HOME}/.ostler"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+LABEL="com.creativemachines.ostler.dedupe-catchup"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+TRIES_FILE="${STATE_DIR}/dedupe-catchup.tries"
+DONE_MARKER="${STATE_DIR}/dedupe-converge.done"
+LOG_FILE="${LOGS_DIR}/dedupe-catchup.log"
+MAX_TRIES="${OSTLER_DEDUPE_CATCHUP_MAX_TRIES:-12}"
+PIPELINE_DIR="${OSTLER_PIPELINE_DIR:-${OSTLER_DIR}/import-pipeline}"
+TICK="${OSTLER_DIR}/bin/wiki-recompile-tick.sh"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+remove_self() {
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || \
+        launchctl unload "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST" "$TRIES_FILE"
+}
+
+# Already converged (install finished it, or a previous tick did): nothing
+# left to do; remove the agent.
+if [[ -f "$DONE_MARKER" ]]; then
+    log "converge already complete (.done present); removing catch-up agent"
+    remove_self
+    exit 0
+fi
+
+# Bounded run counter so a perpetually-failing converge can never loop
+# forever. The resolver's own incremental passes + the daily recompile
+# remain the long-term steady state.
+tries=0
+[[ -f "$TRIES_FILE" ]] && tries="$(cat "$TRIES_FILE" 2>/dev/null || echo 0)"
+[[ "$tries" =~ ^[0-9]+$ ]] || tries=0
+tries=$((tries + 1))
+printf '%s' "$tries" >"$TRIES_FILE"
+if [[ "$tries" -gt "$MAX_TRIES" ]]; then
+    log "dedupe catch-up gave up after ${MAX_TRIES} ticks; removing agent (daily recompile + incremental resolve continue)"
+    remove_self
+    exit 0
+fi
+
+if [[ ! -d "$PIPELINE_DIR/identity_resolver" || ! -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
+    log "resolver not found at ${PIPELINE_DIR}; removing dedupe catch-up agent"
+    remove_self
+    exit 0
+fi
+
+log "dedupe catch-up tick ${tries}/${MAX_TRIES}: finishing whole-graph converge"
+# Same fixpoint pass the install used. --converge is idempotent: if the
+# graph is already merged it does one detect round, finds nothing, and
+# exits cleanly -> we mark done and remove ourselves.
+if ( cd "$PIPELINE_DIR" && \
+     OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+     QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+     .venv/bin/python3 -m identity_resolver.batch_resolver \
+         --execute --converge \
+         --output /tmp/ostler-dedupe-report.yaml \
+   ) >>"$LOG_FILE" 2>&1; then
+    log "converge completed cleanly; marking done + triggering wiki recompile"
+    : >"$DONE_MARKER"
+    if [[ -x "$TICK" ]]; then
+        "$TICK" >>"$LOG_FILE" 2>&1 || log "post-converge wiki recompile returned non-zero; daily agent will catch up"
+    fi
+    remove_self
+    exit 0
+else
+    log "converge tick ${tries} returned non-zero; will retry on next interval"
+    exit 0
+fi
+DCUEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<DCUPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DEDUPE_CATCHUP_MAX_TRIES</key>
+        <string>${max_tries}</string>
+        <key>OSTLER_PIPELINE_DIR</key>
+        <string>${PIPELINE_DIR}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/dedupe-catchup.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/dedupe-catchup.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+DCUPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
+       launchctl load "$plist" 2>/dev/null; then
+        ok "$MSG_OK_DEDUPE_CATCHUP_LOADED"
+    else
+        warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"
+    fi
+}
+
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"
 _HYDRATE_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
@@ -14039,56 +14255,113 @@ unset _CONV_GUARD_FDA_DIR _CONV_GUARD_OX
 # Whole-graph dedupe consolidation (#4) ----------------------------
 #
 # All person-populating sources (iCloud contacts/calendar + iMessage
-# Person nodes) are now in Oxigraph. Run the resolver's whole-graph
-# converge pass ONCE here so same-person duplicates that never shared an
-# incremental batch are merged BEFORE the search index + wiki are built.
-# --converge loops detect -> execute to a fixpoint so transitive 3+ node
-# clusters collapse fully (a single pass merges each node only once and
-# leaves the rest for review). This is pure orchestration over the
+# Person nodes) are now in Oxigraph. The resolver's whole-graph converge
+# pass merges same-person duplicates that never shared an incremental
+# batch. --converge loops detect -> execute to a fixpoint so transitive
+# 3+ node clusters collapse fully. This is pure orchestration over the
 # existing resolver: it changes no merge rule, threshold, or flag -- the
 # hard-conflict veto (two-Stuart-Baileys guard) and duplicates.yaml
 # decisions still apply every round. Oxigraph is the source of truth and
 # the people-search sweep below rebuilds the Qdrant `people` collection
 # from the merged graph, so a best-effort Qdrant merge here is enough.
 # Non-fatal: a dedupe hiccup must never block the install.
+#
+# v1.0.2 INSTALL-TIME BUDGET CAP + DEFER-TO-BACKGROUND (P0):
+# On the .153/.155 cold-wipe walks the FULL converge pass sat silent for
+# ~25-60 minutes on a large address book and dominated the install
+# critical path (one ~1h50 install was almost entirely this step). The
+# converge is a fixpoint loop that gets *more* expensive the more
+# duplicates exist, so it is precisely the wrong thing to make the
+# customer wait for synchronously.
+#
+# The fix mirrors the wiki AI-summaries split (baseline now, enrichment
+# in the background): we run a HARD-TIME-CAPPED best-effort converge on
+# the critical path -- enough to land the obvious merges so the first
+# wiki/search build is not littered with duplicates -- then hand the
+# *completion* of the converge to a self-removing post-install LaunchAgent
+# (ostler-dedupe-catchup, modelled on the wiki-recompile catch-up agent
+# above). The agent finishes the fixpoint loop in the background at low
+# priority and triggers a wiki recompile so late merges surface without
+# the customer waiting. Install critical path for this step is capped at
+# OSTLER_DEDUPE_INSTALL_BUDGET_S (default 300s / 5 min).
 if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" ]]; then
     info "Merging duplicate contacts across your sources"
     _DEDUPE_LOG=/tmp/ostler-hydrate-dedupe.log
-    # Run the converge pass in the BACKGROUND so we can emit a liveness
-    # heartbeat while it works. The pass writes all stdout to $_DEDUPE_LOG,
-    # so without a heartbeat the GUI shows one line and then nothing for the
-    # whole run -- on the .153 cold-wipe walk this step sat silent for ~25
-    # minutes on a large address book and read as a frozen install. The
-    # loop below proves the step is alive every 30 s. Heartbeat-only: it
-    # does NOT change any merge rule, threshold, or the non-fatal posture.
+    _DEDUPE_BUDGET_S="${OSTLER_DEDUPE_INSTALL_BUDGET_S:-300}"
+    _DEDUPE_DONE_MARKER="${OSTLER_DIR}/state/dedupe-converge.done"
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+    rm -f "$_DEDUPE_DONE_MARKER" 2>/dev/null || true
+
+    # Run the converge pass in the BACKGROUND so we can (a) emit a liveness
+    # heartbeat while it works and (b) enforce a hard time cap. The pass
+    # writes all stdout to $_DEDUPE_LOG, so without a heartbeat the GUI
+    # shows one line and then nothing for the whole run. On the .153
+    # cold-wipe walk this step sat silent and read as a frozen install.
+    # Heartbeat-only + cap: it does NOT change any merge rule, threshold,
+    # or the non-fatal posture; the cap just bounds how long the customer
+    # waits before the rest is finished in the background.
     (
         cd "$PIPELINE_DIR" && \
         OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
         QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
         .venv/bin/python3 -m identity_resolver.batch_resolver \
             --execute --converge \
-            --output /tmp/ostler-dedupe-report.yaml
+            --output /tmp/ostler-dedupe-report.yaml \
+        && touch "$_DEDUPE_DONE_MARKER"
     ) >>"$_DEDUPE_LOG" 2>&1 &
     _DEDUPE_PID=$!
     _DEDUPE_WAITED=0
+    _DEDUPE_TIMED_OUT=false
     while kill -0 "$_DEDUPE_PID" 2>/dev/null; do
         sleep 30
         _DEDUPE_WAITED=$(( _DEDUPE_WAITED + 30 ))
+        # Hard cap: once we exceed the install-time budget, stop waiting
+        # synchronously. Kill the in-flight pass (a single converge round
+        # is itself idempotent + non-destructive: it only merges nodes the
+        # rules already approve, so terminating mid-loop just leaves the
+        # remaining rounds for the background catch-up agent). The
+        # batch_resolver --execute commits each merge as it goes, so no
+        # work done so far is lost.
+        if [[ "$_DEDUPE_WAITED" -ge "$_DEDUPE_BUDGET_S" ]] && kill -0 "$_DEDUPE_PID" 2>/dev/null; then
+            _DEDUPE_TIMED_OUT=true
+            kill "$_DEDUPE_PID" 2>/dev/null || true
+            # Give it a moment to unwind, then hard-kill if still alive.
+            sleep 2
+            kill -9 "$_DEDUPE_PID" 2>/dev/null || true
+            break
+        fi
         # Guard with `if` (not `&&`) so a process that finished during the
         # sleep emits no stray line, and so a false result cannot trip the
         # script's `set -e` / ERR trap.
         if kill -0 "$_DEDUPE_PID" 2>/dev/null; then
-            info "Still merging duplicate contacts -- large address books can take several minutes (${_DEDUPE_WAITED}s elapsed)"
+            info "$(printf "$MSG_INFO_DEDUPE_STILL_MERGING" "${_DEDUPE_WAITED}")"
         fi
     done
-    # The child has exited; reap it for its real status. `wait` in an `if`
-    # condition is errexit-exempt, so a non-zero exit stays non-fatal.
-    if wait "$_DEDUPE_PID"; then
-        info "Duplicate contacts merged"
+    # The child has exited (or was capped); reap it for its real status.
+    # `wait` in an `if` condition is errexit-exempt, so a non-zero exit
+    # stays non-fatal.
+    if [[ "$_DEDUPE_TIMED_OUT" == "true" ]]; then
+        wait "$_DEDUPE_PID" 2>/dev/null || true
+        info "$MSG_INFO_DEDUPE_DEFERRED_BACKGROUND"
+    elif wait "$_DEDUPE_PID"; then
+        info "$MSG_INFO_DEDUPE_MERGED"
     else
-        warn "Whole-graph dedupe pass did not complete cleanly (see $_DEDUPE_LOG); continuing"
+        warn "$(printf "$MSG_WARN_DEDUPE_INCOMPLETE" "$_DEDUPE_LOG")"
     fi
-    unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED
+
+    # Defer-to-background: if the converge did NOT fully complete within
+    # the install budget, install a bounded, self-removing LaunchAgent to
+    # finish it post-install and trigger a wiki recompile. If it DID
+    # complete (the .done marker exists), skip the agent entirely -- there
+    # is nothing left to do.
+    if [[ ! -f "$_DEDUPE_DONE_MARKER" ]]; then
+        _install_dedupe_catchup_agent
+    else
+        info "$MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP"
+    fi
+
+    unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED _DEDUPE_BUDGET_S
+    unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER
 fi
 
 # People search index (#600) ---------------------------------------
@@ -14706,7 +14979,14 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
     # customer flat-staring at two stacked modals. Add a short
     # cooldown + status line so the transition reads as deliberate
     # rather than as a second dialog ambushing the user.
-    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+    #
+    # v1.0.2 (P1): when the Automation prompt was already FRONT-LOADED in
+    # Phase 2 (IMESSAGE_AUTOMATION_PRIMED_EARLY), skip the pre-warn modal
+    # here -- the grant is already given, so the read-only probe below
+    # fires NO new prompt. This block then only RE-records the
+    # authoritative posture snapshot; it never ambushes the customer with
+    # a second "wants to control Messages" dialog after the success banner.
+    if [[ "${OSTLER_GUI:-0}" == "1" && "${IMESSAGE_AUTOMATION_PRIMED_EARLY:-false}" != "true" ]]; then
         info "$MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION"
         sleep 3
         _="$(gui_read \

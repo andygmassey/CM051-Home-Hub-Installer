@@ -25,8 +25,13 @@ grep -q 'batch_resolver \\' "$INSTALL_SH" && grep -q ') >>"\$_DEDUPE_LOG" 2>&1 &
 grep -q 'while kill -0 "\$_DEDUPE_PID" 2>/dev/null; do' "$INSTALL_SH" \
     && ok "heartbeat loop polls the dedupe pid with kill -0" \
     || bad "heartbeat poll loop missing"
-grep -q 'Still merging duplicate contacts' "$INSTALL_SH" \
-    && ok "heartbeat emits a liveness line" \
+# v1.0.2: the liveness line is locale-driven (i18n rule -- no hardcoded
+# English in install.sh). The heartbeat loop emits MSG_INFO_DEDUPE_STILL_MERGING;
+# assert both the call site in install.sh and the string in the en-GB catalogue.
+STRINGS_SH="${HERE}/../install.sh.strings.en-GB.sh"
+grep -q 'MSG_INFO_DEDUPE_STILL_MERGING' "$INSTALL_SH" \
+    && grep -q 'Still merging duplicate contacts' "$STRINGS_SH" \
+    && ok "heartbeat emits a (locale-driven) liveness line" \
     || bad "heartbeat liveness message missing"
 grep -q 'if wait "\$_DEDUPE_PID"; then' "$INSTALL_SH" \
     && ok "child reaped via wait in an errexit-safe if-condition" \
