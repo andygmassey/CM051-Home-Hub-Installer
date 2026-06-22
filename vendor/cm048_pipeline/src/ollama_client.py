@@ -58,16 +58,26 @@ class OllamaClient:
         """Call /api/generate and return raw response text."""
         t0 = time.time()
         url = f"{self.base_url}/api/generate"
+        # Always pin a large context window + generation budget. Without
+        # num_ctx, Ollama silently truncates long transcripts to its small
+        # default window, degenerating extraction output to a bare `{}`
+        # (same class as the daemon's one-token #118 bug). num_predict=-1
+        # means "generate until done".
+        options = {"temperature": temperature, "num_ctx": 32768, "num_predict": -1}
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": stream,
             "think": think,
-            "options": {"temperature": temperature},
+            "options": options,
         }
         if system:
             payload["system"] = system
-        if format_json:
+        # qwen3.x degenerates to empty/`{}` output under native JSON mode
+        # (`format: "json"`). It relies instead on the prompt instruction +
+        # the robust `_extract_json` extractor below, so only request native
+        # JSON mode for non-qwen3 models.
+        if format_json and not model.lower().startswith("qwen3"):
             payload["format"] = "json"
         logger.info(
             "ollama.generate model=%s priority=%s prompt_chars=%d",
