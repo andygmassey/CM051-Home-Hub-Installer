@@ -635,6 +635,33 @@ def _safe_bool(value) -> bool | None:
     return None
 
 
+def collect_pwg_version() -> str | None:
+    """Return the deployed Ostler version from the release manifest.
+
+    Reads ``~/.ostler/ostler-release.json`` (WORKSTREAM C / C2). Returns
+    the ``ostler_version`` string, or ``None`` when no manifest is on
+    disk (fresh install before install.sh has emitted one) or it is
+    unreadable. Backwards-tolerant + never raises -- a missing manifest
+    leaves ``pwg_version`` unset and the version surface degrades to
+    "unknown" rather than 500-ing the dashboard.
+
+    Imported function-locally to avoid a hard import dependency at
+    module load: Doctor must keep rendering even in a minimal venv.
+    """
+    try:
+        from release_manifest import read_release_manifest
+
+        manifest = read_release_manifest()
+    except Exception:  # noqa: BLE001 -- Doctor must never crash on a reader
+        return None
+    if not manifest:
+        return None
+    version = manifest.get("ostler_version")
+    if not version or version == "unknown":
+        return None
+    return version
+
+
 def collect_full_snapshot() -> SystemSnapshot:
     """
     Collect a complete safe diagnostic snapshot.
@@ -651,6 +678,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     network = collect_network_checks()
     pipeline_signals = collect_pipeline_signals()
     backfill_checkpoint = collect_backfill_checkpoint()
+    pwg_version = collect_pwg_version()
 
     return SystemSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -662,6 +690,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         disk_usage=disk,
         services=services,
         network_checks=network,
+        pwg_version=pwg_version,
         docker_version=docker_version,
         pipeline_signals=pipeline_signals,
         backfill_checkpoint=backfill_checkpoint,

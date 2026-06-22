@@ -49,6 +49,7 @@ from dashboard_components import (
     render_imessage_tcc_posture,
     render_observability_posture,
     render_security_posture,
+    render_version_surface,
 )
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
@@ -737,6 +738,13 @@ def render_dashboard(
     # the productisation posture story.
     imessage_tcc_section = render_imessage_tcc_posture()
 
+    # Deployed-version surface (WORKSTREAM C / C2): reads
+    # ~/.ostler/ostler-release.json and shows what version is actually
+    # deployed -- the knowability whose absence cost a whole night on the
+    # .152 walk. Always renders (an absent manifest shows a "version
+    # unknown" card with a re-run pointer rather than a hidden section).
+    version_section = render_version_surface()
+
     # Build findings
     findings_html = ""
     for f in findings:
@@ -1272,6 +1280,8 @@ def render_dashboard(
             <div class="section-title">{DASHBOARD_SECTION_FINDINGS}</div>
             <div id="findingsContent">{findings_html}</div>
         </div>
+
+        {version_section}
 
         <div class="section" id="servicesSection">
             <div class="section-title">{DASHBOARD_SECTION_SERVICES}</div>

@@ -215,6 +215,42 @@ targets:
           # Must be bundled flat alongside install.sh in Resources.
           cp "${SRCROOT}/../install.sh"                          "${DEST}/install.sh"
           cp "${SRCROOT}/../lib/progress_emitter.sh"             "${DEST}/lib/progress_emitter.sh"
+          # WORKSTREAM C / C1: release_manifest.sh defines
+          # emit_release_manifest, which install.sh sources via
+          # "${SCRIPT_DIR}/lib/release_manifest.sh" (SCRIPT_DIR is
+          # Contents/Resources when run from inside the .app, so the
+          # lib/ subfolder is mandatory -- same contract as
+          # progress_emitter.sh). It writes ~/.ostler/ostler-release.json
+          # at the end of install so Doctor can surface the deployed
+          # version. Soft-degrades if absent (install.sh no-ops the call).
+          cp "${SRCROOT}/../lib/release_manifest.sh"             "${DEST}/lib/release_manifest.sh"
+          chmod 644 "${DEST}/lib/release_manifest.sh"
+          # WORKSTREAM C / C1: emit the build stamp next to install.sh so
+          # install.sh's emit_release_manifest reads cut-time facts the
+          # runtime cannot self-derive (the release version tag + the
+          # source-repo SHAs). The DMG build path does NOT run release.sh
+          # (that is the curl|bash tarball path), so the stamp is
+          # generated here from the .app's Info.plist version. Field names
+          # are kept in lockstep with release.sh + lib/release_manifest.sh
+          # + docs/RELEASE_MANIFEST.md.
+          STAMP_VERSION="v$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${SRCROOT}/OstlerInstaller/Info.plist" 2>/dev/null || echo unknown)"
+          STAMP_DAEMON_PIN="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "${SRCROOT}/../install.sh" 2>/dev/null | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\}.*/\1/')"
+          [ -z "${STAMP_DAEMON_PIN}" ] && STAMP_DAEMON_PIN="${STAMP_VERSION#v}"
+          STAMP_CM051_SHA="$(git -C "${SRCROOT}/.." rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+          STAMP_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > "${DEST}/ostler-release.build.json" <<STAMP
+          {
+            "manifest_schema_version": "1",
+            "ostler_version": "${STAMP_VERSION}",
+            "installer_version": "${STAMP_VERSION}",
+            "built_at": "${STAMP_BUILT_AT}",
+            "daemon_tag": "hub-v${STAMP_DAEMON_PIN}",
+            "source_repos": {
+              "cm051": "${STAMP_CM051_SHA}"
+            }
+          }
+          STAMP
+          chmod 644 "${DEST}/ostler-release.build.json"
           # CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is
           # invoked by install.sh:6220 (Mail content probe) to write
           # ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from

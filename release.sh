@@ -355,6 +355,62 @@ echo "==> Aggregating requirements.txt from HR015/${HR015_AGGREGATE_REQUIREMENTS
 cp "${HR015_DIR}/${HR015_AGGREGATE_REQUIREMENTS_SRC}" "${INSTALL_DIR}/requirements.txt"
 
 # -----------------------------------------------------------------------------
+# Emit the release build stamp (WORKSTREAM C / C1)
+# -----------------------------------------------------------------------------
+#
+# Writes ostler-release.build.json into the staged install/ tree. The DMG
+# ships it next to install.sh, and install.sh reads it at install time
+# (lib/release_manifest.sh::emit_release_manifest) to compose the runtime
+# manifest at ~/.ostler/ostler-release.json. This carries the cut-time
+# facts only the cut knows: the --version tag, the per-source-repo git
+# SHAs, the installer version. install.sh fills in the runtime facts
+# (daemon version, scraped wiki image SHAs, install timestamp).
+#
+# Keep the field names in lockstep with:
+#   - lib/release_manifest.sh         (the reader)
+#   - docs/RELEASE_MANIFEST.md        (the schema doc)
+#   - HR015 doctor release_manifest.py (the Doctor reader)
+#   - WS-B CI pipeline                (which will emit the same stamp)
+echo "==> Emitting release build stamp (ostler-release.build.json)"
+
+# Per-source-repo git SHAs. Best-effort: a missing/non-git source tree
+# yields "unknown" rather than failing the cut.
+_repo_sha() {
+    local dir="$1"
+    if [[ -d "${dir}/.git" ]] || git -C "${dir}" rev-parse --git-dir >/dev/null 2>&1; then
+        git -C "${dir}" rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown'
+    else
+        printf 'unknown'
+    fi
+}
+CM051_SHA="$(_repo_sha "${CM051_DIR}")"
+HR015_SHA="$(_repo_sha "${HR015_DIR}")"
+CM021_SHA="$(_repo_sha "${CM021_DIR}")"
+
+# Daemon version pin read back from the staged install.sh (single source
+# of truth; the --verify step above already asserts it matches --version).
+DAEMON_PIN="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "${INSTALL_DIR}/install.sh" 2>/dev/null | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\}.*/\1/')"
+[[ -z "${DAEMON_PIN}" ]] && DAEMON_PIN="${VERSION#v}"
+
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+cat > "${INSTALL_DIR}/ostler-release.build.json" <<STAMP
+{
+  "manifest_schema_version": "1",
+  "ostler_version": "${VERSION}",
+  "installer_version": "${VERSION}",
+  "built_at": "${BUILT_AT}",
+  "daemon_tag": "hub-v${DAEMON_PIN}",
+  "source_repos": {
+    "cm051": "${CM051_SHA}",
+    "hr015": "${HR015_SHA}",
+    "cm021": "${CM021_SHA}"
+  }
+}
+STAMP
+ok "release build stamp written (ostler_version=${VERSION}, daemon=hub-v${DAEMON_PIN})"
+
+# -----------------------------------------------------------------------------
 # Verify
 # -----------------------------------------------------------------------------
 

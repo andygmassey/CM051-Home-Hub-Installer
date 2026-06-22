@@ -746,3 +746,158 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
         <div class="section-title">{_html_escape(IMESSAGE_TCC_SECTION_TITLE)}</div>
         <div class="status-grid">{tile}</div>
     </div>"""
+
+
+# ── Version surface (WORKSTREAM C / C2) ────────────────────────────
+
+
+def render_version_surface() -> str:
+    """Render the deployed-version tile.
+
+    Reads ``~/.ostler/ostler-release.json`` via ``release_manifest`` and
+    surfaces *what version is actually deployed* -- the knowability whose
+    absence cost a whole night on the .152 walk. Shows the headline
+    Ostler version plus the per-component pins (daemon tag, wiki image
+    digests, source-repo SHAs).
+
+    Also the real fix for the ``zeroclaw 0.4.1`` ``--version`` drift: the
+    surface shows the MANIFEST version (the release tag the cut stamped),
+    not the daemon's frozen Cargo field.
+
+    Backwards-tolerant + soft-fall-through, matching the other Doctor
+    tiles:
+
+    - No manifest on disk (fresh install before install.sh has emitted
+      one) -> a single "version unknown" card with a one-line pointer,
+      rather than a hidden section (the operator should SEE that the
+      version is not yet known, not be left guessing).
+    - A ``null`` / absent component pin renders as a muted "not pinned"
+      line rather than breaking layout.
+    """
+    from web_ui_copy import (
+        VERSION_SURFACE_BUILT_AT_FMT,
+        VERSION_SURFACE_CHANNEL_FMT,
+        VERSION_SURFACE_DAEMON_FMT,
+        VERSION_SURFACE_INSTALLED_AT_FMT,
+        VERSION_SURFACE_INSTALLER_FMT,
+        VERSION_SURFACE_NEWER_SCHEMA_HINT,
+        VERSION_SURFACE_PIN_UNKNOWN,
+        VERSION_SURFACE_SECTION_TITLE,
+        VERSION_SURFACE_SOURCE_REPOS_LABEL,
+        VERSION_SURFACE_UNKNOWN_DETAIL,
+        VERSION_SURFACE_UNKNOWN_TITLE,
+        VERSION_SURFACE_VERSION_FMT,
+        VERSION_SURFACE_WIKI_COMPILER_FMT,
+        VERSION_SURFACE_WIKI_SITE_FMT,
+    )
+
+    try:
+        from release_manifest import read_release_manifest
+
+        manifest = read_release_manifest()
+    except Exception:  # noqa: BLE001 -- Doctor must never crash on a reader
+        manifest = None
+
+    # Green when we have a real manifest; grey "unknown" otherwise.
+    if not manifest or manifest.get("ostler_version", "unknown") in (
+        "unknown",
+        "dev",
+        None,
+    ):
+        unknown_title = manifest.get("ostler_version") if manifest else None
+        title = (
+            _html_escape(str(unknown_title))
+            if unknown_title in ("dev",)
+            else _html_escape(VERSION_SURFACE_UNKNOWN_TITLE)
+        )
+        tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:rgba(236,232,221,0.40)">&#9632;</div>
+            <div class="status-info">
+                <div class="status-name">{title}</div>
+                <div class="status-detail">{_html_escape(VERSION_SURFACE_UNKNOWN_DETAIL)}</div>
+            </div>
+        </div>"""
+        return f"""
+    <div class="section" id="versionSurfaceSection">
+        <div class="section-title">{_html_escape(VERSION_SURFACE_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
+
+    def _pin(value: object) -> str:
+        if not value:
+            return _html_escape(VERSION_SURFACE_PIN_UNKNOWN)
+        return _html_escape(str(value))
+
+    version = _html_escape(str(manifest.get("ostler_version")))
+    channel = _html_escape(str(manifest.get("channel", "stable")))
+    installer = _pin(manifest.get("installer_version"))
+    daemon_tag = manifest.get("daemon_tag") or manifest.get("daemon_version")
+    site_sha = manifest.get("wiki_site_image_sha")
+    compiler_sha = manifest.get("wiki_compiler_image_sha")
+    built_at = manifest.get("built_at")
+    installed_at = manifest.get("installed_at")
+    source_repos = manifest.get("source_repos") or {}
+
+    # Truncate sha256 digests for display; keep enough to identify.
+    def _short_sha(sha: object) -> str:
+        if not sha:
+            return _html_escape(VERSION_SURFACE_PIN_UNKNOWN)
+        s = str(sha)
+        if s.startswith("sha256:"):
+            s = s[len("sha256:"):]
+        return _html_escape(s[:16])
+
+    detail_lines = [
+        f'<div class="status-detail">{VERSION_SURFACE_CHANNEL_FMT.format(channel=channel)}</div>',
+        f'<div class="status-detail">{VERSION_SURFACE_INSTALLER_FMT.format(installer=installer)}</div>',
+        f'<div class="status-detail">{VERSION_SURFACE_DAEMON_FMT.format(daemon=_pin(daemon_tag))}</div>',
+        f'<div class="status-detail">{VERSION_SURFACE_WIKI_SITE_FMT.format(sha=_short_sha(site_sha))}</div>',
+        f'<div class="status-detail">{VERSION_SURFACE_WIKI_COMPILER_FMT.format(sha=_short_sha(compiler_sha))}</div>',
+    ]
+    if built_at:
+        detail_lines.append(
+            f'<div class="status-detail">{VERSION_SURFACE_BUILT_AT_FMT.format(built_at=_html_escape(str(built_at)[:19]))}</div>'
+        )
+    if installed_at:
+        detail_lines.append(
+            f'<div class="status-detail">{VERSION_SURFACE_INSTALLED_AT_FMT.format(installed_at=_html_escape(str(installed_at)[:19]))}</div>'
+        )
+
+    source_block = ""
+    if source_repos:
+        rows = "".join(
+            f'<div class="status-detail">{_html_escape(str(repo))}: {_html_escape(str(sha))}</div>'
+            for repo, sha in sorted(source_repos.items())
+        )
+        source_block = (
+            f'<details style="margin-top:8px">'
+            f'<summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);'
+            f"font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em\">"
+            f"{_html_escape(VERSION_SURFACE_SOURCE_REPOS_LABEL)}</summary>{rows}</details>"
+        )
+
+    # When the manifest's schema is newer than this Doctor knows, hint it
+    # (backwards-tolerant: we still render everything we could parse).
+    schema_hint = ""
+    if not manifest.get("schema_known", True):
+        schema_hint = (
+            f'<div class="status-detail">{_html_escape(VERSION_SURFACE_NEWER_SCHEMA_HINT)}</div>'
+        )
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:#5cb579">&#9632;</div>
+            <div class="status-info">
+                <div class="status-name">{VERSION_SURFACE_VERSION_FMT.format(version=version)}</div>
+                {''.join(detail_lines)}
+                {schema_hint}
+                {source_block}
+            </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="versionSurfaceSection">
+        <div class="section-title">{_html_escape(VERSION_SURFACE_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
