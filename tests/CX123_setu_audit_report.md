@@ -57,3 +57,22 @@ A whole-script precise "unconditional vs conditional assignment" classifier is u
 - No new user-facing strings (rule 0.9 N/A); British English; no em-dashes.
 - New `tests/test_final_summary_nounset_safe.sh` green (7 matrix scenarios + RED control).
 - Pre-existing reds NOT caused by this change, flagged not bundled: `test_no_internal_codenames_in_customer_strings` (CM### catalogue leak) and `test_install_daily_briefs` (both red on pristine origin/main).
+
+## Addendum — whole-file second pass (2026-06-08, post-merge)
+
+The original audit deliberately skipped a whole-file classifier as "unreliable on 13.6k lines" and guaranteed the recap structurally. This addendum records a whole-file second pass run against `origin/main` (now 13,721 lines, HEAD `fe46a17`) so the `set -u` question is documented closed end-to-end, not just for the recap. Result: **no genuine cross-path landmine exists outside the wrapped recap.** No code change accompanies this addendum; it is the record of a negative finding (no silent cap).
+
+Two independent, complementary heuristics were run over the pre-recap region (L1 to L13440), each candidate then verified by hand:
+
+1. **Guarded-optional class** — bare `$VAR`/`${VAR}` (not `${VAR:-}`) in a `[[ ]]` / `(( ))` / `echo` context, where VAR is treated as optional somewhere (`${VAR:-}` appears in the file) and has no col-0 default. 110 candidates; all false positives or already-safe. Representative verdicts:
+   - `AI_MODEL` (L3547-3556) — `if/elif/else`, the `else` sets it on every path before the L3558 reference.
+   - `FDA_GRANTED` (L6264-6274) — set on both branches of the `if/else` immediately before the L6275 reference.
+   - `TAKEOUT_MBOX_PATH` / `TAKEOUT_ZIP_PATH` — bare refs at L3741/3744 sit inside the enclosing `if [[ -n "${VAR:-}" ]]` guard (L3738/3740); the bare ref only executes when the var is confirmed set.
+   - `OSTLER_PROGRESS_EMITTER` — bare ref at L1048 is the then-branch of `if [[ -n "${OSTLER_PROGRESS_EMITTER:-}" && -f ... ]]` (L1047).
+   - `SCRIPT_DIR` (49 refs) — set unconditionally in both branches of the bootstrap `if` at L859/862.
+
+2. **Never-guarded conditional-only class** — the complementary blind spot of scan 1: a var bare-referenced in a `[[ ]]`/`(( ))` context whose only assignments are indented (never col-0) and which is never `${VAR:-}` guarded anywhere (so scan 1 could not see it — this is the exact `CONTACT_COUNT`-minus-the-guard shape). 127 candidates; every one is a straight-line local whose assignment is on the line(s) immediately above the reference (e.g. `ACK_PASSKEY` 3420->3421, `ACTUAL_SHA` 10308->10309), or a `local VAR=` / `for`/`while read` loop init the `^VAR=` regex does not capture (verified directly: `next_heartbeat` is `local next_heartbeat=30` at L1437, before its L1445 loop reference). None has the cross-conditional-boundary separation that a genuine landmine requires.
+
+The launch-blocking shape (assigned only in a far conditional branch, referenced in an unrelated later block) appears exactly once in the file: the recap, which is structurally wrapped. The path-matrix test remains the guarantee.
+
+**Re-verified green on `origin/main` HEAD `fe46a17` (2026-06-08):** `tests/test_final_summary_nounset_safe.sh` passes all 7 matrix scenarios (each reaches `gui_done ok`) and the RED control still aborts before `gui_done ok`, proving the wrap is load-bearing on the currently-shipping tree. `bash -n install.sh` clean.
