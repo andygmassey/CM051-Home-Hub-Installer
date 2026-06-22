@@ -1,73 +1,271 @@
 --- a/batch_resolver.py
 +++ b/batch_resolver.py
-@@ -1,4 +1,4 @@
--"""Batch identity resolver – detects and merges duplicate person nodes.
-+"""Batch identity resolver — detects and merges duplicate person nodes.
+@@ -16,6 +16,7 @@
  
- Scans all person nodes in Oxigraph (and optionally Qdrant), applies multiple
- detection strategies with confidence scoring, and merges confirmed duplicates.
-@@ -67,7 +67,7 @@
-     "fuzzy_levenshtein_max_distance": 2,
-     # Phone normalisation
-     "default_country_code": 852,
--    # Common free email domains – too generic to count as a signal for fuzzy matching
-+    # Common free email domains — too generic to count as a signal for fuzzy matching
-     "common_email_domains": {
-         "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
-         "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
-@@ -75,10 +75,10 @@
-         "protonmail.com", "proton.me", "163.com", "qq.com",
-     },
-     # Minimum Jaro-Winkler score between names for phone match to be high-confidence.
--    # Below this, shared phone is likely an office switchboard – downgrade to review.
-+    # Below this, shared phone is likely an office switchboard — downgrade to review.
-     "phone_name_similarity_threshold": 0.6,
-     # Minimum Jaro-Winkler score between names for email match to stay high-confidence.
--    # Below this, shared email is likely an inherited/shared account – downgrade to review.
-+    # Below this, shared email is likely an inherited/shared account — downgrade to review.
-     "email_name_similarity_threshold": 0.7,
-     # BW-2 correction loop: operator merge/distinct decisions live here as
-     # duplicates.yaml. distinct pairs are a permanent never-merge block;
-@@ -245,7 +245,7 @@
- 
-     If the display names are very different (JW < threshold), this may be an
-     inherited or shared email account (e.g. deceased spouse's email used by
--    surviving partner) – downgrade confidence to send to review instead of
-+    surviving partner) — downgrade confidence to send to review instead of
-     auto-merge.
-     """
-     email_index: Dict[str, List[str]] = defaultdict(list)
-@@ -292,7 +292,7 @@
-     """Strategy 3: Shared phone number after normalisation (confidence 0.95).
- 
-     If the names are very different (JW < threshold), this is likely a shared
--    office/switchboard number – downgrade confidence to send to review instead
-+    office/switchboard number — downgrade confidence to send to review instead
-     of auto-merge.
-     """
-     phone_index: Dict[str, List[str]] = defaultdict(list)
-@@ -771,7 +771,7 @@
-         f"  ?entry <{PWG}aboutPerson> <{discard_uri}> }}"
+ import argparse
+ import hashlib
++import json
+ import logging
+ import os
+ import sys
+@@ -910,8 +911,234 @@
+         points_selector=[discard_point_id],
      )
+     logger.info("Qdrant merge: %s → %s (deleted %s)", discard_point_id, keep_point_id, discard_point_id)
++
++
++# ── Same-person_uri reconcile (collapse over-split vectors) ───────────────────
++#
++# The four ``people``-collection writers (contact_syncer.syncer,
++# facebook_friends, linkedin_connections, instagram_social) all derive the
++# Qdrant point id deterministically from person_uri
++# (``uuid5(NAMESPACE_URL, person_uri)``), so a re-upsert of an already-known
++# person OVERWRITES rather than duplicates. Two failure modes still leave
++# more than one point carrying the same ``person_uri``:
++#
++#   1. whatsapp_bridge.create_qdrant_point writes ``id=uuid4()`` (a random
++#      point id, not derived from person_uri) -- so a WhatsApp-created point
++#      and a later canonical point can co-exist under one uri.
++#   2. Historical / cross-version node merges: a person was first ingested
++#      from source B under its OWN uri, the resolver later merged that node
++#      into the iCloud node in Oxigraph, but the source-B Qdrant point was
++#      written (under an old code path, or before _merge_qdrant was wired)
++#      carrying the surviving person_uri in its payload while keeping a
++#      point id that does NOT match uuid5(surviving_uri).
++#
++# Either way the assistant's people search (which reads Qdrant) returns N
++# vectors for one graph node and reports a PHANTOM duplicate. This sweep is
++# the safety net: it is name-independent and trivially safe under the locked
++# dedup ruleset -- points sharing the same exact person_uri ARE the same
++# person (shared exact ID always merges). It NEVER touches the graph / person
++# nodes (those dedupe correctly) and NEVER inspects names.
++
++
++def _payload_richness(payload: Dict[str, Any]) -> Tuple[int, int]:
++    """Score a Qdrant people-point payload for "which to keep".
++
++    Returns (filled_scalar_count, list_value_count); higher is richer. The
++    point with the richest payload survives the collapse so we preserve the
++    most-enriched record.
++    """
++    if not payload:
++        return (0, 0)
++    scalar_fields = (
++        "display_name", "given_name", "family_name", "organization",
++        "job_title", "icloud_uid", "profile_photo_path", "last_contact",
++        "linkedin_url", "observed_at",
++    )
++    scalars = sum(1 for f in scalar_fields if payload.get(f))
++    lists = sum(len(payload.get(f) or []) for f in ("phones", "emails"))
++    return (scalars, lists)
++
++
++def _merge_payloads(keep: Dict[str, Any], orphan: Dict[str, Any]) -> Dict[str, Any]:
++    """Union list fields and fill scalar gaps on ``keep`` from ``orphan``."""
++    merged = dict(keep)
++    for list_field in ("phones", "emails"):
++        union = set(merged.get(list_field) or []) | set(orphan.get(list_field) or [])
++        if union:
++            merged[list_field] = sorted(union)
++    for scalar_field in (
++        "organization", "job_title", "given_name", "family_name",
++        "icloud_uid", "profile_photo_path", "linkedin_url", "observed_at",
++        "last_contact", "last_contact_ts",
++    ):
++        if not merged.get(scalar_field) and orphan.get(scalar_field):
++            merged[scalar_field] = orphan[scalar_field]
++    # last_contact_ts: keep the most-recent contact signal across both points
++    keep_ts = merged.get("last_contact_ts") or 0
++    orphan_ts = orphan.get("last_contact_ts") or 0
++    if orphan_ts > keep_ts:
++        merged["last_contact_ts"] = orphan_ts
++        if orphan.get("last_contact"):
++            merged["last_contact"] = orphan["last_contact"]
++    return merged
++
++
++@dataclass
++class QdrantReconcileGroup:
++    """A set of Qdrant points found sharing one person_uri."""
++    person_uri: str
++    keep_point_id: str
++    discard_point_ids: List[str]
++    keep_name: str = ""
++
++
++@dataclass
++class QdrantReconcileReport:
++    total_points: int = 0
++    distinct_person_uris: int = 0
++    groups: List[QdrantReconcileGroup] = field(default_factory=list)
++
++    @property
++    def duplicate_points(self) -> int:
++        return sum(len(g.discard_point_ids) for g in self.groups)
++
++
++def reconcile_qdrant_by_person_uri(
++    qdrant_url: str,
++    collection: str,
++    *,
++    apply: bool = False,
++    backup_dir: str = "./backups",
++    scroll_batch: int = 256,
++) -> QdrantReconcileReport:
++    """Collapse Qdrant ``people`` points that share a ``person_uri``.
++
++    Scrolls the whole collection, groups points by their ``person_uri``
++    payload, and for every group with more than one point keeps the richest
++    payload (merging list/scalar fields from the orphans into it) and deletes
++    the orphan points.
++
++    Propose-then-apply discipline (mirrors the Oxigraph merge path):
++      * ``apply=False`` (default) -- DETECT only. Returns the report; makes no
++        Qdrant writes. This is the dry-run posture.
++      * ``apply=True`` -- before any delete, every orphan point (id + vector +
++        payload) is written to a timestamped backup file under ``backup_dir``
++        so a destructive collapse is recoverable, then the keep payload is
++        updated and orphans are deleted. Every delete is logged.
++
++    Points with no ``person_uri`` payload are left untouched (we cannot prove
++    they are the same person).
++    """
++    try:
++        from qdrant_client import QdrantClient
++    except ImportError:
++        logger.warning("qdrant-client not installed -- skipping Qdrant reconcile")
++        return QdrantReconcileReport()
++
++    client = QdrantClient(url=qdrant_url, timeout=60)
++
++    # Group all points by person_uri.
++    by_uri: Dict[str, List[Any]] = defaultdict(list)
++    total = 0
++    offset = None
++    while True:
++        points, offset = client.scroll(
++            collection_name=collection,
++            limit=scroll_batch,
++            offset=offset,
++            with_payload=True,
++            with_vectors=True,
++        )
++        for p in points:
++            total += 1
++            uri = (p.payload or {}).get("person_uri")
++            if uri:
++                by_uri[uri].append(p)
++        if offset is None:
++            break
++
++    report = QdrantReconcileReport(
++        total_points=total,
++        distinct_person_uris=len(by_uri),
++    )
++
++    for uri, points in by_uri.items():
++        if len(points) < 2:
++            continue
++        # Richest payload survives; everything else is an orphan.
++        points_sorted = sorted(
++            points,
++            key=lambda p: _payload_richness(p.payload or {}),
++            reverse=True,
++        )
++        keep = points_sorted[0]
++        orphans = points_sorted[1:]
++        report.groups.append(QdrantReconcileGroup(
++            person_uri=uri,
++            keep_point_id=str(keep.id),
++            discard_point_ids=[str(o.id) for o in orphans],
++            keep_name=(keep.payload or {}).get("display_name", ""),
++        ))
++
++    logger.info(
++        "Qdrant reconcile: %d points, %d distinct person_uris, %d over-split "
++        "groups, %d duplicate points to collapse",
++        report.total_points, report.distinct_person_uris,
++        len(report.groups), report.duplicate_points,
++    )
++
++    if not apply or not report.groups:
++        return report
++
++    # --- apply path: backup orphans, merge payloads, delete orphans ---
++    os.makedirs(backup_dir, exist_ok=True)
++    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
++    backup_path = os.path.join(
++        backup_dir, f"qdrant_reconcile_backup_{timestamp}.jsonl"
++    )
  
--    # 5. Merge scalar properties – copy from discard where keep is missing
-+    # 5. Merge scalar properties — copy from discard where keep is missing
-     scalar_props = [
-         "displayName", "givenName", "familyName", "organization",
-         "jobTitle", "relationship", "howWeMet", "notes", "birthday",
-@@ -856,7 +856,7 @@
-     try:
-         from qdrant_client import QdrantClient
-     except ImportError:
--        logger.warning("qdrant-client not installed – skipping Qdrant merge")
-+        logger.warning("qdrant-client not installed — skipping Qdrant merge")
-         return
++    # Re-resolve the actual point objects so we can persist their full state.
++    point_by_id = {
++        str(p.id): p for ps in by_uri.values() for p in ps
++    }
  
-     client = QdrantClient(url=qdrant_url, timeout=30)
-@@ -1018,6 +1018,62 @@
++    with open(backup_path, "w", encoding="utf-8") as bf:
++        for group in report.groups:
++            keep_point = point_by_id[group.keep_point_id]
++            keep_payload = dict(keep_point.payload or {})
++            for discard_id in group.discard_point_ids:
++                orphan = point_by_id[discard_id]
++                orphan_payload = orphan.payload or {}
++                # Persist the orphan for recovery before we touch anything.
++                bf.write(json.dumps({
++                    "person_uri": group.person_uri,
++                    "deleted_point_id": discard_id,
++                    "kept_point_id": group.keep_point_id,
++                    "payload": orphan_payload,
++                    "vector": orphan.vector,
++                }) + "\n")
++                keep_payload = _merge_payloads(keep_payload, orphan_payload)
++
++            keep_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
++            client.set_payload(
++                collection_name=collection,
++                payload=keep_payload,
++                points=[group.keep_point_id],
++            )
++            client.delete(
++                collection_name=collection,
++                points_selector=group.discard_point_ids,
++            )
++            logger.info(
++                "Qdrant reconcile: person_uri=%s kept %s, deleted %d orphan(s): %s",
++                group.person_uri, group.keep_point_id,
++                len(group.discard_point_ids), group.discard_point_ids,
++            )
++
++    logger.info("Qdrant reconcile: orphan backup written to %s", backup_path)
++    return report
++
++
+ # ── Main orchestrator ────────────────────────────────────────────────────────
+ 
+ class BatchResolver:
+@@ -1018,7 +1245,82 @@
                  action.keep_uri, action.discard_uri,
              )
              action.executed = True
++
++        # Safety-net sweep: a node merge can leave the Qdrant collection with
++        # more than one point carrying the surviving person_uri (see
++        # reconcile_qdrant_by_person_uri). Collapse those now so the assistant
++        # never reports a phantom duplicate for a node we just merged.
++        self.reconcile_qdrant(apply=True, backup_dir=backup_dir)
++
++    def reconcile_qdrant(
++        self, *, apply: bool = False, backup_dir: str = "./backups",
++    ) -> QdrantReconcileReport:
++        """Collapse Qdrant people-points that share a person_uri.
++
++        Thin instance wrapper over reconcile_qdrant_by_person_uri so callers
++        (execute() and the CLI) hit the configured collection/url.
++        """
++        return reconcile_qdrant_by_person_uri(
++            self.qdrant_url, self.qdrant_collection,
++            apply=apply, backup_dir=backup_dir,
++        )
 +
 +    def converge(
 +        self,
@@ -98,7 +296,7 @@
 +        unchanged, every round). It only ensures the existing decisions are
 +        applied across the WHOLE graph after all sources have hydrated, instead
 +        of per-source / per-batch only.
-+
+ 
 +        Returns the per-round reports (round 0 first). With ``dry_run`` it runs
 +        a single detect() and does not execute, so a caller can preview the
 +        first round's auto-merges without mutating the graph.
@@ -124,31 +322,19 @@
 +                "auto-merges left for the next run / review", max_rounds,
 +            )
 +        return rounds
- 
++
      def close(self) -> None:
          self._client.close()
-@@ -1028,7 +1084,7 @@
- def format_report_yaml(report: ResolverReport) -> str:
-     """Format the report as YAML-like text for human review."""
-     lines = [
--        "# Identity Resolver – Dry Run Report",
-+        "# Identity Resolver — Dry Run Report",
-         f"# Generated: {datetime.now(timezone.utc).isoformat()}",
-         "",
-         f"total_persons: {report.total_persons}",
-@@ -1080,7 +1136,7 @@
  
- def main() -> None:
-     parser = argparse.ArgumentParser(
--        description="Batch identity resolver – detect and merge duplicate person nodes",
-+        description="Batch identity resolver — detect and merge duplicate person nodes",
-     )
-     parser.add_argument(
-         "--dry-run", action="store_true", default=True,
-@@ -1119,6 +1175,17 @@
+@@ -1119,6 +1421,22 @@
          help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
      )
      parser.add_argument(
++        "--reconcile-qdrant", action="store_true",
++        help="Collapse Qdrant people-points that share a person_uri "
++             "(over-split vectors). Detect-only unless --execute is also set.",
++    )
++    parser.add_argument(
 +        "--converge", action="store_true",
 +        help="Whole-graph consolidation: loop detect+merge to a fixpoint so "
 +             "transitive 3+ node clusters fully collapse (run once after all "
@@ -163,7 +349,7 @@
          "--verbose", "-v", action="store_true",
          help="Enable verbose logging",
      )
-@@ -1142,6 +1209,29 @@
+@@ -1142,6 +1460,54 @@
      )
  
      try:
@@ -190,18 +376,34 @@
 +            print(f"\n{'=' * 70}")
 +            return
 +
++        if args.reconcile_qdrant:
++            # Standalone Qdrant collapse sweep -- does NOT touch person nodes.
++            qreport = resolver.reconcile_qdrant(
++                apply=bool(args.execute), backup_dir=args.backup_dir,
++            )
++            print(f"\n{'=' * 70}")
++            print("QDRANT PERSON_URI RECONCILE")
++            print(f"{'=' * 70}")
++            print(f"Total points:         {qreport.total_points}")
++            print(f"Distinct person_uris: {qreport.distinct_person_uris}")
++            print(f"Over-split groups:    {len(qreport.groups)}")
++            print(f"Duplicate points:     {qreport.duplicate_points}")
++            for g in qreport.groups[:20]:
++                print(
++                    f"  {g.person_uri} ({g.keep_name!r}): "
++                    f"keep {g.keep_point_id}, drop {len(g.discard_point_ids)}"
++                )
++            if len(qreport.groups) > 20:
++                print(f"  ... and {len(qreport.groups) - 20} more groups")
++            if args.execute:
++                print("\nCollapsed. Orphan points backed up before deletion.")
++            else:
++                print("\nDry run -- no Qdrant changes. Use --execute to collapse.")
++            return
++
          report = resolver.detect()
  
          print(f"\n{'=' * 70}")
-@@ -1204,7 +1294,7 @@
-             with open(args.output, "w", encoding="utf-8") as f:
-                 f.write(yaml_report)
-         else:
--            print("\nDry run – no changes made. Use --execute to apply merges.")
-+            print("\nDry run — no changes made. Use --execute to apply merges.")
- 
-     finally:
-         resolver.close()
 --- a/resolver.py
 +++ b/resolver.py
 @@ -4,7 +4,7 @@

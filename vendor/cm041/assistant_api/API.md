@@ -126,6 +126,75 @@ mirrors the distinction in CM031's `PersonResult` vs `PersonDetail` /
 }
 ```
 
+### `GET /api/v1/people/{slug}/enrichment`
+
+Per-slug enrichment payload for the iOS / Hub person card. Where
+`/people/context?name=` is a fuzzy name search that can return several
+matches, this endpoint resolves a single canonical person by wiki slug
+(the stable identifier the People list, search results, and wiki URLs
+already use) and returns the richer body the card wants beyond the list
+basics: organisation, role/title, relationship, how-we-met, notes,
+birthday, identifiers, recent meetings, the relationship signal, the
+MAX `last_contact`, and the per-source `last_contact_by_source`
+breakdown.
+
+The slug is validated against the same pattern as
+`POST /api/v1/people/{slug}/forget` (lowercase ASCII letters, digits,
+hyphens, max 80 chars). Per-person fields use British-English keys and
+the response mirrors `/people/context`'s dual shape (`{"person": {...}}`
+plus the same fields lifted to the envelope top-level). `role` and
+`title` both carry the job title so either CM031 client decodes a value.
+
+Best-effort Qdrant top-up adds `phone` / `email` and a display
+`last_contact` when the graph lacked them; a Qdrant failure is swallowed
+(the graph fields are the source of truth). Additive keys
+(`last_contact_by_source`, `identifiers`, `meetings`, `facts`,
+`relationship_signal`) appear only when the graph has the data.
+
+Status codes:
+
+- `400` malformed slug
+- `404` `{"found": false}` no person resolves to the slug
+- `503` `{"degraded": true}` Oxigraph unreachable
+- `200` `{"found": true, "person": {...}}`
+
+```json
+{
+  "slug": "jane-doe",
+  "found": true,
+  "organisation": "Example Corp",
+  "role": "VP Product",
+  "last_contact": "2026-04-20",
+  "person": {
+    "name": "Jane Doe",
+    "slug": "jane-doe",
+    "person_uri": "urn:pwg:person/jane-doe",
+    "wiki_url": "http://localhost:8044/People/jane-doe/",
+    "organisation": "Example Corp",
+    "title": "VP Product",
+    "role": "VP Product",
+    "relationship": "colleague",
+    "last_contact": "2026-04-20",
+    "last_contact_by_source": {
+      "calendar": "2024-03-01",
+      "whatsapp": "2026-04-20",
+      "email": "2025-11-30",
+      "imessage": "2026-01-05"
+    },
+    "phone": "+10000000000",
+    "email": "jane@example.com",
+    "identifiers": [
+      {"type": "phone", "value": "+10000000000"},
+      {"type": "email", "value": "jane@example.com"}
+    ],
+    "meetings": [
+      {"summary": "Quarterly sync", "date": "2026-02-14", "location": "Room 1"}
+    ],
+    "relationship_signal": {"warmth": "0.7", "trust": "0.6", "observed_at": "2026-03-01T09:00:00Z"}
+  }
+}
+```
+
 ### `GET /api/v1/people/stale?months=<n>&limit=<n>`
 
 Contacts not interacted with for at least `months` months
@@ -220,6 +289,70 @@ iOS vocabulary:
 `entries[].timestamp` is normalised to ISO-8601 where parseable;
 unparseable strings flow through unchanged so the client can render
 them rather than silently nilling.
+
+### `GET /api/v1/meeting/upcoming?within_minutes=<n>`
+
+Enriched pre-meeting briefs for events starting within the next
+``within_minutes`` (default 120). Read side of the pre-meeting brief
+wiring -- the CM048 conversation processing pipeline writes
+``pwg:OutstandingTodo`` triples to Oxigraph; the
+``meeting_syncer/brief.py`` generator gathers calendar + People
+Graph + TODO context; this endpoint exposes the result.
+
+```json
+{
+  "meetings": [
+    {
+      "meeting": "Discovery call with Alice",
+      "start": "2026-05-30 10:30 BST",
+      "start_iso": "20260530T103000",
+      "uid": "cal-event-uid-abc123",
+      "location": "Mortimer House",
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Mortimer+House",
+      "attendees": [
+        {
+          "name": "Alice Tester",
+          "email": "alice@example.com",
+          "wiki_url": "http://localhost:8044/People/alice-tester/",
+          "organization": "Acme Ltd",
+          "facts": ["Prefers async communication"],
+          "times_met": 4,
+          "last_met": "2026-04-12",
+          "last_discussion_url": "http://localhost:8044/Conversations/2026-04-12_alice_zoom/",
+          "outstanding_todos": [
+            {
+              "text": "Send the pitch deck",
+              "owner": "user",
+              "owner_display": "Operator",
+              "deadline": "2026-05-30",
+              "priority": "high",
+              "source_conversation_date": "2026-04-12"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "within_minutes": 120,
+  "count": 1
+}
+```
+
+Full schema in `meeting_syncer/SCHEMA.md`.
+
+Consumers:
+
+- **CM051 LaunchAgent cron sender** polls every ~10 min with
+  `within_minutes=20` and ships a WhatsApp message for each unsent
+  meeting (idempotency via UID + sent-briefs DB).
+- **CM031 iOS Companion `MeetingBriefService`** polls every 5 min
+  with `within_minutes=120` and posts a local notification 15-20
+  min before each meeting.
+
+Degraded-graceful: People Graph failure returns
+`{"meetings": [], "degraded": true, "reason": "..."}` + HTTP 200
+rather than 5xx so callers can keep polling without raising the
+Hub-offline pill.
 
 ### `GET /api/v1/suggestions`
 
@@ -326,53 +459,6 @@ Known follow-ups (not blockers for v1):
 - `last_sync` and CalDAV `last_refresh` read from marker files under
   `~/.zeroclaw/sync-state/` written by the sync paths. Missing markers
   are treated as "never synced" rather than errors.
-
-### `GET /api/v1/recording/active`
-
-Read side of the Hub→iOS publish surface that drives CM031's Recording
-Live Activity. The CM042 capture producer writes
-`~/.ostler/recording_state.json` atomically (`.tmp` + rename, mode
-0600) whenever a meeting capture transitions state; this endpoint
-reads the same file.
-
-Contract:
-
-- File missing → `{"recording": null}` (200, never 404). This is the
-  steady-state response while no capture is running.
-- File mtime older than `RECORDING_STALE_SECONDS` (default 30 s) →
-  `{"recording": null}`. A stale heartbeat means the producer
-  crashed mid-capture; the iOS Live Activity should collapse rather
-  than freeze on a stuck pill.
-- Malformed JSON, missing required fields (`meeting_id`,
-  `started_at`, `state`), or an unrecognised `state` value →
-  `{"recording": null}`, with a warning printed to stderr. Never
-  5xxs.
-
-Active body:
-
-```json
-{
-  "recording": {
-    "meeting_id": "01HZX7QAMP9V8RKJC5X3T2W4Q1",
-    "started_at": "2026-05-20T10:15:00Z",
-    "state": "recording",
-    "hub_machine_name": "Andy-Hub",
-    "participant_count": 3,
-    "consent_basis": "one_party",
-    "jurisdiction": "GB"
-  }
-}
-```
-
-`state` is one of `recording`, `processing`, `transcript_saved`, or
-`error`. `consent_basis` is `one_party`, `all_party`, or `null`.
-`participant_count` and `jurisdiction` may be `null`. Read-only; no
-POST surface (the producer writes the file directly).
-
-| Env var                   | Default                              | Notes                              |
-| ------------------------- | ------------------------------------ | ---------------------------------- |
-| `RECORDING_STATE_FILE`    | `~/.ostler/recording_state.json`     | Producer-writer path; reader path. |
-| `RECORDING_STALE_SECONDS` | `30`                                 | Mtime age beyond which the file is treated as a crashed producer. |
 
 ## Configuration
 
