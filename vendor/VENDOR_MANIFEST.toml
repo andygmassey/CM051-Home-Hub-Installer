@@ -264,3 +264,15 @@ divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+
+
+[[tree]]
+name             = "cm052"
+vendor_path      = "vendor/cm052"
+source_repo      = "$CM052"
+source_path      = "."
+pinned_sha       = "84a782385d2023f9d773f6961b7b8e248684c373"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", ".venv/", "fixtures_private/", ".pytest_cache/", ".github/", ".claude/", "CLAUDE.md", ".gitignore", "docs/"]
+verify           = "skip"
+note             = "AI Conversations ingest -- CM052 pwg-ai-convo entrypoint (PR#8, source HEAD 84a7823 on andygmassey/CM052). FOUNDATION layer of the v1.0.1 CM052 enable+wire; the install.sh hydrate block (mirror of cm048_setup), the AI-Conversations user-tree subdir, and the enable wiring land in a follow-up NO-MERGE PR. verify=skip because vendor/cm052 was materialised from the source WORKING TREE (clean @ pinned sha 84a7823), NOT via sync_vendor.sh: 'git archive' on the CM052 checkout writes the full tree then HANGS on process exit (>120s; .git is healthy/tiny, no LFS/locks -- same class as the cm048 note, likely fsmonitor/hook). Flip to verify=full once that hang is fixed and $CM052 is wired into the freshness toolchain."
