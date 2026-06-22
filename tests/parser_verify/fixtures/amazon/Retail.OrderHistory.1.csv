@@ -1,0 +1,4 @@
+Order Date,Order Status,Product Name,ASIN,Quantity,Product Condition,Website,Gift Message,Gift Sender Name
+2026-01-15T10:30:00Z,Closed,Synthetic Mechanical Keyboard,B0TEST0001,1,New,Amazon.com,Not Available,Not Available
+2026-02-03T14:05:00Z,Closed,Invented Cookbook of Imaginary Dishes,B0TEST0002,2,New,Amazon.com,Not Available,Not Available
+2026-02-20T09:00:00Z,Cancelled,Cancelled Test Item,B0TEST0003,1,New,Amazon.com,Not Available,Not Available

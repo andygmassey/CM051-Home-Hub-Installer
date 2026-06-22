@@ -1,0 +1,5 @@
+Workout start time,Activity name,Duration (min),Activity Strain,Energy burned (cal),Max HR (bpm),Average HR (bpm),HR Zone 1 %,HR Zone 2 %,HR Zone 3 %,HR Zone 4 %,HR Zone 5 %
+2025-01-05 07:30:00,Running,45,16.2,520,178,150,10,20,30,30,10
+2025-01-07 18:00:00,Running,40,15.5,480,176,148,12,22,28,28,10
+2025-01-09 07:15:00,Running,50,17.1,560,180,152,8,18,32,32,10
+2025-01-11 08:00:00,Cycling,60,12.4,610,165,140,15,30,35,15,5
