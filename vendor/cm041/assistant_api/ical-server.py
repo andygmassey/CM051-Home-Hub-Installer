@@ -3217,6 +3217,122 @@ def _resolve_person_uri_by_name(name):
     return None
 
 
+# Near-miss field aliases the assistant's ``remember_fact`` tool (and the
+# #606 batch shape) have been observed POSTing instead of the canonical
+# flat fields. We normalise rather than 400 so a small client/server schema
+# drift does not silently drop every user-asserted fact (the live v1.0.1
+# symptom: HTTP 400 "couldn't store that fact", nothing banked, no log).
+# Canonical field -> ordered list of accepted aliases (first non-empty wins).
+_ASSERT_FIELD_ALIASES = {
+    "subject": ("subject", "person", "name", "who", "entity"),
+    "fact_text": ("fact_text", "fact", "text", "object", "value", "statement"),
+    "relationship": ("relationship", "rel", "relation"),
+    "asserted_via": ("asserted_via", "via", "source", "channel"),
+}
+
+
+def _coalesce_assert_fields(raw):
+    """Normalise a single assert-body dict to the canonical flat fields.
+
+    Accepts the canonical ``{subject, fact_text, relationship?,
+    asserted_via?}`` shape AND tolerant near-miss aliases (e.g. ``fact``/
+    ``text``/``object`` for ``fact_text``; ``person``/``name`` for
+    ``subject``). Unknown keys are ignored. Returns a NEW dict containing
+    only the canonical keys that were present (non-empty). This never
+    raises and never validates -- validation stays in
+    ``_validate_asserted_string`` so the named-field 400s are unchanged.
+    """
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for canonical, aliases in _ASSERT_FIELD_ALIASES.items():
+        for alias in aliases:
+            if alias in raw and raw[alias] is not None:
+                # First alias that is present + not None wins. We keep the
+                # raw value (string-or-not) so the validator can reject a
+                # non-string with its existing clear message.
+                val = raw[alias]
+                if isinstance(val, str) and not val.strip():
+                    continue  # treat blank-string alias as absent, try next
+                out[canonical] = val
+                break
+    return out
+
+
+def _normalise_assert_payload(payload):
+    """Coerce the many client shapes into ONE canonical flat assert dict.
+
+    Handles:
+      - the canonical flat shape (pass-through after aliasing),
+      - the #606 batch shape ``{"operations": [ {...}, ... ]}`` -- we take
+        the FIRST operation (the assert endpoint is single-fact; a batch
+        wrapper around one assert is the observed client bug, not a real
+        multi-write),
+      - a bare ``[ {...} ]`` list (some clients drop the wrapper),
+      - near-miss field names via ``_coalesce_assert_fields``.
+
+    Returns ``(normalised_dict_or_None, error_or_None)``. ``error`` is a
+    ready-to-return ``({"error": ...}, 400)`` body only for structurally
+    un-handleable input (e.g. a batch with no operations); field-level
+    validation (missing subject/fact_text) is left to the caller so the
+    error names the field.
+    """
+    # Unwrap a batch / list wrapper down to a single operation dict.
+    if isinstance(payload, dict) and "operations" in payload:
+        ops = payload.get("operations")
+        if not isinstance(ops, list) or not ops:
+            return None, {"error": "'operations' must be a non-empty list."}
+        first = ops[0]
+        if not isinstance(first, dict):
+            return None, {"error": "'operations[0]' must be a JSON object."}
+        return _coalesce_assert_fields(first), None
+    if isinstance(payload, list):
+        if not payload or not isinstance(payload[0], dict):
+            return None, {
+                "error": "Request body list must contain a JSON object."
+            }
+        return _coalesce_assert_fields(payload[0]), None
+    if isinstance(payload, dict):
+        return _coalesce_assert_fields(payload), None
+    return None, {"error": "Request body must be a JSON object."}
+
+
+def _log_assert_request(raw_payload, normalised, *, missing=None):
+    """L1-safe diagnostic log for a /api/v1/memory/assert request.
+
+    Logs the SHAPE of the request -- the raw top-level keys, the canonical
+    keys that survived normalisation, and (for a 400) which required field
+    was missing -- but never the PII VALUES. ``fact_text`` is logged as a
+    length, never its content; ``subject`` is logged only as present/absent.
+    This makes a live 400 diagnosable from the server log (the v1.0.1 bug
+    was un-diagnosable because the handler logged nothing).
+    """
+    try:
+        if isinstance(raw_payload, dict):
+            raw_keys = sorted(raw_payload.keys())
+        elif isinstance(raw_payload, list):
+            raw_keys = ["<list>"]
+        else:
+            raw_keys = [f"<{type(raw_payload).__name__}>"]
+        norm = normalised or {}
+        fact = norm.get("fact_text")
+        fact_len = len(fact) if isinstance(fact, str) else (
+            "non-str" if fact is not None else "absent"
+        )
+        detail = (
+            f"raw_keys={raw_keys} "
+            f"normalised={sorted(norm.keys())} "
+            f"subject={'present' if norm.get('subject') else 'absent'} "
+            f"fact_text_len={fact_len}"
+        )
+        if missing:
+            detail += f" REJECTED missing={missing}"
+        print(f"[memory/assert] {detail}", file=sys.stderr, flush=True)
+    except Exception:
+        # Logging must never break the request path.
+        pass
+
+
 def api_memory_assert(payload, now=None):
     """Handle POST /api/v1/memory/assert.
 
@@ -3224,11 +3340,25 @@ def api_memory_assert(payload, now=None):
     parsed JSON body; ``now`` is an injectable datetime (defaults to
     ``datetime.now(timezone.utc)``) so tests can pin the timestamp.
 
+    The body is first normalised (``_normalise_assert_payload``) so the
+    canonical flat shape, the #606 batch shape, and near-miss field names
+    all resolve to ``{subject, fact_text, relationship?, asserted_via?}``
+    before validation. A truly missing required field still returns 400
+    naming that field.
+
     Returns ``(body, status)``. See the module-level comment above for the
     behaviour contract. Degrades gracefully (no 5xx) on Oxigraph failure,
     mirroring ``api_people_forget``'s degraded_reasons pattern.
     """
     from datetime import timezone
+
+    raw_payload = payload
+    normalised, norm_err = _normalise_assert_payload(payload)
+    if norm_err is not None:
+        _log_assert_request(raw_payload, None, missing="<malformed body>")
+        return norm_err, 400
+    payload = normalised
+    _log_assert_request(raw_payload, payload)
 
     if not isinstance(payload, dict):
         return {"error": "Request body must be a JSON object."}, 400
@@ -3252,22 +3382,26 @@ def api_memory_assert(payload, now=None):
         payload.get("subject"), field="subject", required=True
     )
     if err:
+        _log_assert_request(raw_payload, payload, missing="subject")
         return err, 400
     fact_text, err = _validate_asserted_string(
         payload.get("fact_text"), field="fact_text", required=True
     )
     if err:
+        _log_assert_request(raw_payload, payload, missing="fact_text")
         return err, 400
     relationship, err = _validate_asserted_string(
         payload.get("relationship"), field="relationship", required=False
     )
     if err:
+        _log_assert_request(raw_payload, payload, missing="relationship")
         return err, 400
     asserted_via, err = _validate_asserted_string(
         payload.get("asserted_via"), field="asserted_via",
         required=False, max_len=80
     )
     if err:
+        _log_assert_request(raw_payload, payload, missing="asserted_via")
         return err, 400
 
     # 2. Identity-resolve `subject` via people_search.
@@ -4103,6 +4237,23 @@ class Handler(BaseHTTPRequestHandler):
         # write half of the learning loop (layer 1). Mirrors the POST
         # branches above for body-read + response style.
         if parsed.path == "/api/v1/memory/assert":
+            # Router-level breadcrumb: record that the route was reached and
+            # the raw top-level body shape BEFORE handing to the handler, so
+            # even a handler exception leaves a trace in the log. L1-safe:
+            # keys/shape only, never PII values.
+            try:
+                if isinstance(payload, dict):
+                    _shape = f"keys={sorted(payload.keys())}"
+                elif isinstance(payload, list):
+                    _shape = f"list[{len(payload)}]"
+                else:
+                    _shape = f"<{type(payload).__name__}>"
+                print(
+                    f"[memory/assert] POST received: {_shape}",
+                    file=sys.stderr, flush=True,
+                )
+            except Exception:
+                pass
             try:
                 result, status = api_memory_assert(payload)
             except Exception as exc:
