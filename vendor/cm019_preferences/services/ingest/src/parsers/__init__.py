@@ -22,6 +22,7 @@ from .discord import DiscordParser
 from .netflix import NetflixParser
 from .email import EmailParser
 from .foursquare import FoursquareParser
+from .content_preferences import ContentPreferenceParser, extract_preferences
 
 __all__ = [
     "BaseParser",
@@ -46,5 +47,7 @@ __all__ = [
     "DiscordParser",
     "NetflixParser",
     "EmailParser",
-    "FoursquareParser"
+    "FoursquareParser",
+    "ContentPreferenceParser",
+    "extract_preferences"
 ]

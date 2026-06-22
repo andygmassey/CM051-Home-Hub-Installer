@@ -115,7 +115,7 @@ CALENDAR_ACTIVITY_CATEGORIES = {
         "maths", "english", "chinese", "spanish", "french", "music lesson",
     ],
     "martial_arts": [
-        "karate", "judo", "taekwondo", "kung fu", "martial arts",
+        "wing chun", "karate", "judo", "taekwondo", "kung fu", "martial arts",
         "boxing", "kickboxing", "bjj", "jiu jitsu", "aikido", "fencing",
     ],
     "social": [

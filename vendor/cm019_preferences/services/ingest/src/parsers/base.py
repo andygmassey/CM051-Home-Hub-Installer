@@ -7,17 +7,24 @@ from typing import Optional, Dict, Any, AsyncIterator
 from pathlib import Path
 import uuid
 
+# Stable namespace for deterministic preference ids. Derived once from a fixed
+# DNS name so the value never changes between runs or processes.
+_PREFERENCE_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "preference.pwg.ostler")
+
 
 @dataclass
 class ParsedPreference:
     """A parsed preference ready for ingestion."""
 
     # Core fields
-    # Default empty so __post_init__ can derive a STABLE, content-keyed id
-    # (see below). A random default would make every re-ingest of the same
-    # export mint new ids -> duplicate Qdrant points + RDF triples, which
-    # breaks the export watcher's re-run-over-Downloads path. A parser may
-    # still pass an explicit id and it is preserved.
+    #
+    # ``id`` is left empty by default and filled deterministically in
+    # ``__post_init__`` from the preference's identifying content (see
+    # ``_derive_id``). A previous ``uuid4`` default made ingestion
+    # non-idempotent: the *same* preference got a brand-new id every run, so
+    # re-ingesting a source created duplicate Qdrant points instead of
+    # upserting in place (tracker #526). Callers may still pass an explicit
+    # ``id=`` to override.
     id: str = ""
     subject: str = ""
     preference_type: str = "Like"  # Like, Dislike, Love, Hate, Neutral
@@ -44,7 +51,9 @@ class ParsedPreference:
     embedding_text: str = ""
 
     def __post_init__(self):
-        """Generate embedding text + a stable content-keyed id if not set."""
+        """Generate a deterministic id and embedding text if not provided."""
+        if not self.id:
+            self.id = self._derive_id()
         if not self.embedding_text:
             parts = [self.preference_type, self.subject]
             if self.category:
@@ -53,22 +62,32 @@ class ParsedPreference:
                 parts.append(f"context:{self.context}")
             self.embedding_text = " ".join(parts)
 
-        # Stable id (re-ingest idempotency). Derived from the immutable
-        # content keys so re-importing the same export yields the same id:
-        # the Qdrant upsert + `pwg:pref_<id>` triples become an upsert, not a
-        # duplicate. Prefer the platform's own source_id (most stable) and
-        # fall back to the subject. Two preferences that share all of
-        # (source, key, category, type) ARE the same preference, so the
-        # collision-to-one-id is the intended dedup. An explicitly-passed id
-        # is left untouched.
-        if not self.id:
-            key = "|".join([
-                self.source or "",
-                str(self.source_id) if self.source_id else self.subject,
-                self.category or "",
-                self.preference_type or "",
-            ])
-            self.id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+    def _derive_id(self) -> str:
+        """Derive a stable, content-based id for this preference.
+
+        Makes ingestion idempotent: the same logical preference always maps to
+        the same id, so re-ingesting a source upserts in place rather than
+        creating duplicate Qdrant points (tracker #526).
+
+        The key prefers ``source`` + ``source_id`` (a real per-source identity,
+        e.g. a Spotify track URI) and falls back to the identifying content
+        fields when no source id is available. A UUIDv5 keeps the result a
+        valid UUID string, which is what Qdrant point ids and ``pwg:pref_*``
+        IRIs require.
+        """
+        if self.source_id:
+            key = f"{self.source}|{self.source_id}"
+        else:
+            key = "|".join(
+                (
+                    self.source,
+                    self.preference_type,
+                    self.subject.strip().lower(),
+                    self.category or "",
+                    self.context or "",
+                )
+            )
+        return str(uuid.uuid5(_PREFERENCE_ID_NAMESPACE, key))
 
     def to_turtle(self, user_id: str) -> str:
         """Convert to RDF Turtle format."""

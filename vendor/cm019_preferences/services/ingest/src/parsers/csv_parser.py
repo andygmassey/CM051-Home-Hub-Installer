@@ -2,6 +2,7 @@
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict
 from datetime import datetime
@@ -89,7 +90,7 @@ class CSVParser(BaseParser):
             "pizza", "sushi", "ramen", "burger", "cooking", "dining", "bakery",
             "wine", "beer", "cocktail", "vegan", "vegetarian", "takeaway",
         ),
-        "movie": ("movie", "film", "cinema", "director", "documentary"),
+        "movie": ("movie", "film", "cinema", "documentary"),
         "tv": ("tv show", "tv series", "episode", "season", "netflix series"),
         "book": ("book", "novel", "author", "reading", "audiobook"),
         "podcast": ("podcast",),
@@ -109,11 +110,18 @@ class CSVParser(BaseParser):
         Returns a specific category when a confident keyword matches, else
         "interest" -- never an empty/None value, so the point always reaches
         a wiki Topic page instead of silently disappearing.
+
+        Matching is WORD-BOUNDARY, not substring: this stops accidental
+        substring hits that mis-categorised real data, e.g. "techno" no longer
+        fires inside "technology" (-> music) and "gig" no longer fires inside
+        "Biggie". Multi-word keywords ("hip hop", "tv show") still match as
+        phrases. ("director" was also removed from the movie list: it matched
+        the job title "Director" far more often than a film director.)
         """
         text = (subject or "").lower()
         for category, keywords in self.SUBJECT_CATEGORY_KEYWORDS.items():
             for kw in keywords:
-                if kw in text:
+                if re.search(r"\b" + re.escape(kw) + r"\b", text):
                     return category
         return "interest"
 
@@ -149,16 +157,10 @@ class CSVParser(BaseParser):
         column_map = self._map_columns(reader.fieldnames or [])
 
         if "subject" not in column_map:
-            # Not an error: the generic CSV parser is the fallback for arbitrary
-            # CSVs, and most (e.g. LinkedIn auxiliary exports -- Rich_Media,
-            # PhoneNumbers, Ad_Targeting, SearchQueries, Logins, Registration,
-            # Education, etc.) legitimately carry no preference "subject" column.
-            # Log at DEBUG so a clean install does not spam WARNINGs; a genuinely
-            # malformed preference CSV is still skipped (and visible at -v).
-            logger.debug(
+            logger.warning(
                 f"CSV has no recognized subject column: {file_path}. "
                 f"Available columns: {reader.fieldnames}. "
-                f"Skipping (not a preference CSV)."
+                f"Add column mapping or use a platform-specific parser."
             )
             return
 

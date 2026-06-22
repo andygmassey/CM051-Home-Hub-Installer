@@ -193,13 +193,13 @@ note             = "Byte-identical to source -- no divergence patch needed."
 [[tree]]
 name             = "cm019_preferences"
 vendor_path      = "vendor/cm019_preferences"
-source_repo      = "$CM019/02 - Code"
+source_repo      = "$CM019"
 source_path      = "."
-pinned_sha       = "WORKING_TREE"
+pinned_sha       = "8f6efb8b7fcaeeb149021af25fe1c4789572e856"
 divergence_patch = ""
 exclude          = ["__pycache__/"]
 verify           = "skip"
-note             = "CM019 is NOT a git repo -- no commit to pin. Vendor sub-tree (services/, ontology/) also remaps non-trivially into '02 - Code/'. Verification deferred until CM019 is gitified or the layout is reconciled. WARN, never silent pass."
+note             = "v1.0.1 cut re-vendor 2026-06-22: CM019 is now the git repo andygmassey/personal-world-graph (no longer the non-git '02 - Code/' working tree); pin bumped WORKING_TREE -> main 8f6efb8 (ORM cut: PR #246 ContentPreferenceParser + PR #236 word-boundary category matching + the PII scrub of disney/netflix profile allow-lists). The vendored tree is a CURATED SUBSET of the source (only ontology/shacl/preference-shapes.ttl, not the L0-L4 ttls; ~79 of ~238 services/ files), and carries load-bearing single-Mac infra grafts re-applied by hand during the refresh: vectorizer.py (Ollama nomic-embed-text 768-dim swap, no torch), services/{ingest,enrich}/src/config.py (preferences collection + Ollama embed settings), filters.py (cap_by_source / is_dropped_category / _category_rank per-source priority cap), pipeline.py (cap + dropped-category wiring -- MERGED with the new ContentPreferenceParser() insertion from source). base.py adopted source's _derive_id (stable uuid5, NAMESPACE-DNS-derived _PREFERENCE_ID_NAMESPACE) replacing the older inline NAMESPACE_URL form; test_vendor_preferences.sh's uuid5 assertion widened to accept either. PII (disney/netflix 'Andy'/'The Masseys'/'massey home' profiles) is now ABSENT -- the scrubbed source landed. verify stays 'skip' (WARN, never silent pass) because the curated subset + source-only files would fail a naive full structural diff until the exclude-set is fully encoded; the vendored test_vendor_preferences.sh provides the regression guard in the meantime."
 
 [[tree]]
 name             = "cm024_knowledge"

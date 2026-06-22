@@ -117,7 +117,11 @@ if grep -qE 'id:[[:space:]]*str[[:space:]]*=[[:space:]]*field\(default_factory=l
     echo "      content-keyed id (uuid5 in __post_init__)." >&2
     exit 1
 fi
-if ! grep -qE 'uuid\.uuid5\(uuid\.NAMESPACE_URL' "$_BASE"; then
+# Accept either the inline NAMESPACE_URL form (older vendor graft) or a
+# dedicated module-level uuid5 namespace (CM019 main 8f6efb8's
+# _PREFERENCE_ID_NAMESPACE). Both are stable content-keyed uuid5 ids; the
+# uuid4 rejection above is what guards the actual regression.
+if ! grep -qE 'uuid\.uuid5\(' "$_BASE"; then
     echo "FAIL: ParsedPreference.__post_init__ is missing the stable uuid5 id." >&2
     exit 1
 fi

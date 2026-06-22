@@ -3,6 +3,7 @@
 import csv
 import io
 import logging
+import os
 import zipfile
 from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, List
@@ -12,6 +13,21 @@ import aiofiles
 from .base import BaseParser, ParsedPreference
 
 logger = logging.getLogger(__name__)
+
+
+def _profiles_from_env() -> Optional[List[str]]:
+    """Read the optional profile allow-list from the environment.
+
+    ``NETFLIX_PROFILES`` is a comma-separated list of profile names to
+    include (e.g. ``"Profile 1,Family"``). When unset, all profiles are
+    ingested. Operator-specific profile names must NOT be hard-coded here;
+    set the env var on the deployment instead.
+    """
+    raw = os.environ.get("NETFLIX_PROFILES", "").strip()
+    if not raw:
+        return None
+    profiles = [p.strip() for p in raw.split(",") if p.strip()]
+    return profiles or None
 
 
 class NetflixParser(BaseParser):
@@ -117,9 +133,11 @@ class NetflixParser(BaseParser):
 
         return False
 
-    # Default profiles to include (None = all profiles)
-    # Set to filter family account to only specific users
-    ALLOWED_PROFILES: Optional[List[str]] = ["Andy", "The Masseys"]
+    # Default profiles to include (None = all profiles).
+    # To filter a family account to specific users, set the comma-separated
+    # NETFLIX_PROFILES env var on the deployment, or pass profiles=[...] to
+    # parse(). Operator/personal profile names must never be hard-coded here.
+    ALLOWED_PROFILES: Optional[List[str]] = _profiles_from_env()
 
     def _is_profile_allowed(
         self,

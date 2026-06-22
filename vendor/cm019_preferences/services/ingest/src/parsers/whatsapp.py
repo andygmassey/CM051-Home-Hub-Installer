@@ -137,6 +137,8 @@ TOPIC_PATTERNS: Dict[str, Tuple[str, str]] = {
 
     # Professional/Companies (extract as professional interest)
     r'\bchanel\b': ('Fashion/Luxury', 'professional'),
+    r'\blane\s*crawford\b': ('Retail/Fashion', 'professional'),
+    r'\blc\b': ('Retail', 'professional'),  # Lane Crawford abbreviation
     r'\bsamsung\b': ('Tech Industry', 'professional'),
     r'\blg\b': ('Tech Industry', 'professional'),
     r'\bdeloitte\b': ('Consulting', 'professional'),

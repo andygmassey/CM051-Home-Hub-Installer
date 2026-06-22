@@ -34,7 +34,8 @@ from .parsers import (
     DiscordParser,
     NetflixParser,
     EmailParser,
-    FoursquareParser
+    FoursquareParser,
+    ContentPreferenceParser
 )
 from .rml import RMLMapper
 
@@ -81,6 +82,11 @@ class IngestPipeline:
             DisneyPlusParser(),
             WhatsAppParser(),
             DiscordParser(),
+            # Content preference extractor: stated tastes from conversation
+            # transcripts (*.txt named conversation/transcript/chat/...).
+            # Before MetaParser/CSV so a transcript .txt is read as stated
+            # tastes, not swept up by a generic fallback.
+            ContentPreferenceParser(),
             MetaParser(),
             CSVParser(),  # CSV last as fallback
         ]
