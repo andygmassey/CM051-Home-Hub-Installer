@@ -118,7 +118,7 @@
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -408,12 +418,31 @@
+@@ -407,12 +417,31 @@
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -152,7 +152,7 @@
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -584,7 +613,21 @@
+@@ -583,7 +612,21 @@
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -175,7 +175,7 @@
              stats = email_stats(messages)
              contacts = frequent_contacts(messages)
  
-@@ -595,14 +638,31 @@
+@@ -594,14 +637,31 @@
                  json.dumps(contacts, indent=2, default=str)
              )
  

@@ -14567,6 +14567,139 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
           _places_rc _places_log_tail
 fi
 
+# Apple Notes knowledge hydrate (#519 convert + embed into the Knowledge
+# wing) -------------------------------------------------------------------
+#
+# The Phase 3 FDA extract already wrote apple_notes.json (the
+# notesgardenpb-decoded notes) to ~/.ostler/imports/fda/ whenever
+# "apple_notes" is in OSTLER_FDA_SOURCES. That JSON is KNOWLEDGE-shaped
+# (CM024 ParsedNote frontmatter), NOT a pwg_ingest source -- so unlike the
+# browsing / iMessage / calendar hydrate blocks it does NOT go through
+# ostler_fda.pwg_ingest. It rides the CM024 ostler-knowledge pipeline:
+#
+#   1. CONVERT: ostler-knowledge convert --source apple_notes apple_notes.json
+#      --output <staging>/apple_notes  -> knowledge markdown.
+#   2. EMBED:   ostler-knowledge embed <staging>/apple_notes
+#      --collection evernote_knowledge --embedding-model nomic-embed-text
+#      -> Qdrant. This is the collection the CM044 wiki compiler reads for
+#      the Knowledge wing, so WITHOUT the embed step the notes convert to
+#      markdown but never reach the wiki (the #519 finding: convert was
+#      wired on the Doctor evernote path but embed was wired nowhere).
+#
+# Best-effort and never fatal: a missing apple_notes.json, a missing
+# ostler-knowledge CLI, or a convert/embed non-zero all degrade to a calm
+# info/warn and the install continues. Guarded with the same ERR-trap +
+# errexit suppression the other hydrate_* blocks use so an in-subshell
+# non-zero under `set -Eeuo pipefail` can never abort the install.
+_HYDRATE_NOTES_FDA_JSON="${OSTLER_DIR}/imports/fda/apple_notes.json"
+_HYDRATE_NOTES_BIN="${KNOWLEDGE_SYMLINK:-/usr/local/bin/ostler-knowledge}"
+if [[ ! -x "$_HYDRATE_NOTES_BIN" && -x "${KNOWLEDGE_BIN:-}" ]]; then
+    _HYDRATE_NOTES_BIN="$KNOWLEDGE_BIN"
+fi
+_HYDRATE_NOTES_STAGING="${KNOWLEDGE_STAGING_DIR:-${OSTLER_DIR}/data/knowledge-staging}/apple_notes"
+_HYDRATE_NOTES_DB="${KNOWLEDGE_STAGING_DIR:-${OSTLER_DIR}/data/knowledge-staging}/metadata.db"
+_HYDRATE_NOTES_LOG=/tmp/ostler-hydrate-apple-notes.log
+
+if _hydrate_sentinel_fresh "apple_notes"; then
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+elif [[ ! -x "$_HYDRATE_NOTES_BIN" ]]; then
+    # Knowledge CLI not installed (e.g. PWG_KNOWLEDGE_REPO unset and no
+    # bundled vendor copy). Additive feature -- skip, don't block.
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_CLI"
+    _hydrate_sentinel_record "apple_notes" "status=no_cli"
+elif [[ ! -s "$_HYDRATE_NOTES_FDA_JSON" ]]; then
+    # No notes extracted (apple_notes not in OSTLER_FDA_SOURCES, FDA not
+    # granted yet, or genuinely no notes). The 12h FDA re-run + Doctor
+    # rescan will pick them up later.
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "apple_notes" "status=no_data"
+else
+    info "$MSG_HYDRATE_APPLE_NOTES_STARTED"
+    mkdir -p "$_HYDRATE_NOTES_STAGING"
+
+    _HYDRATE_NOTES_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_NOTES_TIMEOUT_WRAP="gtimeout 300"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_NOTES_TIMEOUT_WRAP="timeout 300"
+    fi
+
+    _HYDRATE_NOTES_CONVERT_RC=0
+    _HYDRATE_NOTES_EMBED_RC=0
+    _HYDRATE_NOTES_TIMED_OUT=false
+
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
+    # Step 1: convert apple_notes.json -> knowledge markdown.
+    $_HYDRATE_NOTES_TIMEOUT_WRAP \
+        "$_HYDRATE_NOTES_BIN" convert \
+            --source apple_notes \
+            "$_HYDRATE_NOTES_FDA_JSON" \
+            --output "$_HYDRATE_NOTES_STAGING" \
+            --overwrite \
+            >>"$_HYDRATE_NOTES_LOG" 2>&1
+    _HYDRATE_NOTES_CONVERT_RC=$?
+
+    if [[ "$_HYDRATE_NOTES_CONVERT_RC" -eq 0 ]]; then
+        # Step 2: embed the markdown into the evernote_knowledge Qdrant
+        # collection the wiki reads. --incremental keeps a re-run from
+        # re-embedding unchanged notes. nomic-embed-text matches the
+        # box-wide EMBED_MODEL (the wiki + every other graph path use it).
+        $_HYDRATE_NOTES_TIMEOUT_WRAP \
+            "$_HYDRATE_NOTES_BIN" embed \
+                "$_HYDRATE_NOTES_STAGING" \
+                --db-path "$_HYDRATE_NOTES_DB" \
+                --qdrant-host "${QDRANT_URL:-http://localhost:6333}" \
+                --collection evernote_knowledge \
+                --embedding-provider ollama \
+                --embedding-model nomic-embed-text \
+                --ollama-host "${OLLAMA_URL:-http://localhost:11434}" \
+                --incremental \
+                >>"$_HYDRATE_NOTES_LOG" 2>&1
+        _HYDRATE_NOTES_EMBED_RC=$?
+    fi
+    set -e; eval "${_saved_err_trap:-}"
+
+    if [[ "$_HYDRATE_NOTES_CONVERT_RC" -eq 124 || "$_HYDRATE_NOTES_CONVERT_RC" -eq 137 \
+       || "$_HYDRATE_NOTES_EMBED_RC" -eq 124 || "$_HYDRATE_NOTES_EMBED_RC" -eq 137 ]]; then
+        _HYDRATE_NOTES_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_NOTES_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES"
+        _hydrate_sentinel_record "apple_notes" "status=timeout"
+    elif [[ "$_HYDRATE_NOTES_CONVERT_RC" -ne 0 ]]; then
+        warn "$MSG_HYDRATE_APPLE_NOTES_CONVERT_FAILED"
+        if [[ -s "$_HYDRATE_NOTES_LOG" ]]; then
+            tail -n 5 "$_HYDRATE_NOTES_LOG" | sed 's/^/    /'
+        fi
+        _hydrate_sentinel_record "apple_notes" "status=convert_failed rc=$_HYDRATE_NOTES_CONVERT_RC"
+    elif [[ "$_HYDRATE_NOTES_EMBED_RC" -ne 0 ]]; then
+        warn "$MSG_HYDRATE_APPLE_NOTES_EMBED_FAILED"
+        if [[ -s "$_HYDRATE_NOTES_LOG" ]]; then
+            tail -n 5 "$_HYDRATE_NOTES_LOG" | sed 's/^/    /'
+        fi
+        _hydrate_sentinel_record "apple_notes" "status=embed_failed rc=$_HYDRATE_NOTES_EMBED_RC"
+    else
+        # Count converted markdown files for the customer-facing number.
+        _HYDRATE_NOTES_COUNT="$(
+            find "$_HYDRATE_NOTES_STAGING" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' '
+        )"
+        _HYDRATE_NOTES_COUNT="${_HYDRATE_NOTES_COUNT:-0}"
+        if [[ "$_HYDRATE_NOTES_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_APPLE_NOTES_DONE" "$_HYDRATE_NOTES_COUNT")"
+        else
+            info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+        fi
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_NOTES_COUNT:-0}"
+    fi
+
+    unset _HYDRATE_NOTES_TIMEOUT_WRAP _HYDRATE_NOTES_CONVERT_RC \
+          _HYDRATE_NOTES_EMBED_RC _HYDRATE_NOTES_TIMED_OUT _HYDRATE_NOTES_COUNT
+fi
+
+unset _HYDRATE_NOTES_FDA_JSON _HYDRATE_NOTES_BIN _HYDRATE_NOTES_STAGING \
+      _HYDRATE_NOTES_DB _HYDRATE_NOTES_LOG
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"

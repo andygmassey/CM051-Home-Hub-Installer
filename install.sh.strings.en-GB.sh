@@ -1054,6 +1054,20 @@ MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
 
+# Apple Notes knowledge hydrate (convert + embed into the Knowledge wing).
+# The notesgardenpb-decoded notes were already written to apple_notes.json
+# by the Phase 3 FDA extract; this step converts them to knowledge markdown
+# via the ostler-knowledge CLI (apple_notes adapter) and embeds them into
+# the evernote_knowledge Qdrant collection the wiki reads. Best-effort,
+# never fatal, counts-only.
+MSG_HYDRATE_APPLE_NOTES_STARTED="Adding your Apple Notes to your knowledge graph – your notes stay on this Mac"
+MSG_HYDRATE_APPLE_NOTES_DONE="Added %s Apple Notes to your knowledge graph"
+MSG_HYDRATE_APPLE_NOTES_CONVERT_FAILED="Could not convert your Apple Notes this time. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_EMBED_FAILED="Converted your Apple Notes but could not index them this time. They will be picked up on the next refresh."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to import. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_CLI="Knowledge service not ready yet, so Apple Notes were skipped. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background – your wiki will fill in over the next hour."
+
 # Preferences import counts-only confirmation, shown by phase 3.12b after
 # the shared ostler-import fan-out runs. The other hydrate_preferences
 # strings were removed when the standalone block was collapsed into the

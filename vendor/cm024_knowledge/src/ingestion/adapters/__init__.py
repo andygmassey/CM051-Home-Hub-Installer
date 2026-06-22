@@ -17,15 +17,18 @@ Usage:
 
 Register new adapters by adding ``"<name>": <Cls>`` to ``ADAPTERS``.
 """
+from .apple_notes import AppleNotesAdapter
 from .base import KnowledgeSourceAdapter, ParsedNote, RawNote
 from .evernote import EvernoteAdapter
 
 ADAPTERS: dict[str, type[KnowledgeSourceAdapter]] = {
     "evernote": EvernoteAdapter,
+    "apple_notes": AppleNotesAdapter,
 }
 
 __all__ = [
     "ADAPTERS",
+    "AppleNotesAdapter",
     "EvernoteAdapter",
     "KnowledgeSourceAdapter",
     "ParsedNote",
