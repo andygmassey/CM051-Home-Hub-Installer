@@ -1164,158 +1164,565 @@ def ingest_browser_history(fda_dir: Path) -> dict:
     }
 
 
-# ── People -> Qdrant populate (Oxigraph sweep, direct, v1.0) ───────
+# ── Safari bookmarks ingestion (Reading wiki page) ────────────────
 #
-# Single-Mac product: nothing creates or populates the Qdrant `people`
-# collection on a fresh install. contact_syncer is not bundled or run,
-# graph_db_start creates no collections, and the iMessage path writes
-# Oxigraph RDF only. The wiki People pages are fine (the CM044 compiler
-# reads people from Oxigraph via SPARQL), but the iOS People tab + Hub
-# People-card + semantic search read the Qdrant `people` collection
-# (ical-server.py people_search / scroll, BOTH filtered on
-# payload.contact_type == "person") and so see zero rows.
+# extract_all.py writes safari_bookmarks.json (the installer offers
+# `safari_bookmarks` as a Recommended FDA source), but nothing ever
+# ingested it -- so the data died on disk after extraction and the
+# CM044 Reading wiki page rendered an empty bookmarks section for every
+# customer (the silent-fail caught in the 2026-06-04 resweep).
 #
-# This sweeps EVERY pwg:Person from Oxigraph -- all sources, matching
-# the wiki's completeness rather than just iMessage -- embeds the
-# display name with the local Ollama instance, and upserts one point
-# per person into `people`, self-creating the collection at 768-dim
-# (same no-gateway / no-precreate gap the browsing writer closes).
+# Reader contract (confirmed against the live reader, file:line):
+#   - collection NAME : "preferences"
+#       CM044 compiler/pages/reading_pages.py:46 (scroll_all),
+#       compiler/incremental.py:44 ("reading" -> ["qdrant:preferences"]),
+#       compiler/compile.py:69 ("reading" page registered).
+#   - reader FILTER   : payload `category == "bookmark"`
+#       reading_pages.py:43 ({"key": "category", "match": {"value": cat}})
+#       for cat in ("bookmark", "website").
+#   - payload FIELDS the reader consumes:
+#       subject       (reading_pages.py:124 -- the bookmark title)
+#       strength      (reading_pages.py:98/132 -- sort + bar)
+#       source        (reading_pages.py:93/133)
+#       observed_at / created_at (reading_pages.py:94 -- timeline buckets)
+#       extra.url     (reading_pages.py:127 -- makes the title clickable)
+#   The full payload mirrors CM019 ParsedPreference.to_payload
+#   (parsers/base.py:118) so FDA-extracted bookmarks render identically
+#   to GDPR-imported ones.
+#
+# Counts-only return (install.sh reads `sent`); no bookmark titles or
+# URLs cross the process boundary. Fails LOUD (status "error") if there
+# were bookmarks to ingest but nothing landed in Qdrant -- a silent
+# ok-with-zero would let the installer claim success while the Reading
+# page stays blank, the exact silent-fail this function exists to kill.
 
-PEOPLE_QDRANT_COLLECTION = QDRANT_COLLECTION  # "people"; override via QDRANT_COLLECTION
-# nomic-embed-text emits 768-dim vectors (same model + dim as browsing).
-_PEOPLE_VECTOR_DIM = int(os.getenv("PEOPLE_VECTOR_DIM", "768"))
+# The reader scrolls exactly this collection name. Overridable for
+# tests only. Defaults to "preferences" to match CM019 + reading_pages.
+PREFERENCES_QDRANT_COLLECTION = os.getenv(
+    "PREFERENCES_QDRANT_COLLECTION", "preferences"
+)
+# nomic-embed-text emits 768-dim vectors; fallback used only when no
+# live embedding length is available to size a fresh collection.
+PREFERENCES_EMBED_DIM = int(os.getenv("PREFERENCES_EMBED_DIM", "768"))
+
+# Folder -> strength. Reading List items were explicitly saved to read
+# later; Favourites (BookmarksBar) are pinned. Both are stronger signals
+# than an ordinary filed bookmark. Mirrors CM019 apple.py's favourite
+# vs ordinary split (0.75 / 0.70).
+_BOOKMARK_STRENGTH_BY_FOLDER = {
+    "Reading List": 0.75,
+    "Favourites": 0.72,
+}
+_BOOKMARK_DEFAULT_STRENGTH = 0.70
 
 
-def ingest_people_to_qdrant() -> dict:
-    """Populate the Qdrant ``people`` collection from Oxigraph.
+def _load_safari_bookmarks(fda_dir: Path) -> list[dict]:
+    """Read safari_bookmarks.json from ``fda_dir``.
 
-    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
-    and upserts a point per person carrying the payload contract the iOS
-    People tab + Hub People-card read: ``display_name``, ``person_uri``,
-    and ``contact_type == "person"`` (the filter BOTH the search and
-    scroll endpoints require -- a point without it is invisible to the
-    tab). Self-creates the collection at 768-dim. Counts only in the
-    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
-    degrades the count rather than aborting the installer.
+    The file is a list of dicts emitted by extract_all.py
+    (``[asdict(b) for b in bookmarks]``) with keys: title, url, domain,
+    folder. A missing file is skipped silently (the source was not
+    enabled); a malformed file logs and contributes nothing.
     """
+    path = fda_dir / "safari_bookmarks.json"
+    if not path.exists():
+        return []
     try:
-        rows = _sparql_query(
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-            "SELECT ?person ?name ?createdAt WHERE {\n"
-            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
-            # pwg:createdAt holds the REAL historical contact-creation date
-            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
-            # written by contact_syncer) -- distinct from the install-time
-            # stamp. The time-ordered wiki views (year pages, person
-            # timeline, "recent") key on observed_at/created_at, so without
-            # surfacing this here the FDA-sourced people are ABSENT from
-            # those views, not just stamped wrong. OPTIONAL: a person with
-            # no real date stays omitted from time views (consistent with
-            # the iCloud-contacts decision) -- we never fabricate now().
-            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
-            "}"
-        )
-    except Exception as exc:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
         logger.warning(
-            "People sweep: Oxigraph query failed: %s", type(exc).__name__,
+            "Could not parse safari_bookmarks.json: %s; skipping.",
+            type(exc).__name__,
         )
-        return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
+        return []
+    if not isinstance(data, list):
+        logger.warning("safari_bookmarks.json root is not a list; skipping.")
+        return []
+    return [b for b in data if isinstance(b, dict)]
 
-    # Dedup by person URI; keep the first display name seen. A person may
-    # produce more than one row when they carry several pwg:createdAt
-    # values (the contact_syncer "update if earlier" path can leave more
-    # than one historic date across re-runs), so track the EARLIEST real
-    # createdAt across all rows for the URI -- the time-ordered views
-    # anchor on the person's true first-seen date rather than whichever row
-    # SPARQL returned first.
-    persons: dict[str, str] = {}
-    created_by_uri: dict[str, str] = {}
-    for r in rows:
-        uri = (r.get("person", {}).get("value") or "").strip()
-        name = (r.get("name", {}).get("value") or "").strip()
-        if not uri or not name:
-            continue
-        if uri not in persons:
-            persons[uri] = name
-        created_at = (r.get("createdAt", {}).get("value") or "").strip()
-        if created_at:
-            existing = created_by_uri.get(uri)
-            if not existing or created_at < existing:
-                created_by_uri[uri] = created_at
 
-    if not persons:
-        logger.info("People sweep: no pwg:Person in Oxigraph to populate.")
-        return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
+def ingest_bookmarks(fda_dir: Path) -> dict:
+    """Ingest Safari bookmarks into the Qdrant ``preferences`` collection
+    so the CM044 Reading wiki page can render them.
 
-    items = list(persons.items())  # [(uri, name), ...] -- stable order
-    sent = 0
-    try:
-        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, _PEOPLE_VECTOR_DIM)
-        vectors = _ollama_embed_batch([name for _, name in items])
-        points = []
-        for (uri, name), vec in zip(items, vectors):
-            payload = {
-                "display_name": name,
-                "person_uri": uri,
-                # Both ical-server read paths filter on this exact
-                # value; without it the iOS People tab sees nothing.
-                "contact_type": "person",
-            }
-            # Surface the REAL pwg:createdAt date so the time-ordered wiki
-            # views (year pages, person timeline, "recent people") can
-            # place this person. The CM044 readers key on observed_at
-            # first, then fall back to created_at, so write BOTH from the
-            # same real date. Omit entirely when there is no real date: a
-            # no-real-date FDA person stays absent from time views rather
-            # than being stamped with a fabricated now() (consistent with
-            # the iCloud-contacts decision).
-            real_created = created_by_uri.get(uri)
-            if real_created:
-                payload["observed_at"] = real_created
-                payload["created_at"] = real_created
-            points.append({
-                # Stable id: same person URI re-upserts in place across
-                # re-installs rather than duplicating the row.
-                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"person|{uri}")),
-                "vector": vec,
-                "payload": payload,
-            })
-        sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
-    except Exception as exc:
-        logger.warning(
-            "People sweep: vector-store write failed: %s", type(exc).__name__,
-        )
+    Direct, single-machine path: no gateway. Sensitive domains are
+    dropped client-side before embed/store (same blocklist as browsing).
+    Defensive: missing, empty, or all-sensitive input returns
+    ``{"status": "no_data", ...}`` with zero counts and never raises; an
+    Ollama/Qdrant hiccup degrades the count rather than crashing the
+    installer.
+
+    Each bookmark becomes one ``preferences`` point with
+    ``category == "bookmark"`` and the payload field set the Reading page
+    reads. The point id is derived stably from the bookmark URL so a
+    re-install upserts in place rather than duplicating rows.
+
+    Returns counts only (parity with the other ingesters; install.sh
+    reads ``sent``):
+      ``status``           : "ok" | "no_data" | "error"
+      ``sent``             : points upserted into Qdrant
+      ``points_created``   : alias of ``sent``
+      ``skipped_sensitive``: bookmarks dropped by the blocklist
+      ``total``            : ingestible bookmarks considered
+    """
+    bookmarks = _load_safari_bookmarks(fda_dir)
+    if not bookmarks:
+        logger.info("No bookmarks to ingest.")
         return {
-            "status": "error",
-            "sent": sent,
-            "points_created": sent,
-            "total": len(items),
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": 0,
+            "total": 0,
         }
 
-    if sent == 0:
-        # Persons existed but none landed (every chunk failed). Report
-        # error, not ok-with-zero, so the installer does not claim
-        # success while the People tab stays empty.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    skipped_sensitive = 0
+    queue: list[dict] = []
+    seen_urls: set[str] = set()
+    for b in bookmarks:
+        url = (b.get("url") or "").strip()
+        if not url or url in seen_urls:
+            continue
+        domain = (b.get("domain") or "").strip()
+        if _is_sensitive_domain(domain):
+            skipped_sensitive += 1
+            continue
+        seen_urls.add(url)
+        title = (b.get("title") or "").strip() or domain or url
+        folder = (b.get("folder") or "").strip()
+        strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
+            folder, _BOOKMARK_DEFAULT_STRENGTH
+        )
+
+        # Embedding document: title carries the human-readable signal;
+        # domain anchors it. Mirrors the browsing path's doc construction
+        # and CM019's "Like <subject> category:bookmark" embedding text.
+        doc = " ".join(
+            part for part in ("Like", title, "category:bookmark", domain) if part
+        )
+        # Stable point id: same URL re-runs upsert in place (idempotent
+        # re-install) rather than duplicating rows.
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bookmark|{url}"))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                # Reader contract (CM044 reading_pages.py) + CM019
+                # ParsedPreference.to_payload parity so FDA bookmarks
+                # render identically to GDPR-imported ones.
+                "preference_id": point_id,
+                "subject": title,
+                "preference_type": "Like",
+                "category": "bookmark",
+                "strength": strength,
+                "source": "safari_bookmarks",
+                "context": folder or None,
+                "size": "Medium",
+                "compartment_level": DEFAULT_PRIVACY,
+                "privacy_level": DEFAULT_PRIVACY,
+                "created_at": now_iso,
+                "observed_at": now_iso,
+                "extra": {
+                    "url": url,
+                    "domain": domain,
+                    "folder": folder,
+                    "source_type": "safari_bookmarks",
+                },
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Bookmarks: 0 ingestible (%d skipped sensitive).",
+            skipped_sensitive,
+        )
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": 0,
+        }
+
+    vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+    # Size the collection from the first real embedding; fall back to
+    # the nomic-embed-text default only if nothing embedded.
+    vector_size = PREFERENCES_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
         logger.warning(
-            "People sweep: embedded %d persons but 0 landed in Qdrant '%s'.",
-            len(items), PEOPLE_QDRANT_COLLECTION,
+            "Bookmarks: could not ensure Qdrant collection '%s': %s",
+            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
         )
         return {
             "status": "error",
             "sent": 0,
             "points_created": 0,
-            "total": len(items),
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    points = [
+        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+        for item, vec in zip(queue, vectors)
+    ]
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "Bookmarks vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    if sent == 0:
+        # We had bookmarks to store but none landed (every chunk failed).
+        # Report error, not "ok" -- a silent ok-with-zero would let the
+        # installer claim success while the Reading page stays blank.
+        logger.warning(
+            "Bookmarks: had %d to ingest but 0 landed in Qdrant '%s'.",
+            len(queue), PREFERENCES_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
         }
 
     logger.info(
-        "People sweep: %d persons upserted to Qdrant '%s'.",
-        sent, PEOPLE_QDRANT_COLLECTION,
+        "Bookmarks: %d upserted to Qdrant '%s' (%d skipped sensitive).",
+        sent, PREFERENCES_QDRANT_COLLECTION, skipped_sensitive,
     )
     return {
         "status": "ok",
         "sent": sent,
         "points_created": sent,
-        "total": len(items),
+        "skipped_sensitive": skipped_sensitive,
+        "total": len(queue),
+    }
+
+
+# ── People search index (#600) ────────────────────────────────────
+#
+# Populate the Qdrant `people` collection from Oxigraph so the iOS
+# People tab, the Hub People card, and semantic people-search have
+# something to read. Those three readers scroll/search the collection
+# named exactly "people" and key off `contact_type == "person"`; the
+# wiki People page also scrolls "people" (compiler/pages/people.py).
+#
+# Reader contract (confirmed against live readers, file:line in the
+# #600 PR description):
+#   - collection NAME : "people"
+#       CM044 compiler/pages/people.py:46, enrich_from_qdrant.py:89,
+#       demo_mode.py:344 ("people")
+#   - vector DIMENSION: 768 (nomic-embed-text); every other collection
+#       in this repo embeds at 768 (see the safari path tests using
+#       [0.1] * 768) and install.sh self-creates `people` at 768-dim.
+#       We size the collection from the FIRST real embedding length and
+#       fall back to 768 only if no live embedder is reachable.
+#   - payload FIELDS the readers consume:
+#       display_name   (people.py:74, enrich_from_qdrant.py:119,
+#                       person_pages.py:761)
+#       organization   (people.py / person_pages.py:763)
+#       job_title      (people.py / person_pages.py:764)
+#       given_name / family_name (person_pages.py:762)
+#       contact_type   ("person"; the readers' filter, person_pages.py:768)
+#       phones / emails (lists; people.py:160-161, enrich_from_qdrant.py
+#                       :154-164)
+#       person_id / person_uri (demo_mode.py:336-337)
+#       privacy_level / source / last_contact (demo_mode.py:344-348)
+#
+# Counts-only return (install.sh reads `sent`); no display names cross
+# the process boundary. Fails LOUD (status "error") if Oxigraph holds
+# Person nodes but nothing landed in Qdrant -- a silent ok-with-zero
+# would let the installer claim success while the People surfaces stay
+# blank, the exact #600 silent-fail this function exists to kill.
+
+# The readers scroll/search exactly this collection name. Overridable
+# for tests only.
+PEOPLE_QDRANT_COLLECTION = os.getenv("PEOPLE_QDRANT_COLLECTION", "people")
+# nomic-embed-text emits 768-dim vectors; this is the fallback used
+# only when no live embedding length is available to size the
+# collection (e.g. the embedder is down and every embed returns []).
+PEOPLE_EMBED_DIM = int(os.getenv("PEOPLE_EMBED_DIM", "768"))
+
+
+def _load_people_from_oxigraph() -> list[dict]:
+    """SPARQL-query Oxigraph for every pwg:Person with a display name.
+
+    Returns one dict per person with the fields the Qdrant reader
+    contract needs. Identifiers (phone/email) are folded into ``phones``
+    and ``emails`` lists via a second grouped query so a person with
+    several numbers still produces one row.
+    """
+    people_rows = _sparql_query(
+        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "SELECT ?uri ?displayName ?contactType ?org ?jobTitle "
+        "?givenName ?familyName ?createdAt WHERE {\n"
+        "  ?uri a pwg:Person ;\n"
+        "       pwg:displayName ?displayName .\n"
+        "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
+        "  OPTIONAL { ?uri pwg:organization ?org }\n"
+        "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
+        "  OPTIONAL { ?uri pwg:givenName ?givenName }\n"
+        "  OPTIONAL { ?uri pwg:familyName ?familyName }\n"
+        # pwg:createdAt holds the REAL historical contact-creation date
+        # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date written
+        # by contact_syncer) -- distinct from the install-time stamp. The
+        # time-ordered wiki views (year pages, person timeline, "recent")
+        # key on observed_at/created_at, so without surfacing this here the
+        # FDA-sourced people are ABSENT from those views, not just stamped
+        # wrong. OPTIONAL: a person with no real date stays omitted from
+        # time views (consistent with the iCloud-contacts decision) -- we
+        # never fabricate now().
+        "  OPTIONAL { ?uri pwg:createdAt ?createdAt }\n"
+        "}"
+    )
+
+    # Second query: identifiers grouped per person.
+    id_rows = _sparql_query(
+        "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+        "SELECT ?uri ?idType ?idValue WHERE {\n"
+        "  ?uri a pwg:Person ;\n"
+        "       pwg:hasIdentifier ?id .\n"
+        "  ?id pwg:identifierType ?idType ;\n"
+        "      pwg:identifierValue ?idValue .\n"
+        "}"
+    )
+    phones_by_uri: dict[str, list[str]] = {}
+    emails_by_uri: dict[str, list[str]] = {}
+    for row in id_rows:
+        uri = (row.get("uri", {}) or {}).get("value", "")
+        id_type = (row.get("idType", {}) or {}).get("value", "")
+        id_value = (row.get("idValue", {}) or {}).get("value", "")
+        if not uri or not id_value:
+            continue
+        if id_type == "phone":
+            phones_by_uri.setdefault(uri, [])
+            if id_value not in phones_by_uri[uri]:
+                phones_by_uri[uri].append(id_value)
+        elif id_type == "email":
+            emails_by_uri.setdefault(uri, [])
+            if id_value not in emails_by_uri[uri]:
+                emails_by_uri[uri].append(id_value)
+
+    # A person may produce more than one row when they carry several
+    # pwg:createdAt values (the contact_syncer "update if earlier" path can
+    # leave more than one historic date across re-runs). Keep the first row
+    # for the scalar fields, but track the EARLIEST createdAt across all
+    # rows for the URI so the time-ordered views anchor on the person's
+    # true first-seen date rather than whichever row SPARQL returned first.
+    people: list[dict] = []
+    seen_uris: set[str] = set()
+    index_by_uri: dict[str, int] = {}
+    for row in people_rows:
+        uri = (row.get("uri", {}) or {}).get("value", "")
+        display_name = (row.get("displayName", {}) or {}).get("value", "").strip()
+        if not uri or not display_name:
+            continue
+        created_at = (row.get("createdAt", {}) or {}).get("value", "").strip()
+        if uri in seen_uris:
+            # Already have this person; only fold in an earlier real date.
+            if created_at:
+                idx = index_by_uri[uri]
+                existing = people[idx]["created_at"]
+                if not existing or created_at < existing:
+                    people[idx]["created_at"] = created_at
+            continue
+        seen_uris.add(uri)
+        index_by_uri[uri] = len(people)
+        people.append({
+            "uri": uri,
+            "display_name": display_name,
+            "contact_type": (row.get("contactType", {}) or {}).get("value", "")
+            or "person",
+            "organization": (row.get("org", {}) or {}).get("value", ""),
+            "job_title": (row.get("jobTitle", {}) or {}).get("value", ""),
+            "given_name": (row.get("givenName", {}) or {}).get("value", ""),
+            "family_name": (row.get("familyName", {}) or {}).get("value", ""),
+            "phones": phones_by_uri.get(uri, []),
+            "emails": emails_by_uri.get(uri, []),
+            # Real historical first-seen date (may be ""). Surfaced to the
+            # Qdrant payload as observed_at/created_at so time-ordered views
+            # can place this person. Empty -> omitted from those views (no
+            # now() fabrication).
+            "created_at": created_at,
+        })
+    return people
+
+
+def _person_embed_doc(person: dict) -> str:
+    """Build the descriptive text embedded for semantic people-search.
+
+    Name carries the human-readable signal the matcher scans; org +
+    job title anchor it. Mirrors the browsing path's title+domain+url
+    doc construction.
+    """
+    parts = [
+        person.get("display_name", ""),
+        person.get("job_title", ""),
+        person.get("organization", ""),
+    ]
+    return " ".join(p for p in parts if p).strip()
+
+
+def ingest_people_to_qdrant() -> dict:
+    """Populate the Qdrant ``people`` collection from Oxigraph (#600).
+
+    On a fresh single-Mac install the per-source hydrate steps write
+    pwg:Person nodes into Oxigraph (the wiki People page reads those
+    directly), but nothing ever embeds them into Qdrant -- so the iOS
+    People tab, the Hub People card, and semantic people-search (which
+    all read the Qdrant ``people`` collection filtered on
+    contact_type == "person") render blank.
+
+    This function: (1) reads every pwg:Person with a display name from
+    Oxigraph, (2) self-creates the ``people`` collection if absent at
+    the embedder's vector size, (3) embeds each person's descriptive
+    text via local Ollama, (4) upserts one point per person (id derived
+    stably from the person URI so a re-install is idempotent) with a
+    payload matching the reader contract, (5) returns a counts-only
+    dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
+    but nothing landed in Qdrant.
+
+    Returns counts only (parity with the other ingesters; install.sh
+    reads ``sent``):
+      ``status``         : "ok" | "no_data" | "error"
+      ``sent``           : points upserted into Qdrant
+      ``points_created`` : alias of ``sent``
+      ``total``          : Person nodes considered (with a display name)
+    """
+    try:
+        people = _load_people_from_oxigraph()
+    except Exception as exc:
+        logger.warning(
+            "People: Oxigraph query failed: %s", type(exc).__name__,
+        )
+        return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
+
+    if not people:
+        logger.info("No people in Oxigraph to index.")
+        return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
+
+    docs = [_person_embed_doc(p) for p in people]
+    vectors = _ollama_embed_batch(docs)
+
+    # Size the collection from the first real embedding; fall back to
+    # the nomic-embed-text default only if nothing embedded.
+    vector_size = PEOPLE_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "People: could not ensure Qdrant collection '%s': %s",
+            PEOPLE_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(people),
+        }
+
+    points: list[dict] = []
+    for person, vec in zip(people, vectors):
+        uri = person["uri"]
+        # Stable point id: same URI re-runs upsert in place rather than
+        # duplicating rows on re-install.
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, uri))
+        payload = {
+            "person_uri": uri,
+            "person_id": point_id,
+            "display_name": person["display_name"],
+            "contact_type": person["contact_type"] or "person",
+            "organization": person["organization"],
+            "job_title": person["job_title"],
+            "given_name": person["given_name"],
+            "family_name": person["family_name"],
+            "phones": person["phones"],
+            "emails": person["emails"],
+            "privacy_level": DEFAULT_PRIVACY,
+            "source": "fda_people_index",
+            "last_contact": "",
+        }
+        # Surface the REAL pwg:createdAt date so the time-ordered wiki
+        # views (year pages, person timeline, "recent people") can place
+        # this person. The CM044 readers key on observed_at first, then
+        # fall back to created_at, so write BOTH from the same real date.
+        # Omit entirely when there is no real date: a no-real-date FDA
+        # person stays absent from time views rather than being stamped
+        # with a fabricated now() (consistent with the iCloud-contacts
+        # decision).
+        created_at = (person.get("created_at") or "").strip()
+        if created_at:
+            payload["observed_at"] = created_at
+            payload["created_at"] = created_at
+        points.append({
+            "id": point_id,
+            "vector": vec,
+            "payload": payload,
+        })
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "People: Qdrant upsert failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "total": len(people),
+        }
+
+    if sent == 0:
+        # We had Person nodes to index but none landed (embed failure
+        # for every row, or every chunk failed). Report error, not
+        # "ok" -- a silent ok-with-zero is the #600 bug.
+        logger.warning(
+            "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
+            len(people), PEOPLE_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(people),
+        }
+
+    logger.info(
+        "People: %d of %d Person nodes indexed into Qdrant '%s'.",
+        sent, len(people), PEOPLE_QDRANT_COLLECTION,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "total": len(people),
     }
 
 
@@ -1348,12 +1755,23 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
         ("photos", ingest_photos_people),
         ("apple_mail", ingest_mail_contacts),
         ("browser_history", ingest_browser_history),
+        ("bookmarks", ingest_bookmarks),
     ]:
         try:
             results[name] = func(fda_dir)
         except Exception as e:
             logger.warning("[warn] %s ingestion failed: %s", name, e)
             results[name] = {"status": "error", "error": str(e)}
+
+    # People search index (#600): runs LAST so every per-source step
+    # above has finished writing pwg:Person nodes into Oxigraph before
+    # we sweep them into the Qdrant `people` collection. Takes no
+    # fda_dir -- it reads Oxigraph, not the FDA JSON.
+    try:
+        results["people_index"] = ingest_people_to_qdrant()
+    except Exception as e:
+        logger.warning("[warn] people_index ingestion failed: %s", e)
+        results["people_index"] = {"status": "error", "error": str(e)}
 
     logger.info("")
     logger.info("FDA -> PWG ingestion complete.")
