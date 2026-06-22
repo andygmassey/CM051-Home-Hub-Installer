@@ -993,28 +993,75 @@ fi
 # ── Strings catalogue (Rule 0.9) ──────────────────────────────────
 #
 # Every customer-facing info/warn/step/ok/err/fail message lives in
-# install.sh.strings.<lang>.sh as a MSG_* variable assignment. v1.0
-# ships en-GB only; copy the file, translate the right-hand sides,
-# and run with OSTLER_LANG=<lang> to localise. Loaded after the
-# curl|bash bootstrap re-exec (above) so SCRIPT_DIR points at the
-# extracted tarball where the catalogue ships, not at the empty
-# stdin process of the first pipe.
-OSTLER_LANG="${OSTLER_LANG:-en-GB}"
-_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
-if [[ ! -f "$_STRINGS_FILE" ]]; then
-    # Fall back to en-GB if the requested language file is missing,
-    # so a stale OSTLER_LANG env var does not brick the installer.
-    _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
+# install.sh.strings.<lang>.sh as a MSG_* variable assignment. en-GB
+# is the permanent default. To add a language: copy the en-GB file,
+# translate the right-hand sides, and run with OSTLER_LANG=<lang>.
+# Loaded after the curl|bash bootstrap re-exec (above) so SCRIPT_DIR
+# points at the extracted tarball where the catalogue ships, not at
+# the empty stdin process of the first pipe.
+#
+# Locale resolution (precedence, highest first):
+#   1. OSTLER_LANG env var (testers / CI)
+#   2. macOS system locale (`defaults read -g AppleLocale`), mapped
+#      to a known shipped catalogue tag
+#   3. en-GB (permanent default)
+#
+# Per-key English fallback (the load-bearing rule): we ALWAYS source
+# en-GB first as the base, then overlay the selected locale file on
+# top. Any key the translator omitted keeps its English value, so a
+# partial translation never renders a blank string. When the resolved
+# locale IS en-GB, the overlay is a no-op and output is byte-identical
+# to shipping English only.
+
+# Map a macOS AppleLocale (e.g. "es_ES", "en_GB@calendar=gregorian")
+# to a catalogue tag we actually ship. Returns en-GB for anything we
+# do not have, so detection can never select a missing language.
+_ostler_detect_locale() {
+    local raw lang
+    raw="$(defaults read -g AppleLocale 2>/dev/null || true)"
+    # Strip any @key=value suffix, then take the language subtag.
+    raw="${raw%%@*}"
+    lang="${raw%%_*}"
+    lang="$(printf '%s' "$lang" | tr '[:upper:]' '[:lower:]')"
+    case "$lang" in
+        es) printf 'es' ;;
+        # Add new shipped catalogues here as they land (de, fr, ...).
+        *)  printf 'en-GB' ;;
+    esac
+}
+
+if [[ -z "${OSTLER_LANG:-}" ]]; then
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        OSTLER_LANG="$(_ostler_detect_locale)"
+    else
+        OSTLER_LANG="en-GB"
+    fi
 fi
-if [[ -f "$_STRINGS_FILE" ]]; then
+
+# Always load the English base first so every key has a value.
+_STRINGS_BASE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
+if [[ -f "$_STRINGS_BASE" ]]; then
     # shellcheck disable=SC1090
-    source "$_STRINGS_FILE"
+    source "$_STRINGS_BASE"
 else
-    printf 'install.sh: strings catalogue not found at %s\n' "$_STRINGS_FILE" >&2
+    printf 'install.sh: strings catalogue not found at %s\n' "$_STRINGS_BASE" >&2
     printf 'install.sh: this is a packaging bug; please report it.\n' >&2
     exit 1
 fi
-unset _STRINGS_FILE
+
+# Overlay the selected locale on top of the English base, per key. A
+# missing locale file is not an error: we simply stay on English.
+if [[ "$OSTLER_LANG" != "en-GB" ]]; then
+    _STRINGS_OVERLAY="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
+    if [[ -f "$_STRINGS_OVERLAY" ]]; then
+        # shellcheck disable=SC1090
+        source "$_STRINGS_OVERLAY"
+    else
+        OSTLER_LANG="en-GB"
+    fi
+    unset _STRINGS_OVERLAY
+fi
+unset _STRINGS_BASE
 
 # ── GUI progress emitter (sourced) ─────────────────────────────────
 #
