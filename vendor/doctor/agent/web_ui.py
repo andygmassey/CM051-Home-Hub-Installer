@@ -22,12 +22,15 @@ fix issues).
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
+import re
 import urllib.parse
 from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,6 +51,7 @@ from dashboard_components import (
     render_consent_status,
     render_imessage_tcc_posture,
     render_observability_posture,
+    render_reminders_posture,
     render_security_posture,
 )
 from web_ui_copy import (
@@ -63,10 +67,16 @@ from web_ui_copy import (
     CONTAINER_NOT_RUNNING_FIX,
     CONTAINER_NOT_RUNNING_FIX_COMMAND,
     CONTAINER_NOT_RUNNING_TITLE_FMT,
+    DASHBOARD_ALERT_COPY_FAIL,
     DASHBOARD_ALERT_REPORT_ERROR_FMT,
     DASHBOARD_ALERT_REPORT_FAIL,
     DASHBOARD_BTN_AUTO_OFF,
     DASHBOARD_BTN_AUTO_ON,
+    DASHBOARD_BTN_COPIED,
+    DASHBOARD_BTN_COPY_RAW,
+    DASHBOARD_BTN_COPY_RAW_TITLE,
+    DASHBOARD_BTN_COPY_REDACTED,
+    DASHBOARD_BTN_COPY_REDACTED_TITLE,
     DASHBOARD_BTN_EMAIL,
     DASHBOARD_BTN_EMAIL_PREPARING,
     DASHBOARD_BTN_EMAIL_TITLE,
@@ -219,6 +229,8 @@ from web_ui_copy import (
     REPORT_HOST_OS_LABEL,
     REPORT_NOTES_PLACEHOLDER,
     REPORT_OLLAMA_LABEL,
+    REPORT_REDACTED_BANNER,
+    REPORT_REDACTED_PLACEHOLDER,
     REPORT_SECTION_CONTAINERS,
     REPORT_SECTION_DISK,
     REPORT_SECTION_FINDINGS,
@@ -233,6 +245,8 @@ from web_ui_copy import (
     SERVICE_UNREACHABLE_FIX_COMMAND_FMT,
     SERVICE_UNREACHABLE_FIX_FMT,
     SERVICE_UNREACHABLE_TITLE_FMT,
+    SUPPORT_SECTION_INTRO,
+    SUPPORT_SECTION_TITLE,
 )
 
 app = FastAPI(title=APP_TITLE)
@@ -630,6 +644,83 @@ def _build_mailto(report: str, version: str = "1.0.0") -> str:
     return f"mailto:{SUPPORT_EMAIL}?{params}"
 
 
+# ── Redacted diagnostics (the "Copy redacted" action) ────────────────
+#
+# The raw report is already low-PII by design: ``_format_report`` builds
+# from ``status_collector``'s safe snapshot and deliberately omits the
+# hostname. The one realistic leak vector is free-text inside findings:
+# disk mount points and suggested ``fix_command`` lines can carry
+# ``/Users/<username>/...`` paths, and a misbehaving service URL could
+# surface an email or IP. ``_redact_report`` does a deterministic,
+# offline scrub of exactly those classes.
+#
+# Why a deterministic regex scrub and not the OPF model
+# (``ostler_security.opf_filter``)? OPF needs onnxruntime + a pinned ONNX
+# model on disk; neither is guaranteed present on a fresh Doctor install,
+# and a 50M-param MoE is heavy artillery for a structured, mostly-known
+# report. A field-shaped scrub is on-device, dependency-free and
+# predictable. OPF remains the documented upgrade path for free-text
+# blobs (see launch/SCOPE_doctor_support_diagnostics_2026-06-21.md).
+
+# Standard email and IPv4 patterns.
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_IPV4_RE = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
+)
+
+
+def _home_username() -> str | None:
+    """Best-effort current username for home-path redaction.
+
+    Tries ``getpass.getuser`` first, then the basename of ``Path.home``.
+    Returns ``None`` if neither yields a usable value, in which case the
+    home-path scrub falls back to the generic ``/Users/<name>`` pattern.
+    """
+    try:
+        user = getpass.getuser()
+        if user:
+            return user
+    except Exception:
+        pass
+    try:
+        name = Path.home().name
+        return name or None
+    except Exception:
+        return None
+
+
+def _redact_report(report: str) -> str:
+    """Return *report* with identifying details removed, on-device.
+
+    Scrubs, in order: the operator's own home path (``/Users/<me>`` and
+    ``/home/<me>``), any other ``/Users/<x>`` or ``/home/<x>`` path
+    segment, email addresses and IPv4 addresses. A banner is prepended
+    so the recipient knows the report was redacted.
+    """
+    placeholder = REPORT_REDACTED_PLACEHOLDER
+    redacted = report
+
+    user = _home_username()
+    if user:
+        # Exact home paths for the current operator first.
+        for root in ("/Users/", "/home/"):
+            redacted = redacted.replace(
+                f"{root}{user}", f"{root}{placeholder}"
+            )
+
+    # Any remaining home-dir usernames (other accounts, sudo paths).
+    redacted = re.sub(
+        r"(/Users/|/home/)[^/\s\"']+",
+        lambda m: f"{m.group(1)}{placeholder}",
+        redacted,
+    )
+
+    redacted = _EMAIL_RE.sub(placeholder, redacted)
+    redacted = _IPV4_RE.sub(placeholder, redacted)
+
+    return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
+
+
 # ── HTML template ────────────────────────────────────────────────────
 
 
@@ -736,6 +827,15 @@ def render_dashboard(
     # brief never arrives, so surfacing it explicitly is part of
     # the productisation posture story.
     imessage_tcc_section = render_imessage_tcc_posture()
+
+    # Reminders (EventKit) posture (task #279): install-time snapshot
+    # of the macOS Reminders permission. Empty string when the marker
+    # is absent (fresh install before the probe has run, or an install
+    # with commitment capture disabled). A silent denial here blocks
+    # commitment -> Reminders writes -- Ostler says it will remember
+    # something, then the reminder never appears -- so surfacing it is
+    # the same productisation-posture story as the iMessage tile.
+    reminders_section = render_reminders_posture()
 
     # Build findings
     findings_html = ""
@@ -1291,6 +1391,8 @@ def render_dashboard(
 
         {imessage_tcc_section}
 
+        {reminders_section}
+
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
             <ul class="model-list" id="modelsContent">{model_items}</ul>
@@ -1299,6 +1401,18 @@ def render_dashboard(
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_DISK}</div>
             <div id="diskContent">{disk_items}</div>
+        </div>
+
+        <div class="section" id="supportSection">
+            <div class="section-title">{SUPPORT_SECTION_TITLE}</div>
+            <p style="color:#94a3b8; line-height:1.6; margin-bottom:1rem;">
+                {SUPPORT_SECTION_INTRO}
+            </p>
+            <div class="header-controls" style="flex-wrap:wrap; gap:0.5rem;">
+                <button class="refresh-btn" id="copyRawBtn" onclick="copyDiagnostics(false)" title="{DASHBOARD_BTN_COPY_RAW_TITLE}">{DASHBOARD_BTN_COPY_RAW}</button>
+                <button class="refresh-btn" id="copyRedactedBtn" onclick="copyDiagnostics(true)" title="{DASHBOARD_BTN_COPY_REDACTED_TITLE}">{DASHBOARD_BTN_COPY_REDACTED}</button>
+                <button class="refresh-btn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
+            </div>
         </div>
 
         <div class="chat-section">
@@ -1481,6 +1595,34 @@ def render_dashboard(
                     sel.addRange(range);
                 }}
             }});
+        }};
+
+        // --- Copy diagnostics (raw or redacted, local-only) ---
+        // Pulls the report from the same /doctor/api/email-report
+        // endpoint that powers Send by Email, so there is one source of
+        // truth and nothing is assembled client-side. Redaction happens
+        // on the server, on-device.
+        window.copyDiagnostics = function(redacted) {{
+            const btn = document.getElementById(redacted ? 'copyRedactedBtn' : 'copyRawBtn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            fetch('/doctor/api/email-report')
+                .then(r => r.json())
+                .then(data => {{
+                    const text = redacted ? (data && data.report_redacted) : (data && data.report);
+                    if (!text) {{
+                        alert('{DASHBOARD_ALERT_COPY_FAIL}');
+                        return;
+                    }}
+                    return navigator.clipboard.writeText(text).then(function() {{
+                        btn.innerHTML = '{DASHBOARD_BTN_COPIED}';
+                        setTimeout(function() {{ btn.innerHTML = original; }}, 1500);
+                    }});
+                }})
+                .catch(function() {{
+                    alert('{DASHBOARD_ALERT_COPY_FAIL}');
+                }})
+                .finally(() => {{ btn.disabled = false; }});
         }};
 
         // --- Send by Email (local-only mailto) ---
@@ -1741,7 +1883,16 @@ async def api_email_report():
     findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
     report = _format_report(snapshot, findings)
     mailto = _build_mailto(report)
-    return {"mailto": mailto, "report_preview": report}
+    return {
+        "mailto": mailto,
+        "report_preview": report,
+        # ``report`` powers the "Copy diagnostics" action;
+        # ``report_redacted`` powers "Copy redacted". Both are computed
+        # here so the dashboard has a single source of truth and never
+        # builds a report client-side.
+        "report": report,
+        "report_redacted": _redact_report(report),
+    }
 
 
 @app.get("/doctor/history", response_class=HTMLResponse)

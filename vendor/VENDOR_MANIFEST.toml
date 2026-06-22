@@ -111,11 +111,11 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-pinned_sha       = "a15d82f39653857045265655232294da881302c9"
+pinned_sha       = "b28a61d4d86cee2e24520dd3a6e0f290f4f954aa"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
 verify           = "full"
-note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f."
+note             = "v1.0.1 cut re-vendor 2026-06-22: pin bumped a15d82f -> b28a61d4 (HR015 main HEAD). ADDITIVE new sources grafted in: apple_music.py + universal_import.py copied in; safari_bookmarks.py refreshed to the HR015 superset (Reading-List kinds, timeline entries, CLI). extract_all.py MERGED -- apple_music added to DEFAULT_SOURCES + run_all() (safari_bookmarks was already present), while ALL vendor-only grafts preserved (CX-86 OSTLER_SAFARI_BACKFILL_DAYS, CX-85 OSTLER_WHATSAPP_BACKFILL_DAYS, CX-109 Calendar [skip]-logging, #259 apple_mail empty_no_content + 5-year mail backfill). pwg_ingest.py is the DIVERGENT TWIN and is HELD canonical (NOT reverted): it keeps the vendor-only #576 iMessage/WhatsApp channel wiring + _is_provisional_display_name + E.164/createdAt/observed_at grafts that were NEVER upstreamed. HELD (reconcile by a human): HR015 main b28a61d4 pwg_ingest.py adds new graph-load functions ingest_bookmarks/_load_safari_bookmarks (loads the safari_bookmarks JSON into the graph) and the #600 people-search-index path (ingest_people_to_qdrant rewrite + _load_people_from_oxigraph/_person_embed_doc + bookmarks/people_index steps in ingest_all). These were NOT grafted -- ingest_people_to_qdrant has a genuine two-way conflict (vendored createdAt/observed_at graft vs HR015 #600 loud-fail) that cannot be auto-merged safely. CONSEQUENCE: until reconciled, the apple_music/safari_bookmarks JSON is EXTRACTED by extract_all but the bookmarks are NOT loaded into the graph by the vendored pwg_ingest (extract-only); apple_music has no pwg_ingest consumer upstream either, so it is extract-only by design. apple_mail.py + dedupe_merge.py kept as vendored (5-year mail-backfill graft / E.164 dedup graft; HR015 main only differs in comments). divergence patch regenerated to capture the full current vendor<->source@b28a61d4 drift (incl. the held pwg_ingest two-way divergence)."
 
 [[tree]]
 name             = "ostler_security"
@@ -142,10 +142,11 @@ name             = "doctor"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
-pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+pinned_sha       = "b28a61d4d86cee2e24520dd3a6e0f290f4f954aa"
   divergence_patch = "vendor/divergences/doctor.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh"]
 verify           = "full"
+note             = "v1.0.1 cut re-vendor 2026-06-22: pin bumped 1bb0a0db -> b28a61d4 (HR015 main HEAD). 'Grab diagnostics' refreshed (web_ui.py + web_ui_copy.py to HR015 main, which carries the privacy-first _redact_report/report_redacted that supersedes the old full-report-preview return) and the Reminders permission tile added (new reminders_posture.py + dashboard_components.py render_reminders_posture). New knowledge-import modules import_notion.py + import_obsidian.py copied in. config_panel.py was already byte-identical to b28a61d4 (the diagnostics feature lives in web_ui not config_panel) so it needed no change. Vendor-only grafts PRESERVED untouched (captured in doctor.patch): duplicate_decision.py, import_evernote.py, import_evernote_runner.py, pair_status.py, requirements.txt -- these carry vendor-side grafts and are NOT in main; web_ui.py's one stale full-report return line was the only conflict and HR015 main's privacy-first version was taken per the cut directive. divergence patch regenerated against b28a61d4."
 
 [[tree]]
 name             = "email_ingest"

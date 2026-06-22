@@ -60,7 +60,7 @@
          for value, persons in groups.items():
 --- a/extract_all.py
 +++ b/extract_all.py
-@@ -106,7 +106,16 @@
+@@ -107,7 +107,16 @@
      if "safari_history" in sources:
          try:
              from .safari_history import extract_history, top_domains, to_timeline_entries
@@ -78,7 +78,7 @@
              domains = top_domains(entries, limit=100)
  
              timeline = to_timeline_entries(entries)
-@@ -138,11 +147,9 @@
+@@ -139,11 +148,9 @@
          summary["sources"]["safari_history"] = {"status": "disabled_by_user"}
  
      # ── Chrome History (CX-86 Gap C) ────────────────────────────────
@@ -93,7 +93,7 @@
      if "chrome_history" in sources:
          try:
              from .chrome_history import (
-@@ -164,9 +171,6 @@
+@@ -165,9 +172,6 @@
                  "status": "ok",
                  "visits": len(chrome_entries),
                  "unique_domains": len(chrome_domains),
@@ -103,7 +103,7 @@
                  "top_3": [d.domain for d in chrome_domains[:3]],
              }
              logger.info(
-@@ -266,7 +270,13 @@
+@@ -267,7 +271,13 @@
                  chat_to_dict as _wa_to_dict,
                  TIER_T3_SKIP,
              )
@@ -118,7 +118,7 @@
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -407,12 +417,31 @@
+@@ -408,12 +418,31 @@
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -152,7 +152,7 @@
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -547,7 +576,21 @@
+@@ -584,7 +613,21 @@
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -175,7 +175,7 @@
              stats = email_stats(messages)
              contacts = frequent_contacts(messages)
  
-@@ -558,14 +601,31 @@
+@@ -595,14 +638,31 @@
                  json.dumps(contacts, indent=2, default=str)
              )
  
@@ -217,11 +217,38 @@
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -155,14 +155,11 @@
+@@ -154,15 +154,39 @@
+     if local.isdigit():
          return "+" + local
      return local
++
++def _is_provisional_display_name(value: str) -> bool:
++    """True when ``value`` is a raw phone/handle placeholder, not a name.
++
++    WhatsApp/iMessage chat-only contacts get a ``+<e164>`` (or bare
++    handle) placeholder because the extractor reads JIDs/handles only --
++    no pushName, no Contacts match. Those placeholders must be marked
++    PROVISIONAL so (a) the identity resolver may freely overwrite them
++    when a real name later arrives from contact_syncer / CM046, and (b)
++    surfaces can suppress the "+44 7700 900123 as a name" leak (#576).
++
++    Mirrors cm041.identity_resolver.canonical_name._looks_like_phone
++    (>= 5 digits, phone-shaped) but is kept local: ostler_fda ships
++    independently of cm041 and must not take a hard import on it.
++    """
++    if not value:
++        return True
++    v = value.strip()
++    if not v:
++        return True
++    if "@" in v and "." in v.split("@", 1)[1]:
++        # A bare email used as a name is also a placeholder, not a name.
++        return True
++    digits = sum(c.isdigit() for c in v)
++    phoneish = all(c in "+()-. \t0123456789" for c in v)
++    return phoneish and digits >= 5
  
--
+ 
  def _whatsapp_phone_e164(jid: str) -> str:
      """E.164 phone string for an ``@s.whatsapp.net`` JID, used as the phone
      ``identifierValue`` so a WhatsApp contact shares ONE key with the same
@@ -234,7 +261,35 @@
      local = jid.split("@", 1)[0] if "@" in jid else jid
      return "+" + local if local.isdigit() else jid
  
-@@ -490,7 +487,7 @@
+@@ -212,6 +236,14 @@
+                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                     f'<{uri}> pwg:source "imessage_fda"',
+                 ]
++                # #576: the iMessage participant is a raw handle (phone or
++                # email) used as the displayName. Flag the phone/email-only
++                # case as provisional so the resolver may overwrite it with a
++                # Contacts name and surfaces can suppress the bare-number leak.
++                if _is_provisional_display_name(participant):
++                    triples.append(
++                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
++                    )
+ 
+                 # Add identifier
+                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+@@ -452,6 +484,12 @@
+                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                     f'<{uri}> pwg:source "whatsapp_fda"',
+                 ]
++                # #576: flag the bare-number placeholder so the resolver
++                # may overwrite it and surfaces can suppress it as a name.
++                if _is_provisional_display_name(display):
++                    triples.append(
++                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
++                    )
+                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                 triples.extend([
+                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+@@ -490,7 +528,7 @@
                          f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                          f"<{id_uri}> a pwg:PersonIdentifier",
                          f'<{id_uri}> pwg:identifierType "phone"',
@@ -243,7 +298,7 @@
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -786,6 +783,10 @@
+@@ -786,6 +824,10 @@
  # thousands of visits; 200 is Qdrant's tested upsert chunk.
  _BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
  _BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
@@ -254,7 +309,7 @@
  
  # Sensitive-domain blocklist. Substring match on the lowercased domain
  # so subdomains (e.g. secure.bank.example.com) are caught too.
-@@ -860,47 +861,56 @@
+@@ -860,47 +902,56 @@
      return vectors
  
  
@@ -262,7 +317,9 @@
 -    collection: str, vector_size: int, distance: str = "Cosine"
 -) -> None:
 -    """Create a Qdrant collection if it does not already exist.
--
++def _qdrant_ensure_collection(collection: str, dim: int) -> None:
++    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
+ 
 -    On a fresh single-Mac install nothing pre-creates the Qdrant
 -    collections (``install.sh graph_db_start`` brings the container up
 -    empty). A bare PUT of points into a missing collection lands 0 rows
@@ -270,20 +327,17 @@
 -    -- otherwise the iOS People tab / Hub People card / semantic search
 -    stay blank by design. See HR015 #600 + the
 -    feedback_qdrant_collections_no_self_create_fresh_install memory.
-+def _qdrant_ensure_collection(collection: str, dim: int) -> None:
-+    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
++    Single-Mac product: there is no gateway to lazily create the
++    collection, and nothing else on a fresh install creates
++    safari_history. Qdrant rejects a PUT of points into a missing
++    collection (404), which would silently land zero rows. So the
++    direct writer ensures its own collection first.
  
 -    Idempotent: a GET on an existing collection short-circuits, so a
 -    re-install does not clobber existing vectors. A genuinely missing
 -    collection (404 on GET) is created with the given vector size +
 -    distance. Any other error is logged and re-raised so the caller can
 -    decide whether to fail loud.
-+    Single-Mac product: there is no gateway to lazily create the
-+    collection, and nothing else on a fresh install creates
-+    safari_history. Qdrant rejects a PUT of points into a missing
-+    collection (404), which would silently land zero rows. So the
-+    direct writer ensures its own collection first.
-+
 +    Idempotent and non-destructive: an existing collection is left
 +    untouched (a dim mismatch is logged, never auto-recreated, so a
 +    customer's data is never dropped). Failures are swallowed: a
@@ -340,7 +394,7 @@
  
  
  def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
-@@ -1061,6 +1071,10 @@
+@@ -1061,6 +1112,10 @@
  
      sent = 0
      try:
@@ -351,7 +405,7 @@
          vectors = _ollama_embed_batch([item["doc"] for item in queue])
          points = [
              {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
-@@ -1109,565 +1123,158 @@
+@@ -1109,565 +1164,158 @@
      }
  
  
@@ -363,15 +417,7 @@
 -# ingested it -- so the data died on disk after extraction and the
 -# CM044 Reading wiki page rendered an empty bookmarks section for every
 -# customer (the silent-fail caught in the 2026-06-04 resweep).
-+# Single-Mac product: nothing creates or populates the Qdrant `people`
-+# collection on a fresh install. contact_syncer is not bundled or run,
-+# graph_db_start creates no collections, and the iMessage path writes
-+# Oxigraph RDF only. The wiki People pages are fine (the CM044 compiler
-+# reads people from Oxigraph via SPARQL), but the iOS People tab + Hub
-+# People-card + semantic search read the Qdrant `people` collection
-+# (ical-server.py people_search / scroll, BOTH filtered on
-+# payload.contact_type == "person") and so see zero rows.
- #
+-#
 -# Reader contract (confirmed against the live reader, file:line):
 -#   - collection NAME : "preferences"
 -#       CM044 compiler/pages/reading_pages.py:46 (scroll_all),
@@ -389,7 +435,15 @@
 -#   The full payload mirrors CM019 ParsedPreference.to_payload
 -#   (parsers/base.py:118) so FDA-extracted bookmarks render identically
 -#   to GDPR-imported ones.
--#
++# Single-Mac product: nothing creates or populates the Qdrant `people`
++# collection on a fresh install. contact_syncer is not bundled or run,
++# graph_db_start creates no collections, and the iMessage path writes
++# Oxigraph RDF only. The wiki People pages are fine (the CM044 compiler
++# reads people from Oxigraph via SPARQL), but the iOS People tab + Hub
++# People-card + semantic search read the Qdrant `people` collection
++# (ical-server.py people_search / scroll, BOTH filtered on
++# payload.contact_type == "person") and so see zero rows.
+ #
 -# Counts-only return (install.sh reads `sent`); no bookmark titles or
 -# URLs cross the process boundary. Fails LOUD (status "error") if there
 -# were bookmarks to ingest but nothing landed in Qdrant -- a silent
@@ -423,9 +477,7 @@
 -}
 -_BOOKMARK_DEFAULT_STRENGTH = 0.70
  
-+def ingest_people_to_qdrant() -> dict:
-+    """Populate the Qdrant ``people`` collection from Oxigraph.
- 
+-
 -def _load_safari_bookmarks(fda_dir: Path) -> list[dict]:
 -    """Read safari_bookmarks.json from ``fda_dir``.
 -
@@ -433,19 +485,11 @@
 -    (``[asdict(b) for b in bookmarks]``) with keys: title, url, domain,
 -    folder. A missing file is skipped silently (the source was not
 -    enabled); a malformed file logs and contributes nothing.
-+    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
-+    and upserts a point per person carrying the payload contract the iOS
-+    People tab + Hub People-card read: ``display_name``, ``person_uri``,
-+    and ``contact_type == "person"`` (the filter BOTH the search and
-+    scroll endpoints require -- a point without it is invisible to the
-+    tab). Self-creates the collection at 768-dim. Counts only in the
-+    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
-+    degrades the count rather than aborting the installer.
-     """
+-    """
 -    path = fda_dir / "safari_bookmarks.json"
 -    if not path.exists():
 -        return []
-     try:
+-    try:
 -        data = json.loads(path.read_text(encoding="utf-8"))
 -    except (OSError, json.JSONDecodeError) as exc:
 -        logger.warning(
@@ -457,7 +501,9 @@
 -        logger.warning("safari_bookmarks.json root is not a list; skipping.")
 -        return []
 -    return [b for b in data if isinstance(b, dict)]
--
++def ingest_people_to_qdrant() -> dict:
++    """Populate the Qdrant ``people`` collection from Oxigraph.
+ 
 -
 -def ingest_bookmarks(fda_dir: Path) -> dict:
 -    """Ingest Safari bookmarks into the Qdrant ``preferences`` collection
@@ -482,7 +528,15 @@
 -      ``points_created``   : alias of ``sent``
 -      ``skipped_sensitive``: bookmarks dropped by the blocklist
 -      ``total``            : ingestible bookmarks considered
--    """
++    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
++    and upserts a point per person carrying the payload contract the iOS
++    People tab + Hub People-card read: ``display_name``, ``person_uri``,
++    and ``contact_type == "person"`` (the filter BOTH the search and
++    scroll endpoints require -- a point without it is invisible to the
++    tab). Self-creates the collection at 768-dim. Counts only in the
++    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
++    degrades the count rather than aborting the installer.
+     """
 -    bookmarks = _load_safari_bookmarks(fda_dir)
 -    if not bookmarks:
 -        logger.info("No bookmarks to ingest.")
@@ -511,22 +565,7 @@
 -        folder = (b.get("folder") or "").strip()
 -        strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
 -            folder, _BOOKMARK_DEFAULT_STRENGTH
-+        rows = _sparql_query(
-+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-+            "SELECT ?person ?name ?createdAt WHERE {\n"
-+            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
-+            # pwg:createdAt holds the REAL historical contact-creation date
-+            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
-+            # written by contact_syncer) -- distinct from the install-time
-+            # stamp. The time-ordered wiki views (year pages, person
-+            # timeline, "recent") key on observed_at/created_at, so without
-+            # surfacing this here the FDA-sourced people are ABSENT from
-+            # those views, not just stamped wrong. OPTIONAL: a person with
-+            # no real date stays omitted from time views (consistent with
-+            # the iCloud-contacts decision) -- we never fabricate now().
-+            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
-+            "}"
-         )
+-        )
 -
 -        # Embedding document: title carries the human-readable signal;
 -        # domain anchors it. Mirrors the browsing path's doc construction
@@ -588,7 +627,7 @@
 -            vector_size = len(vec)
 -            break
 -
--    try:
+     try:
 -        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
 -    except Exception as exc:
 -        logger.warning(
@@ -630,7 +669,22 @@
 -        logger.warning(
 -            "Bookmarks: had %d to ingest but 0 landed in Qdrant '%s'.",
 -            len(queue), PREFERENCES_QDRANT_COLLECTION,
--        )
++        rows = _sparql_query(
++            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
++            "SELECT ?person ?name ?createdAt WHERE {\n"
++            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
++            # pwg:createdAt holds the REAL historical contact-creation date
++            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
++            # written by contact_syncer) -- distinct from the install-time
++            # stamp. The time-ordered wiki views (year pages, person
++            # timeline, "recent") key on observed_at/created_at, so without
++            # surfacing this here the FDA-sourced people are ABSENT from
++            # those views, not just stamped wrong. OPTIONAL: a person with
++            # no real date stays omitted from time views (consistent with
++            # the iCloud-contacts decision) -- we never fabricate now().
++            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
++            "}"
+         )
 -        return {
 -            "status": "error",
 -            "sent": 0,
@@ -1026,7 +1080,7 @@
      }
  
  
-@@ -1700,7 +1307,6 @@
+@@ -1700,7 +1348,6 @@
          ("photos", ingest_photos_people),
          ("apple_mail", ingest_mail_contacts),
          ("browser_history", ingest_browser_history),
@@ -1034,7 +1088,7 @@
      ]:
          try:
              results[name] = func(fda_dir)
-@@ -1708,16 +1314,6 @@
+@@ -1708,16 +1355,6 @@
              logger.warning("[warn] %s ingestion failed: %s", name, e)
              results[name] = {"status": "error", "error": str(e)}
  

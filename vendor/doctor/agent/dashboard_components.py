@@ -51,6 +51,7 @@ except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
 # needed: the reader module is part of the doctor package itself
 # and is always importable.
 from imessage_tcc_posture import read_imessage_tcc_posture
+from reminders_posture import read_reminders_posture
 
 # A7+A8: consent registry. Same soft-fall-through rule as posture –
 # Doctor must keep rendering even when ostler_security is missing.
@@ -744,5 +745,202 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
     return f"""
     <div class="section" id="imessageTccPostureSection">
         <div class="section-title">{_html_escape(IMESSAGE_TCC_SECTION_TITLE)}</div>
+        <div class="status-grid">{tile}</div>
+    </div>"""
+
+
+# Colour map for the Reminders (EventKit) permission states. ``granted``
+# is green; ``denied`` and ``not-determined`` are amber (the customer can
+# usually fix them via System Settings / the next prompt); ``restricted``
+# and ``check-failed`` are red (a policy block or an untrustworthy snapshot
+# the customer cannot straightforwardly remedy). ``unknown`` matches the
+# other tiles' grey fallback.
+_REMINDERS_COLOURS = {
+    "granted": "#5cb579",
+    "denied": "#d4a052",
+    "not-determined": "#d4a052",
+    "restricted": "#d96666",
+    "check-failed": "#d96666",
+    "unknown": "rgba(236,232,221,0.40)",
+}
+_REMINDERS_ICONS = {
+    "granted": "&#10003;",
+    "denied": "&#9888;",
+    "not-determined": "&#9888;",
+    "restricted": "&#9888;",
+    "check-failed": "&#9888;",
+    "unknown": "?",
+}
+
+
+def render_reminders_posture(now_dt=None) -> str:
+    """Render the Reminders (EventKit) permission posture tile.
+
+    Reads ``~/.ostler/reminders-posture/state.md`` written by the
+    install-time EventKit probe. Returns:
+
+    - Empty string when the marker is absent (fresh install before the
+      probe has run, or an install with commitment capture disabled).
+      Doctor falls through to no section rather than rendering an empty
+      header.
+    - A single status card otherwise. Colour is status-dependent
+      (green / amber / red / grey) and the body carries the detail copy
+      plus a click-through ``<details>`` block with remediation guidance
+      and the full marker text.
+
+    The render is server-side static HTML; the expand-collapse uses the
+    native ``<details>`` element, so no JS is needed. Mirrors
+    ``render_imessage_tcc_posture`` exactly -- same failure class
+    (a silent macOS permission denial that breaks a core promise), same
+    surfacing shape.
+    """
+    from web_ui_copy import (
+        REMINDERS_CAPTURED_AT_PREFIX_FMT,
+        REMINDERS_DETAIL_CHECK_FAILED,
+        REMINDERS_DETAIL_DENIED,
+        REMINDERS_DETAIL_GRANTED,
+        REMINDERS_DETAIL_NOT_DETERMINED,
+        REMINDERS_DETAIL_RESTRICTED,
+        REMINDERS_DETAIL_UNKNOWN,
+        REMINDERS_FULL_MARKER_LABEL,
+        REMINDERS_HOW_TO_FIX_LABEL,
+        REMINDERS_REMEDIATION_CHECK_FAILED,
+        REMINDERS_REMEDIATION_DENIED,
+        REMINDERS_REMEDIATION_NOT_DETERMINED,
+        REMINDERS_REMEDIATION_RESTRICTED,
+        REMINDERS_SECTION_TITLE,
+        REMINDERS_SOURCE_PREFIX_FMT,
+        REMINDERS_STATUS_CHECK_FAILED,
+        REMINDERS_STATUS_DENIED,
+        REMINDERS_STATUS_GRANTED,
+        REMINDERS_STATUS_NOT_DETERMINED,
+        REMINDERS_STATUS_RESTRICTED,
+        REMINDERS_STATUS_UNKNOWN,
+        REMINDERS_STDERR_LABEL,
+    )
+
+    marker = read_reminders_posture()
+    if marker is None:
+        return ""
+
+    status = marker.get("status", "unknown")
+    if status not in _REMINDERS_COLOURS:
+        status = "unknown"
+    colour = _REMINDERS_COLOURS[status]
+    icon = _REMINDERS_ICONS[status]
+
+    status_label_map = {
+        "granted": REMINDERS_STATUS_GRANTED,
+        "denied": REMINDERS_STATUS_DENIED,
+        "restricted": REMINDERS_STATUS_RESTRICTED,
+        "not-determined": REMINDERS_STATUS_NOT_DETERMINED,
+        "check-failed": REMINDERS_STATUS_CHECK_FAILED,
+        "unknown": REMINDERS_STATUS_UNKNOWN,
+    }
+    detail_map = {
+        "granted": REMINDERS_DETAIL_GRANTED,
+        "denied": REMINDERS_DETAIL_DENIED,
+        "restricted": REMINDERS_DETAIL_RESTRICTED,
+        "not-determined": REMINDERS_DETAIL_NOT_DETERMINED,
+        "check-failed": REMINDERS_DETAIL_CHECK_FAILED,
+        "unknown": REMINDERS_DETAIL_UNKNOWN,
+    }
+    remediation_map = {
+        "denied": REMINDERS_REMEDIATION_DENIED,
+        "restricted": REMINDERS_REMEDIATION_RESTRICTED,
+        "not-determined": REMINDERS_REMEDIATION_NOT_DETERMINED,
+        "check-failed": REMINDERS_REMEDIATION_CHECK_FAILED,
+    }
+
+    status_label = status_label_map[status]
+    detail = detail_map[status]
+    remediation = remediation_map.get(status)
+
+    captured_at = marker.get("captured_at")
+    captured_line = ""
+    if captured_at:
+        relative = _format_relative_time(captured_at, now_dt=now_dt)
+        captured_line = (
+            f'<div class="status-detail">'
+            f'{REMINDERS_CAPTURED_AT_PREFIX_FMT.format(relative=_html_escape(relative))}'
+            f'</div>'
+        )
+
+    source = marker.get("source")
+    source_line = ""
+    if source:
+        source_line = (
+            f'<div class="status-detail">'
+            f'{REMINDERS_SOURCE_PREFIX_FMT.format(source=_html_escape(source))}'
+            f'</div>'
+        )
+
+    # How-to-fix expandable. Only renders for non-granted statuses (the
+    # customer does not need fix guidance for a working state).
+    how_to_fix = ""
+    in_marker_remediation = marker.get("remediation")
+    stderr_fragment = marker.get("stderr_fragment")
+    if status != "granted":
+        fix_bits = []
+        if remediation:
+            fix_bits.append(
+                f'<div class="status-detail">{_html_escape(remediation)}</div>'
+            )
+        if in_marker_remediation:
+            fix_bits.append(
+                '<pre style="font-size:12px;background:#07060a;'
+                'color:rgba(236,232,221,0.74);font-family:'
+                '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'overflow:auto;margin-top:6px;'
+                f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
+            )
+        if stderr_fragment:
+            fix_bits.append(
+                f'<div class="status-detail" style="margin-top:8px">'
+                f'<strong>{_html_escape(REMINDERS_STDERR_LABEL)}:</strong></div>'
+                '<pre style="font-size:11px;background:#07060a;'
+                'color:rgba(236,232,221,0.74);font-family:'
+                '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'overflow:auto;margin-top:6px;'
+                f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
+            )
+        body = "".join(fix_bits)
+        how_to_fix = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(REMINDERS_HOW_TO_FIX_LABEL)}
+                    </summary>
+                    {body}
+                </details>"""
+
+    raw_text = marker.get("raw_text") or ""
+    full_marker_block = ""
+    if raw_text:
+        full_marker_block = f"""
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                        {_html_escape(REMINDERS_FULL_MARKER_LABEL)}
+                    </summary>
+                    <pre style="font-size:11px;background:#07060a;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                </details>"""
+
+    tile = f"""
+        <div class="status-card">
+            <div class="status-indicator" style="background:{colour}">{icon}</div>
+            <div class="status-info">
+                <div class="status-name">{_html_escape(status_label)}</div>
+                <div class="status-detail">{_html_escape(detail)}</div>
+                {captured_line}
+                {source_line}
+                {how_to_fix}
+                {full_marker_block}
+            </div>
+        </div>"""
+
+    return f"""
+    <div class="section" id="remindersPostureSection">
+        <div class="section-title">{_html_escape(REMINDERS_SECTION_TITLE)}</div>
         <div class="status-grid">{tile}</div>
     </div>"""

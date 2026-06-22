@@ -15,7 +15,7 @@ is OFF unless explicitly enabled – see policy §2.
 Recognised source names:
     safari_history, safari_bookmarks, imessage, apple_notes,
     photos_metadata, photos_faces, calendar, reminders, apple_mail,
-    google_takeout
+    apple_music, google_takeout
 
 Usage:
     python -m ostler_fda.extract_all [--output-dir DIR]
@@ -49,6 +49,7 @@ DEFAULT_SOURCES = frozenset({
     "calendar",
     "reminders",
     "apple_mail",
+    "apple_music",
 })
 
 ALL_SOURCES = DEFAULT_SOURCES | {"photos_faces", "google_takeout", "whatsapp_history", "chrome_history"}
@@ -474,6 +475,42 @@ def run_all(
             logger.warning("[warn] Reminders: %s", e)
     else:
         summary["sources"]["reminders"] = {"status": "disabled_by_user"}
+
+    # ── Apple Music / iTunes library ────────────────────────────────
+    # Parses the Music/iTunes library XML into a privacy-safe taste
+    # signal (top artists/genres, playlist counts). extract_library()
+    # degrades to an empty library rather than raising when no XML is
+    # present, so "not_found" surfaces as ok-with-zero-tracks.
+    if "apple_music" in sources:
+        try:
+            from .apple_music import extract_library, library_stats, to_records
+            library = extract_library()
+
+            (output_dir / "apple_music.json").write_text(
+                json.dumps(to_records(library), indent=2, default=str)
+            )
+
+            stats = library_stats(library)
+            summary["sources"]["apple_music"] = {
+                "status": "ok",
+                **stats,
+            }
+            logger.info(
+                "[ok] Apple Music: %d tracks, %d artists, %d playlists",
+                stats["total_tracks"], stats["distinct_artists"], stats["total_playlists"],
+            )
+
+        except PermissionError:
+            summary["sources"]["apple_music"] = {"status": "no_fda"}
+            logger.info("[skip] Apple Music: Full Disk Access not granted")
+        except FileNotFoundError:
+            summary["sources"]["apple_music"] = {"status": "not_found"}
+            logger.info("[skip] Apple Music: library XML not found")
+        except Exception as e:
+            summary["sources"]["apple_music"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] Apple Music: %s", e)
+    else:
+        summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
 
     # ── Google Takeout (Gmail mbox) ─────────────────────────────────
     # Opt-in source: requires OSTLER_FDA_SOURCES contains "google_takeout"
