@@ -14417,6 +14417,144 @@ fi
 unset _HYDRATE_BROWSING_VENV _HYDRATE_BROWSING_PY
 unset _HYDRATE_BROWSING_FDA_DIR _HYDRATE_BROWSING_SAFARI _HYDRATE_BROWSING_CHROME
 
+# Email-preferences hydration (v1.0.3) -----------------------------
+#
+# Ingests a pre-extracted ParsedPreference JSONL file (CM021 email
+# intelligence output, category brand/topic/career/person) into the
+# `preferences` Qdrant collection + Oxigraph, via the vendored CM019
+# ingest CLI. This is the operator's biggest single preference payload,
+# so on a wipe/baseline reinstall it must regenerate from the source
+# file rather than being a lost one-off manual load. It runs in the
+# hydrate region so Qdrant (6333) + Oxigraph (7878) are already up
+# (started in Phase "graph_db_start") and the CM019 venv is already
+# built (Phase 3.11b "cm019_setup").
+#
+# Source-file resolution (NO hardcoded operator path -- productisation
+# + security rule 4): two opt-in env vars, default unset.
+#   OSTLER_EMAIL_PREFERENCES_FILE  -- absolute path to the JSONL file.
+#                                     Takes precedence if set.
+#   OSTLER_SOCIAL_ARCHIVES_DIR     -- a social-media-archives root; the
+#                                     file is read from the known
+#                                     relative path
+#                                     email/preferences_v4.jsonl under it.
+# On a customer install neither is set, so the step SKIPS cleanly with
+# an informative log and never fails the install (the whole hydrate
+# region is best-effort enrichment).
+#
+# Timeout: the payload can be large (hundreds of thousands of records),
+# so the cap is generous (default 1800s, overridable via
+# OSTLER_HYDRATE_EMAIL_PREFERENCES_TIMEOUT). On timeout we emit
+# MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES and leave whatever
+# committed in place; a later manual re-run (or top-up) finishes it.
+#
+# Privacy: the customer-facing line is a count only. Subjects, bodies,
+# brand/person names never cross the install.sh process boundary -- we
+# read the ingest CLI's "Preferences created" tally from its stderr.
+
+progress "Loading your email preferences" "hydrate_email_preferences"
+
+_HYDRATE_EMAILPREFS_CM019_DIR="${OSTLER_DIR}/services/cm019"
+_HYDRATE_EMAILPREFS_PY="${_HYDRATE_EMAILPREFS_CM019_DIR}/.venv/bin/python"
+_HYDRATE_EMAILPREFS_REL="email/preferences_v4.jsonl"
+_HYDRATE_EMAILPREFS_USER="${USER_ID:-${OSTLER_USER:-ostler}}"
+_HYDRATE_EMAILPREFS_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_HYDRATE_EMAILPREFS_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
+
+# Resolve the source file from the opt-in env vars. Explicit file path
+# wins; otherwise look under the archives dir at the known relative path.
+_HYDRATE_EMAILPREFS_FILE=""
+if [[ -n "${OSTLER_EMAIL_PREFERENCES_FILE:-}" ]]; then
+    _HYDRATE_EMAILPREFS_FILE="${OSTLER_EMAIL_PREFERENCES_FILE}"
+elif [[ -n "${OSTLER_SOCIAL_ARCHIVES_DIR:-}" ]]; then
+    _HYDRATE_EMAILPREFS_FILE="${OSTLER_SOCIAL_ARCHIVES_DIR%/}/${_HYDRATE_EMAILPREFS_REL}"
+fi
+
+if _hydrate_sentinel_fresh "email_preferences"; then
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+elif [[ -z "$_HYDRATE_EMAILPREFS_FILE" ]]; then
+    # The customer case: no archive configured. Skip cleanly.
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+elif [[ ! -x "$_HYDRATE_EMAILPREFS_PY" ]]; then
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_PIPELINE_PENDING"
+elif [[ ! -s "$_HYDRATE_EMAILPREFS_FILE" ]]; then
+    # The env var was set but the file is missing or empty -- treat as
+    # "nothing to load" rather than an error, and tell the operator
+    # which path we looked at so they can fix the env var.
+    info "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT" "$_HYDRATE_EMAILPREFS_FILE")"
+else
+    info "$MSG_HYDRATE_EMAIL_PREFERENCES_STARTED"
+
+    # Same timeout picker as the other hydrate phases (brew coreutils
+    # gtimeout preferred; system timeout fallback; unbounded if neither).
+    _HYDRATE_EMAILPREFS_CAP="${OSTLER_HYDRATE_EMAIL_PREFERENCES_TIMEOUT:-1800}"
+    _HYDRATE_EMAILPREFS_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_EMAILPREFS_TIMEOUT_WRAP="gtimeout $_HYDRATE_EMAILPREFS_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_EMAILPREFS_TIMEOUT_WRAP="timeout $_HYDRATE_EMAILPREFS_CAP"
+    fi
+
+    _HYDRATE_EMAILPREFS_LOG=/tmp/ostler-hydrate-email-preferences.log
+    _HYDRATE_EMAILPREFS_TIMED_OUT=false
+
+    _hydrate_heartbeat_start "$MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT"
+
+    # Run the vendored CM019 ingest CLI against the JSONL file. The
+    # pipeline connects to Qdrant + Oxigraph (both up by now) inside
+    # pipeline.initialize(). cd into the CM019 service dir so the
+    # `services.ingest.src.cli` module path resolves, mirroring the
+    # ostler-import importer's invocation. Counts-only readback below.
+    if (
+        cd "$_HYDRATE_EMAILPREFS_CM019_DIR" \
+        && QDRANT_COLLECTION=preferences \
+           QDRANT_URL="$_HYDRATE_EMAILPREFS_QDRANT" \
+           OXIGRAPH_URL="$_HYDRATE_EMAILPREFS_OXIGRAPH" \
+           $_HYDRATE_EMAILPREFS_TIMEOUT_WRAP \
+           "$_HYDRATE_EMAILPREFS_PY" -m services.ingest.src.cli ingest-email \
+               "$_HYDRATE_EMAILPREFS_FILE" \
+               -u "$_HYDRATE_EMAILPREFS_USER" \
+           >>"$_HYDRATE_EMAILPREFS_LOG" 2>&1
+    ); then
+        _hydrate_heartbeat_stop
+        :
+    else
+        rc=$?
+        _hydrate_heartbeat_stop
+        if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+            _HYDRATE_EMAILPREFS_TIMED_OUT=true
+        fi
+    fi
+
+    if [[ "$_HYDRATE_EMAILPREFS_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES"
+    else
+        # The ingest CLI prints "Preferences created: <n>" to stderr (now
+        # in the log). Parse the count for the customer-facing line; the
+        # name/value pairs themselves never leave the process.
+        _HYDRATE_EMAILPREFS_COUNT="$(
+            grep -aE 'Preferences created:' "$_HYDRATE_EMAILPREFS_LOG" 2>/dev/null \
+            | tail -n 1 \
+            | tr -dc '0-9'
+        )"
+        _HYDRATE_EMAILPREFS_COUNT="${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        if [[ "$_HYDRATE_EMAILPREFS_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_EMAIL_PREFERENCES_DONE" "$_HYDRATE_EMAILPREFS_COUNT")"
+        else
+            info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
+        fi
+        # Sentinel dedupes a re-run within the 7-day window.
+        _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+    fi
+
+    unset _HYDRATE_EMAILPREFS_CAP _HYDRATE_EMAILPREFS_TIMEOUT_WRAP
+    unset _HYDRATE_EMAILPREFS_LOG _HYDRATE_EMAILPREFS_TIMED_OUT
+    unset _HYDRATE_EMAILPREFS_COUNT
+fi
+
+unset _HYDRATE_EMAILPREFS_CM019_DIR _HYDRATE_EMAILPREFS_PY _HYDRATE_EMAILPREFS_REL
+unset _HYDRATE_EMAILPREFS_USER _HYDRATE_EMAILPREFS_QDRANT _HYDRATE_EMAILPREFS_OXIGRAPH
+unset _HYDRATE_EMAILPREFS_FILE
+
 # iMessage hydration (CX-84) ---------------------------------------
 #
 # Reads imessage_conversations.json (written by the Phase 3 FDA

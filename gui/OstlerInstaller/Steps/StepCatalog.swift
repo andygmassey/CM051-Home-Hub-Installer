@@ -153,6 +153,15 @@ final class StepCatalog {
         // wiki_compile. Streams Safari + Chrome history through the
         // gateway with needs_reprocessing=true.
         "hydrate_browsing",
+        // v1.0.3: hydrate_email_preferences fires after hydrate_browsing
+        // and before hydrate_imessage. Ingests a pre-extracted
+        // ParsedPreference JSONL file (CM021 email intelligence output)
+        // into the `preferences` collection via the vendored CM019 ingest
+        // CLI, so a wipe/baseline reinstall regenerates the operator's
+        // biggest preference payload rather than losing a one-off load.
+        // Opt-in via OSTLER_EMAIL_PREFERENCES_FILE /
+        // OSTLER_SOCIAL_ARCHIVES_DIR; customers without it skip the row.
+        "hydrate_email_preferences",
         // CX-84: hydrate_imessage fires after hydrate_browsing and
         // before wiki_compile. Reads imessage_conversations.json
         // (written by fda_extract) and walks it through

@@ -1076,6 +1076,23 @@ MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
 
+# Email-preferences hydration strings (v1.0.3)
+# Used by install.sh's hydrate_email_preferences step. It ingests a
+# pre-extracted ParsedPreference JSONL file (CM021 email intelligence
+# output) into the preferences collection via the vendored CM019 ingest
+# CLI, so a wipe and reinstall regenerates it from the source file.
+# Counts come from the ingest CLI's "Preferences created" tally; no
+# brand, person, or subject names cross the install.sh process boundary.
+# The file is opt-in via OSTLER_EMAIL_PREFERENCES_FILE or
+# OSTLER_SOCIAL_ARCHIVES_DIR, so customers without it skip cleanly.
+MSG_HYDRATE_EMAIL_PREFERENCES_STARTED="Loading your email preferences. This stays on this Mac and can take a few minutes."
+MSG_HYDRATE_EMAIL_PREFERENCES_DONE="Loaded %s preferences from your email history"
+MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE="No email-preferences file configured. Nothing to load."
+MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT="No email-preferences file found at %s. Nothing to load."
+MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_PIPELINE_PENDING="Preference pipeline not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES="Email preferences are still loading in the background. Your wiki will fill in shortly."
+MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT="  Still loading your email preferences (%ss so far). A large history can take a few minutes."
+
 # Preferences import counts-only confirmation, shown by phase 3.12b after
 # the shared ostler-import fan-out runs. The other hydrate_preferences
 # strings were removed when the standalone block was collapsed into the
