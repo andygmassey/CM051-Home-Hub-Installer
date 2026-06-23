@@ -52,33 +52,34 @@ SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
 SINCE_DAYS="${OSTLER_WHATSAPP_SINCE_DAYS:-365}"
 USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
 
-# --- Interactive-chat priority yield (v1.0.3 chat-saturation fix) ----
-# Live chat (the Hub app's /ws/chat AND iMessage / WhatsApp / email
-# replies, all routed through the daemon's agent turn) must win the one
-# shared Ollama slot over background enrichment. The daemon touches a
-# marker file when an interactive turn starts and refreshes it while the
-# turn runs; we yield this whole tick if that marker is FRESH, so a new
-# background summary never starts decoding while the user is waiting on a
-# reply. The marker lives next to the single-flight lock so it resolves
-# to the same workspace on every install. Fail-safe: if the marker is
-# absent or stale the tick proceeds exactly as before, and the freshness
-# window means a crashed daemon can never wedge background work forever.
-#   OSTLER_INTERACTIVE_MARKER    -> override the marker path.
-#   OSTLER_INTERACTIVE_TTL_SECS  -> freshness window in seconds (default
-#                                   120; 0 disables this yield entirely).
-_ostler_imarker="${OSTLER_INTERACTIVE_MARKER:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/interactive-chat.active}"
-_ostler_ittl="${OSTLER_INTERACTIVE_TTL_SECS:-120}"
-if [ "$_ostler_ittl" -gt 0 ] && [ -f "$_ostler_imarker" ]; then
-    # Age the marker by its mtime. `stat` flags differ across BSD/macOS
-    # and GNU; try the BSD form first (macOS is the install target), then
-    # the GNU form. If neither works we cannot age it, so we do NOT yield
-    # (fail-safe: never wedge background work on a stat quirk).
-    _ostler_mtime="$(stat -f %m "$_ostler_imarker" 2>/dev/null || stat -c %Y "$_ostler_imarker" 2>/dev/null || true)"
-    if [ -n "${_ostler_mtime:-}" ]; then
-        _ostler_age=$(( $(date +%s) - _ostler_mtime ))
-        if [ "$_ostler_age" -ge 0 ] && [ "$_ostler_age" -lt "$_ostler_ittl" ]; then
-            echo "bundle tick: interactive chat active (${_ostler_age}s ago, < ${_ostler_ittl}s); yielding this tick to keep live replies fast."
-            exit 0
+# --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
+# This conversation-bundle feed is NON-ESSENTIAL on first run: the user's
+# first impression is People + Wiki + Chat, not the deep body reads + AI
+# summaries this feed produces. On the 16GB floor a fresh install fires
+# four of these feeds + the wiki recompile at once (all RunAtLoad), which
+# (with the Docker VM and macOS first-login indexing) drove the Studio to
+# load ~37 and made the Hub app unusable. The hardware-tier governor caps
+# that storm: on the FLOOR/LOW tiers (defer flag set) a non-essential tick
+# yields whenever the machine is busier than the tier's per-core loadavg
+# ceiling, so the spawn spike never lands while first-run load is high.
+# The watermark means nothing is lost (next StartInterval catches up).
+#
+# Fail-safe: if the tier lib is absent or the load is unreadable the tick
+# proceeds exactly as before -- the governor never wedges background work.
+# Disable entirely with OSTLER_RESOURCE_GOVERNOR=0.
+#   OSTLER_RESOURCE_TIER_LIB -> override the lib path (default
+#                               ~/.ostler/lib/ostler-resource-tier.sh).
+if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
+    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$HOME/.ostler/lib/ostler-resource-tier.sh}"
+    if [ -f "$_ostler_tier_lib" ]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+            ostler_resource_tier_detect
+            if ostler_resource_tier_should_defer_nonessential; then
+                echo "bundle tick: ${OSTLER_TIER:-?} tier, load over the per-core ceiling (${OSTLER_LOADAVG_CEILING:-?}); deferring this non-essential enrichment tick to keep first-run surfaces responsive."
+                exit 0
+            fi
         fi
     fi
 fi
