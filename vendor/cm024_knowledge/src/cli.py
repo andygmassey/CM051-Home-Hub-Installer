@@ -422,11 +422,12 @@ def process_cmd(
 @click.option('--qdrant-port', default=_default_qdrant_port, type=int, help='Qdrant port (env: OSTLER_QDRANT_URL is parsed for host+port)')
 @click.option('--collection', default='evernote_knowledge', help='Qdrant collection name')
 @click.option('--embedding-provider', default='ollama', type=click.Choice(['ollama', 'openai']), help='Embedding provider')
-@click.option('--embedding-model', default='all-minilm', help='Embedding model name')
+@click.option('--embedding-model', default='nomic-embed-text', help='Embedding model name (must match the collection vector dim; nomic-embed-text=768 is the Ostler Hub default)')
 @click.option('--ollama-host', default=_default_ollama_url, help='Ollama server URL (env: OSTLER_OLLAMA_URL, default http://localhost:11434)')
 @click.option('--batch-size', default=32, type=int, help='Batch size for embedding')
 @click.option('--limit', '-l', type=int, help='Maximum notes to embed')
 @click.option('--incremental', is_flag=True, help='Only process new/updated notes (skip existing)')
+@click.option('--max-compartment-level', type=int, default=None, help='Privacy cap: skip notes whose compartment_level exceeds this (e.g. 2 keeps L3 out of the searchable collection). Default: embed all.')
 @click.option('--verbose', '-v', is_flag=True, help='Verbose output')
 def embed_cmd(
     vault_path: str,
@@ -440,6 +441,7 @@ def embed_cmd(
     batch_size: int,
     limit: Optional[int],
     incremental: bool,
+    max_compartment_level: Optional[int],
     verbose: bool,
 ):
     """
@@ -491,8 +493,29 @@ def embed_cmd(
         batch_size=batch_size,
         limit=limit,
         incremental=incremental,
+        max_compartment_level=max_compartment_level,
         verbose=verbose,
     ))
+
+
+def _note_passes_privacy_gate(compartment_level, max_compartment_level):
+    """True if a note may be embedded into the searchable collection.
+
+    ``max_compartment_level`` None means no cap (embed everything).
+    Otherwise a note is gated out when its compartment level exceeds the
+    cap -- e.g. cap=2 keeps L3 (compartment_level 3) notes out of Qdrant
+    while still allowing them to exist as staged markdown. Pure + total so
+    it is unit-testable without Qdrant/Ollama.
+    """
+    if max_compartment_level is None:
+        return True
+    try:
+        level = int(compartment_level)
+    except (TypeError, ValueError):
+        # Unknown/garbled level: fail CLOSED (do not embed) so malformed
+        # frontmatter cannot leak a private note into search.
+        return False
+    return level <= int(max_compartment_level)
 
 
 async def _run_embed(
@@ -507,7 +530,8 @@ async def _run_embed(
     batch_size: int,
     limit: Optional[int],
     incremental: bool,
-    verbose: bool,
+    max_compartment_level: Optional[int] = None,
+    verbose: bool = False,
 ):
     """Execute embedding pipeline."""
     import time
@@ -522,10 +546,19 @@ async def _run_embed(
     db = MetadataDB(db_path)
     db.initialize()
 
+    # Vector dim MUST follow the embedding model so a freshly-created
+    # collection matches the vectors we upsert (nomic-embed-text=768,
+    # the Ostler Hub default). If the collection already exists at a
+    # different dim, Qdrant rejects the upsert with a dimension error
+    # rather than silently dropping points, so a mismatch is loud, not
+    # a silently-empty Knowledge section.
+    vector_size = Embedder.MODEL_CONFIGS.get(embedding_model, {}).get("dimensions", 768)
+
     store = QdrantStore(
         host=qdrant_host,
         port=qdrant_port,
         collection=collection,
+        vector_size=vector_size,
     )
     if not await store.initialize():
         click.echo("Failed to initialize Qdrant store. Is Qdrant running?", err=True)
@@ -598,6 +631,17 @@ async def _run_embed(
                     updated_at = datetime.fromisoformat(str(updated_str).replace('Z', '+00:00'))
                 except (ValueError, TypeError):
                     pass
+
+            # Privacy gate (Ostler): never embed notes above the compartment
+            # cap into the searchable Qdrant collection. The wiki Knowledge
+            # reader surfaces whatever is in Qdrant, so an L3 (compartment
+            # level 3) note that reached the collection would leak. The Doctor
+            # import passes max_compartment_level=2 so L3 notes are staged as
+            # markdown but never become searchable. None = embed everything
+            # (explicit operator `embed` use / backward compatible).
+            if not _note_passes_privacy_gate(compartment_level, max_compartment_level):
+                notes_skipped += 1
+                continue
 
             # Incremental mode: check if note should be processed
             if incremental_ingester:
