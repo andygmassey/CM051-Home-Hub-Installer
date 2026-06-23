@@ -7,8 +7,10 @@
 # trimmed dependency set. See the wrapped script for the full
 # stale-vendor failure-shape rationale (CX-83 class).
 #
-# Piece 2 extends the wrapped script with install.sh hydrate_preferences
-# wiring assertions once that sub-phase exists.
+# Piece 2 (v1.0.3): the install.sh hydrate_email_preferences wiring
+# assertions now live in test_hydrate_email_preferences_wired.sh; this
+# wrapper chains it after the vendor regression so a single invocation
+# covers both the vendored pipeline freshness and the install wiring.
 
 set -euo pipefail
 
@@ -21,4 +23,9 @@ if [[ ! -x "$VENDOR_TEST" ]]; then
     exit 1
 fi
 
-exec "$VENDOR_TEST"
+"$VENDOR_TEST"
+
+WIRING_TEST="$SCRIPT_DIR/test_hydrate_email_preferences_wired.sh"
+if [[ -x "$WIRING_TEST" ]]; then
+    exec "$WIRING_TEST"
+fi
