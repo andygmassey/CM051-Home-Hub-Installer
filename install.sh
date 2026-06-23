@@ -8856,6 +8856,28 @@ if [[ -d "$_PREFS_DROPZONE" ]] \
     _IMPORT_DIRS+=("$_PREFS_DROPZONE")
 fi
 
+# ── Mailbox correspondents -> people graph (v1.0.3 mailbox-ingest leg) ──
+# Seed the universal_import P3 leg with any RAW MAILBOX the operator has,
+# so its correspondents (who they email, how often) land as Person nodes
+# in the people graph -- the biggest untapped GDPR enrichment. The leg
+# itself (already wired above) sniffs each dir and routes a Gmail .mbox or
+# an Apple Mail .emlx tree to ostler_fda.universal_import, which persists
+# people-graph facts via pwg_ingest (email BODIES are never persisted --
+# people-only, normal People privacy level). BOUNDED by design (the CX-126
+# lesson): we seed ONLY specific, already-confirmed mailbox roots, never an
+# unbounded Downloads rglob.
+#   1. The Gmail Takeout mbox the customer already confirmed in 9.4
+#      (OSTLER_TAKEOUT_PATH) -- pass its containing dir so the leg sniffs
+#      the single .mbox, not a whole tree.
+#   2. An explicit OSTLER_MAILBOX_DIR (Apple Mail .emlx export or a loose
+#      .mbox the operator points us at). No hardcoded paths; skip-if-absent.
+if [[ -n "${OSTLER_TAKEOUT_PATH:-}" && -f "${OSTLER_TAKEOUT_PATH}" ]]; then
+    _IMPORT_DIRS+=("$(dirname "${OSTLER_TAKEOUT_PATH}")")
+fi
+if [[ -n "${OSTLER_MAILBOX_DIR:-}" && -d "${OSTLER_MAILBOX_DIR}" ]]; then
+    _IMPORT_DIRS+=("${OSTLER_MAILBOX_DIR}")
+fi
+
 if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
     progress "Importing your data (building your knowledge graph)" "import_data"
     info "$MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES"
