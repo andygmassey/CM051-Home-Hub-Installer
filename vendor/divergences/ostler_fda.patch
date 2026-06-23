@@ -217,11 +217,37 @@
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -155,14 +155,11 @@
+@@ -155,14 +155,38 @@
          return "+" + local
      return local
  
--
++def _is_provisional_display_name(value: str) -> bool:
++    """True when ``value`` is a raw phone/handle placeholder, not a name.
+ 
++    WhatsApp/iMessage chat-only contacts get a ``+<e164>`` (or bare
++    handle) placeholder because the extractor reads JIDs/handles only --
++    no pushName, no Contacts match. Those placeholders must be marked
++    PROVISIONAL so (a) the identity resolver may freely overwrite them
++    when a real name later arrives from contact_syncer / CM046, and (b)
++    surfaces can suppress the "+44 7700 900123 as a name" leak (#576).
++
++    Mirrors cm041.identity_resolver.canonical_name._looks_like_phone
++    (>= 5 digits, phone-shaped) but is kept local: ostler_fda ships
++    independently of cm041 and must not take a hard import on it.
++    """
++    if not value:
++        return True
++    v = value.strip()
++    if not v:
++        return True
++    if "@" in v and "." in v.split("@", 1)[1]:
++        # A bare email used as a name is also a placeholder, not a name.
++        return True
++    digits = sum(c.isdigit() for c in v)
++    phoneish = all(c in "+()-. \t0123456789" for c in v)
++    return phoneish and digits >= 5
++
++
  def _whatsapp_phone_e164(jid: str) -> str:
      """E.164 phone string for an ``@s.whatsapp.net`` JID, used as the phone
      ``identifierValue`` so a WhatsApp contact shares ONE key with the same
@@ -234,7 +260,35 @@
      local = jid.split("@", 1)[0] if "@" in jid else jid
      return "+" + local if local.isdigit() else jid
  
-@@ -490,7 +487,7 @@
+@@ -212,6 +236,14 @@
+                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                     f'<{uri}> pwg:source "imessage_fda"',
+                 ]
++                # #576: the iMessage participant is a raw handle (phone or
++                # email) used as the displayName. Flag the phone/email-only
++                # case as provisional so the resolver may overwrite it with a
++                # Contacts name and surfaces can suppress the bare-number leak.
++                if _is_provisional_display_name(participant):
++                    triples.append(
++                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
++                    )
+ 
+                 # Add identifier
+                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
+@@ -452,6 +484,12 @@
+                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
+                     f'<{uri}> pwg:source "whatsapp_fda"',
+                 ]
++                # #576: flag the bare-number placeholder so the resolver
++                # may overwrite it and surfaces can suppress it as a name.
++                if _is_provisional_display_name(display):
++                    triples.append(
++                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
++                    )
+                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
+                 triples.extend([
+                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
+@@ -490,7 +528,7 @@
                          f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                          f"<{id_uri}> a pwg:PersonIdentifier",
                          f'<{id_uri}> pwg:identifierType "phone"',
@@ -243,7 +297,7 @@
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -786,6 +783,10 @@
+@@ -786,6 +824,10 @@
  # thousands of visits; 200 is Qdrant's tested upsert chunk.
  _BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
  _BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
@@ -254,7 +308,7 @@
  
  # Sensitive-domain blocklist. Substring match on the lowercased domain
  # so subdomains (e.g. secure.bank.example.com) are caught too.
-@@ -860,47 +861,56 @@
+@@ -860,47 +902,56 @@
      return vectors
  
  
@@ -262,7 +316,9 @@
 -    collection: str, vector_size: int, distance: str = "Cosine"
 -) -> None:
 -    """Create a Qdrant collection if it does not already exist.
--
++def _qdrant_ensure_collection(collection: str, dim: int) -> None:
++    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
+ 
 -    On a fresh single-Mac install nothing pre-creates the Qdrant
 -    collections (``install.sh graph_db_start`` brings the container up
 -    empty). A bare PUT of points into a missing collection lands 0 rows
@@ -270,20 +326,17 @@
 -    -- otherwise the iOS People tab / Hub People card / semantic search
 -    stay blank by design. See HR015 #600 + the
 -    feedback_qdrant_collections_no_self_create_fresh_install memory.
-+def _qdrant_ensure_collection(collection: str, dim: int) -> None:
-+    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
++    Single-Mac product: there is no gateway to lazily create the
++    collection, and nothing else on a fresh install creates
++    safari_history. Qdrant rejects a PUT of points into a missing
++    collection (404), which would silently land zero rows. So the
++    direct writer ensures its own collection first.
  
 -    Idempotent: a GET on an existing collection short-circuits, so a
 -    re-install does not clobber existing vectors. A genuinely missing
 -    collection (404 on GET) is created with the given vector size +
 -    distance. Any other error is logged and re-raised so the caller can
 -    decide whether to fail loud.
-+    Single-Mac product: there is no gateway to lazily create the
-+    collection, and nothing else on a fresh install creates
-+    safari_history. Qdrant rejects a PUT of points into a missing
-+    collection (404), which would silently land zero rows. So the
-+    direct writer ensures its own collection first.
-+
 +    Idempotent and non-destructive: an existing collection is left
 +    untouched (a dim mismatch is logged, never auto-recreated, so a
 +    customer's data is never dropped). Failures are swallowed: a
@@ -340,7 +393,7 @@
  
  
  def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
-@@ -1061,6 +1071,10 @@
+@@ -1061,6 +1112,10 @@
  
      sent = 0
      try:
@@ -351,7 +404,7 @@
          vectors = _ollama_embed_batch([item["doc"] for item in queue])
          points = [
              {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
-@@ -1109,565 +1123,158 @@
+@@ -1109,47 +1164,305 @@
      }
  
  
@@ -400,256 +453,329 @@
 +# display name with the local Ollama instance, and upserts one point
 +# per person into `people`, self-creating the collection at 768-dim
 +# (same no-gateway / no-precreate gap the browsing writer closes).
- 
--# The reader scrolls exactly this collection name. Overridable for
--# tests only. Defaults to "preferences" to match CM019 + reading_pages.
--PREFERENCES_QDRANT_COLLECTION = os.getenv(
--    "PREFERENCES_QDRANT_COLLECTION", "preferences"
--)
--# nomic-embed-text emits 768-dim vectors; fallback used only when no
--# live embedding length is available to size a fresh collection.
--PREFERENCES_EMBED_DIM = int(os.getenv("PREFERENCES_EMBED_DIM", "768"))
++
 +PEOPLE_QDRANT_COLLECTION = QDRANT_COLLECTION  # "people"; override via QDRANT_COLLECTION
 +# nomic-embed-text emits 768-dim vectors (same model + dim as browsing).
 +_PEOPLE_VECTOR_DIM = int(os.getenv("PEOPLE_VECTOR_DIM", "768"))
  
--# Folder -> strength. Reading List items were explicitly saved to read
--# later; Favourites (BookmarksBar) are pinned. Both are stronger signals
--# than an ordinary filed bookmark. Mirrors CM019 apple.py's favourite
--# vs ordinary split (0.75 / 0.70).
--_BOOKMARK_STRENGTH_BY_FOLDER = {
--    "Reading List": 0.75,
--    "Favourites": 0.72,
--}
--_BOOKMARK_DEFAULT_STRENGTH = 0.70
+-# The reader scrolls exactly this collection name. Overridable for
+-# tests only. Defaults to "preferences" to match CM019 + reading_pages.
++
++# ── iMessage social-graph signal (Social wiki page, Prefs Piece 3 #524) ──
++#
++# Grafted from HR015 ostler_fda/pwg_ingest.py (source of truth). The
++# CM044 Social wiki page reads the Qdrant `preferences` collection
++# filtered to category=social (compiler/pages/social_pages.py); nothing
++# wrote those points, so the Social page rendered empty on every fresh
++# install despite the customer's iMessage history. ingest_imessage()
++# above only writes Oxigraph Person nodes, which the Social page does
++# NOT read.
++#
++# Reader contract (social_pages.py): payload `category == "social"` with
++# `subject` (masked contact label), `strength`, `source` ("imessage"),
++# `preference_type` ("Like"). The displayed subject is privacy-masked;
++# the unmasked handle is never embedded or stored. Group chats and
++# below-floor contacts are skipped. Point id is stable on the handle so
++# a re-install upserts in place. Counts-only return (install.sh reads
++# `sent`); fails LOUD if there were contacts but nothing landed.
++#
++# The reader scrolls exactly this collection name. Defaults to
++# "preferences" to match CM019 + social_pages.py. Defined here (rather
++# than reused from a bookmarks graft) so this block is self-contained.
+ PREFERENCES_QDRANT_COLLECTION = os.getenv(
+     "PREFERENCES_QDRANT_COLLECTION", "preferences"
+ )
+-# nomic-embed-text emits 768-dim vectors; fallback used only when no
+-# live embedding length is available to size a fresh collection.
+ PREFERENCES_EMBED_DIM = int(os.getenv("PREFERENCES_EMBED_DIM", "768"))
++
++# Message-count -> strength. More messages = stronger social tie.
++_SOCIAL_STRENGTH_BANDS = (
++    (200, 0.90),
++    (50, 0.80),
++    (10, 0.70),
++)
++_SOCIAL_MIN_MESSAGES = 5
++_SOCIAL_DEFAULT_STRENGTH = 0.60
++
++
++def _social_strength_for(message_count: int) -> float:
++    """Map an iMessage message count onto a 0..1 social-tie strength."""
++    for threshold, strength in _SOCIAL_STRENGTH_BANDS:
++        if message_count >= threshold:
++            return strength
++    return _SOCIAL_DEFAULT_STRENGTH
++
++
++def _is_phone_handle(handle: str) -> bool:
++    """True if the handle looks like a phone number (vs an email)."""
++    stripped = handle.replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
++    return handle.startswith("+") or stripped.isdigit()
++
++
++def _mask_social_subject(handle: str) -> str:
++    """Privacy-mask a contact handle for the rendered Social table.
++
++    Phone numbers become a country/area prefix plus the last two digits
++    (``+44 … 56``); emails keep the local part's first character plus the
++    domain (``j…@example.com``). The unmasked value is never stored.
++    """
++    handle = (handle or "").strip()
++    if not handle:
++        return "Unknown contact"
++    if _is_phone_handle(handle):
++        digits = "".join(c for c in handle if c.isdigit())
++        if len(digits) < 4:
++            return "Phone contact"
++        prefix = ("+" + digits[:2]) if handle.startswith("+") else digits[:2]
++        return f"{prefix} … {digits[-2:]}"
++    local, _, domain = handle.partition("@")
++    if not domain:
++        return handle[:1] + "…"
++    return f"{local[:1]}…@{domain}"
++
++
++def _load_imessage_conversations(fda_dir: Path) -> list:
++    """Read imessage_conversations.json from ``fda_dir``.
++
++    A missing file is skipped silently (source not enabled); a malformed
++    file logs and contributes nothing.
++    """
++    path = fda_dir / "imessage_conversations.json"
++    if not path.exists():
++        return []
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError) as exc:
++        logger.warning(
++            "Could not parse imessage_conversations.json: %s; skipping.",
++            type(exc).__name__,
++        )
++        return []
++    if not isinstance(data, list):
++        logger.warning(
++            "imessage_conversations.json root is not a list; skipping."
++        )
++        return []
++    return [c for c in data if isinstance(c, dict)]
++
++
++def ingest_social(fda_dir: Path) -> dict:
++    """Ingest iMessage social-tie signal into the Qdrant ``preferences``
++    collection so the CM044 Social wiki page renders on a fresh install.
++
++    Group chats are skipped; contacts below ``_SOCIAL_MIN_MESSAGES`` are
++    skipped as too thin. Defensive: missing/empty/all-skipped input
++    returns ``{"status": "no_data", ...}`` and never raises. Returns
++    counts only (install.sh reads ``sent``).
++    """
++    conversations = _load_imessage_conversations(fda_dir)
++    if not conversations:
++        logger.info("No iMessage conversations to ingest for social signal.")
++        return {
++            "status": "no_data",
++            "sent": 0,
++            "points_created": 0,
++            "skipped_group": 0,
++            "skipped_thin": 0,
++            "total": 0,
++        }
++
++    handle_messages = {}
++    skipped_group = 0
++    for convo in conversations:
++        if convo.get("is_group"):
++            skipped_group += 1
++            continue
++        msg_count = int(convo.get("message_count") or 0)
++        for participant in convo.get("participants") or []:
++            handle = (participant or "").strip()
++            if not handle:
++                continue
++            handle_messages[handle] = handle_messages.get(handle, 0) + msg_count
++
++    skipped_thin = 0
++    queue = []
++    for handle, total_messages in handle_messages.items():
++        if total_messages < _SOCIAL_MIN_MESSAGES:
++            skipped_thin += 1
++            continue
++        subject = _mask_social_subject(handle)
++        strength = _social_strength_for(total_messages)
++        doc = " ".join(("Like", subject, "category:social", "imessage"))
++        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"social|imessage|{handle}"))
++        queue.append({
++            "point_id": point_id,
++            "doc": doc,
++            "payload": {
++                "preference_id": point_id,
++                "subject": subject,
++                "preference_type": "Like",
++                "category": "social",
++                "strength": strength,
++                "source": "imessage",
++                "size": "Medium",
++                "compartment_level": DEFAULT_PRIVACY,
++                "privacy_level": DEFAULT_PRIVACY,
++                "created_at": datetime.now(timezone.utc).isoformat(),
++                "observed_at": datetime.now(timezone.utc).isoformat(),
++                "extra": {
++                    "message_count": total_messages,
++                    "source_type": "imessage_social",
++                    "handle_kind": "phone" if _is_phone_handle(handle) else "email",
++                },
++            },
++        })
++
++    if not queue:
++        logger.info(
++            "Social: 0 ingestible (%d group threads, %d thin contacts).",
++            skipped_group, skipped_thin,
++        )
++        return {
++            "status": "no_data",
++            "sent": 0,
++            "points_created": 0,
++            "skipped_group": skipped_group,
++            "skipped_thin": skipped_thin,
++            "total": 0,
++        }
++
++    vectors = _ollama_embed_batch([item["doc"] for item in queue])
++
++    vector_size = PREFERENCES_EMBED_DIM
++    for vec in vectors:
++        if vec:
++            vector_size = len(vec)
++            break
++
++    try:
++        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
++    except Exception as exc:
++        logger.warning(
++            "Social: could not ensure Qdrant collection '%s': %s",
++            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
++        )
++        return {
++            "status": "error",
++            "sent": 0,
++            "points_created": 0,
++            "skipped_group": skipped_group,
++            "skipped_thin": skipped_thin,
++            "total": len(queue),
++        }
++
++    points = [
++        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
++        for item, vec in zip(queue, vectors)
++    ]
++
++    sent = 0
++    try:
++        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
++    except Exception as exc:
++        logger.warning(
++            "Social vector-store write failed: %s", type(exc).__name__,
++        )
++        return {
++            "status": "error",
++            "sent": sent,
++            "points_created": sent,
++            "skipped_group": skipped_group,
++            "skipped_thin": skipped_thin,
++            "total": len(queue),
++        }
++
++    if sent == 0:
++        logger.warning(
++            "Social: had %d to ingest but 0 landed in Qdrant '%s'.",
++            len(queue), PREFERENCES_QDRANT_COLLECTION,
++        )
++        return {
++            "status": "error",
++            "sent": 0,
++            "points_created": 0,
++            "skipped_group": skipped_group,
++            "skipped_thin": skipped_thin,
++            "total": len(queue),
++        }
++
++    logger.info(
++        "Social: %d upserted to Qdrant '%s' (%d group, %d thin skipped).",
++        sent, PREFERENCES_QDRANT_COLLECTION, skipped_group, skipped_thin,
++    )
++    return {
++        "status": "ok",
++        "sent": sent,
++        "points_created": sent,
++        "skipped_group": skipped_group,
++        "skipped_thin": skipped_thin,
++        "total": len(queue),
++    }
  
-+def ingest_people_to_qdrant() -> dict:
-+    """Populate the Qdrant ``people`` collection from Oxigraph.
++
++# ── Safari bookmarks signal (Reading wiki page, day-one follow-up #524) ──
++#
++# Grafted from HR015 ostler_fda/pwg_ingest.py (source of truth). The
++# clean follow-up to the #524 Social graft above: extract_all.py writes
++# safari_bookmarks.json (the installer offers `safari_bookmarks` as a
++# Recommended FDA source) but nothing ever ingested it, so the data died
++# on disk after extraction and the CM044 Reading wiki page rendered an
++# empty bookmarks section on every fresh install.
++#
++# Reader contract (confirmed against the live reader,
++# CM044 compiler/pages/reading_pages.py): payload `category == "bookmark"`
++# with `subject` (the bookmark title), `strength`, `source`
++# ("safari_bookmarks"), `observed_at`/`created_at` (timeline buckets),
++# and `extra.url` (makes the title clickable). The full payload mirrors
++# CM019 ParsedPreference.to_payload so FDA-extracted bookmarks render
++# identically to GDPR-imported ones. Sensitive domains are dropped
++# client-side before embed/store (same blocklist as browsing). Point id
++# is stable on the URL so a re-install upserts in place. Counts-only
++# return (install.sh reads `sent`); fails LOUD if there were bookmarks
++# but nothing landed in Qdrant.
++#
++# Reuses PREFERENCES_QDRANT_COLLECTION / PREFERENCES_EMBED_DIM defined by
++# the #524 social graft above (both write the same "preferences"
++# collection); whichever graft lands first defines the constants and the
++# other reuses them.
++
+ # Folder -> strength. Reading List items were explicitly saved to read
+ # later; Favourites (BookmarksBar) are pinned. Both are stronger signals
+ # than an ordinary filed bookmark. Mirrors CM019 apple.py's favourite
+@@ -1161,7 +1474,7 @@
+ _BOOKMARK_DEFAULT_STRENGTH = 0.70
+ 
  
 -def _load_safari_bookmarks(fda_dir: Path) -> list[dict]:
--    """Read safari_bookmarks.json from ``fda_dir``.
--
--    The file is a list of dicts emitted by extract_all.py
--    (``[asdict(b) for b in bookmarks]``) with keys: title, url, domain,
--    folder. A missing file is skipped silently (the source was not
--    enabled); a malformed file logs and contributes nothing.
-+    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
-+    and upserts a point per person carrying the payload contract the iOS
-+    People tab + Hub People-card read: ``display_name``, ``person_uri``,
-+    and ``contact_type == "person"`` (the filter BOTH the search and
-+    scroll endpoints require -- a point without it is invisible to the
-+    tab). Self-creates the collection at 768-dim. Counts only in the
-+    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
-+    degrades the count rather than aborting the installer.
-     """
--    path = fda_dir / "safari_bookmarks.json"
--    if not path.exists():
--        return []
-     try:
--        data = json.loads(path.read_text(encoding="utf-8"))
--    except (OSError, json.JSONDecodeError) as exc:
--        logger.warning(
--            "Could not parse safari_bookmarks.json: %s; skipping.",
--            type(exc).__name__,
--        )
--        return []
--    if not isinstance(data, list):
--        logger.warning("safari_bookmarks.json root is not a list; skipping.")
--        return []
--    return [b for b in data if isinstance(b, dict)]
--
--
--def ingest_bookmarks(fda_dir: Path) -> dict:
--    """Ingest Safari bookmarks into the Qdrant ``preferences`` collection
--    so the CM044 Reading wiki page can render them.
--
--    Direct, single-machine path: no gateway. Sensitive domains are
--    dropped client-side before embed/store (same blocklist as browsing).
--    Defensive: missing, empty, or all-sensitive input returns
--    ``{"status": "no_data", ...}`` with zero counts and never raises; an
--    Ollama/Qdrant hiccup degrades the count rather than crashing the
--    installer.
--
--    Each bookmark becomes one ``preferences`` point with
++def _load_safari_bookmarks(fda_dir: Path) -> list:
+     """Read safari_bookmarks.json from ``fda_dir``.
+ 
+     The file is a list of dicts emitted by extract_all.py
+@@ -1198,7 +1511,7 @@
+     installer.
+ 
+     Each bookmark becomes one ``preferences`` point with
 -    ``category == "bookmark"`` and the payload field set the Reading page
--    reads. The point id is derived stably from the bookmark URL so a
--    re-install upserts in place rather than duplicating rows.
--
--    Returns counts only (parity with the other ingesters; install.sh
--    reads ``sent``):
--      ``status``           : "ok" | "no_data" | "error"
--      ``sent``             : points upserted into Qdrant
--      ``points_created``   : alias of ``sent``
--      ``skipped_sensitive``: bookmarks dropped by the blocklist
--      ``total``            : ingestible bookmarks considered
--    """
--    bookmarks = _load_safari_bookmarks(fda_dir)
--    if not bookmarks:
--        logger.info("No bookmarks to ingest.")
--        return {
--            "status": "no_data",
--            "sent": 0,
--            "points_created": 0,
--            "skipped_sensitive": 0,
--            "total": 0,
--        }
--
--    now_iso = datetime.now(timezone.utc).isoformat()
--    skipped_sensitive = 0
++    ``category == "bookmark"`` and the payload fields the Reading page
+     reads. The point id is derived stably from the bookmark URL so a
+     re-install upserts in place rather than duplicating rows.
+ 
+@@ -1223,8 +1536,8 @@
+ 
+     now_iso = datetime.now(timezone.utc).isoformat()
+     skipped_sensitive = 0
 -    queue: list[dict] = []
 -    seen_urls: set[str] = set()
--    for b in bookmarks:
--        url = (b.get("url") or "").strip()
--        if not url or url in seen_urls:
--            continue
--        domain = (b.get("domain") or "").strip()
--        if _is_sensitive_domain(domain):
--            skipped_sensitive += 1
--            continue
--        seen_urls.add(url)
--        title = (b.get("title") or "").strip() or domain or url
--        folder = (b.get("folder") or "").strip()
--        strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
--            folder, _BOOKMARK_DEFAULT_STRENGTH
-+        rows = _sparql_query(
-+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-+            "SELECT ?person ?name ?createdAt WHERE {\n"
-+            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
-+            # pwg:createdAt holds the REAL historical contact-creation date
-+            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
-+            # written by contact_syncer) -- distinct from the install-time
-+            # stamp. The time-ordered wiki views (year pages, person
-+            # timeline, "recent") key on observed_at/created_at, so without
-+            # surfacing this here the FDA-sourced people are ABSENT from
-+            # those views, not just stamped wrong. OPTIONAL: a person with
-+            # no real date stays omitted from time views (consistent with
-+            # the iCloud-contacts decision) -- we never fabricate now().
-+            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
-+            "}"
-         )
--
--        # Embedding document: title carries the human-readable signal;
--        # domain anchors it. Mirrors the browsing path's doc construction
--        # and CM019's "Like <subject> category:bookmark" embedding text.
--        doc = " ".join(
--            part for part in ("Like", title, "category:bookmark", domain) if part
--        )
--        # Stable point id: same URL re-runs upsert in place (idempotent
--        # re-install) rather than duplicating rows.
--        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bookmark|{url}"))
--        queue.append({
--            "point_id": point_id,
--            "doc": doc,
--            "payload": {
--                # Reader contract (CM044 reading_pages.py) + CM019
--                # ParsedPreference.to_payload parity so FDA bookmarks
--                # render identically to GDPR-imported ones.
--                "preference_id": point_id,
--                "subject": title,
--                "preference_type": "Like",
--                "category": "bookmark",
--                "strength": strength,
--                "source": "safari_bookmarks",
--                "context": folder or None,
--                "size": "Medium",
--                "compartment_level": DEFAULT_PRIVACY,
--                "privacy_level": DEFAULT_PRIVACY,
--                "created_at": now_iso,
--                "observed_at": now_iso,
--                "extra": {
--                    "url": url,
--                    "domain": domain,
--                    "folder": folder,
--                    "source_type": "safari_bookmarks",
--                },
--            },
--        })
--
--    if not queue:
--        logger.info(
--            "Bookmarks: 0 ingestible (%d skipped sensitive).",
--            skipped_sensitive,
--        )
--        return {
--            "status": "no_data",
--            "sent": 0,
--            "points_created": 0,
--            "skipped_sensitive": skipped_sensitive,
--            "total": 0,
--        }
--
--    vectors = _ollama_embed_batch([item["doc"] for item in queue])
--
--    # Size the collection from the first real embedding; fall back to
--    # the nomic-embed-text default only if nothing embedded.
--    vector_size = PREFERENCES_EMBED_DIM
--    for vec in vectors:
--        if vec:
--            vector_size = len(vec)
--            break
--
--    try:
--        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
--    except Exception as exc:
--        logger.warning(
--            "Bookmarks: could not ensure Qdrant collection '%s': %s",
--            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
--        )
--        return {
--            "status": "error",
--            "sent": 0,
--            "points_created": 0,
--            "skipped_sensitive": skipped_sensitive,
--            "total": len(queue),
--        }
--
--    points = [
--        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
--        for item, vec in zip(queue, vectors)
--    ]
--
--    sent = 0
--    try:
--        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
--    except Exception as exc:
--        logger.warning(
--            "Bookmarks vector-store write failed: %s", type(exc).__name__,
--        )
--        return {
--            "status": "error",
--            "sent": sent,
--            "points_created": sent,
--            "skipped_sensitive": skipped_sensitive,
--            "total": len(queue),
--        }
--
--    if sent == 0:
--        # We had bookmarks to store but none landed (every chunk failed).
--        # Report error, not "ok" -- a silent ok-with-zero would let the
--        # installer claim success while the Reading page stays blank.
--        logger.warning(
--            "Bookmarks: had %d to ingest but 0 landed in Qdrant '%s'.",
--            len(queue), PREFERENCES_QDRANT_COLLECTION,
--        )
--        return {
--            "status": "error",
--            "sent": 0,
--            "points_created": 0,
--            "skipped_sensitive": skipped_sensitive,
--            "total": len(queue),
--        }
--
--    logger.info(
--        "Bookmarks: %d upserted to Qdrant '%s' (%d skipped sensitive).",
--        sent, PREFERENCES_QDRANT_COLLECTION, skipped_sensitive,
--    )
--    return {
--        "status": "ok",
--        "sent": sent,
--        "points_created": sent,
--        "skipped_sensitive": skipped_sensitive,
--        "total": len(queue),
--    }
++    queue: list = []
++    seen_urls: set = set()
+     for b in bookmarks:
+         url = (b.get("url") or "").strip()
+         if not url or url in seen_urls:
+@@ -1362,312 +1675,138 @@
+         "skipped_sensitive": skipped_sensitive,
+         "total": len(queue),
+     }
 -
 -
 -# ── People search index (#600) ────────────────────────────────────
@@ -687,7 +813,7 @@
 -# Person nodes but nothing landed in Qdrant -- a silent ok-with-zero
 -# would let the installer claim success while the People surfaces stay
 -# blank, the exact #600 silent-fail this function exists to kill.
--
+ 
 -# The readers scroll/search exactly this collection name. Overridable
 -# for tests only.
 -PEOPLE_QDRANT_COLLECTION = os.getenv("PEOPLE_QDRANT_COLLECTION", "people")
@@ -695,7 +821,7 @@
 -# only when no live embedding length is available to size the
 -# collection (e.g. the embedder is down and every embed returns []).
 -PEOPLE_EMBED_DIM = int(os.getenv("PEOPLE_EMBED_DIM", "768"))
--
+ 
 -
 -def _load_people_from_oxigraph() -> list[dict]:
 -    """SPARQL-query Oxigraph for every pwg:Person with a display name.
@@ -816,9 +942,10 @@
 -    return " ".join(p for p in parts if p).strip()
 -
 -
--def ingest_people_to_qdrant() -> dict:
+ def ingest_people_to_qdrant() -> dict:
 -    """Populate the Qdrant ``people`` collection from Oxigraph (#600).
--
++    """Populate the Qdrant ``people`` collection from Oxigraph.
+ 
 -    On a fresh single-Mac install the per-source hydrate steps write
 -    pwg:Person nodes into Oxigraph (the wiki People page reads those
 -    directly), but nothing ever embeds them into Qdrant -- so the iOS
@@ -841,9 +968,33 @@
 -      ``sent``           : points upserted into Qdrant
 -      ``points_created`` : alias of ``sent``
 -      ``total``          : Person nodes considered (with a display name)
--    """
--    try:
++    Reads every ``pwg:Person`` + ``pwg:displayName``, embeds the name,
++    and upserts a point per person carrying the payload contract the iOS
++    People tab + Hub People-card read: ``display_name``, ``person_uri``,
++    and ``contact_type == "person"`` (the filter BOTH the search and
++    scroll endpoints require -- a point without it is invisible to the
++    tab). Self-creates the collection at 768-dim. Counts only in the
++    return dict; never raises -- an Oxigraph/Ollama/Qdrant hiccup
++    degrades the count rather than aborting the installer.
+     """
+     try:
 -        people = _load_people_from_oxigraph()
++        rows = _sparql_query(
++            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
++            "SELECT ?person ?name ?createdAt WHERE {\n"
++            "  ?person a pwg:Person ; pwg:displayName ?name .\n"
++            # pwg:createdAt holds the REAL historical contact-creation date
++            # (e.g. a 2013/2018/2022 LinkedIn/Facebook connection date
++            # written by contact_syncer) -- distinct from the install-time
++            # stamp. The time-ordered wiki views (year pages, person
++            # timeline, "recent") key on observed_at/created_at, so without
++            # surfacing this here the FDA-sourced people are ABSENT from
++            # those views, not just stamped wrong. OPTIONAL: a person with
++            # no real date stays omitted from time views (consistent with
++            # the iCloud-contacts decision) -- we never fabricate now().
++            "  OPTIONAL { ?person pwg:createdAt ?createdAt }\n"
++            "}"
++        )
      except Exception as exc:
          logger.warning(
 -            "People: Oxigraph query failed: %s", type(exc).__name__,
@@ -1026,15 +1177,15 @@
      }
  
  
-@@ -1700,7 +1307,6 @@
+@@ -1700,6 +1839,7 @@
          ("photos", ingest_photos_people),
          ("apple_mail", ingest_mail_contacts),
          ("browser_history", ingest_browser_history),
--        ("bookmarks", ingest_bookmarks),
++        ("social", ingest_social),
+         ("bookmarks", ingest_bookmarks),
      ]:
          try:
-             results[name] = func(fda_dir)
-@@ -1708,16 +1314,6 @@
+@@ -1708,16 +1848,6 @@
              logger.warning("[warn] %s ingestion failed: %s", name, e)
              results[name] = {"status": "error", "error": str(e)}
  
