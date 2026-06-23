@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# githooks-pre-commit-operator-pii
+#
+# Pre-commit hook that runs operator-pii-scan against the STAGED diff
+# only (not the whole working tree). Drops staged file contents into
+# a temp dir, scans that, exits non-zero on any hit.
+#
+# Installation: this file is dropped at .githooks/pre-commit-operator-pii
+# by bin/install-pii-guards.sh. The installer also wires
+# .githooks/pre-commit to invoke this script and configures
+# core.hooksPath = .githooks.
+#
+# The scanner is resolved via OPERATOR_PII_SCAN_BIN with a documented
+# default. Override only if your HR015 checkout lives somewhere
+# non-standard.
+#
+# Exit codes:
+#   0 - clean (no PII in staged content)
+#   1 - PII found OR scanner unavailable (commit blocked)
+#
+# Do NOT add a --no-verify / skip-if-env-var escape hatch here.
+# If the hook is wrong, fix the cause. Per repo policy.
+
+set -u
+
+SCANNER="${OPERATOR_PII_SCAN_BIN:-$HOME/Documents/Projects/HR015 - Gaming PC/bin/operator-pii-scan.sh}"
+
+if [ ! -x "$SCANNER" ]; then
+    echo "operator-pii-scan hook: scanner not executable at:" >&2
+    echo "  $SCANNER" >&2
+    echo "" >&2
+    echo "Set OPERATOR_PII_SCAN_BIN to the path of bin/operator-pii-scan.sh" >&2
+    echo "in your HR015 - Gaming PC checkout, or install HR015 at the default" >&2
+    echo "location (\$HOME/Documents/Projects/HR015 - Gaming PC)." >&2
+    exit 1
+fi
+
+# Collect staged files (added/copied/modified/renamed; skip deletes).
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [ -z "$STAGED_FILES" ]; then
+    echo "operator-pii-scan: clean (0 files scanned)"
+    exit 0
+fi
+
+# Build a temp dir mirroring the staged content so the scanner can
+# walk it like a normal target path.
+STAGE_DIR="$(mktemp -d -t operator-pii-XXXXXX)"
+trap 'rm -rf "$STAGE_DIR"' EXIT
+
+COUNT=0
+while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    dest="$STAGE_DIR/$path"
+    mkdir -p "$(dirname "$dest")"
+    # git show ":path" prints the staged blob (handles new + modified).
+    if git show ":$path" > "$dest" 2>/dev/null; then
+        COUNT=$((COUNT + 1))
+    else
+        # Submodule / symlink / etc that git show can't materialise.
+        rm -f "$dest"
+    fi
+done <<< "$STAGED_FILES"
+
+if [ "$COUNT" -eq 0 ]; then
+    echo "operator-pii-scan: clean (0 scannable files staged)"
+    exit 0
+fi
+
+# Run the scanner. Capture output so we can rewrite the temp-dir prefix.
+OUTPUT="$("$SCANNER" "$STAGE_DIR" 2>&1)"
+STATUS=$?
+
+case "$STATUS" in
+    0)
+        echo "operator-pii-scan: clean ($COUNT files scanned)"
+        exit 0
+        ;;
+    1)
+        echo "operator-pii-scan: BLOCKED -- operator PII detected in staged content" >&2
+        echo "" >&2
+        # Strip the temp-dir prefix so paths read as repo-relative.
+        printf '%s\n' "$OUTPUT" | sed "s|$STAGE_DIR/||g" >&2
+        echo "" >&2
+        echo "Fix the offending content and re-stage. Do not bypass with --no-verify." >&2
+        exit 1
+        ;;
+    *)
+        echo "operator-pii-scan: scanner returned error status $STATUS" >&2
+        printf '%s\n' "$OUTPUT" >&2
+        exit 1
+        ;;
+esac

@@ -52,7 +52,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import copy as _copy
 from . import ostler_paths
 from . import reminders_push
 
@@ -508,16 +507,16 @@ def _render_frontmatter(
 
 
 def _render_summary_body(summary: ConversationSummary) -> str:
-    lines: list[str] = [_copy.SUMMARY_HEADING, ""]
+    lines: list[str] = ["# Summary", ""]
     overall = summary.overall.strip()
     if overall:
         lines.append(overall)
         lines.append("")
     if summary.topics:
-        lines.append(_copy.TOPICS_HEADING)
+        lines.append("## Topics")
         lines.append("")
         for topic in summary.topics:
-            heading = topic.name.strip() or _copy.TOPIC_FALLBACK_NAME
+            heading = topic.name.strip() or "Topic"
             lines.append(f"### {heading}")
             lines.append("")
             for point in topic.points:
@@ -531,22 +530,17 @@ def _render_summary_body(summary: ConversationSummary) -> str:
 def _render_transcript_body(bundle: ConversationBundle) -> str:
     transcript = bundle.transcript.rstrip()
     if not transcript:
-        return (
-            f"{_copy.TRANSCRIPT_HEADING}\n\n"
-            f"{_copy.TRANSCRIPT_EMPTY_PLACEHOLDER}\n"
-        )
-    return f"{_copy.TRANSCRIPT_HEADING}\n\n" + transcript + "\n"
+        return "# Transcript\n\n_(transcript was empty for this " \
+               "conversation)_\n"
+    return "# Transcript\n\n" + transcript + "\n"
 
 
 def _render_todos_body(todos: tuple[Todo, ...]) -> str:
     if not todos:
-        return (
-            f"{_copy.TODOS_HEADING}\n\n"
-            f"{_copy.TODOS_EMPTY_PLACEHOLDER}\n"
-        )
-    lines: list[str] = [_copy.TODOS_HEADING, ""]
+        return "# Todos\n\n_(none extracted)_\n"
+    lines: list[str] = ["# Todos", ""]
     for todo in todos:
-        bits: list[str] = [todo.text.strip() or _copy.TODO_EMPTY_TEXT_PLACEHOLDER]
+        bits: list[str] = [todo.text.strip() or "(empty)"]
         bits.append(f"owner: {todo.owner}")
         if todo.deadline:
             bits.append(f"deadline: {todo.deadline}")

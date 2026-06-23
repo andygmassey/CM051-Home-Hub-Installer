@@ -59,7 +59,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from . import copy as _copy
 from . import ostler_paths
 
 if TYPE_CHECKING:  # avoid a circular import at runtime
@@ -75,11 +74,19 @@ _DEFAULT_USER_ID = "user"
 
 # ``status`` values stored in the mapping table. The assistant-side
 # PR adds two more transient values during retry; for the writer
-# side these four are the contract surface.
+# side these five are the contract surface.
 STATUS_PENDING = "pending"
 STATUS_PUSHED = "pushed"
 STATUS_SKIPPED = "skipped"
 STATUS_FAILED = "failed"
+# Permission-denied is a distinct terminal-ish outcome the assistant
+# records when EKEventStore reports the operator has not granted (or
+# has revoked) Reminders access. It is split out from STATUS_FAILED
+# so callers and Doctor can tell "you need to grant Reminders access"
+# apart from a transient / generic push failure: the former is fixed
+# by the operator in System Settings, the latter is retried on the
+# assistant's own cadence.
+STATUS_PERMISSION_DENIED = "permission_denied"
 
 
 # ``skip_reason`` values stored alongside ``status='skipped'``.
@@ -187,22 +194,18 @@ def _format_push_title(
     if privacy_level == "L2":
         others = _other_participants(bundle.participants, user_id=user_id)
         if len(others) == 1:
-            base = _copy.FOLLOW_UP_WITH_PERSON_TITLE.format(
-                participant=others[0]
-            )
+            base = f"Follow up with @{others[0]}"
         elif others:
-            base = _copy.FOLLOW_UP_ON_CONVERSATION_TITLE
+            base = "Follow up on conversation"
         else:
             # Solo / no-other-party (e.g. a meeting note where the
             # user is the only labelled participant). Don't name
             # anyone; keep the title neutral.
-            base = _copy.FOLLOW_UP_ON_COMMITMENT_TITLE
+            base = "Follow up on commitment"
         if todo.deadline:
-            return base + _copy.TITLE_DEADLINE_SUFFIX.format(
-                deadline=todo.deadline
-            )
+            return f"{base} -- {todo.deadline}"
         return base
-    return (todo.text or "").strip() or _copy.EMPTY_COMMITMENT_TITLE
+    return (todo.text or "").strip() or "(empty commitment)"
 
 
 def _format_push_notes(
@@ -221,9 +224,9 @@ def _format_push_notes(
     naked. L3 never reaches here (filtered upstream). L0 / L1 emit
     the full context with participant labels.
     """
-    started = (bundle.started_at or "")[:10] or _copy.NOTES_UNKNOWN_DATE
+    started = (bundle.started_at or "")[:10] or "unknown date"
     if privacy_level == "L2":
-        context = _copy.NOTES_PRIVATE_CONTEXT.format(started=started)
+        context = f"From a private conversation on {started}"
     else:
         # The "with @X" line uses the participant axis the operator
         # cares about. Pick the first non-user participant; if the
@@ -233,14 +236,13 @@ def _format_push_notes(
             p for p in bundle.participants
             if p and p.lower() not in ("user", "me", "self")
         ]
-        if len(others) == 1:
-            context = _copy.NOTES_CONVERSATION_WITH_PERSON.format(
-                participant=others[0], started=started,
-            )
+        if not others:
+            who = "the group"
+        elif len(others) == 1:
+            who = f"@{others[0]}"
         else:
-            context = _copy.NOTES_CONVERSATION_WITH_GROUP.format(
-                started=started,
-            )
+            who = "the group"
+        context = f"From conversation with {who} on {started}"
     file_link = f"file://{summary_path}"
     return f"{context}\n\n{file_link}"
 
@@ -570,12 +572,21 @@ def apply_push_status_to_todos(
                 # recorded calendar_item_identifier. Reflect that in
                 # the rendered todos.md so the wiki pill flips.
                 out.append(_replace_status(todo, "pushed-to-reminders"))
+            elif current_status == STATUS_PERMISSION_DENIED:
+                # The assistant reached EKEventStore but the operator
+                # has not granted (or has revoked) Reminders access.
+                # The writer renders the todo at its input status
+                # ("extracted") just like the generic-failed path, but
+                # the row keeps the distinct status so Doctor can tell
+                # the operator to grant access rather than implying a
+                # transient hiccup that will retry itself.
+                out.append(todo)
             elif current_status == STATUS_FAILED:
-                # The assistant tried and failed (e.g. permission
-                # denied). We still let the writer render the todo
-                # at "extracted"; the assistant retries on its own
-                # cadence. A future Doctor surface will show this
-                # to the operator.
+                # The assistant tried and failed for a transient or
+                # otherwise generic reason. We still let the writer
+                # render the todo at "extracted"; the assistant
+                # retries on its own cadence. A future Doctor surface
+                # will show this to the operator.
                 out.append(todo)
             else:
                 # 'pending' or anything else: writer leaves the
@@ -609,6 +620,7 @@ def _replace_status(todo: "Todo", new_status: str):
 __all__ = [
     "PushDecision",
     "STATUS_PENDING", "STATUS_PUSHED", "STATUS_SKIPPED", "STATUS_FAILED",
+    "STATUS_PERMISSION_DENIED",
     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
     "apply_push_status_to_todos",

@@ -45,8 +45,6 @@ import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from . import copy as _copy
-
 logger = logging.getLogger(__name__)
 
 # Maximum POST body size (1 MB, matching ical-server.py's limit)
@@ -65,32 +63,32 @@ def handle_conversation_process(handler: BaseHTTPRequestHandler) -> None:
     # --- Read and validate request body ---
     content_length = int(handler.headers.get("Content-Length", 0))
     if content_length == 0:
-        _send_error(handler, 400, _copy.ERROR_EMPTY_REQUEST_BODY)
+        _send_error(handler, 400, "Empty request body")
         return
     if content_length > MAX_POST_SIZE:
-        _send_error(handler, 400, _copy.ERROR_REQUEST_BODY_TOO_LARGE)
+        _send_error(handler, 400, "Request body too large")
         return
 
     content_type = handler.headers.get("Content-Type", "")
     if "application/json" not in content_type:
-        _send_error(handler, 400, _copy.ERROR_CONTENT_TYPE_NOT_JSON)
+        _send_error(handler, 400, "Content-Type must be application/json")
         return
 
     try:
         raw = handler.rfile.read(content_length)
         body = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        _send_error(handler, 400, _copy.ERROR_INVALID_JSON.format(detail=exc))
+        _send_error(handler, 400, f"Invalid JSON: {exc}")
         return
 
     transcript_path = body.get("transcript_path")
     metadata_path = body.get("metadata_path")
 
     if not transcript_path:
-        _send_error(handler, 400, _copy.ERROR_MISSING_TRANSCRIPT_PATH)
+        _send_error(handler, 400, "Missing required field: transcript_path")
         return
     if not metadata_path:
-        _send_error(handler, 400, _copy.ERROR_MISSING_METADATA_PATH)
+        _send_error(handler, 400, "Missing required field: metadata_path")
         return
 
     # --- Validate paths exist ---
@@ -98,32 +96,21 @@ def handle_conversation_process(handler: BaseHTTPRequestHandler) -> None:
     metadata_file = Path(metadata_path)
 
     if not transcript_file.exists():
-        _send_error(
-            handler, 400,
-            _copy.ERROR_TRANSCRIPT_NOT_FOUND.format(path=transcript_path),
-        )
+        _send_error(handler, 400, f"Transcript file not found: {transcript_path}")
         return
     if not metadata_file.exists():
-        _send_error(
-            handler, 400,
-            _copy.ERROR_METADATA_NOT_FOUND.format(path=metadata_path),
-        )
+        _send_error(handler, 400, f"Metadata file not found: {metadata_path}")
         return
 
     # --- Validate metadata is valid JSON with required fields ---
     try:
         metadata = json.loads(metadata_file.read_text())
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        _send_error(
-            handler, 400,
-            _copy.ERROR_INVALID_METADATA_JSON.format(detail=exc),
-        )
+        _send_error(handler, 400, f"Invalid metadata JSON: {exc}")
         return
 
     if "conversation_id" not in metadata:
-        _send_error(
-            handler, 400, _copy.ERROR_METADATA_MISSING_CONVERSATION_ID,
-        )
+        _send_error(handler, 400, "metadata.json must include a conversation_id")
         return
 
     # --- Process ---
@@ -142,7 +129,14 @@ def handle_conversation_process(handler: BaseHTTPRequestHandler) -> None:
             "environment (pip install -e .) and re-deploy. Detail: %s",
             exc,
         )
-        _send_error(handler, 503, _copy.ERROR_LIBRARY_UNAVAILABLE)
+        _send_error(
+            handler,
+            503,
+            "CM048 processing library is not available in this server's "
+            "Python environment. Service requires CM048 to be installed "
+            "(pip install -e .) and re-deployed. See server logs for the "
+            "underlying ImportError.",
+        )
         return
 
     if result.get("error"):

@@ -16,7 +16,8 @@ transcripts into structured three-tier output:
 - Phase B (build): **complete** — full pipeline, 15 tests passing
 - Phase B live: **validated** — 5 conversations processed end-to-end
   against a Hub Ollama (qwen3.5:9b classifier, qwen3.5:35b-a3b enrichment)
-- Phase C (integration): **complete**. Linker wired, API spec landed, Hub assistant endpoint implementation merged (see CM041 ical-server.py `/api/v1/conversation/process` + `/api/v1/conversation/status/{id}`).
+- Phase C (integration): **in progress** — linker wired, API spec
+  drafted, Marvin endpoint implementation underway
 - Phase D (backfill): pending
 - Phase E (graph optimisation): designed, pending 50+ conversations
 

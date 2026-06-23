@@ -525,13 +525,17 @@ def _whatsapp_adapter(
 ) -> ConversationBundle:
     """Build the bundle for a WhatsApp conversation.
 
-    CM047 publishes WhatsApp threads via ZeroClaw's three Rust
-    tools (whatsapp_list_chats, whatsapp_read_history,
-    whatsapp_get_contact -- task #156 closed 2026-05-09). The
-    metadata payload arriving here carries chat_jid, chat_type
-    ("private" | "group"), participants (phone numbers),
-    group_subject (for groups), and the operator-applied
-    group_label / contact_label hints.
+    The publisher hands us a metadata dict; the v1.0 publisher
+    path is CM047's local ChatStorage.sqlite extractor (the
+    historical "three ZeroClaw Rust tools" plan -- whatsapp_list_
+    chats, whatsapp_read_history, whatsapp_get_contact, briefly
+    flagged as task #156 -- was never shipped into ostler-
+    assistant/crates/zeroclaw-tools/ and is dead code for v1.0;
+    re-introduce only if a live WhatsApp Web runtime use case
+    re-emerges post-launch). The metadata payload arriving here
+    carries chat_jid, chat_type ("private" | "group"),
+    participants (phone numbers), group_subject (for groups),
+    and the operator-applied group_label / contact_label hints.
 
     Privacy ladder (HR015 brief):
       L2  default

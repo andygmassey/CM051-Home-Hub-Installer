@@ -87,6 +87,7 @@ from pathlib import Path
 import httpx
 
 from .turtle_escape import escape_turtle_literal
+from . import outstanding_todos as _outstanding_todos
 from .schemas import (
     Classification,
     ExtractedFact,
@@ -235,10 +236,9 @@ def write_all(
 
     ``metadata`` carries the conversation's ``channel`` + ``participants``
     so the gist sinks can (a) tag Qdrant points with the channel and
-    (b) link the Oxigraph facts/signals to the JID/handle-keyed Person
+    (b) link the conversation to the JID/handle-keyed people-graph Person
     nodes. When omitted it is read from ``state_dir/00_metadata.json``;
-    a missing file degrades the channel tag / participant edges to no-op
-    rather than failing the write.
+    a missing file degrades the channel tag / participant edges to no-op.
     """
     if metadata is None:
         metadata = _load_metadata(state_dir)
@@ -324,15 +324,26 @@ def _write_qdrant(
     """
     from .ollama_client import OllamaClient
     from .linker import extract_summary_for_linking
+    from . import provenance
 
     if metadata is None:
         metadata = _load_metadata(state_dir)
-    # `channel` discriminates whatsapp / im / sms / email / spoken in the
-    # one `conversations` collection. Before this every point was an
-    # un-channelled `source=human_conversation`, so nothing downstream
-    # could tell a WhatsApp point from an iMessage point. Keep `source`
-    # for back-compat; ADD the channel tag.
+    # `channel` discriminates whatsapp / imessage / sms / email / spoken
+    # in the points. Legacy points carried only the un-channelled
+    # `source=human_conversation`, so nothing downstream could filter or
+    # label by channel. Keep `source` for back-compat; ADD the channel tag.
     channel = (metadata.get("channel") or "").strip().lower() or None
+
+    # Provenance header (REUSE-5): each chunk's *embedded text* gets a
+    # compact one-line source tag so retrieved chunks self-describe their
+    # origin and citations are strong. `src` = channel (the source kind:
+    # imessage/email/whatsapp/sms/spoken); fall back to `source` then a
+    # safe default. `id`/`date` come from the conversation metadata.
+    prov_src = channel or (metadata.get("source") or "").strip().lower() or "conversation"
+    prov_date = (
+        (metadata.get("date") or metadata.get("started_at") or "").strip()[:10]
+        or None
+    )
 
     client = OllamaClient(base_url=settings.ollama_url)
     points = []
@@ -356,6 +367,18 @@ def _write_qdrant(
             logger.info("dry_run: would embed conversation summary")
         else:
             try:
+                # The summary point doubles as the linker's
+                # cross-conversation similarity target. The linker embeds
+                # a *raw* summary as its query, so the stored summary
+                # vector must also be raw or the symmetry breaks. We
+                # therefore keep the embedded text un-headered here and
+                # carry provenance only in the payload (header string +
+                # headered `text` for citation display).
+                summary_header = provenance.build_header(
+                    src=prov_src,
+                    source_id=conversation_id,
+                    date=prov_date,
+                )
                 vec = client.embed(summary_text)
                 point_id = _deterministic_id(conversation_id, "summary", summary_text)
                 points.append({
@@ -363,7 +386,13 @@ def _write_qdrant(
                     "vector": vec,
                     "payload": {
                         **base_payload,
-                        "text": summary_text[:500],
+                        "text": provenance.prepend_header(
+                            summary_text[:500],
+                            src=prov_src,
+                            source_id=conversation_id,
+                            date=prov_date,
+                        ),
+                        "provenance_header": summary_header,
                         "point_type": "conversation_summary",
                     },
                 })
@@ -382,8 +411,24 @@ def _write_qdrant(
                 if dry_run:
                     points.append({"id": "dry_run", "vector": [], "payload": {}})
                     continue
+                # `subject` is the fact's speaker/sender ("user" for the
+                # operator); surface it as the header's `from=` field.
+                fact_speaker = (fact.get("subject") or "").strip() or None
+                fact_header = provenance.build_header(
+                    src=prov_src,
+                    source_id=conversation_id,
+                    date=prov_date,
+                    speaker=fact_speaker,
+                )
+                fact_chunk = provenance.prepend_header(
+                    text,
+                    src=prov_src,
+                    source_id=conversation_id,
+                    date=prov_date,
+                    speaker=fact_speaker,
+                )
                 try:
-                    vec = client.embed(text)
+                    vec = client.embed(fact_chunk)
                 except Exception as exc:
                     logger.warning("Embed failed for fact: %s", exc)
                     continue
@@ -394,6 +439,7 @@ def _write_qdrant(
                     "payload": {
                         **fact,
                         **base_payload,
+                        "provenance_header": fact_header,
                         "point_type": "fact",
                     },
                 })
@@ -441,12 +487,10 @@ def _write_oxigraph(
         conversation_id, classification, settings
     ))
 
-    # Participant-identity edges. Link the conversation to the SAME
-    # `pwg:Person` nodes ostler_fda.pwg_ingest keys by JID/handle, so the
-    # graph can answer "who did I talk to / what did they say"
-    # structurally. Without this, a conversation's facts float free of the
-    # people graph (the live-box symptom: facts mention whatsapp but no
-    # Person carries a chat identity).
+    # Participant-identity bridge: link the conversation to the
+    # JID/handle-keyed Person nodes ostler_fda.pwg_ingest creates, so
+    # "who did I talk to" walks pwg:hasParticipant structurally. No-op
+    # when metadata lacks resolvable participants.
     triples.extend(
         _participant_identity_triples(conversation_id, metadata, settings)
     )
@@ -464,7 +508,18 @@ def _write_oxigraph(
         facts = read_json(facts_path)
         if isinstance(facts, list):
             for fact in facts:
-                triples.extend(_fact_to_triples(conversation_id, fact, settings))
+                triples.extend(
+                    _fact_to_triples(conversation_id, fact, settings, metadata)
+                )
+
+    # Outstanding todos (pre-meeting brief input). Each todo is linked
+    # to every non-user participant of the source conversation so the
+    # brief subagent (CM041 meeting_syncer/brief.py) can query
+    # pwg:OutstandingTodo triples by attendee URI and surface them on
+    # the next meeting with that person. Best-effort: missing sidecar
+    # is a silent no-op (the extractor warns at run time).
+    for todo in _outstanding_todos.load_sidecar(state_dir):
+        triples.extend(_todo_to_triples(conversation_id, todo, settings))
 
     if not triples:
         return 0
@@ -565,8 +620,8 @@ def _participant_identity_triples(
 
     The ``<person>`` URI is reconstructed to match exactly the node
     ostler_fda.pwg_ingest creates for the same contact, so the
-    conversation and the person graph share one node and Samantha can
-    answer "who did I talk to" by walking ``pwg:hasParticipant``.
+    conversation and the person graph share one node and the assistant
+    can answer "who did I talk to" by walking ``pwg:hasParticipant``.
 
     Participants with no chat identifier (the operator's own ``user``
     row, or an LLM-only slug with no JID/handle) are skipped -- we never
@@ -654,7 +709,180 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
     return ["\n".join(t)]
 
 
-def _fact_to_triples(conversation_id: str, fact: dict, settings: Settings) -> list[str]:
+def _todo_to_triples(
+    conversation_id: str,
+    todo: "_outstanding_todos.OutstandingTodo",
+    settings: Settings,
+) -> list[str]:
+    """Emit pwg:OutstandingTodo triples for one extracted action item.
+
+    Schema (mirrors brief.py's SPARQL on the consumer side):
+
+    - ``<urn:pwg:todo/<todo_id>> a <urn:pwg:OutstandingTodo>``
+    - ``pwg:fromConversation`` → the source conversation URI
+    - ``pwg:aboutPerson`` → one triple per non-user participant
+      (so a 3-person meeting fans out 3 ``aboutPerson`` triples)
+    - ``pwg:owner`` → the structured owner id (``"user"`` /
+      ``"other:<slug>"`` / ``UNOWNED`` sentinel)
+    - ``pwg:ownerDisplay`` → the literal display name from the table
+    - ``pwg:todoText`` → the action item verbatim
+    - ``pwg:deadline`` → ISO date literal, omitted if null
+    - ``pwg:priority`` → ``"high" | "medium" | "low"``, omitted if null
+    - ``pwg:status`` → ``"open"`` (future v1.0.1 closes from later convos)
+    - ``pwg:todoCreatedAt`` → RFC3339 UTC of extractor run
+    - ``pwg:visibility`` → ``"private"`` (always)
+    - ``pwg:userId`` → owning operator's id
+
+    All literal interpolations route through ``escape_turtle_literal``
+    so an LLM-extracted action text containing a stray quote or newline
+    cannot terminate the literal early and inject triples.
+    """
+    todo_uri = _urn(f"todo/{todo.todo_id}")
+    conv_uri = _urn(f"conversation/{conversation_id}")
+
+    safe_user = escape_turtle_literal(settings.user_id)
+    safe_owner = escape_turtle_literal(todo.owner)
+    safe_owner_display = escape_turtle_literal(todo.owner_display)
+    # action_text uses json.dumps for the same reason fact text does
+    # (JSON-quoting is a superset of Turtle string-literal quoting).
+    action_quoted = json.dumps(todo.action_text)
+    safe_status = escape_turtle_literal(todo.status)
+    safe_created_at = escape_turtle_literal(todo.created_at)
+    safe_source_date = escape_turtle_literal(todo.source_conversation_date)
+
+    lines = [
+        _turtle_prefixes(),
+        f"{todo_uri} a <urn:pwg:OutstandingTodo> ;",
+        f'  <urn:pwg:fromConversation> {conv_uri} ;',
+        f'  <urn:pwg:userId> "{safe_user}" ;',
+        f'  <urn:pwg:visibility> "private" ;',
+        f'  <urn:pwg:owner> "{safe_owner}" ;',
+        f'  <urn:pwg:ownerDisplay> "{safe_owner_display}" ;',
+        f'  <urn:pwg:todoText> {action_quoted} ;',
+        f'  <urn:pwg:status> "{safe_status}" ;',
+        f'  <urn:pwg:todoCreatedAt> "{safe_created_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;',
+        f'  <urn:pwg:sourceConversationDate> "{safe_source_date}" ;',
+    ]
+    if todo.deadline:
+        safe_deadline = escape_turtle_literal(todo.deadline)
+        lines.append(
+            f'  <urn:pwg:deadline> "{safe_deadline}"^^<http://www.w3.org/2001/XMLSchema#date> ;'
+        )
+    if todo.priority:
+        safe_priority = escape_turtle_literal(todo.priority)
+        lines.append(
+            f'  <urn:pwg:priority> "{safe_priority}" ;'
+        )
+    # aboutPerson fan-out: one triple per non-user participant. Each
+    # subject_person_id is the conversation metadata ``id`` (e.g.
+    # ``other:alice-chen``) which the brief subagent maps to a
+    # ``pwg:person`` URI via _urn(subject.replace(":", "/")) on the
+    # consumer side (mirroring _fact_to_triples).
+    person_lines = []
+    for person_id in todo.subject_person_ids:
+        person_uri = _urn(person_id.replace(":", "/"))
+        person_lines.append(
+            f'  <urn:pwg:aboutPerson> {person_uri} ;'
+        )
+    if not person_lines:
+        # No non-user participants. Skip (brief use case doesn't apply).
+        return []
+    # Replace the trailing semicolon on the last person line with a
+    # period so the Turtle block terminates cleanly.
+    lines.extend(person_lines[:-1])
+    last = person_lines[-1].rstrip(" ;") + " ."
+    lines.append(last)
+
+    return ["\n".join(lines)]
+
+
+def _slugify_sentinel_value(value: str) -> str:
+    """Reduce a value to a single space-free token for a REUSE-5 sentinel.
+
+    The provenance sentinel grammar (``[pwg:src=... id=... date=...
+    from=...]``) is whitespace-separated ``key=value`` pairs, so a value
+    must never contain a space (or a ``]`` that would close the marker
+    early). We lowercase, drop the bracket/equals/whitespace characters
+    that would break the grammar, and collapse the rest to hyphens. This
+    mirrors the slug shape CM044's ``provenance.parse_header`` expects on
+    the consume side.
+    """
+    if not value:
+        return ""
+    out = []
+    for ch in str(value).strip().lower():
+        if ch.isalnum() or ch in ".:_-/":
+            out.append(ch)
+        elif ch.isspace():
+            out.append("-")
+        # else: drop '=', '[', ']' and other grammar-breaking chars.
+    token = "".join(out).strip("-")
+    # Collapse any run of hyphens a drop/space left behind.
+    while "--" in token:
+        token = token.replace("--", "-")
+    return token
+
+
+def _fact_provenance_header(
+    conversation_id: str, fact: dict, metadata: dict | None
+) -> str:
+    """Build the REUSE-5 provenance sentinel for one extracted fact.
+
+    Produces a single-line marker the CM044 wiki compiler parses with
+    ``compiler.provenance.parse_header`` to render an inline source
+    citation (``via WhatsApp, Pierre, 20 Jun 2026``) on the person page::
+
+        [pwg:src=whatsapp id=2026-06-20_pierre date=2026-06-20 from=pierre]
+
+    All fields are best-effort: ``src`` from the conversation channel,
+    ``id`` from the conversation id, ``date`` from the conversation
+    metadata, ``from`` from the fact's subject (the person the fact is
+    about, which is the person whose wiki page renders it). Any field we
+    cannot source is simply omitted; the consume side renders whatever is
+    present and skips the citation entirely when nothing meaningful
+    remains. Returns ``""`` when there is no attributable provenance at
+    all, so the caller can skip the predicate.
+    """
+    metadata = metadata or {}
+
+    src = _slugify_sentinel_value(metadata.get("channel") or "")
+    conv = _slugify_sentinel_value(conversation_id or "")
+    # metadata['date'] is the conversation date (YYYY-MM-DD), the same
+    # field the outstanding-todo writer reads for sourceConversationDate.
+    date = _slugify_sentinel_value(metadata.get("date") or "")
+    # The fact subject is "user" or "other:<slug>"; the person the fact
+    # is about is the wiki-page owner, so attribute the citation to them.
+    subject = str(fact.get("subject") or "")
+    sender = ""
+    if subject and subject != "user":
+        sender = _slugify_sentinel_value(subject.split(":", 1)[-1])
+
+    # The consume side (CM044 compiler.provenance.render_citation) renders
+    # nothing unless there is a source kind or a sender. An id/date-only
+    # header would be dead weight on the wire, so we only stamp a header
+    # when it will actually drive a visible citation.
+    if not src and not sender:
+        return ""
+
+    parts: list[str] = []
+    if src:
+        parts.append(f"src={src}")
+    if conv:
+        parts.append(f"id={conv}")
+    if date:
+        parts.append(f"date={date}")
+    if sender:
+        parts.append(f"from={sender}")
+
+    return "[pwg:" + " ".join(parts) + "]"
+
+
+def _fact_to_triples(
+    conversation_id: str,
+    fact: dict,
+    settings: Settings,
+    metadata: dict | None = None,
+) -> list[str]:
     fact_id = _deterministic_id(conversation_id, "fact", fact.get("text", ""))
     fact_uri = _urn(f"fact/{fact_id}")
     conv_uri = _urn(f"conversation/{conversation_id}")
@@ -691,8 +919,17 @@ def _fact_to_triples(conversation_id: str, fact: dict, settings: Settings) -> li
         f'  <urn:pwg:privacyLevel> "{safe_privacy}" ;',
         f'  <urn:pwg:signalStrength> "{safe_strength}" ;',
         f'  <urn:pwg:candidate> "{candidate_literal}"^^xsd:boolean ;',
-        f'  <urn:pwg:text> {text_escaped} .',
     ]
+    # REUSE-5 provenance sentinel (consumed by CM044's wiki person-page
+    # renderer via compiler.provenance). Emitted as a sibling predicate
+    # so the marker never has to live inline in the fact text. Omitted
+    # when no provenance is attributable (keeps the triple clean).
+    header = _fact_provenance_header(conversation_id, fact, metadata)
+    if header:
+        safe_header = escape_turtle_literal(header)
+        t.append(f'  <urn:pwg:provenanceHeader> "{safe_header}" ;')
+    # The text predicate terminates the block.
+    t.append(f'  <urn:pwg:text> {text_escaped} .')
     return ["\n".join(t)]
 
 

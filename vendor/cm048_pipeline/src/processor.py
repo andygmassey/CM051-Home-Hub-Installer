@@ -29,6 +29,7 @@ from . import enrichment_validation
 from . import bundle_extractor as _bundle_extractor
 from . import channel_adapter as _channel_adapter
 from . import conversation_writer as _conversation_writer
+from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
 from .chunker import chunk_transcript, describe as describe_chunks
 from .ollama_client import OllamaClient
@@ -43,6 +44,8 @@ from .schemas import (
     ReminderCandidate,
     RelationshipSignal,
     Sensitivity,
+    SpeakerLabel,
+    SpeakerLabelFeedback,
     read_json,
     write_json,
 )
@@ -180,14 +183,23 @@ def process(
             ),
         )
 
-    # Step 06  –  speaker feedback (placeholder; full impl wired in Phase C)
+    # Step 06  –  speaker feedback: infer who each "Speaker N" is from
+    # the transcript text + the people graph, so the device can bind the
+    # name to its LOCAL voiceprint via the opaque voice_fingerprint_ref.
+    # TEXT-ONLY: no embedding ever crosses the wire (DESIGN §4).
     if _should_run("06_speaker_feedback", state.completed_steps, resume_from_step):
         _run_step(
             state_dir,
             state,
             "06_speaker_feedback",
             lambda: _step_speaker_feedback(
-                state_dir, conversation_id, metadata, classification
+                client,
+                state_dir,
+                conversation_id,
+                metadata,
+                classification,
+                settings,
+                dry_run,
             ),
         )
 
@@ -597,6 +609,27 @@ def _step_enrich(
             settings=settings,
         )
         out_path.write_text(rendered)
+        # Pre-meeting brief input: walk the enrichment's Action items
+        # table and emit a per-participant outstanding_todos.json
+        # sidecar. Best-effort: if the LLM didn't produce a parseable
+        # table this is a no-op. Wired here (not in step 07) because
+        # the sidecar reads the just-written enrichment markdown and
+        # because the ingest step's L3 short-circuit skips Oxigraph
+        # for L3 conversations -- writing the sidecar regardless of
+        # privacy level keeps it available for tooling that runs
+        # outside the SPARQL surface (e.g. debug review of the
+        # rejected gist arm).
+        try:
+            _todos = _outstanding_todos.extract_outstanding_todos(
+                rendered, metadata
+            )
+            _outstanding_todos.write_sidecar(state_dir, _todos)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "outstanding_todos extraction failed for %s: %s",
+                metadata.get("conversation_id"),
+                exc,
+            )
         write_json(
             sidecar_path,
             {
@@ -671,6 +704,19 @@ def _step_enrich(
             settings=settings,
         )
         out_path.write_text(rendered)
+        # See note above (single-chunk branch) for the rationale on
+        # extracting outstanding_todos here rather than during ingest.
+        try:
+            _todos = _outstanding_todos.extract_outstanding_todos(
+                rendered, metadata
+            )
+            _outstanding_todos.write_sidecar(state_dir, _todos)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "outstanding_todos extraction failed for %s: %s",
+                metadata.get("conversation_id"),
+                exc,
+            )
 
         write_json(
             sidecar_path,
@@ -1254,26 +1300,335 @@ participants: {json.dumps(metadata.get("participants") or [])}
 
 
 def _step_speaker_feedback(
+    client: OllamaClient,
     state_dir: Path,
     conversation_id: str,
     metadata: dict,
     classification: Classification,
+    settings: Settings,
+    dry_run: bool,
 ) -> None:
-    """v1: emit an empty feedback record so sinks have a consistent
-    artefact. Real inference lives in a later iteration."""
+    """Infer the real person behind each unresolved "Speaker N" label.
+
+    TEXT-ONLY round-route (DESIGN_capture_ingest_and_speaker_identity §4):
+    the Hub LLM reads the transcript plus a candidate list from the people
+    graph and suggests a name for each generic speaker label. The device
+    later binds the confirmed name to its LOCAL voiceprint, keyed by the
+    opaque ``voice_fingerprint_ref`` the capture surface attached. The
+    voice embedding NEVER crosses the wire; only the opaque ref is echoed.
+
+    Writes ``06_speaker_feedback.json`` matching
+    ``docs/speaker_label_feedback.schema.json``. Resolved speakers go in
+    ``labels`` with an ``apply_mode`` derived from confidence; speakers the
+    model could not name go in ``unresolved_labels`` (still carrying their
+    ``voice_fingerprint_ref`` so the device can prompt the user to label).
+    """
     out_path = state_dir / "06_speaker_feedback.json"
     if out_path.exists():
         return
-    feedback = {
-        "feedback_id": str(uuid.uuid4()),
-        "conversation_id": conversation_id,
-        "produced_at": datetime.now(timezone.utc).isoformat(),
-        "capture_source": metadata.get("capture_source", "cm042_mac"),
-        "labels": [],
-        "unresolved_labels": [],
-        "conversation_sensitivity_level": classification.sensitivity.level,
-    }
-    write_json(out_path, feedback)
+
+    capture_source = metadata.get("capture_source", "cm042_mac")
+    # Map of "Speaker N" -> voice_fingerprint_ref attached by the device.
+    ref_by_label = _speaker_fingerprint_refs(metadata)
+
+    def _empty() -> SpeakerLabelFeedback:
+        return SpeakerLabelFeedback(
+            feedback_id=str(uuid.uuid4()),
+            conversation_id=conversation_id,
+            produced_at=datetime.now(timezone.utc).isoformat(),
+            capture_source=capture_source,
+            labels=[],
+            unresolved_labels=[],
+            conversation_sensitivity_level=classification.sensitivity.level,
+        )
+
+    # Nothing to infer for a dry run, or when there are no generic speaker
+    # labels in the transcript at all.
+    raw_path = state_dir / "00_raw_transcript.md"
+    if dry_run or not raw_path.exists():
+        write_json(out_path, _empty().to_dict())
+        return
+
+    raw_transcript = raw_path.read_text()
+    speaker_labels = _unresolved_speaker_labels(raw_transcript, ref_by_label)
+    if not speaker_labels:
+        write_json(out_path, _empty().to_dict())
+        return
+
+    candidates = _load_candidate_people(metadata, settings)
+    template = prompts.load_prompt("06_speaker_inference")
+
+    prompt_body = f"""
+--- SPEAKER LABELS TO RESOLVE ---
+{json.dumps(speaker_labels)}
+
+--- CANDIDATE PEOPLE (known contacts; slug = inferred_person_id) ---
+{json.dumps(candidates, indent=2)}
+
+--- TRANSCRIPT ---
+{raw_transcript}
+"""
+    schema_hint = (
+        '{"labels": [{"raw_label": "Speaker 2", '
+        '"inferred_person_id": "danny_kwan", '
+        '"inferred_display_name": "Danny Kwan", "confidence": 0.92, '
+        '"evidence": "addressed as Danny at turn 4"}], '
+        '"unresolved_labels": [{"raw_label": "Speaker 3", '
+        '"sample_turns": ["Speaker 3: I will send the deck."]}]}'
+    )
+    full_prompt = template + "\n\n---\n\n" + prompt_body
+
+    try:
+        result = client.generate_json(
+            settings.ollama_fact_model,
+            full_prompt,
+            expect="object",
+            schema_hint=schema_hint,
+            priority="medium",
+            timeout=600.0,
+        )
+        parsed = result.parsed_json if isinstance(result.parsed_json, dict) else {}
+    except Exception as exc:  # inference must never wedge the pipeline
+        logger.warning("speaker inference LLM call failed: %s", exc)
+        parsed = {}
+
+    feedback = _build_speaker_feedback(
+        conversation_id=conversation_id,
+        capture_source=capture_source,
+        sensitivity_level=classification.sensitivity.level,
+        parsed=parsed,
+        speaker_labels=speaker_labels,
+        ref_by_label=ref_by_label,
+    )
+    write_json(out_path, feedback.to_dict())
+
+
+# Confidence at/above which a label may be auto-applied without prompting.
+_SPEAKER_AUTO_APPLY_THRESHOLD = 0.9
+# Confidence below which a label needs explicit user review before applying.
+_SPEAKER_REVIEW_THRESHOLD = 0.7
+
+
+def _speaker_fingerprint_refs(metadata: dict) -> dict[str, str | None]:
+    """Map each "Speaker N" label to the opaque voice_fingerprint_ref the
+    capture device attached. Returns {} when the device sent none.
+
+    The device may carry refs either on participants (role-keyed) or on a
+    dedicated ``speaker_fingerprints`` map ("Speaker 1" -> ref). We accept
+    both shapes; the embedding itself is never present, only the ref.
+    """
+    refs: dict[str, str | None] = {}
+    explicit = metadata.get("speaker_fingerprints")
+    if isinstance(explicit, dict):
+        for label, ref in explicit.items():
+            refs[str(label)] = ref if isinstance(ref, str) else None
+    participants = metadata.get("participants") or []
+    for i, p in enumerate(participants, 1):
+        if not isinstance(p, dict):
+            continue
+        ref = p.get("voice_fingerprint_ref")
+        if ref:
+            refs.setdefault(f"Speaker {i}", ref)
+    return refs
+
+
+def _unresolved_speaker_labels(
+    transcript: str, ref_by_label: dict[str, str | None]
+) -> list[dict]:
+    """Find every distinct "Speaker N" label appearing as a turn prefix.
+
+    Returns a list of {raw_label, voice_fingerprint_ref, sample_turns}
+    in first-appearance order. Only generic labels are returned -- a turn
+    already prefixed with a real name is considered resolved.
+    """
+    import re
+
+    pattern = re.compile(r"^\s*(Speaker\s+\d+)\s*:\s*(.*)$")
+    order: list[str] = []
+    samples: dict[str, list[str]] = {}
+    for line in transcript.splitlines():
+        m = pattern.match(line)
+        if not m:
+            continue
+        label = m.group(1).strip()
+        # Normalise internal whitespace ("Speaker  2" -> "Speaker 2").
+        label = re.sub(r"\s+", " ", label)
+        if label not in samples:
+            order.append(label)
+            samples[label] = []
+        if len(samples[label]) < 3 and m.group(2).strip():
+            samples[label].append(f"{label}: {m.group(2).strip()}")
+    return [
+        {
+            "raw_label": label,
+            "voice_fingerprint_ref": ref_by_label.get(label),
+            "sample_turns": samples[label],
+        }
+        for label in order
+    ]
+
+
+def _load_candidate_people(metadata: dict, settings: Settings) -> list[dict]:
+    """Assemble candidate {id, display} contacts for the inference prompt.
+
+    Sources, deduped by slug:
+    1. non-user participants already named in the request metadata, and
+    2. up to 200 known ``pwg:Person`` display names from the people graph.
+
+    Degrades to whatever it can reach -- a graph outage yields the
+    metadata-only list rather than failing the step.
+    """
+    candidates: dict[str, str] = {}
+    for p in metadata.get("participants") or []:
+        if not isinstance(p, dict) or p.get("role") == "user":
+            continue
+        slug = p.get("id")
+        display = p.get("display") or p.get("id")
+        if slug and display:
+            candidates[str(slug)] = str(display)
+
+    for row in _query_graph_people(settings):
+        slug = row.get("slug")
+        display = row.get("display")
+        if slug and display:
+            candidates.setdefault(slug, display)
+
+    return [{"id": s, "display": d} for s, d in candidates.items()]
+
+
+def _query_graph_people(settings: Settings) -> list[dict]:
+    """Best-effort SPARQL fetch of known people (slug + display name).
+
+    Person nodes are typed ``pwg:Person`` in the ``https://pwg.dev/
+    ontology#`` namespace (see last_contact_updater). Returns [] on any
+    failure -- candidate enrichment is optional, never load-bearing.
+    """
+    import httpx
+
+    sparql = """
+PREFIX pwg: <https://pwg.dev/ontology#>
+SELECT DISTINCT ?slug ?display WHERE {
+  ?person a pwg:Person ;
+          pwg:displayName ?display .
+  OPTIONAL { ?person pwg:slug ?slug . }
+}
+LIMIT 200
+"""
+    try:
+        with httpx.Client(
+            timeout=15.0, transport=httpx.HTTPTransport(proxy=None)
+        ) as hc:
+            resp = hc.post(
+                f"{settings.oxigraph_url}/query",
+                content=sparql,
+                headers={
+                    "Content-Type": "application/sparql-query",
+                    "Accept": "application/sparql-results+json",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.info("speaker candidate people query unavailable: %s", exc)
+        return []
+
+    out: list[dict] = []
+    for binding in data.get("results", {}).get("bindings", []):
+        display = binding.get("display", {}).get("value", "")
+        slug = binding.get("slug", {}).get("value", "")
+        if not display:
+            continue
+        if not slug:
+            slug = _slugify(display)
+        out.append({"slug": slug, "display": display})
+    return out
+
+
+def _slugify(name: str) -> str:
+    import re
+
+    s = name.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    return s.strip("_") or "unknown"
+
+
+def _build_speaker_feedback(
+    *,
+    conversation_id: str,
+    capture_source: str,
+    sensitivity_level: str,
+    parsed: dict,
+    speaker_labels: list[dict],
+    ref_by_label: dict[str, str | None],
+) -> SpeakerLabelFeedback:
+    """Turn the raw LLM JSON into a validated SpeakerLabelFeedback.
+
+    - Only labels whose raw_label was actually in the transcript survive.
+    - Each resolved label is re-stamped with the device's
+      voice_fingerprint_ref (the device is authoritative for the ref; the
+      model must not influence it).
+    - apply_mode is derived from confidence so the consumer knows whether
+      to auto-apply, suggest, or force review.
+    - Every transcript speaker not resolved (and >= the floor) lands in
+      unresolved_labels, carrying its ref + sample turns.
+    """
+    valid_raw = {s["raw_label"] for s in speaker_labels}
+    samples_by_label = {s["raw_label"]: s.get("sample_turns", []) for s in speaker_labels}
+
+    labels: list[SpeakerLabel] = []
+    resolved_raw: set[str] = set()
+    for item in parsed.get("labels", []) or []:
+        if not isinstance(item, dict):
+            continue
+        raw_label = str(item.get("raw_label", "")).strip()
+        person_id = str(item.get("inferred_person_id", "")).strip()
+        if raw_label not in valid_raw or not person_id:
+            continue
+        try:
+            confidence = float(item.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        display = str(item.get("inferred_display_name", "")).strip() or person_id
+        if confidence >= _SPEAKER_AUTO_APPLY_THRESHOLD:
+            apply_mode: str = "auto"
+        elif confidence >= _SPEAKER_REVIEW_THRESHOLD:
+            apply_mode = "suggest"
+        else:
+            apply_mode = "review_required"
+        labels.append(
+            SpeakerLabel(
+                raw_label=raw_label,
+                inferred_person_id=person_id,
+                inferred_display_name=display,
+                confidence=confidence,
+                evidence=str(item.get("evidence", "")).strip(),
+                # Device-authoritative ref; ignore anything the model emitted.
+                voice_fingerprint_ref=ref_by_label.get(raw_label),
+                apply_mode=apply_mode,  # type: ignore[arg-type]
+            )
+        )
+        resolved_raw.add(raw_label)
+
+    unresolved: list[dict] = []
+    for raw_label in valid_raw - resolved_raw:
+        unresolved.append(
+            {
+                "raw_label": raw_label,
+                "voice_fingerprint_ref": ref_by_label.get(raw_label),
+                "sample_turns": samples_by_label.get(raw_label, [])[:3],
+            }
+        )
+
+    return SpeakerLabelFeedback(
+        feedback_id=str(uuid.uuid4()),
+        conversation_id=conversation_id,
+        produced_at=datetime.now(timezone.utc).isoformat(),
+        capture_source=capture_source,
+        labels=labels,
+        unresolved_labels=unresolved,
+        conversation_sensitivity_level=sensitivity_level,
+    )
 
 
 # ── Step 07: ingest sinks ────────────────────────────────────────────
@@ -1553,6 +1908,24 @@ def _step_bundle(
         output.privacy_level,
         output.gist_status,
     )
+
+    # #311: refresh per-person lastContact<Channel> recency signal.
+    # Post-CM047 retirement, CM048 owns the WhatsApp lastContactWhatsApp
+    # write the wiki person-page recency row / CM041 stale-contacts /
+    # CM031 badge consume. update_last_contact_for_bundle is a no-op for
+    # channels without a recency predicate, for L3 bundles, and on a
+    # SPARQL hiccup -- the conversation is already written, this is a
+    # secondary index and must never fail the ingest.
+    from .last_contact_updater import update_last_contact_for_bundle
+    try:
+        update_last_contact_for_bundle(
+            bundle, oxigraph_url=settings.oxigraph_url
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "lastContact update failed for %s: %s",
+            bundle.conversation_id, type(exc).__name__,
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

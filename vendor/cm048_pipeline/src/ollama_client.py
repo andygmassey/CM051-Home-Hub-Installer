@@ -54,38 +54,29 @@ class OllamaClient:
         timeout: float | None = None,
         priority: str = "medium",
         format_json: bool = False,
-        num_ctx: int = 16384,
-        num_predict: int = 4096,
     ) -> OllamaCallResult:
         """Call /api/generate and return raw response text."""
         t0 = time.time()
         url = f"{self.base_url}/api/generate"
+        # Always pin a large context window + generation budget. Without
+        # num_ctx, Ollama silently truncates long transcripts to its small
+        # default window, degenerating extraction output to a bare `{}`
+        # (same class as the daemon's one-token #118 bug). num_predict=-1
+        # means "generate until done".
+        options = {"temperature": temperature, "num_ctx": 32768, "num_predict": -1}
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": stream,
             "think": think,
-            "options": {
-                "temperature": temperature,
-                # num_ctx: hold the FULL transcript + prompt in context. Ollama
-                # otherwise defaults to a small window (~2-4k) and qwen truncates
-                # 12-15k-char transcripts to "{" with done_reason=length - the
-                # real conversations=0 killer on the v1.0.0 box walk, present
-                # with AND without format:json. Box-proven by TNM.
-                "num_ctx": num_ctx,
-                # num_predict: allow the full structured-JSON output; the default
-                # output cap clips large extractions.
-                "num_predict": num_predict,
-            },
+            "options": options,
         }
         if system:
             payload["system"] = system
-        # qwen3.x reasoning models (qwen3.5:9b is the shipped default) return
-        # an EMPTY response under Ollama's native JSON mode (format:"json"),
-        # which made the conversation extractor produce 0 conversations on the
-        # v1.0.0 box walk. Skip format:json for that family and rely on the
-        # caller's text->JSON extraction (_extract_json / bundle _parse_json,
-        # which already strip <think> blocks). `think` already defaults False.
+        # qwen3.x degenerates to empty/`{}` output under native JSON mode
+        # (`format: "json"`). It relies instead on the prompt instruction +
+        # the robust `_extract_json` extractor below, so only request native
+        # JSON mode for non-qwen3 models.
         if format_json and not model.lower().startswith("qwen3"):
             payload["format"] = "json"
         logger.info(
