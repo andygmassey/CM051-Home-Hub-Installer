@@ -8019,8 +8019,6 @@ services:
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
     image: ghcr.io/ostler-ai/ostler-wiki-site@sha256:5f761a2a10175fd6b8918098c9e81bc8b955d586f915c0c14e0b6cff28649269
-MediaType: application/vnd.docker.distribution.manifest.v2+json
-Digest:    sha256:5f761a2a10175fd6b8918098c9e81bc8b955d586f915c0c14e0b6cff28649269
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -8056,8 +8054,6 @@ Digest:    sha256:5f761a2a10175fd6b8918098c9e81bc8b955d586f915c0c14e0b6cff286492
   #     against the same content the wiki-site mounts.
   wiki-compiler:
     image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:2a5118a1f7a1c975dd6c4c1e62a53cfdb5cd2f51081a3696c51faeac0acfea69
-MediaType: application/vnd.docker.distribution.manifest.v2+json
-Digest:    sha256:2a5118a1f7a1c975dd6c4c1e62a53cfdb5cd2f51081a3696c51faeac0acfea69
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
