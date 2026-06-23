@@ -68,12 +68,58 @@ DEFAULT_LOCK_DIR = DEFAULT_OSTLER_DIR / "locks"
 DEFAULT_LOG_DIR = DEFAULT_OSTLER_DIR / "logs"
 DEFAULT_STATE_DIR = DEFAULT_OSTLER_DIR / "state"
 DEFAULT_STAGING_DIR = DEFAULT_OSTLER_DIR / "data" / "knowledge-staging"
+DEFAULT_METADATA_DB = DEFAULT_OSTLER_DIR / "data" / "knowledge-metadata.db"
 
 LOCK_FILENAME = "import-evernote.lock"
 LOG_FILENAME_PREFIX = "import-evernote-"
 STATE_FILENAME_PREFIX = "import-evernote-"
 
 DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+
+# The knowledge source this import handles. ``evernote`` for now; the
+# Notion/Obsidian sources reuse this same convert+embed path with a
+# different value, which selects the ``<source>_knowledge`` collection.
+DEFAULT_SOURCE = "evernote"
+
+# Canonical Ostler Hub embedding model. The install pre-creates the
+# knowledge Qdrant collections at 768 dims (nomic-embed-text), so embed
+# MUST use the same model or every upsert fails the dimension check and
+# the wiki Knowledge section stays silently empty. Overridable for
+# operators who standardise on a different 768-dim model.
+DEFAULT_EMBED_MODEL = "nomic-embed-text"
+
+
+def _embed_model() -> str:
+    return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
+
+
+def _collection_for_source(source: str) -> str:
+    """The Qdrant collection the wiki + MCP read for a given source."""
+    return f"{source}_knowledge"
+
+
+# Privacy cap: the highest compartment level (sensitivity) that may be
+# embedded into the searchable collection. Default 2 keeps L3
+# (compartment_level 3, "private") notes OUT of search. They are still
+# converted to markdown in the staging tree -- just never indexed into
+# Qdrant. This matters because the wiki Knowledge reader does NOT filter
+# by level at render time, so excluding L3 at embed is the only thing
+# standing between a private note and the browsable wiki. Overridable via
+# env for an operator who deliberately wants their full corpus searchable
+# on their single-user box.
+DEFAULT_MAX_COMPARTMENT_LEVEL = 2
+
+
+def _max_compartment_level() -> int:
+    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
+    if raw is None:
+        return DEFAULT_MAX_COMPARTMENT_LEVEL
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        # A garbled override must never widen the cap and leak L3; fall
+        # back to the safe default.
+        return DEFAULT_MAX_COMPARTMENT_LEVEL
 
 # Job IDs are ``YYYYMMDDTHHMMSSZ-<8 hex>``. The format is deliberately
 # narrow so the regex can double as a path-traversal defence on
@@ -261,15 +307,19 @@ def _runner_path() -> Path:
 def start_import(
     enex_path: Path,
     *,
+    source: str = DEFAULT_SOURCE,
     _now: Optional[datetime] = None,
     _lock_dir: Optional[Path] = None,
     _log_dir: Optional[Path] = None,
     _state_dir: Optional[Path] = None,
     _staging_dir: Optional[Path] = None,
+    _metadata_db: Optional[Path] = None,
     _binary: Optional[str] = None,
     _subprocess: Any = None,
     _runner: Optional[Path] = None,
     _python: Optional[str] = None,
+    _embed_model_name: Optional[str] = None,
+    _max_compartment_level_value: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Fork ``ostler-knowledge`` via the supervisor wrapper.
 
@@ -283,6 +333,13 @@ def start_import(
     log_dir = Path(_log_dir or DEFAULT_LOG_DIR).expanduser()
     state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
     staging_dir = Path(_staging_dir or DEFAULT_STAGING_DIR).expanduser()
+    metadata_db = Path(_metadata_db or DEFAULT_METADATA_DB).expanduser()
+    embed_model = _embed_model_name or _embed_model()
+    max_level = (
+        _max_compartment_level_value
+        if _max_compartment_level_value is not None
+        else _max_compartment_level()
+    )
 
     # Resolve subprocess at call time (not in the default arg) so
     # ``monkeypatch.setattr(ie, "subprocess", rec)`` in tests actually
@@ -329,6 +386,28 @@ def start_import(
 
         try:
             try:
+                # Phase 1: convert the export to markdown in the staging
+                # tree. Phase 2: embed that markdown into the source's
+                # Qdrant collection so the wiki + MCP actually have
+                # something to read -- this is the step whose absence
+                # left Knowledge silently empty. nomic-embed-text/768
+                # matches the collection the installer pre-creates; the
+                # runner runs embed ONLY if convert exits 0.
+                convert_phase = [
+                    binary, "convert", "--source", source,
+                    str(enex_path), "--output", str(staging_dir),
+                ]
+                embed_phase = [
+                    binary, "embed", str(staging_dir),
+                    "--collection", _collection_for_source(source),
+                    "--embedding-model", embed_model,
+                    # Privacy gate: keep L3 ("private") notes out of the
+                    # searchable collection the wiki + MCP read. The
+                    # reader does not re-filter by level, so this is the
+                    # only barrier.
+                    "--max-compartment-level", str(max_level),
+                    "--db-path", str(metadata_db),
+                ]
                 proc = sub.Popen(
                     [
                         python, str(runner),
@@ -339,8 +418,9 @@ def start_import(
                         "--enex-path", str(enex_path),
                         "--started-at", started_at,
                         "--",
-                        binary, "convert", "--source", "evernote",
-                        str(enex_path), "--output", str(staging_dir),
+                        *convert_phase,
+                        "--and-then",
+                        *embed_phase,
                     ],
                     stdout=log_handle,
                     stderr=sub.STDOUT,
