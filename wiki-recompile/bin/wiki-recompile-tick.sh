@@ -57,6 +57,40 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
+# The wiki recompile is ESSENTIAL on first run (People + Wiki are the
+# first-impression surfaces), so it is NOT deferred by the load gate the
+# conversation feeds use. But its Phase-2 summary backfill is the single
+# biggest Ollama producer on the box, so it MUST scale its parallel LLM
+# worker count to the hardware tier: FLOOR=1, LOW=2, HIGH=3. Left fixed at
+# the shipped 3, a 16GB floor machine runs three parallel summary workers
+# against the one shared model slot and re-creates the saturation. We read
+# the tier here and pass WIKI_LLM_WORKERS to the Phase-2 compile container
+# only (Phase 1 is OSTLER_WIKI_SKIP_LLM=1, no LLM, so it is untouched).
+#
+# Fail-safe: if the tier lib is absent we leave WIKI_LLM_WORKERS unset and
+# the compiler uses its own default (the pre-governor behaviour).
+# Override / disable with OSTLER_RESOURCE_GOVERNOR=0.
+WIKI_TIER_WORKERS=""
+if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
+    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$HOME/.ostler/lib/ostler-resource-tier.sh}"
+    if [ -f "$_ostler_tier_lib" ]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+            ostler_resource_tier_detect
+            case "${OSTLER_TIER:-}" in
+                floor) WIKI_TIER_WORKERS=1 ;;
+                low)   WIKI_TIER_WORKERS=2 ;;
+                high)  WIKI_TIER_WORKERS=3 ;;
+            esac
+            [ -n "$WIKI_TIER_WORKERS" ] && \
+                log "resource tier ${OSTLER_TIER}: capping wiki summary workers to ${WIKI_TIER_WORKERS}"
+        fi
+    fi
+fi
+# --------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 # Sanity: compose file present?
 # ---------------------------------------------------------------------------
@@ -259,7 +293,7 @@ else
     _slot="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
     nohup bash -c '
         set -u
-        _slot="$1"; _wd="$2"
+        _slot="$1"; _wd="$2"; _workers="$3"
         cd "$_wd" || exit 1
         mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
         while ! mkdir "$_slot" 2>/dev/null; do
@@ -272,8 +306,15 @@ else
         done
         printf "%s\n" "$$" > "$_slot/pid"
         trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
-        docker compose --profile compile run --rm -T wiki-compiler </dev/null
-    ' _ "$_slot" "$OSTLER_DIR" >"$_bg_log" 2>&1 &
+        # Pass the tier-capped parallel summary worker count to the compile
+        # container only when the governor resolved one; otherwise let the
+        # compiler use its own default (pre-governor behaviour).
+        if [ -n "$_workers" ]; then
+            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler </dev/null
+        else
+            docker compose --profile compile run --rm -T wiki-compiler </dev/null
+        fi
+    ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" >"$_bg_log" 2>&1 &
     _bg_new_pid=$!
     printf '%s\n' "$_bg_new_pid" > "$_bg_pidfile"
     disown || true

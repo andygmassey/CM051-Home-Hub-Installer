@@ -21,6 +21,39 @@ SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
 SINCE_DAYS="${OSTLER_IMESSAGE_SINCE_DAYS:-30}"
 USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
 
+# --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
+# This conversation-bundle feed is NON-ESSENTIAL on first run: the user's
+# first impression is People + Wiki + Chat, not the deep body reads + AI
+# summaries this feed produces. On the 16GB floor a fresh install fires
+# four of these feeds + the wiki recompile at once (all RunAtLoad), which
+# (with the Docker VM and macOS first-login indexing) drove the Studio to
+# load ~37 and made the Hub app unusable. The hardware-tier governor caps
+# that storm: on the FLOOR/LOW tiers (defer flag set) a non-essential tick
+# yields whenever the machine is busier than the tier's per-core loadavg
+# ceiling, so the spawn spike never lands while first-run load is high.
+# The watermark means nothing is lost (next StartInterval catches up).
+#
+# Fail-safe: if the tier lib is absent or the load is unreadable the tick
+# proceeds exactly as before -- the governor never wedges background work.
+# Disable entirely with OSTLER_RESOURCE_GOVERNOR=0.
+#   OSTLER_RESOURCE_TIER_LIB -> override the lib path (default
+#                               ~/.ostler/lib/ostler-resource-tier.sh).
+if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
+    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$HOME/.ostler/lib/ostler-resource-tier.sh}"
+    if [ -f "$_ostler_tier_lib" ]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+            ostler_resource_tier_detect
+            if ostler_resource_tier_should_defer_nonessential; then
+                echo "bundle tick: ${OSTLER_TIER:-?} tier, load over the per-core ceiling (${OSTLER_LOADAVG_CEILING:-?}); deferring this non-essential enrichment tick to keep first-run surfaces responsive."
+                exit 0
+            fi
+        fi
+    fi
+fi
+# --------------------------------------------------------------------
+
 # --- Off-peak ingest throttle (v1.0.0) -------------------------------
 # One shared Ollama slot serves both live chat and these conversation
 # feeds. On a fresh install the historic backlog is large and each
