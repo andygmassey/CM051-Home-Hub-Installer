@@ -52,6 +52,38 @@ SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
 SINCE_DAYS="${OSTLER_WHATSAPP_SINCE_DAYS:-365}"
 USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
 
+# --- Interactive-chat priority yield (v1.0.3 chat-saturation fix) ----
+# Live chat (the Hub app's /ws/chat AND iMessage / WhatsApp / email
+# replies, all routed through the daemon's agent turn) must win the one
+# shared Ollama slot over background enrichment. The daemon touches a
+# marker file when an interactive turn starts and refreshes it while the
+# turn runs; we yield this whole tick if that marker is FRESH, so a new
+# background summary never starts decoding while the user is waiting on a
+# reply. The marker lives next to the single-flight lock so it resolves
+# to the same workspace on every install. Fail-safe: if the marker is
+# absent or stale the tick proceeds exactly as before, and the freshness
+# window means a crashed daemon can never wedge background work forever.
+#   OSTLER_INTERACTIVE_MARKER    -> override the marker path.
+#   OSTLER_INTERACTIVE_TTL_SECS  -> freshness window in seconds (default
+#                                   120; 0 disables this yield entirely).
+_ostler_imarker="${OSTLER_INTERACTIVE_MARKER:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/interactive-chat.active}"
+_ostler_ittl="${OSTLER_INTERACTIVE_TTL_SECS:-120}"
+if [ "$_ostler_ittl" -gt 0 ] && [ -f "$_ostler_imarker" ]; then
+    # Age the marker by its mtime. `stat` flags differ across BSD/macOS
+    # and GNU; try the BSD form first (macOS is the install target), then
+    # the GNU form. If neither works we cannot age it, so we do NOT yield
+    # (fail-safe: never wedge background work on a stat quirk).
+    _ostler_mtime="$(stat -f %m "$_ostler_imarker" 2>/dev/null || stat -c %Y "$_ostler_imarker" 2>/dev/null || true)"
+    if [ -n "${_ostler_mtime:-}" ]; then
+        _ostler_age=$(( $(date +%s) - _ostler_mtime ))
+        if [ "$_ostler_age" -ge 0 ] && [ "$_ostler_age" -lt "$_ostler_ittl" ]; then
+            echo "bundle tick: interactive chat active (${_ostler_age}s ago, < ${_ostler_ittl}s); yielding this tick to keep live replies fast."
+            exit 0
+        fi
+    fi
+fi
+# --------------------------------------------------------------------
+
 # --- Off-peak ingest throttle (v1.0.0) -------------------------------
 # One shared Ollama slot serves both live chat and these conversation
 # feeds. On a fresh install the historic backlog is large and each

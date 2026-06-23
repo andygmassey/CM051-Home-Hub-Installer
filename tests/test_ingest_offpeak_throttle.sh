@@ -55,6 +55,15 @@ for w in "${ALL_WRAPPERS[@]}"; do
         || failure "$name: missing daytime window override"
     grep -q "ingest-ollama.lock.d" "$w" \
         || failure "$name: missing shared single-flight lock"
+    # Interactive-chat priority yield (v1.0.3): the tick must back off the
+    # shared slot while a live chat turn is in flight, keyed on the daemon's
+    # freshness marker, so background enrichment never starves live replies.
+    grep -q "OSTLER_INTERACTIVE_MARKER" "$w" \
+        || failure "$name: missing interactive-chat marker path (OSTLER_INTERACTIVE_MARKER)"
+    grep -q "OSTLER_INTERACTIVE_TTL_SECS" "$w" \
+        || failure "$name: missing interactive-chat freshness window (OSTLER_INTERACTIVE_TTL_SECS)"
+    grep -q "interactive-chat.active" "$w" \
+        || failure "$name: interactive marker must default beside the lock (interactive-chat.active)"
     # PID-liveness reclaim (v1.0.0 chat fix): the wiki summary backfill
     # holds this SAME lock for HOURS, so a time-based steal would wrongly
     # evict it mid-compile and re-create the 2-producer collision. The lock
@@ -185,6 +194,66 @@ got="$(since_days_was)"
 rm -rf "$LOCK" 2>/dev/null || true
 
 # --------------------------------------------------------------------
+# Section 2g -- interactive-chat priority yield. While the daemon's
+# interactive marker is FRESH the tick must yield (no LLM call); when the
+# marker is absent or stale it must proceed; a stat quirk must NOT wedge
+# background work (fail-safe).
+# --------------------------------------------------------------------
+IMARKER="$TMP/state/interactive-chat.active"
+
+run_tick_marker() {
+    # run_tick_marker <fake_hour> [extra OSTLER_* env assignments...]
+    local hour="$1"; shift
+    rm -f "$TMP/out.txt"
+    env PATH="$TMP/bin:$PATH" \
+        FAKE_HOUR="$hour" \
+        FAKEPY_OUT="$TMP/out.txt" \
+        OSTLER_PYTHON="$TMP/bin/fakepy" \
+        OSTLER_SOURCE_DIR="$TMP/src" \
+        OSTLER_IMESSAGE_SINCE_DAYS=30 \
+        OSTLER_INGEST_LOCK="$LOCK" \
+        OSTLER_INTERACTIVE_MARKER="$IMARKER" \
+        "$@" \
+        bash "$IMSG" >/dev/null 2>&1 || true
+}
+
+# 2g-i. A FRESH marker (just touched) makes the tick yield -- python never
+#       runs -- so background enrichment does not start while chat is live.
+mkdir -p "$TMP/state"
+: > "$IMARKER"   # mtime = now -> fresh
+run_tick_marker 3
+if [ -f "$TMP/out.txt" ]; then
+    failure "tick ran the pipeline while a FRESH interactive marker was present (no chat priority)"
+else
+    pass "a fresh interactive marker makes the tick yield to live chat"
+fi
+[ -d "$LOCK" ] && failure "tick took the slot lock despite yielding to interactive chat"
+
+# 2g-ii. A STALE marker (older than the TTL) does NOT block the tick. We
+#        force a tiny TTL so the just-touched marker reads as stale.
+run_tick_marker 3 OSTLER_INTERACTIVE_TTL_SECS=0
+got="$(since_days_was)"
+[ "$got" = "30" ] || failure "tick should proceed when the interactive yield is disabled (TTL=0), got '$got'"
+[ "$got" = "30" ] && pass "OSTLER_INTERACTIVE_TTL_SECS=0 disables the interactive yield (background proceeds)"
+rm -f "$IMARKER"
+
+# 2g-iii. NO marker file at all -> tick proceeds exactly as before (the
+#         common steady-state path: fail-safe, no deadlock).
+run_tick_marker 3
+got="$(since_days_was)"
+[ "$got" = "30" ] || failure "tick should proceed when no interactive marker exists, got '$got'"
+[ "$got" = "30" ] && pass "absent interactive marker leaves background work unaffected (fail-safe)"
+rm -rf "$LOCK" 2>/dev/null || true
+
+# 2g-iv. A missing workspace dir (marker path under a non-existent dir)
+#        must not wedge: the tick still runs.
+run_tick_marker 3 OSTLER_INTERACTIVE_MARKER="$TMP/does-not-exist/interactive-chat.active"
+got="$(since_days_was)"
+[ "$got" = "30" ] || failure "tick should proceed when the marker dir is missing, got '$got'"
+[ "$got" = "30" ] && pass "a missing marker directory does not deadlock background work"
+rm -rf "$LOCK" 2>/dev/null || true
+
+# --------------------------------------------------------------------
 # Section 3 -- the wiki summary backfill MUST hold the SAME shared lock.
 #
 # This is the producer the original throttle missed: the four conversation
@@ -210,24 +279,31 @@ done
 [ "$FAILED" -eq 0 ] && pass "wiki summary backfill holds the shared Ollama slot lock at both launch sites"
 
 # --------------------------------------------------------------------
-# Section 4 -- the four wrapper lock blocks must stay byte-identical
+# Section 4 -- the simple-feed lock blocks must stay byte-identical
 # (only the feed-name label differs). Drift here silently re-breaks the
 # single-flight guarantee on one feed.
+#
+# iMessage is DELIBERATELY excluded from this parity set: it carries the
+# extra anti-starvation branch (a never-run feed waits a bounded window
+# for the slot instead of instant-yielding) which the other three do not.
+# So the reference is one of the simple feeds, and the parity set is the
+# remaining simple feeds -- email / whatsapp / spoken. iMessage keeps its
+# own coverage via the static + behavioural sections above.
 # --------------------------------------------------------------------
 _extract_lock() {
     # Print the lock block (mkdir acquire .. trap), with the feed label
-    # normalised, so the four can be compared.
+    # normalised, so the feeds can be compared.
     awk '/if ! mkdir "\$_ostler_lock"/{f=1} f{print} /trap .rm -rf "\$_ostler_lock"/{exit}' "$1" \
         | sed -E 's/(imessage|email|whatsapp|spoken)-bundle/FEED-bundle/g'
 }
-_ref="$(_extract_lock "$IMSG")"
-for w in "$EMAIL" "$WA" "$SPOKEN"; do
+_ref="$(_extract_lock "$EMAIL")"
+for w in "$WA" "$SPOKEN"; do
     if [ "$(_extract_lock "$w")" != "$_ref" ]; then
-        failure "$(basename "$w"): lock block has drifted from the iMessage reference (single-flight at risk)"
+        failure "$(basename "$w"): lock block has drifted from the simple-feed reference (single-flight at risk)"
     fi
 done
-[ -n "$_ref" ] || failure "could not extract the iMessage lock block (parity check inert)"
-[ "$FAILED" -eq 0 ] && pass "all four feed lock blocks are byte-identical (no drift)"
+[ -n "$_ref" ] || failure "could not extract the simple-feed lock block (parity check inert)"
+[ "$FAILED" -eq 0 ] && pass "the simple-feed lock blocks are byte-identical (no drift)"
 
 # --------------------------------------------------------------------
 if [ "$FAILED" -ne 0 ]; then
