@@ -114,7 +114,7 @@ pinned_sha       = "a15d82f39653857045265655232294da881302c9"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
 verify           = "full"
-note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f."
+note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f. 2026-06-23: added universal_import.py as a vendor-only graft (the previously-orphan P3 importer, wired into ostler-import this cut). It is ABSENT at the pinned a15d82f, so it is out-of-scope for the shared-file freshness diff (a vendor-only addition, like subscription_gate.py on cm041/contact_syncer) and does not move the gate. Its canonical source is HR015 ostler_fda/universal_import.py with the v1.0.3 CM048-persistence change (HR015 feat/wire-universal-import-leg-v1.0.3 @ ed12baa). When HR015 re-pins past universal_import, drop this graft and let the normal sync carry it as a shared file. facebook_messenger.py (the parser that makes the FB dispatch persist end to end) ships on a SEPARATE PR (HR015 #220); until it lands the FB dispatch returns recognised_no_parser honestly."
 
 [[tree]]
 name             = "ostler_security"
