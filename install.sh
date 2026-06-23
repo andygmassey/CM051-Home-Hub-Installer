@@ -9060,9 +9060,14 @@ else
 #!/usr/bin/env bash
 # Ostler shared export importer.
 #
-# Fans one or more export directories to BOTH consumers:
+# Fans one or more export directories to THREE consumers:
 #   - the people graph   (CM041 contact_syncer.import_all)
 #   - the preference wiki (CM019 ingest-dir + enrich --all -> `preferences`)
+#   - the universal importer (ostler_fda.universal_import) -- sniffs each
+#     dir for a recognised export shape (Facebook Messenger, WhatsApp,
+#     Apple Notes, a Google Takeout / .mbox, ...) and routes it to its
+#     parser. Conversation exports (Facebook Messenger) additionally
+#     persist to the conversations store via the CM048 pwg-convo pipeline.
 #
 # It is the SINGLE ingest path. Three entry points call it:
 #   1. install.sh's install-time hydrate (Downloads + the drop-zone),
@@ -9070,16 +9075,25 @@ else
 #   3. a power-user fallback (run it by hand).
 #
 # Safe to re-run over the same dir: contact_syncer dedupes (identity
-# resolver + DedupDetector) and the CM019 preferences upsert is keyed by
-# stable id, so a second pass is a no-op rather than a duplicate.
+# resolver + DedupDetector), the CM019 preferences upsert is keyed by
+# stable id, and the CM048 conversation pipeline keys by conversation_id
+# (a re-run overwrites the same bundle), so a second pass is a no-op
+# rather than a duplicate.
 #
 # Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
-# error, so one consumer being unavailable never blocks the other.
+# error, so one consumer being unavailable never blocks the others.
 set -uo pipefail
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 CM019_DIR="${OSTLER_DIR}/services/cm019"
 CM019_PY="${CM019_DIR}/.venv/bin/python"
+# The universal importer (ostler_fda.universal_import) runs from the
+# email-ingest venv, the one venv on the box that pip-installs ostler_fda,
+# with the staged fda-module on sys.path as a belt-and-braces fallback.
+# pwg-convo (the conversation sink it persists through) is resolved by
+# universal_import itself, honouring OSTLER_PWG_CONVO_CMD.
+UIMPORT_PY="${OSTLER_DIR}/services/email-ingest/.venv/bin/python"
+UIMPORT_FDA_DIR="${OSTLER_DIR}/fda-module"
 
 USER_NAME_ARG=""
 USER_ID_ARG=""
@@ -9093,9 +9107,11 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: ostler-import <exports-dir> [<exports-dir>...] [--user-name \"Name\"] [--user-id slug] [--verbose]"
             echo ""
-            echo "Imports GDPR / app exports into both your people graph and your"
-            echo "preferences. Ostler runs this for you automatically; you only need"
-            echo "it by hand to re-import a folder Ostler did not pick up."
+            echo "Imports GDPR / app exports into your people graph, your"
+            echo "preferences, and (for recognised exports like Facebook"
+            echo "Messenger) your conversation memory. Ostler runs this for you"
+            echo "automatically; you only need it by hand to re-import a folder"
+            echo "Ostler did not pick up."
             exit 0 ;;
         *) DIRS+=("$1"); shift ;;
     esac
@@ -9131,6 +9147,22 @@ for d in "${DIRS[@]}"; do
             "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.enrich.src.cli enrich --all -u "$CM019_USER" ) || rc=$?
+    fi
+
+    # ── Universal importer (ostler_fda.universal_import) ───────────
+    # Sniff the dir for a recognised export shape and route it to its
+    # parser. This is the leg that wires the previously-orphan P3 path
+    # into the real install: a dropped Facebook Messenger export now
+    # parses AND persists to the conversations store (via pwg-convo),
+    # not just stages JSON under ~/.ostler/imports/fda/. ADDITIVE: it
+    # runs AFTER P1/P2 over the same dir and shares no state with them,
+    # so it cannot regress contacts or preferences. Skip-if-absent: no
+    # email-ingest venv (so no ostler_fda) -> the leg is skipped, never
+    # an error. universal_import is itself non-crashing (an unknown drop
+    # is reported, not raised) so a stray folder cannot fail the import.
+    if [[ -x "$UIMPORT_PY" ]]; then
+        ( PYTHONPATH="${UIMPORT_FDA_DIR}:${PYTHONPATH:-}" \
+            "$UIMPORT_PY" -m ostler_fda.universal_import "$d" ) || rc=$?
     fi
 done
 exit $rc
