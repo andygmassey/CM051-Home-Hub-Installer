@@ -1186,6 +1186,257 @@ PEOPLE_QDRANT_COLLECTION = QDRANT_COLLECTION  # "people"; override via QDRANT_CO
 _PEOPLE_VECTOR_DIM = int(os.getenv("PEOPLE_VECTOR_DIM", "768"))
 
 
+# ── iMessage social-graph signal (Social wiki page, Prefs Piece 3 #524) ──
+#
+# Grafted from HR015 ostler_fda/pwg_ingest.py (source of truth). The
+# CM044 Social wiki page reads the Qdrant `preferences` collection
+# filtered to category=social (compiler/pages/social_pages.py); nothing
+# wrote those points, so the Social page rendered empty on every fresh
+# install despite the customer's iMessage history. ingest_imessage()
+# above only writes Oxigraph Person nodes, which the Social page does
+# NOT read.
+#
+# Reader contract (social_pages.py): payload `category == "social"` with
+# `subject` (masked contact label), `strength`, `source` ("imessage"),
+# `preference_type` ("Like"). The displayed subject is privacy-masked;
+# the unmasked handle is never embedded or stored. Group chats and
+# below-floor contacts are skipped. Point id is stable on the handle so
+# a re-install upserts in place. Counts-only return (install.sh reads
+# `sent`); fails LOUD if there were contacts but nothing landed.
+#
+# The reader scrolls exactly this collection name. Defaults to
+# "preferences" to match CM019 + social_pages.py. Defined here (rather
+# than reused from a bookmarks graft) so this block is self-contained.
+PREFERENCES_QDRANT_COLLECTION = os.getenv(
+    "PREFERENCES_QDRANT_COLLECTION", "preferences"
+)
+PREFERENCES_EMBED_DIM = int(os.getenv("PREFERENCES_EMBED_DIM", "768"))
+
+# Message-count -> strength. More messages = stronger social tie.
+_SOCIAL_STRENGTH_BANDS = (
+    (200, 0.90),
+    (50, 0.80),
+    (10, 0.70),
+)
+_SOCIAL_MIN_MESSAGES = 5
+_SOCIAL_DEFAULT_STRENGTH = 0.60
+
+
+def _social_strength_for(message_count: int) -> float:
+    """Map an iMessage message count onto a 0..1 social-tie strength."""
+    for threshold, strength in _SOCIAL_STRENGTH_BANDS:
+        if message_count >= threshold:
+            return strength
+    return _SOCIAL_DEFAULT_STRENGTH
+
+
+def _is_phone_handle(handle: str) -> bool:
+    """True if the handle looks like a phone number (vs an email)."""
+    stripped = handle.replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+    return handle.startswith("+") or stripped.isdigit()
+
+
+def _mask_social_subject(handle: str) -> str:
+    """Privacy-mask a contact handle for the rendered Social table.
+
+    Phone numbers become a country/area prefix plus the last two digits
+    (``+44 … 56``); emails keep the local part's first character plus the
+    domain (``j…@example.com``). The unmasked value is never stored.
+    """
+    handle = (handle or "").strip()
+    if not handle:
+        return "Unknown contact"
+    if _is_phone_handle(handle):
+        digits = "".join(c for c in handle if c.isdigit())
+        if len(digits) < 4:
+            return "Phone contact"
+        prefix = ("+" + digits[:2]) if handle.startswith("+") else digits[:2]
+        return f"{prefix} … {digits[-2:]}"
+    local, _, domain = handle.partition("@")
+    if not domain:
+        return handle[:1] + "…"
+    return f"{local[:1]}…@{domain}"
+
+
+def _load_imessage_conversations(fda_dir: Path) -> list:
+    """Read imessage_conversations.json from ``fda_dir``.
+
+    A missing file is skipped silently (source not enabled); a malformed
+    file logs and contributes nothing.
+    """
+    path = fda_dir / "imessage_conversations.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Could not parse imessage_conversations.json: %s; skipping.",
+            type(exc).__name__,
+        )
+        return []
+    if not isinstance(data, list):
+        logger.warning(
+            "imessage_conversations.json root is not a list; skipping."
+        )
+        return []
+    return [c for c in data if isinstance(c, dict)]
+
+
+def ingest_social(fda_dir: Path) -> dict:
+    """Ingest iMessage social-tie signal into the Qdrant ``preferences``
+    collection so the CM044 Social wiki page renders on a fresh install.
+
+    Group chats are skipped; contacts below ``_SOCIAL_MIN_MESSAGES`` are
+    skipped as too thin. Defensive: missing/empty/all-skipped input
+    returns ``{"status": "no_data", ...}`` and never raises. Returns
+    counts only (install.sh reads ``sent``).
+    """
+    conversations = _load_imessage_conversations(fda_dir)
+    if not conversations:
+        logger.info("No iMessage conversations to ingest for social signal.")
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": 0,
+            "skipped_thin": 0,
+            "total": 0,
+        }
+
+    handle_messages = {}
+    skipped_group = 0
+    for convo in conversations:
+        if convo.get("is_group"):
+            skipped_group += 1
+            continue
+        msg_count = int(convo.get("message_count") or 0)
+        for participant in convo.get("participants") or []:
+            handle = (participant or "").strip()
+            if not handle:
+                continue
+            handle_messages[handle] = handle_messages.get(handle, 0) + msg_count
+
+    skipped_thin = 0
+    queue = []
+    for handle, total_messages in handle_messages.items():
+        if total_messages < _SOCIAL_MIN_MESSAGES:
+            skipped_thin += 1
+            continue
+        subject = _mask_social_subject(handle)
+        strength = _social_strength_for(total_messages)
+        doc = " ".join(("Like", subject, "category:social", "imessage"))
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"social|imessage|{handle}"))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                "preference_id": point_id,
+                "subject": subject,
+                "preference_type": "Like",
+                "category": "social",
+                "strength": strength,
+                "source": "imessage",
+                "size": "Medium",
+                "compartment_level": DEFAULT_PRIVACY,
+                "privacy_level": DEFAULT_PRIVACY,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "extra": {
+                    "message_count": total_messages,
+                    "source_type": "imessage_social",
+                    "handle_kind": "phone" if _is_phone_handle(handle) else "email",
+                },
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Social: 0 ingestible (%d group threads, %d thin contacts).",
+            skipped_group, skipped_thin,
+        )
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": 0,
+        }
+
+    vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+    vector_size = PREFERENCES_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "Social: could not ensure Qdrant collection '%s': %s",
+            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": len(queue),
+        }
+
+    points = [
+        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+        for item, vec in zip(queue, vectors)
+    ]
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "Social vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": len(queue),
+        }
+
+    if sent == 0:
+        logger.warning(
+            "Social: had %d to ingest but 0 landed in Qdrant '%s'.",
+            len(queue), PREFERENCES_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_group": skipped_group,
+            "skipped_thin": skipped_thin,
+            "total": len(queue),
+        }
+
+    logger.info(
+        "Social: %d upserted to Qdrant '%s' (%d group, %d thin skipped).",
+        sent, PREFERENCES_QDRANT_COLLECTION, skipped_group, skipped_thin,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "skipped_group": skipped_group,
+        "skipped_thin": skipped_thin,
+        "total": len(queue),
+    }
+
+
 def ingest_people_to_qdrant() -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph.
 
@@ -1348,6 +1599,7 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
         ("photos", ingest_photos_people),
         ("apple_mail", ingest_mail_contacts),
         ("browser_history", ingest_browser_history),
+        ("social", ingest_social),
     ]:
         try:
             results[name] = func(fda_dir)
