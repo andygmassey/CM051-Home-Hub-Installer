@@ -2,11 +2,20 @@
 //
 // CX-56 (DMG ship, 2026-05-24). Minimal HTTP client used by the
 // post-install pairing-QR section on InstallCompleteView. The Hub
-// gateway exposes the pair-code endpoint at:
+// gateway exposes the pair-code endpoints at:
 //
-//   GET http://localhost:8000/admin/paircode
+//   GET  http://localhost:8000/admin/paircode      (current code)
+//   POST http://localhost:8000/admin/paircode/new  (mint + rotate)
 //
 // (No auth needed on localhost; gateway binds 127.0.0.1 only.)
+//
+// BW-FIND-27 (2026-06-23): the GET path returns no `qr_payload`
+// when no code has been minted yet -- the steady state right after
+// a fresh install. The success-screen auto-show therefore MINTS via
+// the POST path (mintPairCodeEnvelope) so a code always exists for
+// the first render; the customer-facing Refresh button keeps the
+// GET semantics (show the current code). This mirrors the Doctor's
+// pair_status.py `fresh` flag.
 //
 // The gateway returns a wrapper JSON of shape:
 //   { "message": "...", "pairing_code": "255474",
@@ -71,9 +80,36 @@ struct GatewayClient {
     /// GatewayClientError for transport / status / body / shape
     /// issues.
     func fetchPairCodeEnvelope() async throws -> String {
-        let url = baseURL.appendingPathComponent("admin/paircode")
+        return try await pairCodeEnvelope(fresh: false)
+    }
+
+    /// POST /admin/paircode/new to MINT a fresh §3.3 envelope, then
+    /// return it as a JSON string ready for the QR generator.
+    ///
+    /// BW-FIND-27 (2026-06-23): right after a fresh install the
+    /// gateway has `pairing_required = true` but NO current code
+    /// minted yet, so a plain GET /admin/paircode returns no
+    /// `qr_payload` and the success-screen QR auto-show fell through
+    /// to the empty placeholder glyph -- the QR stopped
+    /// auto-appearing. The customer-facing Refresh button "worked"
+    /// only because by the time they tapped it the gateway had
+    /// rotated a code into existence. The robust fix is to MINT on
+    /// the auto-show (same `fresh=True` path the Doctor's
+    /// pair_status.py uses for /api/v1/pair/regenerate) so a code
+    /// always exists for the first render.
+    func mintPairCodeEnvelope() async throws -> String {
+        return try await pairCodeEnvelope(fresh: true)
+    }
+
+    /// Shared GET-current / POST-mint implementation. `fresh = true`
+    /// POSTs /admin/paircode/new (mints + rotates); `fresh = false`
+    /// GETs /admin/paircode (current code only). Both return the
+    /// inner §3.3 `qr_payload` envelope re-serialised as a string.
+    private func pairCodeEnvelope(fresh: Bool) async throws -> String {
+        let path = fresh ? "admin/paircode/new" : "admin/paircode"
+        let url = baseURL.appendingPathComponent(path)
         var req = URLRequest(url: url)
-        req.httpMethod = "GET"
+        req.httpMethod = fresh ? "POST" : "GET"
         req.timeoutInterval = requestTimeout
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
