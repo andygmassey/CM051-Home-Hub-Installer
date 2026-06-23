@@ -223,8 +223,13 @@ targets:
           # Mail diagnostic loses its sidecar and the install path silently
           # degrades. Bundle it alongside progress_emitter.sh.
           cp "${SRCROOT}/../lib/write_pipeline_signals.py"       "${DEST}/lib/write_pipeline_signals.py"
+          # ostler-model-fit.sh (REUSE-4): install.sh sources it from
+          # ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the
+          # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
+          # fallback, but bundle it so customers get the fit assessment.
+          cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
-          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
@@ -255,11 +260,13 @@ targets:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
           - $(SRCROOT)/../lib/write_pipeline_signals.py
+          - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Bundle ostler_security Python package into Resources
         script: |
