@@ -102,8 +102,8 @@ class Detection:
     Attributes:
         format: A stable format key (e.g. ``"facebook_messenger"``,
             ``"whatsapp_export"``, ``"apple_notes_sqlite"``,
-            ``"google_takeout"``, ``"mbox"``, ``"obsidian_vault"``,
-            ``"unknown"``).
+            ``"google_takeout"``, ``"mbox"``, ``"apple_mail_emlx"``,
+            ``"obsidian_vault"``, ``"unknown"``).
         confidence: 0.0-1.0. 1.0 = an unambiguous structural signature.
         signal: Human-readable description of the concrete evidence that
             matched (e.g. ``"messages/inbox/<thread>/message_1.json with
@@ -416,6 +416,32 @@ def _detect_google_takeout(root: Path) -> Optional[Detection]:
     )
 
 
+def _detect_apple_mail_emlx(root: Path) -> Optional[Detection]:
+    # An Apple Mail export (the "18 - Apple Mail" GDPR slice, or a copied
+    # ~/Library/Mail tree) is a directory of ``.emlx`` message files nested
+    # under ``*.mbox/.../Messages/``. Apple confusingly names those folders
+    # ``*.mbox`` but they are NOT RFC 4155 mbox files -- the real payload is
+    # the per-message ``.emlx``. So this detector runs BEFORE _detect_mbox:
+    # an Apple Mail tree has no bare ``.mbox`` *file*, only ``.mbox``
+    # *directories*, and _detect_mbox would otherwise miss it entirely.
+    if root.is_file() and root.suffix.lower() == ".emlx":
+        return Detection(
+            format="apple_mail_emlx",
+            confidence=0.95,
+            signal=f"{root.name} (.emlx Apple Mail message)",
+            route_path=root.parent,
+        )
+    for f in _walk_files(root, budget=20000):
+        if f.suffix.lower() == ".emlx" or f.name.lower().endswith(".partial.emlx"):
+            return Detection(
+                format="apple_mail_emlx",
+                confidence=0.9,
+                signal=f"{f.name} (.emlx Apple Mail message under drop)",
+                route_path=root,
+            )
+    return None
+
+
 def _detect_mbox(root: Path) -> Optional[Detection]:
     # A bare .mbox file or a directory containing one (not inside a
     # Takeout -- that detector runs first and wins).
@@ -513,6 +539,7 @@ _DETECTORS: List[Callable[[Path], Optional[Detection]]] = [
     _detect_whatsapp_sqlite,
     _detect_imessage_sqlite,
     _detect_google_takeout,
+    _detect_apple_mail_emlx,
     _detect_mbox,
     _detect_whatsapp_txt,
     _detect_obsidian,
@@ -848,36 +875,270 @@ def _dispatch_imessage(detection: Detection, *, output_dir: Optional[Path]) -> d
     return {"status": "ok", "dispatched": "imessage", "summary": stats}
 
 
-def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+# ---------------------------------------------------------------------------
+# Mail people-graph persistence (reuse the real pwg_ingest sink)
+# ---------------------------------------------------------------------------
+#
+# A dropped mailbox (Gmail Takeout .mbox or an Apple Mail .emlx tree) becomes
+# a CORRESPONDENT-FREQUENCY map -- ``{email: count}`` for every address the
+# operator exchanged mail with. That map is the exact staging shape the
+# existing ``pwg_ingest.ingest_mail_contacts`` already reads
+# (``apple_mail_contacts.json``), so persisting people-graph facts is just:
+# build the map while streaming, stage the JSON, then drive the SAME ingest
+# function the FDA sweep uses. Reuse, never re-implement: this module owns no
+# Oxigraph writes of its own.
+#
+# Privacy posture: ONLY people-graph facts are persisted -- who the operator
+# corresponds with, and how often. Message BODIES are never persisted or
+# surfaced here. The mbox is streamed metadata-only (body preview is dropped
+# the moment a count is taken) so no body content leaves this process. The
+# resulting Person nodes inherit ``pwg_ingest.DEFAULT_PRIVACY`` (L2), the
+# normal People privacy level, exactly as the live FDA Apple Mail ingest does.
+# Thread bodies -> the conversation sink are a deliberate follow-up (see the
+# module note above _dispatch_mbox): routing them safely needs the per-message
+# privacy levelling iMessage/WhatsApp bodies get, so this leg stays people-only.
+#
+# Skip-if-absent: when the graph (Oxigraph) is unreachable the staged JSON
+# remains as the durable, re-runnable artefact and the result reports
+# ``persist_status="no_graph"`` -- honest, never a crash, never an install
+# failure. One unreachable graph cannot abort the rest of an import.
+
+# The staging file pwg_ingest.ingest_mail_contacts reads. Keeping the exact
+# filename means we drive the unmodified ingest function, no new sink.
+_MAIL_CONTACTS_STAGING = "apple_mail_contacts.json"
+
+
+def _persist_mail_contacts(contacts: dict, *, source: str) -> dict:
+    """Hand a ``{email: count}`` correspondent map to the people-graph sink.
+
+    Stages the map as ``apple_mail_contacts.json`` and drives the existing
+    ``pwg_ingest.ingest_mail_contacts`` (the same function the FDA sweep
+    uses) so each frequent correspondent lands as a ``pwg:Person`` with an
+    email identifier at the normal People privacy level. Reuse, never
+    re-implement -- this function owns no graph writes.
+
+    Args:
+        contacts: ``{email: count}`` -- correspondent address to message
+            count. No names, no subjects, no bodies.
+        source: short source label for log lines (privacy: label only).
+
+    Returns:
+        A counts-only dict: ``persist_status`` (``ok`` / ``no_graph`` /
+        ``error``) and ``people_created``. No addresses, no bodies -- safe
+        to log and to surface on the install summary.
+    """
+    if not contacts:
+        return {"persist_status": "ok", "people_created": 0}
+
+    # The ingest function reads its staging file from a fda_dir; we own a
+    # private temp dir so we never clobber a real FDA staging directory.
+    staging = Path(tempfile.mkdtemp(prefix="ostler_mail_"))
+    try:
+        (staging / _MAIL_CONTACTS_STAGING).write_text(json.dumps(contacts))
+        from . import pwg_ingest as pwg
+
+        result = pwg.ingest_mail_contacts(staging)
+        if result.get("status") == "ok":
+            return {
+                "persist_status": "ok",
+                "people_created": int(result.get("people_created", 0)),
+            }
+        # ingest_mail_contacts returned a non-ok status (e.g. "skipped").
+        return {"persist_status": "ok", "people_created": 0}
+    except Exception as exc:  # noqa: BLE001 -- graph down or transient; type only
+        # Skip-if-absent: an unreachable Oxigraph (or any ingest failure) is
+        # not fatal. The staged JSON stays in output_dir below for a re-run.
+        logger.info(
+            "universal_import: %s contacts staged but people-graph sink "
+            "unavailable (%s); not persisted", source, type(exc).__name__
+        )
+        return {"persist_status": "no_graph", "people_created": 0}
+    finally:
+        _rmtree(staging)
+
+
+# Hard cap on messages streamed from one mailbox so a pathological 37GB
+# Gmail mbox cannot wedge the install. Override via OSTLER_MBOX_MAX_MESSAGES
+# (0 or negative = unlimited, for an operator who explicitly wants the lot).
+# 250k covers a very heavy multi-year mailbox while bounding wall-time.
+_MBOX_MESSAGE_CAP = 250_000
+
+
+def _mbox_message_cap() -> Optional[int]:
+    """Resolve the per-mailbox streaming cap, or None for unlimited."""
+    raw = os.environ.get("OSTLER_MBOX_MAX_MESSAGES", "").strip()
+    if not raw:
+        return _MBOX_MESSAGE_CAP
+    try:
+        n = int(raw)
+    except ValueError:
+        return _MBOX_MESSAGE_CAP
+    return None if n <= 0 else n
+
+
+def _stream_mbox_correspondents(
+    mbox_path: Path,
+) -> tuple[dict, int, int, int]:
+    """Stream an mbox once, returning correspondent counts + tallies.
+
+    Single bounded pass over the mailbox (the underlying ``stream_messages``
+    is a generator, so a 37GB file is never loaded into memory). Builds a
+    ``{email: count}`` map over the operator's correspondents -- senders of
+    received mail and recipients of sent mail -- the people-graph signal.
+    Body previews are discarded the instant the address is counted; no body
+    content is retained.
+
+    Returns:
+        ``(contacts, total, sent, received)`` -- the correspondent map and
+        plain message tallies. Counts only, no bodies.
+    """
     from . import google_takeout as gt
 
-    user_email = os.environ.get("OSTLER_USER_EMAIL", "").strip() or None
-    messages = list(
-        gt.stream_messages(detection.route_path, since_days=365 * 5, user_email=user_email)
+    user_email = (os.environ.get("OSTLER_USER_EMAIL", "").strip() or None)
+    cap = _mbox_message_cap()
+    contacts: dict[str, int] = {}
+    total = sent = received = 0
+    for m in gt.stream_messages(
+        mbox_path,
+        since_days=365 * 5,
+        limit=cap,
+        user_email=user_email,
+    ):
+        total += 1
+        if m.is_sent:
+            sent += 1
+            # Sent mail: the correspondents are the recipients.
+            for addr in m.to_addresses:
+                if addr:
+                    contacts[addr] = contacts.get(addr, 0) + 1
+        else:
+            received += 1
+            # Received mail: the correspondent is the sender.
+            if m.from_address:
+                contacts[m.from_address] = contacts.get(m.from_address, 0) + 1
+    return contacts, total, sent, received
+
+
+def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+    contacts, total, sent, received = _stream_mbox_correspondents(
+        detection.route_path
     )
-    stats = gt.summarise(messages)
     out = _out_dir(output_dir)
     (out / "mbox_summary.json").write_text(
         json.dumps(
             {
-                "total_messages": stats.total_messages,
-                "sent_count": stats.sent_count,
-                "received_count": stats.received_count,
+                "total_messages": total,
+                "sent_count": sent,
+                "received_count": received,
+                "correspondent_count": len(contacts),
                 "source_path": str(detection.route_path),
             },
             indent=2,
             default=str,
         )
     )
+    # Stage the correspondent map as the durable artefact, then persist
+    # people-graph facts via the real pwg_ingest sink. Skip-if-absent: when
+    # the graph is unreachable the JSON stays staged and persist_status
+    # reports "no_graph" (no crash, no abort).
+    (out / _MAIL_CONTACTS_STAGING).write_text(json.dumps(contacts, indent=2))
+    persist = _persist_mail_contacts(contacts, source="mbox")
     return {
         "status": "ok",
         "dispatched": "google_takeout(mbox)",
         "summary": {
-            "total_messages": stats.total_messages,
-            "sent_count": stats.sent_count,
-            "received_count": stats.received_count,
+            "total_messages": total,
+            "sent_count": sent,
+            "received_count": received,
+            "correspondent_count": len(contacts),
         },
+        **persist,
     }
+
+
+def _emlx_tree_to_mbox(emlx_root: Path, mbox_path: Path) -> int:
+    """Convert an Apple Mail ``.emlx`` tree into a single mbox file.
+
+    Reuses ``apple_mail_mbox``'s existing emlx building blocks
+    (``discover_emlx_files`` + ``parse_emlx`` + ``_format_mbox_record``) --
+    the SAME parser the live Apple Mail -> CM046 bridge uses -- rather than
+    re-implementing emlx decoding. Streams one file at a time and appends to
+    the output mbox; a 37GB mailbox is never held in memory. One corrupt
+    ``.emlx`` is skipped (counted, never raised) so a single bad message
+    cannot abort the conversion (the #249 hardening class).
+
+    Returns the number of messages written.
+    """
+    from . import apple_mail_mbox as amx
+
+    cap = _mbox_message_cap()
+    written = 0
+    with mbox_path.open("wb") as out:
+        for emlx in amx.discover_emlx_files(emlx_root):
+            if cap is not None and written >= cap:
+                break
+            try:
+                parsed = amx.parse_emlx(emlx)
+            except (OSError, ValueError) as exc:  # noqa: BLE001 -- type only
+                logger.debug(
+                    "universal_import: skipping unparseable .emlx (%s)",
+                    type(exc).__name__,
+                )
+                continue
+            out.write(amx._format_mbox_record(parsed))
+            written += 1
+    return written
+
+
+def _dispatch_apple_mail_emlx(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+    # Apple Mail dropped as a ``.emlx`` tree. Convert it to a single mbox
+    # (reusing the existing emlx parser), then route through the very same
+    # correspondent -> people-graph flow the Gmail mbox uses. People-only,
+    # bodies never persisted -- identical privacy posture to _dispatch_mbox.
+    out = _out_dir(output_dir)
+    work = Path(tempfile.mkdtemp(prefix="ostler_emlx_"))
+    mbox_path = work / "apple_mail.mbox"
+    try:
+        converted = _emlx_tree_to_mbox(detection.route_path, mbox_path)
+        if converted == 0:
+            return {
+                "status": "ok",
+                "dispatched": "apple_mail(emlx)",
+                "summary": {"total_messages": 0, "correspondent_count": 0},
+                "persist_status": "ok",
+                "people_created": 0,
+            }
+        contacts, total, sent, received = _stream_mbox_correspondents(mbox_path)
+        (out / "mbox_summary.json").write_text(
+            json.dumps(
+                {
+                    "total_messages": total,
+                    "sent_count": sent,
+                    "received_count": received,
+                    "correspondent_count": len(contacts),
+                    "emlx_converted": converted,
+                    "source_path": str(detection.route_path),
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        (out / _MAIL_CONTACTS_STAGING).write_text(json.dumps(contacts, indent=2))
+        persist = _persist_mail_contacts(contacts, source="apple_mail_emlx")
+        return {
+            "status": "ok",
+            "dispatched": "apple_mail(emlx)",
+            "summary": {
+                "total_messages": total,
+                "sent_count": sent,
+                "received_count": received,
+                "correspondent_count": len(contacts),
+                "emlx_converted": converted,
+            },
+            **persist,
+        }
+    finally:
+        _rmtree(work)
 
 
 def _dispatch_google_takeout(detection: Detection, *, output_dir: Optional[Path]) -> dict:
@@ -978,6 +1239,7 @@ _DISPATCH: dict = {
     "imessage_chatdb": _dispatch_imessage,
     "mbox": _dispatch_mbox,
     "google_takeout": _dispatch_google_takeout,
+    "apple_mail_emlx": _dispatch_apple_mail_emlx,
     # Knowledge formats convert through the bundled ostler-knowledge binary.
     "obsidian_vault": _dispatch_knowledge,
     "evernote_enex": _dispatch_knowledge,
