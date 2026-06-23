@@ -13993,8 +13993,19 @@ elif [[ -x "$_HYDRATE_BROWSING_PY" ]] && \
         "$_HYDRATE_BROWSING_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_browser_history
-result = ingest_browser_history(Path('${_HYDRATE_BROWSING_FDA_DIR}'))
+from ostler_fda.pwg_ingest import ingest_browser_history, ingest_bookmarks
+fda = Path('${_HYDRATE_BROWSING_FDA_DIR}')
+result = ingest_browser_history(fda)
+# Day-one Reading-page bookmark signal (clean follow-up to #524's
+# Social graft): turn the Safari safari_bookmarks.json (same FDA dir,
+# Recommended source) into category=bookmark preference points so the
+# CM044 Reading page is populated on a fresh install. Best-effort -- a
+# bookmarks failure must not lose the browsing-history ingest above, so
+# it is isolated and its status is folded into the same JSON line.
+try:
+    result['bookmarks'] = ingest_bookmarks(fda)
+except Exception as exc:
+    result['bookmarks'] = {'status': 'error', 'error': type(exc).__name__}
 print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"

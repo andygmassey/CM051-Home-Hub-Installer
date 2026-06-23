@@ -1437,6 +1437,246 @@ def ingest_social(fda_dir: Path) -> dict:
     }
 
 
+# ── Safari bookmarks signal (Reading wiki page, day-one follow-up #524) ──
+#
+# Grafted from HR015 ostler_fda/pwg_ingest.py (source of truth). The
+# clean follow-up to the #524 Social graft above: extract_all.py writes
+# safari_bookmarks.json (the installer offers `safari_bookmarks` as a
+# Recommended FDA source) but nothing ever ingested it, so the data died
+# on disk after extraction and the CM044 Reading wiki page rendered an
+# empty bookmarks section on every fresh install.
+#
+# Reader contract (confirmed against the live reader,
+# CM044 compiler/pages/reading_pages.py): payload `category == "bookmark"`
+# with `subject` (the bookmark title), `strength`, `source`
+# ("safari_bookmarks"), `observed_at`/`created_at` (timeline buckets),
+# and `extra.url` (makes the title clickable). The full payload mirrors
+# CM019 ParsedPreference.to_payload so FDA-extracted bookmarks render
+# identically to GDPR-imported ones. Sensitive domains are dropped
+# client-side before embed/store (same blocklist as browsing). Point id
+# is stable on the URL so a re-install upserts in place. Counts-only
+# return (install.sh reads `sent`); fails LOUD if there were bookmarks
+# but nothing landed in Qdrant.
+#
+# Reuses PREFERENCES_QDRANT_COLLECTION / PREFERENCES_EMBED_DIM defined by
+# the #524 social graft above (both write the same "preferences"
+# collection); whichever graft lands first defines the constants and the
+# other reuses them.
+
+# Folder -> strength. Reading List items were explicitly saved to read
+# later; Favourites (BookmarksBar) are pinned. Both are stronger signals
+# than an ordinary filed bookmark. Mirrors CM019 apple.py's favourite
+# vs ordinary split (0.75 / 0.70).
+_BOOKMARK_STRENGTH_BY_FOLDER = {
+    "Reading List": 0.75,
+    "Favourites": 0.72,
+}
+_BOOKMARK_DEFAULT_STRENGTH = 0.70
+
+
+def _load_safari_bookmarks(fda_dir: Path) -> list:
+    """Read safari_bookmarks.json from ``fda_dir``.
+
+    The file is a list of dicts emitted by extract_all.py
+    (``[asdict(b) for b in bookmarks]``) with keys: title, url, domain,
+    folder. A missing file is skipped silently (the source was not
+    enabled); a malformed file logs and contributes nothing.
+    """
+    path = fda_dir / "safari_bookmarks.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Could not parse safari_bookmarks.json: %s; skipping.",
+            type(exc).__name__,
+        )
+        return []
+    if not isinstance(data, list):
+        logger.warning("safari_bookmarks.json root is not a list; skipping.")
+        return []
+    return [b for b in data if isinstance(b, dict)]
+
+
+def ingest_bookmarks(fda_dir: Path) -> dict:
+    """Ingest Safari bookmarks into the Qdrant ``preferences`` collection
+    so the CM044 Reading wiki page can render them.
+
+    Direct, single-machine path: no gateway. Sensitive domains are
+    dropped client-side before embed/store (same blocklist as browsing).
+    Defensive: missing, empty, or all-sensitive input returns
+    ``{"status": "no_data", ...}`` with zero counts and never raises; an
+    Ollama/Qdrant hiccup degrades the count rather than crashing the
+    installer.
+
+    Each bookmark becomes one ``preferences`` point with
+    ``category == "bookmark"`` and the payload fields the Reading page
+    reads. The point id is derived stably from the bookmark URL so a
+    re-install upserts in place rather than duplicating rows.
+
+    Returns counts only (parity with the other ingesters; install.sh
+    reads ``sent``):
+      ``status``           : "ok" | "no_data" | "error"
+      ``sent``             : points upserted into Qdrant
+      ``points_created``   : alias of ``sent``
+      ``skipped_sensitive``: bookmarks dropped by the blocklist
+      ``total``            : ingestible bookmarks considered
+    """
+    bookmarks = _load_safari_bookmarks(fda_dir)
+    if not bookmarks:
+        logger.info("No bookmarks to ingest.")
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": 0,
+            "total": 0,
+        }
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    skipped_sensitive = 0
+    queue: list = []
+    seen_urls: set = set()
+    for b in bookmarks:
+        url = (b.get("url") or "").strip()
+        if not url or url in seen_urls:
+            continue
+        domain = (b.get("domain") or "").strip()
+        if _is_sensitive_domain(domain):
+            skipped_sensitive += 1
+            continue
+        seen_urls.add(url)
+        title = (b.get("title") or "").strip() or domain or url
+        folder = (b.get("folder") or "").strip()
+        strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
+            folder, _BOOKMARK_DEFAULT_STRENGTH
+        )
+
+        # Embedding document: title carries the human-readable signal;
+        # domain anchors it. Mirrors the browsing path's doc construction
+        # and CM019's "Like <subject> category:bookmark" embedding text.
+        doc = " ".join(
+            part for part in ("Like", title, "category:bookmark", domain) if part
+        )
+        # Stable point id: same URL re-runs upsert in place (idempotent
+        # re-install) rather than duplicating rows.
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bookmark|{url}"))
+        queue.append({
+            "point_id": point_id,
+            "doc": doc,
+            "payload": {
+                # Reader contract (CM044 reading_pages.py) + CM019
+                # ParsedPreference.to_payload parity so FDA bookmarks
+                # render identically to GDPR-imported ones.
+                "preference_id": point_id,
+                "subject": title,
+                "preference_type": "Like",
+                "category": "bookmark",
+                "strength": strength,
+                "source": "safari_bookmarks",
+                "context": folder or None,
+                "size": "Medium",
+                "compartment_level": DEFAULT_PRIVACY,
+                "privacy_level": DEFAULT_PRIVACY,
+                "created_at": now_iso,
+                "observed_at": now_iso,
+                "extra": {
+                    "url": url,
+                    "domain": domain,
+                    "folder": folder,
+                    "source_type": "safari_bookmarks",
+                },
+            },
+        })
+
+    if not queue:
+        logger.info(
+            "Bookmarks: 0 ingestible (%d skipped sensitive).",
+            skipped_sensitive,
+        )
+        return {
+            "status": "no_data",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": 0,
+        }
+
+    vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+    # Size the collection from the first real embedding; fall back to
+    # the nomic-embed-text default only if nothing embedded.
+    vector_size = PREFERENCES_EMBED_DIM
+    for vec in vectors:
+        if vec:
+            vector_size = len(vec)
+            break
+
+    try:
+        _qdrant_ensure_collection(PREFERENCES_QDRANT_COLLECTION, vector_size)
+    except Exception as exc:
+        logger.warning(
+            "Bookmarks: could not ensure Qdrant collection '%s': %s",
+            PREFERENCES_QDRANT_COLLECTION, type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    points = [
+        {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
+        for item, vec in zip(queue, vectors)
+    ]
+
+    sent = 0
+    try:
+        sent = _qdrant_upsert_points(PREFERENCES_QDRANT_COLLECTION, points)
+    except Exception as exc:
+        logger.warning(
+            "Bookmarks vector-store write failed: %s", type(exc).__name__,
+        )
+        return {
+            "status": "error",
+            "sent": sent,
+            "points_created": sent,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    if sent == 0:
+        # We had bookmarks to store but none landed (every chunk failed).
+        # Report error, not "ok" -- a silent ok-with-zero would let the
+        # installer claim success while the Reading page stays blank.
+        logger.warning(
+            "Bookmarks: had %d to ingest but 0 landed in Qdrant '%s'.",
+            len(queue), PREFERENCES_QDRANT_COLLECTION,
+        )
+        return {
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "skipped_sensitive": skipped_sensitive,
+            "total": len(queue),
+        }
+
+    logger.info(
+        "Bookmarks: %d upserted to Qdrant '%s' (%d skipped sensitive).",
+        sent, PREFERENCES_QDRANT_COLLECTION, skipped_sensitive,
+    )
+    return {
+        "status": "ok",
+        "sent": sent,
+        "points_created": sent,
+        "skipped_sensitive": skipped_sensitive,
+        "total": len(queue),
+    }
+
+
 def ingest_people_to_qdrant() -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph.
 
@@ -1600,6 +1840,7 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
         ("apple_mail", ingest_mail_contacts),
         ("browser_history", ingest_browser_history),
         ("social", ingest_social),
+        ("bookmarks", ingest_bookmarks),
     ]:
         try:
             results[name] = func(fda_dir)
