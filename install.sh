@@ -14130,8 +14130,18 @@ elif [[ -x "$_HYDRATE_IMESSAGE_PY" ]] && [[ -s "$_HYDRATE_IMESSAGE_JSON_FILE" ]]
         "$_HYDRATE_IMESSAGE_PY" -c "
 import json
 from pathlib import Path
-from ostler_fda.pwg_ingest import ingest_imessage
-result = ingest_imessage(Path('${_HYDRATE_IMESSAGE_FDA_DIR}'))
+from ostler_fda.pwg_ingest import ingest_imessage, ingest_social
+fda = Path('${_HYDRATE_IMESSAGE_FDA_DIR}')
+result = ingest_imessage(fda)
+# Day-one Social wiki signal (Prefs Piece 3, #524): turn the same
+# iMessage JSON into category=social preference points so the CM044
+# Social page is populated on a fresh install. Best-effort -- a social
+# failure must not lose the people-graph ingest above, so it is
+# isolated and its status is folded into the same JSON line.
+try:
+    result['social'] = ingest_social(fda)
+except Exception as exc:
+    result['social'] = {'status': 'error', 'error': type(exc).__name__}
 print(json.dumps(result))
 " 2>>"$_HYDRATE_IMESSAGE_LOG" | tail -n 1
     )"
