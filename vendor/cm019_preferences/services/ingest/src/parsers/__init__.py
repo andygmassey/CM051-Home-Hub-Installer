@@ -20,6 +20,7 @@ from .disney import DisneyPlusParser
 from .whatsapp import WhatsAppParser
 from .discord import DiscordParser
 from .netflix import NetflixParser
+from .appletv import AppleTVParser
 from .email import EmailParser
 from .foursquare import FoursquareParser
 
@@ -45,6 +46,7 @@ __all__ = [
     "WhatsAppParser",
     "DiscordParser",
     "NetflixParser",
+    "AppleTVParser",
     "EmailParser",
     "FoursquareParser"
 ]

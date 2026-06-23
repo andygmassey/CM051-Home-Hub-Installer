@@ -33,6 +33,7 @@ from .parsers import (
     WhatsAppParser,
     DiscordParser,
     NetflixParser,
+    AppleTVParser,
     EmailParser,
     FoursquareParser
 )
@@ -77,6 +78,7 @@ class IngestPipeline:
             UberParser(),
             WhoopParser(),
             FoursquareParser(),  # Before Netflix - both may match venueRatings
+            AppleTVParser(),   # Before AppleParser - tight path/name match, no overlap
             NetflixParser(),  # Before Disney+ - both have ViewingActivity.csv
             DisneyPlusParser(),
             WhatsAppParser(),
