@@ -11,7 +11,6 @@ See PRODUCTISATION_CHECKLIST.md Rule 0.
 
 import asyncio
 import csv
-import io
 import sys
 import tempfile
 import zipfile
@@ -22,6 +21,13 @@ from unittest.mock import MagicMock, patch
 REPO = Path(__file__).resolve().parent.parent
 INGEST_SRC_PARENT = REPO / "vendor" / "cm019_preferences" / "services" / "ingest"
 sys.path.insert(0, str(INGEST_SRC_PARENT))
+
+# Pre-import the amazon module so patch() can resolve the target string
+# "src.parsers.amazon.settings" before tests run. The import is safe here
+# because it only registers the module; no network connections are made
+# until parse() is called.
+import src.parsers.amazon as _amazon_module  # noqa: E402  (after sys.path tweak)
+from src.parsers.amazon import AmazonParser  # noqa: E402
 
 
 def fail(msg: str) -> None:
@@ -125,8 +131,6 @@ def _make_amazon_dir(root: Path) -> Path:
 def test_can_parse_zip_still_works() -> None:
     """A .zip file containing Retail.OrderHistory.csv still returns True."""
     with patch("src.parsers.amazon.settings", _make_mock_settings()):
-        from src.parsers.amazon import AmazonParser
-
         parser = AmazonParser()
         with tempfile.TemporaryDirectory() as tmp:
             zip_path = Path(tmp) / "amazon_export.zip"
@@ -148,8 +152,6 @@ def test_can_parse_zip_still_works() -> None:
 def test_can_parse_csv_still_works() -> None:
     """Individual Retail.OrderHistory.1.csv file still returns True."""
     with patch("src.parsers.amazon.settings", _make_mock_settings()):
-        from src.parsers.amazon import AmazonParser
-
         parser = AmazonParser()
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "Retail.OrderHistory.1.csv"
@@ -163,8 +165,6 @@ def test_can_parse_csv_still_works() -> None:
 def test_can_parse_extracted_dir_with_orders_subdir() -> None:
     """A directory containing Orders/Retail.OrderHistory.1/ returns True."""
     with patch("src.parsers.amazon.settings", _make_mock_settings()):
-        from src.parsers.amazon import AmazonParser
-
         parser = AmazonParser()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "03 - Amazon"
@@ -180,8 +180,6 @@ def test_can_parse_extracted_dir_with_orders_subdir() -> None:
 def test_can_parse_extracted_dir_with_kindle_subdir() -> None:
     """A directory with only a Kindle/ subdir (no Orders/) still returns True."""
     with patch("src.parsers.amazon.settings", _make_mock_settings()):
-        from src.parsers.amazon import AmazonParser
-
         parser = AmazonParser()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "03 - Amazon"
@@ -199,8 +197,6 @@ def test_can_parse_extracted_dir_with_kindle_subdir() -> None:
 def test_can_parse_non_amazon_dir_returns_false() -> None:
     """A directory containing only Spotify files does NOT return True."""
     with patch("src.parsers.amazon.settings", _make_mock_settings()):
-        from src.parsers.amazon import AmazonParser
-
         parser = AmazonParser()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "Spotify Export"
@@ -221,8 +217,6 @@ def test_can_parse_non_amazon_dir_returns_false() -> None:
 def test_parse_dir_yields_order_records() -> None:
     """parse() on an extracted dir yields >= 1 record (count only)."""
     with patch("src.parsers.amazon.settings", _make_mock_settings()):
-        from src.parsers.amazon import AmazonParser
-
         parser = AmazonParser()
 
         async def _run(dir_path: Path) -> int:
