@@ -1109,6 +1109,29 @@ else
 fi
 unset _ostler_emitter_candidate
 
+# ── Hardware-fit model picker helper (REUSE-4) ────────────────────
+#
+# lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
+# table plus the pure fit/recommend logic used by the "AI model
+# (automatic)" step further down. Sourced here (alongside
+# progress_emitter.sh) so the same multi-location resolution applies:
+#   1. ${SCRIPT_DIR}/lib/ostler-model-fit.sh   (tarball / dev / .app bundle)
+#   2. ${HOME}/.ostler/lib/ostler-model-fit.sh (post-install re-run)
+# Sourcing is side-effect-free (defines functions + arrays, prints
+# nothing). If it is missing we fall back to the legacy RAM ladder in
+# the AI-model step, so a stripped bundle degrades rather than aborts.
+_ostler_modelfit_candidate=""
+if [[ -f "${SCRIPT_DIR}/lib/ostler-model-fit.sh" ]]; then
+    _ostler_modelfit_candidate="${SCRIPT_DIR}/lib/ostler-model-fit.sh"
+elif [[ -f "${HOME}/.ostler/lib/ostler-model-fit.sh" ]]; then
+    _ostler_modelfit_candidate="${HOME}/.ostler/lib/ostler-model-fit.sh"
+fi
+if [[ -n "${_ostler_modelfit_candidate}" ]]; then
+    # shellcheck source=lib/ostler-model-fit.sh
+    source "${_ostler_modelfit_candidate}"
+fi
+unset _ostler_modelfit_candidate
+
 # ── Three-state data-source detection (CX-100, CX-101) ────────────
 #
 # Per launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
@@ -3947,21 +3970,59 @@ fi
 
 # ── 8. AI model (automatic) ────────────────────────────────────────
 
-# Model selection based on available RAM.
+# Model selection based on detected hardware (REUSE-4 hardware-fit picker).
+#
+# WHY NOT A FLAT RAM LADDER: the daemon runs every chat at num_ctx=32768
+# (OLLAMA_NUM_CTX, see assistant-agent plist + test_assistant_ollama_num_ctx.sh).
+# A 32k KV cache costs gigabytes ON TOP of the model weights, so "enough RAM
+# for the weights" is not the same as "fits at the required context window".
+# Several box-walks cold-start-failed because a model was picked that could
+# not allocate its 32k context. lib/ostler-model-fit.sh scores each candidate
+# Fits / may be slow / won't fit against the agent's real num_ctx and names
+# the best comfortable fit as Recommended.
+#
 # MoE models (35B-A3B) have 35B total knowledge but only 3B active params,
-# so they need ~23GB of VRAM/RAM but run at 3B speed.
-if [[ $RAM_GB -ge 48 ]]; then
-    AI_MODEL="qwen3.6:35b-a3b"
-    AI_MODEL_SIZE="~23 GB"
-elif [[ $RAM_GB -ge 24 ]]; then
-    AI_MODEL="qwen3.5:9b"
-    AI_MODEL_SIZE="~6.6 GB"
-else
-    AI_MODEL="gemma4:e2b"
-    AI_MODEL_SIZE="~5 GB"
-fi
+# so they need ~23GB resident but run at 3B speed.
+if declare -F ostler_recommend_model >/dev/null 2>&1; then
+    _mf_chip="$(ostler_detect_chip)"
+    _mf_numctx="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
+    info "$(printf "$MSG_MODELFIT_HEADER" "${_mf_chip}" "${RAM_GB}" "${_mf_numctx}")"
 
-ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
+    AI_MODEL="$(ostler_recommend_model "${RAM_GB}")"
+
+    # Print the per-model fit assessment (pills + quant + Recommended tag) so
+    # the customer sees WHY a model was chosen and what they would get with
+    # more RAM. Best-first ordering matches the table in the helper.
+    for _mf_model in "${OSTLER_MODEL_TAGS[@]}"; do
+        _mf_verdict="$(ostler_model_fit "${_mf_model}" "${RAM_GB}")"
+        _mf_pill="$(ostler_model_fit_pill "${_mf_verdict}")"
+        _mf_size="$(ostler_model_size_label "${_mf_model}")"
+        _mf_quant="$(ostler_model_quant "${_mf_model}")"
+        _mf_row="$(printf "$MSG_MODELFIT_ROW" "${_mf_pill}" "${_mf_model}" "${_mf_size}" "${_mf_quant}")"
+        if [[ "${_mf_model}" == "${AI_MODEL}" ]]; then
+            _mf_row="${_mf_row}${MSG_MODELFIT_RECOMMENDED_TAG}"
+        fi
+        info "${_mf_row}"
+    done
+
+    AI_MODEL_SIZE="$(ostler_model_size_label "${AI_MODEL}")"
+    unset _mf_chip _mf_numctx _mf_model _mf_verdict _mf_pill _mf_size _mf_quant _mf_row
+    ok "$(printf "$MSG_MODELFIT_SELECTED" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
+else
+    # Fallback: helper not on disk (stripped bundle). Legacy RAM ladder --
+    # same thresholds the fit table encodes for the comfortable ("fits") tier.
+    if [[ $RAM_GB -ge 48 ]]; then
+        AI_MODEL="qwen3.6:35b-a3b"
+        AI_MODEL_SIZE="~23 GB"
+    elif [[ $RAM_GB -ge 24 ]]; then
+        AI_MODEL="qwen3.5:9b"
+        AI_MODEL_SIZE="~6.6 GB"
+    else
+        AI_MODEL="gemma4:e2b"
+        AI_MODEL_SIZE="~5 GB"
+    fi
+    ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
+fi
 PULL_MODEL="y"
 
 # ── 9. GDPR data exports (auto-detect) ────────────────────────────

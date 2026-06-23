@@ -259,6 +259,20 @@ MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT="You can add it later for instant onboardi
 # ── Success messages ──
 
 MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM="AI model: %s (%s) – selected for your %s GB RAM"
+
+# ── Hardware-fit model picker (REUSE-4) ──
+# Pills shown against each candidate model.
+MSG_MODELFIT_PILL_FITS="Fits"
+MSG_MODELFIT_PILL_SLOW="May be slow"
+MSG_MODELFIT_PILL_NOFIT="Will not fit"
+# Header for the per-model fit assessment block. Args: chip, RAM GB, num_ctx.
+MSG_MODELFIT_HEADER="Matching the assistant model to your Mac (%s, %s GB RAM, assistant context %s tokens):"
+# One row per candidate. Args: pill, model tag, size label, quant tier.
+MSG_MODELFIT_ROW="  %s  %s (%s, %s)"
+# Suffix appended to the recommended row.
+MSG_MODELFIT_RECOMMENDED_TAG="  <- Recommended"
+# Final selection line. Args: model tag, size label, RAM GB.
+MSG_MODELFIT_SELECTED="AI model: %s (%s) – best fit for your %s GB RAM at the assistant's required context window"
 MSG_OK_ALL_SOURCES_SELECTED_FACE_RECOGNITION_STILL="All sources selected (face recognition still off)"
 MSG_OK_ALREADY_AVAILABLE="%s already available"
 MSG_OK_APPLE_SILICON_DETECTED="Apple Silicon detected"
