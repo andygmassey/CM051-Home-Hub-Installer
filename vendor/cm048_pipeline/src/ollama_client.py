@@ -85,6 +85,16 @@ class OllamaClient:
             priority,
             len(prompt),
         )
+        # Yield to the user before starting a new request. This pipeline is a
+        # background enrichment job; while the user is actively chatting the
+        # daemon refreshes a lease file and we wait so their foreground chat
+        # keeps the Ollama slots. Crash-safe: a missing/stale lease returns
+        # immediately, and the helper's max_wait caps the yield.
+        try:
+            from .ollama_user_active import wait_until_user_idle
+            wait_until_user_idle()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("user-active lease check skipped: %s", exc)
         # Bypass any HTTP proxy for LAN Ollama calls
         transport = httpx.HTTPTransport(proxy=None)
         with httpx.Client(timeout=timeout or self.default_timeout, transport=transport) as client:
