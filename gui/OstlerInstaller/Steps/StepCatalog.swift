@@ -102,6 +102,15 @@ final class StepCatalog {
         "ai_models",
         "import_pipeline",
         "cm048_setup",
+        // v1.0.3 (BUG-025): cm052_setup installs the pwg-ai-convo AI
+        // Conversations ingest CLI. install.sh phase 3.10b3 emits the
+        // matching `progress "Setting up AI conversations" "cm052_setup"`
+        // immediately after cm048_setup (it mirrors the cm048 setup
+        // shape: vendored package -> venv -> /usr/local/bin symlink,
+        // WARN-only on absence). The producer that actually RUNS the
+        // ingest is a later row (ai_conversations_drain, before
+        // wiki_compile).
+        "cm052_setup",
         "gws_install",
         "import_data",
         "doctor_setup",
@@ -195,6 +204,17 @@ final class StepCatalog {
         // main's install.sh does not emit it yet. The candidate carries
         // that row.)
         "initial_hydrate",
+        // v1.0.3 (BUG-025): ai_conversations_drain RUNS the pwg-ai-convo
+        // producer synchronously between initial_hydrate and wiki_compile,
+        // so the first wiki compile already sees populated episodic
+        // markdown under ~/Documents/Ostler/AI Conversations/. install.sh
+        // emits the matching `progress "Loading your AI conversations"
+        // "ai_conversations_drain"` only when the CM052 venv is runnable
+        // AND an AI-chat source is present; the row is otherwise skipped
+        // (gated like hydrate_email_preferences). This closes the
+        // render-without-data gap: cm052_setup installs the CLI, this row
+        // feeds the wing.
+        "ai_conversations_drain",
         "wiki_compile",
         "health_check",
     ]
