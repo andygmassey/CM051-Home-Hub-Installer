@@ -16232,6 +16232,51 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
     esac
 
     chmod 600 "$IMESSAGE_POSTURE_FILE"
+
+    # ── BUG-020: prime the DAEMON's OWN Messages Automation grant ──────
+    #
+    # The probe above runs osascript under the INSTALLER's identity
+    # (Ostler Installer / Terminal), so the "wants to control Messages"
+    # prompt it triggers grants the INSTALLER -- NOT the daemon. macOS
+    # TCC Automation is per-source-app: the daemon (OstlerAssistant.app)
+    # has its OWN, separate grant. Previously that daemon grant was only
+    # ever requested the first time the daemon touched Messages, which is
+    # 1-2 minutes AFTER this installer finishes, when launchd boots it
+    # (the kickstart further below). The result was a "OstlerAssistant
+    # wants to control Messages" popup ambushing the customer AFTER the
+    # success screen -- exactly the launch-promise breach Andy flagged.
+    #
+    # Fix: invoke the daemon binary's own one-shot
+    # `prime-imessage-automation` subcommand HERE, while (a) the daemon
+    # bundle is already staged on disk (the ditto/Info.plist write
+    # earlier), (b) the customer is still in the guided flow, and (c)
+    # they have JUST been pre-warned by the 3.18 Automation modal above.
+    # The subcommand sends the SAME harmless read-only AppleEvent (`count
+    # of accounts`) under the DAEMON binary's identity, so the daemon's
+    # "wants to control Messages" prompt lands NOW, in the attention
+    # window -- not after the success banner. Once granted it persists
+    # for daemon runtime, so the late daemon boot does not re-prompt.
+    #
+    # Best-effort + non-fatal in every dimension: it is gated to a no-op
+    # by the daemon itself unless iMessage is enabled, and it always
+    # exits 0. A 30s wrapper bounds a cold-Messages -1712. The test shim
+    # (PWG_IMESSAGE_PROBE_OUTCOME) suppresses the osascript so harnesses
+    # never drive Messages. `|| true` guarantees a failure can never
+    # abort the install.
+    if [[ "${OSTLER_GUI:-0}" == "1" \
+          && -z "${PWG_IMESSAGE_PROBE_OUTCOME:-}" \
+          && -x "${ASSISTANT_BINARY:-}" ]]; then
+        info "$MSG_INFO_PRIMING_DAEMON_IMESSAGE_AUTOMATION"
+        _PRIME_TIMEOUT_WRAP=""
+        if command -v gtimeout >/dev/null 2>&1; then
+            _PRIME_TIMEOUT_WRAP="gtimeout 30"
+        elif command -v timeout >/dev/null 2>&1; then
+            _PRIME_TIMEOUT_WRAP="timeout 30"
+        fi
+        # shellcheck disable=SC2086
+        ${_PRIME_TIMEOUT_WRAP} "$ASSISTANT_BINARY" prime-imessage-automation \
+            >/dev/null 2>&1 || true
+    fi
 fi
 
 # ── ostler-assistant doctor probe (best-effort, non-fatal) ────────

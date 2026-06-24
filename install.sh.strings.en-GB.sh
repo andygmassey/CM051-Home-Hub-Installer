@@ -194,6 +194,7 @@ MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and regio
 MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="Phase 3 battery watcher armed (PID %s)"
 MSG_INFO_PLEASE_WAIT_READING_CONTACTS="Reading your address book (large libraries can take a couple of minutes – please don't close the installer)..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
+MSG_INFO_PRIMING_DAEMON_IMESSAGE_AUTOMATION="Asking macOS to grant the assistant permission to send via Messages (this is the prompt you were just warned about)..."
 MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY="Probing iMessage Automation permission (read-only)..."
 MSG_INFO_PULLING_GRAPH_DB_IMAGES="Downloading the knowledge-graph databases (first run only). This can take a minute on a fresh install..."
 MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB="Pulling nomic-embed-text (274 MB)..."
