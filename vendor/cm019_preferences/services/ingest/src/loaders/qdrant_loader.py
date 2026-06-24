@@ -13,10 +13,31 @@ logger = logging.getLogger(__name__)
 class QdrantLoader:
     """Handles loading vectors into Qdrant."""
 
-    def __init__(self, base_url: Optional[str] = None, collection: Optional[str] = None):
-        """Initialize the loader."""
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        collection: Optional[str] = None,
+        transport: Optional["httpx.BaseTransport"] = None,
+    ):
+        """Initialize the loader.
+
+        Args:
+            base_url: Qdrant base URL (defaults to settings).
+            collection: Collection name (defaults to settings).
+            transport: Optional httpx transport. Injected by tests to run
+                against a fake/in-memory Qdrant without a live server; in
+                production it is None and httpx uses its default network
+                transport.
+        """
         self.base_url = base_url or settings.qdrant_url
         self.collection = collection or settings.qdrant_collection
+        self._transport = transport
+
+    def _client(self, timeout: float) -> httpx.AsyncClient:
+        """Build an AsyncClient, honouring an injected test transport."""
+        if self._transport is not None:
+            return httpx.AsyncClient(timeout=timeout, transport=self._transport)
+        return httpx.AsyncClient(timeout=timeout)
 
     async def ensure_collection(self, dimension: int = 384) -> bool:
         """
@@ -29,7 +50,7 @@ class QdrantLoader:
             True if collection exists or was created
         """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._client(30.0) as client:
                 # Check if collection exists
                 response = await client.get(
                     f"{self.base_url}/collections/{self.collection}"
@@ -74,7 +95,9 @@ class QdrantLoader:
             ("compartment_level", "integer"),
             ("user_id", "keyword"),
             ("preference_type", "keyword"),
-            ("source", "keyword")
+            ("source", "keyword"),
+            # doc_id indexed so per-document filter-delete/replace is efficient.
+            ("doc_id", "keyword")
         ]
 
         for field, field_type in indices:
@@ -127,7 +150,7 @@ class QdrantLoader:
             })
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with self._client(60.0) as client:
                 # Upsert in batches
                 batch_size = settings.batch_size
                 for i in range(0, len(points), batch_size):
@@ -195,7 +218,7 @@ class QdrantLoader:
                 query_filter = filters
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._client(30.0) as client:
                 body = {
                     "vector": vector,
                     "limit": limit,
@@ -223,7 +246,7 @@ class QdrantLoader:
     async def delete_by_user(self, user_id: str) -> bool:
         """Delete all vectors for a user."""
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with self._client(60.0) as client:
                 response = await client.post(
                     f"{self.base_url}/collections/{self.collection}/points/delete",
                     json={
@@ -242,10 +265,115 @@ class QdrantLoader:
             logger.error(f"Error deleting user vectors: {e}")
             return False
 
+    async def delete_document_vectors(
+        self,
+        doc_id: str,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Delete all vectors belonging to a single source document.
+
+        REUSE-3: removes exactly the points whose payload carries this
+        ``doc_id`` via Qdrant's filter-based delete, leaving every other
+        document's points untouched. No collection rebuild, no scan of
+        unrelated points.
+
+        Args:
+            doc_id: Stable document id (see ``parsers.base.derive_doc_id``).
+            user_id: Optional extra constraint, so a document delete can be
+                scoped to one user even if a doc_id were ever shared.
+
+        Returns:
+            True on success.
+        """
+        if not doc_id:
+            logger.warning("delete_document_vectors called with empty doc_id; refusing")
+            return False
+
+        must = [{"key": "doc_id", "match": {"value": doc_id}}]
+        if user_id:
+            must.append({"key": "user_id", "match": {"value": user_id}})
+
+        try:
+            async with self._client(60.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/collections/{self.collection}/points/delete",
+                    json={"filter": {"must": must}},
+                )
+                if response.status_code in (200, 201):
+                    logger.info(f"Deleted vectors for document {doc_id}")
+                    return True
+                logger.error(f"Failed to delete document {doc_id}: {response.text}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error deleting document vectors: {e}")
+            return False
+
+    async def replace_document_vectors(
+        self,
+        doc_id: str,
+        vectors: List[List[float]],
+        payloads: List[Dict[str, Any]],
+        ids: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """Atomically* replace a document's vectors: delete-then-upsert.
+
+        Idempotent re-ingest path: removes the document's existing points and
+        upserts the freshly parsed ones. Running it twice with the same input
+        leaves the collection in the same state (the delete clears any prior
+        copy; the new ids are deterministic per preference). The whole
+        collection is never rebuilt -- only this document's points move.
+
+        ``doc_id`` is stamped into every payload here (overwriting any stale
+        value) so the new points are themselves deletable/replaceable later.
+
+        *Qdrant has no cross-operation transaction; delete and upsert are two
+        calls. If the upsert fails after the delete, the function returns
+        False and the document is left empty -- a subsequent re-ingest restores
+        it. This is the same failure posture as a fresh ingest.
+
+        Args:
+            doc_id: Stable document id.
+            vectors: New embedding vectors.
+            payloads: New payloads (doc_id is force-set on each).
+            ids: Optional point ids (generated if absent).
+            user_id: Optional scope for the delete (see delete_document_vectors).
+
+        Returns:
+            True if both delete and upsert succeeded.
+        """
+        if not doc_id:
+            logger.warning("replace_document_vectors called with empty doc_id; refusing")
+            return False
+        if len(vectors) != len(payloads):
+            raise ValueError("Vectors and payloads must have same length")
+
+        # Force the doc_id onto every payload so the replacement points carry
+        # the same document identity (callers can't accidentally orphan them).
+        stamped = []
+        for payload in payloads:
+            p = dict(payload)
+            p["doc_id"] = doc_id
+            stamped.append(p)
+
+        deleted = await self.delete_document_vectors(doc_id, user_id=user_id)
+        if not deleted:
+            logger.error(f"Aborting replace: delete failed for document {doc_id}")
+            return False
+
+        upserted = await self.upsert_vectors(vectors=vectors, payloads=stamped, ids=ids)
+        if not upserted:
+            logger.error(f"Replace upsert failed for document {doc_id}; document left empty")
+            return False
+
+        logger.info(f"Replaced {len(vectors)} vectors for document {doc_id}")
+        return True
+
     async def count(self, user_id: Optional[str] = None) -> int:
         """Count vectors in collection."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with self._client(10.0) as client:
                 if user_id:
                     response = await client.post(
                         f"{self.base_url}/collections/{self.collection}/points/count",
@@ -275,7 +403,7 @@ class QdrantLoader:
     async def health_check(self) -> bool:
         """Check if Qdrant is healthy."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with self._client(5.0) as client:
                 response = await client.get(f"{self.base_url}/healthz")
                 return response.status_code == 200
         except Exception:
@@ -305,7 +433,7 @@ class QdrantLoader:
         offset = None
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with self._client(60.0) as client:
                 while True:
                     body = {
                         "filter": {

@@ -14,6 +14,7 @@ from .filters import PreferenceFilter
 from .parsers import (
     BaseParser,
     ParsedPreference,
+    derive_doc_id,
     CSVParser,
     GoogleTakeoutParser,
     SpotifyParser,
@@ -35,7 +36,8 @@ from .parsers import (
     NetflixParser,
     AppleTVParser,
     EmailParser,
-    FoursquareParser
+    FoursquareParser,
+    ContentPreferenceParser
 )
 from .rml import RMLMapper
 
@@ -83,6 +85,11 @@ class IngestPipeline:
             DisneyPlusParser(),
             WhatsAppParser(),
             DiscordParser(),
+            # Content preference extractor: stated tastes from conversation
+            # transcripts (*.txt named conversation/transcript/chat/...).
+            # Before MetaParser/CSV so a transcript .txt is read as stated
+            # tastes, not swept up by a generic fallback.
+            ContentPreferenceParser(),
             MetaParser(),
             CSVParser(),  # CSV last as fallback
         ]
@@ -192,11 +199,17 @@ class IngestPipeline:
         try:
             filtered_count = 0
             date_excluded_count = 0
+            doc_id = derive_doc_id(parser.source_name, str(file_path))
             async for pref in parser.parse(
                 file_path,
                 default_compartment=compartment_level or settings.default_compartment,
                 default_category=category
             ):
+                # Stamp the source-document id so every point from this file
+                # shares it, enabling per-document delete/replace in Qdrant.
+                if pref.doc_id is None:
+                    pref.doc_id = doc_id
+
                 # Check date range exclusions first
                 if settings.is_date_excluded(pref.source, pref.observed_at):
                     date_excluded_count += 1
@@ -283,7 +296,6 @@ class IngestPipeline:
             "preferences_created": 0,
             "preferences_filtered": 0,
             "preferences_date_excluded": 0,
-            "preferences_capped": 0,
             "triples_inserted": 0,
             "vectors_inserted": 0,
             "errors": [],
@@ -311,14 +323,19 @@ class IngestPipeline:
         # Phase 1: Parse all preferences, accumulate in filter
         logger.info("Phase 1: Parsing file for frequency aggregation...")
         low_value_filtered = 0
-        dropped_category = 0
         date_excluded = 0
 
         try:
+            doc_id = derive_doc_id(parser.source_name, str(file_path))
             async for pref in parser.parse(
                 file_path,
                 default_compartment=compartment_level or settings.default_compartment
             ):
+                # Stamp the source-document id (first document wins under
+                # cross-document frequency aggregation).
+                if pref.doc_id is None:
+                    pref.doc_id = doc_id
+
                 # Check date range exclusions first
                 if settings.is_date_excluded(pref.source, pref.observed_at):
                     date_excluded += 1
@@ -327,12 +344,6 @@ class IngestPipeline:
                 # Filter checks low-value and tracks frequency
                 if self.filter.is_low_value(pref):
                     low_value_filtered += 1
-                    continue
-
-                # Drop policy-noise categories (e.g. FB reaction-owner names).
-                # This path bypasses should_include, so the gate lives here too.
-                if self.filter.is_dropped_category(pref):
-                    dropped_category += 1
                     continue
 
                 # is_duplicate tracks frequency in aggregation mode
@@ -344,9 +355,7 @@ class IngestPipeline:
 
         # Get aggregation stats
         filter_stats = self.filter.get_stats()
-        result["preferences_filtered"] = (
-            low_value_filtered + dropped_category + filter_stats.get("aggregated_count", 0)
-        )
+        result["preferences_filtered"] = low_value_filtered + filter_stats.get("aggregated_count", 0)
         result["preferences_date_excluded"] = date_excluded
         result["frequency_stats"] = filter_stats.get("frequency_distribution")
 
@@ -358,12 +367,6 @@ class IngestPipeline:
         else:
             aggregated_prefs = self.filter.get_aggregated_preferences()
             logger.info(f"Phase 2: Inserting {filter_stats['unique_preferences']} unique preferences with frequency data...")
-
-        # Per-source priority cap: stop one noisy export from crowding out
-        # high-signal preferences from every other source. Trimmed rows are
-        # logged (no silent truncation) -- see PreferenceFilter.cap_by_source.
-        aggregated_prefs, capped_log = self.filter.cap_by_source(aggregated_prefs)
-        result["preferences_capped"] = len(capped_log)
 
         batch_size = 32
         for i in range(0, len(aggregated_prefs), batch_size):
@@ -378,8 +381,7 @@ class IngestPipeline:
 
         logger.info(
             f"Aggregated ingestion complete: {result['preferences_created']} preferences, "
-            f"{result['preferences_filtered']} filtered, {result['preferences_capped']} source-capped, "
-            f"{result['preferences_date_excluded']} date-excluded, "
+            f"{result['preferences_filtered']} filtered, {result['preferences_date_excluded']} date-excluded, "
             f"{result['duration_seconds']:.1f}s"
         )
         logger.info(f"Frequency distribution: {result['frequency_stats']}")
@@ -427,7 +429,6 @@ class IngestPipeline:
             "total_preferences": 0,
             "total_filtered": 0,
             "total_date_excluded": 0,
-            "total_capped": 0,
             "total_triples": 0,
             "total_vectors": 0,
             "file_results": [],
@@ -499,7 +500,6 @@ class IngestPipeline:
         # Phase 1: Parse all files, accumulate in filter
         logger.info(f"Phase 1: Parsing {len(files)} files for frequency aggregation...")
         low_value_filtered = 0
-        dropped_category = 0
         date_excluded = 0
 
         for file_path in files:
@@ -527,12 +527,6 @@ class IngestPipeline:
                         low_value_filtered += 1
                         continue
 
-                    # Drop policy-noise categories (e.g. FB reaction-owner names).
-                    # This path bypasses should_include, so the gate lives here too.
-                    if self.filter.is_dropped_category(pref):
-                        dropped_category += 1
-                        continue
-
                     # is_duplicate now tracks frequency in aggregation mode
                     self.filter.is_duplicate(pref)
 
@@ -542,9 +536,7 @@ class IngestPipeline:
 
         # Get aggregation stats
         filter_stats = self.filter.get_stats()
-        result["total_filtered"] = (
-            low_value_filtered + dropped_category + filter_stats.get("aggregated_count", 0)
-        )
+        result["total_filtered"] = low_value_filtered + filter_stats.get("aggregated_count", 0)
         result["total_date_excluded"] = date_excluded
         result["frequency_stats"] = filter_stats.get("frequency_distribution")
 
@@ -556,12 +548,6 @@ class IngestPipeline:
         else:
             aggregated_prefs = self.filter.get_aggregated_preferences()
             logger.info(f"Phase 2: Inserting {filter_stats['unique_preferences']} unique preferences with frequency data...")
-
-        # Per-source priority cap (see ingest_file_with_aggregation). This is the
-        # path the installer takes (ingest_directory -> aggregation), so the cap
-        # protects a real day-one import where one export dwarfs the rest.
-        aggregated_prefs, capped_log = self.filter.cap_by_source(aggregated_prefs)
-        result["total_capped"] = len(capped_log)
 
         batch_size = 32
 
@@ -576,8 +562,7 @@ class IngestPipeline:
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(
             f"Aggregated ingestion complete: {result['total_preferences']} preferences, "
-            f"{result['total_filtered']} filtered, {result['total_capped']} source-capped, "
-            f"{result['total_date_excluded']} date-excluded, {duration:.1f}s"
+            f"{result['total_filtered']} filtered, {result['total_date_excluded']} date-excluded, {duration:.1f}s"
         )
         logger.info(f"Frequency distribution: {result['frequency_stats']}")
 

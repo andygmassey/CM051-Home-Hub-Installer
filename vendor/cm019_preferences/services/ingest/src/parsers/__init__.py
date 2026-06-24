@@ -1,6 +1,6 @@
 """Data source parsers."""
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, derive_doc_id
 from .csv_parser import CSVParser
 from .google_takeout import GoogleTakeoutParser
 from .spotify import SpotifyParser
@@ -23,10 +23,12 @@ from .netflix import NetflixParser
 from .appletv import AppleTVParser
 from .email import EmailParser
 from .foursquare import FoursquareParser
+from .content_preferences import ContentPreferenceParser, extract_preferences
 
 __all__ = [
     "BaseParser",
     "ParsedPreference",
+    "derive_doc_id",
     "CSVParser",
     "GoogleTakeoutParser",
     "SpotifyParser",
@@ -48,5 +50,7 @@ __all__ = [
     "NetflixParser",
     "AppleTVParser",
     "EmailParser",
-    "FoursquareParser"
+    "FoursquareParser",
+    "ContentPreferenceParser",
+    "extract_preferences"
 ]

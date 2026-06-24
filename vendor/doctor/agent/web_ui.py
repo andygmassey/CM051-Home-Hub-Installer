@@ -22,12 +22,15 @@ fix issues).
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
+import re
 import urllib.parse
 from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -219,6 +222,8 @@ from web_ui_copy import (
     REPORT_HOST_OS_LABEL,
     REPORT_NOTES_PLACEHOLDER,
     REPORT_OLLAMA_LABEL,
+    REPORT_REDACTED_BANNER,
+    REPORT_REDACTED_PLACEHOLDER,
     REPORT_SECTION_CONTAINERS,
     REPORT_SECTION_DISK,
     REPORT_SECTION_FINDINGS,
@@ -628,6 +633,248 @@ def _build_mailto(report: str, version: str = "1.0.0") -> str:
         quote_via=urllib.parse.quote,
     )
     return f"mailto:{SUPPORT_EMAIL}?{params}"
+
+
+# ── On-device report redaction ───────────────────────────────────────
+#
+# The raw report is already low-PII by design: ``_format_report`` builds
+# from ``status_collector``'s safe snapshot and deliberately omits the
+# hostname. The one realistic leak vector is free-text inside findings:
+# disk mount points and suggested ``fix_command`` lines can carry
+# ``/Users/<username>/...`` paths, and a misbehaving service URL could
+# surface an email or IP. ``_redact_report`` does a deterministic,
+# offline scrub of exactly those classes.
+
+# Standard email and IPv4 patterns.
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_IPV4_RE = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
+)
+
+
+def _home_username() -> str | None:
+    """Best-effort current username for home-path redaction.
+
+    Tries ``getpass.getuser`` first, then the basename of ``Path.home``.
+    Returns ``None`` if neither yields a usable value, in which case the
+    home-path scrub falls back to the generic ``/Users/<name>`` pattern.
+    """
+    try:
+        user = getpass.getuser()
+        if user:
+            return user
+    except Exception:
+        pass
+    try:
+        name = Path.home().name
+        return name or None
+    except Exception:
+        return None
+
+
+def _redact_report(report: str) -> str:
+    """Return *report* with identifying details removed, on-device.
+
+    Scrubs, in order: the operator's own home path (``/Users/<me>`` and
+    ``/home/<me>``), any other ``/Users/<x>`` or ``/home/<x>`` path
+    segment, email addresses and IPv4 addresses. A banner is prepended
+    so the recipient knows the report was redacted.
+    """
+    placeholder = REPORT_REDACTED_PLACEHOLDER
+    redacted = report
+
+    user = _home_username()
+    if user:
+        # Exact home paths for the current operator first.
+        for root in ("/Users/", "/home/"):
+            redacted = redacted.replace(
+                f"{root}{user}", f"{root}{placeholder}"
+            )
+
+    # Any remaining home-dir usernames (other accounts, sudo paths).
+    redacted = re.sub(
+        r"(/Users/|/home/)[^/\s\"']+",
+        lambda m: f"{m.group(1)}{placeholder}",
+        redacted,
+    )
+
+    redacted = _EMAIL_RE.sub(placeholder, redacted)
+    redacted = _IPV4_RE.sub(placeholder, redacted)
+
+    return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
+
+
+# ── Diagnostics run (the "Run diagnostics" / send-to-Support core) ───
+#
+# Single fail-soft entry point shared by every action that needs the
+# diagnostic bundle: the dashboard "Copy diagnostics", "Copy redacted"
+# and "Send by Email" buttons, and any external "Run diagnostics" /
+# "send to Support" caller.
+#
+# Why fail-soft matters here: the dashboard fetches this over HTTP and a
+# raised handler returns a 500, which the browser surfaces as a bare
+# "Load failed" with no diagnostic data to send. On a fresh install some
+# probes (Docker, Ollama, half-open service sockets) can behave in ways
+# the rules engine was not exercised against, so a single rogue raise
+# anywhere in collection must not blank the whole panel. Each stage is
+# isolated; a failure degrades that one section and still yields a
+# well-formed, non-empty bundle the Support flow can use.
+
+# Doctor's own log files, written by the launchd job
+# (``StandardOutPath``/``StandardErrorPath`` -> ``~/.ostler/logs``).
+# Tailing the last few lines of these is the single most useful thing a
+# support request can carry, and it is on-device and low-PII.
+_LOG_TAIL_LINES = 40
+_LOG_FILENAMES = ("doctor.log", "doctor.err")
+
+
+def _ostler_logs_dir() -> Path:
+    """Resolve Doctor's log directory.
+
+    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
+    ``OSTLER_DIR=~/.ostler`` and points the launchd job's logs at
+    ``${OSTLER_DIR}/logs``); falls back to ``~/.ostler/logs``.
+    """
+    override = os.environ.get("OSTLER_LOGS_DIR")
+    if override:
+        return Path(override)
+    base = os.environ.get("OSTLER_DIR")
+    if base:
+        return Path(base) / "logs"
+    return Path.home() / ".ostler" / "logs"
+
+
+def _tail_log(path: Path, lines: int = _LOG_TAIL_LINES) -> str:
+    """Return the last *lines* lines of *path*, or an empty string.
+
+    Never raises: a missing or unreadable log is normal on a fresh
+    install and must not break the diagnostics bundle.
+    """
+    try:
+        if not path.is_file():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    tail = text.splitlines()[-lines:]
+    return "\n".join(tail)
+
+
+def _collect_log_tails() -> dict:
+    """Tail Doctor's own logs. Always returns a dict (possibly empty)."""
+    logs_dir = _ostler_logs_dir()
+    tails: dict[str, str] = {}
+    for name in _LOG_FILENAMES:
+        tail = _tail_log(logs_dir / name)
+        if tail:
+            tails[name] = tail
+    return tails
+
+
+def _run_diagnostics() -> dict:
+    """Gather the full diagnostic bundle, fail-soft.
+
+    Returns a well-formed, non-empty dict even when individual stages
+    fail. Keys:
+
+    - ``snapshot``        : JSON snapshot (service health, versions, disk)
+    - ``findings``        : deduplicated rule findings
+    - ``report``          : the human-readable report (raw)
+    - ``report_redacted`` : the same report, PII scrubbed on-device
+    - ``mailto``          : pre-filled support mailto: URL
+    - ``logs``            : last lines of Doctor's own log files
+    - ``errors``          : per-stage failures (empty when all is well)
+    """
+    errors: dict[str, str] = {}
+
+    # 1. Snapshot. The one stage we cannot meaningfully degrade past, but
+    #    still guard so a probe blow-up does not 500 the endpoint.
+    try:
+        snapshot = collect_full_snapshot()
+    except Exception as exc:  # pragma: no cover - defensive
+        errors["snapshot"] = f"{type(exc).__name__}: {exc}"
+        snapshot = _degraded_snapshot()
+
+    # 2. Findings from both rule sets, deduplicated by title.
+    findings: list[dict] = []
+    try:
+        findings = run_all_rules(snapshot) + run_local_diagnostics(snapshot)
+        seen: set = set()
+        findings = [
+            f for f in findings
+            if f.get("title") not in seen and not seen.add(f.get("title"))
+        ]
+    except Exception as exc:
+        errors["findings"] = f"{type(exc).__name__}: {exc}"
+        findings = []
+
+    # 3. Snapshot dict for JSON consumers.
+    try:
+        snap_dict = _snapshot_to_dict(snapshot)
+    except Exception as exc:  # pragma: no cover - defensive
+        errors["snapshot_dict"] = f"{type(exc).__name__}: {exc}"
+        snap_dict = {}
+
+    # Record history best-effort; never let it break the run.
+    try:
+        _record_snapshot(snapshot, findings)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    # 4. Human-readable report (raw + redacted).
+    try:
+        report = _format_report(snapshot, findings)
+    except Exception as exc:
+        errors["report"] = f"{type(exc).__name__}: {exc}"
+        report = REPORT_HEADER
+    try:
+        report_redacted = _redact_report(report)
+    except Exception as exc:
+        errors["report_redacted"] = f"{type(exc).__name__}: {exc}"
+        report_redacted = report
+
+    # 5. Support mailto: URL.
+    try:
+        mailto = _build_mailto(report)
+    except Exception as exc:
+        errors["mailto"] = f"{type(exc).__name__}: {exc}"
+        mailto = f"mailto:{SUPPORT_EMAIL}"
+
+    # 6. Log tails (already fail-soft internally).
+    logs = _collect_log_tails()
+
+    return {
+        "snapshot": snap_dict,
+        "findings": findings,
+        "report": report,
+        # ``report_preview`` retained for older callers that read it.
+        "report_preview": report,
+        "report_redacted": report_redacted,
+        "mailto": mailto,
+        "logs": logs,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "errors": errors,
+    }
+
+
+def _degraded_snapshot() -> SystemSnapshot:
+    """A minimal valid snapshot for when collection itself failed.
+
+    Keeps the report/rules path working so the user still gets a bundle
+    they can send, clearly marked as degraded via the ``errors`` field.
+    """
+    return SystemSnapshot(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        hostname="unknown",
+        os_version="unknown",
+        docker_containers=[],
+        ollama_models=[],
+        ollama_version=None,
+        disk_usage=[],
+        services=[],
+        network_checks=[],
+        docker_version=None,
+    )
 
 
 # ── HTML template ────────────────────────────────────────────────────
@@ -1711,17 +1958,16 @@ async def dashboard():
 
 @app.get("/doctor/api/status", response_class=JSONResponse)
 async def api_status():
-    """Return raw system status as JSON (for programmatic access)."""
-    snapshot = collect_full_snapshot()
-    findings = run_local_diagnostics(snapshot)
-    findings.extend(run_all_rules(snapshot))
-    seen = set()
-    findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
-    _record_snapshot(snapshot, findings)
-    snap_dict = _snapshot_to_dict(snapshot)
+    """Return raw system status as JSON (for programmatic access).
+
+    Powers the dashboard's 10s auto-refresh. Uses the same fail-soft
+    diagnostics core so a transient probe failure degrades a section
+    rather than 500-ing the poll and freezing the dashboard.
+    """
+    bundle = _run_diagnostics()
     return {
-        "snapshot": snap_dict,
-        "findings": findings,
+        "snapshot": bundle["snapshot"],
+        "findings": bundle["findings"],
     }
 
 
@@ -1734,14 +1980,28 @@ async def api_email_report():
     with a pre-filled subject and body. The user reviews the content
     and chooses whether to send. Nothing is sent automatically and
     nothing leaves the machine without the user's action.
+
+    Shares the fail-soft :func:`_run_diagnostics` core with
+    ``/doctor/api/diagnostics`` so every action that needs the report
+    has one source of truth and can never blank the panel with a 500.
+    The response is a superset of the historical shape (``mailto``,
+    ``report``, ``report_preview``, ``report_redacted``) so the existing
+    dashboard JavaScript keeps working unchanged.
     """
-    snapshot = collect_full_snapshot()
-    findings = run_all_rules(snapshot) + run_local_diagnostics(snapshot)
-    seen = set()
-    findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
-    report = _format_report(snapshot, findings)
-    mailto = _build_mailto(report)
-    return {"mailto": mailto, "report_preview": report}
+    return _run_diagnostics()
+
+
+@app.get("/doctor/api/diagnostics", response_class=JSONResponse)
+async def api_diagnostics():
+    """Run diagnostics and return the full bundle.
+
+    The canonical "Run diagnostics" / "send to Support" endpoint. Returns
+    a well-formed, non-empty bundle (snapshot, findings, report, redacted
+    report, mailto, log tails) even when individual collection stages
+    fail, so the Support flow always has data to send. See
+    :func:`_run_diagnostics`.
+    """
+    return _run_diagnostics()
 
 
 @app.get("/doctor/history", response_class=HTMLResponse)
