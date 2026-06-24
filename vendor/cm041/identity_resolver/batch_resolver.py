@@ -49,6 +49,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # Detection weights
     "exact_name_confidence": 0.9,
     "email_match_confidence": 1.0,
+    # Shared LinkedIn profile URL is an exact identifier (RULE 1): always merge.
+    "linkedin_url_match_confidence": 1.0,
     "phone_match_confidence": 0.95,
     "phone_name_mismatch_confidence": 0.6,  # shared phone but very different names
     "email_name_mismatch_confidence": 0.7,  # shared email but very different names (inherited/shared account)
@@ -401,6 +403,111 @@ def _build_surname_holder_counts(
         if surname and given:
             by_surname[surname].add(given)
     return {surname: len(givens) for surname, givens in by_surname.items()}
+
+
+def _normalise_linkedin_url(url: str) -> str:
+    """Canonicalise a LinkedIn profile URL so trivial spelling variants of the
+    SAME profile collapse, while genuinely different profiles stay distinct.
+
+    LinkedIn writes the same person's profile in several harmless forms across
+    a connections export, a re-export, and a messages export:
+      - http vs https, with or without www.,
+      - a trailing slash,
+      - a tracking query string (``?originalSubdomain=...``),
+      - upper/lower-case host (the path slug after ``/in/`` is case-sensitive
+        on LinkedIn so we never fold the slug itself).
+
+    We fold ONLY those host/scheme/trailing variations, never the ``/in/<slug>``
+    path, so two different people (two different slugs) can never collapse.
+    Returns the canonical key, or the stripped original if it does not look
+    like a LinkedIn profile URL (so non-LinkedIn values never accidentally
+    group together).
+    """
+    if not url:
+        return ""
+    s = url.strip()
+    # Drop any query string / fragment -- tracking params never identify a
+    # different profile.
+    for sep in ("?", "#"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    # Normalise scheme + host casing without touching the path slug.
+    low = s.lower()
+    for prefix in ("https://", "http://"):
+        if low.startswith(prefix):
+            s = s[len(prefix):]
+            low = low[len(prefix):]
+            break
+    if low.startswith("www."):
+        s = s[4:]
+        low = low[4:]
+    # Only fold the host segment (everything up to the first path slash) to
+    # lower-case; keep the path slug exactly as-is (case-sensitive on LinkedIn).
+    slash = s.find("/")
+    if slash >= 0:
+        s = s[:slash].lower() + s[slash:]
+    else:
+        s = s.lower()
+    # Collapse a single trailing slash.
+    s = s.rstrip("/")
+    return s
+
+
+def detect_linkedin_url_matches(
+    persons: Dict[str, PersonRecord], config: Dict[str, Any]
+) -> List[DuplicateMatch]:
+    """Strategy 2b: Shared LinkedIn profile URL (confidence 1.0).
+
+    A LinkedIn profile URL is an EXACT identifier: two nodes carrying the same
+    ``/in/<slug>`` are the same LinkedIn identity, so under the locked dedup
+    RULE 1 (a shared exact identifier always merges, ignoring names and source)
+    they collapse. This is the missing positive counterpart to the LinkedIn
+    branch of ``has_hard_conflict`` -- until now a shared LinkedIn URL was used
+    only as a *veto* signal (DIFFERENT urls => different people) and never as a
+    *merge* signal, so two nodes that share the identical url were invisible to
+    every batch strategy and survived forever.
+
+    This closes BUG-004 directly:
+      * Double LinkedIn import -- the connections importer writes the same
+        ``linkedin_url`` value on each pass, so a re-import that fails the
+        per-row resolve (no email/phone, fuzzy name below threshold) creates a
+        second node carrying the SAME url. They now merge here.
+      * Handle-split -- a person's connections node and their linkedin_messages
+        node share one profile url even when they carry different phones/emails
+        (which would otherwise VETO the exact-name strategy as "different
+        people"). The shared url is the opposite signal, so -- exactly like
+        ``detect_email_matches`` / ``detect_phone_matches`` -- this strategy
+        does NOT call ``has_hard_conflict``: a shared exact identifier wins.
+
+    Conservative by construction: keyed on the exact ``/in/<slug>`` path, which
+    two genuinely different people never share, so it can never over-merge.
+    """
+    url_index: Dict[str, List[str]] = defaultdict(list)
+    for uri, p in persons.items():
+        seen_keys: Set[str] = set()
+        for raw_url in p.linkedin_urls:
+            key = _normalise_linkedin_url(raw_url)
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                url_index[key].append(uri)
+
+    confidence = config.get("linkedin_url_match_confidence", 1.0)
+    matches = []
+    for key, uris in url_index.items():
+        if len(uris) < 2:
+            continue
+        for i in range(len(uris)):
+            for j in range(i + 1, len(uris)):
+                matches.append(DuplicateMatch(
+                    uri_a=uris[i],
+                    name_a=persons[uris[i]].display_name,
+                    uri_b=uris[j],
+                    name_b=persons[uris[j]].display_name,
+                    confidence=confidence,
+                    strategy="linkedin_url_match",
+                    details=f"Shared LinkedIn profile URL: {key}",
+                ))
+    return matches
 
 
 def detect_fuzzy_name_matches(
@@ -918,8 +1025,8 @@ def _merge_oxigraph(
 
     # 8. Collapse accumulated displayName values on the kept node to ONE
     #    canonical value. Step 5 copies every displayName off the discard when
-    #    keep has none, so without this a merge leaves several (e.g.
-    #    a display name + "root" + an email). Pick one.
+    #    keep has none, so without this a merge leaves several (e.g. a real
+    #    Contacts name plus a unix login plus a bare email). Pick one.
     _canonicalise_display_name_oxigraph(url, client, keep_uri)
 
     logger.info("Oxigraph merge: %s → %s", discard_uri, keep_uri)
@@ -1055,6 +1162,7 @@ class BatchResolver:
         all_matches: List[DuplicateMatch] = []
         all_matches.extend(detect_exact_name_matches(persons, self.config))
         all_matches.extend(detect_email_matches(persons, self.config))
+        all_matches.extend(detect_linkedin_url_matches(persons, self.config))
         all_matches.extend(detect_phone_matches(persons, self.config))
         all_matches.extend(detect_fuzzy_name_matches(persons, self.config))
         all_matches.extend(detect_name_subset_matches(persons, self.config))
