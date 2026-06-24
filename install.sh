@@ -6969,12 +6969,20 @@ TOMLPREAMBLE
     # new customers default-fail-loud so any regression surfaces
     # in Doctor immediately.
     #
-    # Prompt copy is plain prose, British English, deliberately
-    # short. The agent runtime prepends a memory-recall context
-    # block (zeroclaw-runtime/src/cron/scheduler.rs::run_agent_job),
-    # so we do not have to spell out "look at yesterday's data"
-    # twice. Customers can edit the prompt after install by hand
-    # in ${OSTLER_DIR}/assistant-config/config.toml.
+    # Prompt copy is headline-led, British English, deliberately
+    # short. BUG-029: the brief must LEAD with the proactive headline
+    # (reply debt, people gone quiet, upcoming key dates / commitments
+    # owed) before any narrative, mirroring the deterministic headline
+    # in ostler-assistant brief::headline::compose_headline (oa#165).
+    # That structure used to fire only on the fallback path when the
+    # agent generation failed; on a healthy box the agent succeeded
+    # with the OLD generic prompt and the headline was bypassed, so a
+    # customer saw flat prose. The success-path prompt now asks for the
+    # same headline structure directly. The agent runtime prepends a
+    # memory-recall context block (zeroclaw-runtime/src/cron/
+    # scheduler.rs::run_agent_job), so we do not spell out
+    # "look at yesterday's data" twice. Customers can edit the prompt
+    # after install by hand in ${OSTLER_DIR}/assistant-config/config.toml.
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && -n "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
         # Pick the first allowed contact as the brief recipient.
         # The allowed_contacts list is comma-separated; trim
@@ -6984,8 +6992,8 @@ TOMLPREAMBLE
         _imsg_brief_recipient="${_imsg_brief_recipient% }"
         _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
-        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
+        _morning_prompt="You are the user's personal assistant writing a proactive morning brief for delivery as a short message. LEAD with a headline of what needs the user today, most important first, before any narrative. Open with the line: What needs you today: then list, in this priority order, only the items that actually apply: 1) reply debt - people awaiting the user's reply; 2) people who have gone quiet and are worth reconnecting with; 3) upcoming key dates - birthdays, anniversaries and any commitments the user owes that are due soon. Put each headline item on its own short line beginning with a dash. After the headline, add at most two short sentences of narrative on anything else notable from yesterday's conversations, meetings and emails. If nothing needs the user and yesterday was quiet, skip the headline and say so warmly in one sentence without padding. Use real names and counts from the data; never invent items. British English. Plain text only, no markdown formatting characters beyond the leading dash on headline lines. Output only the brief itself."
+        _evening_prompt="You are the user's personal assistant writing a proactive evening wrap for delivery as a short message. LEAD with a headline of what still needs the user, most important first, before any narrative. Open with the line: What needs you today: then list, in this priority order, only the items that actually apply: 1) reply debt - people awaiting the user's reply; 2) people who have gone quiet and are worth reconnecting with; 3) upcoming key dates - birthdays, anniversaries and any commitments the user owes that are due soon. Put each headline item on its own short line beginning with a dash. After the headline, add at most two short sentences reflecting on anything else notable from today's conversations, meetings and emails. If nothing needs the user and today was quiet, skip the headline and say so warmly in one sentence without padding. Use real names and counts from the data; never invent items. British English. Plain text only, no markdown formatting characters beyond the leading dash on headline lines. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
         echo
