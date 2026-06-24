@@ -49,7 +49,7 @@ TEAM_ID       := V95N2B8X7A
 CODESIGN_ID   := Developer ID Application: Creative Machines Limited ($(TEAM_ID))
 EXPORT_OPTS   := ExportOptions.plist
 
-NOTARY_PROFILE ?= ostler-installer
+NOTARY_PROFILE ?= ostler-notary
 ARCHIVE_DIR    ?= $(HOME)/.ostler-release-artefacts
 
 # OSTLER_APP_PATH points at a pre-built Ostler.app (Tauri Hub desktop) that
