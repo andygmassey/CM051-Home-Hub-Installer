@@ -62,6 +62,23 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "name_org_auto_merge_confidence": 0.85,
     "name_org_auto_merge_jw_threshold": 0.93,
     "name_subset_confidence": 0.5,
+    # Rare-full-name auto-merge (2026-06-24, v1.0.3): a full-name match
+    # (given AND family both present and equal) on a RARE surname is
+    # overwhelmingly the same person even when their organisations differ.
+    # The golden case: same full name, one node from LinkedIn (one industry,
+    # blank email), one node from another source, no shared identifier,
+    # different orgs, so name+org auto-merge never fires and they stay split.
+    # GUARD: it fires ONLY when the shared surname is held by no more than
+    # rare_surname_max_holders distinct people in the whole graph, so common
+    # surnames (Chan, Smith, Wong, Bailey) never auto-merge on name alone --
+    # those stay split unless a shared identifier proves them the same. The
+    # hard-conflict veto (distinct LinkedIn/phone/corporate email) is checked
+    # BEFORE this boost, so two genuinely different people who share a common
+    # name but carry distinct LinkedIn URLs are never reached.
+    "rare_name_auto_merge_confidence": 0.85,
+    "rare_name_auto_merge_jw_threshold": 0.90,
+    "rare_surname_max_holders": 2,
+    "rare_surname_min_length": 3,
     # Fuzzy thresholds
     "fuzzy_jaro_winkler_threshold": 0.85,
     "fuzzy_levenshtein_max_distance": 2,
@@ -333,6 +350,59 @@ def detect_phone_matches(
     return matches
 
 
+def _surname_of(p: PersonRecord) -> str:
+    """Best-effort normalised surname for a person.
+
+    Prefers the explicit ``familyName`` field; falls back to the last token of
+    the normalised display name when that field is blank (common for
+    LinkedIn-/social-sourced nodes that only carry a display name). Returns ""
+    when no surname can be determined (single-token names), which disqualifies
+    the record from the rare-name boost.
+    """
+    if p.family_name and p.family_name.strip():
+        return _normalise_name(p.family_name)
+    norm = _normalise_name(p.display_name)
+    parts = norm.split()
+    return parts[-1] if len(parts) >= 2 else ""
+
+
+def _given_of(p: PersonRecord) -> str:
+    """Best-effort normalised given name (mirror of _surname_of)."""
+    if p.given_name and p.given_name.strip():
+        return _normalise_name(p.given_name)
+    norm = _normalise_name(p.display_name)
+    parts = norm.split()
+    return parts[0] if len(parts) >= 2 else ""
+
+
+def _build_surname_holder_counts(
+    persons: Dict[str, PersonRecord]
+) -> Dict[str, int]:
+    """Count how many DISTINCT given names share each normalised surname.
+
+    Used to decide whether a surname is RARE enough that a full-name match on
+    it can auto-merge across differing organisations. A common surname (Chan,
+    Smith, Wong) is borne by many different given names, so a shared surname
+    there is not a same-person signal.
+
+    Counting DISTINCT GIVEN NAMES (not raw node count) is deliberate:
+      * two duplicate nodes for one person count as ONE holder (their single
+        given name), so the pair under test does not inflate its surname's
+        rarity;
+      * two relatives who share a surname count as TWO holders, which is the
+        correct distinct-people count and still well under the rare cap.
+    This keeps the rare gate measuring "how many different people wear this
+    surname", which is what makes a full-name collision conclusive.
+    """
+    by_surname: Dict[str, Set[str]] = defaultdict(set)
+    for p in persons.values():
+        surname = _surname_of(p)
+        given = _given_of(p)
+        if surname and given:
+            by_surname[surname].add(given)
+    return {surname: len(givens) for surname, givens in by_surname.items()}
+
+
 def detect_fuzzy_name_matches(
     persons: Dict[str, PersonRecord], config: Dict[str, Any]
 ) -> List[DuplicateMatch]:
@@ -353,6 +423,15 @@ def detect_fuzzy_name_matches(
     org_bonus = config["fuzzy_same_org_bonus"]
     domain_bonus = config["fuzzy_same_domain_bonus"]
     common_domains = config.get("common_email_domains", set())
+
+    # Surname-frequency index for the rare-full-name boost (see below). Built
+    # once over the whole graph so "rare" means rare across all known people,
+    # not just within this pair.
+    surname_holder_counts = _build_surname_holder_counts(persons)
+    rare_jw = config.get("rare_name_auto_merge_jw_threshold", 0.90)
+    rare_conf = config.get("rare_name_auto_merge_confidence", 0.85)
+    rare_max_holders = config.get("rare_surname_max_holders", 2)
+    rare_min_len = config.get("rare_surname_min_length", 3)
 
     for i in range(len(uris)):
         a = persons[uris[i]]
@@ -397,9 +476,36 @@ def detect_fuzzy_name_matches(
                 confidence += domain_bonus
                 reasons.append(f"shared email domain {next(iter(shared_domains))}")
 
+            # Rare-full-name eligibility (v1.0.3). A genuine FULL-NAME match
+            # (given AND family both present and equal) on a surname that is
+            # held by no more than rare_surname_max_holders people in the whole
+            # graph is overwhelmingly the same person, even across differing
+            # organisations. The golden case: a two-token full name
+            # (JW 0.914 vs the same given+family with a middle name) at
+            # different orgs with no shared identifier. The hard-conflict veto above has
+            # already eliminated pairs with a distinct LinkedIn/phone/corporate
+            # email, so the two real Stuart Baileys never reach this point.
+            surname_a = _surname_of(a)
+            surname_b = _surname_of(b)
+            given_a = _given_of(a)
+            given_b = _given_of(b)
+            rare_full_name_match = (
+                bool(surname_a) and surname_a == surname_b
+                and bool(given_a) and given_a == given_b
+                and len(surname_a) >= rare_min_len
+                and jw_score >= rare_jw
+                and surname_holder_counts.get(surname_a, 0) <= rare_max_holders
+            )
+
             # Require corroboration for JW in the 0.85-0.93 "danger zone" where
-            # shared first-name prefixes inflate scores artificially.
-            if jw_score < 0.93 and not same_org and not has_corporate_domain:
+            # shared first-name prefixes inflate scores artificially. A rare
+            # full-name match is its own corroboration (a rare surname shared by
+            # the same given name is not a prefix collision), so it bypasses the
+            # gate.
+            if (
+                jw_score < 0.93 and not same_org and not has_corporate_domain
+                and not rare_full_name_match
+            ):
                 continue
 
             # Name + org auto-merge (Andy 2026-06-10): a strong name match
@@ -413,6 +519,17 @@ def detect_fuzzy_name_matches(
             if same_org and jw_score >= config["name_org_auto_merge_jw_threshold"]:
                 confidence = max(confidence, config["name_org_auto_merge_confidence"])
                 reasons.append("name+org auto-merge")
+
+            # Rare-full-name auto-merge (v1.0.3): lift a rare full-name match
+            # over the auto-merge line even when orgs differ. Conservative by
+            # construction -- gated on surname rarity across the whole graph.
+            if rare_full_name_match:
+                confidence = max(confidence, rare_conf)
+                reasons.append(
+                    f"rare full-name auto-merge "
+                    f"(surname '{surname_a}' held by "
+                    f"{surname_holder_counts.get(surname_a, 0)})"
+                )
 
             detail_parts = [
                 f"Jaro-Winkler={jw_score:.3f}",
@@ -802,7 +919,7 @@ def _merge_oxigraph(
     # 8. Collapse accumulated displayName values on the kept node to ONE
     #    canonical value. Step 5 copies every displayName off the discard when
     #    keep has none, so without this a merge leaves several (e.g.
-    #    "Andrew Massey" + "root" + "me@..."). Pick one.
+    #    a display name + "root" + an email). Pick one.
     _canonicalise_display_name_oxigraph(url, client, keep_uri)
 
     logger.info("Oxigraph merge: %s → %s", discard_uri, keep_uri)
