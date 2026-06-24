@@ -1212,3 +1212,32 @@ MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="iCloud / CalDAV calendar bridge a
 # F9 - deferred-register-device script missing
 MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh not bundled with installer. Device-registration retry on next network is disabled."
 
+# ── Install-time data step (citations / Knowledge / conversations) ──
+# Phase 3.14d runs the producers for the three flagship wiki features at
+# install time (rather than waiting for the first background tick), so a
+# fresh install is not dark on day one. Counts only; no item content is
+# logged. See install.sh phase 3.14d.
+MSG_PROGRESS_DATA_STEP="Building your conversations, citations and knowledge"
+MSG_INFO_DATA_STEP_INTRO="One first pass over the data already on your Mac so these pages are populated straight away. Later additions are picked up automatically."
+
+# Knowledge (CM024 Evernote): convert any .enex export found, then embed.
+MSG_INFO_DATA_STEP_KNOWLEDGE_NO_EXPORT="No Evernote (.enex) export found on this Mac, so the Knowledge section starts empty. Drop an export in your Downloads folder and rebuild from Settings to populate it."
+MSG_INFO_DATA_STEP_KNOWLEDGE_CONVERTING="Found an Evernote export; converting %s note file(s) to your knowledge vault."
+MSG_OK_DATA_STEP_KNOWLEDGE_DONE="Knowledge ready: %s note(s) embedded for search."
+MSG_WARN_DATA_STEP_KNOWLEDGE_CONVERT_FAILED="Evernote export found but the convert step failed; the Knowledge section will stay empty. See the log for details."
+MSG_WARN_DATA_STEP_KNOWLEDGE_EMBED_FAILED="Evernote notes were converted but the embed step failed; the Knowledge section will stay empty. See the log for details."
+
+# Conversations + citations (iMessage body feed, one synchronous pass).
+MSG_INFO_DATA_STEP_CONV_NO_SOURCE="No readable iMessage history on this Mac, so the Conversations and citations pages start empty. They populate as new conversations arrive."
+MSG_INFO_DATA_STEP_CONV_RUNNING="Reading your recent iMessage conversations and summarising them; this can take a few minutes."
+MSG_OK_DATA_STEP_CONV_DONE="Conversation memory ready: %s conversation point(s), %s fact(s) for your wiki."
+MSG_WARN_DATA_STEP_CONV_FAILED="The conversation pass did not complete; the Conversations and citations pages will populate on the next background run instead. See the log for details."
+
+# Hard-fail (strict mode) when source data was present but a producer
+# yielded zero -- the render-without-data class of bug. Downgrade to a
+# warning with OSTLER_STRICT_DATA_STEP=0.
+MSG_FAIL_DATA_STEP_KNOWLEDGE_ZERO="An Evernote export was present but no notes were embedded (the Knowledge section would ship empty). Re-run, or set OSTLER_STRICT_DATA_STEP=0 to continue anyway."
+MSG_FAIL_DATA_STEP_CONV_ZERO="iMessage history was present but no conversation memory or facts were produced (the Conversations and citations pages would ship empty). Re-run, or set OSTLER_STRICT_DATA_STEP=0 to continue anyway."
+MSG_WARN_DATA_STEP_KNOWLEDGE_ZERO_NONSTRICT="An Evernote export was present but no notes were embedded; the Knowledge section will be empty until a rebuild succeeds."
+MSG_WARN_DATA_STEP_CONV_ZERO_NONSTRICT="iMessage history was present but no conversation memory or facts were produced; these pages will populate on the next background run."
+

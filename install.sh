@@ -11163,6 +11163,220 @@ if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECI
     _install_conversation_feed imessage services/imessage_source "pyyaml"
 fi
 
+# ── 3.14d Install-time DATA STEP (citations / Knowledge / conversations) ──
+#
+# The render-without-data fix (HR015 BUGS-023/024/028). The renderers for
+# three flagship wiki features ship and run, but on a fresh box the DATA
+# they read is empty because the install only SET UP the producers (the
+# CM024 CLI, the CM048 pipeline, the conversation-feed launchd ticks) and
+# never RAN them. So:
+#   - Citations    read pwg048 Facts (urn:pwg:Fact triples in Oxigraph),
+#   - Knowledge    reads the `evernote_knowledge` Qdrant collection,
+#   - Conversations / Open Commitments read the `conversations` collection,
+# all shipped at zero until a background tick eventually fired (hours, or
+# never if the feed kept yielding the shared Ollama slot).
+#
+# This phase runs ONE synchronous producer pass at install time for the
+# sources that are already on the Mac, then asserts the resulting count.
+# It is SOURCE-CONDITIONAL: a producer is only run when its source export
+# is present, and a zero count is only a hard failure when the source WAS
+# present (the genuine bug) -- never when the machine simply has no export
+# (the EMPTY-SOURCE case, which logs and continues).
+#
+# STRICT vs lenient: OSTLER_STRICT_DATA_STEP (default 1) makes a
+# present-source-but-zero-output a hard fail so the box-walk gate catches a
+# dead producer. Set OSTLER_STRICT_DATA_STEP=0 to downgrade to a warning
+# (parity with --allow-plaintext: a developer escape hatch, not the
+# customer default). Either way the rest of the install is never blocked by
+# the absence of source data.
+#
+# Skipped entirely on --allow-plaintext (the same CI/dev escape hatch the
+# CM048 setup honours) and when graph services are not up.
+_STRICT_DATA_STEP="${OSTLER_STRICT_DATA_STEP:-1}"
+_DATA_STEP_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_DATA_STEP_OXIGRAPH="${OXIGRAPH_URL:-http://localhost:7878}"
+
+# Counts-only Qdrant points reader. Echoes an integer (0 on any error) so
+# the caller never has to parse JSON inline. No item content is read.
+_data_step_qdrant_count() {
+    local _coll="$1"
+    curl -sf -m 8 "${_DATA_STEP_QDRANT}/collections/${_coll}" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(((d.get("result") or {}).get("points_count")) or 0))
+except Exception:
+    print(0)' 2>/dev/null || echo 0
+}
+
+# Counts-only SPARQL COUNT reader for pwg048 Facts (urn:pwg:Fact). Echoes
+# an integer (0 on any error). No fact content is read.
+_data_step_fact_count() {
+    curl -sf -m 8 -G "${_DATA_STEP_OXIGRAPH}/query" \
+        --data-urlencode 'query=SELECT (COUNT(?f) AS ?c) WHERE { ?f a <urn:pwg:Fact> }' \
+        -H 'Accept: application/sparql-results+json' 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int(b[0]["c"]["value"]) if b else 0)
+except Exception:
+    print(0)' 2>/dev/null || echo 0
+}
+
+# present-source-but-zero -> hard fail (strict) or loud warn (lenient).
+# True when strict mode is on (so the caller must hard-fail); false when the
+# operator opted out, so the caller warns instead. The ERR code stays a
+# LITERAL at each callsite (the test_every_fail_call_has_error_code guard
+# rejects a variable code), so this helper only decides strict-vs-lenient,
+# it never calls fail_with_code itself.
+_data_step_strict() {
+    [[ "$_STRICT_DATA_STEP" == "1" && "$ALLOW_PLAINTEXT" != "1" ]]
+}
+
+if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+    info "$MSG_INFO_DATA_STEP_INTRO"
+elif ! curl -sf -m 5 "${_DATA_STEP_QDRANT}/collections" >/dev/null 2>&1; then
+    # Graph services are not reachable (an earlier phase already warned).
+    # The producers cannot write anywhere, so skip rather than fail.
+    info "$MSG_INFO_DATA_STEP_INTRO"
+else
+    progress "$MSG_PROGRESS_DATA_STEP" "data_step"
+    info "$MSG_INFO_DATA_STEP_INTRO"
+
+    # ── 3.14d.1 Knowledge (CM024 Evernote convert -> embed) ─────────
+    # Source: any .enex export already on the Mac. We look in the same
+    # places the GDPR export detector uses (the confirmed EXPORTS_DIR and
+    # the customer's Downloads / Desktop), BOUNDED to .enex files so we
+    # never rglob unbounded trees (the CX-126 lesson). EMPTY-SOURCE (no
+    # .enex) logs and continues; a present export that yields zero embedded
+    # notes is the bug we hard-fail on.
+    _KN_VENV_PY="${KNOWLEDGE_VENV}/bin/python3"
+    _KN_STAGE="${KNOWLEDGE_STAGING_DIR:-${OSTLER_DIR}/data/knowledge-staging}"
+    _KN_VAULT="${_KN_STAGE}/vault"
+    _KN_DB="${_KN_STAGE}/metadata.db"
+    _KN_ENEX=()
+    if [[ -x "$_KN_VENV_PY" ]]; then
+        # Bounded search roots: the confirmed export dir first, then the two
+        # usual drop folders at depth 2 only (a Mac's Downloads can be huge).
+        _kn_roots=()
+        [[ -n "${EXPORTS_DIR:-}" && -d "${EXPORTS_DIR}" ]] && _kn_roots+=("$EXPORTS_DIR")
+        [[ -d "${HOME}/Downloads" ]] && _kn_roots+=("${HOME}/Downloads")
+        [[ -d "${HOME}/Desktop" ]] && _kn_roots+=("${HOME}/Desktop")
+        for _kn_root in "${_kn_roots[@]}"; do
+            while IFS= read -r _kn_f; do
+                [[ -n "$_kn_f" ]] && _KN_ENEX+=("$_kn_f")
+            done < <(find "$_kn_root" -maxdepth 2 -type f -iname '*.enex' 2>/dev/null)
+        done
+    fi
+
+    if [[ "${#_KN_ENEX[@]}" -eq 0 ]]; then
+        info "$MSG_INFO_DATA_STEP_KNOWLEDGE_NO_EXPORT"
+    elif [[ ! -x "$_KN_VENV_PY" ]]; then
+        # Producer never installed (warned in 3.13b); nothing to run.
+        warn "$MSG_WARN_DATA_STEP_KNOWLEDGE_CONVERT_FAILED"
+    else
+        info "$(printf "$MSG_INFO_DATA_STEP_KNOWLEDGE_CONVERTING" "${#_KN_ENEX[@]}")"
+        mkdir -p "$_KN_VAULT"
+        _KN_CONVERT_LOG=/tmp/ostler-data-step-knowledge-convert.log
+        _KN_EMBED_LOG=/tmp/ostler-data-step-knowledge-embed.log
+        # convert: classify privacy so the embed step can cap L3 out of the
+        # searchable collection (--max-compartment-level 2 below). LLM
+        # classification is left OFF here to keep the install-time pass off
+        # the shared Ollama slot for the heavier per-note calls; the
+        # embedder still uses nomic-embed-text, which is cheap.
+        if ( cd "$KNOWLEDGE_DIR" && "$_KN_VENV_PY" -m src.cli convert \
+                "${_KN_ENEX[@]}" -o "$_KN_VAULT" --classify --overwrite \
+                ) >"$_KN_CONVERT_LOG" 2>&1; then
+            if ( cd "$KNOWLEDGE_DIR" && \
+                    OSTLER_QDRANT_URL="$_DATA_STEP_QDRANT" \
+                    OSTLER_OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}" \
+                    "$_KN_VENV_PY" -m src.cli embed "$_KN_VAULT" \
+                        --db-path "$_KN_DB" \
+                        --collection evernote_knowledge \
+                        --embedding-model "${EMBED_MODEL:-nomic-embed-text}" \
+                        --max-compartment-level 2 \
+                    ) >"$_KN_EMBED_LOG" 2>&1; then
+                _KN_POINTS="$(_data_step_qdrant_count evernote_knowledge)"
+                _KN_POINTS="${_KN_POINTS:-0}"
+                if [[ "$_KN_POINTS" -gt 0 ]]; then
+                    ok "$(printf "$MSG_OK_DATA_STEP_KNOWLEDGE_DONE" "$_KN_POINTS")"
+                else
+                    [[ -s "$_KN_EMBED_LOG" ]] && sed -e 's/^/    /' "$_KN_EMBED_LOG" | tail -5
+                    if _data_step_strict; then
+                        fail_with_code "ERR-30-DATA-STEP-KNOWLEDGE" "$MSG_FAIL_DATA_STEP_KNOWLEDGE_ZERO"
+                    else
+                        warn "$MSG_WARN_DATA_STEP_KNOWLEDGE_ZERO_NONSTRICT"
+                    fi
+                fi
+            else
+                warn "$MSG_WARN_DATA_STEP_KNOWLEDGE_EMBED_FAILED"
+                [[ -s "$_KN_EMBED_LOG" ]] && sed -e 's/^/    /' "$_KN_EMBED_LOG" | tail -5
+            fi
+        else
+            warn "$MSG_WARN_DATA_STEP_KNOWLEDGE_CONVERT_FAILED"
+            [[ -s "$_KN_CONVERT_LOG" ]] && sed -e 's/^/    /' "$_KN_CONVERT_LOG" | tail -5
+        fi
+    fi
+
+    # ── 3.14d.2 Conversations + citations (iMessage one-shot pass) ──
+    # Source: ~/Library/Messages/chat.db with the third-party-data consent
+    # accepted (the SAME gate the iMessage body feed rides above). iMessage
+    # is the most common body source on a clean Mac, and one pass produces
+    # BOTH the `conversations` Qdrant points (Conversations / Open
+    # Commitments) AND the urn:pwg:Fact triples (citations) -- so it clears
+    # two of the three dark features in a single run. The feed's launchd
+    # agent still ticks for later messages; this is just the first drain so
+    # the wiki is not dark on day one.
+    #
+    # We run the EXACT module the tick wrapper runs, with the same env
+    # (PWG_CONVO_CMD -> the CM048 venv pwg-convo, OSTLER_USER_DISPLAY_NAME),
+    # but synchronously and OUTSIDE the feed's single-flight lock (no other
+    # feed runs during the installer, so there is no slot to contend for).
+    _CONV_IMSG_BASE="${OSTLER_DIR}/services/imessage-source"
+    _CONV_IMSG_PY="${_CONV_IMSG_BASE}/.venv/bin/python3"
+    _CONV_PWG="${CM048_VENV}/bin/pwg-convo"
+    [[ -x "$_CONV_PWG" ]] || _CONV_PWG="/usr/local/bin/pwg-convo"
+    if [[ ! -f "${HOME}/Library/Messages/chat.db" \
+          || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]]; then
+        info "$MSG_INFO_DATA_STEP_CONV_NO_SOURCE"
+    elif [[ ! -x "$_CONV_IMSG_PY" || ! -x "$_CONV_PWG" ]]; then
+        # The feed or the CM048 pipeline did not install; both warned above.
+        warn "$MSG_WARN_DATA_STEP_CONV_FAILED"
+    else
+        info "$MSG_INFO_DATA_STEP_CONV_RUNNING"
+        _CONV_LOG=/tmp/ostler-data-step-conversations.log
+        # --since-days 30 matches the feed's fresh-install clamp; bounded so
+        # the synchronous pass does not bundle the entire history at once.
+        if ( cd "$_CONV_IMSG_BASE" \
+                && PWG_CONVO_CMD="$_CONV_PWG" \
+                   OSTLER_USER_DISPLAY_NAME="${USER_NAME:-You}" \
+                   OSTLER_USER_ID="${USER_ID:-}" \
+                   OSTLER_INGEST_OFFPEAK_ONLY=0 \
+                   "$_CONV_IMSG_PY" -m services.imessage_source.pipeline \
+                       --user-name "${USER_NAME:-You}" --since-days 30 \
+                ) >"$_CONV_LOG" 2>&1; then
+            _CONV_POINTS="$(_data_step_qdrant_count conversations)"
+            _CONV_POINTS="${_CONV_POINTS:-0}"
+            _CONV_FACTS="$(_data_step_fact_count)"
+            _CONV_FACTS="${_CONV_FACTS:-0}"
+            if [[ "$_CONV_POINTS" -gt 0 || "$_CONV_FACTS" -gt 0 ]]; then
+                ok "$(printf "$MSG_OK_DATA_STEP_CONV_DONE" "$_CONV_POINTS" "$_CONV_FACTS")"
+            else
+                [[ -s "$_CONV_LOG" ]] && sed -e 's/^/    /' "$_CONV_LOG" | tail -5
+                if _data_step_strict; then
+                    fail_with_code "ERR-31-DATA-STEP-CONVERSATIONS" "$MSG_FAIL_DATA_STEP_CONV_ZERO"
+                else
+                    warn "$MSG_WARN_DATA_STEP_CONV_ZERO_NONSTRICT"
+                fi
+            fi
+        else
+            warn "$MSG_WARN_DATA_STEP_CONV_FAILED"
+            [[ -s "$_CONV_LOG" ]] && sed -e 's/^/    /' "$_CONV_LOG" | tail -5
+        fi
+    fi
+fi
+
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
 #
 # Writes the install-time half of ~/.ostler/state/pipeline_signals.json
