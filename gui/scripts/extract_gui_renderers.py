@@ -56,12 +56,19 @@ from pathlib import Path
 #   pane; the emit is telemetry, not a sidebar row, so the GUI falls
 #   through to .unknown. (Surfaced once CX106_QDRANT was resolved -- it
 #   was masked behind that failure on origin/main.)
+# - AI_CONV_DRAIN: BUG-025 AI-conversations producer-drain diagnostic
+#   marker ("discovered=N written=M" counts of episodic artefacts). Same
+#   posture as the CX106_QDRANT markers -- log-pane telemetry only, no
+#   conversation content crosses the boundary, the GUI falls through to
+#   .unknown. The customer-facing sidebar row is the ai_conversations_drain
+#   STEP_BEGIN, not this emit.
 SOFT_UNKNOWN_OK: set[str] = {
     "MAIL_ACCOUNTS_FOUND",
     "STEP",
     "CX106_QDRANT_BEFORE",
     "CX106_QDRANT_AFTER",
     "IMESSAGE_TCC_DENIED",
+    "AI_CONV_DRAIN",
 }
 
 

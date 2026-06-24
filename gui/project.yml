@@ -568,6 +568,43 @@ targets:
           - $(SRCROOT)/../vendor/cm048_pipeline
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline
+      - name: Bundle CM052 AI Conversations ingest into Resources
+        script: |
+          set -euo pipefail
+          # BUG-025 (v1.0.3): install.sh phase 3.10b3 probes
+          # ${SCRIPT_DIR}/cm052/pyproject.toml to discover the vendored
+          # pwg-ai-convo package, sets up a dedicated venv under
+          # ${OSTLER_DIR}/services/cm052/, symlinks pwg-ai-convo into
+          # /usr/local/bin/, and the later ai_conversations_drain step RUNS
+          # it to fill the CM044 "AI Conversations" wing. For the .app code
+          # path SCRIPT_DIR is Contents/Resources at install time, so the
+          # package must land at Contents/Resources/cm052/. Without this
+          # bundling the install.sh probe finds nothing and the wing stays
+          # dark (the render-without-data bug this fix closes).
+          #
+          # WARN-only on the install side (a missing engine never hard-fails
+          # the install), but the build MUST hard-fail if the vendor tree is
+          # missing -- shipping a .app that silently drops the AI
+          # Conversations feature is exactly the regression BUG-025 is about.
+          # Same vendoring discipline as cm048_pipeline above; upstream is
+          # CM052 (vendor/cm052, pinned in vendor/VENDOR_MANIFEST.toml).
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm052"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm052 from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm052"
+            # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).
+            cp -R "${SRC}/" "${DEST}/cm052/"
+            /usr/bin/xattr -cr "${DEST}/cm052" || true
+          else
+            echo "ERROR: vendor/cm052 not found at ${SRC}" >&2
+            echo "       Sync manually from CM052 -- see vendor/README.md." >&2
+            exit 1
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm052
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm052
       - name: Bundle CM019 preferences ingest pipeline into Resources
         script: |
           set -euo pipefail
