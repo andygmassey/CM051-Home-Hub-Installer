@@ -15401,6 +15401,187 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
           _places_rc _places_log_tail
 fi
 
+# AI CONVERSATIONS DRAIN (BUG-025, 2026-06-24). The 3.10b3 block above
+# only INSTALLS the pwg-ai-convo CLI -- it never RUNS the producer, so
+# the CM044 "AI Conversations" wing would render its empty state even
+# though the engine is present. That is the same render-without-data
+# disease as the citations (BUG-023) / Knowledge (BUG-024) bugs: the
+# data step was never wired. This step RUNS the producer synchronously
+# BEFORE the first wiki_compile below, so the very first compile already
+# sees populated episodic markdown under
+# ${USER_FACING_ROOT}/AI Conversations/<YYYY-MM-DD>/<id>.md -- exactly
+# the tree ai_conversation_pages.generate() reads.
+#
+# Source-conditional gate (the established data-step shape): the AI
+# sources are the user's Claude Code session tree (~/.claude/projects)
+# and any ChatGPT export drop (~/Documents/Ostler/imports/chatgpt). When
+# NEITHER is present the wing is legitimately empty -- skip cleanly, no
+# fail (a fresh Mac with no Claude Code history is normal). When a
+# source IS present and the producer discovered conversations but wrote
+# nothing, that is a real wiring break -> hard-fail with an ERR code.
+#
+# Privacy: the producer honours per-conversation L3 overrides (those are
+# written file-only and short-circuit the gist POST) and the Option-A
+# v1.0.3 defaults transcript=L2 / gist=L2 set below. L3 conversations
+# still land as episodic files but the CM044 renderer suppresses their
+# body, so no private transcript leaks into the wiki.
+if [[ -x "${CM052_VENV:-}/bin/python" && -x "${CM052_BIN:-}" ]]; then
+    progress "Loading your AI conversations" "ai_conversations_drain"
+
+    _AICONV_PY="${CM052_VENV}/bin/python"
+    _AICONV_BIN="${CM052_BIN}"
+    _AICONV_DIR="${USER_FACING_ROOT}/AI Conversations"
+    _AICONV_LOG=/tmp/ostler-ai-conversations-drain.log
+    _AICONV_CLAUDE_DIR="${CM052_CLAUDE_CODE_PROJECTS_DIR:-${HOME}/.claude/projects}"
+    _AICONV_CHATGPT_DIR="${OSTLER_CHATGPT_IMPORT_DIR:-${USER_FACING_ROOT}/imports/chatgpt}"
+    : >"$_AICONV_LOG"
+    mkdir -p "$_AICONV_DIR"
+
+    # Source-presence probe. A "source" is a non-empty Claude Code
+    # project tree OR a ChatGPT export drop. find -> head keeps it cheap
+    # (stops at the first file). No content is read here, just presence.
+    _aiconv_source_present=false
+    if [[ -d "$_AICONV_CLAUDE_DIR" ]] \
+       && [[ -n "$(find "$_AICONV_CLAUDE_DIR" -name '*.jsonl' -type f -print 2>/dev/null | head -1)" ]]; then
+        _aiconv_source_present=true
+    elif [[ -d "$_AICONV_CHATGPT_DIR" ]] \
+       && [[ -n "$(find "$_AICONV_CHATGPT_DIR" -name 'conversations.json' -type f -print 2>/dev/null | head -1)" ]]; then
+        _aiconv_source_present=true
+    fi
+
+    if [[ "$_aiconv_source_present" != true ]]; then
+        # No AI-chat history on this Mac. Legitimately empty wing.
+        info "$MSG_INFO_AI_CONV_NO_SOURCE"
+        _hydrate_sentinel_record "ai_conversations" "status=skipped reason=no_source"
+    else
+        # The wire's subscription gate (G7) pauses processing -- and
+        # therefore the episodic write -- when no subscription state is on
+        # disk. The canonical first-month-free activation (G2) runs LATER
+        # in the post-install lifecycle (after wiki_compile), so at this
+        # point the state file is usually still absent and every write
+        # would short-circuit to "paused", leaving the wing dark. Write
+        # the same first-month-free state here first (idempotent with the
+        # later G2 call -- both just (over)write the one state file via
+        # the same vendored helper). Fail-open: a write failure logs and
+        # the drain proceeds best-effort.
+        "$_AICONV_PY" -c "
+import sys
+from datetime import datetime, timezone
+try:
+    from src.cm052.subscription_gate import activate_first_month_free, is_active_or_grace
+    if not is_active_or_grace():
+        activate_first_month_free(
+            datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        )
+except Exception as exc:
+    print('subscription pre-activate skipped:', type(exc).__name__, exc, file=sys.stderr)
+" >>"$_AICONV_LOG" 2>&1 || true
+
+        _AICONV_TIMEOUT_WRAP=""
+        if command -v gtimeout >/dev/null 2>&1; then
+            _AICONV_TIMEOUT_WRAP="gtimeout 300"
+        elif command -v timeout >/dev/null 2>&1; then
+            _AICONV_TIMEOUT_WRAP="timeout 300"
+        fi
+
+        # Run the producer. --json emits a counts-only summary
+        # {discovered, ingested, written, l3_skipped, failed} as the
+        # FINAL stdout line (no conversation content crosses the boundary,
+        # so it is safe to parse). Counts are captured from stdout; the
+        # human log goes to stderr -> $_AICONV_LOG. CM052_USER_EMAIL is the
+        # me-card identity (USER_EMAIL, captured at Q3); the wire needs it
+        # to label the user side of each transcript. Option-A privacy
+        # (transcript=L2, gist=L2) is the v1.0.3 live default; a
+        # per-conversation L3 override is still honoured by the engine.
+        _AICONV_HEARTBEAT_MSG="$MSG_HYDRATE_AI_CONV_HEARTBEAT"
+        _hydrate_heartbeat_start "$_AICONV_HEARTBEAT_MSG"
+        _aiconv_summary="$(
+            CM052_USER_EMAIL="${USER_EMAIL:-}" \
+            OSTLER_AI_CONVERSATIONS_DIR="$_AICONV_DIR" \
+            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \
+            OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
+            CM052_CLAUDE_CODE_PROJECTS_DIR="$_AICONV_CLAUDE_DIR" \
+            OSTLER_CHATGPT_IMPORT_DIR="$_AICONV_CHATGPT_DIR" \
+            CM052_CM048_ENDPOINT="${CM052_CM048_ENDPOINT:-http://localhost:8089/api/v1/conversation/process}" \
+            $_AICONV_TIMEOUT_WRAP \
+            "$_AICONV_BIN" --source all --since-days "${OSTLER_AI_CONV_SINCE_DAYS:-365}" --json \
+                2>>"$_AICONV_LOG" | tail -n 1
+        )"
+        _hydrate_heartbeat_stop
+
+        # Parse the counts. Use the vendored python (json stdlib) rather
+        # than jq (not guaranteed on the customer Mac). Any parse failure
+        # yields zeros, which the gate below treats as "wrote nothing".
+        _aiconv_written="$(
+            printf '%s' "$_aiconv_summary" | "$_AICONV_PY" -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+    print(int(d.get("written", 0)) + int(d.get("l3_skipped", 0)))
+except Exception:
+    print(0)
+' 2>/dev/null)"
+        _aiconv_written="${_aiconv_written:-0}"
+        [[ "$_aiconv_written" =~ ^[0-9]+$ ]] || _aiconv_written=0
+        _aiconv_discovered="$(
+            printf '%s' "$_aiconv_summary" | "$_AICONV_PY" -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read() or "{}")
+    print(int(d.get("discovered", 0)))
+except Exception:
+    print(0)
+' 2>/dev/null)"
+        _aiconv_discovered="${_aiconv_discovered:-0}"
+        [[ "$_aiconv_discovered" =~ ^[0-9]+$ ]] || _aiconv_discovered=0
+
+        gui_emit AI_CONV_DRAIN "discovered=${_aiconv_discovered} written=${_aiconv_written}"
+
+        # Independent file-count check: count the episodic markdown files
+        # actually on disk. A producer that claims "written=N" but left an
+        # empty tree (a stage_episodic regression) must not pass the gate.
+        _aiconv_files="$(find "$_AICONV_DIR" -name '*.md' -type f 2>/dev/null | wc -l | tr -d ' ')"
+        _aiconv_files="${_aiconv_files:-0}"
+
+        if [[ "$_aiconv_written" -gt 0 || "$_aiconv_files" -gt 0 ]]; then
+            ok "$(printf "$MSG_OK_AI_CONV_DRAINED" "$_aiconv_files")"
+            _hydrate_sentinel_record "ai_conversations" \
+                "status=ok discovered=${_aiconv_discovered} written=${_aiconv_written} files=${_aiconv_files}"
+        elif [[ "$_aiconv_discovered" -gt 0 ]]; then
+            # Source present, conversations discovered, but NOTHING landed
+            # on disk. This is the render-without-data failure class the
+            # gate exists to catch -- a real wiring break, not an empty
+            # box. Hard-fail with an ERR code so the install does not
+            # silently ship a dark wing.
+            if [[ -s "$_AICONV_LOG" ]]; then
+                sed -e 's/^/    /' "$_AICONV_LOG" | tail -8
+            fi
+            fail_with_code "ERR-25-AI-CONV-EMPTY" \
+                "$(printf "$MSG_FAIL_AI_CONV_DISCOVERED_BUT_EMPTY" "$_aiconv_discovered")"
+        else
+            # Source present but the producer discovered nothing in the
+            # window (e.g. all sessions older than the since-days clamp, or
+            # all still inside the active-session debounce). Not a wiring
+            # break -- the source exists but yielded no finalised
+            # conversations. Visible, non-fatal.
+            info "$MSG_INFO_AI_CONV_SOURCE_BUT_NONE"
+            _hydrate_sentinel_record "ai_conversations" \
+                "status=empty_window discovered=0 files=${_aiconv_files}"
+        fi
+
+        unset _AICONV_TIMEOUT_WRAP _AICONV_HEARTBEAT_MSG _aiconv_summary \
+              _aiconv_written _aiconv_discovered _aiconv_files
+    fi
+
+    unset _AICONV_PY _AICONV_BIN _AICONV_DIR _AICONV_LOG \
+          _AICONV_CLAUDE_DIR _AICONV_CHATGPT_DIR _aiconv_source_present
+else
+    # The 3.10b3 CLI setup did not produce a runnable venv (WARN-only
+    # there -- a missing CM052 bundle, a pip failure). The wing stays
+    # empty; the rest of the install is unaffected.
+    info "$MSG_INFO_AI_CONV_ENGINE_ABSENT"
+fi
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
