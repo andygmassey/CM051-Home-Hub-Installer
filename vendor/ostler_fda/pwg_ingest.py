@@ -347,6 +347,14 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
     _SOURCE_PREDICATE and produce a debug-log no-op rather than
     poisoning the freshness signal. Same discipline as the PR-A fix
     that stopped contact_syncer using vCard REV as a contact event.
+
+    Future-dated events are NEVER a "last contact". A calendar export
+    routinely carries upcoming meetings, so this writer must reject any
+    timestamp after today, otherwise an upcoming meeting (e.g. a fixture
+    a week away) wins the read-side max() and the assistant reports a
+    future date as "last contact". A scheduled future meeting is a
+    "next meeting" signal, not a last-contact one; it is surfaced by the
+    Meeting nodes the calendar ingest also emits, never here.
     """
     predicate = _SOURCE_PREDICATE.get(source)
     if predicate is None:
@@ -361,6 +369,20 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
     try:
         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         date_str = dt.strftime("%Y-%m-%d")
+
+        # A last-contact must be in the past (or today). Comparing the
+        # derived YYYY-MM-DD strings sidesteps tz-aware/naive subtraction
+        # errors: both sides are plain ISO date strings, lexicographically
+        # ordered the same as chronologically. Future-dated events (an
+        # upcoming meeting in a calendar export) are dropped here.
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if date_str > today_str:
+            logger.debug(
+                "Skipping future last-contact %s for %s (source=%s); "
+                "future events are not last-contact signals",
+                date_str, person_uri, source,
+            )
+            return
 
         sparql = (
             "PREFIX pwg: <https://pwg.dev/ontology#>\n"
@@ -1473,6 +1495,44 @@ _BOOKMARK_STRENGTH_BY_FOLDER = {
 }
 _BOOKMARK_DEFAULT_STRENGTH = 0.70
 
+# Source label for Reading List items so the wiki Reading wing can tell a
+# saved-to-read item from a plain bookmark. Mirrors safari_bookmarks.py's
+# SOURCE_READING_LIST. Plain bookmarks keep "safari_bookmarks".
+_SOURCE_BOOKMARK = "safari_bookmarks"
+_SOURCE_READING_LIST = "safari_reading_list"
+# safari_bookmarks.Bookmark.kind value for Reading List items.
+_KIND_READING_LIST = "reading-list"
+
+
+def _classify_bookmark(record: dict) -> tuple:
+    """Map a Safari record to its ``(category, source)`` for the reader.
+
+    The CM044 Reading page (reading_pages.py) splits ``preferences`` points
+    by ``category`` into two wings:
+      * ``bookmark`` -> "saved-for-later reading list";
+      * ``website``  -> "favourite websites".
+
+    Previously every bookmark was hardcoded to ``category == "bookmark"``,
+    so the "favourite websites" wing was always empty ("0 favourite
+    websites") and Reading List items were indistinguishable from plain
+    bookmarks. We now key off the record's ``kind`` (set by the extractor
+    for anything with Reading List metadata or under the Reading List
+    folder) with a ``folder`` fallback for older dumps:
+
+      * Reading List -> category "bookmark", source "safari_reading_list"
+        (the saved-to-read wing, flagged with its own provenance);
+      * Favourites   -> category "website", source "safari_bookmarks"
+        (fills the favourite-websites wing);
+      * everything else -> category "bookmark", source "safari_bookmarks".
+    """
+    kind = str(record.get("kind") or "").strip().lower()
+    folder = (record.get("folder") or "").strip()
+    if kind == _KIND_READING_LIST or folder == "Reading List":
+        return "bookmark", _SOURCE_READING_LIST
+    if folder == "Favourites":
+        return "website", _SOURCE_BOOKMARK
+    return "bookmark", _SOURCE_BOOKMARK
+
 
 def _load_safari_bookmarks(fda_dir: Path) -> list:
     """Read safari_bookmarks.json from ``fda_dir``.
@@ -1552,16 +1612,19 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
         strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
             folder, _BOOKMARK_DEFAULT_STRENGTH
         )
+        category, source = _classify_bookmark(b)
 
         # Embedding document: title carries the human-readable signal;
         # domain anchors it. Mirrors the browsing path's doc construction
-        # and CM019's "Like <subject> category:bookmark" embedding text.
+        # and CM019's "Like <subject> category:<cat>" embedding text.
         doc = " ".join(
-            part for part in ("Like", title, "category:bookmark", domain) if part
+            part for part in ("Like", title, f"category:{category}", domain) if part
         )
         # Stable point id: same URL re-runs upsert in place (idempotent
-        # re-install) rather than duplicating rows.
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bookmark|{url}"))
+        # re-install) rather than duplicating rows. Keyed on category too so
+        # a URL that is both a Reading List item and a plain bookmark stays
+        # two distinct rows (mirrors the extractor's url+kind id scheme).
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"bookmark|{category}|{url}"))
         queue.append({
             "point_id": point_id,
             "doc": doc,
@@ -1572,9 +1635,9 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
                 "preference_id": point_id,
                 "subject": title,
                 "preference_type": "Like",
-                "category": "bookmark",
+                "category": category,
                 "strength": strength,
-                "source": "safari_bookmarks",
+                "source": source,
                 "context": folder or None,
                 "size": "Medium",
                 "compartment_level": DEFAULT_PRIVACY,
@@ -1585,7 +1648,7 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
                     "url": url,
                     "domain": domain,
                     "folder": folder,
-                    "source_type": "safari_bookmarks",
+                    "source_type": source,
                 },
             },
         })

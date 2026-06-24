@@ -1082,6 +1082,7 @@ MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE="Skipped %s pages flagged as sensitive (b
 MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_BOOKMARKS_DONE="Imported %s saved bookmarks and Reading List items"
 
 # Email-preferences hydration strings (v1.0.3)
 # Used by install.sh's hydrate_email_preferences step. It ingests a

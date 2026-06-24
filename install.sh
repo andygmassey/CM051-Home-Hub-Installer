@@ -14829,11 +14829,31 @@ except Exception:
         info "$MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA"
     fi
 
+    # Bookmarks / Reading List count (BUG-031). The bookmarks ingest is
+    # folded into the same JSON line as browsing above (result['bookmarks']);
+    # surface its 'sent' so a customer sees the Safari Reading List land
+    # rather than it being silently swallowed. Best-effort parse only.
+    if [[ -n "$_HYDRATE_BROWSING_JSON" ]]; then
+        _HYDRATE_BOOKMARKS_SENT="$(
+            printf '%s' "$_HYDRATE_BROWSING_JSON" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int((d.get("bookmarks") or {}).get("sent", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+        )"
+        _HYDRATE_BOOKMARKS_SENT="${_HYDRATE_BOOKMARKS_SENT:-0}"
+        if [[ "$_HYDRATE_BOOKMARKS_SENT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_BOOKMARKS_DONE" "$_HYDRATE_BOOKMARKS_SENT")"
+        fi
+    fi
+
     # #48g sentinel record: dedupes re-runs within a 7-day window.
     _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
-    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
+    unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED _HYDRATE_BOOKMARKS_SENT
     unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
