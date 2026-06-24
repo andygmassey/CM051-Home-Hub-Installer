@@ -272,8 +272,22 @@ class EmailSummarizer:
             "options": {
                 "temperature": 0.3,  # Lower for more consistent extraction
                 "num_predict": 1024,  # Limit response length
+                # Pin a large context window so Ollama stops reloading the
+                # model between its 4096 default and the daemon's 32768.
+                # See the ollama-user-active lease contract.
+                "num_ctx": 32768,
             },
         }
+
+        # Yield to the user before a new background request (email
+        # summarisation runs during hydration/enrichment). The reader is sync
+        # but returns immediately in the common (idle) case; crash-safe on a
+        # missing/stale lease.
+        try:
+            from ..ollama_user_active import wait_until_user_idle
+            wait_until_user_idle()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("user-active lease check skipped: %s", exc)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(url, json=payload)

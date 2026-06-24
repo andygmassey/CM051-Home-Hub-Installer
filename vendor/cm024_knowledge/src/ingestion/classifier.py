@@ -296,8 +296,20 @@ class PrivacyClassifier:
             "model": self.llm_model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.1},
+            # Pin a large context window to stop Ollama reloading the model
+            # between its 4096 default and the daemon's 32768. See the
+            # ollama-user-active lease contract.
+            "options": {"temperature": 0.1, "num_ctx": 32768},
         }
+
+        # Yield to the user before a new background request (knowledge
+        # classification runs during hydration/enrichment). Crash-safe: a
+        # missing/stale lease returns immediately.
+        try:
+            from ..ollama_user_active import wait_until_user_idle
+            wait_until_user_idle()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("user-active lease check skipped: %s", exc)
 
         try:
             if httpx:
