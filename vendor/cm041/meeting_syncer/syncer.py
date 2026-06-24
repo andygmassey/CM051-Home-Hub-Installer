@@ -242,6 +242,11 @@ class MeetingSyncer:
         "updates", "auto", "automated", "mailer", "mailer-daemon",
         "postmaster", "bounce", "bounces", "feedback", "reply", "replies",
         "system", "webmaster", "hostmaster", "abuse", "security",
+        # Calendar-system sentinels. Google Calendar stamps an
+        # 'unknownorganizer' local-part (at the calendar.google.com host)
+        # as the organiser on events with no resolvable organiser; it is a
+        # placeholder, never a human.
+        "unknownorganizer",
     }
 
     # Domain substrings that signal bulk / transactional senders. Matched
@@ -263,6 +268,10 @@ class MeetingSyncer:
         ".beehiiv.com",
         ".mail.beehiiv.com",
         ".notifications.github.com",
+        # Calendar-system resource domain. Google Calendar uses
+        # 'calendar.google.com' for placeholder organisers and event
+        # resources, never for a real human's address.
+        ".calendar.google.com",
     )
 
     # Substrings that indicate a brand-ish display name even when the
