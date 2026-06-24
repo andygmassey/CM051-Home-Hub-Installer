@@ -1212,3 +1212,17 @@ MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="iCloud / CalDAV calendar bridge a
 # F9 - deferred-register-device script missing
 MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh not bundled with installer. Device-registration retry on next network is disabled."
 
+# CM052 - AI Conversations ingest (pwg-ai-convo). Additive v1.0.1 wing;
+# a missing engine is WARN-only, never a hard fail.
+MSG_INFO_INSTALLING_CM052_FROM="Installing AI conversations engine from %s..."
+MSG_INFO_INSTALLING_CM052_INTO_VENV="  Installing AI conversations engine into venv..."
+MSG_INFO_CM052_INSTALLED_VENV="  AI conversations engine installed in venv."
+MSG_OK_CM052_READY="AI conversations engine ready."
+MSG_WARN_CM052_SKIPPED_NOT_BUNDLED="AI conversations engine not bundled; the AI Conversations wing stays empty until it is installed."
+MSG_WARN_CM052_UNAVAILABLE="  AI conversation ingest will not be available. The rest of Ostler installs normally."
+MSG_WARN_CM052_CLONE_FAILED="  Could not clone the AI conversations engine; AI conversation ingest will not be available."
+MSG_WARN_PIP_INSTALL_FAILED_CM052="  pip install failed; AI conversations engine will not be available."
+MSG_WARN_CM052_CONSOLE_SCRIPT_NOT_CREATED="  Console script not created at %s; pyproject.toml may be missing the [project.scripts] entry."
+MSG_WARN_CM052_HEALTH_CHECK_FAILED="  Health check failed: the AI conversations engine could not load (pwg-ai-convo or its CLI import did not return cleanly)."
+MSG_WARN_CM052_REPO_RESOLVED_BUT_PYPROJECT="  AI conversations source resolved but no pyproject.toml found; skipping venv install."
+
