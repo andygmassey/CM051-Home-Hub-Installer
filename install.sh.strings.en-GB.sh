@@ -937,12 +937,18 @@ MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR).
 MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="Allow Ostler to read your Messages, Mail and imported data?"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="To build your personal knowledge graph, Ostler reads - locally, on this Mac - the records that make up your life. This includes:
 
-By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
+  - Your Messages history (iMessage and SMS), from Messages.app.
+  - Your Apple Mail.
+  - Anything you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.).
 
-Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
+All of it stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device. Creative Machines never receives any of it.
+
+By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the messages and emails already on your hard drive.
+
+Legal note: For records you keep on this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
 
 Read more at docs.ostler.ai/privacy/third-party-data."
 
