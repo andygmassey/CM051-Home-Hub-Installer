@@ -234,6 +234,16 @@
     "illustration": null,
     "needs_fda": true
   },
+  "conversation_seed": {
+    "id": "conversation_seed",
+    "title": "Getting your conversations ready",
+    "subtitle": "Conversation memory",
+    "why": "Ostler takes a quick count of your conversations across iMessage, WhatsApp, email and meetings, then reads through them in the background over the next few hours. You can start using Ostler straight away; it gets sharper as it finishes. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 2,
+    "long_running_threshold_s": 30,
+    "illustration": null,
+    "needs_fda": false
+  },
   "wiki_recompile_agent": {
     "id": "wiki_recompile_agent",
     "title": "Wiki rebuild scheduler",
