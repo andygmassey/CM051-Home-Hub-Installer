@@ -75,7 +75,10 @@ def _emit_progress(summary: dict) -> None:
         d = int(summary.get("chats_dispatched", 0))
         s = int(summary.get("chats_skipped", 0))
         f = int(summary.get("chats_failed", 0))
-        _hp.update_channel(_PROGRESS_CHANNEL, queued=d + s + f, done=d + s)
+        # Report failed distinctly so the wiki panel treats done + failed as
+        # settled and a permanently-failed chat cannot keep it up forever (S1).
+        _hp.update_channel(_PROGRESS_CHANNEL,
+                           queued=d + s + f, done=d + s, failed=f)
     except Exception:  # pragma: no cover - defensive
         pass
 
