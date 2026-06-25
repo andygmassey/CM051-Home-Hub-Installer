@@ -30,15 +30,15 @@ JSON shape (the contract both sides depend on)::
       "version": 1,
       "updated_utc": "2026-06-26T09:04:12+00:00",   # ISO8601 UTC
       "channels": {
-        "contacts":  {"queued": 1048, "done": 1048, "state": "ready"},
-        "calendar":  {"queued":  210, "done":  210, "state": "ready"},
-        "imessage":  {"queued":  250, "done":   70, "state": "working"},
-        "whatsapp":  {"queued":    0, "done":    0, "state": "absent"},
-        "email":     {"queued":    0, "done":    0, "state": "absent"},
-        "spoken":    {"queued":    0, "done":    0, "state": "absent"},
-        "notes":     {"queued":    0, "done":    0, "state": "absent"}
+        "contacts":  {"queued": 1048, "done": 1048, "failed": 0, "state": "ready"},
+        "calendar":  {"queued":  210, "done":  210, "failed": 0, "state": "ready"},
+        "imessage":  {"queued":  250, "done":   70, "failed": 0, "state": "working"},
+        "whatsapp":  {"queued":    0, "done":    0, "failed": 0, "state": "absent"},
+        "email":     {"queued":    0, "done":    0, "failed": 0, "state": "absent"},
+        "spoken":    {"queued":    0, "done":    0, "failed": 0, "state": "absent"},
+        "notes":     {"queued":    0, "done":    0, "failed": 0, "state": "absent"}
       },
-      "overall": {"done": 1328, "total": 1508}
+      "overall": {"done": 1328, "total": 1508, "failed": 0}
     }
 
 ``state`` is one of:
@@ -47,9 +47,25 @@ JSON shape (the contract both sides depend on)::
   * ``absent``  -- no source of that kind on this Mac.
 
 Per-channel ``queued`` is the BACKLOG this channel will work through;
-``done`` is how many of that backlog it has finished. ``overall`` is the
-sum across channels so the panel can show one headline figure and a
-rate-based ETA without re-deriving it.
+``done`` is how many of that backlog it has finished. ``failed`` is how
+many of that backlog were PERMANENTLY failed (counted in ``queued`` but
+that will never reach ``done``); the wiki settling panel treats
+``done + failed`` as "settled" so one permanently-failed item does not
+keep the panel up forever (S1). ``overall`` is the sum across channels so
+the panel can show one headline figure and a rate-based ETA without
+re-deriving it.
+
+Two write semantics live behind this one ``update_channel`` contract (N3):
+  * iMessage is CUMULATIVE-PERSISTENT -- it re-emits absolute
+    ``queued`` / ``done`` running totals each tick, and a transiently
+    failed session is retried next tick (it stays in ``queued`` and is
+    NOT reported as ``failed``, so the bar simply has not reached it yet).
+  * whatsapp / email / spoken are PER-TICK-OVERWRITE -- each tick reports
+    that tick's ``queued = dispatched + skipped + failed`` and
+    ``done = dispatched + skipped``, and a failed item that will not be
+    retried is reported as ``failed`` so the panel can settle without it.
+``failed`` defaults to 0 and is optional, so an older writer that never
+sets it stays valid (overall.failed simply stays 0).
 
 ONE channel key per FEED (``imessage`` / ``whatsapp`` / ``email`` /
 ``spoken``) so two feeds never clobber each other's slice. The wiki panel
@@ -111,7 +127,7 @@ def _utcnow_iso() -> str:
 
 
 def _empty_channel() -> Dict[str, Any]:
-    return {"queued": 0, "done": 0, "state": "absent"}
+    return {"queued": 0, "done": 0, "failed": 0, "state": "absent"}
 
 
 def _blank() -> Dict[str, Any]:
@@ -119,7 +135,7 @@ def _blank() -> Dict[str, Any]:
         "version": SCHEMA_VERSION,
         "updated_utc": _utcnow_iso(),
         "channels": {k: _empty_channel() for k in CHANNELS},
-        "overall": {"done": 0, "total": 0},
+        "overall": {"done": 0, "total": 0, "failed": 0},
     }
 
 
@@ -142,19 +158,24 @@ def read_progress(target: Optional[Path] = None) -> Optional[Dict[str, Any]]:
 
 
 def _recompute_overall(doc: Dict[str, Any]) -> None:
-    done = total = 0
+    done = total = failed = 0
     for ch in doc.get("channels", {}).values():
         if not isinstance(ch, dict):
             continue
         total += int(ch.get("queued") or 0)
         done += int(ch.get("done") or 0)
-    doc["overall"] = {"done": done, "total": total}
+        failed += int(ch.get("failed") or 0)
+    doc["overall"] = {"done": done, "total": total, "failed": failed}
 
 
-def _derive_state(queued: int, done: int, *, absent: bool) -> str:
+def _derive_state(queued: int, done: int, *, absent: bool,
+                  failed: int = 0) -> str:
     if absent:
         return "absent"
-    if queued <= 0 or done >= queued:
+    # done + failed settles the backlog: a channel whose remaining items
+    # have all either finished or permanently failed is "ready", not stuck
+    # "working" forever on the failed remainder (S1).
+    if queued <= 0 or done + failed >= queued:
         return "ready"
     return "working"
 
@@ -178,15 +199,22 @@ def update_channel(
     *,
     queued: Optional[int] = None,
     done: Optional[int] = None,
+    failed: Optional[int] = None,
     state: Optional[str] = None,
     target: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
     """Merge an update for ONE channel into the shared progress file.
 
     Reads the current document (or starts a blank one), updates only the
-    named channel's ``queued`` / ``done`` (whichever are supplied),
-    re-derives that channel's ``state`` (unless an explicit ``state`` is
-    given), recomputes ``overall`` and writes atomically.
+    named channel's ``queued`` / ``done`` / ``failed`` (whichever are
+    supplied), re-derives that channel's ``state`` (unless an explicit
+    ``state`` is given), recomputes ``overall`` and writes atomically.
+
+    ``failed`` is the count of PERMANENTLY-failed items in this channel's
+    backlog -- counted in ``queued`` but that will never reach ``done``.
+    The wiki settling panel treats ``done + failed`` as settled so a
+    permanently-failed item cannot keep the panel up forever (S1). It is
+    optional and defaults to 0, so an older writer stays valid.
 
     Best-effort: any failure is logged and swallowed (a progress-signal
     write must NEVER break a feed tick). Returns the written document on
@@ -208,14 +236,22 @@ def update_channel(
             cur["queued"] = max(0, int(queued))
         if done is not None:
             cur["done"] = max(0, int(done))
+        if failed is not None:
+            cur["failed"] = max(0, int(failed))
         # done can never exceed queued in the signal (a late count revision
         # must not make the bar read >100%).
         if cur.get("done", 0) > cur.get("queued", 0):
             cur["done"] = cur["queued"]
+        # failed is bounded by whatever room queued leaves above done, so
+        # done + failed can never exceed queued (the settled count caps at
+        # 100%).
+        if cur.get("done", 0) + cur.get("failed", 0) > cur.get("queued", 0):
+            cur["failed"] = max(0, cur.get("queued", 0) - cur.get("done", 0))
         absent = (cur.get("queued", 0) == 0 and cur.get("done", 0) == 0
-                  and state is None)
+                  and cur.get("failed", 0) == 0 and state is None)
         cur["state"] = state or _derive_state(
-            cur.get("queued", 0), cur.get("done", 0), absent=absent
+            cur.get("queued", 0), cur.get("done", 0), absent=absent,
+            failed=cur.get("failed", 0),
         )
         chans[channel] = cur
         doc["version"] = SCHEMA_VERSION

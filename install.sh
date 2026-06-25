@@ -11382,7 +11382,18 @@ else
             sleep 5
             _CONV_WAITED=$((_CONV_WAITED + 5))
             if [[ "$_CONV_WAITED" -ge "$_CONV_TIMEOUT" ]]; then
+                # Kill the whole subtree, not just the ( ) subshell: the
+                # actual "python3 -m ...pipeline" (where a stuck qwen call
+                # would hang) is a GRANDCHILD, so killing only $_CONV_PID
+                # would orphan it and it would keep draining. Reap the
+                # subshell's descendants first (the python), then the
+                # subshell itself, so the timeout claim holds. macOS has no
+                # setsid, so use pkill -P to walk the child tree.
+                pkill -P "$_CONV_PID" 2>/dev/null || true
                 kill "$_CONV_PID" 2>/dev/null || true
+                # Belt-and-braces: a second sweep catches any python that
+                # was re-parented in the brief race between the two kills.
+                pkill -P "$_CONV_PID" 2>/dev/null || true
                 warn "$MSG_WARN_DATA_STEP_CONV_TIMEOUT"
                 break
             fi
