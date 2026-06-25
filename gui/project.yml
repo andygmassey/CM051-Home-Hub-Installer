@@ -228,9 +228,18 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # BUG-037 (v1.0.4): conversation_hydration.py is invoked by the
+          # install.sh conversation_seed step (install.sh:11201/11202) to seed
+          # ~/.ostler/state/conversation_hydration.json and is staged into
+          # ~/.ostler/lib so the background feeds can bump the per-channel
+          # `done` counter. Missing from the bundle = the seed step falls
+          # through to its warn-only "could not write the signal" branch and
+          # the "still settling in" panel (BUG-039) shows no progress. Bundle
+          # it alongside write_pipeline_signals.py.
+          cp "${SRCROOT}/../lib/conversation_hydration.py"       "${DEST}/lib/conversation_hydration.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh"
-          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
+          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py" "${DEST}/lib/conversation_hydration.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
           # installer + drag-to-Applications) yet install.sh's source-
@@ -261,12 +270,14 @@ targets:
           - $(SRCROOT)/../lib/progress_emitter.sh
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/conversation_hydration.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/conversation_hydration.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Bundle ostler_security Python package into Resources
         script: |
