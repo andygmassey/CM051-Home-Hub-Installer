@@ -46,7 +46,17 @@ from .threader import (
     thread_messages,
 )
 
+try:  # progress signal is best-effort; never let its absence break a tick
+    from . import hydration_progress as _hp
+except Exception:  # pragma: no cover - defensive
+    _hp = None
+
 logger = logging.getLogger(__name__)
+
+# Which progress channel this feed reports into (see
+# hydration_progress.FEED_CHANNEL). One key per feed; the wiki panel groups
+# imessage/whatsapp/spoken into "your message history" for display.
+_PROGRESS_CHANNEL = "imessage"
 
 
 # Engine-zone state under ~/.ostler/ (two-zone architecture). The
@@ -170,6 +180,22 @@ def _dispatch_to_cm048(
         return proc.returncode
 
 
+def _emit_progress(*, queued: int, done: int) -> None:
+    """Best-effort write of this feed's slice of the shared progress signal.
+
+    ``queued`` is the conversation backlog this feed will work through
+    (processed-so-far + still-pending); ``done`` is how much of it is
+    finished. The wiki settling panel reads the aggregate. A failure here
+    must never disturb the tick, so it is fully swallowed.
+    """
+    if _hp is None:
+        return
+    try:
+        _hp.update_channel(_PROGRESS_CHANNEL, queued=queued, done=done)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 def process_imessage(
     *,
     db_path: Optional[Path] = None,
@@ -180,11 +206,23 @@ def process_imessage(
     pwg_convo_cmd: Optional[list[str]] = None,
     state_path: Optional[Path] = None,
     dry_run: bool = False,
+    max_sessions: int = 0,
+    emit_progress: bool = True,
 ) -> dict:
     """Read chat.db, thread, and dispatch new sessions to CM048.
 
     Returns a summary dict: threads scanned, sessions dispatched,
     sessions skipped (already processed), failures.
+
+    ``max_sessions`` (0 = unbounded) bounds how many NEW sessions a single
+    call dispatches. The install-time light pass sets a small cap so it
+    reaches the Pair-QR in seconds; the background LaunchAgent then runs
+    unbounded ticks to drain the rest over time. The watermark means a
+    capped pass and the later ticks never re-dispatch the same session.
+
+    ``emit_progress`` (default True) writes this feed's slice of the shared
+    ~/.ostler/state/hydration_progress.json so the wiki "still settling in"
+    panel can show real, climbing per-channel progress with a falling ETA.
     """
     pwg_convo_cmd = pwg_convo_cmd or _resolve_pwg_convo_cmd()
     state_file = state_path or _state_path()
@@ -197,15 +235,20 @@ def process_imessage(
 
     conversations = extract_conversations(db_path=db_path, since_days=since_days)
 
-    scanned = dispatched = skipped = failed = 0
+    # First sweep: thread every conversation so we know the TOTAL new-session
+    # backlog up front. That lets the progress signal carry a real
+    # ``queued`` from the first emit (so the panel's bar/ETA are honest from
+    # the start rather than discovering the denominator as it goes). We hold
+    # the threaded sessions so the dispatch sweep below does not re-thread.
+    threaded: list[tuple] = []  # (convo, prev_watermark, [pending sessions])
+    backlog = 0
+    scanned = 0
     for convo in conversations:
         scanned += 1
         messages = extract_messages(convo.chat_id, db_path=db_path)
         if not messages:
             continue
         prev_watermark = watermarks.get(convo.chat_id, -1)
-        max_rowid = prev_watermark
-
         sessions = thread_messages(
             convo.chat_id,
             messages,
@@ -213,6 +256,28 @@ def process_imessage(
             display_name=convo.display_name,
             gap=session_gap,
         )
+        pending = [s for s in sessions
+                   if max(m.rowid for m in s.messages) > prev_watermark]
+        backlog += len(pending)
+        threaded.append((convo, prev_watermark, sessions, pending))
+
+    # The cumulative backlog already counts work prior ticks finished
+    # (their sessions are below the watermark, so not in ``pending``). To
+    # show a climbing bar across ticks we anchor ``queued`` at the
+    # previously-recorded total and grow it if new messages arrived.
+    done_before = int(state.get("progress_done", 0))
+    queued_total = max(int(state.get("progress_queued", 0)),
+                       done_before + backlog)
+    if emit_progress:
+        _emit_progress(queued=queued_total, done=done_before)
+
+    dispatched = skipped = failed = 0
+    done_running = done_before
+    capped = False
+    for convo, prev_watermark, sessions, _pending in threaded:
+        if capped:
+            break
+        max_rowid = prev_watermark
         for session in sessions:
             session_max = max(m.rowid for m in session.messages)
             max_rowid = max(max_rowid, session_max)
@@ -221,6 +286,11 @@ def process_imessage(
             if session_max <= prev_watermark:
                 skipped += 1
                 continue
+            if max_sessions and dispatched >= max_sessions:
+                # Light-pass cap reached: stop advancing this thread's
+                # watermark here so the background ticks pick up the rest.
+                capped = True
+                break
 
             # Per-contact L3: if ANY non-user handle in the session is
             # mapped L3, the whole session is L3 (defence in depth --
@@ -249,6 +319,11 @@ def process_imessage(
             )
             if rc == 0:
                 dispatched += 1
+                done_running += 1
+                # Heartbeat the progress signal per conversation so the
+                # panel's bar never looks frozen during a long drain.
+                if emit_progress:
+                    _emit_progress(queued=queued_total, done=done_running)
             else:
                 failed += 1
                 # Don't advance the watermark past a failed session so
@@ -259,13 +334,21 @@ def process_imessage(
             watermarks[convo.chat_id] = max_rowid
 
     if not dry_run:
+        # Persist the cumulative progress totals so the next tick continues
+        # the climbing bar rather than restarting the denominator.
+        state["progress_queued"] = queued_total
+        state["progress_done"] = done_running
         _save_state(state_file, state)
+
+    if emit_progress:
+        _emit_progress(queued=queued_total, done=done_running)
 
     summary = {
         "threads_scanned": scanned,
         "sessions_dispatched": dispatched,
         "sessions_skipped": skipped,
         "sessions_failed": failed,
+        "backlog_remaining": max(0, queued_total - done_running),
     }
     logger.info("iMessage source tick complete: %s", summary)
     return summary
@@ -298,6 +381,12 @@ def run(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--session-gap-hours", type=float, default=6.0)
     parser.add_argument("--state-path", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
+    # Light-pass cap for the install-time first drain: bound how many new
+    # sessions one invocation dispatches so the installer reaches Pair-QR in
+    # seconds. 0 (the LaunchAgent default) is unbounded.
+    parser.add_argument("--max-sessions", type=int, default=0)
+    parser.add_argument("--no-progress", action="store_true",
+                        help="suppress the hydration progress signal write")
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args(argv)
 
@@ -315,6 +404,8 @@ def run(argv: Optional[list[str]] = None) -> int:
             session_gap=timedelta(hours=args.session_gap_hours),
             state_path=args.state_path,
             dry_run=args.dry_run,
+            max_sessions=args.max_sessions,
+            emit_progress=not args.no_progress,
         )
     except FileNotFoundError as exc:
         logger.error("%s", exc)

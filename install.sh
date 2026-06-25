@@ -11479,24 +11479,32 @@ else
         fi
     fi
 
-    # ── 3.14d.2 Conversations + citations (iMessage one-shot pass) ──
-    # Source: ~/Library/Messages/chat.db with the third-party-data consent
-    # accepted (the SAME gate the iMessage body feed rides above). iMessage
-    # is the most common body source on a clean Mac, and one pass produces
-    # BOTH the `conversations` Qdrant points (Conversations / Open
-    # Commitments) AND the urn:pwg:Fact triples (citations) -- so it clears
-    # two of the three dark features in a single run. The feed's launchd
-    # agent still ticks for later messages; this is just the first drain so
-    # the wiki is not dark on day one.
+    # ── 3.14d.2 Conversations + citations (iMessage LIGHT first pass) ──
+    # BUG-037: this used to run the FULL per-conversation enrichment
+    # synchronously (~6 qwen calls per conversation over ~250 conversations)
+    # = hours of blocking grind with a static bar, indistinguishable from a
+    # crash. Andy-agreed fix: do a small, BOUNDED first pass here so the
+    # installer reaches Pair-QR in seconds AND the Conversations/citations
+    # pages are not dark on day one, then HAND the rest of the backlog to
+    # the iMessage body-feed LaunchAgent (already installed above) to drain
+    # over hours. The wiki "still settling in" panel reads the per-channel
+    # hydration_progress.json the feed emits and shows real, climbing
+    # progress with a falling ETA (BUG-039).
     #
-    # We run the EXACT module the tick wrapper runs, with the same env
-    # (PWG_CONVO_CMD -> the CM048 venv pwg-convo, OSTLER_USER_DISPLAY_NAME),
-    # but synchronously and OUTSIDE the feed's single-flight lock (no other
-    # feed runs during the installer, so there is no slot to contend for).
+    # The light pass is capped at OSTLER_DATA_STEP_MAX_CONVOS sessions (a
+    # handful) so it finishes in seconds; the feed's watermark means the
+    # later unbounded ticks never re-dispatch the same sessions. We run the
+    # EXACT module the tick wrapper runs, with the same env, synchronously
+    # and OUTSIDE the feed's single-flight lock (no other feed runs during
+    # the installer, so there is no slot to contend for).
     _CONV_IMSG_BASE="${OSTLER_DIR}/services/imessage-source"
     _CONV_IMSG_PY="${_CONV_IMSG_BASE}/.venv/bin/python3"
     _CONV_PWG="${CM048_VENV}/bin/pwg-convo"
     [[ -x "$_CONV_PWG" ]] || _CONV_PWG="/usr/local/bin/pwg-convo"
+    # How many conversations the synchronous light pass drains. Small so the
+    # installer never grinds; the LaunchAgent finishes the rest. Operator
+    # override for a deeper first pass on a fast box.
+    _CONV_MAX="${OSTLER_DATA_STEP_MAX_CONVOS:-8}"
     if [[ ! -f "${HOME}/Library/Messages/chat.db" \
           || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]]; then
         info "$MSG_INFO_DATA_STEP_CONV_NO_SOURCE"
@@ -11506,22 +11514,49 @@ else
     else
         info "$MSG_INFO_DATA_STEP_CONV_RUNNING"
         _CONV_LOG=/tmp/ostler-data-step-conversations.log
-        # --since-days 30 matches the feed's fresh-install clamp; bounded so
-        # the synchronous pass does not bundle the entire history at once.
-        if ( cd "$_CONV_IMSG_BASE" \
-                && PWG_CONVO_CMD="$_CONV_PWG" \
-                   OSTLER_USER_DISPLAY_NAME="${USER_NAME:-You}" \
-                   OSTLER_USER_ID="${USER_ID:-}" \
-                   OSTLER_INGEST_OFFPEAK_ONLY=0 \
-                   "$_CONV_IMSG_PY" -m services.imessage_source.pipeline \
-                       --user-name "${USER_NAME:-You}" --since-days 30 \
-                ) >"$_CONV_LOG" 2>&1; then
+        # --since-days 30 matches the feed's fresh-install clamp;
+        # --max-sessions caps the light pass so it is fast. --no-progress is
+        # NOT passed: the pass seeds hydration_progress.json with the real
+        # iMessage backlog (queued) and the few it drains (done), so the
+        # settling panel has a true denominator from the first paint.
+        #
+        # Backgrounded with a per-conversation liveness heartbeat (mirrors
+        # the dedupe heartbeat) so the install bar/log never look frozen,
+        # plus a hard per-pass timeout so a stuck qwen call can never hang
+        # the installer. The watermark makes a timed-out pass safe to resume.
+        _CONV_TIMEOUT="${OSTLER_DATA_STEP_CONV_TIMEOUT:-180}"
+        ( cd "$_CONV_IMSG_BASE" \
+            && PWG_CONVO_CMD="$_CONV_PWG" \
+               OSTLER_USER_DISPLAY_NAME="${USER_NAME:-You}" \
+               OSTLER_USER_ID="${USER_ID:-}" \
+               OSTLER_INGEST_OFFPEAK_ONLY=0 \
+               "$_CONV_IMSG_PY" -m services.imessage_source.pipeline \
+                   --user-name "${USER_NAME:-You}" --since-days 30 \
+                   --max-sessions "$_CONV_MAX" \
+        ) >"$_CONV_LOG" 2>&1 &
+        _CONV_PID=$!
+        # Heartbeat: chirp every 5s while the light pass runs, and abort it
+        # if it overruns the timeout (the LaunchAgent will resume the rest).
+        _CONV_WAITED=0
+        while kill -0 "$_CONV_PID" 2>/dev/null; do
+            sleep 5
+            _CONV_WAITED=$((_CONV_WAITED + 5))
+            if [[ "$_CONV_WAITED" -ge "$_CONV_TIMEOUT" ]]; then
+                kill "$_CONV_PID" 2>/dev/null || true
+                warn "$MSG_WARN_DATA_STEP_CONV_TIMEOUT"
+                break
+            fi
+            info "$MSG_INFO_DATA_STEP_CONV_HEARTBEAT"
+            gui_emit PCT "step=data_step" "pct=62"
+        done
+        if wait "$_CONV_PID"; then
             _CONV_POINTS="$(_data_step_qdrant_count conversations)"
             _CONV_POINTS="${_CONV_POINTS:-0}"
             _CONV_FACTS="$(_data_step_fact_count)"
             _CONV_FACTS="${_CONV_FACTS:-0}"
             if [[ "$_CONV_POINTS" -gt 0 || "$_CONV_FACTS" -gt 0 ]]; then
                 ok "$(printf "$MSG_OK_DATA_STEP_CONV_DONE" "$_CONV_POINTS" "$_CONV_FACTS")"
+                info "$MSG_INFO_DATA_STEP_CONV_BACKGROUND"
             else
                 [[ -s "$_CONV_LOG" ]] && sed -e 's/^/    /' "$_CONV_LOG" | tail -5
                 if _data_step_strict; then
@@ -11531,10 +11566,68 @@ else
                 fi
             fi
         else
+            # A non-zero exit (including the heartbeat's timeout-kill) is not
+            # fatal: the feed LaunchAgent drains the backlog post-install, and
+            # the settling panel surfaces the in-progress state. Warn + log.
             warn "$MSG_WARN_DATA_STEP_CONV_FAILED"
             [[ -s "$_CONV_LOG" ]] && sed -e 's/^/    /' "$_CONV_LOG" | tail -5
         fi
     fi
+
+    # ── 3.14d.3 Seed the "ready now" channels for the settling panel ──
+    # BUG-039: the wiki settling panel reads hydration_progress.json (the
+    # same file the conversation feed writes its iMessage slice into). The
+    # fast install-time hydrate has ALREADY populated contacts + calendar by
+    # this point, so seed those channels as "ready now" and reflect whether
+    # an Evernote export was present for the notes channel. Best-effort: a
+    # failure here never blocks the install. The conversation feeds own
+    # their own channel keys, so this seed never clobbers them.
+    _PROGRESS_FILE="${OSTLER_DIR}/state/hydration_progress.json"
+    _CONTACTS_N="$(_data_step_qdrant_count people)"; _CONTACTS_N="${_CONTACTS_N:-0}"
+    _NOTES_N="$(_data_step_qdrant_count evernote_knowledge)"; _NOTES_N="${_NOTES_N:-0}"
+    # calendar count: meetings live in Oxigraph; a coarse "ready" marker is
+    # enough for the panel (it shows state, not a precise meeting tally).
+    OSTLER_HYDRATION_PROGRESS_FILE="$_PROGRESS_FILE" \
+    OSTLER_SEED_CONTACTS="$_CONTACTS_N" \
+    OSTLER_SEED_NOTES="$_NOTES_N" \
+        python3 - <<'PYSEED' 2>/dev/null || true
+import json, os, sys, tempfile
+from datetime import datetime, timezone
+path = os.environ["OSTLER_HYDRATION_PROGRESS_FILE"]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        doc = json.load(fh)
+    if not isinstance(doc, dict):
+        doc = {}
+except Exception:
+    doc = {}
+doc.setdefault("version", 1)
+chans = doc.setdefault("channels", {})
+def _seed(key, n, ready_if_any):
+    n = int(n or 0)
+    state = "ready" if (ready_if_any and n > 0) else ("ready" if n > 0 else "absent")
+    chans[key] = {"queued": n, "done": n, "state": state}
+# Contacts + calendar are populated by the fast hydrate -> ready now.
+_seed("contacts", os.environ.get("OSTLER_SEED_CONTACTS", "0"), True)
+# Calendar: mark ready (meetings hydrated) with a nominal count of 1 so the
+# panel shows it green; an exact tally is not needed for the plain copy.
+chans["calendar"] = {"queued": 1, "done": 1, "state": "ready"}
+# Notes: ready only if an Evernote export was embedded, else absent.
+_seed("notes", os.environ.get("OSTLER_SEED_NOTES", "0"), True)
+# Preserve any channel keys the feeds already wrote (imessage/whatsapp/...).
+for k in ("imessage", "whatsapp", "email", "spoken"):
+    chans.setdefault(k, {"queued": 0, "done": 0, "state": "absent"})
+done = sum(int(c.get("done", 0)) for c in chans.values() if isinstance(c, dict))
+total = sum(int(c.get("queued", 0)) for c in chans.values() if isinstance(c, dict))
+doc["overall"] = {"done": done, "total": total}
+doc["updated_utc"] = datetime.now(timezone.utc).isoformat()
+d = os.path.dirname(path) or "."
+os.makedirs(d, exist_ok=True)
+fd, tmp = tempfile.mkstemp(dir=d, prefix=".hydprog_", suffix=".tmp")
+with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    json.dump(doc, fh, indent=2)
+os.replace(tmp, path)
+PYSEED
 fi
 
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
