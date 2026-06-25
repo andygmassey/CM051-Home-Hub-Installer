@@ -1227,10 +1227,13 @@ MSG_OK_DATA_STEP_KNOWLEDGE_DONE="Knowledge ready: %s note(s) embedded for search
 MSG_WARN_DATA_STEP_KNOWLEDGE_CONVERT_FAILED="Evernote export found but the convert step failed; the Knowledge section will stay empty. See the log for details."
 MSG_WARN_DATA_STEP_KNOWLEDGE_EMBED_FAILED="Evernote notes were converted but the embed step failed; the Knowledge section will stay empty. See the log for details."
 
-# Conversations + citations (iMessage body feed, one synchronous pass).
+# Conversations + citations (iMessage body feed, bounded light first pass).
 MSG_INFO_DATA_STEP_CONV_NO_SOURCE="No readable iMessage history on this Mac, so the Conversations and citations pages start empty. They populate as new conversations arrive."
-MSG_INFO_DATA_STEP_CONV_RUNNING="Reading your recent iMessage conversations and summarising them; this can take a few minutes."
-MSG_OK_DATA_STEP_CONV_DONE="Conversation memory ready: %s conversation point(s), %s fact(s) for your wiki."
+MSG_INFO_DATA_STEP_CONV_RUNNING="Reading a first few of your recent conversations so these pages are not empty; the rest fills in by itself afterwards."
+MSG_OK_DATA_STEP_CONV_DONE="Conversation memory started: %s conversation point(s), %s fact(s) so far."
+MSG_INFO_DATA_STEP_CONV_BACKGROUND="The rest of your history keeps filling in quietly in the background over the next few hours. You can carry on using Ostler now."
+MSG_INFO_DATA_STEP_CONV_HEARTBEAT="Still reading through your first conversations..."
+MSG_WARN_DATA_STEP_CONV_TIMEOUT="The first conversation pass is taking a while, so it has been handed to the background to finish. Nothing is lost; it resumes from where it left off."
 MSG_WARN_DATA_STEP_CONV_FAILED="The conversation pass did not complete; the Conversations and citations pages will populate on the next background run instead. See the log for details."
 
 # Hard-fail (strict mode) when source data was present but a producer

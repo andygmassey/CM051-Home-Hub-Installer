@@ -53,7 +53,31 @@ from typing import Callable, Optional
 from .reader import WhatsAppConversation, read_chats
 from .renderer import build_metadata, render_transcript
 
+try:  # progress signal is best-effort; never break a tick on its absence
+    from . import hydration_progress as _hp
+except Exception:  # pragma: no cover - defensive
+    _hp = None
+
 logger = logging.getLogger(__name__)
+
+_PROGRESS_CHANNEL = "whatsapp"
+
+
+def _emit_progress(summary: dict) -> None:
+    """Report this feed's slice of the shared hydration progress signal.
+
+    ``queued`` is everything seen this tick (dispatched + skipped + failed);
+    ``done`` is everything not failed. Best-effort; a failure is swallowed.
+    """
+    if _hp is None:
+        return
+    try:
+        d = int(summary.get("chats_dispatched", 0))
+        s = int(summary.get("chats_skipped", 0))
+        f = int(summary.get("chats_failed", 0))
+        _hp.update_channel(_PROGRESS_CHANNEL, queued=d + s + f, done=d + s)
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 # Engine-zone state under ~/.ostler/ (two-zone architecture). The
@@ -349,6 +373,8 @@ def run(argv: Optional[list[str]] = None) -> int:
     except PermissionError as exc:
         logger.error("%s", exc)
         return 2
+    if not args.dry_run:
+        _emit_progress(summary)
     print(json.dumps(summary, indent=2))
     return 0
 
