@@ -187,6 +187,11 @@ def _emit_progress(*, queued: int, done: int) -> None:
     (processed-so-far + still-pending); ``done`` is how much of it is
     finished. The wiki settling panel reads the aggregate. A failure here
     must never disturb the tick, so it is fully swallowed.
+
+    N3: unlike whatsapp/email/spoken, iMessage is cumulative-persistent and
+    RETRIES a failed session next tick (the watermark is not advanced past
+    it), so a failure is transient -- it stays inside ``queued`` and is NOT
+    reported as ``failed``. The bar simply has not reached it yet.
     """
     if _hp is None:
         return
@@ -280,7 +285,6 @@ def process_imessage(
         max_rowid = prev_watermark
         for session in sessions:
             session_max = max(m.rowid for m in session.messages)
-            max_rowid = max(max_rowid, session_max)
             # Skip a session whose newest message we've already
             # processed -- the watermark guards re-dispatch.
             if session_max <= prev_watermark:
@@ -289,8 +293,18 @@ def process_imessage(
             if max_sessions and dispatched >= max_sessions:
                 # Light-pass cap reached: stop advancing this thread's
                 # watermark here so the background ticks pick up the rest.
+                # CRUCIAL: do NOT fold this session's rowid into max_rowid
+                # before breaking -- it was never dispatched, so swallowing
+                # it would persist a watermark past an undispatched session
+                # and the next background tick would skip it forever (the
+                # session is silently lost). The fold below runs only AFTER
+                # both guards, so a capped session never advances the mark.
                 capped = True
                 break
+            # This session IS being dispatched (or attempted) -- now it is
+            # safe to advance the watermark to cover it. A dispatch failure
+            # rewinds it again below.
+            max_rowid = max(max_rowid, session_max)
 
             # Per-contact L3: if ANY non-user handle in the session is
             # mapped L3, the whole session is L3 (defence in depth --
