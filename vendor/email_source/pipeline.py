@@ -49,6 +49,32 @@ from .threader import build_metadata, render_transcript, thread_messages
 
 logger = logging.getLogger(__name__)
 
+# Channel key for the conversation-hydration progress signal (BUG-037).
+_CONV_CHANNEL = "email"
+
+
+def _bump_conversation_progress(delta: int = 1) -> None:
+    """Bump this channel's `done` counter in the conversation-hydration
+    signal so the CM044 "still settling in" panel shows climbing progress
+    as this background feed drains the backlog. Best-effort, never raises.
+    """
+    try:
+        import importlib.util
+
+        override = os.getenv("OSTLER_CONVERSATION_HYDRATION_HELPER")
+        candidates = [override] if override else []
+        candidates.append(str(Path.home() / ".ostler" / "lib" / "conversation_hydration.py"))
+        for cand in candidates:
+            if cand and Path(cand).is_file():
+                spec = importlib.util.spec_from_file_location("ostler_conv_hydration", cand)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    mod.bump_done_safe(_CONV_CHANNEL, delta)
+                return
+    except Exception:  # noqa: BLE001 -- progress signal is never load-bearing
+        return
+
 
 # Engine-zone state under ~/.ostler/ (two-zone architecture). The
 # watermark records the set of message-ids already bundled per thread.
@@ -263,6 +289,7 @@ def process_email(
         if rc == 0:
             dispatched += 1
             if not dry_run:
+                _bump_conversation_progress(1)
                 # Record every message-id now bundled so the next tick
                 # only re-dispatches on a genuinely new reply.
                 thread_state[thread.thread_id] = sorted(
