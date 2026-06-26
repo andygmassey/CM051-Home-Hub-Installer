@@ -37,6 +37,7 @@ from typing import Callable, Iterable, Optional
 
 from . import reply_debt
 from . import reply_debt_adapters as adapters
+from . import reply_debt_store_adapter as store_adapter
 from .reply_debt import ReplyDebt, Thread
 
 logger = logging.getLogger(__name__)
@@ -54,13 +55,24 @@ def compute_reply_debts(
     """Compute ranked reply debts across all sources.
 
     ``thread_sources`` lets a test inject pre-built thread iterables. When
-    omitted, the default live source is the iMessage chat.db adapter (the
-    strongest direction signal). Email / WhatsApp adapters can be appended here
-    as they are proven on the box.
+    omitted, the default live sources are:
+
+      * the iMessage chat.db adapter -- the strongest direction signal, but
+        box-only (needs Full Disk Access); silently yields nothing off-box.
+      * the conversation-store adapter -- reads the on-disk bundles
+        (WhatsApp / email / meeting threads) and is provable off-box. iMessage
+        bundles are skipped there to avoid double-counting with chat.db.
+
+    Both default sources are isolated below: a failure in one (a chat.db read
+    error, an unreadable bundle) does not sink the other.
     """
     if thread_sources is None:
         thread_sources = [
             adapters.iter_imessage_threads(
+                strength_lookup=strength_lookup,
+                lookback_days=lookback_days,
+            ),
+            store_adapter.iter_store_threads(
                 strength_lookup=strength_lookup,
                 lookback_days=lookback_days,
             ),
