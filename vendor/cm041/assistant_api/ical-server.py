@@ -416,6 +416,167 @@ def _safe_int(params, key, default):
         return default, {"error": f"Invalid integer value for '{key}': {raw!r}"}
 
 
+
+def _safe_float(params, key, default):
+    """Parse a query param as float, returning (value, error_dict_or_None).
+
+    Mirrors _safe_int's contract (ready-to-serialise JSON error on failure).
+    """
+    raw = params.get(key, [str(default)])[0]
+    try:
+        return float(raw), None
+    except (ValueError, TypeError):
+        return default, {"error": f"Invalid float value for '{key}': {raw!r}"}
+
+
+# ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
+#
+# "Remember what I owe a reply on." Relationship *decay* (DORMANT badges)
+# already tells the operator who they have not spoken to in a while. Reply
+# *debt* is the missing twin: threads where the LAST message is inbound
+# (from the other person) and has gone unanswered past a threshold -- the
+# ball is in your court and you have dropped it. This lights up the
+# proactive daily-brief headline ("You owe a reply to N people").
+#
+# The detector itself lives in CM048 (src/reply_debt.py + adapters +
+# service). It is deliberately source-agnostic stdlib-only code (no LLM,
+# no network): the iMessage adapter reads Apple's chat.db READ-ONLY and
+# the core scores the normalised threads. We invoke it in-process by
+# importing CM048's reply-debt service from OSTLER_PROJECT_DIR -- the same
+# env var the existing CM048 conversation-processing integration uses to
+# locate the CM048 checkout on the box. CM048's
+# ``handle_reply_debt``/``compute_reply_debts`` were written for exactly
+# this seam (see src/reply_debt_service.py docstring).
+#
+# Single-machine architecture (v1.0.3): chat.db lives at
+# ~/Library/Messages/chat.db on the same Mac the Assistant API runs on, so
+# the data is reachable from this process given Full Disk Access. No second
+# host, no cross-machine sync.
+#
+# HONESTY: we distinguish "no data source reachable" (degraded:true -- the
+# CM048 checkout is not on the path, or chat.db cannot be read) from "zero
+# replies owed" (degraded:false, debts:[] -- you are caught up). The brief
+# leads with the headline only when debts is non-empty; an empty-but-not-
+# degraded result is the honest "all caught up" state.
+
+# Where the CM048 checkout lives on the box. Mirrors OSTLER_PROJECT_DIR
+# used by _conversation_process_background; that env var points at the
+# CM048 repo root (parent of its ``src`` package).
+REPLY_DEBT_PROJECT_DIR = os.environ.get(
+    "REPLY_DEBT_PROJECT_DIR",
+    os.environ.get("OSTLER_PROJECT_DIR", ""),
+)
+
+# Cached import handle: None = not yet attempted, False = attempted and
+# unavailable, module = loaded. Avoids re-walking sys.path on every call.
+_reply_debt_service = None
+
+
+def _load_reply_debt_service():
+    """Import CM048's reply-debt service from the on-box checkout.
+
+    Returns the ``reply_debt_service`` module, or None when the CM048
+    checkout is not locatable / importable (a fresh box where the
+    OSTLER_PROJECT_DIR is unset, or a partial install). Never raises:
+    callers degrade to an empty payload so the daily brief simply omits
+    the section rather than going red.
+
+    The lookup is cached so repeated polls (the brief cron) do not
+    re-import. Import failure is cached as a sentinel so we do not retry
+    a doomed import on every request.
+    """
+    global _reply_debt_service
+    if _reply_debt_service is not None:
+        return _reply_debt_service or None
+
+    project_dir = (REPLY_DEBT_PROJECT_DIR or "").strip()
+    if not project_dir or not os.path.isdir(project_dir):
+        _reply_debt_service = False
+        return None
+
+    try:
+        import sys as _sys
+        if project_dir not in _sys.path:
+            _sys.path.insert(0, project_dir)
+        # CM048 exposes its modules as the ``src`` package; the service
+        # uses relative imports (``from . import reply_debt``) so it must
+        # be imported as ``src.reply_debt_service``, not by file path.
+        import importlib
+        module = importlib.import_module("src.reply_debt_service")
+        _reply_debt_service = module
+        return module
+    except Exception as exc:
+        print(
+            f"[reply-debt] CM048 service unavailable: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        _reply_debt_service = False
+        return None
+
+
+def api_reply_debt(threshold_hours=None, lookback_days=None,
+                   include_group=False, limit=None):
+    """Compute the operator's outstanding reply debts.
+
+    Read-only. Returns ``({"count": N, "brief_line": str,
+    "debts": [...]}, 200)`` -- the same shape CM048's
+    ``reply_debt_payload`` emits -- so the daily-brief generator can lead
+    with "You owe a reply to N people" and name the top few.
+
+    When the CM048 reply-debt detector is not reachable from this process
+    (no on-box checkout, or chat.db cannot be read) the payload carries
+    ``degraded: true`` with an empty ``debts`` list, so the consumer can
+    tell "no data source" apart from "caught up". A genuinely empty result
+    (detector ran, nothing owed) returns ``degraded: false`` with an empty
+    ``debts`` list. Status is always 200: the brief must degrade quietly,
+    never surface a 5xx that would raise the Hub-offline pill.
+    """
+    service = _load_reply_debt_service()
+    if service is None:
+        return {
+            "count": 0,
+            "brief_line": "",
+            "debts": [],
+            "degraded": True,
+            "reason": "reply_debt_detector_unavailable",
+        }, 200
+
+    # Optional knobs; fall back to the detector's own defaults so the
+    # surface stays a thin pass-through.
+    kwargs = {"include_group": bool(include_group)}
+    if threshold_hours is not None:
+        kwargs["threshold_hours"] = threshold_hours
+    if lookback_days is not None:
+        kwargs["lookback_days"] = lookback_days
+
+    try:
+        debts = service.compute_reply_debts(**kwargs)
+        if limit is not None and limit >= 0:
+            debts = debts[:limit]
+        payload = service.reply_debt_payload(debts)
+    except Exception as exc:
+        # Any failure inside the detector (a chat.db read error, a bad
+        # adapter) degrades to caught-up rather than 5xx.
+        print(
+            f"[reply-debt] computation failed: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return {
+            "count": 0,
+            "brief_line": "",
+            "debts": [],
+            "degraded": True,
+            "reason": f"reply_debt_failed: {str(exc)[:200]}",
+        }, 200
+
+    payload.setdefault("degraded", False)
+    return payload, 200
+
+
 def _to_iso8601(raw):
     """Convert one of the date-ish strings we emit into ISO-8601.
 
@@ -3755,6 +3916,49 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": str(e)}).encode())
                 return
             self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        # GET /api/v1/reply-debt?limit=N&threshold_hours=F&lookback_days=N&include_group=0|1
+        # The daily-brief headline: "you owe a reply to N people". Read-only;
+        # degrades to {count:0, debts:[], degraded:true} when the CM048
+        # detector / chat.db is not reachable so the brief omits the line
+        # rather than going red. (CM048 reply-debt detector, JTBD#1.)
+        if parsed.path == "/api/v1/reply-debt":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 50)
+            if not err:
+                lookback_days, err = _safe_int(params, "lookback_days", 90)
+            threshold_hours = None
+            if not err and "threshold_hours" in params:
+                threshold_hours, err = _safe_float(
+                    params, "threshold_hours", 6.0
+                )
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            include_group = params.get(
+                "include_group", ["0"]
+            )[0].strip().lower() in ("1", "true", "yes")
+            try:
+                result, status = api_reply_debt(
+                    threshold_hours=threshold_hours,
+                    lookback_days=lookback_days,
+                    include_group=include_group,
+                    limit=limit,
+                )
+            except Exception as exc:
+                result, status = {
+                    "count": 0, "brief_line": "", "debts": [],
+                    "degraded": True,
+                    "reason": f"reply_debt_failed: {str(exc)[:200]}",
+                }, 200
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(result, indent=2).encode())

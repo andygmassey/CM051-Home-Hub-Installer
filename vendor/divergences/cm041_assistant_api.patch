@@ -231,7 +231,18 @@
    GET /health                      – health check (pass ?detailed=1 for deps)
  """
  
-@@ -106,9 +104,38 @@
+@@ -32,8 +30,10 @@
+ import json
+ import re
+ import os
++import hashlib
+ import sqlite3
+ import sys
++import unicodedata
+ 
+ # SECURITY: encrypted database wrapper from ostler_security.
+ #
+@@ -106,9 +106,38 @@
  from http.server import HTTPServer, BaseHTTPRequestHandler
  from pathlib import Path
  from urllib.parse import urlparse, parse_qs
@@ -272,7 +283,70 @@
  ICAL_SCRIPT = os.environ.get(
      "ICAL_SCRIPT", os.path.expanduser("~/.zeroclaw/ical-query.sh")
  )
-@@ -199,7 +226,7 @@
+@@ -120,18 +149,58 @@
+ EMBED_OLLAMA_URL = os.environ.get("EMBED_OLLAMA_URL", "http://localhost:11434")
+ 
+ 
++# Non-decomposable Latin letters that NFKD leaves intact (they are atomic
++# code points, not base+combining-mark). Mapped to an ASCII transliteration
++# so an accented international name yields a clean, stable, collision-resistant
++# slug rather than a hyphen-riddled or empty one.
++_SLUG_TRANSLIT = {
++    "ø": "o", "Ø": "o",
++    "ß": "ss",
++    "æ": "ae", "Æ": "ae",
++    "œ": "oe", "Œ": "oe",
++    "ð": "d", "Ð": "d",
++    "þ": "th", "Þ": "th",
++    "ł": "l", "Ł": "l",
++    "đ": "d", "Đ": "d",
++    "ı": "i",
++    "ŋ": "n",
++}
++
++
+ def _wiki_slug(name):
+     """Compute a wiki page slug from a display name.
+ 
+-    Matches the slugify() function in the wiki compiler so URLs resolve
+-    to the right page.
++    Mirrors the wiki compiler's intent (filesystem-/URL-safe ASCII slug) but
++    is Unicode-correct for international names, which the prior naive
++    ``[^a-z0-9]`` filter was not:
++
++      * accented Latin letters are folded to their ASCII base via NFKD
++        decomposition + combining-mark removal ("Jorg" not "j-rg"); the
++        non-decomposable letters (ø ß æ ł ...) are transliterated first.
++        So "Muller" and "Müller" both slug to "muller" (correct -- the slug
++        is the URL key, accent-insensitive matching is desirable).
++      * a name that folds to nothing under the ASCII filter (e.g. a CJK or
++        Cyrillic name such as "山田太郎" or "Владимир") would previously have
++        collapsed to the literal "unknown", so EVERY such person collided on
++        a single "unknown" slug. We now derive a short, stable hex suffix
++        from the original name ("person-ad8d3fea7a") so distinct non-Latin
++        names get distinct slugs.
++
++    The stored ``pwg:displayName`` keeps the original accents verbatim -- this
++    function only governs the URL/page key.
+     """
+     if not name:
+         return "unknown"
+-    s = name.strip().lower()
++    pre = "".join(_SLUG_TRANSLIT.get(c, c) for c in name)
++    folded = unicodedata.normalize("NFKD", pre)
++    folded = "".join(c for c in folded if not unicodedata.combining(c))
++    s = folded.strip().lower()
+     s = re.sub(r"[^a-z0-9]+", "-", s)
+     s = re.sub(r"-+", "-", s).strip("-")
+-    return s[:80] if s else "unknown"
++    if s:
++        return s[:80]
++    digest = hashlib.sha1(name.strip().encode("utf-8")).hexdigest()[:10]
++    return f"person-{digest}"
+ 
+ 
+ # Characters allowed in a "bare identifier" (phone-like) handle.
+@@ -199,7 +268,7 @@
      Conservative rule (v152 wiki junk-data fix): an event is personal-admin
      when it is ALL-DAY *and* has no human attendee. This catches public
      holidays ("Father's Day", "Dragon Boat Festival"), deliveries
@@ -281,7 +355,7 @@
      all-day confirmations -- all of which the calendar source emits as
      attendee-less all-day entries.
  
-@@ -236,8 +263,6 @@
+@@ -236,8 +305,6 @@
  COACH_DB = PWG_HOME / "coach" / "observations.db"
  PROCESSING_DIR = PWG_HOME / "processing"
  CONVERSATIONS_DIR = PWG_HOME / "conversations"
@@ -290,7 +364,7 @@
  
  # ── Wiki hydration status (CM044 #624) ───────────────────────────────
  # The wiki compiler writes a small JSON progress file as it builds; this
-@@ -267,29 +292,14 @@
+@@ -267,29 +334,14 @@
      "https://tauri.localhost",
  }
  
@@ -328,7 +402,7 @@
  
  # ── Hub health endpoint (HR015 Hub portability) ──────────────────────
  # Source of truth for the iOS Companion's Hub status pill.
-@@ -322,6 +332,29 @@
+@@ -322,6 +374,29 @@
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
  
@@ -358,7 +432,175 @@
  try:
      from zoneinfo import ZoneInfo
      _LOCAL_TZ = ZoneInfo(TIMEZONE)
-@@ -381,8 +414,8 @@
+@@ -341,6 +416,167 @@
+         return default, {"error": f"Invalid integer value for '{key}': {raw!r}"}
+ 
+ 
++
++def _safe_float(params, key, default):
++    """Parse a query param as float, returning (value, error_dict_or_None).
++
++    Mirrors _safe_int's contract (ready-to-serialise JSON error on failure).
++    """
++    raw = params.get(key, [str(default)])[0]
++    try:
++        return float(raw), None
++    except (ValueError, TypeError):
++        return default, {"error": f"Invalid float value for '{key}': {raw!r}"}
++
++
++# ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
++#
++# "Remember what I owe a reply on." Relationship *decay* (DORMANT badges)
++# already tells the operator who they have not spoken to in a while. Reply
++# *debt* is the missing twin: threads where the LAST message is inbound
++# (from the other person) and has gone unanswered past a threshold -- the
++# ball is in your court and you have dropped it. This lights up the
++# proactive daily-brief headline ("You owe a reply to N people").
++#
++# The detector itself lives in CM048 (src/reply_debt.py + adapters +
++# service). It is deliberately source-agnostic stdlib-only code (no LLM,
++# no network): the iMessage adapter reads Apple's chat.db READ-ONLY and
++# the core scores the normalised threads. We invoke it in-process by
++# importing CM048's reply-debt service from OSTLER_PROJECT_DIR -- the same
++# env var the existing CM048 conversation-processing integration uses to
++# locate the CM048 checkout on the box. CM048's
++# ``handle_reply_debt``/``compute_reply_debts`` were written for exactly
++# this seam (see src/reply_debt_service.py docstring).
++#
++# Single-machine architecture (v1.0.3): chat.db lives at
++# ~/Library/Messages/chat.db on the same Mac the Assistant API runs on, so
++# the data is reachable from this process given Full Disk Access. No second
++# host, no cross-machine sync.
++#
++# HONESTY: we distinguish "no data source reachable" (degraded:true -- the
++# CM048 checkout is not on the path, or chat.db cannot be read) from "zero
++# replies owed" (degraded:false, debts:[] -- you are caught up). The brief
++# leads with the headline only when debts is non-empty; an empty-but-not-
++# degraded result is the honest "all caught up" state.
++
++# Where the CM048 checkout lives on the box. Mirrors OSTLER_PROJECT_DIR
++# used by _conversation_process_background; that env var points at the
++# CM048 repo root (parent of its ``src`` package).
++REPLY_DEBT_PROJECT_DIR = os.environ.get(
++    "REPLY_DEBT_PROJECT_DIR",
++    os.environ.get("OSTLER_PROJECT_DIR", ""),
++)
++
++# Cached import handle: None = not yet attempted, False = attempted and
++# unavailable, module = loaded. Avoids re-walking sys.path on every call.
++_reply_debt_service = None
++
++
++def _load_reply_debt_service():
++    """Import CM048's reply-debt service from the on-box checkout.
++
++    Returns the ``reply_debt_service`` module, or None when the CM048
++    checkout is not locatable / importable (a fresh box where the
++    OSTLER_PROJECT_DIR is unset, or a partial install). Never raises:
++    callers degrade to an empty payload so the daily brief simply omits
++    the section rather than going red.
++
++    The lookup is cached so repeated polls (the brief cron) do not
++    re-import. Import failure is cached as a sentinel so we do not retry
++    a doomed import on every request.
++    """
++    global _reply_debt_service
++    if _reply_debt_service is not None:
++        return _reply_debt_service or None
++
++    project_dir = (REPLY_DEBT_PROJECT_DIR or "").strip()
++    if not project_dir or not os.path.isdir(project_dir):
++        _reply_debt_service = False
++        return None
++
++    try:
++        import sys as _sys
++        if project_dir not in _sys.path:
++            _sys.path.insert(0, project_dir)
++        # CM048 exposes its modules as the ``src`` package; the service
++        # uses relative imports (``from . import reply_debt``) so it must
++        # be imported as ``src.reply_debt_service``, not by file path.
++        import importlib
++        module = importlib.import_module("src.reply_debt_service")
++        _reply_debt_service = module
++        return module
++    except Exception as exc:
++        print(
++            f"[reply-debt] CM048 service unavailable: "
++            f"{type(exc).__name__}: {exc}",
++            file=sys.stderr,
++            flush=True,
++        )
++        _reply_debt_service = False
++        return None
++
++
++def api_reply_debt(threshold_hours=None, lookback_days=None,
++                   include_group=False, limit=None):
++    """Compute the operator's outstanding reply debts.
++
++    Read-only. Returns ``({"count": N, "brief_line": str,
++    "debts": [...]}, 200)`` -- the same shape CM048's
++    ``reply_debt_payload`` emits -- so the daily-brief generator can lead
++    with "You owe a reply to N people" and name the top few.
++
++    When the CM048 reply-debt detector is not reachable from this process
++    (no on-box checkout, or chat.db cannot be read) the payload carries
++    ``degraded: true`` with an empty ``debts`` list, so the consumer can
++    tell "no data source" apart from "caught up". A genuinely empty result
++    (detector ran, nothing owed) returns ``degraded: false`` with an empty
++    ``debts`` list. Status is always 200: the brief must degrade quietly,
++    never surface a 5xx that would raise the Hub-offline pill.
++    """
++    service = _load_reply_debt_service()
++    if service is None:
++        return {
++            "count": 0,
++            "brief_line": "",
++            "debts": [],
++            "degraded": True,
++            "reason": "reply_debt_detector_unavailable",
++        }, 200
++
++    # Optional knobs; fall back to the detector's own defaults so the
++    # surface stays a thin pass-through.
++    kwargs = {"include_group": bool(include_group)}
++    if threshold_hours is not None:
++        kwargs["threshold_hours"] = threshold_hours
++    if lookback_days is not None:
++        kwargs["lookback_days"] = lookback_days
++
++    try:
++        debts = service.compute_reply_debts(**kwargs)
++        if limit is not None and limit >= 0:
++            debts = debts[:limit]
++        payload = service.reply_debt_payload(debts)
++    except Exception as exc:
++        # Any failure inside the detector (a chat.db read error, a bad
++        # adapter) degrades to caught-up rather than 5xx.
++        print(
++            f"[reply-debt] computation failed: "
++            f"{type(exc).__name__}: {exc}",
++            file=sys.stderr,
++            flush=True,
++        )
++        return {
++            "count": 0,
++            "brief_line": "",
++            "debts": [],
++            "degraded": True,
++            "reason": f"reply_debt_failed: {str(exc)[:200]}",
++        }, 200
++
++    payload.setdefault("degraded", False)
++    return payload, 200
++
++
+ def _to_iso8601(raw):
+     """Convert one of the date-ish strings we emit into ISO-8601.
+ 
+@@ -381,8 +617,8 @@
      """Parse an ATTENDEE or ORGANIZER iCal line into a dict.
  
      Examples:
@@ -369,12 +611,10 @@
      """
      result = {}
      # Extract CN=Name
-@@ -692,81 +725,8 @@
-         method="POST",
-     )
+@@ -694,79 +930,6 @@
      urllib.request.urlopen(req, timeout=30)
--
--
+ 
+ 
 -# Control characters that must never reach a SPARQL literal. We reject the
 -# input outright rather than silently stripping, so a caller sending a
 -# control byte gets a clear validation error instead of mangled data.
@@ -390,14 +630,14 @@
 -    through here before it is interpolated into a SPARQL UPDATE. A naive
 -    f-string would let a value such as ``foo" . <x> <y> <z> . #`` break out
 -    of the literal and inject arbitrary triples.
- 
+-
 -    Per the SPARQL 1.1 grammar (STRING_LITERAL with ECHAR), inside a
 -    double-quoted literal we must escape backslash and double-quote, and
 -    represent the line-structural characters (newline, carriage return,
 -    tab) with their backslash escapes -- a raw newline is not permitted in
 -    a single-line STRING_LITERAL. Backslash is escaped FIRST so we do not
 -    double-process the escapes we introduce afterwards.
- 
+-
 -    Returns the escaped string (without the surrounding quotes). The caller
 -    is expected to have already length-checked and control-char-rejected
 -    the value via ``_validate_asserted_string``; this function is a pure
@@ -451,7 +691,7 @@
  # Wiki-recompile queue lives under ~/.ostler/queue/. The customer install
  # (CM051) creates this directory. The daily wiki-recompile LaunchAgent
  # picks up `wiki_recompile_pending` and triggers a rebuild.
-@@ -902,6 +862,20 @@
+@@ -902,6 +1065,20 @@
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
  
@@ -472,7 +712,7 @@
  def _conversation_process_background(conversation_id, transcript, metadata):
      """Run CM048 processing in a background thread.
  
-@@ -909,9 +883,10 @@
+@@ -909,9 +1086,10 @@
      invokes the CM048 processor. Updates state.json on completion or
      failure.
  
@@ -486,7 +726,32 @@
      """
      state_dir = PROCESSING_DIR / conversation_id
      state_dir.mkdir(parents=True, exist_ok=True)
-@@ -941,17 +916,13 @@
+@@ -919,9 +1097,22 @@
+     # Save raw transcript
+     (state_dir / "00_raw_transcript.md").write_text(transcript, encoding="utf-8")
+ 
+-    # Save metadata
++    # Save metadata. CM048's CLI (src/cli.py cmd_process) rejects any
++    # metadata.json that lacks a truthy ``conversation_id`` with exit
++    # code 2 ("metadata.json must include a conversation_id"). The
++    # caller (api_conversation_process) already derives the canonical
++    # conversation_id but historically only passed it as the state-dir
++    # name, never into the metadata dict, so every POSTed transcript
++    # (e.g. the iOS Watch path) failed at the processor hop and was
++    # silently dropped after the raw-file write. Inject it here so the
++    # persisted metadata always satisfies the processor contract.
++    # Default channel to "spoken" so an iOS/CM042 transcript routes
++    # through CM048's spoken channel adapter when the caller omits it.
++    metadata_out = dict(metadata)
++    metadata_out["conversation_id"] = conversation_id
++    metadata_out.setdefault("channel", "spoken")
+     (state_dir / "00_metadata.json").write_text(
+-        json.dumps(metadata, indent=2, default=str), encoding="utf-8"
++        json.dumps(metadata_out, indent=2, default=str), encoding="utf-8"
+     )
+ 
+     # Initial state
+@@ -941,17 +1132,13 @@
          json.dumps(state, indent=2), encoding="utf-8"
      )
  
@@ -508,7 +773,7 @@
          )
          if result.returncode == 0:
              state["current_step"] = "completed"
-@@ -960,6 +931,18 @@
+@@ -960,6 +1147,18 @@
              state["failed_step"] = "processor"
              state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
              state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
@@ -527,7 +792,7 @@
      except subprocess.TimeoutExpired:
          state["failed_step"] = "processor"
          state["failure_reason"] = "Processing timed out (15 min limit)"
-@@ -986,11 +969,24 @@
+@@ -986,11 +1185,24 @@
      if not transcript:
          return {"error": "Missing 'transcript' field"}, 400
  
@@ -555,10 +820,12 @@
  
      # Generate conversation_id from metadata or UUID
      date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
-@@ -1157,260 +1153,6 @@
+@@ -1155,262 +1367,8 @@
+     # iOS Companion shows the gatewayError banner per PR #90 contract).
+     status_code = 200 if forgotten else 503
      return response, status_code
- 
- 
+-
+-
 -# ── User-asserted facts (learning-loop write path) ───────────────────
 -#
 -# POST /api/v1/memory/assert lets the assistant durably bank a fact the
@@ -788,9 +1055,9 @@
 -            'INSERT DATA {{ <{uri}> pwg:relationship "{rel}" ;\n'
 -            '  pwg:relationshipType "{rel}" . }}'
 -        ).format(ns=PWG_NS, uri=person_uri, rel=esc_rel)
--
+ 
 -    sparql = insert_block + relationship_update
--
+ 
 -    # 4 + 5. Write, queue recompile, respond. Degrade on Oxigraph error.
 -    try:
 -        _sparql_update(sparql)
@@ -816,7 +1083,7 @@
  def api_conversation_status(conversation_id):
      """Handle GET /api/v1/conversation/status/{id}."""
      state_file = PROCESSING_DIR / conversation_id / "state.json"
-@@ -1423,350 +1165,62 @@
+@@ -1423,350 +1381,62 @@
      return state, 200
  
  
@@ -1115,9 +1382,7 @@
 -                text = correction["new_value"]
 -                source = "user_correction"
 -                corrected = True
-+        return {"error": f"Failed to read speaker feedback: {exc}"}, 500
-+    return feedback, 200
- 
+-
 -        out.append({
 -            "id": fact_id,
 -            "predicate": domain,
@@ -1131,6 +1396,8 @@
 -            "corrected": corrected,
 -            "valid_from": valid_from,
 -        })
++        return {"error": f"Failed to read speaker feedback: {exc}"}, 500
++    return feedback, 200
  
 -    # Sort by (confidence desc, valid_from desc). Stable for ties so
 -    # the order stays deterministic between calls -- the iOS list uses
@@ -1141,7 +1408,7 @@
 -    )
 -    out = out[:MEMORY_LIMIT]
 -    return {"facts": out, "count": len(out)}
--
+ 
 -
 -def api_memory_correct(fact_id: str, payload: dict):
 -    """Handle POST /api/v1/memory/correct/{fact_id}.
@@ -1209,7 +1476,7 @@
  def person_context(name):
      """Gather everything known about a person by name."""
      esc = name.replace("\\", "\\\\").replace('"', '\\"')
-@@ -1902,11 +1356,91 @@
+@@ -1902,11 +1572,91 @@
      return {"query": name, "found": True, "matches": results, "count": len(results)}
  
  
@@ -1306,7 +1573,7 @@
  _LAST_CONTACT_SOURCES = (
      ("lcCalendar", "calendar"),
      ("lcWhatsApp", "whatsapp"),
-@@ -2168,32 +1702,6 @@
+@@ -2168,32 +1918,6 @@
          if k not in ("slug", "found", "person"):
              out[k] = v
      return out, 200
@@ -1339,7 +1606,7 @@
  
  
  def people_list(sort=None, ceiling=10000):
-@@ -2205,15 +1713,10 @@
+@@ -2205,15 +1929,10 @@
      people_search / people_stale, so the Hub count matches the wiki People
      count and the iOS People tab once #600 hydrate has populated Qdrant.
  
@@ -1359,7 +1626,7 @@
      """
      points = []
      next_offset = None
-@@ -2292,8 +1795,9 @@
+@@ -2292,8 +2011,9 @@
          if not name:
              continue
          # slug + wiki_url let the Hub People row click through to the
@@ -1371,19 +1638,17 @@
          slug = _wiki_slug(name)
          row = {
              "id": str(pt.get("id")),
-@@ -2367,63 +1871,11 @@
+@@ -2365,60 +2085,8 @@
+         row.pop("_first", None)
+         row.pop("_last", None)
      return {"people": people, "total": len(people)}
- 
- 
+-
+-
 -def people_stale(months=3, limit=5):
 -    """Find contacts not spoken to in N months (from Qdrant last_contact)."""
 -    import time
 -    cutoff_ts = int(time.time()) - (months * 30 * 86400)
-+def people_recent(days=7, limit=5):
-+    """Find people with recent meetings (for follow-up suggestions)."""
-+    from datetime import datetime, timedelta, timezone
-+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-     try:
+-    try:
 -        body = {
 -            "filter": {
 -                "must": [
@@ -1405,7 +1670,7 @@
 -            result = json.loads(resp.read())
 -    except Exception as exc:
 -        return {"contacts": [], "degraded": True, "reason": str(exc), "error": str(exc)}
--
+ 
 -    contacts = []
 -    now = time.time()
 -    for pt in result.get("result", {}).get("points", []):
@@ -1429,39 +1694,26 @@
 -        })
 -    contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
 -    return {"contacts": contacts[:limit]}
+ 
 -
--
--def people_recent(days=7, limit=5):
--    """Find people with recent meetings (for follow-up suggestions)."""
--    from datetime import datetime, timedelta, timezone
--    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
--    try:
-         rows = _sparql_select(
-             'PREFIX pwg: <{ns}>\n'
-             'SELECT ?name ?summary ?date ?location WHERE {{\n'
-@@ -2619,123 +2071,70 @@
+ def people_recent(days=7, limit=5):
+     """Find people with recent meetings (for follow-up suggestions)."""
+     from datetime import datetime, timedelta, timezone
+@@ -2618,124 +2286,71 @@
+     out["follow_up"] = out["recent_meetings"]
      return out
  
- 
+-
 -def api_meeting_upcoming(within_minutes=120):
 -    """Return enriched pre-meeting briefs for events starting within
 -    ``within_minutes`` from now.
-+def _timeline_from_graph(past_days=730, limit=200):
-+    """Historic timeline rows from the People Graph - one entry PER MEETING.
- 
+-
 -    This is the read side of the pre-meeting brief wiring: CM048
 -    extracts outstanding TODOs and writes them to Oxigraph; the
 -    CM041 ``meeting_syncer/brief.py`` generator gathers calendar +
 -    People Graph + TODO context into a structured brief payload;
 -    this endpoint exposes that payload to two consumers:
-+    The Timeline is mainly a HISTORIC view, so its primary source is the graph
-+    (pwg:Meeting nodes ingested from the user's calendar history at install),
-+    NOT the live calendar API - that only looks forward and is usually
-+    unconfigured on a fresh customer box. One row per meeting (collapsing
-+    attendees with GROUP_CONCAT) over a wide window (default ~2 years), newest
-+    first. Per-meeting collapse also avoids the timeline double-entry bug
-+    (#663 / BW-3) at the source instead of post-hoc in Python.
- 
+-
 -    1. The CM051 LaunchAgent cron sender, which polls every ~10 min
 -       and pushes a WhatsApp message ~15-20 min before each meeting.
 -    2. The CM031 iOS Companion ``MeetingBriefService``, which polls
@@ -1486,13 +1738,7 @@
 -    # brief.pre_meeting_brief / brief._sparql_query take effect
 -    # without a server restart. Cheap (module already in sys.modules
 -    # after first call).
-+    Returns ``(rows, error)`` - ``error`` is a string when the graph query
-+    failed (so the caller can surface a degraded marker), else None.
-+    """
-+    from datetime import datetime, timedelta, timezone
-+    cutoff = (datetime.now(timezone.utc)
-+              - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
-     try:
+-    try:
 -        import sys as _sys
 -        from pathlib import Path as _P
 -        # The brief module lives next to this server file in the
@@ -1501,6 +1747,38 @@
 -        if str(_repo_root) not in _sys.path:
 -            _sys.path.insert(0, str(_repo_root))
 -        from meeting_syncer import brief as _brief
+-    except Exception as exc:
+-        return {
+-            "meetings": [],
+-            "within_minutes": within_minutes,
+-            "degraded": True,
+-            "reason": f"brief module unavailable: {exc}",
+-        }
+-
+-    # Look-ahead window. brief.pre_meeting_brief takes a `days`
+-    # parameter; convert minutes to days (ceil to ensure we don't
+-    # miss an event right at the boundary).
+-    days_lookahead = max(1, int((within_minutes + 1439) // 1440))
+ 
++def _timeline_from_graph(past_days=730, limit=200):
++    """Historic timeline rows from the People Graph - one entry PER MEETING.
++
++    The Timeline is mainly a HISTORIC view, so its primary source is the graph
++    (pwg:Meeting nodes ingested from the user's calendar history at install),
++    NOT the live calendar API - that only looks forward and is usually
++    unconfigured on a fresh customer box. One row per meeting (collapsing
++    attendees with GROUP_CONCAT) over a wide window (default ~2 years), newest
++    first. Per-meeting collapse also avoids the timeline double-entry bug
++    (#663 / BW-3) at the source instead of post-hoc in Python.
++
++    Returns ``(rows, error)`` - ``error`` is a string when the graph query
++    failed (so the caller can surface a degraded marker), else None.
++    """
++    from datetime import datetime, timedelta, timezone
++    cutoff = (datetime.now(timezone.utc)
++              - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
+     try:
+-        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
 +        rows = _sparql_select(
 +            'PREFIX pwg: <{ns}>\n'
 +            'SELECT ?m ?date (SAMPLE(?summary) AS ?summary) '
@@ -1521,25 +1799,10 @@
 -            "meetings": [],
 -            "within_minutes": within_minutes,
 -            "degraded": True,
--            "reason": f"brief module unavailable: {exc}",
+-            "reason": str(exc)[:200],
 -        }
 +        return [], str(exc)
  
--    # Look-ahead window. brief.pre_meeting_brief takes a `days`
--    # parameter; convert minutes to days (ceil to ensure we don't
--    # miss an event right at the boundary).
--    days_lookahead = max(1, int((within_minutes + 1439) // 1440))
--
--    try:
--        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
--    except Exception as exc:
--        return {
--            "meetings": [],
--            "within_minutes": within_minutes,
--            "degraded": True,
--            "reason": str(exc)[:200],
--        }
--
 -    # Filter to events starting within the window.
 -    now = datetime.now(timezone.utc)
 -    window_end = now + timedelta(minutes=within_minutes)
@@ -1618,7 +1881,7 @@
      """
      items = []
  
-@@ -2769,23 +2168,21 @@
+@@ -2769,23 +2384,21 @@
      except Exception as exc:
          items.append({"kind": "calendar_error", "error": str(exc)})
  
@@ -1656,7 +1919,7 @@
  
      # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
      # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
-@@ -2827,6 +2224,8 @@
+@@ -2827,6 +2440,8 @@
          "items": items,
          "entries": entries,
          "days": days,
@@ -1665,7 +1928,7 @@
          "count": len(items),
      }
  
-@@ -2846,6 +2245,10 @@
+@@ -2846,6 +2461,10 @@
          return {"error": "body must be a JSON object"}, 400
  
      items = payload.get("items")
@@ -1676,7 +1939,7 @@
      if not isinstance(items, list):
          return {"error": "items must be an array"}, 400
  
-@@ -2865,11 +2268,75 @@
+@@ -2865,11 +2484,75 @@
          }
          with open(path, "w", encoding="utf-8") as f:
              f.write(json.dumps(record) + "\n")
@@ -1753,7 +2016,7 @@
  # ── Hub health helpers ───────────────────────────────────────────────
  # Each helper returns a (key, result_dict) tuple so the parallel runner
  # can fan out work and collect named results. Every helper is wrapped in
-@@ -2878,10 +2345,15 @@
+@@ -2878,10 +2561,15 @@
  
  
  def _read_sync_marker(path):
@@ -1770,12 +2033,10 @@
      """
      try:
          if path.exists():
-@@ -2890,8 +2362,187 @@
-     except Exception:
-         return None
+@@ -2892,6 +2580,185 @@
      return None
-+
-+
+ 
+ 
 +def _read_iso8601_marker(path):
 +    """Read and validate an ISO-8601 UTC timestamp from a marker file.
 +
@@ -1926,13 +2187,13 @@
 +    hub_machine_name = data.get("hub_machine_name")
 +    if not isinstance(hub_machine_name, str):
 +        hub_machine_name = ""
- 
++
 +    participant_count = data.get("participant_count")
 +    if not isinstance(participant_count, int) or isinstance(participant_count, bool):
 +        # bool is a subclass of int in Python; reject it explicitly so
 +        # the iOS Codable Int decode does not silently take True/False.
 +        participant_count = None
- 
++
 +    consent_basis = data.get("consent_basis")
 +    if consent_basis is not None and consent_basis not in RECORDING_VALID_CONSENT:
 +        consent_basis = None
@@ -1958,7 +2219,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -3004,7 +2655,7 @@
+@@ -3004,7 +2871,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -1967,7 +2228,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -3127,7 +2778,9 @@
+@@ -3127,7 +2994,9 @@
      except Exception:
          queue_depth = 0
  
@@ -1978,20 +2239,22 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -3380,6 +3033,332 @@
+@@ -3378,8 +3247,348 @@
+         "phases": phases,
+         "generated_at": datetime.utcnow().isoformat() + "Z",
      }
- 
- 
++
++
 +# ── BEGIN GRAFT: #51 POST /api/v1/memory/assert (learning-loop write, layer 1) ──
 +# Grafted VERBATIM from CM041 origin/main assistant_api/ical-server.py (commit 4931c53+).
 +# Banks user-asserted facts durably into Oxigraph. See do_POST dispatch below.
 +# USER_ID/USER_URI are required by api_memory_assert (pwg:belongsToUser).
-+
+ 
 +USER_ID = os.environ.get("USER_ID", "").strip()
 +USER_URI = (
 +    f"https://pwg.dev/ontology#user_{USER_ID}" if USER_ID else ""
 +)
-+
+ 
 +
 +_SPARQL_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 +
@@ -2126,6 +2389,20 @@
 +
 +    if not isinstance(payload, dict):
 +        return {"error": "Request body must be a JSON object."}, 400
++
++    # 0. USER_ID guard. The asserted fact carries ``pwg:belongsToUser
++    # <USER_URI>``. With USER_ID unset, USER_URI is "" and we would emit
++    # ``pwg:belongsToUser <>`` -- an empty *relative* IRI that Oxigraph's
++    # /update endpoint silently resolves against the request URL, writing
++    # garbage provenance. The read path (api_memory_list) already guards on
++    # USER_URI and degrades; the WRITE path must too, so a mis-onboarded Hub
++    # fails loudly instead of corrupting the graph.
++    if not USER_URI:
++        return {
++            "status": "error",
++            "degraded": True,
++            "reason": "user_id_not_configured",
++        }, 503
 +
 +    # 1. Validate + sanitise every string. subject + fact_text required.
 +    subject, err = _validate_asserted_string(
@@ -2311,7 +2588,7 @@
  class Handler(BaseHTTPRequestHandler):
      def log_message(self, format, *args):
          pass
-@@ -3550,20 +3529,6 @@
+@@ -3550,20 +3759,6 @@
              }, indent=2).encode())
              return
  
@@ -2332,16 +2609,10 @@
          if parsed.path == "/people/search":
              params = parse_qs(parsed.query)
              q = params.get("q", [""])[0]
-@@ -3631,6 +3596,20 @@
-                 result = people_stale(months=months, limit=limit)
-             except Exception as e:
-                 result = {"contacts": [], "degraded": True, "reason": str(e), "error": str(e)}
-+            self.send_response(200)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
+@@ -3637,6 +3832,20 @@
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
 +        if parsed.path == "/people":
 +            params = parse_qs(parsed.query)
 +            sort = params.get("sort", [None])[0]
@@ -2350,42 +2621,98 @@
 +            except Exception as e:
 +                result = {"people": [], "total": 0, "degraded": True,
 +                          "reason": str(e), "error": str(e)}
-             self.send_response(200)
-             self.send_header("Content-Type", "application/json")
-             self.end_headers()
-@@ -3724,38 +3703,13 @@
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
+         if parsed.path == "/people/recent":
+             params = parse_qs(parsed.query)
+             days, err = _safe_int(params, "days", 7)
+@@ -3712,41 +3921,55 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
--        # Pre-meeting brief endpoint. Read-only; degrades to
--        # meetings=[] on People Graph failure rather than 5xx so the
--        # iOS notification surface and the cron sender can keep
--        # polling without raising the operator-visible Hub-offline
--        # pill on a transient Oxigraph blip.
--        if parsed.path == "/api/v1/meeting/upcoming":
--            params = parse_qs(parsed.query)
--            within_minutes, err = _safe_int(params, "within_minutes", 120)
--            if err:
--                self.send_response(400)
--                self.send_header("Content-Type", "application/json")
--                self.end_headers()
--                self.wfile.write(json.dumps(err).encode())
--                return
+-        if parsed.path == "/api/v1/suggestions":
 -            try:
--                result = api_meeting_upcoming(within_minutes=within_minutes)
+-                result = api_suggestions()
 -            except Exception as exc:
--                result = {
--                    "meetings": [],
--                    "within_minutes": within_minutes,
--                    "degraded": True,
--                    "reason": str(exc)[:200],
--                }
+-                result = {"birthdays": [], "stale_contacts": [], "recent_meetings": [],
+-                          "degraded": True, "reason": str(exc), "error": str(exc)}
 -            self.send_response(200)
 -            self.send_header("Content-Type", "application/json")
 -            self.end_headers()
 -            self.wfile.write(json.dumps(result, indent=2).encode())
 -            return
 -
+-        # Pre-meeting brief endpoint. Read-only; degrades to
+-        # meetings=[] on People Graph failure rather than 5xx so the
+-        # iOS notification surface and the cron sender can keep
+-        # polling without raising the operator-visible Hub-offline
+-        # pill on a transient Oxigraph blip.
+-        if parsed.path == "/api/v1/meeting/upcoming":
++        # GET /api/v1/reply-debt?limit=N&threshold_hours=F&lookback_days=N&include_group=0|1
++        # The daily-brief headline: "you owe a reply to N people". Read-only;
++        # degrades to {count:0, debts:[], degraded:true} when the CM048
++        # detector / chat.db is not reachable so the brief omits the line
++        # rather than going red. (CM048 reply-debt detector, JTBD#1.)
++        if parsed.path == "/api/v1/reply-debt":
+             params = parse_qs(parsed.query)
+-            within_minutes, err = _safe_int(params, "within_minutes", 120)
++            limit, err = _safe_int(params, "limit", 50)
++            if not err:
++                lookback_days, err = _safe_int(params, "lookback_days", 90)
++            threshold_hours = None
++            if not err and "threshold_hours" in params:
++                threshold_hours, err = _safe_float(
++                    params, "threshold_hours", 6.0
++                )
+             if err:
+                 self.send_response(400)
+                 self.send_header("Content-Type", "application/json")
+                 self.end_headers()
+                 self.wfile.write(json.dumps(err).encode())
+                 return
++            include_group = params.get(
++                "include_group", ["0"]
++            )[0].strip().lower() in ("1", "true", "yes")
+             try:
+-                result = api_meeting_upcoming(within_minutes=within_minutes)
+-            except Exception as exc:
+-                result = {
+-                    "meetings": [],
+-                    "within_minutes": within_minutes,
++                result, status = api_reply_debt(
++                    threshold_hours=threshold_hours,
++                    lookback_days=lookback_days,
++                    include_group=include_group,
++                    limit=limit,
++                )
++            except Exception as exc:
++                result, status = {
++                    "count": 0, "brief_line": "", "debts": [],
+                     "degraded": True,
+-                    "reason": str(exc)[:200],
+-                }
++                    "reason": f"reply_debt_failed: {str(exc)[:200]}",
++                }, 200
++            self.send_response(status)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
++        if parsed.path == "/api/v1/suggestions":
++            try:
++                result = api_suggestions()
++            except Exception as exc:
++                result = {"birthdays": [], "stale_contacts": [], "recent_meetings": [],
++                          "degraded": True, "reason": str(exc), "error": str(exc)}
+             self.send_response(200)
+             self.send_header("Content-Type", "application/json")
+             self.end_headers()
+@@ -3756,6 +3979,10 @@
          if parsed.path == "/api/v1/timeline":
              params = parse_qs(parsed.query)
              days, err = _safe_int(params, "days", 7)
@@ -2396,7 +2723,7 @@
              if err:
                  self.send_response(400)
                  self.send_header("Content-Type", "application/json")
-@@ -3763,9 +3717,13 @@
+@@ -3763,9 +3990,13 @@
                  self.wfile.write(json.dumps(err).encode())
                  return
              try:
@@ -2412,7 +2739,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -3816,26 +3774,6 @@
+@@ -3816,26 +4047,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -2439,7 +2766,7 @@
          # Hub health endpoint (HR015 Hub portability). Must never 5xx;
          # on catastrophic failure we fall through to offline_local so the
          # iOS pill can still make a decision.
-@@ -3860,10 +3798,11 @@
+@@ -3860,10 +4071,11 @@
              return
  
          # Wiki first-run hydration panel (CM044 #624). Reachable through
@@ -2455,7 +2782,7 @@
          if parsed.path == "/api/v1/hydration/status":
              try:
                  result = api_hydration_status()
-@@ -3877,21 +3816,47 @@
+@@ -3877,21 +4089,47 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -2516,7 +2843,7 @@
              self.send_response(status)
              self.send_header("Content-Type", "application/json")
              self.end_headers()
-@@ -3914,31 +3879,49 @@
+@@ -3914,31 +4152,49 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -2571,7 +2898,7 @@
              "/health": "Health check (pass ?detailed=1 for dependency checks)",
          }}).encode())
  
-@@ -4029,16 +4012,14 @@
+@@ -4029,16 +4285,14 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -2595,7 +2922,7 @@
              except Exception as exc:
                  result, status = {"error": str(exc)}, 500
              self.send_response(status)
-@@ -4047,17 +4028,14 @@
+@@ -4047,17 +4301,14 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -2620,7 +2947,7 @@
              except Exception as exc:
                  result, status = {"error": str(exc)}, 500
              self.send_response(status)
-@@ -4080,7 +4058,7 @@
+@@ -4080,7 +4331,7 @@
      # LAN exposure for dev or for users who don't want Tailscale.
      BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
      print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
