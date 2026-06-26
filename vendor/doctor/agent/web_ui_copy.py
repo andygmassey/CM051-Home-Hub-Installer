@@ -180,6 +180,15 @@ REPORT_NOTES_PLACEHOLDER = (
 )
 REPORT_FIX_LABEL = "Fix:"
 
+# Banner prepended to the redacted report so the recipient knows it was
+# scrubbed on-device before it was shared.
+REPORT_REDACTED_BANNER = (
+    "[This report was redacted on-device: usernames, home-folder paths, "
+    "email addresses and IP addresses have been removed.]"
+)
+# Placeholder swapped in for each redacted token.
+REPORT_REDACTED_PLACEHOLDER = "[redacted]"
+
 
 # ── _build_mailto (email subject + body) ─────────────────────────────
 
