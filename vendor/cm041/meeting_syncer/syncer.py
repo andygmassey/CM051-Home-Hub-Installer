@@ -180,7 +180,14 @@ class MeetingSyncer:
         Updates both Oxigraph and Qdrant. Oxigraph upsert uses the
         atomic DELETE-INSERT-WHERE-FILTER pattern: equal or older
         dates are no-ops, so the call is idempotent on re-runs.
+
+        Future-dated meetings are never a last contact and are rejected
+        here as well as at the call site, so no caller can poison the
+        freshness signal with an upcoming meeting.
         """
+        if meeting_date and meeting_date > datetime.now().strftime("%Y-%m-%d"):
+            return  # Upcoming meeting: a "next meeting", not a last contact
+
         current = self._get_last_calendar_contact(person_uri)
         if current and current >= meeting_date:
             return  # Stored value is already at or beyond this meeting
@@ -242,6 +249,24 @@ class MeetingSyncer:
         "updates", "auto", "automated", "mailer", "mailer-daemon",
         "postmaster", "bounce", "bounces", "feedback", "reply", "replies",
         "system", "webmaster", "hostmaster", "abuse", "security",
+        # Ticketing / booking automation. Event-brand confirmations come
+        # from these local-parts, never from a named human.
+        "tickets", "ticket", "ticketing", "boxoffice", "box-office",
+        "orders", "order", "booking", "bookings", "reservations",
+        "reservation", "receipts", "receipt", "confirmations",
+        "confirmation", "registrations", "registration", "webinar",
+        "webinars", "rsvps",
+        # Room / equipment resource mailboxes. Exchange and Office 365
+        # name room calendars with these conventional local-parts; they
+        # are resources, not people.
+        "room", "rooms", "conf", "conferenceroom", "conference-room",
+        "meetingroom", "meeting-room", "boardroom", "resource",
+        "resources", "equipment",
+        # Calendar-system sentinels. Google Calendar stamps an
+        # 'unknownorganizer' local-part (at the calendar.google.com host)
+        # as the organiser on events with no resolvable organiser; it is a
+        # placeholder, never a human.
+        "unknownorganizer",
     }
 
     # Domain substrings that signal bulk / transactional senders. Matched
@@ -263,6 +288,18 @@ class MeetingSyncer:
         ".beehiiv.com",
         ".mail.beehiiv.com",
         ".notifications.github.com",
+        # Event-ticketing / event-platform senders. These hosts only ever
+        # send brand/automation mail, never a named human's address.
+        ".eventbrite.co.uk",
+        ".ticketmaster.com",
+        ".ticketmaster.co.uk",
+        ".luma-mail.com",
+        ".lu.ma",
+        ".meetup.com",
+        # Calendar-system resource domain. Google Calendar uses
+        # 'calendar.google.com' for placeholder organisers and event
+        # resources, never for a real human's address.
+        ".calendar.google.com",
     )
 
     # Substrings that indicate a brand-ish display name even when the
@@ -334,6 +371,16 @@ class MeetingSyncer:
         name = attendee.get("name", "")
 
         if not email and not name:
+            return None
+
+        # Highest-precision signal: the calendar marked this attendee as a
+        # room or equipment resource (iCal CUTYPE=RESOURCE/ROOM, or Google's
+        # resource=true). Never a human, so skip before any heuristics.
+        if attendee.get("resource"):
+            logger.info(
+                "  Skipping resource attendee: %s <%s>",
+                name or "(no name)", email or "(no email)",
+            )
             return None
 
         if self._looks_non_human(name, email):

@@ -66,6 +66,7 @@ pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
   divergence_patch = "vendor/divergences/cm041_meeting_syncer.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
+note             = "2026-06-26 (v1.0.4): syncer.py advanced to 9c55716 content as a VENDOR-FORWARD graft ahead of pin 5b93782 (like assistant_api's speaker-id was pre-merge). Carries the data-quality fixes confined to syncer.py: the event-brand/resource attendee filter (9c55716), the BUG-026 Google Calendar placeholder-organiser junk-node filter (158ecc8), and the future-dated last-contact guard (7baee8b). brief.py divergence is UNCHANGED -- its reconciliation against upstream's brief.py rework (8c47a40/74c8099/5780a04) is the parked item deferred to the pre-F&F full re-vendor. In-place integrity holds: vendor == source@5b93782 + this divergence patch (gate checks 1-3). The freshness check-4 'source advanced past pin' is EXPECTED-RED per D12 (measurement-baseline artifact; full re-vendor deferred)."
 
 [[tree]]
 name             = "cm041/assistant_api"
