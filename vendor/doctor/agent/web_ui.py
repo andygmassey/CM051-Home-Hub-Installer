@@ -96,6 +96,7 @@ from web_ui_copy import (
     CONFIG_SUBTITLE,
     CONFIG_TITLE_TAG,
     DASHBOARD_CONFIG_LINK,
+    DASHBOARD_FRONTPAGE_LINK,
     DASHBOARD_IMPORT_EVERNOTE_LINK,
     DASHBOARD_PAIR_IOS_LINK,
     DASHBOARD_LAST_CHECKED_JUST_NOW,
@@ -1559,7 +1560,7 @@ def render_dashboard(
         </div>
 
         <div class="meta" id="metaInfo">
-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
+            {meta_info_html}{DASHBOARD_FRONTPAGE_LINK}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
         </div>
     </div>
 
@@ -2003,6 +2004,19 @@ async def api_diagnostics():
     :func:`_run_diagnostics`.
     """
     return _run_diagnostics()
+
+
+@app.get("/frontpage", response_class=HTMLResponse)
+async def frontpage():
+    """Serve The Editor's Front Page (CM059).
+
+    Reads the card-feed artefact the Editor emits to
+    ``~/.ostler/editor/front_page.json`` (refreshed on a launchd tick) and
+    renders it. Degrades to a calm "still settling in" page when the artefact
+    is absent, so this route never 500s and a fresh install never sees a blank.
+    """
+    import frontpage_view
+    return HTMLResponse(frontpage_view.render())
 
 
 @app.get("/doctor/history", response_class=HTMLResponse)

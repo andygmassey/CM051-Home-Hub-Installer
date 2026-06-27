@@ -275,6 +275,13 @@ DASHBOARD_CONFIG_LINK = (
     ' &ndash; <a href="/config">Configuration</a>'
 )
 
+# The Editor (CM059) Front Page surface. Always shown -- it is a headline
+# feature and the view degrades gracefully to a "still settling" page when the
+# Editor has not yet emitted a feed.
+DASHBOARD_FRONTPAGE_LINK = (
+    ' &ndash; <a href="/frontpage">Front Page</a>'
+)
+
 DASHBOARD_ALERT_REPORT_FAIL = (
     "Could not prepare report. Please try again."
 )
