@@ -51,6 +51,25 @@ set -euo pipefail
 # docker through this prepend.
 export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
+# --- User controls: pause + config env (resource throttle) -----------
+# The wiki recompile is ESSENTIAL on first run, so it is NOT deferred by
+# the load gate the conversation feeds use -- but the user-facing Pause
+# control DOES stop it (it is the single biggest Ollama producer on the
+# box), and the Config env file feeds its governor settings. Both are
+# no-ops when their files are absent. Pause beats everything below.
+_ostler_runtime_lib="${OSTLER_RUNTIME_LIB:-$HOME/.ostler/lib/ostler-runtime.sh}"
+if [ -f "$_ostler_runtime_lib" ]; then
+    # shellcheck source=/dev/null
+    . "$_ostler_runtime_lib"
+    command -v ostler_runtime_load_env >/dev/null 2>&1 && ostler_runtime_load_env
+    if command -v ostler_pause_active >/dev/null 2>&1 && ostler_pause_active; then
+        printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" \
+            "wiki-recompile tick: background processing is paused by the user; yielding this tick."
+        exit 0
+    fi
+fi
+# --------------------------------------------------------------------
+
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 
 log() {
