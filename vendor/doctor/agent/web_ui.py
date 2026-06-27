@@ -1684,7 +1684,8 @@ def render_dashboard(
                 + 'OS: ' + (snap.os_version||'unknown') + ' &ndash; '
                 + 'Docker: ' + (snap.docker_version||'not detected') + ' &ndash; '
                 + 'Ollama: ' + (snap.ollama_version||'not detected')
-                + ' &ndash; <a href="/doctor/history">History</a>';
+                + ' &ndash; <a href="/doctor/history">History</a>'
+                + ' &ndash; <a href="/config">Settings</a>';
         }}
 
         window.manualRefresh = function() {{
@@ -3533,6 +3534,18 @@ def _render_config_page() -> str:
 
         <div id="statusBanner" class="banner"></div>
 
+        <div class="panel" id="processingPanel">
+            <div class="section-title">Processing</div>
+            <p id="pauseState" style="margin-bottom:0.9rem">Loading&hellip;</p>
+            <div class="button-row" id="pauseButtons" style="flex-wrap:wrap;gap:0.5rem">
+                <button type="button" id="pauseHour">Pause 1 hour</button>
+                <button type="button" id="pauseTonight">Pause until tonight</button>
+                <button type="button" id="pauseIndef">Pause until I resume</button>
+                <button type="button" class="primary" id="resumeBtn" style="display:none">Resume now</button>
+            </div>
+            <p id="governorState" style="margin-top:1rem;color:var(--text-muted);font-size:0.86rem"></p>
+        </div>
+
         <div id="editPanels"></div>
 
         <div id="readonlyPanel" class="panel" style="display:none">
@@ -3712,8 +3725,96 @@ def _render_config_page() -> str:
                 }});
         }}
 
+        // --- Pause + governor controls (resource throttle) ----------
+        const pauseStateEl = document.getElementById('pauseState');
+        const governorStateEl = document.getElementById('governorState');
+        const resumeBtn = document.getElementById('resumeBtn');
+        const pauseHourBtn = document.getElementById('pauseHour');
+        const pauseTonightBtn = document.getElementById('pauseTonight');
+        const pauseIndefBtn = document.getElementById('pauseIndef');
+
+        function renderPause(state) {{
+            const paused = state && state.paused;
+            resumeBtn.style.display = paused ? '' : 'none';
+            pauseHourBtn.style.display = paused ? 'none' : '';
+            pauseTonightBtn.style.display = paused ? 'none' : '';
+            pauseIndefBtn.style.display = paused ? 'none' : '';
+            if (!paused) {{
+                pauseStateEl.textContent =
+                    'Background processing is running. Pause it any time.';
+                return;
+            }}
+            if (state.indefinite) {{
+                pauseStateEl.textContent =
+                    'Paused until you resume. Live chat is unaffected.';
+            }} else {{
+                pauseStateEl.textContent =
+                    'Paused until ' + (state.expiry_human || 'later') +
+                    '. Live chat is unaffected.';
+            }}
+        }}
+
+        function loadPause() {{
+            fetch('/api/v1/pause')
+                .then(function(r) {{ return r.json(); }})
+                .then(function(s) {{ if (!s.error) renderPause(s); }})
+                .catch(function() {{}});
+        }}
+
+        function doPause(scope) {{
+            fetch('/api/v1/pause', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{scope: scope}})
+            }})
+                .then(function(r) {{ return r.json(); }})
+                .then(function(s) {{
+                    if (s.error) {{ showStatus(s.error, false); return; }}
+                    renderPause(s);
+                    showStatus('Background processing paused.', true);
+                }})
+                .catch(function(err) {{ showStatus('Pause failed: ' + err, false); }});
+        }}
+
+        function doResume() {{
+            fetch('/api/v1/resume', {{method: 'POST'}})
+                .then(function(r) {{ return r.json(); }})
+                .then(function(s) {{
+                    if (s.error) {{ showStatus(s.error, false); return; }}
+                    renderPause(s);
+                    showStatus('Background processing resumed.', true);
+                }})
+                .catch(function(err) {{ showStatus('Resume failed: ' + err, false); }});
+        }}
+
+        pauseHourBtn.addEventListener('click', function() {{ doPause('hour'); }});
+        pauseTonightBtn.addEventListener('click', function() {{ doPause('tonight'); }});
+        pauseIndefBtn.addEventListener('click', function() {{ doPause('indefinite'); }});
+        resumeBtn.addEventListener('click', doResume);
+
+        function loadGovernor() {{
+            fetch('/api/v1/governor-status')
+                .then(function(r) {{ return r.json(); }})
+                .then(function(g) {{
+                    if (!g || g.error) {{ governorStateEl.textContent = ''; return; }}
+                    if (!g.enabled) {{
+                        governorStateEl.textContent =
+                            'Auto ease-off is OFF. Background work runs regardless of load.';
+                        return;
+                    }}
+                    let msg = 'Hardware tier: ' + (g.tier || 'unknown') + '. ';
+                    msg += g.deferring
+                        ? 'Easing off now (your Mac is busy).'
+                        : 'Catching up (load is below the ceiling).';
+                    governorStateEl.textContent = msg;
+                }})
+                .catch(function() {{ governorStateEl.textContent = ''; }});
+        }}
+
         saveBtn.addEventListener('click', save);
         load();
+        loadPause();
+        loadGovernor();
     }})();
     </script>
 </body>
@@ -3773,6 +3874,122 @@ async def api_config_post(request: Request):
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
 
     return JSONResponse(view, status_code=200)
+
+
+# ── Pause control + governor status (resource throttle) ──────────────
+#
+# Pause stops all BACKGROUND processing (the five tick wrappers + the
+# wiki recompile) via a sentinel file the wrappers honour. Live chat and
+# the assistant daemon's foreground turns are never paused. Governor
+# status surfaces the existing adaptive resource governor's live tier +
+# whether it is currently deferring. See ``pause_control.py``.
+
+
+@app.get("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_get():
+    """Return the current pause state (self-heals an expired sentinel)."""
+    from pause_control import PauseError as _PauseError, read_state
+
+    try:
+        return JSONResponse(read_state(), status_code=200)
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.post("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_post(request: Request):
+    """Pause background processing for a scope (hour / tonight / indefinite)."""
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403,
+        )
+
+    from pause_control import PauseError as _PauseError, write_pause
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    scope = body.get("scope") if isinstance(body, dict) else None
+    if not scope:
+        return JSONResponse({"error": "scope is required"}, status_code=400)
+
+    try:
+        return JSONResponse(write_pause(scope), status_code=200)
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.post("/api/v1/resume", response_class=JSONResponse)
+async def api_resume_post(request: Request):
+    """Resume background processing (delete the pause sentinel)."""
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403,
+        )
+
+    from pause_control import PauseError as _PauseError, clear_pause
+
+    try:
+        return JSONResponse(clear_pause(), status_code=200)
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+
+@app.get("/api/v1/governor-status", response_class=JSONResponse)
+async def api_governor_status():
+    """Report the adaptive governor's live tier + whether it is deferring.
+
+    Best-effort: shells the resource-tier lib that the wrappers source.
+    Any failure degrades to a minimal "unknown" payload so the panel
+    never errors.
+    """
+    import subprocess
+
+    # Governor on/off comes from the customer's config (defaults ON).
+    enabled = True
+    try:
+        from config_panel import _load_raw  # type: ignore
+
+        raw = _load_raw()
+        if raw.get("governor_enabled") is False:
+            enabled = False
+    except Exception:
+        pass
+
+    lib = os.environ.get(
+        "OSTLER_RESOURCE_TIER_LIB",
+        str(Path.home() / ".ostler" / "lib" / "ostler-resource-tier.sh"),
+    )
+    tier = None
+    deferring = None
+    if os.path.isfile(lib):
+        script = (
+            f'. "{lib}"; ostler_resource_tier_detect; '
+            'printf "%s\\n" "$OSTLER_TIER"; '
+            'if ostler_resource_tier_should_defer_nonessential; '
+            'then echo defer; else echo run; fi'
+        )
+        try:
+            out = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=5,
+            )
+            lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+            if lines:
+                tier = lines[0]
+            if len(lines) > 1:
+                deferring = lines[1] == "defer"
+        except Exception:
+            pass
+
+    return JSONResponse(
+        {"enabled": enabled, "tier": tier, "deferring": deferring},
+        status_code=200,
+    )
 
 
 # ── Main ─────────────────────────────────────────────────────────────
