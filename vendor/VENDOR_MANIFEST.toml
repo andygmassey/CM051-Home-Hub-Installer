@@ -263,3 +263,14 @@ divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+
+[[tree]]
+name             = "cm059_editor"
+vendor_path      = "vendor/cm059_editor"
+source_repo      = "$CM059"
+source_path      = "."
+pinned_sha       = "59e96b52b74a2abb7375a55f119b7aaef9f807b9"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", "requirements.txt", "CLAUDE.md", "README.md"]
+verify           = "skip"
+note             = "The Editor Front Page emitter (compiler.emit_frontpage + interest_profile + frontpage + renderers). Stdlib-only; staged into ~/.ostler/editor and run by the com.ostler.editor.frontpage LaunchAgent. Source-of-truth lives at the CM059 - Ostler Editor repo (feat/frontpage-live-wiring)."
