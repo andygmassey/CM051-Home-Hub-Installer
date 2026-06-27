@@ -10385,32 +10385,67 @@ fi
 
 # ── 3.13-editor  The Editor Front Page refresh agent ────────────
 #
-# Registers the hourly Front Page emitter LaunchAgent
-# (com.ostler.editor.frontpage). It re-runs `python -m
-# compiler.emit_frontpage` so ~/.ostler/editor/front_page.{json,html}
-# stays fresh and the Hub Doctor's /frontpage route always serves a
-# current feed. This is the install leg of the Editor Front Page: the
-# emitter module ships with the staged editor sources; this block only
-# sed-substitutes the plist's two placeholders and loads it, mirroring
-# the Doctor / ical-server agents.
+# Stages the vendored Editor sources, then registers the hourly Front
+# Page emitter LaunchAgent (com.ostler.editor.frontpage). The agent
+# re-runs `python -m compiler.emit_frontpage` from ${EDITOR_DIR} so
+# ~/.ostler/editor/front_page.{json,html} stays fresh and the Hub
+# Doctor's /frontpage route always serves a current feed.
 #
-# Gated on the editor sources actually being staged. A cut that
-# predates the Editor leaves no editor dir, so the hook no-ops cleanly
-# rather than registering an agent that thrashes ModuleNotFoundError
-# every hour. Best-effort throughout: a load failure warns but never
-# fails the install.
+# Two legs, both here:
+#   1. SOURCE-STAGING: copy the vendored CM059 sources (bundled at
+#      ${SCRIPT_DIR}/cm059_editor by gui/project.yml, mirroring the
+#      cm048 pipeline) into ${EDITOR_DIR}. The emitter is stdlib-only
+#      (urllib/csv/json/hashlib/...), so there is NO pip install -- the
+#      bundled interpreter runs it directly. Without this leg the plist
+#      below would point at an empty dir and the tick would thrash
+#      ModuleNotFoundError every hour.
+#   2. AGENT: sed-substitute the plist's two placeholders and load it,
+#      mirroring the Doctor / ical-server agents.
+#
+# Gated on the vendored sources (or an already-staged editor dir) being
+# present. A cut that predates the Editor bundles nothing, so the hook
+# no-ops cleanly. Best-effort throughout: a copy/load failure warns but
+# never fails the install.
 EDITOR_DIR="${OSTLER_EDITOR_DIR:-${OSTLER_DIR}/editor}"
+
+# Leg 1: stage the vendored Editor sources into ${EDITOR_DIR}. The
+# bundle lands at ${SCRIPT_DIR}/cm059_editor (.app code path) or, on a
+# dev checkout, at ${SCRIPT_DIR}/../vendor/cm059_editor. A legacy
+# ${SCRIPT_DIR}/editor layout is also accepted for forward-compat.
+EDITOR_SRC=""
+for _ed_cand in "${SCRIPT_DIR}/cm059_editor" \
+                "${SCRIPT_DIR}/../vendor/cm059_editor" \
+                "${SCRIPT_DIR}/editor"; do
+    if [[ -f "${_ed_cand}/compiler/emit_frontpage.py" ]]; then
+        EDITOR_SRC="$_ed_cand"
+        break
+    fi
+done
+if [[ -n "$EDITOR_SRC" ]]; then
+    info "$(printf "$MSG_INFO_EDITOR_FRONTPAGE_STAGING" "${EDITOR_DIR}")"
+    mkdir -p "${EDITOR_DIR}"
+    # Copy WITHOUT -p so source xattrs (com.apple.provenance / quarantine)
+    # do not propagate. Refresh on re-install so a newer cut's emitter
+    # replaces the staged copy.
+    if cp -R "${EDITOR_SRC}/compiler" "${EDITOR_DIR}/" 2>/dev/null \
+       && cp -R "${EDITOR_SRC}/deploy" "${EDITOR_DIR}/" 2>/dev/null; then
+        /usr/bin/xattr -cr "${EDITOR_DIR}" 2>/dev/null || true
+    else
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_STAGING_FAILED"
+    fi
+fi
+unset EDITOR_SRC _ed_cand
+
+# Leg 2: resolve the staged plist + register the agent.
 EDITOR_FRONTPAGE_PLIST_SRC=""
 if [[ -f "${EDITOR_DIR}/deploy/com.ostler.editor.frontpage.plist" ]]; then
     EDITOR_FRONTPAGE_PLIST_SRC="${EDITOR_DIR}/deploy/com.ostler.editor.frontpage.plist"
-elif [[ -f "${SCRIPT_DIR}/editor/deploy/com.ostler.editor.frontpage.plist" ]]; then
-    EDITOR_FRONTPAGE_PLIST_SRC="${SCRIPT_DIR}/editor/deploy/com.ostler.editor.frontpage.plist"
 fi
 
 if [[ -n "$EDITOR_FRONTPAGE_PLIST_SRC" && -f "${EDITOR_DIR}/compiler/emit_frontpage.py" ]]; then
-    # Prefer the editor's own venv interpreter (deps from
-    # compiler/requirements.txt) when the cut staged one; fall back to
-    # the bundled interpreter so the agent at least loads.
+    # The emitter is stdlib-only, so the bundled interpreter runs it
+    # directly -- no venv. A pre-staged editor venv is still honoured if
+    # a future cut ships one.
     EDITOR_PYTHON="$PYTHON3_BIN"
     if [[ -x "${EDITOR_DIR}/.venv/bin/python3" ]]; then
         EDITOR_PYTHON="${EDITOR_DIR}/.venv/bin/python3"
