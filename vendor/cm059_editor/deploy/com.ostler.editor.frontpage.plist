@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Editor - Front Page refresh tick (launchd, single-machine native).
+
+  Recompiles the interest profile and re-emits the Front Page artefacts
+  (~/.ostler/editor/front_page.{json,html}) on a schedule, so the Hub Doctor
+  /frontpage route always serves a fresh feed. This is the "refresh on a
+  schedule" leg of the cut-inclusion gate.
+
+  Install (the installer / operator substitutes the two __PLACEHOLDER__ paths):
+    sed -e "s|__PYTHON__|$(command -v python3)|" \
+        -e "s|__EDITOR_REPO__|/path/to/CM059-Ostler-Editor|" \
+        deploy/com.ostler.editor.frontpage.plist \
+      > ~/Library/LaunchAgents/com.ostler.editor.frontpage.plist
+    launchctl load ~/Library/LaunchAgents/com.ostler.editor.frontpage.plist
+
+  Cadence: hourly. The compile is read-only and cheap (one SPARQL query +
+  in-process scoring); hourly keeps the Front Page fresh without load. Adjust
+  StartInterval to taste.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.editor.frontpage</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON__</string>
+        <string>-m</string>
+        <string>compiler.emit_frontpage</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__EDITOR_REPO__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>__EDITOR_REPO__</string>
+    </dict>
+
+    <!-- run once at load, then hourly -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ostler-editor-frontpage.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ostler-editor-frontpage.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
