@@ -194,13 +194,62 @@ EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
         ),
         choices=("L0", "L1", "L2", "L3"),
     ),
+    # -- Processing (resource throttle) ------------------------------
+    # These map to the env knobs the tick wrappers + resource-tier lib
+    # already consume. They are materialised into a sourced env file
+    # (see the env bridge below) so a panel change actually changes
+    # wrapper behaviour -- the contract the old panel was missing.
+    FieldSpec(
+        key="processing_preset",
+        kind="enum",
+        label="Processing speed",
+        section="Processing",
+        help=(
+            "How hard Ostler works in the background. Overnight drains "
+            "overnight and stays light by day; Gentle always stays light "
+            "and never competes; Full speed runs at full width any time."
+        ),
+        choices=("overnight", "gentle", "full_speed"),
+    ),
+    FieldSpec(
+        key="governor_enabled",
+        kind="bool",
+        label="Ease off when you are busy",
+        section="Processing",
+        help=(
+            "Let Ostler automatically defer background work when your Mac "
+            "is under load, so the things you are doing stay responsive."
+        ),
+    ),
+    FieldSpec(
+        key="quiet_hours_start",
+        kind="time",
+        label="Quiet hours start",
+        section="Processing",
+        help=(
+            "Start of the overnight window when Ostler drains its full "
+            "backlog (24h, HH:MM). Default 01:00."
+        ),
+    ),
+    FieldSpec(
+        key="quiet_hours_end",
+        kind="time",
+        label="Quiet hours end",
+        section="Processing",
+        help=(
+            "End of the overnight window (24h, HH:MM). Outside this window "
+            "Ostler only reads the last day or two. Default 06:00."
+        ),
+    ),
 )
 
 _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
 
 
 # Section display order for the rendered panel.
-SECTION_ORDER: tuple[str, ...] = ("Channels", "Model", "Schedule", "Privacy")
+SECTION_ORDER: tuple[str, ...] = (
+    "Channels", "Model", "Schedule", "Privacy", "Processing",
+)
 
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -401,10 +450,154 @@ def write_config(updates: Any, path: Optional[Path] = None) -> dict[str, Any]:
     Reads the existing file first and preserves every key the panel does
     not understand, so a newer/foreign config is never clobbered. Returns
     the fresh panel view model (so the client re-renders from authority).
+
+    After persisting the YAML, materialise the processing-relevant
+    settings into the sourced env file the tick wrappers load
+    (``sync_env_file``). This is the contract that makes a panel change
+    actually change wrapper behaviour.
     """
     p = path or _config_file()
     normalised = validate_updates(updates)
     current = _load_raw(p)
     current.update(normalised)
     _atomic_write(p, current)
+    sync_env_file(current)
     return read_config_view(p)
+
+
+# -- Throttle env bridge (resource throttle: Parts 0, 2, 3) -----------
+#
+# The Config panel historically wrote ``config.yaml`` that no daemon or
+# wrapper read, so toggles silently did nothing. The tick wrappers and
+# the launchd-driven background jobs are env-driven, so we materialise
+# the processing-relevant settings into a single sourced shell env file
+# (``~/.ostler/config/ostler.env``) that every tick wrapper loads at the
+# top. Whichever knob the panel writes, the wrappers consume it.
+
+DEFAULT_ENV_FILE = DEFAULT_OSTLER_DIR / "config" / "ostler.env"
+
+_DEFAULT_PRESET = "overnight"
+
+# Each preset is a COMPLETE posture, mapped to the exact env names the
+# wrappers + ``ostler-resource-tier.sh`` already consume:
+#   overnight   -- the shipped default: drain overnight, stay light by day.
+#   gentle      -- always light, yields to any real load, never competes.
+#   full_speed  -- run any time at full width, effectively never defer.
+_PRESET_ENV: dict[str, dict[str, str]] = {
+    "overnight": {
+        "OSTLER_INGEST_OFFPEAK_ONLY": "1",
+        "OSTLER_INGEST_DAYTIME_SINCE_DAYS": "2",
+    },
+    "gentle": {
+        "OSTLER_INGEST_OFFPEAK_ONLY": "1",
+        "OSTLER_INGEST_DAYTIME_SINCE_DAYS": "1",
+        "OSTLER_LOADAVG_CEILING": "0.4",
+        "WIKI_LLM_WORKERS": "1",
+        "OLLAMA_NUM_PARALLEL": "2",
+    },
+    "full_speed": {
+        "OSTLER_INGEST_OFFPEAK_ONLY": "0",
+        "OSTLER_INGEST_DAYTIME_SINCE_DAYS": "30",
+        "OSTLER_LOADAVG_CEILING": "99",
+    },
+}
+
+
+def _env_file(path: Optional[Path] = None) -> Path:
+    """Resolve the sourced env-file path the wrappers load.
+
+    ``OSTLER_ENV_FILE`` wins (tests, non-default deployments), then
+    ``OSTLER_HOME``, then the home-dir default. Mirrors ``_config_file``.
+    """
+    if path is not None:
+        return path
+    raw = os.environ.get("OSTLER_ENV_FILE")
+    if raw:
+        return Path(raw)
+    home = os.environ.get("OSTLER_HOME")
+    if home:
+        return Path(home) / "config" / "ostler.env"
+    return DEFAULT_ENV_FILE
+
+
+def _hour_of(value: Any, default: int) -> int:
+    """Coerce an ``HH:MM`` config value to an integer hour (0-23).
+
+    The off-peak window the wrappers gate on is hour-granular, so the
+    minutes are intentionally dropped. Anything unparseable falls back
+    to ``default`` so a malformed value can never wedge the window.
+    """
+    if isinstance(value, str) and _TIME_RE.match(value):
+        try:
+            return int(value.split(":", 1)[0])
+        except (ValueError, IndexError):
+            return default
+    return default
+
+
+def build_env_map(raw: dict[str, Any]) -> dict[str, str]:
+    """Derive the env knob map from a raw config dict.
+
+    The result is the union of the chosen preset's knobs, the governor
+    on/off toggle, and the quiet-hours window. Returns a flat
+    ``{NAME: value}`` map of plain strings.
+    """
+    preset = raw.get("processing_preset")
+    if preset not in _PRESET_ENV:
+        preset = _DEFAULT_PRESET
+    env: dict[str, str] = dict(_PRESET_ENV[preset])
+
+    # Governor toggle (defaults ON when unset). False disables the
+    # load-aware defer entirely.
+    governor = raw.get("governor_enabled")
+    env["OSTLER_RESOURCE_GOVERNOR"] = "0" if governor is False else "1"
+
+    # Quiet hours -> off-peak window bounds the wrappers read.
+    start = _hour_of(raw.get("quiet_hours_start"), 1)
+    end = _hour_of(raw.get("quiet_hours_end"), 6)
+    env["OSTLER_INGEST_OFFPEAK_START_HOUR"] = str(start)
+    env["OSTLER_INGEST_OFFPEAK_END_HOUR"] = str(end)
+
+    return env
+
+
+def build_env_lines(raw: dict[str, Any]) -> list[str]:
+    """Render the env file body as a list of lines.
+
+    Each knob becomes an ``export NAME=value`` line so the values reach
+    the python pipelines the wrappers spawn, not just the wrapper shell.
+    """
+    lines = [
+        "# Ostler processing settings -- generated by the Doctor Config",
+        "# panel. Sourced by every background tick wrapper. Do not edit by",
+        "# hand; your changes are overwritten on the next save.",
+    ]
+    for name, value in sorted(build_env_map(raw).items()):
+        lines.append(f"export {name}={value}")
+    return lines
+
+
+def sync_env_file(
+    raw: dict[str, Any], path: Optional[Path] = None
+) -> Path:
+    """Materialise the processing settings into the sourced env file.
+
+    Atomic write (temp + ``os.replace``). Returns the path written.
+    """
+    p = _env_file(path)
+    body = "\n".join(build_env_lines(raw)) + "\n"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        dir=str(p.parent), prefix=".ostler-env-", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.replace(tmp, p)
+    except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise ConfigError(500, f"Could not write env file: {exc}")
+    return p

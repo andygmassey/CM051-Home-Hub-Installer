@@ -47,6 +47,24 @@
 
 set -euo pipefail
 
+# --- User controls: pause + config env (resource throttle) -----------
+# Source the Doctor Config env file (preset / quiet hours / governor
+# toggle) and honour the user-facing Pause control. Both are no-ops when
+# their files are absent, so a fresh install behaves exactly as before.
+# Must run BEFORE the governor + off-peak blocks so a panel change and a
+# pause both take effect this tick.
+_ostler_runtime_lib="${OSTLER_RUNTIME_LIB:-$HOME/.ostler/lib/ostler-runtime.sh}"
+if [ -f "$_ostler_runtime_lib" ]; then
+    # shellcheck source=/dev/null
+    . "$_ostler_runtime_lib"
+    command -v ostler_runtime_load_env >/dev/null 2>&1 && ostler_runtime_load_env
+    if command -v ostler_pause_active >/dev/null 2>&1 && ostler_pause_active; then
+        echo "bundle tick: background processing is paused by the user; yielding this tick."
+        exit 0
+    fi
+fi
+# --------------------------------------------------------------------
+
 PYTHON_BIN="${OSTLER_PYTHON:-python3}"
 SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
 SINCE_DAYS="${OSTLER_WHATSAPP_SINCE_DAYS:-365}"
@@ -135,7 +153,11 @@ if [ "${OSTLER_INGEST_OFFPEAK_ONLY:-1}" = "1" ]; then
     # 10# forces base-10 so a leading-zero hour ("08","09") is not read
     # as an invalid octal literal.
     _ostler_hour=$((10#$(date +%H)))
-    if [ "$_ostler_hour" -lt 1 ] || [ "$_ostler_hour" -ge 6 ]; then
+    # Quiet-hours window, editable via the Doctor Config panel (the env
+    # file sets these). Default 01:00-06:00 preserves the shipped window.
+    _ostler_offpeak_start="${OSTLER_INGEST_OFFPEAK_START_HOUR:-1}"
+    _ostler_offpeak_end="${OSTLER_INGEST_OFFPEAK_END_HOUR:-6}"
+    if [ "$_ostler_hour" -lt "$_ostler_offpeak_start" ] || [ "$_ostler_hour" -ge "$_ostler_offpeak_end" ]; then
         _ostler_daytime_days="${OSTLER_INGEST_DAYTIME_SINCE_DAYS:-2}"
         if [ "$SINCE_DAYS" -gt "$_ostler_daytime_days" ]; then
             SINCE_DAYS="$_ostler_daytime_days"
