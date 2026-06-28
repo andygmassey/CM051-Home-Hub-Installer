@@ -1437,6 +1437,26 @@ def api_conversation_speakers(conversation_id):
     return feedback, 200
 
 
+def _max_past_last_contact(dates):
+    """Return the most recent last-contact date that is not in the future.
+
+    ``last_contact`` answers "when did I last interact with this person",
+    so a future-dated event (an upcoming calendar meeting that leaked into
+    a ``pwg:lastContact*`` predicate) must never win the max(). Upcoming
+    meetings are a "next meeting" signal carried by the Meeting nodes, not
+    a last-contact one.
+
+    ``dates`` is an iterable of ISO ``YYYY-MM-DD`` (or longer ISO) strings.
+    ISO date strings sort lexicographically the same as chronologically, so
+    the today cap and the max() are both plain string comparisons. Returns
+    the max of the past-or-today dates, or ``None`` when every candidate is
+    future-dated (or the input is empty).
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    past = [d for d in dates if d and str(d)[:10] <= today]
+    return max(past) if past else None
+
+
 def person_context(name):
     """Gather everything known about a person by name."""
     esc = name.replace("\\", "\\\\").replace('"', '\\"')
@@ -1486,16 +1506,18 @@ def person_context(name):
             if person.get(src):
                 entry[dst] = person[src]
 
-        # MAX across the four per-source last-contact predicates. ISO
-        # date strings sort lexicographically, so plain max() works.
+        # MAX across the four per-source last-contact predicates, capped
+        # at today so a future-dated event never wins (see
+        # _max_past_last_contact). ISO date strings sort lexicographically.
         # Missing sources contribute nothing.
         per_source = [
             person.get(k) for k in
             ("lcCalendar", "lcWhatsApp", "lcEmail", "lcIMessage")
             if person.get(k)
         ]
-        if per_source:
-            entry["last_contact"] = max(per_source)
+        last_contact = _max_past_last_contact(per_source)
+        if last_contact:
+            entry["last_contact"] = last_contact
 
         # Identifiers
         ids = _sparql_select(
@@ -1792,15 +1814,19 @@ def person_enrichment(slug):
     if row.get("title"):
         entry["role"] = row["title"]
 
-    # Per-source last-contact + MAX. ISO date strings sort
-    # lexicographically, so max() over the present sources is correct.
+    # Per-source last-contact + MAX, capped at today so a future-dated
+    # event never wins the flat last_contact (see _max_past_last_contact).
+    # ISO date strings sort lexicographically. The by-source breakdown
+    # keeps each channel's raw stored date.
     by_source = {}
     for src_key, label in _LAST_CONTACT_SOURCES:
         val = row.get(src_key)
         if val:
             by_source[label] = val
     if by_source:
-        entry["last_contact"] = max(by_source.values())
+        last_contact = _max_past_last_contact(by_source.values())
+        if last_contact:
+            entry["last_contact"] = last_contact
         entry["last_contact_by_source"] = by_source
 
     # Identifiers, facts, meetings, relationship signal: same sub-queries
