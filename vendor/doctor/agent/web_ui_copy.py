@@ -455,10 +455,12 @@ PAIR_IOS_META_FOOTER_HTML = (
 )
 
 
-# ── Configuration panel (backlog #261) ──────────────────────────────
+# ── Configuration panel (backlog #261; v1.0.5 honest hybrid) ─────────
 #
-# Copy for the /config surface. Reads + edits the customer-safe settings
-# file at ~/.ostler/config/config.yaml. Secrets are never rendered.
+# Copy for the /config surface. The Processing (resource-throttle)
+# controls are editable and real (env bridge). Everything else is shown
+# read-only from the assistant's live config, with edits pointed at the
+# Hub Preferences page. Secrets are never rendered.
 
 
 CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
@@ -466,24 +468,28 @@ CONFIG_HEADING = "Configuration"
 CONFIG_SUBTITLE = (
     'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
 )
-CONFIG_SECTION_READONLY = "Other settings"
+CONFIG_SECTION_READONLY = "Other settings (read-only)"
 CONFIG_READONLY_INTRO = (
-    "These settings are shown for reference and are not editable here. "
-    "Anything sensitive is shown only as set or not set, never as its "
-    "value."
+    "This is your assistant's current configuration, shown for reference. "
+    "It is read-only here. Anything sensitive is hidden."
 )
+CONFIG_EDIT_POINTER = (
+    "To change these settings, open Preferences in the Hub "
+    "(the Ostler app in your Mac's menu bar). Changes you make there take "
+    "effect straight away; this page only shows what is currently set."
+)
+CONFIG_SOURCE_LABEL = "Live configuration, read from your assistant."
 CONFIG_BTN_SAVE = "Save changes"
 CONFIG_BTN_SAVING = "Saving..."
 CONFIG_OPT_UNSET = "Not set"
-CONFIG_SECRET_SET = "Set"
-CONFIG_SECRET_UNSET = "Not set"
 CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
 CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
 CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
 CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
 CONFIG_META_FOOTER = (
-    "Settings are stored locally in your config file. Nothing is sent "
-    "anywhere. Secrets are never shown on this page."
+    "Your Processing settings are stored locally on this Mac. The other "
+    "settings are read from your assistant. Nothing is sent anywhere, and "
+    "secrets are never shown on this page."
 )
 
 

@@ -82,6 +82,7 @@ from web_ui_copy import (
     DASHBOARD_HOSTNAME_UNKNOWN,
     CONFIG_BTN_SAVE,
     CONFIG_BTN_SAVING,
+    CONFIG_EDIT_POINTER,
     CONFIG_ERR_LOAD_PREFIX,
     CONFIG_ERR_SAVE_GENERIC,
     CONFIG_ERR_SAVE_PREFIX,
@@ -90,9 +91,8 @@ from web_ui_copy import (
     CONFIG_OPT_UNSET,
     CONFIG_READONLY_INTRO,
     CONFIG_SAVED,
-    CONFIG_SECRET_SET,
-    CONFIG_SECRET_UNSET,
     CONFIG_SECTION_READONLY,
+    CONFIG_SOURCE_LABEL,
     CONFIG_SUBTITLE,
     CONFIG_TITLE_TAG,
     DASHBOARD_CONFIG_LINK,
@@ -3565,7 +3565,9 @@ def _render_config_page() -> str:
         <div id="readonlyPanel" class="panel" style="display:none">
             <div class="section-title">{CONFIG_SECTION_READONLY}</div>
             <p>{CONFIG_READONLY_INTRO}</p>
-            <div id="readonlyRows"></div>
+            <p style="color:var(--text-secondary)">{CONFIG_EDIT_POINTER}</p>
+            <pre id="liveConfigDump" style="font-family:var(--font-mono);font-size:0.8rem;line-height:1.55;color:var(--text-secondary);white-space:pre-wrap;word-break:break-word;overflow-x:auto;margin:0;"></pre>
+            <div class="config-path" id="liveConfigSource" style="margin-top:0.9rem"></div>
         </div>
 
         <div class="button-row">
@@ -3582,7 +3584,8 @@ def _render_config_page() -> str:
     (function() {{
         const editPanels = document.getElementById('editPanels');
         const readonlyPanel = document.getElementById('readonlyPanel');
-        const readonlyRows = document.getElementById('readonlyRows');
+        const liveConfigDump = document.getElementById('liveConfigDump');
+        const liveConfigSource = document.getElementById('liveConfigSource');
         const saveBtn = document.getElementById('saveBtn');
         const statusBanner = document.getElementById('statusBanner');
         const configPathEl = document.getElementById('configPath');
@@ -3654,31 +3657,24 @@ def _render_config_page() -> str:
             }});
         }}
 
-        function renderReadonly(view) {{
-            if (!view.read_only || !view.read_only.length) {{
-                readonlyPanel.style.display = 'none';
-                return;
-            }}
+        function renderLive(view) {{
+            // The assistant's real live config, read-only. Edits happen in
+            // the Hub Preferences page. textContent only: the config text
+            // is never treated as HTML.
             readonlyPanel.style.display = '';
-            let rows = '';
-            view.read_only.forEach(function(r) {{
-                let right;
-                if (r.is_secret) {{
-                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
-                    right = '<span class="' + cls + '">' +
-                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
-                }} else {{
-                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
-                }}
-                rows += '<div class="readonly-row"><span class="readonly-key">' +
-                    esc(r.key) + '</span>' + right + '</div>';
-            }});
-            readonlyRows.innerHTML = rows;
+            if (view.live && view.live.content != null) {{
+                liveConfigDump.textContent = view.live.content;
+                liveConfigSource.textContent = view.live.source || '';
+            }} else {{
+                liveConfigDump.textContent =
+                    view.live_error || '{CONFIG_ERR_LOAD_PREFIX}';
+                liveConfigSource.textContent = '';
+            }}
         }}
 
         function render(view) {{
             renderEdit(view);
-            renderReadonly(view);
+            renderLive(view);
             configPathEl.textContent = view.config_path || '';
         }}
 
@@ -3727,7 +3723,10 @@ def _render_config_page() -> str:
                         showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
                         return;
                     }}
-                    render(res.body);
+                    // Re-render only the editable section; the live read-only
+                    // panel is unaffected by a Processing save, so leave it.
+                    renderEdit(res.body);
+                    configPathEl.textContent = res.body.config_path || '';
                     showStatus('{CONFIG_SAVED}', true);
                 }})
                 .catch(function(err) {{
@@ -3843,17 +3842,33 @@ async def config_page():
 
 @app.get("/api/v1/config", response_class=JSONResponse)
 async def api_config_get():
-    """Return the current config view model.
+    """Return the config view model.
 
-    Secrets are never included as values: secret-looking keys are
-    reported presence-only (set / not set). See ``config_panel.py``.
+    Two parts: the editable Processing controls (from the Doctor-owned
+    config the env bridge reads) and the assistant's live configuration
+    read-only from the gateway (channels / model / schedule / privacy and
+    everything else, secrets masked). The live read is best-effort so a
+    gateway hiccup never hides the Processing controls: on failure the
+    editable view is still returned with a ``live_error`` message.
     """
-    from config_panel import ConfigError as _ConfigError, read_config_view
+    from config_panel import (
+        ConfigError as _ConfigError,
+        read_config_view,
+        read_live_config_view,
+    )
 
     try:
-        return JSONResponse(read_config_view(), status_code=200)
+        view = read_config_view()
     except _ConfigError as exc:
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    try:
+        view["live"] = read_live_config_view()
+    except _ConfigError as exc:
+        view["live"] = None
+        view["live_error"] = exc.detail
+
+    return JSONResponse(view, status_code=200)
 
 
 @app.post("/api/v1/config", response_class=JSONResponse)
