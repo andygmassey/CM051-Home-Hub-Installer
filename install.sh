@@ -8122,6 +8122,266 @@ else
     _ostler_promote_prelaunch_tree
 fi
 
+# ── 3.7b Tailscale sign-in (HOISTED upfront -- WALK-2, 2026-06-28) ───
+#
+# WALK-2 hoist (2026-06-28): the Tailscale INSTALL + browser sign-in +
+# tailnet-IP capture runs HERE, immediately after the pre-FDA staging
+# tree has been promoted onto ~/.ostler (so OSTLER_DIR / LOGS_DIR /
+# CONFIG_DIR are the final canonical paths the LaunchAgent plist below
+# must embed), and BEFORE the long unattended middle (graph DBs, the big
+# AI-model download, every service setup, all hydration and the first
+# wiki compile). Combined with the Phase-2 question block and the
+# upfront FDA grant, this lands ALL user interaction in the first few
+# minutes; the entire remainder of the install is genuinely walk-away.
+#
+# Why HERE and not before Docker (as first scoped)? The plist written
+# below embeds absolute --state / --statedir / --socket paths under
+# ${OSTLER_DIR}. Before _ostler_promote_prelaunch_tree runs, OSTLER_DIR
+# is the /tmp/ostler-prelaunch-$$ staging tree; baking those /tmp paths
+# into a LaunchAgent that outlives the install -- and writing a running
+# tailscaled plus an authed tailnet identity into ~/.ostler before the
+# FDA grant decision -- would break on the post-promote mv and leak on
+# an aborted install. Promotion is the real prerequisite, so the hoist
+# lands at the first point past it, still ahead of all the long
+# autonomous work.
+#
+# The .env persist of OSTLER_TAILSCALE_IP is DEFERRED to §3.15 (now a
+# silent, non-interactive step): see the temp-file persist below.
+progress "Connect your iPhone and Watch" "tailscale_connect"
+
+OSTLER_TAILSCALE_IP=""
+
+# WALK-1 (Wave 2.1): the setup/skip DECISION is now collected upfront in
+# the Phase-2 questions block (search "10b-ts. Tailscale DECISION") and
+# carried here via TAILSCALE_CONFIRM + TAILSCALE_CONFIRM_SHOWN_EARLY, so
+# the autonomous middle never surfaces a surprise prompt. Only if the
+# early prompt did NOT run (e.g. Phase 2 was skipped on a reuse install,
+# or the GUI was off then on) do we fall back to asking here -- the same
+# belt-and-braces shape the Mail probes use. The actual install + browser
+# sign-in below was pre-announced in Phase 2.
+if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
+    TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
+fi
+
+if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
+    # ── Path A: Homebrew FORMULA + userspace networking (#604) ──────
+    #
+    # #604 (2026-06-02, Studio v1.0.0 install): `brew install --cask
+    # tailscale` now resolves to the `tailscale-app` GUI cask (1.98.x),
+    # which ships a kernel/system extension and a sudo-driven `.pkg`.
+    # The installer's non-interactive sudo cannot complete that pkg (it
+    # also needs an interactive System Settings extension approval), so
+    # `installer -pkg ... exited with 1`, the step only warned, and the
+    # install finished with Tailscale absent and never launched. (NOT
+    # the old CX-25/CX-105 shallow-brew git-history issue, which is
+    # fixed -- the cask resolves and downloads fine now.)
+    #
+    # Fix: the `tailscale` FORMULA instead. It is the CLI + tailscaled
+    # with no kext and no .app, so it installs headless with no sudo.
+    # We run tailscaled in userspace-networking mode (--tun=userspace-
+    # networking: no TUN device, no kernel extension, no root) under a
+    # per-user LaunchAgent, authenticate with `tailscale up`, and use
+    # `tailscale serve` to expose the Hub's local ports on the tailnet
+    # so the iOS Companion reaches this Mac off-LAN -- all without any
+    # system-extension approval the installer cannot drive.
+    #
+    # CONSTRAINT (Studio gate, not yet proven here): userspace mode does
+    # not route the tailnet IP to local services at the OS layer the way
+    # kernel mode does; inbound reach depends on `tailscale serve`
+    # proxying each port. This must be proven to carry real inbound
+    # iPhone->Hub traffic before Path A is declared done (see PR body).
+    TS_STATE_DIR="${OSTLER_DIR}/tailscale"
+    TS_SOCK="${TS_STATE_DIR}/tailscaled.sock"
+    mkdir -p "$TS_STATE_DIR"
+
+    if ! command -v tailscale &>/dev/null; then
+        info "$MSG_INFO_INSTALLING_TAILSCALE"
+        if brew install tailscale 2>&1; then
+            ok "$MSG_OK_TAILSCALE_INSTALLED"
+        else
+            warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
+            OSTLER_TAILSCALE_SKIPPED=1
+        fi
+    else
+        ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
+    fi
+
+    TS_CLI="$(command -v tailscale || true)"
+    TS_DAEMON="$(command -v tailscaled || true)"
+
+    if [[ -n "$TS_CLI" && -n "$TS_DAEMON" ]]; then
+        # ── Userspace tailscaled under a per-user LaunchAgent ───────
+        # --tun=userspace-networking: no TUN, no kext, no root. State +
+        # socket live under the user's ~/.ostler so the CLI (run as the
+        # same user) reaches them via --socket. KeepAlive keeps the
+        # tailnet up across reboots.
+        TS_LAUNCH_AGENT="${HOME}/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"
+        mkdir -p "${HOME}/Library/LaunchAgents" "$LOGS_DIR"
+        cat > "$TS_LAUNCH_AGENT" <<TSPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.creativemachines.ostler.tailscaled</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${TS_DAEMON}</string>
+        <string>--tun=userspace-networking</string>
+        <string>--state=${TS_STATE_DIR}/tailscaled.state</string>
+        <string>--statedir=${TS_STATE_DIR}</string>
+        <string>--socket=${TS_SOCK}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/tailscaled.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/tailscaled.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
+TSPLIST
+        chmod 0644 "$TS_LAUNCH_AGENT"
+        launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
+        if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
+            ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
+        else
+            warn "$MSG_WARN_TAILSCALED_USERSPACE_START_FAILED"
+        fi
+        # Wait for the daemon to create its control socket (max ~15s).
+        TS_SOCK_WAIT=0
+        while [[ ! -S "$TS_SOCK" && $TS_SOCK_WAIT -lt 15 ]]; do
+            sleep 1; TS_SOCK_WAIT=$((TS_SOCK_WAIT + 1))
+        done
+
+        # ── Browser auth: `tailscale up` prints a login URL ─────────
+        # No GUI app to click, so capture the URL tailscale prints and
+        # open it in the default browser. up runs in the background so
+        # the installer can poll for the assigned IP while the customer
+        # completes OAuth.
+        info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
+        TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
+        # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE, before
+        # `tailscale up` and the URL-poll loop below, so the browser gets
+        # the entire 2-30s poll window to finish a cold launch instead of
+        # the fixed 2s the old code allowed at delivery time. Under heavy
+        # fresh-install load (Colima + Ollama + importer) Safari's cold
+        # start routinely outran that 2s, so the open-URL event landed on
+        # a still-bouncing Safari and was dropped (~40% on a clean Mac --
+        # the prior #644 mitigation reduced but did not close this race).
+        # Priming during the already-existing wait costs nothing.
+        # Best-effort, backgrounded (-g) so it does not steal focus.
+        open -g -a Safari >/dev/null 2>&1 || true
+        # Register the Hub under a stable, predictable tailnet name so the
+        # iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
+        # regardless of the customer's Mac hostname. Without --hostname,
+        # the node inherits the Mac's local name (random per customer).
+        # Tailscale auto-suffixes (-1, -2) only on a collision within the
+        # same tailnet, which a single-Hub customer tailnet will not hit.
+        ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
+        # Surface + open the login URL once tailscale prints it.
+        TS_URL=""
+        TS_URL_WAIT=0
+        while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
+            TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
+            [[ -n "$TS_URL" ]] && break
+            # Already authenticated installs print no URL; stop waiting
+            # once an IP exists.
+            [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
+            sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
+        done
+        if [[ -n "$TS_URL" ]]; then
+            # The URL is ALWAYS surfaced as plain text first (via info,
+            # which the GUI renders in its log pane), so the copy/paste
+            # sign-in path never depends on a browser launching at all.
+            info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
+            # Auto-open is best-effort. A bare `open <url>` against a
+            # COLD-launching browser intermittently drops the open-URL
+            # Apple event -- or wedges Safari outright -- under the heavy
+            # CPU/IO load of a fresh install (Colima VM + Ollama + the
+            # importer all running). Observed ~1 in 4 on a clean Mac with
+            # the prior fixed-2s-sleep mitigation; still seen ~40%.
+            # Safari was already warmed above (before the URL-poll loop),
+            # so it has had the full poll window to finish launching.
+            # Deliver the URL via Safari specifically and ATOMICALLY:
+            # `open -a Safari <url>` hands LaunchServices a single
+            # launch-if-needed-THEN-open-URL request, so it cannot fire
+            # the URL at a half-launched Safari the way the old bare
+            # `open <url>` (a separate LS request racing the launch) did.
+            # Fall back to the default-handler form if Safari is somehow
+            # unavailable, then re-issue once in the background as a
+            # dropped-event safety net. The URL is also printed as plain
+            # text above, so copy/paste always works even if every
+            # auto-open is dropped.
+            open -a Safari "$TS_URL" >/dev/null 2>&1 || open "$TS_URL" >/dev/null 2>&1 || true
+            ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
+        fi
+
+        # 180s window: a non-technical user reading the prompt, opening
+        # the login URL, completing OAuth (Apple/Google/Microsoft with
+        # possible 2FA) and returning easily eats 2-3 minutes.
+        info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
+        TS_WAIT=0
+        TS_NEXT_TICK=30
+        while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
+            OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
+            if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
+                sleep 3
+                TS_WAIT=$((TS_WAIT + 3))
+                if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
+                    info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
+                    TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
+                fi
+            fi
+        done
+
+        if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
+            # ── Expose the Hub's local ports on the tailnet ─────────
+            # In userspace mode the tailnet IP does not reach local
+            # listeners without an explicit proxy, so serve each Hub
+            # port: 8443 (the dedicated companion TLS listener -- the
+            # address the pairing QR advertises), 8089 (Doctor API the
+            # iOS Companion uses) and 8044 (the wiki). --bg keeps the
+            # forwarder running after the installer exits. Best-effort:
+            # a serve failure is surfaced but does not fail the install
+            # (on-LAN pairing still works). KEEP-BOTH (v1.0.5): WALK-2
+            # hoisted this serve loop here; the companion :8443 port is
+            # folded in from the pairing-reachability fix.
+            for _ts_port in 8443 8089 8044; do
+                if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
+                    info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
+                else
+                    warn "$(printf "$MSG_WARN_TAILSCALE_SERVE_PORT_FAILED" "$_ts_port")"
+                fi
+            done
+            unset _ts_port
+            ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
+            echo "  Use this address in the Ostler iOS companion app:"
+            echo "    http://${OSTLER_TAILSCALE_IP}:8089"
+            # WALK-2: DEFER the .env persist to §3.15. The interactive
+            # sign-in is the only thing that belongs upfront; the
+            # mechanical .env write stays at the original §3.15 site so
+            # this hoisted step does one job. Carry the captured IP to
+            # §3.15 via the in-process export, mirrored to a durable file
+            # as the belt-and-braces fallback if the variable is ever
+            # reset by an intervening subshell.
+            export OSTLER_TAILSCALE_IP
+            printf '%s\n' "$OSTLER_TAILSCALE_IP" > "${TS_STATE_DIR}/.tailnet-ip" 2>/dev/null || true
+        else
+            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
+            warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
+        fi
+    else
+        warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
+    fi
+else
+    info "$MSG_INFO_TAILSCALE_SKIPPED"
+fi
+
 # ── 3.8 Docker services ───────────────────────────────────────────
 
 progress "Starting your knowledge graph databases" "graph_db_start"
@@ -13292,17 +13552,29 @@ else
                     launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
-                    # (mid-install permission-glut fix) Drag-add fallback:
-                    # only NOW, after the modal is dismissed AND the grant
-                    # still didn't land, reveal the daemon .app bundle in
-                    # Finder so the customer can drag it straight into the
-                    # still-open Full Disk Access list. Fired here -- never
-                    # concurrently with the modal -- it is the last-resort
-                    # path for the rare case where "Find Ostler and turn it
-                    # on" did not work (e.g. the daemon had not yet been
-                    # listed). The persistent Doctor card still backstops
-                    # this on the next refresh.
-                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                    # (auth-glut COMPLETION, WALK-2 2026-06-28) NO Finder
+                    # reveal. The previous mid-install permission-glut fix
+                    # only RE-SEQUENCED the Finder reveal of the assistant
+                    # bundle to fire after the modal -- but it still popped a
+                    # Finder window ON TOP of the still-open System Settings
+                    # Full Disk Access pane, stacking windows during the grant
+                    # step (the window the customer was still seeing live).
+                    #
+                    # It is removed entirely. "Find Ostler in the list and
+                    # turn it on" is accurate WITHOUT a reveal because the
+                    # daemon (ai.ostler.assistant) was bootstrapped at the top
+                    # of this block (_ostler_bootstrap_assistant_daemon) and
+                    # given a grace period to attempt its first chat.db read
+                    # BEFORE this modal -- macOS auto-lists an app in Full
+                    # Disk Access (toggled off) once it has attempted a
+                    # protected read, so the row is present to toggle. By the
+                    # time the customer has read the modal and navigated the
+                    # pane (seconds to tens of seconds), the daemon's
+                    # RunAtLoad+KeepAlive retries have settled the listing.
+                    # For the rare not-yet-listed case the persistent Doctor
+                    # card (status_collector + check_imessage_fda, re-probed
+                    # every refresh) is the backstop -- never a stacked window.
+                    :
                 fi
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
@@ -13799,280 +14071,56 @@ else
     warn "$MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON"
 fi
 
-# ── 3.15 Tailscale (so the iOS / Watch companion can reach this Mac) ─
+# ── 3.15 Tailscale .env persist (SILENT -- WALK-2, 2026-06-28) ───────
 #
-# Ostler's iOS companion app talks to this Mac's API at port 8089.
-# On the home Wi-Fi the LAN IP works; out and about it doesn't. Tailscale
-# gives this Mac a stable private IP (100.x.x.x) reachable from your
-# phone anywhere, encrypted end-to-end, with no public exposure.
-# Free for personal use up to 100 devices. Skipping this step is fine
-# if you never use Ostler's companion away from home Wi-Fi.
+# WALK-2 (2026-06-28): the Tailscale INSTALL + browser sign-in +
+# tailnet-IP capture is now performed UPFRONT in §3.7b (immediately
+# after the staging-tree promote, before the long unattended middle) so
+# ALL user interaction lands in the first few minutes. What remains here
+# is a SILENT, non-interactive persist of the already-captured
+# OSTLER_TAILSCALE_IP into the daemon .env: no prompt, no browser, and
+# no STEP_BEGIN row (the "tailscale_connect" progress row fired in
+# §3.7b). config_save (§3.5) created the .env long before this point, so
+# the deferred write always lands.
 #
-# CX-81 Tailscale step (2026-05-26):
-#   - Dedicated full-screen GUI view (TailscaleConnectView.swift) with
-#     two big buttons + collapsible mini-FAQ, dispatched from
-#     OnboardingQuestionView when prompt id is "tailscale_connect".
-#   - STEP_BEGIN emission so the sidebar progress shows a dedicated row.
-#   - Root-cause fix: was `open -gj -a Tailscale` (LAUNCH HIDDEN) so
-#     the sign-in window never appeared for first-time users. Now
-#     `open -a Tailscale` brings the window to the foreground.
-#   - Periodic 30-second progress updates inside the 180-second
-#     IP-detection loop so the customer sees the installer is alive.
-#   - Post-write .env verification (grep) so a silent persist failure
-#     no longer leaves the iOS Companion unreachable.
-
-progress "Connect your iPhone and Watch" "tailscale_connect"
-
-OSTLER_TAILSCALE_IP=""
-
-# WALK-1 (Wave 2.1): the setup/skip DECISION is now collected upfront in
-# the Phase-2 questions block (search "10b-ts. Tailscale DECISION") and
-# carried here via TAILSCALE_CONFIRM + TAILSCALE_CONFIRM_SHOWN_EARLY, so
-# the autonomous middle never surfaces a surprise prompt. Only if the
-# early prompt did NOT run (e.g. Phase 2 was skipped on a reuse install,
-# or the GUI was off then on) do we fall back to asking here -- the same
-# belt-and-braces shape the Mail probes use. The actual install + browser
-# sign-in below was pre-announced in Phase 2.
-if [[ -z "${TAILSCALE_CONFIRM_SHOWN_EARLY:-}" ]]; then
-    TAILSCALE_CONFIRM="$(gui_read "$MSG_PROMPT_TAILSCALE_CONFIRM_TITLE" choice "setup" "$MSG_PROMPT_TAILSCALE_CONFIRM_HELP" "setup,skip" "tailscale_confirm")"
-fi
+# The IP is carried in-process via the exported OSTLER_TAILSCALE_IP and,
+# belt-and-braces, in ${OSTLER_DIR}/tailscale/.tailnet-ip (written by
+# §3.7b); we re-read the file if the variable was reset by an
+# intervening subshell.
 
 if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
-    # ── Path A: Homebrew FORMULA + userspace networking (#604) ──────
-    #
-    # #604 (2026-06-02, Studio v1.0.0 install): `brew install --cask
-    # tailscale` now resolves to the `tailscale-app` GUI cask (1.98.x),
-    # which ships a kernel/system extension and a sudo-driven `.pkg`.
-    # The installer's non-interactive sudo cannot complete that pkg (it
-    # also needs an interactive System Settings extension approval), so
-    # `installer -pkg ... exited with 1`, the step only warned, and the
-    # install finished with Tailscale absent and never launched. (NOT
-    # the old CX-25/CX-105 shallow-brew git-history issue, which is
-    # fixed -- the cask resolves and downloads fine now.)
-    #
-    # Fix: the `tailscale` FORMULA instead. It is the CLI + tailscaled
-    # with no kext and no .app, so it installs headless with no sudo.
-    # We run tailscaled in userspace-networking mode (--tun=userspace-
-    # networking: no TUN device, no kernel extension, no root) under a
-    # per-user LaunchAgent, authenticate with `tailscale up`, and use
-    # `tailscale serve` to expose the Hub's local ports on the tailnet
-    # so the iOS Companion reaches this Mac off-LAN -- all without any
-    # system-extension approval the installer cannot drive.
-    #
-    # CONSTRAINT (Studio gate, not yet proven here): userspace mode does
-    # not route the tailnet IP to local services at the OS layer the way
-    # kernel mode does; inbound reach depends on `tailscale serve`
-    # proxying each port. This must be proven to carry real inbound
-    # iPhone->Hub traffic before Path A is declared done (see PR body).
-    TS_STATE_DIR="${OSTLER_DIR}/tailscale"
-    TS_SOCK="${TS_STATE_DIR}/tailscaled.sock"
-    mkdir -p "$TS_STATE_DIR"
-
-    if ! command -v tailscale &>/dev/null; then
-        info "$MSG_INFO_INSTALLING_TAILSCALE"
-        if brew install tailscale 2>&1; then
-            ok "$MSG_OK_TAILSCALE_INSTALLED"
-        else
-            warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
-            OSTLER_TAILSCALE_SKIPPED=1
+    if [[ -z "${OSTLER_TAILSCALE_IP:-}" ]]; then
+        _ts_ip_file="${OSTLER_DIR}/tailscale/.tailnet-ip"
+        if [[ -f "$_ts_ip_file" ]]; then
+            OSTLER_TAILSCALE_IP="$(head -1 "$_ts_ip_file" 2>/dev/null || true)"
         fi
-    else
-        ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
+        unset _ts_ip_file
     fi
 
-    TS_CLI="$(command -v tailscale || true)"
-    TS_DAEMON="$(command -v tailscaled || true)"
-
-    if [[ -n "$TS_CLI" && -n "$TS_DAEMON" ]]; then
-        # ── Userspace tailscaled under a per-user LaunchAgent ───────
-        # --tun=userspace-networking: no TUN, no kext, no root. State +
-        # socket live under the user's ~/.ostler so the CLI (run as the
-        # same user) reaches them via --socket. KeepAlive keeps the
-        # tailnet up across reboots.
-        TS_LAUNCH_AGENT="${HOME}/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"
-        mkdir -p "${HOME}/Library/LaunchAgents" "$LOGS_DIR"
-        cat > "$TS_LAUNCH_AGENT" <<TSPLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.creativemachines.ostler.tailscaled</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${TS_DAEMON}</string>
-        <string>--tun=userspace-networking</string>
-        <string>--state=${TS_STATE_DIR}/tailscaled.state</string>
-        <string>--statedir=${TS_STATE_DIR}</string>
-        <string>--socket=${TS_SOCK}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${LOGS_DIR}/tailscaled.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOGS_DIR}/tailscaled.err</string>
-    <key>ProcessType</key>
-    <string>Background</string>
-</dict>
-</plist>
-TSPLIST
-        chmod 0644 "$TS_LAUNCH_AGENT"
-        launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
-        if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
-            ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
-        else
-            warn "$MSG_WARN_TAILSCALED_USERSPACE_START_FAILED"
-        fi
-        # Wait for the daemon to create its control socket (max ~15s).
-        TS_SOCK_WAIT=0
-        while [[ ! -S "$TS_SOCK" && $TS_SOCK_WAIT -lt 15 ]]; do
-            sleep 1; TS_SOCK_WAIT=$((TS_SOCK_WAIT + 1))
-        done
-
-        # ── Browser auth: `tailscale up` prints a login URL ─────────
-        # No GUI app to click, so capture the URL tailscale prints and
-        # open it in the default browser. up runs in the background so
-        # the installer can poll for the assigned IP while the customer
-        # completes OAuth.
-        info "$MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN"
-        TS_UP_LOG="${LOGS_DIR}/tailscale-up.log"
-        # TS_SAFARI_WARM (2026-06-09): start warming Safari HERE, before
-        # `tailscale up` and the URL-poll loop below, so the browser gets
-        # the entire 2-30s poll window to finish a cold launch instead of
-        # the fixed 2s the old code allowed at delivery time. Under heavy
-        # fresh-install load (Colima + Ollama + importer) Safari's cold
-        # start routinely outran that 2s, so the open-URL event landed on
-        # a still-bouncing Safari and was dropped (~40% on a clean Mac --
-        # the prior #644 mitigation reduced but did not close this race).
-        # Priming during the already-existing wait costs nothing.
-        # Best-effort, backgrounded (-g) so it does not steal focus.
-        open -g -a Safari >/dev/null 2>&1 || true
-        # Register the Hub under a stable, predictable tailnet name so the
-        # iOS app can always reach it at ostler-hub.<tailnet>.ts.net,
-        # regardless of the customer's Mac hostname. Without --hostname,
-        # the node inherits the Mac's local name (random per customer).
-        # Tailscale auto-suffixes (-1, -2) only on a collision within the
-        # same tailnet, which a single-Hub customer tailnet will not hit.
-        ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
-        # Surface + open the login URL once tailscale prints it.
-        TS_URL=""
-        TS_URL_WAIT=0
-        while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
-            TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
-            [[ -n "$TS_URL" ]] && break
-            # Already authenticated installs print no URL; stop waiting
-            # once an IP exists.
-            [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
-            sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
-        done
-        if [[ -n "$TS_URL" ]]; then
-            # The URL is ALWAYS surfaced as plain text first (via info,
-            # which the GUI renders in its log pane), so the copy/paste
-            # sign-in path never depends on a browser launching at all.
-            info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
-            # Auto-open is best-effort. A bare `open <url>` against a
-            # COLD-launching browser intermittently drops the open-URL
-            # Apple event -- or wedges Safari outright -- under the heavy
-            # CPU/IO load of a fresh install (Colima VM + Ollama + the
-            # importer all running). Observed ~1 in 4 on a clean Mac with
-            # the prior fixed-2s-sleep mitigation; still seen ~40%.
-            # Safari was already warmed above (before the URL-poll loop),
-            # so it has had the full poll window to finish launching.
-            # Deliver the URL via Safari specifically and ATOMICALLY:
-            # `open -a Safari <url>` hands LaunchServices a single
-            # launch-if-needed-THEN-open-URL request, so it cannot fire
-            # the URL at a half-launched Safari the way the old bare
-            # `open <url>` (a separate LS request racing the launch) did.
-            # Fall back to the default-handler form if Safari is somehow
-            # unavailable, then re-issue once in the background as a
-            # dropped-event safety net. The URL is also printed as plain
-            # text above, so copy/paste always works even if every
-            # auto-open is dropped.
-            open -a Safari "$TS_URL" >/dev/null 2>&1 || open "$TS_URL" >/dev/null 2>&1 || true
-            ( sleep 4; open -a Safari "$TS_URL" >/dev/null 2>&1 || true ) &
-        fi
-
-        # 180s window: a non-technical user reading the prompt, opening
-        # the login URL, completing OAuth (Apple/Google/Microsoft with
-        # possible 2FA) and returning easily eats 2-3 minutes.
-        info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
-        TS_WAIT=0
-        TS_NEXT_TICK=30
-        while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
-            OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
-            if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then
-                sleep 3
-                TS_WAIT=$((TS_WAIT + 3))
-                if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
-                    info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
-                    TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
-                fi
+    if [[ -n "${OSTLER_TAILSCALE_IP:-}" ]]; then
+        # Persist to .env (replace existing line if present, append otherwise).
+        # Composite cleanup (registered at top of Phase 3) rms TAILSCALE_TMP_ENV
+        # if we exit before the mv completes -- e.g. disk full or SIGINT mid-sed.
+        ENV_FILE="${CONFIG_DIR}/.env"
+        if [[ -f "$ENV_FILE" ]]; then
+            if grep -q "^OSTLER_TAILSCALE_IP=" "$ENV_FILE"; then
+                TAILSCALE_TMP_ENV=$(mktemp)
+                sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TAILSCALE_TMP_ENV"
+                mv "$TAILSCALE_TMP_ENV" "$ENV_FILE"
+                TAILSCALE_TMP_ENV=""
+            else
+                echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
             fi
-        done
-
-        if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
-            # ── Expose the Hub's local ports on the tailnet ─────────
-            # In userspace mode the tailnet IP does not reach local
-            # listeners without an explicit proxy, so serve each Hub
-            # port: 8443 (the dedicated companion TLS listener -- the
-            # address the §3.3 pairing QR advertises), 8089 (Doctor API)
-            # and 8044 (the wiki). --bg keeps the forwarder running after
-            # the installer exits. Best-effort: a serve failure is
-            # surfaced but does not fail the install (on-LAN pairing still
-            # works). NOTE: serve --tcp is a raw TCP passthrough, so the
-            # companion listener terminates TLS itself -- so the tunnelled
-            # https://<tailnet-ip>:8443 path matches the on-LAN scheme.
-            for _ts_port in 8443 8089 8044; do
-                if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
-                    info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
-                else
-                    warn "$(printf "$MSG_WARN_TAILSCALE_SERVE_PORT_FAILED" "$_ts_port")"
-                fi
-            done
-            unset _ts_port
-            ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
-            echo "  Use this address in the Ostler iOS companion app:"
-            echo "    http://${OSTLER_TAILSCALE_IP}:8089"
-            # Persist to .env (replace existing line if present, append otherwise)
-            ENV_FILE="${CONFIG_DIR}/.env"
-            if [[ -f "$ENV_FILE" ]]; then
-                if grep -q "^OSTLER_TAILSCALE_IP=" "$ENV_FILE"; then
-                    # In-place rewrite of the line. Composite cleanup
-                    # (registered at top of Phase 3) rms the tmp file
-                    # if we exit before the mv completes -- e.g. disk
-                    # full or SIGINT mid-sed. Per-resource flag is
-                    # TAILSCALE_TMP_ENV; clear it after a successful
-                    # mv so composite_cleanup is a no-op for this
-                    # resource on normal exit.
-                    TAILSCALE_TMP_ENV=$(mktemp)
-                    sed "s|^OSTLER_TAILSCALE_IP=.*|OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"|" "$ENV_FILE" > "$TAILSCALE_TMP_ENV"
-                    mv "$TAILSCALE_TMP_ENV" "$ENV_FILE"
-                    TAILSCALE_TMP_ENV=""
-                else
-                    echo "OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" >> "$ENV_FILE"
-                fi
-                # CX-81 Tailscale step verify (2026-05-26): grep the
-                # written value back so a silent persist failure (e.g.
-                # .env permission flip, partial mv) is caught rather
-                # than leaving the iOS Companion unreachable.
-                if grep -q "^OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" "$ENV_FILE"; then
-                    ok "$MSG_OK_TAILSCALE_ENV_PERSISTED"
-                else
-                    warn "$MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED"
-                fi
+            # CX-81 verify: grep the written value back so a silent persist
+            # failure (e.g. .env permission flip, partial mv) is caught rather
+            # than leaving the iOS Companion unreachable.
+            if grep -q "^OSTLER_TAILSCALE_IP=\"${OSTLER_TAILSCALE_IP}\"" "$ENV_FILE"; then
+                ok "$MSG_OK_TAILSCALE_ENV_PERSISTED"
+            else
+                warn "$MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED"
             fi
-        else
-            warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
-            warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
         fi
-    else
-        warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
     fi
-else
-    info "$MSG_INFO_TAILSCALE_SKIPPED"
 fi
 
 # ── 3.16 Wiki -- first compile and serve ─────────────────────────────
