@@ -97,6 +97,19 @@ final class StepCatalog {
         "config_save",
         "encrypt_db",
         "fda_extract",
+        // CX-81 Tailscale step (2026-05-26): dedicated "Connect your
+        // iPhone and Watch" full-screen view + STEP_BEGIN so the
+        // sidebar shows the row from launch. install.sh emits the
+        // matching `progress "Connect your iPhone and Watch"
+        // "tailscale_connect"`.
+        // WALK-2 (2026-06-28): the Tailscale INSTALL + browser sign-in
+        // is HOISTED upfront to install.sh §3.7b (immediately after the
+        // staging-tree promote, between fda_extract and graph_db_start)
+        // so ALL user interaction lands in the first few minutes; the
+        // unattended middle never surfaces it. The canonical row moves
+        // here to match that new emission position. The original §3.15
+        // site is now a silent .env persist with no STEP_BEGIN.
+        "tailscale_connect",
         "graph_db_start",
         "vane_install",
         "ai_models",
@@ -147,14 +160,6 @@ final class StepCatalog {
         "ostler_assistant",
         "ostler_hub_app",
         "ostler_remotecapture",
-        // CX-81 Tailscale step (2026-05-26): dedicated "Connect your
-        // iPhone and Watch" full-screen view + STEP_BEGIN so the
-        // sidebar shows the row from launch. install.sh §3.15 emits
-        // the matching `progress "Connect your iPhone and Watch"
-        // "tailscale_connect"` before the gui_read PROMPT. Lives
-        // between ostler_remotecapture and hydrate_graph to match
-        // install.sh §3.15 position (between §3.14g and §3.16).
-        "tailscale_connect",
         "hydrate_graph",
         // CX-86 Gap A + Gap C: hydrate_browsing fires as a separate
         // progress emission BETWEEN hydrate_graph (B1/B2/CX-85's

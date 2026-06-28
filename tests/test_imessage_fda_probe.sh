@@ -153,9 +153,18 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'x-apple.systempreferences.*Privacy
     echo "FAIL [case-6]: assist block missing System Settings deep-link" >&2
     exit 1
 fi
-# Block must reveal the daemon binary in Finder
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -R.*ostler-assistant'; then
-    echo "FAIL [case-6]: assist block missing Finder reveal" >&2
+# Block must NOT pop a Finder window during the FDA grant step.
+# (auth-glut COMPLETION, WALK-2 2026-06-28) The `open -R
+# "$ASSISTANT_APP_BUNDLE"` reveal was removed: it stacked a Finder window
+# on top of the still-open System Settings Full Disk Access pane. The
+# daemon is bootstrapped + given a grace read BEFORE the modal, so it is
+# auto-listed and "Find Ostler in the list and turn it on" is accurate
+# with no reveal. A regression that re-adds any `open -R` of the
+# assistant bundle (the stray window Andy reported) must fail here.
+# (strip comment lines so an explanatory `# ... open -R ...` comment does
+# not false-positive -- we only care about an actual reveal command.)
+if printf '%s\n' "$ASSIST_BLOCK" | grep -vE '^[[:space:]]*#' | grep -q 'open -R'; then
+    echo "FAIL [case-6]: assist block re-introduced a Finder reveal (open -R) -- it stacks a window on System Settings during the FDA grant" >&2
     exit 1
 fi
 # Block must invoke osascript + display dialog (may be split across
