@@ -46,9 +46,9 @@ echo "manifest:  ${MANIFEST}"
 # tarball uses install.sh OSTLER_ASSISTANT_VERSION. They must agree. We read
 # the Makefile (the DMG's real source) and cross-check install.sh.
 MK_PIN="$(grep -m1 -E '^DAEMON_VERSION[[:space:]]*\?=' "${CM051_DIR}/gui/Makefile" 2>/dev/null \
-  | sed -E 's/.*\?=[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+  | sed -E 's/.*\?=[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?).*/\1/')"
 SH_PIN="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "${CM051_DIR}/install.sh" 2>/dev/null \
-  | sed -E 's/.*:-([0-9]+\.[0-9]+\.[0-9]+)\}.*/\1/')"
+  | sed -E 's/.*:-([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?)\}.*/\1/')"
 DAEMON_PIN="${MK_PIN:-${SH_PIN}}"
 echo "daemon pin: Makefile=${MK_PIN:-<none>}  install.sh=${SH_PIN:-<none>}"
 echo
