@@ -6577,6 +6577,70 @@ unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
+
+# ── Gateway TLS: self-signed cert for the iOS Companion pairing path ──
+# CM031 pairs over HTTPS. SHARED_AUTH_SPEC.md §3.6 makes HTTPS mandatory
+# for the §3.3 handshake and the Companion trust-on-first-use-pins the
+# Hub's self-signed leaf SPKI at pairing time. This cert backs the
+# dedicated companion TLS listener (companion_enabled below) -- a
+# separate, LAN/tailnet-reachable port so the primary :8000 gateway can
+# stay loopback-only plain HTTP for the same-host Hub UI / Doctor / chat
+# consumers.
+#
+# Pre-fix (the P0 this closes): with no companion listener the gateway
+# stamped its own loopback :8000 into the pairing QR, so the QR handed
+# the phone `https://<lan-ip>:8000/auth/pair/init` -- an address nothing
+# reachable was listening on, over a scheme the loopback daemon did not
+# speak. Pairing could never complete on a clean install (the iOS Local
+# Network permission was a red herring). See the companion_* keys in the
+# [gateway] block below and the `tailscale serve` port list further down.
+#
+# The cert is generated once and persisted so its SPKI is stable across
+# daemon restarts -- a rotating cert would break the Companion's pin and
+# force a re-pair on every restart. iOS pins the SPKI on first use and
+# does NOT hostname-validate the pairing leaf, so the SAN is
+# belt-and-braces, not load-bearing; generation must never block the
+# install if openssl or LAN discovery hiccups.
+GATEWAY_TLS_DIR="${ASSISTANT_CONFIG_DIR}/gateway-tls"
+GATEWAY_TLS_CERT="${GATEWAY_TLS_DIR}/cert.pem"
+GATEWAY_TLS_KEY="${GATEWAY_TLS_DIR}/key.pem"
+mkdir -p "$GATEWAY_TLS_DIR"
+chmod 700 "$GATEWAY_TLS_DIR"
+if [[ ! -s "$GATEWAY_TLS_CERT" || ! -s "$GATEWAY_TLS_KEY" ]]; then
+    _gw_lan_ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+    _gw_san="DNS:localhost,DNS:ostler-hub,IP:127.0.0.1"
+    [[ -n "$_gw_lan_ip" ]] && _gw_san="${_gw_san},IP:${_gw_lan_ip}"
+    _gw_cert_ok=
+    # Prefer a cert carrying a SAN (OpenSSL 3.x / LibreSSL >= 3.1 via
+    # -addext). Stock macOS ships LibreSSL 2.8.3, which has no -addext;
+    # fall back to a CN-only cert there. The SAN is not load-bearing --
+    # iOS uses a URLSession trust-on-first-use handler that pins the leaf
+    # SPKI and does NOT hostname-validate the pairing leaf -- so either
+    # cert pairs successfully; the SAN is belt-and-braces for any future
+    # strict client.
+    if openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$GATEWAY_TLS_KEY" -out "$GATEWAY_TLS_CERT" \
+            -days 3650 -subj "/CN=ostler-hub" \
+            -addext "subjectAltName=${_gw_san}" >/dev/null 2>&1; then
+        _gw_cert_ok=1
+    elif openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$GATEWAY_TLS_KEY" -out "$GATEWAY_TLS_CERT" \
+            -days 3650 -subj "/CN=ostler-hub" >/dev/null 2>&1; then
+        _gw_cert_ok=1
+    fi
+    if [[ -n "$_gw_cert_ok" ]]; then
+        chmod 600 "$GATEWAY_TLS_KEY" "$GATEWAY_TLS_CERT"
+        ok "Generated gateway TLS certificate for iOS Companion pairing (${GATEWAY_TLS_CERT})"
+    else
+        # Best-effort: the daemon (ostler-assistant) also auto-generates
+        # a self-signed cert when [gateway.tls] enabled = true and the
+        # files are absent, so a failure here is recoverable on first
+        # boot rather than fatal to the install.
+        warn "Could not pre-generate the gateway TLS certificate; the daemon will self-generate on first boot"
+    fi
+    unset _gw_lan_ip _gw_san _gw_cert_ok
+fi
+
 umask_orig=$(umask)
 umask 0077
 {
@@ -6890,6 +6954,31 @@ TOMLPREAMBLE
     # daemon successfully but on the wrong port.
     echo "port = 8000"
     echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
+    # ── iOS Companion pairing reachability ──────────────────────
+    # The primary gateway above stays loopback-only plain HTTP on
+    # :8000 -- shared with the same-host Hub UI, the Doctor's
+    # pairing-QR panel and the chat-token mint, all of which speak
+    # HTTP to it. Putting TLS on :8000 would break every one of
+    # those (including the very panel that shows the QR), so the
+    # phone gets its OWN listener instead: a dedicated, LAN/tailnet-
+    # reachable, TLS-terminated companion listener serving the same
+    # routes. The §3.3 pairing QR advertises THIS listener's
+    # address. iOS pairs over https:// only (SHARED_AUTH_SPEC.md
+    # §3.6) and trust-on-first-use-pins the self-signed leaf, so the
+    # generated cert above is exactly the designed posture.
+    #
+    # Pre-fix (the P0 this closes): with no companion listener the
+    # gateway stamped its own loopback :8000 into the QR, so the
+    # phone was handed https://<lan-ip>:8000/auth/pair/init -- an
+    # address nothing reachable was listening on, over a scheme the
+    # loopback daemon did not speak. Pairing could never complete on
+    # a clean install (the iOS Local Network permission was a red
+    # herring).
+    echo "companion_enabled = true"
+    echo "companion_host = \"0.0.0.0\""
+    echo "companion_port = 8443"
+    echo "companion_cert_path = \"${GATEWAY_TLS_CERT}\""
+    echo "companion_key_path = \"${GATEWAY_TLS_KEY}\""
 
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
@@ -13337,11 +13426,15 @@ TSPLIST
             # ── Expose the Hub's local ports on the tailnet ─────────
             # In userspace mode the tailnet IP does not reach local
             # listeners without an explicit proxy, so serve each Hub
-            # port: 8089 (Doctor API the iOS Companion uses) and 8044
-            # (the wiki). --bg keeps the forwarder running after the
-            # installer exits. Best-effort: a serve failure is surfaced
-            # but does not fail the install (on-LAN pairing still works).
-            for _ts_port in 8089 8044; do
+            # port: 8443 (the dedicated companion TLS listener -- the
+            # address the §3.3 pairing QR advertises), 8089 (Doctor API)
+            # and 8044 (the wiki). --bg keeps the forwarder running after
+            # the installer exits. Best-effort: a serve failure is
+            # surfaced but does not fail the install (on-LAN pairing still
+            # works). NOTE: serve --tcp is a raw TCP passthrough, so the
+            # companion listener terminates TLS itself -- so the tunnelled
+            # https://<tailnet-ip>:8443 path matches the on-LAN scheme.
+            for _ts_port in 8443 8089 8044; do
                 if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
                     info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
                 else
