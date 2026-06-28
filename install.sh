@@ -6650,6 +6650,41 @@ if grep -q '^WIKI_OPERATOR_EMAILS=' "$OSTLER_ENV_FILE" 2>/dev/null; then
     rm -f "${OSTLER_ENV_FILE}.bak"
 fi
 printf 'WIKI_OPERATOR_EMAILS=%s\n' "${_wiki_operator_emails}" >> "$OSTLER_ENV_FILE"
+
+# K-4: WIKI_PII_PERSONAL_EMAILS feeds CM044's PII scanner/sanitiser
+# (compiler/pii_scan.py::PIIScanConfig.from_env). It is a CSV of email
+# *domains* -- the personal-email regex is `<local>@(?:domain1|domain2)`,
+# so the value must be the DOMAIN part (after @), never the full address
+# (a full address would embed a second @ and never match). Without this
+# export the operator's own email leaking into a Browsing page title
+# (e.g. a webmail tab title) is never redacted. Derived from the same
+# me-card emails as WIKI_OPERATOR_EMAILS above; empty is safe (no
+# personal-email pattern is added when the domain list is empty).
+_wiki_pii_email_domains=""
+_IFS_save="$IFS"; IFS=','
+for _wiki_pii_email in ${_wiki_operator_emails}; do
+    _wiki_pii_email="${_wiki_pii_email# }"; _wiki_pii_email="${_wiki_pii_email% }"
+    [[ "$_wiki_pii_email" == *"@"* ]] || continue
+    # domain = everything after the last @, lower-cased.
+    _wiki_pii_domain="${_wiki_pii_email##*@}"
+    _wiki_pii_domain="$(printf '%s' "$_wiki_pii_domain" | tr '[:upper:]' '[:lower:]')"
+    [[ -n "$_wiki_pii_domain" ]] || continue
+    case ",${_wiki_pii_email_domains}," in
+        *",${_wiki_pii_domain},"*) continue ;;  # already present (de-dup)
+    esac
+    if [[ -z "$_wiki_pii_email_domains" ]]; then
+        _wiki_pii_email_domains="$_wiki_pii_domain"
+    else
+        _wiki_pii_email_domains="${_wiki_pii_email_domains},${_wiki_pii_domain}"
+    fi
+done
+IFS="$_IFS_save"; unset _IFS_save _wiki_pii_email _wiki_pii_domain
+if grep -q '^WIKI_PII_PERSONAL_EMAILS=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^WIKI_PII_PERSONAL_EMAILS=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'WIKI_PII_PERSONAL_EMAILS=%s\n' "${_wiki_pii_email_domains}" >> "$OSTLER_ENV_FILE"
+unset _wiki_pii_email_domains
 unset _wiki_operator_emails
 
 chmod 600 "$OSTLER_ENV_FILE"
@@ -8547,6 +8582,11 @@ services:
       # installer alongside USER_FIRST_NAME. Empty = no self-exclusion (safe).
       - WIKI_OPERATOR_NAME=${WIKI_OPERATOR_NAME:-}
       - WIKI_OPERATOR_EMAILS=${WIKI_OPERATOR_EMAILS:-}
+      # K-4: CSV of operator email DOMAINS so CM044's PII scanner/sanitiser
+      # (compiler/pii_scan.py) redacts the operator's own email if it leaks
+      # into a Browsing page title. Written to the compose .env by the
+      # installer from the me-card email. Empty = no personal-email pattern.
+      - WIKI_PII_PERSONAL_EMAILS=${WIKI_PII_PERSONAL_EMAILS:-}
       - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}

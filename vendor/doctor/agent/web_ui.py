@@ -2123,6 +2123,68 @@ async def api_wiki_duplicates_decision(request: Request):
     return result
 
 
+@app.post("/api/v1/wiki/duplicates/enact", response_class=JSONResponse)
+async def api_wiki_duplicates_enact(request: Request):
+    """Apply a just-recorded duplicate-merge decision to the graph NOW (M-3e).
+
+    ``/duplicates/decision`` only records a reversible ``merge:`` entry; the
+    merge then waited for the scheduled ``batch_resolver`` sweep, so a live
+    conversation that said "merge them" still disambiguated on the next
+    question. The chat ``merge_people`` tool POSTs here right after recording
+    the decision to enact it immediately. Contract matches the tool:
+    ``{"action": "merge", "ids": [short_id, ...]}``.
+
+    Reuses the same resolver primitives the sweep uses (no graph mutation is
+    reimplemented), scoped to just the decided ids, so the immediate path and
+    the sweep path write identical triples. Reversible exactly as today: writes
+    ``pwg:mergedInto`` + a pre-merge TriG backup, honours ``distinct`` vetoes,
+    and the decision still lives in ``duplicates.yaml``. Best-effort by design --
+    if the resolver is unavailable the merge still applies on the next sweep.
+    Thin HTTP plumbing only; the logic lives in ``duplicate_enact.py``.
+    """
+    from duplicate_decision import (
+        ValidationError as _DupError,
+        validate_payload as _validate,
+        corrections_dir as _corrections_dir,
+    )
+    from duplicate_enact import EnactError as _EnactError, enact_decision as _enact
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+
+    try:
+        normalised = _validate(body)
+    except _DupError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+
+    oxigraph_url = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
+    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_collection = os.getenv("QDRANT_COLLECTION", "people")
+    backup_dir = os.path.expanduser(
+        os.getenv("OSTLER_MERGE_BACKUP_DIR", "~/.ostler/backups")
+    )
+
+    try:
+        result = _enact(
+            normalised,
+            oxigraph_url=oxigraph_url,
+            qdrant_url=qdrant_url,
+            qdrant_collection=qdrant_collection,
+            corrections_dir=str(_corrections_dir()),
+            backup_dir=backup_dir,
+        )
+    except _EnactError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    except Exception as exc:
+        return JSONResponse(
+            {"error": f"could not enact merge: {exc}"}, status_code=500,
+        )
+
+    return result
+
+
 @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
 async def api_chat_token(request: Request):
     """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
@@ -4019,6 +4081,39 @@ async def api_governor_status():
         {"enabled": enabled, "tier": tier, "deferring": deferring},
         status_code=200,
     )
+
+
+@app.get("/api/v1/box-status", response_class=JSONResponse)
+async def api_box_status():
+    """Single live "how hard is the Mac working" read for the Governor page +
+    header status chip.
+
+    Aggregates load-per-core, memory, the resident-model memory share, the
+    governor tier, the pause state, a coarse settle signal and -- crucially --
+    a load-*attribution-by-owner* breakdown (Ostler vs macOS system vs other
+    apps) so the user does not blame Ostler for macOS's own first-run
+    housekeeping. Every field is fail-soft: a failing probe degrades to
+    ``null``/idle, the route never 500s the 7 s poll. See ``box_status.py``.
+    """
+    from box_status import box_status as _box_status
+
+    try:
+        return JSONResponse(_box_status(), status_code=200)
+    except Exception:
+        # Last-resort: an "unknown" payload rather than a 500, so the chip
+        # shows a grey "-" instead of breaking the poll.
+        return JSONResponse(
+            {
+                "state": "unknown",
+                "load": None, "memory": None,
+                "llm": {"pct": 0, "resident": False, "model": None,
+                        "vram_gb": 0.0, "keep_alive": None},
+                "governor": {"enabled": True, "tier": None, "deferring": None},
+                "pause": {"paused": False, "expiry_human": "", "indefinite": False},
+                "settling": None, "running": [], "attribution": None,
+            },
+            status_code=200,
+        )
 
 
 # ── Main ─────────────────────────────────────────────────────────────

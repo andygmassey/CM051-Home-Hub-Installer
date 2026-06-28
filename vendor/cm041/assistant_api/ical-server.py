@@ -2030,11 +2030,38 @@ def people_list(sort=None, ceiling=10000):
         # must not blank the People list. Fall back to payload-only contact info.
         ident_by_uri = {}
 
+    # Merged-away records (M-3a): graph dedup is correct -- a deduped Person
+    # node carries a pwg:mergedInto tombstone in Oxigraph pointing at the
+    # surviving node. But the Qdrant `people` collection still holds a point
+    # for every merged-away record (different ID space), so without this
+    # filter all ~996 of them render as live duplicate rows in the Hub People
+    # tab. Fetch the tombstone set once and skip any point whose person_uri is
+    # in it. A degraded Oxigraph yields an empty set -> no filtering, which
+    # calmly preserves the list rather than blanking it (same posture as the
+    # identifier join above).
+    merged_away_uris = set()
+    try:
+        for r in _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person WHERE {{ ?person pwg:mergedInto ?_target }}'.format(ns=PWG_NS)
+        ):
+            u = (r.get("person") or "").strip()
+            if u:
+                merged_away_uris.add(u)
+    except Exception:
+        merged_away_uris = set()
+
     people = []
     for pt in points:
         p = pt.get("payload", {}) or {}
         name = p.get("display_name") or p.get("name") or ""
         if not name:
+            continue
+        # Drop merged-away records: their Qdrant point lingers but the graph
+        # has tombstoned the node (pwg:mergedInto). The surviving node has no
+        # tombstone and is kept. Only filter when we actually have a uri to
+        # match -- a point with no person_uri predates merge and is left alone.
+        if merged_away_uris and (p.get("person_uri") or "") in merged_away_uris:
             continue
         # slug + wiki_url let the Hub People row click through to the
         # person's wiki page. Same slug derivation and WIKI_BASE_URL the
@@ -3404,6 +3431,30 @@ def _resolve_person_uri_by_name(name):
     return None
 
 
+def _candidate_person_uri(result):
+    """Return the stable Person URI for a single people_search *result*.
+
+    Prefer the result's OWN ``person_uri`` (carried straight from the Qdrant
+    payload, distinct per node) and only fall back to a displayName lookup
+    when an older point lacks it.
+
+    Why this matters for the merge loop: ``_resolve_person_uri_by_name`` does
+    ``displayName "<name>" LIMIT 1``, so when the duplicates share a display
+    name -- exactly the duplicate-contact case (e.g. two nodes that share one
+    display name) -- every disambiguation candidate would collapse to the
+    SAME uri. ``merge_people`` then de-duplicates those identical uris and
+    refuses with "those URIs all point at the same record, nothing to merge",
+    so the user can never resolve the duplicate from chat. Keying on the
+    per-result ``person_uri`` keeps the candidate uris DISTINCT so the merge
+    can actually be enacted.
+    """
+    if isinstance(result, dict):
+        own = result.get("person_uri")
+        if own:
+            return own
+    return _resolve_person_uri_by_name(result.get("name", "") if isinstance(result, dict) else "")
+
+
 def api_memory_assert(payload, now=None):
     """Handle POST /api/v1/memory/assert.
 
@@ -3487,10 +3538,13 @@ def api_memory_assert(payload, now=None):
         if (leader - runner_up) <= _ASSERT_DISAMBIGUATION_MARGIN:
             candidates = []
             for r in strong_sorted:
+                # Use the per-result person_uri so same-named duplicates carry
+                # DISTINCT uris -- otherwise merge_people can't tell them apart
+                # and refuses the merge. See _candidate_person_uri.
                 candidates.append({
                     "name": r.get("name", ""),
                     "slug": r.get("slug", ""),
-                    "uri": _resolve_person_uri_by_name(r.get("name", "")),
+                    "uri": _candidate_person_uri(r),
                 })
             return {
                 "status": "needs_disambiguation",
@@ -3499,11 +3553,11 @@ def api_memory_assert(payload, now=None):
         # Clear leader: fall through and attach to it.
         chosen = strong_sorted[0]
         person_slug = chosen.get("slug")
-        person_uri = _resolve_person_uri_by_name(chosen.get("name", ""))
+        person_uri = _candidate_person_uri(chosen)
     elif len(strong) == 1:
         chosen = strong[0]
         person_slug = chosen.get("slug")
-        person_uri = _resolve_person_uri_by_name(chosen.get("name", ""))
+        person_uri = _candidate_person_uri(chosen)
 
     # A strong search hit whose name no longer resolves in Oxigraph (stale
     # Qdrant point) falls through to minting -- better a fresh node than a
