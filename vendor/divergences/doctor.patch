@@ -1,3 +1,549 @@
+--- a/agent/config_panel.py
++++ b/agent/config_panel.py
+@@ -14,11 +14,18 @@
+   at a tmp file, and an errors class that carries an HTTP status so the
+   FastAPI route in ``web_ui.py`` can map cleanly.
+ 
+-* This module deliberately governs ONLY a Doctor-owned settings file in
+-  ``~/.ostler/config/``. It never touches the assistant daemon's live
+-  TOML config -- corrupting that risks the running daemon, so it is out
+-  of scope by design (see backlog #261 safety valve).
++* Editable set is now ONLY the Processing (resource-throttle) controls,
++  which are real: a save materialises them into the sourced env file the
++  tick wrappers load (the env bridge). Channels / model / schedule /
++  privacy are NOT editable here any more -- the panel used to write them
++  into ``config.yaml`` that no daemon read (a dead writer), so they are
++  now shown READ-ONLY from the assistant's live config (read over
++  loopback from the gateway ``GET /api/config``, secrets masked) and
++  edited in the Hub Preferences page.
+ 
++* The read of the assistant's live config never touches its TOML --
++  corrupting that risks the running daemon. The panel only reads it.
++
+ * Secrets are NEVER rendered. Any field whose key looks secret-like
+   (token / key / password / secret / credential) is reported as
+   presence-only ("set" / "not set") and is never returned as a value
+@@ -42,9 +49,18 @@
+ from pathlib import Path
+ from typing import Any, Optional
+ 
++import httpx  # listed in doctor/agent/requirements.txt
+ import yaml  # PyYAML, listed in doctor/agent/requirements.txt
+ 
++# Re-use the installer-seeded admin-token loader so there is a single
++# source of truth for where the token lives and how it is read.
++from chat_token import (  # noqa: E402
++    DEFAULT_ZEROCLAW_PORT,
++    TokenIssueError,
++    read_admin_token,
++)
+ 
++
+ # -- Default paths ----------------------------------------------------
+ 
+ DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
+@@ -107,10 +123,9 @@
+ # -- Whitelist of editable fields -------------------------------------
+ #
+ # Each entry describes ONE clearly-safe, flat top-level field the panel
+-# may write. Anything not here is read-only. Keys are intentionally a
+-# small, conservative set: channel toggles, model selection, schedule
+-# times, and the privacy default. Editing these cannot corrupt the
+-# assistant daemon's live state because this is a Doctor-owned file.
++# may write. The whitelist is now ONLY the Processing (resource-throttle)
++# controls, which are materialised into the sourced env file the tick
++# wrappers load. Anything not on the whitelist is read-only.
+ #
+ # ``kind`` drives both the rendered control and the validator:
+ #   bool   -- checkbox; accepts true/false
+@@ -130,77 +145,72 @@
+     choices: tuple[str, ...] = ()
+ 
+ 
++# The customer-editable whitelist is now ONLY the Processing controls.
++# Channels / model / schedule / privacy used to live here too, but the
++# panel wrote them into a Doctor-owned ``config.yaml`` that no daemon ever
++# read -- a silent dead writer. They are now shown READ-ONLY from the
++# assistant's live config (see the gateway read below) and edited in the
++# Hub Preferences page. The Processing controls below are REAL: a save
++# materialises them into the sourced env file the tick wrappers load (see
++# the env bridge), so a change here genuinely changes wrapper behaviour.
+ EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
+-    # -- Channels ----------------------------------------------------
++    # -- Processing (resource throttle) ------------------------------
++    # These map to the env knobs the tick wrappers + resource-tier lib
++    # already consume. They are materialised into a sourced env file
++    # (see the env bridge below) so a panel change actually changes
++    # wrapper behaviour -- the contract the old panel was missing.
+     FieldSpec(
+-        key="imessage_enabled",
+-        kind="bool",
+-        label="iMessage",
+-        section="Channels",
+-        help="Let your assistant read and reply over iMessage.",
++        key="processing_preset",
++        kind="enum",
++        label="Processing speed",
++        section="Processing",
++        help=(
++            "How hard Ostler works in the background. Overnight drains "
++            "overnight and stays light by day; Gentle always stays light "
++            "and never competes; Full speed runs at full width any time."
++        ),
++        choices=("overnight", "gentle", "full_speed"),
+     ),
+     FieldSpec(
+-        key="whatsapp_enabled",
++        key="governor_enabled",
+         kind="bool",
+-        label="WhatsApp",
+-        section="Channels",
+-        help="Let your assistant read and reply over WhatsApp.",
+-    ),
+-    FieldSpec(
+-        key="email_enabled",
+-        kind="bool",
+-        label="Email",
+-        section="Channels",
+-        help="Let your assistant triage and reply to email.",
+-    ),
+-    # -- Model -------------------------------------------------------
+-    FieldSpec(
+-        key="assistant_model",
+-        kind="enum",
+-        label="Assistant model",
+-        section="Model",
+-        help="The local model your assistant uses to think and reply.",
+-        choices=(
+-            "qwen3.5:9b",
+-            "qwen2.5:14b",
+-            "qwen2.5:3b",
+-            "gemma4:e2b",
++        label="Ease off when you are busy",
++        section="Processing",
++        help=(
++            "Let Ostler automatically defer background work when your Mac "
++            "is under load, so the things you are doing stay responsive."
+         ),
+     ),
+-    # -- Schedule ----------------------------------------------------
+     FieldSpec(
+-        key="morning_brief_time",
++        key="quiet_hours_start",
+         kind="time",
+-        label="Morning brief",
+-        section="Schedule",
+-        help="When your assistant sends the morning brief (24h, HH:MM).",
++        label="Quiet hours start",
++        section="Processing",
++        help=(
++            "Start of the overnight window when Ostler drains its full "
++            "backlog (24h, HH:MM). Default 01:00."
++        ),
+     ),
+     FieldSpec(
+-        key="evening_wrap_time",
++        key="quiet_hours_end",
+         kind="time",
+-        label="Evening wrap",
+-        section="Schedule",
+-        help="When your assistant sends the evening wrap (24h, HH:MM).",
+-    ),
+-    # -- Privacy -----------------------------------------------------
+-    FieldSpec(
+-        key="default_privacy_level",
+-        kind="enum",
+-        label="Default privacy level",
+-        section="Privacy",
++        label="Quiet hours end",
++        section="Processing",
+         help=(
+-            "The privacy level new conversations get by default. "
+-            "L3 is private by default and is never indexed for search."
++            "End of the overnight window (24h, HH:MM). Outside this window "
++            "Ostler only reads the last day or two. Default 06:00."
+         ),
+-        choices=("L0", "L1", "L2", "L3"),
+     ),
+ )
+ 
+ _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
+ 
+ 
+-# Section display order for the rendered panel.
+-SECTION_ORDER: tuple[str, ...] = ("Channels", "Model", "Schedule", "Privacy")
++# Section display order for the rendered (editable) panel. Only the
++# Processing controls are editable now; everything else is read-only.
++SECTION_ORDER: tuple[str, ...] = (
++    "Processing",
++)
+ 
+ 
+ _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+@@ -243,7 +253,7 @@
+ 
+ 
+ def read_config_view(path: Optional[Path] = None) -> dict[str, Any]:
+-    """Return the panel's view model.
++    """Return the editable (Processing) view model.
+ 
+     Shape::
+ 
+@@ -254,18 +264,14 @@
+             {"key", "kind", "label", "section", "help", "choices",
+              "value", "is_set"}
+           ],
+-          "read_only": [
+-            {"key", "value" | None, "is_secret", "is_set"}
+-          ],
+         }
+ 
+-    ``editable`` lists every whitelisted field in section order, with the
+-    current value (or ``None`` if unset). ``read_only`` lists every other
+-    top-level key found in the file: non-secret keys carry their value
+-    (presence + value), secret-looking keys carry ``value: null`` and
+-    ``is_secret: true`` so the panel shows "set" / "not set" only.
+-
+-    NOTE: secret values are never placed in the returned structure.
++    ``editable`` lists every whitelisted (Processing) field with its
++    current value from the Doctor-owned ``config.yaml`` (the store the
++    env bridge reads from). This is deliberately gateway-free so a save
++    never depends on the assistant being reachable -- the live read-only
++    config is assembled separately by the route (see ``read_live_config``)
++    and a gateway hiccup must never break a throttle save.
+     """
+     raw = _load_raw(path)
+ 
+@@ -286,28 +292,156 @@
+             }
+         )
+ 
+-    read_only: list[dict[str, Any]] = []
+-    for key in sorted(raw.keys()):
+-        if key in _FIELD_BY_KEY:
+-            continue  # surfaced under editable
+-        secret = is_secret_key(key)
+-        value = raw[key]
+-        is_set = value is not None and value != ""
+-        read_only.append(
+-            {
+-                "key": key,
+-                # Presence-only for secrets: value is withheld entirely.
+-                "value": None if secret else _coerce_display(value),
+-                "is_secret": secret,
+-                "is_set": bool(is_set),
+-            }
+-        )
+-
+     return {
+         "config_path": str(_config_file()),
+         "exists": bool(raw) or (path or _config_file()).is_file(),
+         "editable": editable,
+-        "read_only": read_only,
++    }
++
++
++# -- Live config (gateway, read-only) ---------------------------------
++#
++# The genuinely-dead fields (channels / model / schedule / privacy) are
++# no longer editable here. Instead the panel shows the assistant's real
++# live configuration, read over loopback from the gateway's
++# ``GET /api/config`` endpoint -- the single source of truth the Hub
++# Preferences page also drives. The Doctor authenticates with the
++# installer-seeded admin token already used by ``chat_token.py``, so this
++# introduces no new credential. Edits to these settings happen in the Hub
++# Preferences page; this surface only shows what is currently set.
++
++
++# Matches a top-level / indented TOML assignment so we can read the key.
++# e.g.  `api_key = "sk-..."`  ->  key group = "api_key".
++_TOML_ASSIGN_RE = re.compile(r"^(\s*)([A-Za-z0-9_.\-]+)(\s*=\s*)(.*)$")
++
++# What we replace a secret value with when redacting defensively.
++_REDACTED = '"***"'
++
++
++def redact_secret_lines(toml_text: str) -> str:
++    """Defence in depth: redact the value of any secret-looking TOML key.
++
++    The gateway already masks secret fields before it serialises the TOML
++    it returns. This is a second, independent pass so a newly added secret
++    field that slips past the gateway's mask is still never shown in the
++    Doctor panel. Non-secret lines are returned untouched.
++    """
++    out_lines = []
++    for line in toml_text.splitlines():
++        m = _TOML_ASSIGN_RE.match(line)
++        if m and is_secret_key(m.group(2)):
++            out_lines.append(f"{m.group(1)}{m.group(2)}{m.group(3)}{_REDACTED}")
++        else:
++            out_lines.append(line)
++    suffix = "\n" if toml_text.endswith("\n") else ""
++    return "\n".join(out_lines) + suffix
++
++
++def _zeroclaw_port() -> int:
++    """Resolve the loopback gateway port (mirrors ``chat_token``)."""
++    raw = os.environ.get("OSTLER_CHAT_GATEWAY_PORT")
++    if not raw:
++        return DEFAULT_ZEROCLAW_PORT
++    try:
++        return int(raw)
++    except ValueError:
++        return DEFAULT_ZEROCLAW_PORT
++
++
++def _gateway_base_url() -> str:
++    """The loopback URL the Doctor uses to reach the gateway.
++
++    Always ``127.0.0.1`` plus the gateway port: the Doctor and the
++    gateway run on the same host. Deliberately NOT the public
++    ``OSTLER_CHAT_GATEWAY_URL`` (that is the LAN URL handed to iOS).
++    """
++    return f"http://127.0.0.1:{_zeroclaw_port()}"
++
++
++def config_source_url() -> str:
++    """The full URL the live config is read from (for display / tests)."""
++    return f"{_gateway_base_url()}/api/config"
++
++
++def read_live_config(
++    *, http_client: Optional[httpx.Client] = None, timeout: float = 5.0
++) -> dict[str, Any]:
++    """Fetch the assistant's live configuration from the gateway.
++
++    Returns ``{"format": "toml", "content": "<toml text>"}`` where the
++    content is the gateway's already-secret-masked TOML, re-redacted
++    defensively. Raises ``ConfigError`` on every failure path:
++
++    * 503 -- the admin token is not seeded, or the gateway is unreachable.
++    * 502 -- the gateway rejected the call or returned an unusable body.
++
++    ``http_client`` is injectable for tests.
++    """
++    try:
++        admin_token = read_admin_token()
++    except TokenIssueError as exc:
++        raise ConfigError(exc.status, exc.detail) from exc
++
++    base = _gateway_base_url()
++    url = f"{base}/api/config"
++    headers = {"Authorization": f"Bearer {admin_token}"}
++
++    client = http_client or httpx.Client(timeout=timeout)
++    try:
++        resp = client.get(url, headers=headers)
++    except httpx.HTTPError as exc:
++        raise ConfigError(
++            503,
++            "The Ostler assistant is not reachable, so its settings "
++            "cannot be shown right now.",
++        ) from exc
++    finally:
++        if http_client is None:
++            client.close()
++
++    if resp.status_code == 401:
++        raise ConfigError(
++            502,
++            "The Ostler assistant rejected the request. Re-run the "
++            "installer to re-seed the local token.",
++        )
++    if resp.status_code >= 400:
++        raise ConfigError(
++            502,
++            f"The Ostler assistant returned an error "
++            f"(HTTP {resp.status_code}).",
++        )
++
++    try:
++        body = resp.json()
++    except ValueError as exc:
++        raise ConfigError(
++            502, f"The Ostler assistant sent an unreadable response: {exc}"
++        ) from exc
++
++    content = body.get("content")
++    if not isinstance(content, str):
++        raise ConfigError(
++            502, "The Ostler assistant response did not include the config."
++        )
++    fmt = body.get("format")
++    if not isinstance(fmt, str) or not fmt:
++        fmt = "toml"
++
++    return {"format": fmt, "content": redact_secret_lines(content)}
++
++
++def read_live_config_view(
++    *, http_client: Optional[httpx.Client] = None
++) -> dict[str, Any]:
++    """Return the read-only live-config view (source + masked content)."""
++    live = read_live_config(http_client=http_client)
++    return {
++        "read_only": True,
++        "source": config_source_url(),
++        "format": live["format"],
++        "content": live["content"],
+     }
+ 
+ 
+@@ -401,10 +535,154 @@
+     Reads the existing file first and preserves every key the panel does
+     not understand, so a newer/foreign config is never clobbered. Returns
+     the fresh panel view model (so the client re-renders from authority).
++
++    After persisting the YAML, materialise the processing-relevant
++    settings into the sourced env file the tick wrappers load
++    (``sync_env_file``). This is the contract that makes a panel change
++    actually change wrapper behaviour.
+     """
+     p = path or _config_file()
+     normalised = validate_updates(updates)
+     current = _load_raw(p)
+     current.update(normalised)
+     _atomic_write(p, current)
++    sync_env_file(current)
+     return read_config_view(p)
++
++
++# -- Throttle env bridge (resource throttle: Parts 0, 2, 3) -----------
++#
++# The Config panel historically wrote ``config.yaml`` that no daemon or
++# wrapper read, so toggles silently did nothing. The tick wrappers and
++# the launchd-driven background jobs are env-driven, so we materialise
++# the processing-relevant settings into a single sourced shell env file
++# (``~/.ostler/config/ostler.env``) that every tick wrapper loads at the
++# top. Whichever knob the panel writes, the wrappers consume it.
++
++DEFAULT_ENV_FILE = DEFAULT_OSTLER_DIR / "config" / "ostler.env"
++
++_DEFAULT_PRESET = "overnight"
++
++# Each preset is a COMPLETE posture, mapped to the exact env names the
++# wrappers + ``ostler-resource-tier.sh`` already consume:
++#   overnight   -- the shipped default: drain overnight, stay light by day.
++#   gentle      -- always light, yields to any real load, never competes.
++#   full_speed  -- run any time at full width, effectively never defer.
++_PRESET_ENV: dict[str, dict[str, str]] = {
++    "overnight": {
++        "OSTLER_INGEST_OFFPEAK_ONLY": "1",
++        "OSTLER_INGEST_DAYTIME_SINCE_DAYS": "2",
++    },
++    "gentle": {
++        "OSTLER_INGEST_OFFPEAK_ONLY": "1",
++        "OSTLER_INGEST_DAYTIME_SINCE_DAYS": "1",
++        "OSTLER_LOADAVG_CEILING": "0.4",
++        "WIKI_LLM_WORKERS": "1",
++        "OLLAMA_NUM_PARALLEL": "2",
++    },
++    "full_speed": {
++        "OSTLER_INGEST_OFFPEAK_ONLY": "0",
++        "OSTLER_INGEST_DAYTIME_SINCE_DAYS": "30",
++        "OSTLER_LOADAVG_CEILING": "99",
++    },
++}
++
++
++def _env_file(path: Optional[Path] = None) -> Path:
++    """Resolve the sourced env-file path the wrappers load.
++
++    ``OSTLER_ENV_FILE`` wins (tests, non-default deployments), then
++    ``OSTLER_HOME``, then the home-dir default. Mirrors ``_config_file``.
++    """
++    if path is not None:
++        return path
++    raw = os.environ.get("OSTLER_ENV_FILE")
++    if raw:
++        return Path(raw)
++    home = os.environ.get("OSTLER_HOME")
++    if home:
++        return Path(home) / "config" / "ostler.env"
++    return DEFAULT_ENV_FILE
++
++
++def _hour_of(value: Any, default: int) -> int:
++    """Coerce an ``HH:MM`` config value to an integer hour (0-23).
++
++    The off-peak window the wrappers gate on is hour-granular, so the
++    minutes are intentionally dropped. Anything unparseable falls back
++    to ``default`` so a malformed value can never wedge the window.
++    """
++    if isinstance(value, str) and _TIME_RE.match(value):
++        try:
++            return int(value.split(":", 1)[0])
++        except (ValueError, IndexError):
++            return default
++    return default
++
++
++def build_env_map(raw: dict[str, Any]) -> dict[str, str]:
++    """Derive the env knob map from a raw config dict.
++
++    The result is the union of the chosen preset's knobs, the governor
++    on/off toggle, and the quiet-hours window. Returns a flat
++    ``{NAME: value}`` map of plain strings.
++    """
++    preset = raw.get("processing_preset")
++    if preset not in _PRESET_ENV:
++        preset = _DEFAULT_PRESET
++    env: dict[str, str] = dict(_PRESET_ENV[preset])
++
++    # Governor toggle (defaults ON when unset). False disables the
++    # load-aware defer entirely.
++    governor = raw.get("governor_enabled")
++    env["OSTLER_RESOURCE_GOVERNOR"] = "0" if governor is False else "1"
++
++    # Quiet hours -> off-peak window bounds the wrappers read.
++    start = _hour_of(raw.get("quiet_hours_start"), 1)
++    end = _hour_of(raw.get("quiet_hours_end"), 6)
++    env["OSTLER_INGEST_OFFPEAK_START_HOUR"] = str(start)
++    env["OSTLER_INGEST_OFFPEAK_END_HOUR"] = str(end)
++
++    return env
++
++
++def build_env_lines(raw: dict[str, Any]) -> list[str]:
++    """Render the env file body as a list of lines.
++
++    Each knob becomes an ``export NAME=value`` line so the values reach
++    the python pipelines the wrappers spawn, not just the wrapper shell.
++    """
++    lines = [
++        "# Ostler processing settings -- generated by the Doctor Config",
++        "# panel. Sourced by every background tick wrapper. Do not edit by",
++        "# hand; your changes are overwritten on the next save.",
++    ]
++    for name, value in sorted(build_env_map(raw).items()):
++        lines.append(f"export {name}={value}")
++    return lines
++
++
++def sync_env_file(
++    raw: dict[str, Any], path: Optional[Path] = None
++) -> Path:
++    """Materialise the processing settings into the sourced env file.
++
++    Atomic write (temp + ``os.replace``). Returns the path written.
++    """
++    p = _env_file(path)
++    body = "\n".join(build_env_lines(raw)) + "\n"
++    p.parent.mkdir(parents=True, exist_ok=True)
++    fd, tmp = tempfile.mkstemp(
++        dir=str(p.parent), prefix=".ostler-env-", suffix=".tmp"
++    )
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as fh:
++            fh.write(body)
++        os.replace(tmp, p)
++    except OSError as exc:
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass
++        raise ConfigError(500, f"Could not write env file: {exc}")
++    return p
 --- a/agent/duplicate_decision.py
 +++ b/agent/duplicate_decision.py
 @@ -25,7 +25,7 @@
@@ -48,280 +594,6 @@
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
---- a/agent/import_evernote_runner.py
-+++ b/agent/import_evernote_runner.py
-@@ -45,31 +45,6 @@
- from typing import Any, Dict, List
- 
- 
--# Sentinel that separates sequential phases in the command after ``--``.
--# Doctor passes ``convert ... --and-then embed ...`` so the supervisor
--# runs convert, then embed ONLY if convert succeeded. A command with no
--# sentinel is a single phase, preserving the original one-command contract.
--PHASE_SENTINEL = "--and-then"
--
--
--def _split_phases(tokens: List[str]) -> List[List[str]]:
--    """Split a flat token list into sequential command phases on the
--    ``--and-then`` sentinel. Empty phases (a leading/trailing/double
--    sentinel) are dropped so the runner never tries to exec ``[]``."""
--    phases: List[List[str]] = []
--    current: List[str] = []
--    for tok in tokens:
--        if tok == PHASE_SENTINEL:
--            if current:
--                phases.append(current)
--                current = []
--            continue
--        current.append(tok)
--    if current:
--        phases.append(current)
--    return phases
--
--
- def _parse_args(argv: List[str]) -> argparse.Namespace:
-     parser = argparse.ArgumentParser(
-         description="Evernote import supervisor (Doctor-internal).",
-@@ -83,8 +58,7 @@
-     parser.add_argument(
-         "command",
-         nargs=argparse.REMAINDER,
--        help="The command(s) to execute; precede with -- to disambiguate. "
--             "Multiple phases may be chained with the --and-then sentinel.",
-+        help="The command to execute; precede with -- to disambiguate.",
-     )
-     args = parser.parse_args(argv)
-     # argparse REMAINDER preserves the leading ``--`` token; drop it.
-@@ -92,9 +66,6 @@
-         args.command = args.command[1:]
-     if not args.command:
-         parser.error("no command supplied after --")
--    args.phases = _split_phases(args.command)
--    if not args.phases:
--        parser.error("no command supplied after --")
-     return args
- 
- 
-@@ -119,69 +90,30 @@
- def main(argv: List[str]) -> int:
-     args = _parse_args(argv)
- 
--    # Run phases in order; stop at the first non-zero exit so a failed
--    # convert never runs embed against a half-written staging tree. The
--    # state file records which phase was last attempted so Doctor can
--    # tell "convert failed" from "embed failed".
--    exit_code = 0
--    phase_index = 0
--    for phase_index, phase_cmd in enumerate(args.phases):
--        try:
--            result = subprocess.run(phase_cmd, check=False)
--            exit_code = result.returncode
--        except FileNotFoundError as exc:
--            # The bundled ``ostler-knowledge`` was not found on PATH.
--            # Surface as a non-zero exit and a note in the state file --
--            # Doctor's UI shows the failure to the operator who can then
--            # check that the installer ran.
--            exit_code = 127
--            sys.stderr.write(f"runner: command not found: {exc}\n")
--        except OSError as exc:
--            exit_code = 1
--            sys.stderr.write(f"runner: failed to exec command: {exc}\n")
--        if exit_code != 0:
--            break
-+    try:
-+        result = subprocess.run(args.command, check=False)
-+        exit_code = result.returncode
-+    except FileNotFoundError as exc:
-+        # The bundled ``ostler-knowledge`` was not found on PATH.
-+        # Surface as a non-zero exit and a note in the state file --
-+        # Doctor's UI shows the failure to the operator who can then
-+        # check that the installer ran.
-+        exit_code = 127
-+        sys.stderr.write(f"runner: command not found: {exc}\n")
-+    except OSError as exc:
-+        exit_code = 1
-+        sys.stderr.write(f"runner: failed to exec command: {exc}\n")
- 
--    # Graceful-degrade status. The phases are ordered so the *last* one is
--    # the non-critical enrichment step -- for a knowledge import that is
--    # ``embed`` (indexing into Qdrant for search), preceded by ``convert``
--    # (writing the markdown that IS the import). Because the loop above
--    # stops at the first non-zero exit, reaching the last phase means every
--    # earlier phase exited 0. So a non-zero exit *on the last phase of a
--    # multi-phase run* means the data landed and only search indexing
--    # failed (Qdrant/Ollama down) -- a degraded success, not a hard
--    # failure. The operator's notes ARE imported; search catches up on a
--    # re-run. We surface it as ``partial`` so the UI shows amber + a
--    # "search pending" note rather than a red "failed". A single-phase run
--    # (no --and-then) keeps the original succeeded/failed contract.
--    phases_total = len(args.phases)
--    is_last_phase = phase_index == phases_total - 1
--    if exit_code == 0:
--        status = "succeeded"
--    elif phases_total > 1 and is_last_phase:
--        status = "partial"
--    else:
--        status = "failed"
--
-     completed_at = datetime.now(timezone.utc).isoformat()
-     state = {
-         "job_id": args.job_id,
--        "status": status,
-+        "status": "succeeded" if exit_code == 0 else "failed",
-         "exit_code": exit_code,
--        "phase_index": phase_index,
--        "phases_total": phases_total,
-         "started_at": args.started_at,
-         "completed_at": completed_at,
-         "log_path": args.log_path,
-         "enex_path": args.enex_path,
-     }
--    if status == "partial":
--        # Human-facing hint the UI surfaces verbatim.
--        state["note"] = (
--            "Notes imported. Search indexing did not complete "
--            "(the embedding service may be offline); it will catch up "
--            "on the next import."
--        )
- 
-     try:
-         _atomic_write_json(Path(args.state), state)
---- a/agent/import_evernote.py
-+++ b/agent/import_evernote.py
-@@ -68,58 +68,12 @@
- DEFAULT_LOG_DIR = DEFAULT_OSTLER_DIR / "logs"
- DEFAULT_STATE_DIR = DEFAULT_OSTLER_DIR / "state"
- DEFAULT_STAGING_DIR = DEFAULT_OSTLER_DIR / "data" / "knowledge-staging"
--DEFAULT_METADATA_DB = DEFAULT_OSTLER_DIR / "data" / "knowledge-metadata.db"
- 
- LOCK_FILENAME = "import-evernote.lock"
- LOG_FILENAME_PREFIX = "import-evernote-"
- STATE_FILENAME_PREFIX = "import-evernote-"
- 
- DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
--
--# The knowledge source this import handles. ``evernote`` for now; the
--# Notion/Obsidian sources reuse this same convert+embed path with a
--# different value, which selects the ``<source>_knowledge`` collection.
--DEFAULT_SOURCE = "evernote"
--
--# Canonical Ostler Hub embedding model. The install pre-creates the
--# knowledge Qdrant collections at 768 dims (nomic-embed-text), so embed
--# MUST use the same model or every upsert fails the dimension check and
--# the wiki Knowledge section stays silently empty. Overridable for
--# operators who standardise on a different 768-dim model.
--DEFAULT_EMBED_MODEL = "nomic-embed-text"
--
--
--def _embed_model() -> str:
--    return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
--
--
--def _collection_for_source(source: str) -> str:
--    """The Qdrant collection the wiki + MCP read for a given source."""
--    return f"{source}_knowledge"
--
--
--# Privacy cap: the highest compartment level (sensitivity) that may be
--# embedded into the searchable collection. Default 2 keeps L3
--# (compartment_level 3, "private") notes OUT of search. They are still
--# converted to markdown in the staging tree -- just never indexed into
--# Qdrant. This matters because the wiki Knowledge reader does NOT filter
--# by level at render time, so excluding L3 at embed is the only thing
--# standing between a private note and the browsable wiki. Overridable via
--# env for an operator who deliberately wants their full corpus searchable
--# on their single-user box.
--DEFAULT_MAX_COMPARTMENT_LEVEL = 2
--
--
--def _max_compartment_level() -> int:
--    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
--    if raw is None:
--        return DEFAULT_MAX_COMPARTMENT_LEVEL
--    try:
--        return int(raw)
--    except (TypeError, ValueError):
--        # A garbled override must never widen the cap and leak L3; fall
--        # back to the safe default.
--        return DEFAULT_MAX_COMPARTMENT_LEVEL
- 
- # Job IDs are ``YYYYMMDDTHHMMSSZ-<8 hex>``. The format is deliberately
- # narrow so the regex can double as a path-traversal defence on
-@@ -307,19 +261,15 @@
- def start_import(
-     enex_path: Path,
-     *,
--    source: str = DEFAULT_SOURCE,
-     _now: Optional[datetime] = None,
-     _lock_dir: Optional[Path] = None,
-     _log_dir: Optional[Path] = None,
-     _state_dir: Optional[Path] = None,
-     _staging_dir: Optional[Path] = None,
--    _metadata_db: Optional[Path] = None,
-     _binary: Optional[str] = None,
-     _subprocess: Any = None,
-     _runner: Optional[Path] = None,
-     _python: Optional[str] = None,
--    _embed_model_name: Optional[str] = None,
--    _max_compartment_level_value: Optional[int] = None,
- ) -> Dict[str, Any]:
-     """Fork ``ostler-knowledge`` via the supervisor wrapper.
- 
-@@ -333,13 +283,6 @@
-     log_dir = Path(_log_dir or DEFAULT_LOG_DIR).expanduser()
-     state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
-     staging_dir = Path(_staging_dir or DEFAULT_STAGING_DIR).expanduser()
--    metadata_db = Path(_metadata_db or DEFAULT_METADATA_DB).expanduser()
--    embed_model = _embed_model_name or _embed_model()
--    max_level = (
--        _max_compartment_level_value
--        if _max_compartment_level_value is not None
--        else _max_compartment_level()
--    )
- 
-     # Resolve subprocess at call time (not in the default arg) so
-     # ``monkeypatch.setattr(ie, "subprocess", rec)`` in tests actually
-@@ -386,28 +329,6 @@
- 
-         try:
-             try:
--                # Phase 1: convert the export to markdown in the staging
--                # tree. Phase 2: embed that markdown into the source's
--                # Qdrant collection so the wiki + MCP actually have
--                # something to read -- this is the step whose absence
--                # left Knowledge silently empty. nomic-embed-text/768
--                # matches the collection the installer pre-creates; the
--                # runner runs embed ONLY if convert exits 0.
--                convert_phase = [
--                    binary, "convert", "--source", source,
--                    str(enex_path), "--output", str(staging_dir),
--                ]
--                embed_phase = [
--                    binary, "embed", str(staging_dir),
--                    "--collection", _collection_for_source(source),
--                    "--embedding-model", embed_model,
--                    # Privacy gate: keep L3 ("private") notes out of the
--                    # searchable collection the wiki + MCP read. The
--                    # reader does not re-filter by level, so this is the
--                    # only barrier.
--                    "--max-compartment-level", str(max_level),
--                    "--db-path", str(metadata_db),
--                ]
-                 proc = sub.Popen(
-                     [
-                         python, str(runner),
-@@ -418,9 +339,8 @@
-                         "--enex-path", str(enex_path),
-                         "--started-at", started_at,
-                         "--",
--                        *convert_phase,
--                        "--and-then",
--                        *embed_phase,
-+                        binary, "convert", "--source", "evernote",
-+                        str(enex_path), "--output", str(staging_dir),
-                     ],
-                     stdout=log_handle,
-                     stderr=sub.STDOUT,
 --- a/agent/pair_status.py
 +++ b/agent/pair_status.py
 @@ -78,15 +78,8 @@
@@ -352,57 +624,842 @@
  pyyaml>=6.0,<7.0
 --- a/agent/web_ui_copy.py
 +++ b/agent/web_ui_copy.py
-@@ -260,10 +260,6 @@
+@@ -180,7 +180,16 @@
+ )
+ REPORT_FIX_LABEL = "Fix:"
  
- DASHBOARD_PAIR_IOS_LINK = (
-     ' &ndash; <a href="/pair-ios">Pair iOS device</a>'
--)
--
--DASHBOARD_CONFIG_LINK = (
--    ' &ndash; <a href="/config">Configuration</a>'
++# Banner prepended to the redacted report so the recipient knows it was
++# scrubbed on-device before it was shared.
++REPORT_REDACTED_BANNER = (
++    "[This report was redacted on-device: usernames, home-folder paths, "
++    "email addresses and IP addresses have been removed.]"
++)
++# Placeholder swapped in for each redacted token.
++REPORT_REDACTED_PLACEHOLDER = "[redacted]"
+ 
++
+ # ── _build_mailto (email subject + body) ─────────────────────────────
+ 
+ 
+@@ -264,6 +273,13 @@
+ 
+ DASHBOARD_CONFIG_LINK = (
+     ' &ndash; <a href="/config">Configuration</a>'
++)
++
++# The Editor (CM059) Front Page surface. Always shown -- it is a headline
++# feature and the view degrades gracefully to a "still settling" page when the
++# Editor has not yet emitted a feed.
++DASHBOARD_FRONTPAGE_LINK = (
++    ' &ndash; <a href="/frontpage">Front Page</a>'
  )
  
  DASHBOARD_ALERT_REPORT_FAIL = (
-@@ -436,39 +432,7 @@
-     "The QR is shown only on this Mac. The Companion sends the pairing "
-     "token back the first time it pairs &ndash; after that, the Hub "
-     "remembers the device by a key, not the token."
--)
--
--
+@@ -439,10 +455,12 @@
+ )
+ 
+ 
 -# ── Configuration panel (backlog #261) ──────────────────────────────
--#
++# ── Configuration panel (backlog #261; v1.0.5 honest hybrid) ─────────
+ #
 -# Copy for the /config surface. Reads + edits the customer-safe settings
 -# file at ~/.ostler/config/config.yaml. Secrets are never rendered.
--
--
--CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
--CONFIG_HEADING = "Configuration"
--CONFIG_SUBTITLE = (
--    'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
--)
++# Copy for the /config surface. The Processing (resource-throttle)
++# controls are editable and real (env bridge). Everything else is shown
++# read-only from the assistant's live config, with edits pointed at the
++# Hub Preferences page. Secrets are never rendered.
+ 
+ 
+ CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
+@@ -450,24 +468,28 @@
+ CONFIG_SUBTITLE = (
+     'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
+ )
 -CONFIG_SECTION_READONLY = "Other settings"
--CONFIG_READONLY_INTRO = (
++CONFIG_SECTION_READONLY = "Other settings (read-only)"
+ CONFIG_READONLY_INTRO = (
 -    "These settings are shown for reference and are not editable here. "
 -    "Anything sensitive is shown only as set or not set, never as its "
 -    "value."
++    "This is your assistant's current configuration, shown for reference. "
++    "It is read-only here. Anything sensitive is hidden."
  )
--CONFIG_BTN_SAVE = "Save changes"
--CONFIG_BTN_SAVING = "Saving..."
--CONFIG_OPT_UNSET = "Not set"
++CONFIG_EDIT_POINTER = (
++    "To change these settings, open Preferences in the Hub "
++    "(the Ostler app in your Mac's menu bar). Changes you make there take "
++    "effect straight away; this page only shows what is currently set."
++)
++CONFIG_SOURCE_LABEL = "Live configuration, read from your assistant."
+ CONFIG_BTN_SAVE = "Save changes"
+ CONFIG_BTN_SAVING = "Saving..."
+ CONFIG_OPT_UNSET = "Not set"
 -CONFIG_SECRET_SET = "Set"
 -CONFIG_SECRET_UNSET = "Not set"
--CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
--CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
--CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
--CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
--CONFIG_META_FOOTER = (
+ CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
+ CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
+ CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
+ CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
+ CONFIG_META_FOOTER = (
 -    "Settings are stored locally in your config file. Nothing is sent "
 -    "anywhere. Secrets are never shown on this page."
--)
++    "Your Processing settings are stored locally on this Mac. The other "
++    "settings are read from your assistant. Nothing is sent anywhere, and "
++    "secrets are never shown on this page."
+ )
  
  
- # ── Console banner (printed at __main__) ─────────────────────────────
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
+@@ -22,12 +22,15 @@
+ 
+ from __future__ import annotations
+ 
++import getpass
+ import json
+ import os
++import re
+ import urllib.parse
+ from collections import deque
+ from dataclasses import asdict
+ from datetime import datetime, timezone
++from pathlib import Path
+ 
+ from fastapi import FastAPI, Request
+ from fastapi.middleware.cors import CORSMiddleware
+@@ -79,6 +82,7 @@
+     DASHBOARD_HOSTNAME_UNKNOWN,
+     CONFIG_BTN_SAVE,
+     CONFIG_BTN_SAVING,
++    CONFIG_EDIT_POINTER,
+     CONFIG_ERR_LOAD_PREFIX,
+     CONFIG_ERR_SAVE_GENERIC,
+     CONFIG_ERR_SAVE_PREFIX,
+@@ -87,12 +91,12 @@
+     CONFIG_OPT_UNSET,
+     CONFIG_READONLY_INTRO,
+     CONFIG_SAVED,
+-    CONFIG_SECRET_SET,
+-    CONFIG_SECRET_UNSET,
+     CONFIG_SECTION_READONLY,
++    CONFIG_SOURCE_LABEL,
+     CONFIG_SUBTITLE,
+     CONFIG_TITLE_TAG,
+     DASHBOARD_CONFIG_LINK,
++    DASHBOARD_FRONTPAGE_LINK,
+     DASHBOARD_IMPORT_EVERNOTE_LINK,
+     DASHBOARD_PAIR_IOS_LINK,
+     DASHBOARD_LAST_CHECKED_JUST_NOW,
+@@ -219,6 +223,8 @@
+     REPORT_HOST_OS_LABEL,
+     REPORT_NOTES_PLACEHOLDER,
+     REPORT_OLLAMA_LABEL,
++    REPORT_REDACTED_BANNER,
++    REPORT_REDACTED_PLACEHOLDER,
+     REPORT_SECTION_CONTAINERS,
+     REPORT_SECTION_DISK,
+     REPORT_SECTION_FINDINGS,
+@@ -628,6 +634,248 @@
+         quote_via=urllib.parse.quote,
+     )
+     return f"mailto:{SUPPORT_EMAIL}?{params}"
++
++
++# ── On-device report redaction ───────────────────────────────────────
++#
++# The raw report is already low-PII by design: ``_format_report`` builds
++# from ``status_collector``'s safe snapshot and deliberately omits the
++# hostname. The one realistic leak vector is free-text inside findings:
++# disk mount points and suggested ``fix_command`` lines can carry
++# ``/Users/<username>/...`` paths, and a misbehaving service URL could
++# surface an email or IP. ``_redact_report`` does a deterministic,
++# offline scrub of exactly those classes.
++
++# Standard email and IPv4 patterns.
++_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
++_IPV4_RE = re.compile(
++    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
++)
++
++
++def _home_username() -> str | None:
++    """Best-effort current username for home-path redaction.
++
++    Tries ``getpass.getuser`` first, then the basename of ``Path.home``.
++    Returns ``None`` if neither yields a usable value, in which case the
++    home-path scrub falls back to the generic ``/Users/<name>`` pattern.
++    """
++    try:
++        user = getpass.getuser()
++        if user:
++            return user
++    except Exception:
++        pass
++    try:
++        name = Path.home().name
++        return name or None
++    except Exception:
++        return None
++
++
++def _redact_report(report: str) -> str:
++    """Return *report* with identifying details removed, on-device.
++
++    Scrubs, in order: the operator's own home path (``/Users/<me>`` and
++    ``/home/<me>``), any other ``/Users/<x>`` or ``/home/<x>`` path
++    segment, email addresses and IPv4 addresses. A banner is prepended
++    so the recipient knows the report was redacted.
++    """
++    placeholder = REPORT_REDACTED_PLACEHOLDER
++    redacted = report
++
++    user = _home_username()
++    if user:
++        # Exact home paths for the current operator first.
++        for root in ("/Users/", "/home/"):
++            redacted = redacted.replace(
++                f"{root}{user}", f"{root}{placeholder}"
++            )
++
++    # Any remaining home-dir usernames (other accounts, sudo paths).
++    redacted = re.sub(
++        r"(/Users/|/home/)[^/\s\"']+",
++        lambda m: f"{m.group(1)}{placeholder}",
++        redacted,
++    )
++
++    redacted = _EMAIL_RE.sub(placeholder, redacted)
++    redacted = _IPV4_RE.sub(placeholder, redacted)
++
++    return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
++
++
++# ── Diagnostics run (the "Run diagnostics" / send-to-Support core) ───
++#
++# Single fail-soft entry point shared by every action that needs the
++# diagnostic bundle: the dashboard "Copy diagnostics", "Copy redacted"
++# and "Send by Email" buttons, and any external "Run diagnostics" /
++# "send to Support" caller.
++#
++# Why fail-soft matters here: the dashboard fetches this over HTTP and a
++# raised handler returns a 500, which the browser surfaces as a bare
++# "Load failed" with no diagnostic data to send. On a fresh install some
++# probes (Docker, Ollama, half-open service sockets) can behave in ways
++# the rules engine was not exercised against, so a single rogue raise
++# anywhere in collection must not blank the whole panel. Each stage is
++# isolated; a failure degrades that one section and still yields a
++# well-formed, non-empty bundle the Support flow can use.
++
++# Doctor's own log files, written by the launchd job
++# (``StandardOutPath``/``StandardErrorPath`` -> ``~/.ostler/logs``).
++# Tailing the last few lines of these is the single most useful thing a
++# support request can carry, and it is on-device and low-PII.
++_LOG_TAIL_LINES = 40
++_LOG_FILENAMES = ("doctor.log", "doctor.err")
++
++
++def _ostler_logs_dir() -> Path:
++    """Resolve Doctor's log directory.
++
++    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
++    ``OSTLER_DIR=~/.ostler`` and points the launchd job's logs at
++    ``${OSTLER_DIR}/logs``); falls back to ``~/.ostler/logs``.
++    """
++    override = os.environ.get("OSTLER_LOGS_DIR")
++    if override:
++        return Path(override)
++    base = os.environ.get("OSTLER_DIR")
++    if base:
++        return Path(base) / "logs"
++    return Path.home() / ".ostler" / "logs"
++
++
++def _tail_log(path: Path, lines: int = _LOG_TAIL_LINES) -> str:
++    """Return the last *lines* lines of *path*, or an empty string.
++
++    Never raises: a missing or unreadable log is normal on a fresh
++    install and must not break the diagnostics bundle.
++    """
++    try:
++        if not path.is_file():
++            return ""
++        text = path.read_text(encoding="utf-8", errors="replace")
++    except Exception:
++        return ""
++    tail = text.splitlines()[-lines:]
++    return "\n".join(tail)
++
++
++def _collect_log_tails() -> dict:
++    """Tail Doctor's own logs. Always returns a dict (possibly empty)."""
++    logs_dir = _ostler_logs_dir()
++    tails: dict[str, str] = {}
++    for name in _LOG_FILENAMES:
++        tail = _tail_log(logs_dir / name)
++        if tail:
++            tails[name] = tail
++    return tails
++
++
++def _run_diagnostics() -> dict:
++    """Gather the full diagnostic bundle, fail-soft.
++
++    Returns a well-formed, non-empty dict even when individual stages
++    fail. Keys:
++
++    - ``snapshot``        : JSON snapshot (service health, versions, disk)
++    - ``findings``        : deduplicated rule findings
++    - ``report``          : the human-readable report (raw)
++    - ``report_redacted`` : the same report, PII scrubbed on-device
++    - ``mailto``          : pre-filled support mailto: URL
++    - ``logs``            : last lines of Doctor's own log files
++    - ``errors``          : per-stage failures (empty when all is well)
++    """
++    errors: dict[str, str] = {}
++
++    # 1. Snapshot. The one stage we cannot meaningfully degrade past, but
++    #    still guard so a probe blow-up does not 500 the endpoint.
++    try:
++        snapshot = collect_full_snapshot()
++    except Exception as exc:  # pragma: no cover - defensive
++        errors["snapshot"] = f"{type(exc).__name__}: {exc}"
++        snapshot = _degraded_snapshot()
++
++    # 2. Findings from both rule sets, deduplicated by title.
++    findings: list[dict] = []
++    try:
++        findings = run_all_rules(snapshot) + run_local_diagnostics(snapshot)
++        seen: set = set()
++        findings = [
++            f for f in findings
++            if f.get("title") not in seen and not seen.add(f.get("title"))
++        ]
++    except Exception as exc:
++        errors["findings"] = f"{type(exc).__name__}: {exc}"
++        findings = []
++
++    # 3. Snapshot dict for JSON consumers.
++    try:
++        snap_dict = _snapshot_to_dict(snapshot)
++    except Exception as exc:  # pragma: no cover - defensive
++        errors["snapshot_dict"] = f"{type(exc).__name__}: {exc}"
++        snap_dict = {}
++
++    # Record history best-effort; never let it break the run.
++    try:
++        _record_snapshot(snapshot, findings)
++    except Exception:  # pragma: no cover - defensive
++        pass
++
++    # 4. Human-readable report (raw + redacted).
++    try:
++        report = _format_report(snapshot, findings)
++    except Exception as exc:
++        errors["report"] = f"{type(exc).__name__}: {exc}"
++        report = REPORT_HEADER
++    try:
++        report_redacted = _redact_report(report)
++    except Exception as exc:
++        errors["report_redacted"] = f"{type(exc).__name__}: {exc}"
++        report_redacted = report
++
++    # 5. Support mailto: URL.
++    try:
++        mailto = _build_mailto(report)
++    except Exception as exc:
++        errors["mailto"] = f"{type(exc).__name__}: {exc}"
++        mailto = f"mailto:{SUPPORT_EMAIL}"
++
++    # 6. Log tails (already fail-soft internally).
++    logs = _collect_log_tails()
++
++    return {
++        "snapshot": snap_dict,
++        "findings": findings,
++        "report": report,
++        # ``report_preview`` retained for older callers that read it.
++        "report_preview": report,
++        "report_redacted": report_redacted,
++        "mailto": mailto,
++        "logs": logs,
++        "generated_at": datetime.now(timezone.utc).isoformat(),
++        "errors": errors,
++    }
++
++
++def _degraded_snapshot() -> SystemSnapshot:
++    """A minimal valid snapshot for when collection itself failed.
++
++    Keeps the report/rules path working so the user still gets a bundle
++    they can send, clearly marked as degraded via the ``errors`` field.
++    """
++    return SystemSnapshot(
++        timestamp=datetime.now(timezone.utc).isoformat(),
++        hostname="unknown",
++        os_version="unknown",
++        docker_containers=[],
++        ollama_models=[],
++        ollama_version=None,
++        disk_usage=[],
++        services=[],
++        network_checks=[],
++        docker_version=None,
++    )
+ 
+ 
+ # ── HTML template ────────────────────────────────────────────────────
+@@ -1312,7 +1560,7 @@
+         </div>
+ 
+         <div class="meta" id="metaInfo">
+-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
++            {meta_info_html}{DASHBOARD_FRONTPAGE_LINK}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
+         </div>
+     </div>
+ 
+@@ -1437,7 +1685,8 @@
+                 + 'OS: ' + (snap.os_version||'unknown') + ' &ndash; '
+                 + 'Docker: ' + (snap.docker_version||'not detected') + ' &ndash; '
+                 + 'Ollama: ' + (snap.ollama_version||'not detected')
+-                + ' &ndash; <a href="/doctor/history">History</a>';
++                + ' &ndash; <a href="/doctor/history">History</a>'
++                + ' &ndash; <a href="/config">Settings</a>';
+         }}
+ 
+         window.manualRefresh = function() {{
+@@ -1711,17 +1960,16 @@
+ 
+ @app.get("/doctor/api/status", response_class=JSONResponse)
+ async def api_status():
+-    """Return raw system status as JSON (for programmatic access)."""
+-    snapshot = collect_full_snapshot()
+-    findings = run_local_diagnostics(snapshot)
+-    findings.extend(run_all_rules(snapshot))
+-    seen = set()
+-    findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
+-    _record_snapshot(snapshot, findings)
+-    snap_dict = _snapshot_to_dict(snapshot)
++    """Return raw system status as JSON (for programmatic access).
++
++    Powers the dashboard's 10s auto-refresh. Uses the same fail-soft
++    diagnostics core so a transient probe failure degrades a section
++    rather than 500-ing the poll and freezing the dashboard.
++    """
++    bundle = _run_diagnostics()
+     return {
+-        "snapshot": snap_dict,
+-        "findings": findings,
++        "snapshot": bundle["snapshot"],
++        "findings": bundle["findings"],
+     }
+ 
+ 
+@@ -1734,15 +1982,42 @@
+     with a pre-filled subject and body. The user reviews the content
+     and chooses whether to send. Nothing is sent automatically and
+     nothing leaves the machine without the user's action.
++
++    Shares the fail-soft :func:`_run_diagnostics` core with
++    ``/doctor/api/diagnostics`` so every action that needs the report
++    has one source of truth and can never blank the panel with a 500.
++    The response is a superset of the historical shape (``mailto``,
++    ``report``, ``report_preview``, ``report_redacted``) so the existing
++    dashboard JavaScript keeps working unchanged.
+     """
+-    snapshot = collect_full_snapshot()
+-    findings = run_all_rules(snapshot) + run_local_diagnostics(snapshot)
+-    seen = set()
+-    findings = [f for f in findings if f["title"] not in seen and not seen.add(f["title"])]
+-    report = _format_report(snapshot, findings)
+-    mailto = _build_mailto(report)
+-    return {"mailto": mailto, "report_preview": report}
++    return _run_diagnostics()
++
++
++@app.get("/doctor/api/diagnostics", response_class=JSONResponse)
++async def api_diagnostics():
++    """Run diagnostics and return the full bundle.
++
++    The canonical "Run diagnostics" / "send to Support" endpoint. Returns
++    a well-formed, non-empty bundle (snapshot, findings, report, redacted
++    report, mailto, log tails) even when individual collection stages
++    fail, so the Support flow always has data to send. See
++    :func:`_run_diagnostics`.
++    """
++    return _run_diagnostics()
++
++
++@app.get("/frontpage", response_class=HTMLResponse)
++async def frontpage():
++    """Serve The Editor's Front Page (CM059).
+ 
++    Reads the card-feed artefact the Editor emits to
++    ``~/.ostler/editor/front_page.json`` (refreshed on a launchd tick) and
++    renders it. Degrades to a calm "still settling in" page when the artefact
++    is absent, so this route never 500s and a fresh install never sees a blank.
++    """
++    import frontpage_view
++    return HTMLResponse(frontpage_view.render())
++
+ 
+ @app.get("/doctor/history", response_class=HTMLResponse)
+ async def history_page():
+@@ -3272,13 +3547,27 @@
+         </div>
+ 
+         <div id="statusBanner" class="banner"></div>
++
++        <div class="panel" id="processingPanel">
++            <div class="section-title">Processing</div>
++            <p id="pauseState" style="margin-bottom:0.9rem">Loading&hellip;</p>
++            <div class="button-row" id="pauseButtons" style="flex-wrap:wrap;gap:0.5rem">
++                <button type="button" id="pauseHour">Pause 1 hour</button>
++                <button type="button" id="pauseTonight">Pause until tonight</button>
++                <button type="button" id="pauseIndef">Pause until I resume</button>
++                <button type="button" class="primary" id="resumeBtn" style="display:none">Resume now</button>
++            </div>
++            <p id="governorState" style="margin-top:1rem;color:var(--text-muted);font-size:0.86rem"></p>
++        </div>
+ 
+         <div id="editPanels"></div>
+ 
+         <div id="readonlyPanel" class="panel" style="display:none">
+             <div class="section-title">{CONFIG_SECTION_READONLY}</div>
+             <p>{CONFIG_READONLY_INTRO}</p>
+-            <div id="readonlyRows"></div>
++            <p style="color:var(--text-secondary)">{CONFIG_EDIT_POINTER}</p>
++            <pre id="liveConfigDump" style="font-family:var(--font-mono);font-size:0.8rem;line-height:1.55;color:var(--text-secondary);white-space:pre-wrap;word-break:break-word;overflow-x:auto;margin:0;"></pre>
++            <div class="config-path" id="liveConfigSource" style="margin-top:0.9rem"></div>
+         </div>
+ 
+         <div class="button-row">
+@@ -3295,7 +3584,8 @@
+     (function() {{
+         const editPanels = document.getElementById('editPanels');
+         const readonlyPanel = document.getElementById('readonlyPanel');
+-        const readonlyRows = document.getElementById('readonlyRows');
++        const liveConfigDump = document.getElementById('liveConfigDump');
++        const liveConfigSource = document.getElementById('liveConfigSource');
+         const saveBtn = document.getElementById('saveBtn');
+         const statusBanner = document.getElementById('statusBanner');
+         const configPathEl = document.getElementById('configPath');
+@@ -3367,31 +3657,24 @@
+             }});
+         }}
+ 
+-        function renderReadonly(view) {{
+-            if (!view.read_only || !view.read_only.length) {{
+-                readonlyPanel.style.display = 'none';
+-                return;
+-            }}
++        function renderLive(view) {{
++            // The assistant's real live config, read-only. Edits happen in
++            // the Hub Preferences page. textContent only: the config text
++            // is never treated as HTML.
+             readonlyPanel.style.display = '';
+-            let rows = '';
+-            view.read_only.forEach(function(r) {{
+-                let right;
+-                if (r.is_secret) {{
+-                    const cls = r.is_set ? 'badge set secret' : 'badge secret';
+-                    right = '<span class="' + cls + '">' +
+-                        (r.is_set ? '{CONFIG_SECRET_SET}' : '{CONFIG_SECRET_UNSET}') + '</span>';
+-                }} else {{
+-                    right = '<span class="readonly-val">' + esc(r.value) + '</span>';
+-                }}
+-                rows += '<div class="readonly-row"><span class="readonly-key">' +
+-                    esc(r.key) + '</span>' + right + '</div>';
+-            }});
+-            readonlyRows.innerHTML = rows;
++            if (view.live && view.live.content != null) {{
++                liveConfigDump.textContent = view.live.content;
++                liveConfigSource.textContent = view.live.source || '';
++            }} else {{
++                liveConfigDump.textContent =
++                    view.live_error || '{CONFIG_ERR_LOAD_PREFIX}';
++                liveConfigSource.textContent = '';
++            }}
+         }}
+ 
+         function render(view) {{
+             renderEdit(view);
+-            renderReadonly(view);
++            renderLive(view);
+             configPathEl.textContent = view.config_path || '';
+         }}
+ 
+@@ -3440,7 +3723,10 @@
+                         showStatus(res.body.error || '{CONFIG_ERR_SAVE_GENERIC}', false);
+                         return;
+                     }}
+-                    render(res.body);
++                    // Re-render only the editable section; the live read-only
++                    // panel is unaffected by a Processing save, so leave it.
++                    renderEdit(res.body);
++                    configPathEl.textContent = res.body.config_path || '';
+                     showStatus('{CONFIG_SAVED}', true);
+                 }})
+                 .catch(function(err) {{
+@@ -3452,8 +3738,96 @@
+                 }});
+         }}
+ 
++        // --- Pause + governor controls (resource throttle) ----------
++        const pauseStateEl = document.getElementById('pauseState');
++        const governorStateEl = document.getElementById('governorState');
++        const resumeBtn = document.getElementById('resumeBtn');
++        const pauseHourBtn = document.getElementById('pauseHour');
++        const pauseTonightBtn = document.getElementById('pauseTonight');
++        const pauseIndefBtn = document.getElementById('pauseIndef');
++
++        function renderPause(state) {{
++            const paused = state && state.paused;
++            resumeBtn.style.display = paused ? '' : 'none';
++            pauseHourBtn.style.display = paused ? 'none' : '';
++            pauseTonightBtn.style.display = paused ? 'none' : '';
++            pauseIndefBtn.style.display = paused ? 'none' : '';
++            if (!paused) {{
++                pauseStateEl.textContent =
++                    'Background processing is running. Pause it any time.';
++                return;
++            }}
++            if (state.indefinite) {{
++                pauseStateEl.textContent =
++                    'Paused until you resume. Live chat is unaffected.';
++            }} else {{
++                pauseStateEl.textContent =
++                    'Paused until ' + (state.expiry_human || 'later') +
++                    '. Live chat is unaffected.';
++            }}
++        }}
++
++        function loadPause() {{
++            fetch('/api/v1/pause')
++                .then(function(r) {{ return r.json(); }})
++                .then(function(s) {{ if (!s.error) renderPause(s); }})
++                .catch(function() {{}});
++        }}
++
++        function doPause(scope) {{
++            fetch('/api/v1/pause', {{
++                method: 'POST',
++                headers: {{'Content-Type': 'application/json'}},
++                body: JSON.stringify({{scope: scope}})
++            }})
++                .then(function(r) {{ return r.json(); }})
++                .then(function(s) {{
++                    if (s.error) {{ showStatus(s.error, false); return; }}
++                    renderPause(s);
++                    showStatus('Background processing paused.', true);
++                }})
++                .catch(function(err) {{ showStatus('Pause failed: ' + err, false); }});
++        }}
++
++        function doResume() {{
++            fetch('/api/v1/resume', {{method: 'POST'}})
++                .then(function(r) {{ return r.json(); }})
++                .then(function(s) {{
++                    if (s.error) {{ showStatus(s.error, false); return; }}
++                    renderPause(s);
++                    showStatus('Background processing resumed.', true);
++                }})
++                .catch(function(err) {{ showStatus('Resume failed: ' + err, false); }});
++        }}
++
++        pauseHourBtn.addEventListener('click', function() {{ doPause('hour'); }});
++        pauseTonightBtn.addEventListener('click', function() {{ doPause('tonight'); }});
++        pauseIndefBtn.addEventListener('click', function() {{ doPause('indefinite'); }});
++        resumeBtn.addEventListener('click', doResume);
++
++        function loadGovernor() {{
++            fetch('/api/v1/governor-status')
++                .then(function(r) {{ return r.json(); }})
++                .then(function(g) {{
++                    if (!g || g.error) {{ governorStateEl.textContent = ''; return; }}
++                    if (!g.enabled) {{
++                        governorStateEl.textContent =
++                            'Auto ease-off is OFF. Background work runs regardless of load.';
++                        return;
++                    }}
++                    let msg = 'Hardware tier: ' + (g.tier || 'unknown') + '. ';
++                    msg += g.deferring
++                        ? 'Easing off now (your Mac is busy).'
++                        : 'Catching up (load is below the ceiling).';
++                    governorStateEl.textContent = msg;
++                }})
++                .catch(function() {{ governorStateEl.textContent = ''; }});
++        }}
++
+         saveBtn.addEventListener('click', save);
+         load();
++        loadPause();
++        loadGovernor();
+     }})();
+     </script>
+ </body>
+@@ -3468,19 +3842,35 @@
+ 
+ @app.get("/api/v1/config", response_class=JSONResponse)
+ async def api_config_get():
+-    """Return the current config view model.
++    """Return the config view model.
+ 
+-    Secrets are never included as values: secret-looking keys are
+-    reported presence-only (set / not set). See ``config_panel.py``.
++    Two parts: the editable Processing controls (from the Doctor-owned
++    config the env bridge reads) and the assistant's live configuration
++    read-only from the gateway (channels / model / schedule / privacy and
++    everything else, secrets masked). The live read is best-effort so a
++    gateway hiccup never hides the Processing controls: on failure the
++    editable view is still returned with a ``live_error`` message.
+     """
+-    from config_panel import ConfigError as _ConfigError, read_config_view
++    from config_panel import (
++        ConfigError as _ConfigError,
++        read_config_view,
++        read_live_config_view,
++    )
+ 
+     try:
+-        return JSONResponse(read_config_view(), status_code=200)
++        view = read_config_view()
+     except _ConfigError as exc:
+         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+ 
++    try:
++        view["live"] = read_live_config_view()
++    except _ConfigError as exc:
++        view["live"] = None
++        view["live_error"] = exc.detail
+ 
++    return JSONResponse(view, status_code=200)
++
++
+ @app.post("/api/v1/config", response_class=JSONResponse)
+ async def api_config_post(request: Request):
+     """Validate + persist a whitelist of safe config edits.
+@@ -3515,6 +3905,122 @@
+     return JSONResponse(view, status_code=200)
+ 
+ 
++# ── Pause control + governor status (resource throttle) ──────────────
++#
++# Pause stops all BACKGROUND processing (the five tick wrappers + the
++# wiki recompile) via a sentinel file the wrappers honour. Live chat and
++# the assistant daemon's foreground turns are never paused. Governor
++# status surfaces the existing adaptive resource governor's live tier +
++# whether it is currently deferring. See ``pause_control.py``.
++
++
++@app.get("/api/v1/pause", response_class=JSONResponse)
++async def api_pause_get():
++    """Return the current pause state (self-heals an expired sentinel)."""
++    from pause_control import PauseError as _PauseError, read_state
++
++    try:
++        return JSONResponse(read_state(), status_code=200)
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++
++
++@app.post("/api/v1/pause", response_class=JSONResponse)
++async def api_pause_post(request: Request):
++    """Pause background processing for a scope (hour / tonight / indefinite)."""
++    sec_fetch_site = request.headers.get("sec-fetch-site")
++    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
++        return JSONResponse(
++            {"error": "Cross-site request refused"}, status_code=403,
++        )
++
++    from pause_control import PauseError as _PauseError, write_pause
++
++    try:
++        body = await request.json()
++    except Exception as exc:
++        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
++
++    scope = body.get("scope") if isinstance(body, dict) else None
++    if not scope:
++        return JSONResponse({"error": "scope is required"}, status_code=400)
++
++    try:
++        return JSONResponse(write_pause(scope), status_code=200)
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++
++
++@app.post("/api/v1/resume", response_class=JSONResponse)
++async def api_resume_post(request: Request):
++    """Resume background processing (delete the pause sentinel)."""
++    sec_fetch_site = request.headers.get("sec-fetch-site")
++    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
++        return JSONResponse(
++            {"error": "Cross-site request refused"}, status_code=403,
++        )
++
++    from pause_control import PauseError as _PauseError, clear_pause
++
++    try:
++        return JSONResponse(clear_pause(), status_code=200)
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++
++
++@app.get("/api/v1/governor-status", response_class=JSONResponse)
++async def api_governor_status():
++    """Report the adaptive governor's live tier + whether it is deferring.
++
++    Best-effort: shells the resource-tier lib that the wrappers source.
++    Any failure degrades to a minimal "unknown" payload so the panel
++    never errors.
++    """
++    import subprocess
++
++    # Governor on/off comes from the customer's config (defaults ON).
++    enabled = True
++    try:
++        from config_panel import _load_raw  # type: ignore
++
++        raw = _load_raw()
++        if raw.get("governor_enabled") is False:
++            enabled = False
++    except Exception:
++        pass
++
++    lib = os.environ.get(
++        "OSTLER_RESOURCE_TIER_LIB",
++        str(Path.home() / ".ostler" / "lib" / "ostler-resource-tier.sh"),
++    )
++    tier = None
++    deferring = None
++    if os.path.isfile(lib):
++        script = (
++            f'. "{lib}"; ostler_resource_tier_detect; '
++            'printf "%s\\n" "$OSTLER_TIER"; '
++            'if ostler_resource_tier_should_defer_nonessential; '
++            'then echo defer; else echo run; fi'
++        )
++        try:
++            out = subprocess.run(
++                ["bash", "-c", script],
++                capture_output=True, text=True, timeout=5,
++            )
++            lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
++            if lines:
++                tier = lines[0]
++            if len(lines) > 1:
++                deferring = lines[1] == "defer"
++        except Exception:
++            pass
++
++    return JSONResponse(
++        {"enabled": enabled, "tier": tier, "deferring": deferring},
++        status_code=200,
++    )
++
++
+ # ── Main ─────────────────────────────────────────────────────────────
+ 
+ 
 --- a/README.md
 +++ b/README.md
 @@ -1,100 +1,105 @@

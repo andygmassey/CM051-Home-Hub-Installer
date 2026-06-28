@@ -14,10 +14,17 @@ Design notes
   at a tmp file, and an errors class that carries an HTTP status so the
   FastAPI route in ``web_ui.py`` can map cleanly.
 
-* This module deliberately governs ONLY a Doctor-owned settings file in
-  ``~/.ostler/config/``. It never touches the assistant daemon's live
-  TOML config -- corrupting that risks the running daemon, so it is out
-  of scope by design (see backlog #261 safety valve).
+* Editable set is now ONLY the Processing (resource-throttle) controls,
+  which are real: a save materialises them into the sourced env file the
+  tick wrappers load (the env bridge). Channels / model / schedule /
+  privacy are NOT editable here any more -- the panel used to write them
+  into ``config.yaml`` that no daemon read (a dead writer), so they are
+  now shown READ-ONLY from the assistant's live config (read over
+  loopback from the gateway ``GET /api/config``, secrets masked) and
+  edited in the Hub Preferences page.
+
+* The read of the assistant's live config never touches its TOML --
+  corrupting that risks the running daemon. The panel only reads it.
 
 * Secrets are NEVER rendered. Any field whose key looks secret-like
   (token / key / password / secret / credential) is reported as
@@ -42,7 +49,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx  # listed in doctor/agent/requirements.txt
 import yaml  # PyYAML, listed in doctor/agent/requirements.txt
+
+# Re-use the installer-seeded admin-token loader so there is a single
+# source of truth for where the token lives and how it is read.
+from chat_token import (  # noqa: E402
+    DEFAULT_ZEROCLAW_PORT,
+    TokenIssueError,
+    read_admin_token,
+)
 
 
 # -- Default paths ----------------------------------------------------
@@ -107,10 +123,9 @@ def is_secret_key(key: str) -> bool:
 # -- Whitelist of editable fields -------------------------------------
 #
 # Each entry describes ONE clearly-safe, flat top-level field the panel
-# may write. Anything not here is read-only. Keys are intentionally a
-# small, conservative set: channel toggles, model selection, schedule
-# times, and the privacy default. Editing these cannot corrupt the
-# assistant daemon's live state because this is a Doctor-owned file.
+# may write. The whitelist is now ONLY the Processing (resource-throttle)
+# controls, which are materialised into the sourced env file the tick
+# wrappers load. Anything not on the whitelist is read-only.
 #
 # ``kind`` drives both the rendered control and the validator:
 #   bool   -- checkbox; accepts true/false
@@ -130,70 +145,15 @@ class FieldSpec:
     choices: tuple[str, ...] = ()
 
 
+# The customer-editable whitelist is now ONLY the Processing controls.
+# Channels / model / schedule / privacy used to live here too, but the
+# panel wrote them into a Doctor-owned ``config.yaml`` that no daemon ever
+# read -- a silent dead writer. They are now shown READ-ONLY from the
+# assistant's live config (see the gateway read below) and edited in the
+# Hub Preferences page. The Processing controls below are REAL: a save
+# materialises them into the sourced env file the tick wrappers load (see
+# the env bridge), so a change here genuinely changes wrapper behaviour.
 EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
-    # -- Channels ----------------------------------------------------
-    FieldSpec(
-        key="imessage_enabled",
-        kind="bool",
-        label="iMessage",
-        section="Channels",
-        help="Let your assistant read and reply over iMessage.",
-    ),
-    FieldSpec(
-        key="whatsapp_enabled",
-        kind="bool",
-        label="WhatsApp",
-        section="Channels",
-        help="Let your assistant read and reply over WhatsApp.",
-    ),
-    FieldSpec(
-        key="email_enabled",
-        kind="bool",
-        label="Email",
-        section="Channels",
-        help="Let your assistant triage and reply to email.",
-    ),
-    # -- Model -------------------------------------------------------
-    FieldSpec(
-        key="assistant_model",
-        kind="enum",
-        label="Assistant model",
-        section="Model",
-        help="The local model your assistant uses to think and reply.",
-        choices=(
-            "qwen3.5:9b",
-            "qwen2.5:14b",
-            "qwen2.5:3b",
-            "gemma4:e2b",
-        ),
-    ),
-    # -- Schedule ----------------------------------------------------
-    FieldSpec(
-        key="morning_brief_time",
-        kind="time",
-        label="Morning brief",
-        section="Schedule",
-        help="When your assistant sends the morning brief (24h, HH:MM).",
-    ),
-    FieldSpec(
-        key="evening_wrap_time",
-        kind="time",
-        label="Evening wrap",
-        section="Schedule",
-        help="When your assistant sends the evening wrap (24h, HH:MM).",
-    ),
-    # -- Privacy -----------------------------------------------------
-    FieldSpec(
-        key="default_privacy_level",
-        kind="enum",
-        label="Default privacy level",
-        section="Privacy",
-        help=(
-            "The privacy level new conversations get by default. "
-            "L3 is private by default and is never indexed for search."
-        ),
-        choices=("L0", "L1", "L2", "L3"),
-    ),
     # -- Processing (resource throttle) ------------------------------
     # These map to the env knobs the tick wrappers + resource-tier lib
     # already consume. They are materialised into a sourced env file
@@ -246,9 +206,10 @@ EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
 _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
 
 
-# Section display order for the rendered panel.
+# Section display order for the rendered (editable) panel. Only the
+# Processing controls are editable now; everything else is read-only.
 SECTION_ORDER: tuple[str, ...] = (
-    "Channels", "Model", "Schedule", "Privacy", "Processing",
+    "Processing",
 )
 
 
@@ -292,7 +253,7 @@ def _coerce_display(value: Any) -> str:
 
 
 def read_config_view(path: Optional[Path] = None) -> dict[str, Any]:
-    """Return the panel's view model.
+    """Return the editable (Processing) view model.
 
     Shape::
 
@@ -303,18 +264,14 @@ def read_config_view(path: Optional[Path] = None) -> dict[str, Any]:
             {"key", "kind", "label", "section", "help", "choices",
              "value", "is_set"}
           ],
-          "read_only": [
-            {"key", "value" | None, "is_secret", "is_set"}
-          ],
         }
 
-    ``editable`` lists every whitelisted field in section order, with the
-    current value (or ``None`` if unset). ``read_only`` lists every other
-    top-level key found in the file: non-secret keys carry their value
-    (presence + value), secret-looking keys carry ``value: null`` and
-    ``is_secret: true`` so the panel shows "set" / "not set" only.
-
-    NOTE: secret values are never placed in the returned structure.
+    ``editable`` lists every whitelisted (Processing) field with its
+    current value from the Doctor-owned ``config.yaml`` (the store the
+    env bridge reads from). This is deliberately gateway-free so a save
+    never depends on the assistant being reachable -- the live read-only
+    config is assembled separately by the route (see ``read_live_config``)
+    and a gateway hiccup must never break a throttle save.
     """
     raw = _load_raw(path)
 
@@ -335,28 +292,156 @@ def read_config_view(path: Optional[Path] = None) -> dict[str, Any]:
             }
         )
 
-    read_only: list[dict[str, Any]] = []
-    for key in sorted(raw.keys()):
-        if key in _FIELD_BY_KEY:
-            continue  # surfaced under editable
-        secret = is_secret_key(key)
-        value = raw[key]
-        is_set = value is not None and value != ""
-        read_only.append(
-            {
-                "key": key,
-                # Presence-only for secrets: value is withheld entirely.
-                "value": None if secret else _coerce_display(value),
-                "is_secret": secret,
-                "is_set": bool(is_set),
-            }
-        )
-
     return {
         "config_path": str(_config_file()),
         "exists": bool(raw) or (path or _config_file()).is_file(),
         "editable": editable,
-        "read_only": read_only,
+    }
+
+
+# -- Live config (gateway, read-only) ---------------------------------
+#
+# The genuinely-dead fields (channels / model / schedule / privacy) are
+# no longer editable here. Instead the panel shows the assistant's real
+# live configuration, read over loopback from the gateway's
+# ``GET /api/config`` endpoint -- the single source of truth the Hub
+# Preferences page also drives. The Doctor authenticates with the
+# installer-seeded admin token already used by ``chat_token.py``, so this
+# introduces no new credential. Edits to these settings happen in the Hub
+# Preferences page; this surface only shows what is currently set.
+
+
+# Matches a top-level / indented TOML assignment so we can read the key.
+# e.g.  `api_key = "sk-..."`  ->  key group = "api_key".
+_TOML_ASSIGN_RE = re.compile(r"^(\s*)([A-Za-z0-9_.\-]+)(\s*=\s*)(.*)$")
+
+# What we replace a secret value with when redacting defensively.
+_REDACTED = '"***"'
+
+
+def redact_secret_lines(toml_text: str) -> str:
+    """Defence in depth: redact the value of any secret-looking TOML key.
+
+    The gateway already masks secret fields before it serialises the TOML
+    it returns. This is a second, independent pass so a newly added secret
+    field that slips past the gateway's mask is still never shown in the
+    Doctor panel. Non-secret lines are returned untouched.
+    """
+    out_lines = []
+    for line in toml_text.splitlines():
+        m = _TOML_ASSIGN_RE.match(line)
+        if m and is_secret_key(m.group(2)):
+            out_lines.append(f"{m.group(1)}{m.group(2)}{m.group(3)}{_REDACTED}")
+        else:
+            out_lines.append(line)
+    suffix = "\n" if toml_text.endswith("\n") else ""
+    return "\n".join(out_lines) + suffix
+
+
+def _zeroclaw_port() -> int:
+    """Resolve the loopback gateway port (mirrors ``chat_token``)."""
+    raw = os.environ.get("OSTLER_CHAT_GATEWAY_PORT")
+    if not raw:
+        return DEFAULT_ZEROCLAW_PORT
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_ZEROCLAW_PORT
+
+
+def _gateway_base_url() -> str:
+    """The loopback URL the Doctor uses to reach the gateway.
+
+    Always ``127.0.0.1`` plus the gateway port: the Doctor and the
+    gateway run on the same host. Deliberately NOT the public
+    ``OSTLER_CHAT_GATEWAY_URL`` (that is the LAN URL handed to iOS).
+    """
+    return f"http://127.0.0.1:{_zeroclaw_port()}"
+
+
+def config_source_url() -> str:
+    """The full URL the live config is read from (for display / tests)."""
+    return f"{_gateway_base_url()}/api/config"
+
+
+def read_live_config(
+    *, http_client: Optional[httpx.Client] = None, timeout: float = 5.0
+) -> dict[str, Any]:
+    """Fetch the assistant's live configuration from the gateway.
+
+    Returns ``{"format": "toml", "content": "<toml text>"}`` where the
+    content is the gateway's already-secret-masked TOML, re-redacted
+    defensively. Raises ``ConfigError`` on every failure path:
+
+    * 503 -- the admin token is not seeded, or the gateway is unreachable.
+    * 502 -- the gateway rejected the call or returned an unusable body.
+
+    ``http_client`` is injectable for tests.
+    """
+    try:
+        admin_token = read_admin_token()
+    except TokenIssueError as exc:
+        raise ConfigError(exc.status, exc.detail) from exc
+
+    base = _gateway_base_url()
+    url = f"{base}/api/config"
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    client = http_client or httpx.Client(timeout=timeout)
+    try:
+        resp = client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        raise ConfigError(
+            503,
+            "The Ostler assistant is not reachable, so its settings "
+            "cannot be shown right now.",
+        ) from exc
+    finally:
+        if http_client is None:
+            client.close()
+
+    if resp.status_code == 401:
+        raise ConfigError(
+            502,
+            "The Ostler assistant rejected the request. Re-run the "
+            "installer to re-seed the local token.",
+        )
+    if resp.status_code >= 400:
+        raise ConfigError(
+            502,
+            f"The Ostler assistant returned an error "
+            f"(HTTP {resp.status_code}).",
+        )
+
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise ConfigError(
+            502, f"The Ostler assistant sent an unreadable response: {exc}"
+        ) from exc
+
+    content = body.get("content")
+    if not isinstance(content, str):
+        raise ConfigError(
+            502, "The Ostler assistant response did not include the config."
+        )
+    fmt = body.get("format")
+    if not isinstance(fmt, str) or not fmt:
+        fmt = "toml"
+
+    return {"format": fmt, "content": redact_secret_lines(content)}
+
+
+def read_live_config_view(
+    *, http_client: Optional[httpx.Client] = None
+) -> dict[str, Any]:
+    """Return the read-only live-config view (source + masked content)."""
+    live = read_live_config(http_client=http_client)
+    return {
+        "read_only": True,
+        "source": config_source_url(),
+        "format": live["format"],
+        "content": live["content"],
     }
 
 
