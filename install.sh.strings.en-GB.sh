@@ -825,6 +825,17 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and turn it on
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Click Done when finished."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 
+# Permission-choreography v2 (docs/PERMISSION_CHOREOGRAPHY_v2.md): the serial,
+# completion-detected daemon permission queue. Shared Done/Skip buttons + the
+# daemon Messages-Automation card + the per-run log summary.
+MSG_PROMPT_PERMQ_DONE_BUTTON="Done"
+MSG_PROMPT_PERMQ_SKIP_BUTTON="Skip for now"
+MSG_PROMPT_ASSISTANT_AUTOMATION_TITLE="Let Ostler send your Messages"
+MSG_PROMPT_ASSISTANT_AUTOMATION_LINE1="macOS will ask whether OstlerAssistant can control Messages."
+MSG_PROMPT_ASSISTANT_AUTOMATION_LINE2="Click Allow on that prompt, then click Done here."
+# printf template: %s = Full Disk Access outcome, %s = Automation outcome.
+MSG_INFO_PERMQ_DAEMON_SUMMARY="Daemon permissions handled in order — Full Disk Access: %s, Messages automation: %s."
+
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Allow Ostler to read your Mac data"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2="Find \"OstlerInstaller\" in the list and turn it on."

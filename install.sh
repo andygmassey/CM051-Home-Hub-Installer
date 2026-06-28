@@ -1056,6 +1056,18 @@ fi
 if [[ -n "${_ostler_emitter_candidate}" ]]; then
     # shellcheck source=lib/progress_emitter.sh
     source "${_ostler_emitter_candidate}"
+    # Permission-choreography v2 (docs/PERMISSION_CHOREOGRAPHY_v2.md): the
+    # serial, completion-detected permission-queue driver. Sourced from the
+    # same lib/ dir as the emitter. Best-effort: a missing file leaves the
+    # daemon permission step on its legacy single-modal fallback (the
+    # _ostler_run_daemon_permission_queue caller guards on the function
+    # existing) rather than breaking the install.
+    _ostler_permq_candidate="${_ostler_emitter_candidate%/*}/permission_queue.sh"
+    if [[ -f "${_ostler_permq_candidate}" ]]; then
+        # shellcheck source=lib/permission_queue.sh
+        source "${_ostler_permq_candidate}"
+    fi
+    unset _ostler_permq_candidate
 elif [[ "${OSTLER_GUI:-0}" == "1" ]]; then
     # GUI install with no emitter on disk -- install bundle is
     # corrupt or built incorrectly. Surface loudly so the customer
@@ -13242,6 +13254,161 @@ _imessage_daemon_fda_granted() {
     fi
 }
 
+# ── Daemon Messages-Automation TCC probe (choreography v2) ─────────
+#
+# Sibling of _imessage_daemon_fda_granted for the SECOND daemon ask: the
+# "OstlerAssistant wants to control Messages" Automation prompt
+# (kTCCServiceAppleEvents). Queries the system TCC.db for the daemon client
+# against the Messages target. The indirect_object_identifier for Messages has
+# varied across macOS versions (com.apple.iChat on older, com.apple.MobileSMS /
+# a Messages bundle id on newer), so we match a candidate SET and require
+# auth_value == 2 (allowed). Best-effort: echoes nothing if the row cannot be
+# read (no sudo cache / no FDA), in which case the queue falls back to the
+# user's explicit Done (see docs/PERMISSION_CHOREOGRAPHY_v2.md §4 -- this is the
+# ask whose grant cannot always be cleanly polled).
+_imessage_daemon_automation_granted() {
+    local _auth=""
+    if command -v sudo >/dev/null 2>&1; then
+        _auth="$(
+            sudo -n sqlite3 \
+                "/Library/Application Support/com.apple.TCC/TCC.db" \
+                "SELECT auth_value FROM access WHERE service='kTCCServiceAppleEvents' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') AND indirect_object_identifier IN ('com.apple.MobileSMS', 'com.apple.iChat', 'com.apple.Messages') ORDER BY auth_value DESC LIMIT 1;" \
+                2>/dev/null || true
+        )"
+    fi
+    if [[ "$_auth" == "2" ]]; then
+        echo "granted"
+    fi
+}
+
+# ── Front-loaded serial daemon permission queue (choreography v2) ──────────
+#
+# docs/PERMISSION_CHOREOGRAPHY_v2.md. Replaces the legacy single-modal +
+# fixed-sleep sequencing with the completion-detected serial queue
+# (lib/permission_queue.sh). Two steps, strictly one at a time:
+#
+#   1. DAEMON FULL DISK ACCESS  -- poll _imessage_daemon_fda_granted until
+#      granted (or the user taps Skip). The card is the existing
+#      "find Ostler, turn it on, Done" copy, shown with `giving up after` so the
+#      loop re-reads the REAL TCC state each cycle and AUTO-ADVANCES the instant
+#      the grant lands -- never a fixed wait.
+#   2. DAEMON MESSAGES AUTOMATION (iMessage channel only) -- once FDA is real,
+#      kickstart the daemon so its now-ungated boot probe fires the single
+#      "control Messages" prompt; poll _imessage_daemon_automation_granted.
+#
+# The daemon CANNOT raise the Automation prompt before FDA: the daemon-side gate
+# (OSTLER_ASSISTANT_DEFER_TCC_UNTIL_FDA, in ostler-assistant) holds its probe
+# until chat.db is readable. So step 2's prompt can never stack on step 1's
+# System Settings window.
+#
+# Returns 0 if daemon FDA ended granted (so the caller can skip the legacy
+# modal); non-zero otherwise. No-ops (returns 1) when the queue lib is absent or
+# not under the GUI -- the legacy fallback then runs unchanged.
+_PERMQ_FDA_PANE_OPENED=0
+_permq_daemon_fda_detect() {
+    [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]
+}
+_permq_daemon_fda_interact() {
+    PERMQ_ACT="wait"
+    [[ "${OSTLER_GUI:-0}" == "1" ]] || { PERMQ_ACT="done"; return 0; }
+    # Open the Full Disk Access pane ONCE (refresh System Settings so the list
+    # is current -- daemon parity for #572). Subsequent cycles only re-show the
+    # card, so exactly one window is ever up.
+    if [[ "${_PERMQ_FDA_PANE_OPENED}" != "1" ]]; then
+        killall "System Settings" >/dev/null 2>&1 || true
+        killall "System Preferences" >/dev/null 2>&1 || true
+        sleep 1
+        open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+        sleep 1
+        _PERMQ_FDA_PANE_OPENED=1
+    fi
+    _permq_show_card \
+        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE" \
+        "$(printf '%s\n\n%s\n%s' \
+            "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+            "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+            "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")" \
+        "$MSG_PROMPT_PERMQ_DONE_BUTTON" \
+        "$MSG_PROMPT_PERMQ_SKIP_BUTTON"
+}
+_permq_daemon_automation_detect() {
+    [[ "$(_imessage_daemon_automation_granted)" == "granted" ]]
+}
+_PERMQ_AUTOMATION_KICKED=0
+_permq_daemon_automation_interact() {
+    PERMQ_ACT="wait"
+    [[ "${OSTLER_GUI:-0}" == "1" ]] || { PERMQ_ACT="done"; return 0; }
+    # FDA is granted by now; kick the daemon ONCE so its FDA-gated boot probe
+    # fires the single "control Messages" Automation prompt. Re-reading the TCC
+    # state each cycle auto-advances when the user allows it.
+    if [[ "${_PERMQ_AUTOMATION_KICKED}" != "1" ]]; then
+        launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+        _PERMQ_AUTOMATION_KICKED=1
+    fi
+    _permq_show_card \
+        "$MSG_PROMPT_ASSISTANT_AUTOMATION_TITLE" \
+        "$(printf '%s\n\n%s' \
+            "$MSG_PROMPT_ASSISTANT_AUTOMATION_LINE1" \
+            "$MSG_PROMPT_ASSISTANT_AUTOMATION_LINE2")" \
+        "$MSG_PROMPT_PERMQ_DONE_BUTTON" \
+        "$MSG_PROMPT_PERMQ_SKIP_BUTTON"
+}
+
+# Show a single instruction dialog with Done + Skip, bounded by PERMQ_POLL_SECS
+# (`giving up after`) so the queue re-polls the OS state each cycle while still
+# offering an explicit Done/Skip. Sets PERMQ_ACT to done|skip|wait. The
+# `giving up after` is the re-poll cadence, NOT the completion gate -- the gate
+# is the detect_fn in the queue loop.
+_permq_show_card() {
+    local title="$1" body="$2" done_btn="$3" skip_btn="$4"
+    local body_esc title_esc done_esc skip_esc out
+    body_esc="${body//\"/\\\"}"
+    title_esc="${title//\"/\\\"}"
+    done_esc="${done_btn//\"/\\\"}"
+    skip_esc="${skip_btn//\"/\\\"}"
+    out="$(osascript \
+        -e 'tell application "System Events" to activate' \
+        -e "tell application \"System Events\" to display dialog \"${body_esc}\" with title \"${title_esc}\" buttons {\"${skip_esc}\", \"${done_esc}\"} default button \"${done_esc}\" giving up after ${PERMQ_POLL_SECS:-3} with icon note" \
+        2>/dev/null || true)"
+    if [[ "$out" == *"gave up:true"* ]]; then
+        PERMQ_ACT="wait"
+    elif [[ "$out" == *"button returned:${skip_btn}"* ]]; then
+        PERMQ_ACT="skip"
+    elif [[ "$out" == *"button returned:${done_btn}"* ]]; then
+        PERMQ_ACT="done"
+    else
+        PERMQ_ACT="wait"
+    fi
+}
+
+_ostler_run_daemon_permission_queue() {
+    # Guard: queue lib present + GUI session. Otherwise signal "not handled" so
+    # the legacy single-modal fallback runs unchanged.
+    command -v permq_run >/dev/null 2>&1 || return 1
+    [[ "${OSTLER_GUI:-0}" == "1" ]] || return 1
+
+    : "${PERMQ_POLL_SECS:=3}"
+    _PERMQ_FDA_PANE_OPENED=0
+    _PERMQ_AUTOMATION_KICKED=0
+
+    local _steps=( "daemon_fda" _permq_daemon_fda_detect _permq_daemon_fda_interact )
+    if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+        _steps+=( "daemon_automation" _permq_daemon_automation_detect _permq_daemon_automation_interact )
+    fi
+    permq_run "${_steps[@]}"
+
+    # The queue OWNED the interaction (showed the cards), regardless of whether
+    # the user granted or skipped. Mark it so the legacy single-modal block does
+    # not re-show the same card a second time on the skip path.
+    DAEMON_PERMS_SHOWN_EARLY=1
+
+    info "$(printf "$MSG_INFO_PERMQ_DAEMON_SUMMARY" "$(permq_step_result daemon_fda)" "$(permq_step_result daemon_automation)")"
+
+    # Tell the caller whether FDA ended granted, so it can skip the legacy modal.
+    local _fda_result; _fda_result="$(permq_step_result daemon_fda)"
+    [[ "$_fda_result" == "granted" ]]
+}
+
 # ── Serialised daemon bootstrap (mid-install permission-glut fix) ──
 #
 # The assistant LaunchAgent is RENDERED earlier (INSTALL_SNIPPET.sh,
@@ -13314,12 +13481,29 @@ else
     else
         _prewarn_shown=0
     fi
-    # Start the daemon now (idempotent). With the pre-warn dismissed, its
-    # async Messages TCC prompt fires alone during the settle.
+    # Start the daemon now (idempotent). Booting it here (a) registers it in the
+    # Full Disk Access list via its first chat.db read attempt, and (b) -- with
+    # the daemon-side FDA gate (OSTLER_ASSISTANT_DEFER_TCC_UNTIL_FDA) -- ensures
+    # it does NOT raise its "control Messages" Automation prompt until FDA is
+    # actually granted. So nothing can stack on the FDA window below.
     _ostler_bootstrap_assistant_daemon
 
     _imessage_chat_db_path="${HOME}/Library/Messages/chat.db"
     _imessage_fda_needed="true"  # conservative default
+
+    # ── Choreography v2 (docs/PERMISSION_CHOREOGRAPHY_v2.md) ───────────────
+    # Primary path: the serial, completion-detected permission queue. It polls
+    # the REAL daemon TCC state (FDA, then Automation) and advances one window
+    # at a time -- no fixed sleeps. On a confirmed FDA grant, mark it not-needed
+    # so the legacy single-modal block below is skipped. The queue sets
+    # DAEMON_PERMS_SHOWN_EARLY=1 whenever it owned the interaction (grant OR
+    # skip), so the legacy modal never re-shows the same card. If the queue lib
+    # is absent or this is a non-GUI install, the call returns non-zero with
+    # DAEMON_PERMS_SHOWN_EARLY unset and the proven legacy fallback runs.
+    DAEMON_PERMS_SHOWN_EARLY=0
+    if _ostler_run_daemon_permission_queue; then
+        _imessage_fda_needed="false"
+    fi
 
     # Grace period: let the freshly-bootstrapped daemon attempt its first
     # chat.db open so its own "read your Messages" prompt surfaces ALONE,
@@ -13373,8 +13557,12 @@ else
                 : # installer identity can read chat.db; not authoritative for the daemon
             fi
             info "$MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT"
-            # Fall straight through to the assisted-grant flow below.
-            if true; then
+            # Fall through to the LEGACY assisted-grant flow ONLY when the
+            # choreography-v2 queue did not already own the interaction. When
+            # DAEMON_PERMS_SHOWN_EARLY=1 the queue already showed the FDA card
+            # (and the user granted or skipped), so re-showing it here would be
+            # a second window for the same ask -- exactly what v2 prevents.
+            if [[ "${DAEMON_PERMS_SHOWN_EARLY:-0}" != "1" ]]; then
                 # ── CX-66 (DMG #37, 2026-05-24): assisted FDA grant ─────
                 #
                 # macOS TCC grants Full Disk Access per-binary; there's
