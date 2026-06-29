@@ -16255,11 +16255,17 @@ cd "$OSTLER_DIR"
 # wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
 # its real exit code (PIPESTATUS[0], not tail's) gates the install under
 # `set -euo pipefail`.
-set +e
+# FALSE-FAIL FIX (.173 box-walk 2026-06-29): set +e disables errexit but NOT the
+# ERR trap, so a non-zero `docker compose run` here fired _ostler_on_err ->
+# emitted DONE status=fail (ERR-99-INSTALL-ABORT-L16260) even though the install
+# completed fine. Disable the ERR trap around the guarded baseline compile (same
+# pattern already used at the other set +e guards in this file) and restore after;
+# WIKI_BASELINE_RC still gates the real outcome below.
+_saved_err_trap=$(trap -p ERR); trap - ERR; set +e
 docker compose --profile compile run --rm -T \
     -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
-set -e
+set -e; eval "${_saved_err_trap:-:}"
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # Publish the baseline. The wiki-site container now runs a static server
     # (CM044 docker/wiki-site-serve.py) that builds the HTML off the serving
