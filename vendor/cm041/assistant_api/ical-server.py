@@ -3631,13 +3631,10 @@ def api_memory_assert(payload, now=None):
     if relationship:
         relationship_update = (
             ";\n"
-            "PREFIX pwg: <{ns}>\n"
             "DELETE {{ <{uri}> pwg:relationship ?r }}\n"
             "WHERE {{ <{uri}> pwg:relationship ?r }};\n"
-            "PREFIX pwg: <{ns}>\n"
             "DELETE {{ <{uri}> pwg:relationshipType ?rt }}\n"
             "WHERE {{ <{uri}> pwg:relationshipType ?rt }};\n"
-            "PREFIX pwg: <{ns}>\n"
             'INSERT DATA {{ <{uri}> pwg:relationship "{rel}" ;\n'
             '  pwg:relationshipType "{rel}" . }}'
         ).format(ns=PWG_NS, uri=person_uri, rel=esc_rel)
