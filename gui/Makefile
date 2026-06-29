@@ -179,12 +179,60 @@ DAEMON_RELEASE_URL   := https://github.com/$(DAEMON_REPO)/releases/download/$(DA
 # evaluated at recipe-run time so $$HOME expands correctly.
 DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
 
+# ---------------------------------------------------------------------------
+# AU-1 (auto-update): appcast auto-publish.
+#
+# `make ship` ends by signing the Sparkle-embedded Hub app with the Sparkle
+# EdDSA key and publishing an appcast entry via CM050's `ostler-release` CLI,
+# so every cut adds a row to the feed that shipped Hubs poll for auto-updates.
+# Until this wiring, that step was manual + had NEVER been run, so the appcast
+# feed is empty.
+#
+# CONTROL — PUBLISH_APPCAST:
+#   auto  (default) Publish IFF $OSTLER_SPARKLE_SIGNING_KEY is set. If it is
+#         unset, print a LOUD warning that the feed stays empty + how to enable
+#         it, but do NOT fail the DMG — installer-only cuts still work before
+#         the Sparkle key ceremony is done. The day Andy exports the key, every
+#         `make ship` auto-publishes. A publish that is ATTEMPTED but errors
+#         (bad creds, R2/KV down) fails the cut (fail-closed) — a release must
+#         either get its signed entry or go RED.
+#   1|yes Hard-require: fail the cut if the key or CLI is missing.
+#   0|no  Skip silently (local installer-only builds).
+#
+# >>> NEEDS ANDY (two real-world prerequisites this Makefile cannot create) <<<
+#   1. OSTLER_SPARKLE_SIGNING_KEY -> path to the DECRYPTED Sparkle EdDSA PEM
+#      (mode 0400/0600), present only during a cut. See CM050
+#      appcast-server/docs/RELEASE_PROCESS.md (key ceremony + signing session).
+#   2. The R2 bucket + RELEASES_HOST (releases.ostler.ai) behind the
+#      download_url, plus `wrangler login` auth on the cut machine. download_url
+#      host = CM050 release-tooling constants.RELEASES_HOST.
+# ---------------------------------------------------------------------------
+PUBLISH_APPCAST       ?= auto
+# ostler-release CLI from CM050 release-tooling (`pip install -e .`). Override
+# if not on PATH, e.g. OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release.
+OSTLER_RELEASE_BIN    ?= ostler-release
+# CM050 appcast-server dir = wrangler cwd for the publish's KV/R2 writes.
+# Passed to the CLI as $OSTLER_APPCAST_DIR. Default = canonical sibling layout.
+OSTLER_APPCAST_DIR    ?= $(HOME)/Documents/Projects/CM050 - Home Hub Update System/appcast-server
+# Hub release archive base name (matches CM050 BRAND.binaryFilename).
+HUB_RELEASE_BASENAME  ?= OstlerHub
+# Appcast channel for this cut: stable | security.
+APPCAST_CHANNEL       ?= stable
+# Hub version/build/min-os. Left blank => read from the Sparkle-embedded
+# Ostler.app Info.plist at publish time. Override to pin explicitly.
+HUB_VERSION           ?=
+HUB_BUILD             ?=
+HUB_MIN_OS            ?=
+# Release-notes HTML stem; published URL is $(RELEASE_NOTES_BASE)/<version>.html
+RELEASE_NOTES_BASE    ?= https://ostler.ai/releases
+
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
-        sign-python-bundle download-daemon stage-daemon check-provenance
+        sign-python-bundle download-daemon stage-daemon check-provenance \
+        publish-appcast
 
 all: debug
 
@@ -878,15 +926,109 @@ verify-dmg-contents:
 	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
-# One-shot: validate → build → DMG → notarise → staple → verify → archive
+# AU-1: sign + publish the Sparkle appcast entry for this cut.
+#
+# Zips the Sparkle-embedded Hub app ($(OSTLER_APP_PATH) — the same bundle
+# sparkle-embed stamped + the DMG carries), signs the .zip with the Sparkle
+# EdDSA key via CM050's `ostler-release sign`, then `ostler-release publish`
+# uploads it to R2 + appends the manifest entry in KV. After this, the
+# appcast.xml feed that shipped Hubs poll lists the release. Behaviour is
+# governed by PUBLISH_APPCAST (auto|1|0) — see the config block near the top.
+#
+# Optional belt-and-braces: export OSTLER_SPARKLE_PUBLIC_KEY=<sparkle_public.pem>
+# and the signature is locally verified before publish (RELEASE_PROCESS §8).
+#
+# NOTARISATION CAVEAT (flagged for Andy): the published .zip is the
+# Developer-ID-signed, Sparkle-embedded Ostler.app from $(OSTLER_APP_PATH).
+# Gatekeeper validates a notarised binary online, but for offline/robust
+# installs the Hub app should be independently notarised + STAPLED before this
+# step (the DMG staple does not staple the inner app). Notarise the standalone
+# Ostler.app, or extend this target to do so, before the first real publish.
+# ---------------------------------------------------------------------------
+publish-appcast:
+	$(STEP) "AU-1: appcast publish (PUBLISH_APPCAST=$(PUBLISH_APPCAST))"
+	@MODE="$(PUBLISH_APPCAST)"; \
+	if [ "$$MODE" = "0" ] || [ "$$MODE" = "no" ] || [ "$$MODE" = "off" ]; then \
+	    echo "[SKIP] PUBLISH_APPCAST=$$MODE -- not publishing an appcast entry for this cut."; \
+	    exit 0; \
+	fi; \
+	if [ "$$MODE" = "1" ] || [ "$$MODE" = "yes" ]; then HARD=1; else HARD=0; fi; \
+	if [ -z "$${OSTLER_SPARKLE_SIGNING_KEY:-}" ]; then \
+	    if [ "$$HARD" = "1" ]; then \
+	        echo "" >&2; \
+	        echo "ERROR: PUBLISH_APPCAST=$$MODE (hard-require) but OSTLER_SPARKLE_SIGNING_KEY is unset." >&2; \
+	        echo "  Export the path to the decrypted Sparkle EdDSA PEM (mode 0400/0600) and re-run." >&2; \
+	        echo "  See CM050 appcast-server/docs/RELEASE_PROCESS.md (signing session)." >&2; \
+	        exit 1; \
+	    fi; \
+	    echo "" >&2; \
+	    echo "============================================================================" >&2; \
+	    echo "WARNING: appcast NOT published — OSTLER_SPARKLE_SIGNING_KEY is unset." >&2; \
+	    echo "  The DMG shipped, but NO appcast entry was added, so the auto-update feed" >&2; \
+	    echo "  (appcast.xml) stays EMPTY and shipped Hubs will not see this release." >&2; \
+	    echo "  To publish: run the Sparkle signing session, then:" >&2; \
+	    echo "    export OSTLER_SPARKLE_SIGNING_KEY=/tmp/sparkle_private.pem   # 0400/0600" >&2; \
+	    echo "    make publish-appcast            # (or re-run make ship)" >&2; \
+	    echo "  Force-require it next time with: make ship PUBLISH_APPCAST=1" >&2; \
+	    echo "============================================================================" >&2; \
+	    echo "" >&2; \
+	    exit 0; \
+	fi; \
+	if ! command -v "$(OSTLER_RELEASE_BIN)" >/dev/null 2>&1; then \
+	    echo "ERROR: ostler-release CLI not found ('$(OSTLER_RELEASE_BIN)')." >&2; \
+	    echo "  Install CM050 release-tooling: cd '<CM050>/release-tooling' && pip install -e ." >&2; \
+	    echo "  Or pass OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release." >&2; \
+	    exit 1; \
+	fi; \
+	APP="$(OSTLER_APP_PATH)"; \
+	if [ ! -d "$$APP" ]; then \
+	    echo "ERROR: OSTLER_APP_PATH not a directory: $$APP" >&2; \
+	    echo "  Cannot zip the Hub app for the appcast enclosure." >&2; \
+	    exit 1; \
+	fi; \
+	PLIST="$$APP/Contents/Info.plist"; \
+	VER="$(HUB_VERSION)"; [ -n "$$VER" ] || VER="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$$PLIST" 2>/dev/null || true)"; \
+	BUILD="$(HUB_BUILD)"; [ -n "$$BUILD" ] || BUILD="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$$PLIST" 2>/dev/null || true)"; \
+	MINOS="$(HUB_MIN_OS)"; [ -n "$$MINOS" ] || MINOS="$$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$$PLIST" 2>/dev/null || true)"; \
+	[ -n "$$MINOS" ] || MINOS="13.0"; \
+	if [ -z "$$VER" ]; then echo "ERROR: could not read Hub CFBundleShortVersionString from $$PLIST (set HUB_VERSION=)." >&2; exit 1; fi; \
+	if [ -z "$$BUILD" ]; then echo "ERROR: could not read Hub CFBundleVersion from $$PLIST (set HUB_BUILD=)." >&2; exit 1; fi; \
+	ZIP="$(DIST_DIR)/$(HUB_RELEASE_BASENAME)-$$VER.zip"; \
+	mkdir -p "$(DIST_DIR)"; \
+	rm -f "$$ZIP"; \
+	printf '[STEP] Zipping Sparkle-embedded Hub -> %s\n' "$$ZIP"; \
+	ditto -c -k --keepParent "$$APP" "$$ZIP"; \
+	printf '[STEP] Signing %s (ostler-release sign)\n' "$$ZIP"; \
+	SIG="$$('$(OSTLER_RELEASE_BIN)' sign "$$ZIP")"; \
+	if [ -z "$$SIG" ]; then echo "ERROR: ostler-release sign produced an empty signature." >&2; exit 1; fi; \
+	if [ -n "$${OSTLER_SPARKLE_PUBLIC_KEY:-}" ]; then \
+	    printf '[STEP] Verifying signature against %s\n' "$$OSTLER_SPARKLE_PUBLIC_KEY"; \
+	    '$(OSTLER_RELEASE_BIN)' verify "$$ZIP" --signature "$$SIG" --public-key "$$OSTLER_SPARKLE_PUBLIC_KEY"; \
+	fi; \
+	printf '[STEP] Publishing appcast entry: v%s build %s channel %s\n' "$$VER" "$$BUILD" "$(APPCAST_CHANNEL)"; \
+	OSTLER_APPCAST_DIR="$(OSTLER_APPCAST_DIR)" '$(OSTLER_RELEASE_BIN)' publish "$$ZIP" \
+	    --signature "$$SIG" \
+	    --version "$$VER" \
+	    --build "$$BUILD" \
+	    --channel "$(APPCAST_CHANNEL)" \
+	    --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
+	    --min-os "$$MINOS"; \
+	printf '[OK] Appcast entry published for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
+
+# ---------------------------------------------------------------------------
+# One-shot: validate → build → DMG → notarise → staple → verify → archive →
+#           sign + publish appcast entry
 #
 # check-ostler-app runs first so we fail fast on the empty/missing
 # OSTLER_APP_PATH case (caught 2026-05-21 — would have saved one DMG cut).
 # verify-dmg-contents runs between notarise and archive so any silent-skip
 # regression downstream of check-ostler-app fails before we archive a bad
 # DMG into ~/.ostler-release-artefacts/.
+# publish-appcast runs LAST (after the DMG is built, notarised + archived) so a
+# publish issue never blocks producing the DMG, but every release still gets
+# its signed appcast entry. Gated by PUBLISH_APPCAST (default auto; see top).
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python stage-daemon sparkle-embed release sign-python-bundle package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python stage-daemon sparkle-embed release sign-python-bundle package notarise verify-dmg-contents archive publish-appcast
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
