@@ -1614,13 +1614,101 @@ gui_emit PCT "step=prereq_check" "pct=5"
 #      `install.sh` is running, the licence is on disk + verified
 #      + the device is registered.
 #
-# This script therefore does NOT touch the licence file. Anything
-# Hub-side that needs licence introspection should read the
-# canonical path written by the GUI -- single source of truth.
+# The GUI is the sole SOURCE of licence bytes -- this script is
+# handed nothing over env or argv. What it DOES do, just below, is
+# guarantee the READER's contract fail-soft: it validates the file
+# the GUI persisted and normalises its path + permissions so the
+# ostler-assistant Sparkle auto-update delegate can always read a
+# usable `license_id`. See the AU-1 block immediately below.
 #
 # TODO (post-App Store): StoreKit receipt verification replaces the
 # drag-drop flow when the installer is bundled inside a Mac App
 # Store app. Out of scope for v1.0 launch.
+
+# ── AU-1: licence-persistence guarantee (fail-soft) ───────────────
+#
+# Why this exists. The GUI's LicensePersistence.write (Swift) is
+# best-effort: InstallerCoordinator.verifyLicense sets
+# licenseVerified=true and lets the install proceed EVEN IF the
+# persistence step threw. If the file never lands on disk,
+# ostler-assistant's Sparkle delegate read_license_id()
+# (apps/tauri/src/sparkle.rs) falls back to UNLICENSED_SENTINEL and
+# the CM050 appcast Worker 404s every update check -- the customer
+# silently never receives an update. This leg closes that gap by
+# guaranteeing, at install time, the exact contract the reader needs.
+#
+# The reader (ostler-assistant apps/tauri/src/sparkle.rs):
+#   * opens ~/.ostler/license/license.json,
+#   * serde-parses ONLY the top-level string field `license_id`,
+#   * returns the sentinel if the file is missing / unparseable /
+#     has an empty license_id.
+# The CM050 Worker (appcast-server/src/appcast.ts) then validates
+# `license_id` against UUID_V4_RE before it will serve the licensed
+# feed. So a usable licence file = exists at that path + carries a
+# non-empty, UUID-v4-shaped license_id.
+#
+# Fail-soft contract: a missing / malformed licence NEVER aborts the
+# install. We log a clear diagnostic (so the auto-update-404 root
+# cause is visible to support) and continue. We do NOT fabricate a
+# licence -- the GUI is the only source of signed bytes; this leg
+# validates + normalises what the GUI wrote.
+#
+# PII note: license_id is an opaque identifier, explicitly "never
+# personal data" per CM050/docs/LICENSE_FILE_SCHEMA.md. issued_to_email
+# (which IS PII) is never read or logged here.
+au1_persist_license() {
+    local lic_dir="${OSTLER_FINAL_DIR}/license"
+    local lic_file="${lic_dir}/license.json"
+    # Byte-for-byte the CM050 Worker's UUID_V4_RE
+    # (appcast-server/src/appcast.ts:11), case-insensitive.
+    local uuid_v4_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+
+    if [[ ! -f "$lic_file" ]]; then
+        warn "Licence not found at ${lic_file} -- auto-updates stay gated as UNLICENSED until a valid licence is present. Install continues."
+        return 0
+    fi
+
+    # Extract license_id WITHOUT a JSON parser: system python3 / jq
+    # are not guaranteed this early on a fresh Mac (CLT may still be
+    # installing). The reader only needs the string value of the
+    # top-level "license_id" field -- grep the first occurrence and
+    # strip to the quoted value.
+    local lic_id
+    lic_id=$(grep -o '"license_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$lic_file" 2>/dev/null \
+        | head -n1 \
+        | sed -E 's/.*"license_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
+
+    if [[ -z "$lic_id" ]]; then
+        warn "Licence at ${lic_file} has no readable license_id -- auto-updates gated as UNLICENSED. Install continues."
+        return 0
+    fi
+    if [[ ! "$lic_id" =~ $uuid_v4_re ]]; then
+        warn "Licence license_id at ${lic_file} is not a valid UUID v4 -- auto-updates gated as UNLICENSED. Install continues."
+        return 0
+    fi
+
+    # Guarantee the reader's contract: canonical path, atomic write,
+    # restrictive perms. We copy the licence bytes VERBATIM into a
+    # temp sibling then atomic-rename onto the canonical path -- the
+    # signature is computed over canonicalised JSON, so we must never
+    # reformat the content. tmp + mv means the reader never sees a
+    # partial file.
+    mkdir -p "$lic_dir" 2>/dev/null || true
+    chmod 700 "$lic_dir" 2>/dev/null || true
+    local tmp_file="${lic_dir}/.license.json.tmp.$$"
+    if cat "$lic_file" > "$tmp_file" 2>/dev/null \
+        && chmod 600 "$tmp_file" 2>/dev/null \
+        && mv -f "$tmp_file" "$lic_file" 2>/dev/null; then
+        ok "Licence persisted at ${lic_file} (license_id=${lic_id})."
+    else
+        rm -f "$tmp_file" 2>/dev/null || true
+        # The original file is still in place + readable -- the
+        # normalise failed but the reader contract is already met.
+        warn "Could not re-persist licence at ${lic_file}; existing file left intact. Install continues."
+    fi
+    return 0
+}
+au1_persist_license || true
 
 # macOS check
 if [[ "$(uname)" != "Darwin" ]]; then
