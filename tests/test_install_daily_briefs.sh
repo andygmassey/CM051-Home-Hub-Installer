@@ -24,6 +24,18 @@
 #   surfaces immediately, and so the test plan in PR #1 has a
 #   concrete green/red signal.
 #
+# DELIVERY CHANNEL SUPERSESSION (test updated 2026-07-07): CX-68
+# (DMG #39, 2026-05-25) moved brief DELIVERY from WhatsApp to
+# iMessage. The customer install path writes [channels.whatsapp]
+# without a backend selector, so the WhatsApp channel never
+# registers in the cron-delivery registry and briefs silently
+# never send; iMessage works end-to-end on a fresh install once
+# FDA is granted. The cron jobs are therefore gated on
+# CHANNEL_IMESSAGE_ENABLED + CHANNEL_IMESSAGE_ALLOWED and deliver
+# via channel = "imessage" to the first allowed contact. The
+# WhatsApp recipient capture + allowed_numbers seed (items 4 + 6)
+# are UNCHANGED (they scope inbound WhatsApp chat, not briefs).
+#
 # Sister tests:
 #   - test_whatsapp_channel_block.sh  -- locks the consent + base
 #                                        [channels.whatsapp] block
@@ -307,14 +319,17 @@ if [[ ! -s "$EMITTER" ]]; then
     exit 1
 fi
 
-# Run with WhatsApp enabled + a synthetic recipient + a TZ. Assert
-# the output has the cron blocks, the recipient threaded into both
-# allowed_numbers and delivery.to, and best_effort = false.
+# Run with BOTH channels enabled: WhatsApp (recipient seeds
+# allowed_numbers) and iMessage (allowed contact drives the CX-68
+# brief cron jobs + delivery.to). Assert the output has the cron
+# blocks, the recipient threaded into allowed_numbers and
+# delivery.to, and best_effort = false.
 TEST_PHONE="+447700900111"
 TEST_TZ="Europe/London"
 
 OUTPUT="$(
-    CHANNEL_IMESSAGE_ENABLED=false \
+    CHANNEL_IMESSAGE_ENABLED=true \
+    CHANNEL_IMESSAGE_ALLOWED="$TEST_PHONE" \
     CHANNEL_EMAIL_ENABLED=false \
     CHANNEL_WHATSAPP_ENABLED=true \
     CHANNEL_WHATSAPP_RECIPIENT="$TEST_PHONE" \
@@ -420,31 +435,37 @@ if ! echo "$OUTPUT" | grep -qE '^model = "[^"]+"$'; then
 fi
 echo "PASS: emitter writes Ollama provider fallback block"
 
-# Negative case 1: WhatsApp disabled => no cron jobs at all.
+# Negative case 1 (CX-68): iMessage disabled => no cron jobs, even
+# with WhatsApp fully configured. WhatsApp alone must NOT drive
+# briefs (its channel never registers in the cron-delivery registry
+# on a customer install, so the jobs would silently never send).
 OUTPUT_OFF="$(
-    CHANNEL_IMESSAGE_ENABLED=true \
+    CHANNEL_IMESSAGE_ENABLED=false \
+    CHANNEL_IMESSAGE_ALLOWED="" \
     CHANNEL_EMAIL_ENABLED=false \
-    CHANNEL_WHATSAPP_ENABLED=false \
-    CHANNEL_WHATSAPP_RECIPIENT="" \
+    CHANNEL_WHATSAPP_ENABLED=true \
+    CHANNEL_WHATSAPP_RECIPIENT="$TEST_PHONE" \
     USER_TZ="$TEST_TZ" \
     CHAT_ADMIN_TOKEN="dummy-token" \
-    CHANNEL_IMESSAGE_ALLOWED="user@example.com" \
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
 if echo "$OUTPUT_OFF" | grep -q '\[\[cron\.jobs\]\]'; then
-    echo "FAIL [emitter-suppress-cron]: emitter wrote cron jobs when CHANNEL_WHATSAPP_ENABLED=false" >&2
+    echo "FAIL [emitter-suppress-cron]: emitter wrote cron jobs when CHANNEL_IMESSAGE_ENABLED=false (CX-68: WhatsApp must not drive briefs)" >&2
     echo "Output was:" >&2
     echo "$OUTPUT_OFF" >&2
     exit 1
 fi
-echo "PASS: emitter suppresses cron jobs when WhatsApp disabled"
+echo "PASS: emitter suppresses cron jobs when iMessage disabled (CX-68)"
 
 # Negative case 2: WhatsApp enabled but no recipient => suppress
-# both allowed_numbers AND cron jobs (defensive: the wizard guard
-# enforces a recipient, but the emitter shouldn't trust that).
+# allowed_numbers (defensive: the wizard guard enforces a
+# recipient, but the emitter shouldn't trust that). iMessage
+# enabled but with an empty allowed list => no cron jobs either
+# (no recipient to deliver the brief to).
 OUTPUT_NO_PHONE="$(
-    CHANNEL_IMESSAGE_ENABLED=false \
+    CHANNEL_IMESSAGE_ENABLED=true \
+    CHANNEL_IMESSAGE_ALLOWED="" \
     CHANNEL_EMAIL_ENABLED=false \
     CHANNEL_WHATSAPP_ENABLED=true \
     CHANNEL_WHATSAPP_RECIPIENT="" \
@@ -460,10 +481,10 @@ fi
 echo "PASS: emitter suppresses allowed_numbers when no recipient captured"
 
 if echo "$OUTPUT_NO_PHONE" | grep -q '\[\[cron\.jobs\]\]'; then
-    echo "FAIL [emitter-suppress-cron-no-recipient]: emitter wrote cron jobs with no recipient" >&2
+    echo "FAIL [emitter-suppress-cron-no-recipient]: emitter wrote cron jobs with no iMessage allowed contact" >&2
     exit 1
 fi
-echo "PASS: emitter suppresses cron jobs when no recipient captured"
+echo "PASS: emitter suppresses cron jobs when no allowed contact captured"
 
 # ────────────────────────────────────────────────────────────────
 # Structural deserialise check -- catches schema-shape drift that
@@ -550,8 +571,9 @@ for job in jobs:
     if delivery.get("mode") != "announce":
         print(f"FAIL [toml-delivery-mode] {job_id}: expected delivery.mode = 'announce'", file=sys.stderr)
         sys.exit(1)
-    if delivery.get("channel") != "whatsapp":
-        print(f"FAIL [toml-delivery-channel] {job_id}: expected delivery.channel = 'whatsapp'", file=sys.stderr)
+    # CX-68: briefs deliver via iMessage, not WhatsApp.
+    if delivery.get("channel") != "imessage":
+        print(f"FAIL [toml-delivery-channel] {job_id}: expected delivery.channel = 'imessage' (CX-68)", file=sys.stderr)
         sys.exit(1)
     if not delivery.get("to"):
         print(f"FAIL [toml-delivery-to] {job_id}: delivery.to missing", file=sys.stderr)

@@ -2,25 +2,36 @@
 #
 # tests/test_email_folder_prompt.sh
 #
-# Locks the email folder/label prompt and the INBOX safety warning
-# in install.sh.
+# Locks the email folder/label scoping in install.sh.
 #
 # Why this test exists:
 #
-#   Before this PR, install.sh hard-coded `imap_folder = "INBOX"`
-#   in [channels.email]. That meant the assistant would read
-#   every email the customer received -- not just messages
-#   addressed to the assistant. The product rule (email_safety)
-#   is: dedicated label/folder, never the main inbox.
+#   Originally install.sh hard-coded `imap_folder = "INBOX"` in
+#   [channels.email]. That meant the assistant would read every
+#   email the customer received, not just messages addressed to
+#   the assistant. The product rule (email_safety) is: dedicated
+#   label/folder, never the main inbox.
 #
-#   This test pins the safe-by-default path:
-#     1. The user is prompted for a folder/label.
-#     2. Default is "Ostler" if nothing supplied.
-#     3. If the user supplies INBOX (any case), a warning fires
-#        and the user must type INBOX a second time, exactly,
-#        to confirm.
-#     4. The TOML emitter writes the chosen value, not a hard-
-#        coded "INBOX".
+# Decision history (test updated 2026-07-07):
+#
+#   v0.x: an interactive "Folder/label [Ostler]:" prompt with an
+#   INBOX double-confirm ceremony. SUPERSEDED by Andy's v1.0 call
+#   (2026-05-20 Studio retest #2 follow-up, documented inline in
+#   install.sh): 99.5% of operators want the dedicated 'Ostler'
+#   label, so install.sh HARDCODES it and surfaces customisation
+#   as a post-install Doctor knob instead of an install-time
+#   question (drops the customer-visible question count by one).
+#
+#   This test pins the CURRENT safe-by-default path:
+#     1. CHANNEL_EMAIL_IMAP_FOLDER is initialised, then set to the
+#        hardcoded 'Ostler' default inside the email channel block.
+#     2. NO interactive folder prompt remains (the question was
+#        deliberately removed; its return would regress the
+#        question-count decision).
+#     3. The TOML emitter writes the variable, never a hard-coded
+#        "INBOX" (the original email_safety axis).
+#     4. End-to-end: the extracted emitter body writes whatever
+#        folder the variable carries.
 #
 # Sister tests:
 #   - test_consent_a7_a8.sh -- A7+A8 consent ceremony
@@ -49,45 +60,22 @@ if ! grep -qE '^CHANNEL_EMAIL_IMAP_FOLDER=""$' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: CHANNEL_EMAIL_IMAP_FOLDER is initialised"
 
-# ── Prompt is shown to the user ─────────────────────────────────
-if ! grep -q 'Folder/label \[Ostler\]:' "$INSTALL_SCRIPT"; then
-    echo "FAIL [prompt-missing]: 'Folder/label [Ostler]:' prompt not found" >&2
+# ── Hardcoded 'Ostler' default (v1.0 decision, 2026-05-20) ──────
+if ! grep -qE '^\s+CHANNEL_EMAIL_IMAP_FOLDER="Ostler"$' "$INSTALL_SCRIPT"; then
+    echo "FAIL [default-missing]: CHANNEL_EMAIL_IMAP_FOLDER is not hardcoded to 'Ostler' inside the email channel block (v1.0 decision: no install-time folder question)" >&2
     exit 1
 fi
-echo "PASS: install.sh prompts 'Folder/label [Ostler]:'"
+echo "PASS: folder is hardcoded to the dedicated 'Ostler' label"
 
-# ── Default is Ostler when input is blank ───────────────────────
-# Look for the parameter-default expansion that turns blank input
-# into "Ostler". A future edit that drops the default would cause
-# the assistant to point at an empty string.
-if ! grep -qE 'CHANNEL_EMAIL_IMAP_FOLDER="\$\{CHANNEL_EMAIL_IMAP_FOLDER:-Ostler\}"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [default-missing]: blank input does not default to 'Ostler'" >&2
+# ── No interactive folder prompt remains ────────────────────────
+# The install-time question was deliberately removed; customisation
+# is a post-install Doctor knob. A returning prompt would silently
+# regress the question-count decision.
+if grep -q 'Folder/label \[Ostler\]:' "$INSTALL_SCRIPT"; then
+    echo "FAIL [prompt-returned]: the removed 'Folder/label [Ostler]:' install-time prompt is back (v1.0 decision was to hardcode + Doctor knob)" >&2
     exit 1
 fi
-echo "PASS: blank input defaults to 'Ostler'"
-
-# ── INBOX warning path exists ───────────────────────────────────
-if ! grep -q 'INBOX means the assistant will read every email you receive' "$INSTALL_SCRIPT"; then
-    echo "FAIL [warn-text-missing]: INBOX safety warning text not found" >&2
-    exit 1
-fi
-echo "PASS: INBOX safety warning text present"
-
-if ! grep -q 'Type INBOX again to confirm' "$INSTALL_SCRIPT"; then
-    echo "FAIL [reconfirm-prompt]: 'Type INBOX again to confirm' prompt not found" >&2
-    exit 1
-fi
-echo "PASS: re-confirmation prompt present"
-
-# ── INBOX detection is case-insensitive ─────────────────────────
-# The user typing "inbox" or "Inbox" must trigger the same warning
-# path as "INBOX". A regex-only match on "INBOX" would silently
-# let "inbox" through.
-if ! grep -q 'tr .\[:upper:\]. .\[:lower:\].' "$INSTALL_SCRIPT"; then
-    echo "FAIL [case-insensitive]: INBOX detection does not appear to be case-insensitive (no tr lowercase)" >&2
-    exit 1
-fi
-echo "PASS: INBOX detection is case-insensitive"
+echo "PASS: no install-time folder prompt (post-install Doctor knob instead)"
 
 # ── TOML emitter uses the variable, not hard-coded INBOX ────────
 if grep -q 'imap_folder = \\"INBOX\\"' "$INSTALL_SCRIPT"; then
@@ -102,7 +90,7 @@ if ! grep -q 'imap_folder = .*CHANNEL_EMAIL_IMAP_FOLDER' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: TOML emitter references CHANNEL_EMAIL_IMAP_FOLDER"
 
-# ── End-to-end: emitter outputs the chosen folder ───────────────
+# ── End-to-end: emitter outputs the configured folder ───────────
 EMITTER="$(mktemp)"
 trap 'rm -f "$EMITTER"' EXIT
 
@@ -117,10 +105,10 @@ if [[ ! -s "$EMITTER" ]]; then
     exit 1
 fi
 
-# Custom folder
 OUTPUT="$(
     CHANNEL_IMESSAGE_ENABLED=false \
     CHANNEL_EMAIL_ENABLED=true \
+    CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=true \
     CHANNEL_WHATSAPP_ENABLED=false \
     CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com" \
     CHANNEL_EMAIL_IMAP_PORT=993 \
@@ -134,19 +122,20 @@ OUTPUT="$(
 )"
 
 if ! echo "$OUTPUT" | grep -q '^imap_folder = "Ostler"$'; then
-    echo "FAIL [end-to-end-custom]: emitter did not write 'imap_folder = \"Ostler\"'" >&2
+    echo "FAIL [end-to-end-default]: emitter did not write 'imap_folder = \"Ostler\"'" >&2
     echo "Output was:" >&2
     echo "$OUTPUT" >&2
     exit 1
 fi
-echo "PASS: emitter writes the chosen folder ('Ostler')"
+echo "PASS: emitter writes the dedicated folder ('Ostler')"
 
-# INBOX is honoured if the user explicitly chose it (after the
-# prompt-side reconfirmation). The emitter does not second-guess
-# what the prompt set.
-OUTPUT_INBOX="$(
+# A post-install Doctor edit may set a custom folder; the emitter
+# must honour whatever the variable carries rather than second-
+# guessing it.
+OUTPUT_CUSTOM="$(
     CHANNEL_IMESSAGE_ENABLED=false \
     CHANNEL_EMAIL_ENABLED=true \
+    CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED=true \
     CHANNEL_WHATSAPP_ENABLED=false \
     CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com" \
     CHANNEL_EMAIL_IMAP_PORT=993 \
@@ -155,17 +144,17 @@ OUTPUT_INBOX="$(
     CHANNEL_EMAIL_USERNAME="testuser" \
     CHANNEL_EMAIL_PASSWORD="x" \
     CHANNEL_EMAIL_FROM="testuser" \
-    CHANNEL_EMAIL_IMAP_FOLDER="INBOX" \
+    CHANNEL_EMAIL_IMAP_FOLDER="Assistant-Inbox" \
     bash -c "$(cat "$EMITTER")" 2>&1
 )"
 
-if ! echo "$OUTPUT_INBOX" | grep -q '^imap_folder = "INBOX"$'; then
-    echo "FAIL [end-to-end-inbox]: emitter did not honour explicit INBOX choice" >&2
+if ! echo "$OUTPUT_CUSTOM" | grep -q '^imap_folder = "Assistant-Inbox"$'; then
+    echo "FAIL [end-to-end-custom]: emitter did not honour a custom folder value" >&2
     echo "Output was:" >&2
-    echo "$OUTPUT_INBOX" >&2
+    echo "$OUTPUT_CUSTOM" >&2
     exit 1
 fi
-echo "PASS: emitter honours explicit INBOX choice (post-prompt reconfirmation)"
+echo "PASS: emitter honours a custom folder value (Doctor-knob path)"
 
 echo ""
-echo "ALL EMAIL FOLDER PROMPT TESTS PASSED"
+echo "ALL EMAIL FOLDER SCOPING TESTS PASSED"

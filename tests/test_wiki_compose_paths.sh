@@ -161,13 +161,16 @@ fi
 echo "PASS: err() function defined alongside info / ok / warn"
 
 # ── DEFAULT_INSTALLER_TARBALL_URL points at the canonical ostler-ai mirror ──
-# (Org-block on ostler-ai cleared 2026-05-08; canonical release URL is the
-#  ostler-ai/ostler-installer GitHub Releases tarball.)
-if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/ostler-installer/" "$INSTALL_SCRIPT"; then
-    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the ostler-ai/ostler-installer mirror" >&2
+# (Org-block on ostler-ai cleared 2026-05-08; originally the
+#  ostler-ai/ostler-installer GitHub Releases tarball. SUPERSEDED by CX-88
+#  2026-05-29: customer-shipping releases consolidated under
+#  ostler-ai/ostler-releases — the #48g consolidation, PR #208. Assertion
+#  updated 2026-07-07 to lock the CURRENT canonical URL.)
+if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/ostler-releases/" "$INSTALL_SCRIPT"; then
+    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the ostler-ai/ostler-releases mirror (CX-88 canonical home)" >&2
     exit 1
 fi
-echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at the ostler-ai/ostler-installer mirror"
+echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at the ostler-ai/ostler-releases mirror"
 
 echo ""
 echo "All wiki-compose / hardening tests passed."

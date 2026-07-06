@@ -73,61 +73,46 @@ for key in MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN \
 done
 echo "PASS [case-4]: all 5 CX-60 catalogue strings present"
 
-# ── Case 5: Doctor rule renders the card from synthetic state ───
+# ── Case 5: Doctor surfaces iMessage permission state ───────────
+#
+# UPDATED 2026-07-07. The original case asserted the CX-60 rule
+# check_imessage_fda in the vendored diagnostic_rules.py. That rule
+# was SUPERSEDED by the v152-walk "native-aware Doctor" work (#323):
+# the daemon now writes a richer TCC-posture marker to
+# ~/.ostler/imessage-posture/state.md and the vendored Doctor renders
+# it via imessage_tcc_posture.render_imessage_tcc_posture() directly
+# in web_ui.py, replacing the pipeline_signals-driven card. (The
+# P1-3 re-vendor at 87636fc synced the vendored tree to the upstream
+# that had already made this move.)
+#
+# The install.sh writer half (cases 1-4 above) still writes the
+# imessage_fda_needed signal for forward compatibility; the Doctor
+# READ surface asserted here is the posture panel. Deep behavioural
+# coverage of the posture probe lives in the sister test
+# tests/test_imessage_tcc_posture.sh.
+if [[ ! -f "${RULES_DIR}/imessage_tcc_posture.py" ]]; then
+    echo "FAIL [case-5]: vendored Doctor is missing imessage_tcc_posture.py (the iMessage permission surface)" >&2
+    exit 1
+fi
 python3 - <<PY
-import sys, types
-# Stub httpx (heavy network dep we don't need for the unit-shape test).
-httpx_stub = types.ModuleType("httpx")
-class _Err(Exception): pass
-class _C:
-    def __init__(self, *a, **kw): pass
-    def get(self, url): raise _Err("stub")
-httpx_stub.Client = _C
-httpx_stub.RequestError = _Err
-sys.modules["httpx"] = httpx_stub
-
+import sys
 sys.path.insert(0, "${RULES_DIR}")
-import diagnostic_rules as dr
+import imessage_tcc_posture as tcc
 
-# Stay-quiet paths
-class _Empty: pipeline_signals = None
-assert dr.check_imessage_fda(_Empty()) == []
-
-class _Sig:
-    imessage_chat_db_fda_needed = None
-class _SnapNone:
-    pipeline_signals = _Sig()
-assert dr.check_imessage_fda(_SnapNone()) == []
-
-class _SigFalse:
-    imessage_chat_db_fda_needed = False
-class _SnapFalse:
-    pipeline_signals = _SigFalse()
-assert dr.check_imessage_fda(_SnapFalse()) == []
-
-# Card rendered when needed=True + live probe fails
-class _SigTrue:
-    imessage_chat_db_fda_needed = True
-class _SnapTrue:
-    pipeline_signals = _SigTrue()
-dr._imessage_chat_db_readable = lambda: False
-findings = dr.check_imessage_fda(_SnapTrue())
-assert len(findings) == 1, findings
-f = findings[0]
-assert f["severity"] == "warning"
-assert "Full Disk Access" in f["title"]
-assert "x-apple.systempreferences" in f["fix_command"]
-assert "launchctl kickstart" in f["detail"]
-assert f["category"] == "installation"
-
-# Auto-dismiss when live probe succeeds
-dr._imessage_chat_db_readable = lambda: True
-assert dr.check_imessage_fda(_SnapTrue()) == []
-
-# Rule registered in ALL_RULES
-assert any(r.__name__ == "check_imessage_fda" for r in dr.ALL_RULES)
-print("PASS [case-5]: Doctor rule passes all 5 sub-assertions")
+# The reader entry point the dashboard renderer consumes must exist.
+assert callable(getattr(tcc, "read_imessage_tcc_posture", None)), \
+    "read_imessage_tcc_posture missing"
+print("PASS [case-5a]: posture module exposes read_imessage_tcc_posture")
 PY
+if ! grep -q 'def render_imessage_tcc_posture' "${RULES_DIR}/dashboard_components.py"; then
+    echo "FAIL [case-5b]: vendored dashboard_components.py does not define render_imessage_tcc_posture" >&2
+    exit 1
+fi
+if ! grep -q 'render_imessage_tcc_posture' "${RULES_DIR}/web_ui.py"; then
+    echo "FAIL [case-5c]: vendored web_ui.py does not render the iMessage TCC posture section" >&2
+    exit 1
+fi
+echo "PASS [case-5b/c]: vendored Doctor renders the iMessage TCC posture section"
 
 # ── Case 6 (CX-66): assist block is present + gated on OSTLER_GUI ──
 if ! grep -q "CX-66.*assisted FDA grant" "$INSTALL_SH"; then

@@ -5681,7 +5681,35 @@ TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/nul
 # Subtract from the auto-count if the gate evaluates false. Add
 # new entries here whenever a `progress` line is added inside an
 # `if [[ ... ]]` that depends on a Phase 2 flag.
-[[ -z "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # GDPR import (~line 3448)
+#
+# BEST-EFFORT EXCEPTIONS (no subtract entry possible; the gate
+# depends on Phase 3 state that does not exist yet at this point):
+#   - wiki_recompile_catchup_agent: gated on the tick script this
+#     same Phase 3 installs a few sections earlier, so it fires on
+#     every successful install; a compute-time [[ -x ]] here would
+#     be false on a fresh box and wrongly subtract a step that DOES
+#     fire (bar >100%).
+#   - data_step's Qdrant-reachability arm: services come up mid
+#     Phase 3. The ALLOW_PLAINTEXT arm IS evaluable and subtracted
+#     below; if Qdrant is down the bar merely ends a step short on
+#     an already-degraded install.
+# tests/test_total_steps_dynamic.sh carries the matching allowlist.
+[[ -z "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # GDPR import (import_data, 3.12b)
+# Conversation bundle feeds (body feeds, 3.15c). Gates mirror the
+# call sites exactly; all inputs are Phase 2 flags or pre-existing
+# filesystem state (the user tree incl. Transcripts is created in
+# Phase 2, ~/Library/Mail and chat.db pre-date the install).
+[[ "$CHANNEL_WHATSAPP_ENABLED" != true || "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" != true ]] \
+    && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # whatsapp_bundle
+[[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] \
+    && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # email_bundle
+[[ ! -d "${USER_FACING_ROOT}/Transcripts" ]] \
+    && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # spoken_bundle
+[[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] \
+    && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # imessage_bundle
+# data_step: plaintext mode skips the write-pipeline progress step
+# entirely (the Qdrant arm is the best-effort exception above).
+[[ "$ALLOW_PLAINTEXT" == "1" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1))   # data_step (plaintext skip)
 
 # Defensive fallback for unusual invocation paths (BASH_SOURCE
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).

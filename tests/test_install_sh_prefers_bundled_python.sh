@@ -69,8 +69,34 @@ fi
 
 A_LINE=$(grep -nE '^\s*if\s+\[\[\s+-x\s+"\$BUNDLED_PYTHON"' "$INSTALL_SH" \
          | head -1 | cut -d: -f1 || true)
+# Heuristic updated 2026-07-07: "first `command -v python3` in the
+# file" broke when a later-added venv-repair HELPER FUNCTION (defined
+# near the top of the file, executed long after the resolution block)
+# gained its own bundled-first python fallback chain. Textual position
+# no longer equals execution order. The invariant that matters is:
+# EVERY `command -v python3` lookup sits in a chain where the bundled
+# ${SCRIPT_DIR}/python/bin/python3.11 is preferred first, checked
+# below as B'. B remains "the resolution block's own dev-mode lookup
+# comes after the bundled test".
 B_LINE=$(grep -nE 'command -v python3' "$INSTALL_SH" \
-         | head -1 | cut -d: -f1 || true)
+         | awk -F: -v a="${A_LINE:-0}" '$1 > a { print $1; exit }' || true)
+
+# B': every `command -v python3` occurrence must be preceded (within
+# 25 lines -- same block) by a bundled-python preference, so no
+# python resolution chain can put the Apple CLT stub first.
+while IFS=: read -r ln _; do
+    start=$(( ln > 25 ? ln - 25 : 1 ))
+    if ! sed -n "${start},${ln}p" "$INSTALL_SH" \
+         | grep -qE 'python/bin/python3\.11|\$BUNDLED_PYTHON'; then
+        echo "FAIL: 'command -v python3' at line $ln has no bundled-python" >&2
+        echo "      preference within the preceding 25 lines. On a fresh" >&2
+        echo "      customer Mac /usr/bin/python3 is the Apple CLT stub" >&2
+        echo "      (fires the GUI dialog, exits non-zero). Every python" >&2
+        echo "      resolution chain must probe the bundled runtime first" >&2
+        echo "      (CX-19)." >&2
+        exit 1
+    fi
+done < <(grep -nE 'command -v python3' "$INSTALL_SH")
 # Anchor on the actual invocation (not a comment) — the call lives inside
 # an `if ! brew install python@3.11; then` line in the dev-mode fallback.
 C_LINE=$(grep -nE '^\s*if !\s*brew install python@3\.11' "$INSTALL_SH" \
