@@ -6687,6 +6687,31 @@ printf 'WIKI_PII_PERSONAL_EMAILS=%s\n' "${_wiki_pii_email_domains}" >> "$OSTLER_
 unset _wiki_pii_email_domains
 unset _wiki_operator_emails
 
+# K-4b: run the wiki PII output scan in WARN mode on customer boxes.
+# The scanner (CM044 compiler/pii_scan.py) treats every address at the
+# WIKI_PII_PERSONAL_EMAILS domains as a leak and, in its default "fail"
+# mode, aborts the whole compile at the final gate. That posture is a
+# development and CI guard: it exists to stop a developer's details
+# shipping inside product artefacts. On the customer's own machine the
+# wiki is built FROM the customer's own mail and calendar, so their own
+# address legitimately appears on meeting digests, activity summaries
+# and stats tables. With K-4 feeding the me-card domain in, "fail" mode
+# guarantees the daily wiki recompile goes permanently red the moment
+# email or calendar ingest lands (observed live: every recompile tick
+# after install day failed with PIILeakDetected, thousands of hits, and
+# the wiki-site refresh was skipped each day). Worse, a me-card at a
+# public provider (for example gmail.com) would flag EVERY contact at
+# that provider. WARN keeps the scan visible in the compile log and
+# keeps the pii_sanitise redaction pass fully active, but lets the
+# compile finish. Developer and CI builds keep the "fail" default in
+# CM044; this line opts the customer runtime out. Idempotent: replace
+# any prior line.
+if grep -q '^OSTLER_PII_SCAN_MODE=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^OSTLER_PII_SCAN_MODE=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'OSTLER_PII_SCAN_MODE=warn\n' >> "$OSTLER_ENV_FILE"
+
 chmod 600 "$OSTLER_ENV_FILE"
 umask "$umask_ufn_orig"
 unset umask_ufn_orig
