@@ -1121,6 +1121,64 @@ else
 fi
 unset _ostler_emitter_candidate
 
+# ── Detection-not-timer poll helpers (auth-UX A-5, 2026-07-06) ─────
+#
+# The permission choreography advances on DETECTED STATE, never on a
+# fixed timer (docs/PERMISSION_CHOREOGRAPHY_v2.md). lib/permission_queue.sh
+# covers the serial daemon queue; these two cover the remaining
+# sleep-then-probe-once sites (the post-modal FDA re-probes and the
+# System Settings refresh) so a grant is honoured the INSTANT it lands
+# and a slow TCC write no longer reads as "still needed".
+#
+# _ostler_poll_until <detect_fn> <max_secs> [cadence_secs]
+#   Re-runs detect_fn (a function name, run in the current shell) every
+#   cadence seconds (default 1). Returns 0 IMMEDIATELY on the first
+#   success -- zero wait when the state is already good. Returns 1 only
+#   after max_secs elapse without a success (the bounded timeout
+#   fallback; callers treat it exactly as the old single failed probe).
+#   Defined inline (not in lib/) so tarball installs without lib/ keep
+#   the same behaviour. Bash 3.2 compatible.
+_ostler_poll_until() {
+    local _pu_detect_fn="$1" _pu_max_secs="${2:-8}" _pu_cadence="${3:-1}"
+    local _pu_waited=0 _pu_step="$_pu_cadence"
+    # A non-positive cadence (tests use 0 so they never sleep) still
+    # advances the elapsed counter by 1 per cycle, so the max_secs bound
+    # can never be starved into an infinite loop.
+    [[ "$_pu_step" -ge 1 ]] || _pu_step=1
+    while true; do
+        if "$_pu_detect_fn"; then
+            return 0
+        fi
+        if [[ "$_pu_waited" -ge "$_pu_max_secs" ]]; then
+            return 1
+        fi
+        if [[ "$_pu_cadence" -ge 1 ]]; then
+            sleep "$_pu_cadence" 2>/dev/null || true
+        fi
+        _pu_waited=$((_pu_waited + _pu_step))
+    done
+}
+
+# _ostler_wait_settings_closed
+#   Detection-based replacement for the fixed `sleep 1` between
+#   `killall "System Settings"` and re-opening a pane (#279 / #572
+#   stale-list refresh). Polls until the Settings process has actually
+#   exited (instant when it was not running at all -- the common case)
+#   with a 3-second bound so a wedged process can never stall the
+#   install. Always returns 0: the reopen is best-effort either way.
+_ostler_wait_settings_closed() {
+    local _ws_waited=0
+    while pgrep -x "System Settings" >/dev/null 2>&1 \
+          || pgrep -x "System Preferences" >/dev/null 2>&1; do
+        if [[ "$_ws_waited" -ge 3 ]]; then
+            return 0
+        fi
+        sleep 1
+        _ws_waited=$((_ws_waited + 1))
+    done
+    return 0
+}
+
 # ── Hardware-fit model picker helper (REUSE-4) ────────────────────
 #
 # lib/ostler-model-fit.sh holds the static model->min-RAM-for-num_ctx
@@ -2382,10 +2440,12 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         # STALE Full Disk Access list that predates the OstlerInstaller
         # entry primed at install start -- killall + reopen guarantees the
         # list is current. Kept VERBATIM from the late assist; the #279
-        # race fix is reused unchanged. Best-effort.
+        # race fix is reused unchanged. Best-effort. (auth-UX A-5: the
+        # settle is detection-based -- wait for the process to actually
+        # exit, not a fixed second.)
         killall "System Settings" >/dev/null 2>&1 || true
         killall "System Preferences" >/dev/null 2>&1 || true
-        sleep 1
+        _ostler_wait_settings_closed
         open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
         _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
@@ -2430,17 +2490,25 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         # as soon as the user toggles it on, so a direct read returns the
         # live state without re-exec. Same honest read-probe so a false
         # positive cannot creep back in.
-        sleep 2
-        _fda_early_retried=0
-        _fda_early_reok=0
-        for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
-            [[ -e "$probe" ]] || continue
-            _fda_early_retried=$((_fda_early_retried + 1))
-            if _fda_read_probe_early "$probe"; then
-                _fda_early_reok=$((_fda_early_reok + 1))
-            fi
-        done
-        if [[ $_fda_early_retried -gt 0 && $_fda_early_reok -eq $_fda_early_retried ]]; then
+        #
+        # auth-UX A-5 (detection not timer): the old fixed `sleep 2` +
+        # one-shot probe read a slow TCC write as "still needed" -- which
+        # later fired the whole late recovery modal for a grant that HAD
+        # landed. Poll the same probe instead: advance the instant every
+        # probe path reads clean, bounded at 8s (the timeout fallback
+        # behaves exactly like the old failed one-shot).
+        _fda_early_regrant_detect() {
+            local _t=0 _ok=0 _p
+            for _p in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
+                [[ -e "$_p" ]] || continue
+                _t=$((_t + 1))
+                if _fda_read_probe_early "$_p"; then
+                    _ok=$((_ok + 1))
+                fi
+            done
+            [[ $_t -gt 0 && $_ok -eq $_t ]]
+        }
+        if _ostler_poll_until _fda_early_regrant_detect 8 1; then
             FDA_GRANTED=true
         fi
         if [[ "$FDA_GRANTED" == true ]]; then
@@ -2448,7 +2516,7 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         else
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
         fi
-        unset _fda_early_retried _fda_early_reok
+        unset -f _fda_early_regrant_detect
     fi
     unset _fda_early_tried _fda_early_ok
 
@@ -7784,6 +7852,24 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
         "$HOME/Library/Messages/chat.db"
         "$HOME/Library/Mail/V10/MailData/Envelope Index"
     )
+    # auth-UX A-5 (detection not timer): single-shot detect over every
+    # existing probe path -- true only when at least one path exists AND
+    # every existing path reads clean. Passed to _ostler_poll_until by
+    # the post-modal re-probes below (assist AND recovery), replacing
+    # the old fixed `sleep 2` + probe-once, so a grant that lands a beat
+    # after the modal dismisses is still honoured instead of being read
+    # as "still needed".
+    _fda_regrant_detect() {
+        local _t=0 _ok=0 _p
+        for _p in "${FDA_PROBE_PATHS[@]}"; do
+            [[ -e "$_p" ]] || continue
+            _t=$((_t + 1))
+            if _fda_read_probe "$_p"; then
+                _ok=$((_ok + 1))
+            fi
+        done
+        [[ $_t -gt 0 && $_ok -eq $_t ]]
+    }
     FDA_PROBE_TRIED=0
     FDA_PROBE_SUCCEEDED=0
     for probe in "${FDA_PROBE_PATHS[@]}"; do
@@ -7887,10 +7973,11 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # happens to refresh (the ~30-60s lag customers reported).
             # killall + reopen guarantees the list is current. Best-effort;
             # covers both the "System Settings" (macOS 13+) and legacy
-            # "System Preferences" process names.
+            # "System Preferences" process names. (auth-UX A-5: settle
+            # is detection-based, not a fixed second.)
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
-            sleep 1
+            _ostler_wait_settings_closed
             open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
@@ -7939,17 +8026,15 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # the live state without needing to re-exec. Use the
             # same honest read-probe as the initial check so a false
             # positive cannot creep back in.
-            sleep 2
-            FDA_REPROBE_TRIED=0
-            FDA_REPROBE_SUCCEEDED=0
-            for probe in "${FDA_PROBE_PATHS[@]}"; do
-                [[ -e "$probe" ]] || continue
-                FDA_REPROBE_TRIED=$((FDA_REPROBE_TRIED + 1))
-                if _fda_read_probe "$probe"; then
-                    FDA_REPROBE_SUCCEEDED=$((FDA_REPROBE_SUCCEEDED + 1))
-                fi
-            done
-            if [[ $FDA_REPROBE_TRIED -gt 0 && $FDA_REPROBE_SUCCEEDED -eq $FDA_REPROBE_TRIED ]]; then
+            #
+            # auth-UX A-5 (detection not timer): poll the shared
+            # _fda_regrant_detect (defined beside FDA_PROBE_PATHS above)
+            # rather than fixed-sleep-then-probe-once, so a grant that
+            # lands a beat after the modal dismisses is still honoured
+            # (the old one-shot read a slow TCC write as "still
+            # needed"). Bounded at 8s; the timeout fallback behaves
+            # exactly like the old failed one-shot.
+            if _ostler_poll_until _fda_regrant_detect 8 1; then
                 FDA_GRANTED=true
             fi
             if [[ "$FDA_GRANTED" == true ]]; then
@@ -8012,7 +8097,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_OPENING"
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
-            sleep 1
+            _ostler_wait_settings_closed
             open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
             _fda_recover_msg="$(printf '%s\n\n%s' \
@@ -8046,24 +8131,16 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                   _fda_recover_button_esc _fda_recover_icon_path \
                   _fda_recover_icon_path_esc _fda_recover_icon_clause
 
-            # Final re-probe after the recovery grant.
-            sleep 2
-            FDA_RECOVER_TRIED=0
-            FDA_RECOVER_SUCCEEDED=0
-            for probe in "${FDA_PROBE_PATHS[@]}"; do
-                [[ -e "$probe" ]] || continue
-                FDA_RECOVER_TRIED=$((FDA_RECOVER_TRIED + 1))
-                if _fda_read_probe "$probe"; then
-                    FDA_RECOVER_SUCCEEDED=$((FDA_RECOVER_SUCCEEDED + 1))
-                fi
-            done
-            if [[ $FDA_RECOVER_TRIED -gt 0 && $FDA_RECOVER_SUCCEEDED -eq $FDA_RECOVER_TRIED ]]; then
+            # Final re-probe after the recovery grant. auth-UX A-5
+            # (detection not timer): poll the shared _fda_regrant_detect
+            # instead of fixed-sleep-then-probe-once -- advances the
+            # instant the grant lands, 8s bounded timeout fallback.
+            if _ostler_poll_until _fda_regrant_detect 8 1; then
                 FDA_GRANTED=true
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
             else
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
             fi
-            unset FDA_RECOVER_TRIED FDA_RECOVER_SUCCEEDED
         fi
     fi
 
@@ -13382,6 +13459,29 @@ _imessage_daemon_fda_granted() {
     fi
 }
 
+# auth-UX A-5 (detection not timer): sibling probe that answers a WEAKER
+# question than _imessage_daemon_fda_granted -- is the daemon LISTED in
+# the Full Disk Access table at all (any auth_value, including denied)?
+# macOS adds the row the moment the daemon attempts its first protected
+# read, which is exactly the event the old fixed grace-period sleep was
+# guessing at: once the row exists, the FDA pane shows the toggle and the
+# "Find Ostler in the list" modal copy is accurate. Returns 0 when the
+# row exists. Best-effort like its sibling: if sudo would prompt or
+# sqlite3 fails it returns 1, so the caller's bounded poll degrades to
+# the legacy fixed wait -- never worse than before.
+_imessage_daemon_fda_listed() {
+    local _rows=""
+    if command -v sudo >/dev/null 2>&1; then
+        _rows="$(
+            sudo -n sqlite3 \
+                "/Library/Application Support/com.apple.TCC/TCC.db" \
+                "SELECT COUNT(*) FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}');" \
+                2>/dev/null || true
+        )"
+    fi
+    [[ -n "$_rows" && "$_rows" != "0" ]]
+}
+
 # ── Daemon Messages-Automation TCC probe (choreography v2) ─────────
 #
 # Sibling of _imessage_daemon_fda_granted for the SECOND daemon ask: the
@@ -13445,7 +13545,7 @@ _permq_daemon_fda_interact() {
     if [[ "${_PERMQ_FDA_PANE_OPENED}" != "1" ]]; then
         killall "System Settings" >/dev/null 2>&1 || true
         killall "System Preferences" >/dev/null 2>&1 || true
-        sleep 1
+        _ostler_wait_settings_closed
         open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
         sleep 1
         _PERMQ_FDA_PANE_OPENED=1
@@ -13639,10 +13739,18 @@ else
     # (a prompt can appear) than otherwise. The probe itself is independent
     # (install.sh opens chat.db directly); this also avoids racing the
     # LaunchAgent.
+    #
+    # auth-UX A-5 (detection not timer): the old fixed sleep GUESSED when
+    # the daemon's first protected read had happened. Poll for the actual
+    # signal instead -- the daemon's row appearing in the TCC FDA table
+    # (_imessage_daemon_fda_listed), which is what makes the pane toggle
+    # and the modal copy accurate. Advances the instant the row exists;
+    # on Macs where TCC.db cannot be read (no sudo cache) the detect
+    # simply keeps failing and the bound acts as the legacy fixed wait.
     if [[ "$_prewarn_shown" == "1" ]]; then
-        sleep 5
+        _ostler_poll_until _imessage_daemon_fda_listed 8 1 || true
     else
-        sleep 2
+        _ostler_poll_until _imessage_daemon_fda_listed 4 1 || true
     fi
     unset _prewarn_shown
 
@@ -13721,10 +13829,11 @@ else
                 # pane happens to refresh (the blank-window customers reported).
                 # killall + reopen guarantees the list is current. Best-effort;
                 # covers both the "System Settings" (macOS 13+) and legacy
-                # "System Preferences" process names.
+                # "System Preferences" process names. (auth-UX A-5: the
+                # settle is detection-based, not a fixed second.)
                 killall "System Settings" >/dev/null 2>&1 || true
                 killall "System Preferences" >/dev/null 2>&1 || true
-                sleep 1
+                _ostler_wait_settings_closed
 
                 # Open System Settings to the Full Disk Access pane.
                 # The URL scheme is stable on macOS 13+; older macOS
@@ -13857,8 +13966,13 @@ else
                 # second after the grant) is covered by the Doctor
                 # card's live re-probe (status_collector +
                 # check_imessage_fda) on next refresh.
-                sleep 2
-                if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
+                #
+                # auth-UX A-5 (detection not timer): poll the daemon
+                # TCC state (via the choreography-v2 detect wrapper)
+                # instead of fixed-sleep-then-read-once -- advances the
+                # instant the grant lands, 8s bounded timeout fallback
+                # behaving exactly like the old failed one-shot.
+                if _ostler_poll_until _permq_daemon_fda_detect 8 1; then
                     _imessage_fda_needed="false"
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
                     # Kick the assistant LaunchAgent to pick up the
