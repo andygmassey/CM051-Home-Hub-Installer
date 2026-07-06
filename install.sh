@@ -14741,6 +14741,12 @@ fi
 
 if [[ -x "$_HYDRATE_PIPELINE_PY" ]]; then
     info "$MSG_HYDRATE_CONTACTS_STARTED"
+    # CX-14 Section F item F6 (task #477): the abcddb read below is
+    # minutes-long on a large address book and used to run with no
+    # duration expectation set -- customers read the silence as a hang.
+    # The catalogue key existed but was never emitted (orphaned key);
+    # wire it here, immediately before the long read.
+    info "$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"
     # Force the AddressBook-v22.abcddb fallback: point --vcf at a path we
     # never create, so contact_syncer.syncer logs "vCard file not found"
     # and reads the local AddressBook directly (Full Disk Access only, no

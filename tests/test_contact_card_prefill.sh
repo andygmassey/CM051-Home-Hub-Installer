@@ -15,6 +15,13 @@
 #   F6  the Phase-2 me-card osascript read + DETECTED_* pre-fill is
 #       present (#639 restored it; only the single me-card read, no
 #       bulk all-contacts scan, and no fabricated "Decision" comment)
+#   F8  the me-card read survives a COLD Contacts.app (02a55d5: launch
+#       Contacts hidden first, `launch` verb in the tell block, one
+#       retry on -600, warn instead of swallow -- the .145 box-walk
+#       regression; previously guarded only by a cut-marker)
+#   F9  the minutes-long hydrate abcddb bulk contacts read sets a
+#       duration expectation (MSG_INFO_PLEASE_WAIT_READING_CONTACTS is
+#       emitted, not left as an orphaned catalogue key)
 #
 # Synthetic fixture only — locked memory
 # feedback_synthetic_fixtures_no_real_data_default. Phone is in the
@@ -212,6 +219,55 @@ if ! grep -q 'alice@example.com' "$FIXTURE"; then
     exit 1
 fi
 echo "PASS [case-7]: fixture pinned to synthetic NANP + example.com data"
+
+# ── Case 8: cold-Contacts survival (02a55d5, the .145 box-walk fix) ─
+#
+# `my card` only resolves when Contacts.app is RUNNING; on a fresh box
+# the app is cold and the AppleEvent dies with -600, silently blanking
+# the whole pre-fill (name/country defaults, wiki title, self-handles,
+# #646). The fix has four load-bearing shapes; losing any one of them
+# silently reintroduces the regression, so each is pinned here (it was
+# previously guarded only by a cut_markers.manifest grep, which not
+# every dev-loop runs).
+if ! grep -q 'open -gja Contacts' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: install.sh missing 'open -gja Contacts' background launch before the me-card read" >&2
+    exit 1
+fi
+if ! grep -qE '^[[:space:]]*launch$' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: me-card osascript tell block missing the 'launch' verb" >&2
+    exit 1
+fi
+if ! grep -q "grep -q -- '-600' \"\$CARD_STDERR\"" "$INSTALL_SH"; then
+    echo "FAIL [case-8]: install.sh missing the -600 (cold Contacts) detection on the me-card read" >&2
+    exit 1
+fi
+if ! grep -qE 'sleep 2\s*$' <(grep -A2 "grep -q -- '-600'" "$INSTALL_SH"); then
+    echo "FAIL [case-8]: install.sh missing the settle-and-retry (sleep 2 + re-read) after a -600" >&2
+    exit 1
+fi
+if ! grep -q 'vendor_grep|install.sh|open -gja Contacts' "${REPO_ROOT}/scripts/cut_markers.manifest"; then
+    echo "FAIL [case-8]: cut_markers.manifest lost the #639 me-card cold-launch marker" >&2
+    exit 1
+fi
+echo "PASS [case-8]: me-card read survives cold Contacts (background launch + launch verb + -600 retry + cut-marker)"
+
+# ── Case 9: hydrate bulk read sets a duration expectation (F6) ─────
+#
+# The abcddb bulk contacts read at hydrate is minutes-long on a large
+# address book. MSG_INFO_PLEASE_WAIT_READING_CONTACTS carries the
+# "can take a couple of minutes - please don't close the installer"
+# expectation; it sat in the catalogue unreferenced (orphaned key), so
+# the customer saw silence and read it as a hang. Pin both halves:
+# the key is defined AND emitted.
+if ! grep -q 'MSG_INFO_PLEASE_WAIT_READING_CONTACTS=' "$STRINGS_SH"; then
+    echo "FAIL [case-9]: catalogue missing MSG_INFO_PLEASE_WAIT_READING_CONTACTS" >&2
+    exit 1
+fi
+if ! grep -q 'info "\$MSG_INFO_PLEASE_WAIT_READING_CONTACTS"' "$INSTALL_SH"; then
+    echo "FAIL [case-9]: install.sh never emits MSG_INFO_PLEASE_WAIT_READING_CONTACTS (orphaned catalogue key -- the long contacts read runs silent)" >&2
+    exit 1
+fi
+echo "PASS [case-9]: hydrate contacts read emits the please-wait duration expectation"
 
 echo ""
 echo "ALL CONTACT_CARD_PREFILL TESTS PASSED"
