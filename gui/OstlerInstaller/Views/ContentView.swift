@@ -128,8 +128,12 @@ struct ContentView: View {
             // fails, render a full-width red banner across the top
             // of the window. Pre-fix the failure indicator was a
             // bottom-left status line in the footer; Andy walked
-            // past it without noticing. This banner is prominent +
-            // carries the failure copy + Copy log + Try again.
+            // past it without noticing. Since CX-14 Section E2
+            // (2026-05-23) the banner is the MINIMAL title-only
+            // failure marker; the rich copy + Email support +
+            // Copy log actions live in InstallFailedBodyView in
+            // the right pane. There is no Try again button (E2
+            // dropped it deliberately).
             if coordinator.finished == .fail {
                 InstallFailedBannerView()
             }
