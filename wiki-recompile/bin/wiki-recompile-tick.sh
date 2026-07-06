@@ -295,11 +295,13 @@ else
     # The full-summary backfill is the single biggest Ollama producer on the
     # box. It MUST share the one background-LLM slot lock with the
     # conversation feeds (imessage/email/whatsapp/spoken *-bundle-tick.sh).
-    # Otherwise the backfill + one conversation feed run at once, fill both
-    # OLLAMA_NUM_PARALLEL=2 slots, and live chat starves (measured on the
-    # .149 box: 277s + truncated under load vs 1.5s idle). Holding the lock
-    # for the whole compile keeps total background Ollama concurrency at 1,
-    # so the 2nd parallel slot is always free for chat.
+    # Otherwise the backfill + one conversation feed run at once and live
+    # chat starves behind both (measured on the .149 box: 277s + truncated
+    # under load vs 1.5s idle). Ollama now runs OLLAMA_NUM_PARALLEL=1 (the
+    # old second slot halved usable context and gave no real concurrency;
+    # measured 2026-07-07), so this lock is what keeps total background
+    # Ollama concurrency at 1 and the single slot free for a live reply
+    # between background generations.
     #
     # Blocking acquire with PID-LIVENESS reclaim -- NOT a time-based steal.
     # A real summary compile legitimately runs for hours, so any time

@@ -16,9 +16,12 @@
 #      never hit the model slot concurrently; a feed that cannot take
 #      the lock yields its tick (the watermark means nothing is lost).
 #
-# Plus: the Ollama LaunchAgent must reserve a chat slot
-# (OLLAMA_NUM_PARALLEL=2) and keep the model resident
-# (OLLAMA_KEEP_ALIVE=-1).
+# Plus: the Ollama LaunchAgent must keep the model resident
+# (OLLAMA_KEEP_ALIVE=-1). It runs OLLAMA_NUM_PARALLEL=1 (perf fix
+# 2026-07-07: the old second slot halved usable context to 16,386
+# tokens and gave no real concurrency), so this single-flight lock is
+# the only thing keeping background producers from stacking up on the
+# one slot.
 #
 # British English throughout.
 
@@ -258,8 +261,8 @@ rm -rf "$LOCK" 2>/dev/null || true
 #
 # This is the producer the original throttle missed: the four conversation
 # feeds were capped to 1, but the wiki full-summary compile ran as an
-# INDEPENDENT 2nd Ollama producer. With OLLAMA_NUM_PARALLEL=2 that is
-# enough to fill both slots and starve live chat -- app AND iMessage /
+# INDEPENDENT 2nd Ollama producer. That is
+# enough to starve live chat -- app AND iMessage /
 # WhatsApp / email replies, which all go through the daemon's /api/chat
 # (measured on the .149 box: 277s + truncated under load vs 1.5s idle).
 # Both launch sites must wrap the detached `wiki-compiler` run in a

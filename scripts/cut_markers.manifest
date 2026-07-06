@@ -29,7 +29,7 @@
 #                manual "did you rebuild the right wiki image" grep dance.
 #
 # --- v1.0.0 launch blockers (the v0.4.8 walk defects) ---
-daemon_tag|a129fcc1|-|chat: qwen3.x think:false default so local chat returns text (#113, the dead-chat cure)
+daemon_tag|df321daab7|-|F&F lean daemon (tag hub-v0.4.26-ffpair): clean SUPERSET of a129fcc1/0.4.19 (keeps #113 think:false dead-chat cure + all mainline fixes) PLUS pairing fixes de7d726 (QR encoder) + 636347f (6-digit removal). All 16 assistant_tag_grep markers verified present.
 vendor_file|vendor/doctor/agent/duplicate_decision.py|-|#171 Doctor Same-person decision module (the 404 Save button)
 vendor_grep|vendor/doctor/agent/web_ui.py|/api/v1/wiki/duplicates/decision|#171 Doctor decision route wired into web_ui
 vendor_grep|vendor/cm041/identity_resolver|name_org_auto_merge|#40 resolver same-org auto-merge (the unmerged same-org dupes)

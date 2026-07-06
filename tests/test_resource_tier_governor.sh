@@ -19,7 +19,8 @@
 #      NOT load-deferred (it is essential).
 #   6. The embedded copy of the lib in install.sh has not drifted from the
 #      canonical lib/ostler-resource-tier.sh (CI drift guard).
-#   7. install.sh installs the lib and makes OLLAMA_NUM_PARALLEL tier-driven.
+#   7. install.sh installs the lib and pins OLLAMA_NUM_PARALLEL=1 (perf fix
+#      2026-07-07: parallel=2 halved usable context with no concurrency win).
 #
 # British English throughout.
 
@@ -220,7 +221,12 @@ grep -q 'ostler-resource-tier.sh' "$INSTALL_SH" \
 grep -q 'OSTLER_RESOURCE_TIER_EOF' "$INSTALL_SH" \
     || failure "install.sh must embed the lib as a quoted heredoc"
 grep -q '<string>${OSTLER_NUM_PARALLEL}</string>' "$INSTALL_SH" \
-    || failure "install.sh must make OLLAMA_NUM_PARALLEL tier-driven"
+    || failure "install.sh must render OLLAMA_NUM_PARALLEL into the ollama plist"
+grep -q '^    OSTLER_NUM_PARALLEL=1$' "$INSTALL_SH" \
+    || failure "install.sh must pin OSTLER_NUM_PARALLEL=1 (parallel=2 halves usable context: 32768 -> 16386 per slot, measured 2026-07-07)"
+if grep -qE '^\s*OSTLER_NUM_PARALLEL=2' "$INSTALL_SH"; then
+    failure "install.sh must not set OSTLER_NUM_PARALLEL=2 anywhere"
+fi
 
 # Drift guard: extract the embedded heredoc body and diff it against the
 # canonical lib. They must be byte-identical (minus the heredoc markers).

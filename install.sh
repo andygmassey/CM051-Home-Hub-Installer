@@ -6291,23 +6291,25 @@ else
     mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
     OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
 
-    # Resource-tier governor (v1.0.3): OLLAMA_NUM_PARALLEL scales to the
-    # hardware tier. A second decode slot reserves chat headroom against
-    # background enrichment, but on the FLOOR tier (sub-16GB / <=4 P-core)
-    # the extra KV cache is RAM the machine cannot spare, so it drops to 1
-    # (chat queues briefly behind a background decode rather than swapping).
-    # LOW (16GB floor that ships today) and HIGH keep 2. Fail-safe: if the
-    # tier lib is missing we keep the historic 2.
-    OSTLER_NUM_PARALLEL=2
+    # OLLAMA_NUM_PARALLEL=1 on every tier (perf fix, 2026-07-07).
+    # The v1.0.3 second decode slot was meant to reserve chat headroom
+    # against background enrichment, but measured behaviour on a live
+    # 32 GB Studio showed the opposite trade: Ollama divides the loaded
+    # context across the parallel slots, so parallel=2 silently halved
+    # every num_ctx=32768 request to 16,386 tokens (9,260 "truncating
+    # input prompt" warnings in one log), while requests still queued
+    # serially on the single runner -- half the context, none of the
+    # concurrency. The truncation is what pushed a large email
+    # transcript into CM048's retry loop and pegged the slot for days.
+    # One slot + the single-flight ingest lock + the interactive-chat
+    # yield is the arrangement that actually keeps chat fast.
+    OSTLER_NUM_PARALLEL=1
     _ostler_tier_lib="${HOME}/.ostler/lib/ostler-resource-tier.sh"
     if [[ -f "$_ostler_tier_lib" ]]; then
         # shellcheck source=/dev/null
         . "$_ostler_tier_lib"
         if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
             ostler_resource_tier_detect
-            if [[ "${OSTLER_TIER:-}" == "floor" ]]; then
-                OSTLER_NUM_PARALLEL=1
-            fi
             info "$(printf '    resource tier: %s (RAM %sGB, %s cores) -- OLLAMA_NUM_PARALLEL=%s' "${OSTLER_TIER:-?}" "${OSTLER_RAM_GB:-?}" "${OSTLER_CPU_CORES:-?}" "$OSTLER_NUM_PARALLEL")"
         fi
     fi
@@ -6334,15 +6336,13 @@ else
         spoken) all summarise through it. Two settings keep chat snappy
         on a fresh install while the historic backlog is still draining:
 
-          OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier) --
-            serve two requests against the one loaded model concurrently.
-            Combined with the single-flight lock the conversation feeds
-            take (they never run more than one summary at a time), this
-            reserves a slot so a chat turn never queues behind a
-            minute-long backfill summary. It is
-            RAM-cheap: the model weights are shared across slots; only a
-            second (small, 4K-context) KV cache is added -- safe even on
-            a 16GB Mac.
+          OLLAMA_NUM_PARALLEL=1 -- one slot, full context. Measured on
+            a live 32 GB Studio (2026-07-07): parallel=2 divides the
+            loaded context across slots, silently truncating every
+            num_ctx=32768 request to 16,386 tokens, while requests
+            still queue serially on the one runner. One slot restores
+            the real 32k window; the single-flight ingest lock and the
+            interactive-chat yield keep chat responsive.
 
           OLLAMA_KEEP_ALIVE=-1 -- keep the model resident instead of
             unloading it after each idle gap. Stops the cold-reload
@@ -16287,13 +16287,15 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # This first-run full-summary compile is the single biggest Ollama
         # producer on the box. It MUST share the one background-LLM slot lock
         # with the conversation feeds (*-bundle-tick.sh). Without it, the
-        # backfill + one conversation feed run at once, fill both
-        # OLLAMA_NUM_PARALLEL=2 slots, and live chat (app AND iMessage /
-        # WhatsApp / email replies -- all go through the daemon's /api/chat)
-        # starves: measured 277s + truncated under load vs 1.5s idle on the
-        # .149 box. Holding the lock for the whole compile keeps background
-        # Ollama concurrency at 1, so the 2nd parallel slot is always free for
-        # a live reply.
+        # backfill + one conversation feed run at once and live chat (app AND
+        # iMessage / WhatsApp / email replies -- all go through the daemon's
+        # /api/chat) starves behind both: measured 277s + truncated under
+        # load vs 1.5s idle on the .149 box. Ollama now runs
+        # OLLAMA_NUM_PARALLEL=1 (the old second slot halved usable context
+        # to 16,386 tokens and gave no real concurrency; measured
+        # 2026-07-07), so holding this lock for the whole compile is what
+        # keeps background Ollama concurrency at 1 and the single slot free
+        # for a live reply between background generations.
         #
         # Blocking acquire with PID-LIVENESS reclaim (NOT a time-based steal):
         # a real summary compile legitimately runs for hours, so any time
