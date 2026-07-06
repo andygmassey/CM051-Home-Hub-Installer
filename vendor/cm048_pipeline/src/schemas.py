@@ -422,6 +422,11 @@ class PipelineState:
     failed_step: PipelineStep | None = None
     failure_reason: str | None = None
     retry_count: int = 0
+    # Parked after MAX_JOB_ATTEMPTS failed dispatches (processor.py
+    # runaway fix, 2026-07-07). A dead-lettered conversation is refused
+    # by `process()` and acknowledged (exit 0) so upstream feeds stop
+    # resubmitting it; `pwg-convo retry` revives it explicitly.
+    dead_lettered: bool = False
     prompt_versions: dict[str, str] = field(default_factory=dict)
     sink_idempotency_keys: dict[str, str] = field(default_factory=dict)
 

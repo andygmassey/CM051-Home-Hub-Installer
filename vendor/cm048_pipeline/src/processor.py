@@ -19,6 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -53,6 +55,78 @@ from .settings import Settings, ensure_directories
 
 
 logger = logging.getLogger(__name__)
+
+
+# ── Job-level bounds (2026-07-07 runaway fix) ───────────────────────
+#
+# A stuck 02_enrich on one email transcript held the box's single
+# Ollama inference slot for 4 days 17 hours, turning every user chat
+# turn into a 50-237 s queue wait. Three complementary bounds stop the
+# class of failure:
+#   1. The chunker guarantees forward progress and caps chunk count
+#      (chunker.py).
+#   2. Each `process()` invocation carries a wall-clock budget; a job
+#      that exceeds it fails permanently instead of grinding on.
+#   3. A job whose dispatches keep failing is DEAD-LETTERED after
+#      MAX_JOB_ATTEMPTS: `process()` refuses to run it again and exits
+#      as acknowledged, so upstream feeds (email/iMessage/WhatsApp
+#      ticks) advance their watermark and stop resubmitting it. An
+#      operator can revive it explicitly with `pwg-convo retry`.
+
+# Whole-job dispatch bound. `PipelineState.retry_count` increments once
+# per failed dispatch (in `PipelineState.fail`), so this bounds how many
+# times upstream resubmission can re-run a failing conversation.
+MAX_JOB_ATTEMPTS = 3
+
+# Wall-clock budget for ONE `process()` invocation, seconds.
+# Override with CM048_JOB_BUDGET_SECONDS; 0 disables the budget.
+DEFAULT_JOB_BUDGET_SECONDS = 1800.0
+
+
+class JobBudgetExceededError(Exception):
+    """The job exceeded its wall-clock budget. Permanent: never retried
+    within the same dispatch; counts one failed dispatch towards the
+    dead-letter bound."""
+
+
+# Monotonic deadline for the in-flight job. pwg-convo processes one
+# conversation per CLI invocation on one thread, so a module-level
+# deadline is safe; `process()` resets it on entry.
+_JOB_DEADLINE: float | None = None
+
+
+def _job_budget_seconds() -> float:
+    raw = os.getenv("CM048_JOB_BUDGET_SECONDS", "")
+    try:
+        return float(raw) if raw else DEFAULT_JOB_BUDGET_SECONDS
+    except ValueError:
+        logger.warning(
+            "Invalid CM048_JOB_BUDGET_SECONDS=%r; using default %.0fs",
+            raw, DEFAULT_JOB_BUDGET_SECONDS,
+        )
+        return DEFAULT_JOB_BUDGET_SECONDS
+
+
+def _start_job_deadline() -> None:
+    global _JOB_DEADLINE
+    budget = _job_budget_seconds()
+    _JOB_DEADLINE = (time.monotonic() + budget) if budget > 0 else None
+
+
+def _check_job_deadline(where: str) -> None:
+    """Raise JobBudgetExceededError if the job's wall-clock budget is spent.
+
+    Called before each step attempt and before each enrichment chunk
+    call, so a slow or contended Ollama can never keep one background
+    job on the shared slot indefinitely.
+    """
+    if _JOB_DEADLINE is not None and time.monotonic() > _JOB_DEADLINE:
+        raise JobBudgetExceededError(
+            f"job wall-clock budget ({_job_budget_seconds():.0f}s) exceeded "
+            f"at {where}; failing this dispatch (permanent, will be "
+            "dead-lettered after "
+            f"{MAX_JOB_ATTEMPTS} failed dispatches)"
+        )
 
 
 # ── Public entry point ──────────────────────────────────────────────
@@ -92,6 +166,40 @@ def process(
 
     # Load or create state
     state = _load_or_new_state(state_dir, conversation_id)
+
+    # Dead-letter gate: a conversation whose dispatches have failed
+    # MAX_JOB_ATTEMPTS times is parked, not looped. Returning without
+    # running (and exiting 0 at the CLI, see cmd_process) tells the
+    # upstream feed to advance its watermark and stop resubmitting.
+    # An explicit `pwg-convo retry` (resume_from_step set) revives it.
+    if resume_from_step is None:
+        if state.dead_lettered:
+            logger.error(
+                "%s is dead-lettered (%d failed dispatches); refusing to "
+                "reprocess. Revive with `pwg-convo retry %s`.",
+                conversation_id, state.retry_count, conversation_id,
+            )
+            return state
+        if state.retry_count >= MAX_JOB_ATTEMPTS:
+            state.dead_lettered = True
+            state.failure_reason = (
+                f"DEAD-LETTERED after {state.retry_count} failed dispatches "
+                f"(bound {MAX_JOB_ATTEMPTS}). Last failure: "
+                f"{state.failure_reason or 'unknown'}"
+            )
+            _save_state(state_dir, state)
+            logger.error(
+                "%s dead-lettered after %d failed dispatches; parking. "
+                "Revive with `pwg-convo retry %s`.",
+                conversation_id, state.retry_count, conversation_id,
+            )
+            return state
+    elif state.dead_lettered:
+        # Operator-explicit retry revives a parked conversation.
+        logger.info("Reviving dead-lettered %s via explicit retry.", conversation_id)
+        state.dead_lettered = False
+
+    _start_job_deadline()
     state.advance("00_raw")
     _save_state(state_dir, state)
 
@@ -342,10 +450,18 @@ def _is_retryable(exc: Exception) -> bool:
     """
     import httpx
 
+    if isinstance(exc, JobBudgetExceededError):
+        # The job's wall-clock budget is spent; another attempt inside
+        # this dispatch would just spend more of the shared Ollama slot.
+        return False
     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
         return True
     if isinstance(exc, httpx.TimeoutException):
         return True
+    if isinstance(exc, (ValueError, TypeError)):
+        # Malformed or oversize input (incl. chunker.TranscriptTooLargeError,
+        # a ValueError)  –  permanent, retrying cannot fix the input.
+        return False
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in (429, 500, 502, 503, 504)
     if isinstance(exc, RuntimeError):
@@ -378,6 +494,9 @@ def _run_step(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
+            # Inside the try so a spent budget is classified + persisted
+            # like any other failure (permanent; no further attempts).
+            _check_job_deadline(f"step {step} attempt {attempt}")
             fn()
             state.advance(step)
             _save_state(state_dir, state)
@@ -650,6 +769,13 @@ def _step_enrich(
         # coherent document using the merge prompt.
         per_chunk_outputs = []
         for chunk in chunks:
+            # Each chunk is one LLM call on the shared slot; stop the
+            # moment the job's wall-clock budget is spent (2026-07
+            # runaway fix  –  a background job must never hold the slot
+            # indefinitely).
+            _check_job_deadline(
+                f"02_enrich chunk {chunk.index + 1}/{chunk.total}"
+            )
             prompt_body = _build_enrichment_input(
                 chunk.content,
                 {**metadata, "chunk_note": f"chunk {chunk.index+1} of {chunk.total}"},
