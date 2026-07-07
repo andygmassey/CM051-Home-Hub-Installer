@@ -999,22 +999,41 @@ fi
 # curl|bash bootstrap re-exec (above) so SCRIPT_DIR points at the
 # extracted tarball where the catalogue ships, not at the empty
 # stdin process of the first pipe.
+#
+# Per-key fallback (W7, 2026-07-07): the translated catalogues
+# (de/fr/es/it) lag en-GB by ~91 keys. Because install.sh runs under
+# `set -Eeuo pipefail`, sourcing ONLY a translated catalogue means the
+# first reference to a missing MSG_* key hard-aborts the install with
+# an unbound-variable error -- including inside failure paths, where
+# the customer would see a bare bash error instead of the failure
+# message. So we always source en-GB FIRST as the base layer (every
+# key defined), then source the selected locale on top so its
+# translated keys override; any key the translation lacks keeps its
+# en-GB value. Missing translated key => English text, never a crash.
 OSTLER_LANG="${OSTLER_LANG:-en-GB}"
+_STRINGS_BASE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
 _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
-if [[ ! -f "$_STRINGS_FILE" ]]; then
-    # Fall back to en-GB if the requested language file is missing,
-    # so a stale OSTLER_LANG env var does not brick the installer.
-    _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
+_STRINGS_LOADED=0
+if [[ -f "$_STRINGS_BASE" ]]; then
+    # Base layer: en-GB defines the complete key set.
+    # shellcheck disable=SC1090
+    source "$_STRINGS_BASE"
+    _STRINGS_LOADED=1
 fi
-if [[ -f "$_STRINGS_FILE" ]]; then
+if [[ "$_STRINGS_FILE" != "$_STRINGS_BASE" && -f "$_STRINGS_FILE" ]]; then
+    # Overlay layer: the selected locale's keys override en-GB.
+    # A missing/mistyped OSTLER_LANG simply leaves the en-GB base
+    # in place, so a stale env var does not brick the installer.
     # shellcheck disable=SC1090
     source "$_STRINGS_FILE"
-else
-    printf 'install.sh: strings catalogue not found at %s\n' "$_STRINGS_FILE" >&2
+    _STRINGS_LOADED=1
+fi
+if [[ "$_STRINGS_LOADED" -ne 1 ]]; then
+    printf 'install.sh: no strings catalogue found at %s (nor en-GB base at %s)\n' "$_STRINGS_FILE" "$_STRINGS_BASE" >&2
     printf 'install.sh: this is a packaging bug; please report it.\n' >&2
     exit 1
 fi
-unset _STRINGS_FILE
+unset _STRINGS_FILE _STRINGS_BASE _STRINGS_LOADED
 
 # ── GUI progress emitter (sourced) ─────────────────────────────────
 #
