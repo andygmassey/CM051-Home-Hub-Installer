@@ -1096,6 +1096,20 @@ MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install 
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background – your wiki will fill in over the next hour."
 
+# AI Conversations hydration strings (#553 / #613)
+# Used by install.sh's AI Conversations leg (after the first-month-free
+# activation -- the CM052 subscription gate must be open before the
+# drain). GATED OFF for v1.0.x: OSTLER_AI_CONVERSATIONS_ENABLED
+# defaults to false and none of these strings are shown; the disabled
+# path is deliberately silent. Counts come from pwg-ai-convo's --json
+# output (written) -- counts only, no transcript text or titles.
+MSG_HYDRATE_AICONV_STARTED="Reading your AI chat history – your conversations stay on this Mac"
+MSG_HYDRATE_AICONV_DONE="Saved %s AI conversations to your wiki"
+MSG_HYDRATE_AICONV_SKIPPED_NOT_READY="AI-conversation reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_AICONV_SKIPPED_NO_DATA="No AI chat history to read. You can re-run later from Settings."
+MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="AI chats are still loading in the background – your wiki will fill in over the next hour."
+MSG_HYDRATE_AICONV_HEARTBEAT="  Still reading your AI chat history (%ss so far). A large history can take several minutes."
+
 # Browser history hydration strings (CX-86 Gap A + Gap C)
 # Used by install.sh's hydrate_browsing step. The progress call
 # is a SEPARATE STEP_BEGIN (id = hydrate_browsing) that sits

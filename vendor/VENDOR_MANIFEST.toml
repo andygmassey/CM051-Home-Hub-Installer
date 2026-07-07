@@ -333,3 +333,16 @@ source_path      = "compiler"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
 note             = "CM059 The Editor Front Page producer (compiler/ package only; the bin/, launchd/ and INSTALL_SNIPPET.sh siblings under vendor/cm059_editor/ are CM051-authored wrapper files and are intentionally outside vendor_path). 2026-07-20 re-pin 9f23f83 -> 36b5f696 (current CM059 main HEAD): adopts the wanted masonry Front Page render -- cfd30167 (feat: masonry Front Page render, LOCKED CM061 design; rewrites render_frontpage.py from the flat single-column list to per-section masonry) + 36b5f696 (test: masonry render fixture + 16-test render suite, schema v0.2). Both on CM059 main, no operator PII, wanted for v1.0.10. Byte-identical to CM059 main 36b5f696 -- no divergence patch. Producer is stdlib-only, read-only SPARQL against Oxigraph; emits ~/.ostler/editor/front_page.{json,html}. Set VENDOR_SRC_CM059_EDITOR or export CM059=/path to the CM059 checkout for the freshness gate to verify=full; absent source WARNs, never fails."
+
+# ---- CM052 (PWG AI Conversation Ingest) -----------------------------------
+
+[[tree]]
+name             = "cm052_ai_conversations"
+vendor_path      = "vendor/cm052_ai_conversations"
+source_repo      = "$CM052"
+source_path      = "."
+pinned_sha       = "1ff568bee04dedac4d023876521314500d444937"
+divergence_patch = ""
+exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
+verify           = "full"
+note             = "AI-Conversations install leg (task #553 / #613). Vendors exactly the set pinned in CM052 docs/VENDOR_CM051.md (branch cutb/aiconv-vendor-prep): pyproject.toml + src/__init__.py + src/cm052/*.py + src/cm052/adapters/*.py. Byte-identical to source @ 1ff568b (CM052 main tip incl. merged PR#8 pwg-ai-convo CLI producer) -- no divergence patch. Console entrypoint pwg-ai-convo = src.cm052.cli:main; MUST be pip-installed NON-editable (editable installs do not expose the src package on every setuptools version). Runtime deps httpx + PyYAML only. install.sh gates the whole leg behind OSTLER_AI_CONVERSATIONS_ENABLED (OFF for v1.0.x -- section ships dark). Recut-rule caveat: CM052 branch tnm/cm052-pii-guard-2026-06-25 (PII source guard test) was NOT yet merged into CM052 main at pin time; the pinned tree PASSES that guard (13/13) and CM051's operator-pii-scan is clean on this vendor tree, but the guard merge should land upstream before the next re-pin."
