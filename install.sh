@@ -8714,7 +8714,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/ostler-ai/ostler-wiki-site@sha256:769085ac7f988ab863755ff0ad566d716b5745ecd55f64b5b449a933537d73d4
+    image: ghcr.io/ostler-ai/ostler-wiki-site@sha256:89a1578699dbf75ea277a0432270720e0fb1290e3dafe3d04e47222e4750367b
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -8749,7 +8749,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:ff4eb7eb6f17a7f67c5498ce14f25f9bcce8e779eb155e317d52d030270b3b59
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:f49adbc4a44109917143caf18746ff25da279b082062b02e384451a95e8e8461
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -12845,9 +12845,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.28})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.29})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.28}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.29}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an
