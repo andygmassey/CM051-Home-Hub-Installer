@@ -95,24 +95,42 @@ else
     ok "sqlcipher post-install fail_with_code wired."
 fi
 
-# ── Test 5 — tailscale post-install verification ──
+# ── Test 5 — tailscale install shape (CURRENT: formula, warn-not-fail) ──
 #
-# Tailscale is a cask install: the post-condition is
-# /Applications/Tailscale.app. The previous `brew install --cask
-# tailscale 2>/dev/null && ok || warn` shape MUST NOT come back -- it
-# silently swallowed the failure and let the customer flow to "end"
-# of install with no Tailscale.
-if ! grep -q 'ERR-15-DMG48-TAILSCALE-INSTALL-FAILED' "$INSTALL_SH"; then
-    fail_test "install.sh must call fail_with_code with code ERR-15-DMG48-TAILSCALE-INSTALL-FAILED if /Applications/Tailscale.app is missing post brew install --cask tailscale."
+# DMG #48 originally demanded fail-loud with
+# ERR-15-DMG48-TAILSCALE-INSTALL-FAILED after `brew install --cask
+# tailscale`. SUPERSEDED twice (assertions updated 2026-07-07):
+#   - CX-105 (PR #213): Tailscale is OPTIONAL, a failed install must
+#     warn-and-continue (OSTLER_TAILSCALE_SKIPPED=1), not abort the
+#     whole install over an off-LAN nicety.
+#   - #604 (2026-06-02 Studio walk): the cask resolves to tailscale-app
+#     with a kext + sudo .pkg the non-interactive installer cannot
+#     complete. Swapped to the `tailscale` FORMULA (headless CLI +
+#     tailscaled, userspace networking, no kext, no sudo).
+# The failure is still LOUD (an explicit warn string, not a silent
+# `|| true`), so the DMG #48 silent-bail axis is preserved.
+if ! grep -qE '^\s*if brew install tailscale' "$INSTALL_SH"; then
+    fail_test "install.sh must install Tailscale via the FORMULA ('brew install tailscale', #604). The cask needs an interactive kext approval the installer cannot drive."
 else
-    ok "tailscale post-install fail_with_code wired."
+    ok "tailscale FORMULA install path present (#604)."
+fi
+if ! grep -q 'MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL' "$INSTALL_SH"; then
+    fail_test "install.sh must warn loudly (MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL) when the tailscale formula install fails (CX-105 warn-not-fail; never a silent bail)."
+else
+    ok "tailscale install failure warns loudly (CX-105)."
+fi
+if ! grep -q 'OSTLER_TAILSCALE_SKIPPED=1' "$INSTALL_SH"; then
+    fail_test "install.sh must set OSTLER_TAILSCALE_SKIPPED=1 on tailscale install failure so downstream steps skip cleanly instead of half-configuring."
+else
+    ok "tailscale failure flags OSTLER_TAILSCALE_SKIPPED=1."
 fi
 
-# Refuse the old soft-fail shape ever returning.
-if grep -E 'brew install --cask tailscale 2>/dev/null && \\$' "$INSTALL_SH" >/dev/null; then
-    fail_test "install.sh contains the old soft-fail tailscale pattern 'brew install --cask tailscale 2>/dev/null && \\'. This silently dropped install failures in DMG #47."
+# Refuse the cask path returning (either the old soft-fail shape or a
+# plain cask invocation).
+if grep -qE '^\s*(if\s+)?brew install --cask tailscale' "$INSTALL_SH"; then
+    fail_test "install.sh contains a 'brew install --cask tailscale' invocation. #604: the cask's kext + sudo .pkg cannot complete non-interactively; use the formula."
 else
-    ok "Old tailscale soft-fail pattern is absent."
+    ok "Tailscale cask invocation is absent (#604 formula path holds)."
 fi
 
 # ── Test 6 — install.log transcript is set up early ──
@@ -126,13 +144,27 @@ else
     ok "INSTALL_LOG path wired to \${LOGS_DIR}/install.log."
 fi
 
-# Verify the actual tee redirection is in place. The exact pattern
-# is `exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1` -- both the
-# stdout AND stderr arms must be redirected.
-if ! grep -qE 'exec > >\(stdbuf -oL tee -a "\$\{INSTALL_LOG\}"\) 2>&1' "$INSTALL_SH"; then
-    fail_test "install.sh must redirect stdout+stderr through 'exec > >(stdbuf -oL tee -a \"\${INSTALL_LOG}\") 2>&1'. Without it, the GUI's progress lines never reach disk."
+# Verify the actual tee redirection is in place. Both the stdout AND
+# stderr arms must be redirected.
+#
+# SUPERSEDED shape note (assertion updated 2026-07-07): the original
+# DMG #48 pattern hard-coded `stdbuf -oL tee`, but macOS has no native
+# stdbuf (GNU coreutils only) and on a fresh customer Mac brew is
+# installed AFTER this block runs. install.sh now probes
+# stdbuf > gstdbuf > plain tee via _ostler_select_tee_cmd() and execs
+# through ${_OSTLER_TEE_CMD}. Same fail-loud transcript guarantee,
+# portable implementation.
+if ! grep -qE 'exec > >\(\$\{_OSTLER_TEE_CMD\} -a "\$\{INSTALL_LOG\}"\) 2>&1' "$INSTALL_SH"; then
+    fail_test "install.sh must redirect stdout+stderr through 'exec > >(\${_OSTLER_TEE_CMD} -a \"\${INSTALL_LOG}\") 2>&1'. Without it, the GUI's progress lines never reach disk."
 else
-    ok "install.log tee redirection in place (exec > >(tee -a ...) 2>&1)."
+    ok "install.log tee redirection in place (exec > >(\${_OSTLER_TEE_CMD} -a ...) 2>&1)."
+fi
+# The probe must still PREFER line-buffered stdbuf when available so
+# the GUI log streams live rather than in 4KB chunks.
+if ! grep -q '_ostler_select_tee_cmd' "$INSTALL_SH" || ! grep -q 'stdbuf -oL tee' "$INSTALL_SH"; then
+    fail_test "install.sh must probe for line-buffered tee (stdbuf -oL tee, falling back to gstdbuf/plain tee) via _ostler_select_tee_cmd; a plain-tee-only wire makes the GUI log viewer lag by kilobytes."
+else
+    ok "line-buffered tee probe (_ostler_select_tee_cmd, stdbuf preferred) present."
 fi
 
 # ── Test 7 — the new MSG_FAIL_* strings exist in the en-GB catalogue ──
@@ -147,7 +179,7 @@ else
         MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW \
         MSG_FAIL_OLLAMA_MISSING_AFTER_BREW \
         MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW \
-        MSG_FAIL_TAILSCALE_INSTALL_FAILED; do
+        MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL; do
         if ! grep -q "^${key}=" "$STRINGS_FILE"; then
             fail_test "Locale catalogue missing key: ${key}. Rule 0.9 (customer strings extractable from day one) requires it in install.sh.strings.en-GB.sh."
         else

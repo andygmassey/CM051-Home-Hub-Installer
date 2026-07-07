@@ -195,11 +195,22 @@ echo "PASS: install.sh pre-checks port 3000 for conflicts"
 # the human-readable label "Vane healthy" so a refactor that
 # replaces the curl with a different probe still has to update
 # the user-facing wording.
-if ! grep -q 'Vane healthy' "$INSTALL_SCRIPT"; then
-    echo "FAIL [phase-4-health]: phase-4 health check does not surface Vane" >&2
+#
+# Assertion updated 2026-07-07: the literal moved into the i18n
+# catalogue as MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH (Rule 0.9
+# string extraction). Assert both the key wiring in install.sh
+# and the wording in the en-GB catalogue.
+if ! grep -q 'MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH' "$INSTALL_SCRIPT"; then
+    echo "FAIL [phase-4-health]: phase-4 health check does not surface Vane (MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH not referenced)" >&2
     exit 1
 fi
-echo "PASS: phase-4 health check surfaces Vane"
+VANE_STRINGS_FILE="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+if [[ ! -f "$VANE_STRINGS_FILE" ]] \
+   || ! grep -q '^MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH=.*Vane healthy' "$VANE_STRINGS_FILE"; then
+    echo "FAIL [phase-4-health-string]: en-GB catalogue does not carry the 'Vane healthy' wording" >&2
+    exit 1
+fi
+echo "PASS: phase-4 health check surfaces Vane (via i18n catalogue)"
 
 # ── User-facing copy: --help text mentions Vane ────────────────
 # The --help screen is the customer's first read of what the

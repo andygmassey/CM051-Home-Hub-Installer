@@ -95,11 +95,22 @@ echo "PASS: clone branch verifies \$DOCTOR_TMP/doctor/agent before copying"
 #   - the repo URL
 #   - a "to install later" recipe
 #   - a hint about PWG_DOCTOR_REPO override
-if ! grep -q 'Override the source repo with PWG_DOCTOR_REPO' "$INSTALL_SCRIPT"; then
-    echo "FAIL [diag-override]: clone failure does not mention PWG_DOCTOR_REPO override" >&2
+#
+# Assertion updated 2026-07-07: the literal English hint moved into the
+# i18n catalogue as MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR
+# (Rule 0.9 string extraction). Behaviour is unchanged; install.sh now
+# references the key, and the catalogue must carry the wording.
+if ! grep -q 'MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR' "$INSTALL_SCRIPT"; then
+    echo "FAIL [diag-override]: clone failure does not reference MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR (PWG_DOCTOR_REPO override hint)" >&2
     exit 1
 fi
-echo "PASS: clone failure surfaces PWG_DOCTOR_REPO override hint"
+DIAG_STRINGS_FILE="${REPO_ROOT}/install.sh.strings.en-GB.sh"
+if [[ ! -f "$DIAG_STRINGS_FILE" ]] \
+   || ! grep -q '^MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR=.*PWG_DOCTOR_REPO' "$DIAG_STRINGS_FILE"; then
+    echo "FAIL [diag-override-string]: en-GB catalogue does not carry the PWG_DOCTOR_REPO override wording" >&2
+    exit 1
+fi
+echo "PASS: clone failure surfaces PWG_DOCTOR_REPO override hint (via i18n catalogue)"
 
 # ── Tmpdir is cleaned up in BOTH success and failure branches ───
 # rm -rf "$DOCTOR_TMP" must appear at least twice (one per branch).

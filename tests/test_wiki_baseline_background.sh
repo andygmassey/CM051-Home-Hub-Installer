@@ -58,16 +58,40 @@ fi
 
 # Axis 3: a FULL summary compile must be kicked in the BACKGROUND (full
 # mode -- no skip flag) and detached so it survives install.sh.
-if ! grep -q 'nohup docker compose --profile compile run --rm -T wiki-compiler' "$INSTALL_SH"; then
-    failure "no detached background full compile -- summaries would never land"
+#
+# Shape assertions updated 2026-07-07: the original `nohup docker
+# compose ... &` one-liner was SUPERSEDED by the v1.0.0 chat-saturation
+# fix. The full compile now runs inside `nohup bash -c '...'` which
+# first acquires the shared background-LLM slot lock
+# (${OSTLER_INGEST_LOCK}, PID-liveness reclaim) so background Ollama
+# concurrency stays at 1 and live chat always has a free decode slot
+# (measured 277s replies vs 1.5s without the lock on the .149 box).
+# The detachment guarantees (nohup + & + disown + no skip flag + no rc
+# gate) are unchanged and still asserted here.
+if ! grep -q "nohup bash -c '" "$INSTALL_SH"; then
+    failure "no detached background compile wrapper (nohup bash -c slot-lock block) -- summaries would never land"
+fi
+# Extract the nohup'd slot-lock block (from the nohup line to the
+# closing quote line) for the inner assertions.
+BG_BLOCK=$(awk "/nohup bash -c '/{f=1} f{print} f && /^        ' /{exit}" "$INSTALL_SH")
+if ! printf '%s\n' "$BG_BLOCK" | grep -q 'docker compose --profile compile run --rm -T wiki-compiler'; then
+    failure "the nohup'd block does not run the full wiki-compiler pass -- summaries would never land"
 fi
 # The background invocation must NOT carry the skip flag (it is the FULL
-# pass). Assert the nohup line has no OSTLER_WIKI_SKIP_LLM on it.
-if grep 'nohup docker compose --profile compile run --rm -T wiki-compiler' "$INSTALL_SH" | grep -q 'OSTLER_WIKI_SKIP_LLM'; then
+# pass).
+if printf '%s\n' "$BG_BLOCK" | grep 'wiki-compiler' | grep -q 'OSTLER_WIKI_SKIP_LLM'; then
     failure "the background compile carries OSTLER_WIKI_SKIP_LLM -- it would skip the very summaries it exists to generate"
 fi
+# The block must take the shared background-LLM slot lock before the
+# compile (chat-saturation fix) and free it on exit.
+if ! printf '%s\n' "$BG_BLOCK" | grep -q 'mkdir "\$_slot"'; then
+    failure "background compile does not acquire the shared background-LLM slot lock -- live chat would starve behind the compile"
+fi
+if ! printf '%s\n' "$BG_BLOCK" | grep -q 'trap "rm -rf'; then
+    failure "background compile does not release the slot lock on exit -- conversation feeds would deadlock behind a dead PID"
+fi
 # It must be backgrounded (&) and disowned so its exit code can't gate.
-if ! grep -Eq '</dev/null >"\$WIKI_BG_LOG" 2>&1 &' "$INSTALL_SH"; then
+if ! grep -Eq '>"\$WIKI_BG_LOG" 2>&1 &$' "$INSTALL_SH"; then
     failure "background compile is not detached with & -- install would wait on it"
 fi
 if ! grep -q 'disown' "$INSTALL_SH"; then
