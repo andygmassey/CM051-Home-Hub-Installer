@@ -274,3 +274,16 @@ divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "requirements.txt", "CLAUDE.md", "README.md"]
 verify           = "skip"
 note             = "The Editor Front Page emitter (compiler.emit_frontpage + interest_profile + frontpage + renderers). Stdlib-only; staged into ~/.ostler/editor and run by the com.ostler.editor.frontpage LaunchAgent. Source-of-truth lives at the CM059 - Ostler Editor repo (feat/frontpage-live-wiring)."
+
+# ---- CM052 (PWG AI Conversation Ingest) -----------------------------------
+
+[[tree]]
+name             = "cm052_ai_conversations"
+vendor_path      = "vendor/cm052_ai_conversations"
+source_repo      = "$CM052"
+source_path      = "."
+pinned_sha       = "1ff568bee04dedac4d023876521314500d444937"
+divergence_patch = ""
+exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
+verify           = "full"
+note             = "AI-Conversations install leg (task #553 / #613). Vendors exactly the set pinned in CM052 docs/VENDOR_CM051.md (branch cutb/aiconv-vendor-prep): pyproject.toml + src/__init__.py + src/cm052/*.py + src/cm052/adapters/*.py. Byte-identical to source @ 1ff568b (CM052 main tip incl. merged PR#8 pwg-ai-convo CLI producer) -- no divergence patch. Console entrypoint pwg-ai-convo = src.cm052.cli:main; MUST be pip-installed NON-editable (editable installs do not expose the src package on every setuptools version). Runtime deps httpx + PyYAML only. install.sh gates the whole leg behind OSTLER_AI_CONVERSATIONS_ENABLED (OFF for v1.0.x -- section ships dark). Recut-rule caveat: CM052 branch tnm/cm052-pii-guard-2026-06-25 (PII source guard test) was NOT yet merged into CM052 main at pin time; the pinned tree PASSES that guard (13/13) and CM051's operator-pii-scan is clean on this vendor tree, but the guard merge should land upstream before the next re-pin."

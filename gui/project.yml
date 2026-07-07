@@ -604,6 +604,42 @@ targets:
           - $(SRCROOT)/../vendor/cm059_editor
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm059_editor
+      - name: Bundle CM052 AI-conversation producer into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's AI-Conversations leg (task #553 / #613) probes
+          # ${SCRIPT_DIR}/cm052_ai_conversations/ to discover the vendored
+          # CM052 package, pip-installs it NON-editable into a dedicated
+          # venv under ${OSTLER_DIR}/services/cm052/, and runs the
+          # pwg-ai-convo producer to drain external-LLM chat history into
+          # ~/Documents/Ostler/AI Conversations/ (the CM044 AI Chats wing).
+          #
+          # The whole leg is gated behind OSTLER_AI_CONVERSATIONS_ENABLED
+          # (OFF for v1.0.x -- the section ships dark), but the package is
+          # bundled unconditionally so flipping the flag on needs no
+          # rebuild -- mirror of the cm024_knowledge "CLI installed, flag
+          # only controls visibility" posture.
+          #
+          # Same vendoring discipline as cm048_pipeline above; upstream is
+          # CM052 - PWG AI Conversation Ingest @ the manifest-pinned SHA.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm052_ai_conversations"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm052_ai_conversations from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm052_ai_conversations"
+            # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).
+            cp -R "${SRC}/" "${DEST}/cm052_ai_conversations/"
+            # Strip developer-checkout artefacts before codesign.
+            find "${DEST}/cm052_ai_conversations" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+            find "${DEST}/cm052_ai_conversations" -type f -name "*.pyc" -delete 2>/dev/null || true
+            /usr/bin/xattr -cr "${DEST}/cm052_ai_conversations" || true
+          else
+            echo "note: vendor/cm052_ai_conversations not found at ${SRC}; skipping AI-Conversations bundling (cut predates CM052 leg)." >&2
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm052_ai_conversations
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm052_ai_conversations
       - name: Bundle CM019 preferences ingest pipeline into Resources
         script: |
           set -euo pipefail

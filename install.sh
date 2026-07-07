@@ -10749,6 +10749,8 @@ launchctl bootout "gui/$(id -u)/com.ostler.contact-resync" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.deferred-register-device" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
@@ -17183,6 +17185,269 @@ else
     # subscription-state write failure.
     warn "$MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL"
 fi
+
+# ── AI Conversations hydration (#553 / #613) ───────────────────────
+#
+# Drains the customer's external-LLM chat history (ChatGPT exports,
+# Claude Code sessions, ZeroClaw sessions, channel JSONL) through the
+# vendored CM052 producer (pwg-ai-convo) into
+# ~/Documents/Ostler/AI Conversations/<YYYY-MM-DD>/<id>.md -- the same
+# path CM044's ai_conversation_pages.py reads for the AI Chats wing.
+#
+# GATED OFF for v1.0.x: OSTLER_AI_CONVERSATIONS_ENABLED defaults to
+# false and the whole leg (venv + pip install + producer run) is
+# skipped SILENTLY -- the AI Chats section ships dark. Flip the env
+# var to "true" to light it up; the vendored package is bundled in the
+# .app either way (gui/project.yml), so no rebuild is needed.
+#
+# ORDERING CONSTRAINT (do not hoist this block above G2): CM052's
+# wire.post() subscription gate PAUSES with no episodic write when
+# ~/.ostler/state/subscription_state.json is absent (CM052 CLAUDE.md
+# install-time gotcha 1). The first-month-free activation directly
+# above writes that state, so the drain only runs once the gate is
+# open. The hydrate_* helpers (sentinel + heartbeat, defined ~L14420)
+# are still in scope here -- they are never unset.
+#
+# Privacy (mirror of B2 AC6 / CX-85): the producer's --json output is
+# a counts-only summary {discovered, ingested, written, l3_skipped,
+# failed} (v1.0.3 contract, BUG-025). No transcript text, titles or
+# model names cross the install.sh process boundary. Per-artefact
+# privacy defaults to L2/L2 (Option A); a per-conversation
+# privacy_level: L3 override still writes the file but short-circuits
+# the CM048 POST.
+OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-false}"
+
+if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
+    _AICONV_DIR="${OSTLER_DIR}/services/cm052"
+    _AICONV_VENV="${_AICONV_DIR}/.venv"
+    _AICONV_BIN="${_AICONV_VENV}/bin/pwg-ai-convo"
+    _AICONV_LOG=/tmp/ostler-hydrate-aiconv.log
+
+    # Discover the vendored package: .app bundle layout first
+    # (SCRIPT_DIR is Contents/Resources), then the dev-tree layout.
+    _AICONV_SRC=""
+    for _aiconv_p in "${SCRIPT_DIR}/cm052_ai_conversations" \
+                     "${SCRIPT_DIR}/vendor/cm052_ai_conversations"; do
+        if [[ -f "${_aiconv_p}/pyproject.toml" ]]; then
+            _AICONV_SRC="$_aiconv_p"
+            break
+        fi
+    done
+    unset _aiconv_p
+
+    if _hydrate_sentinel_fresh "ai_conversations"; then
+        info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
+    elif [[ -z "$_AICONV_SRC" ]]; then
+        info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+    else
+        info "$MSG_HYDRATE_AICONV_STARTED"
+
+        # Idempotent venv + NON-editable pip install. Editable installs
+        # do not expose the `src` package on every setuptools version
+        # (CM052 CLAUDE.md install-time gotcha 2), so plain
+        # `pip install <dir>` it is. Failures degrade to the
+        # "not ready" skip below -- never a hard fail.
+        if [[ ! -x "$_AICONV_BIN" ]]; then
+            mkdir -p "$_AICONV_DIR"
+            "$PYTHON3_BIN" -m venv "$_AICONV_VENV" >>"$_AICONV_LOG" 2>&1 || true
+            "$_AICONV_VENV/bin/pip" install --quiet --upgrade pip >>"$_AICONV_LOG" 2>&1 || true
+            "$_AICONV_VENV/bin/pip" install --quiet "$_AICONV_SRC" >>"$_AICONV_LOG" 2>&1 || true
+        fi
+
+        if [[ ! -x "$_AICONV_BIN" ]]; then
+            info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+        else
+            # Same timeout picker as hydrate_email / hydrate_whatsapp
+            # (brew coreutils gtimeout preferred; system timeout
+            # fallback; unbounded-but-heartbeated if neither).
+            _AICONV_TIMEOUT_WRAP=""
+            if command -v gtimeout >/dev/null 2>&1; then
+                _AICONV_TIMEOUT_WRAP="gtimeout 180"
+            elif command -v timeout >/dev/null 2>&1; then
+                _AICONV_TIMEOUT_WRAP="timeout 180"
+            fi
+
+            _AICONV_TIMED_OUT=false
+            _AICONV_OUT="$(mktemp -t ostler-aiconv.XXXXXX)" || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+
+            # Producer invocation per the v1.0.3 contract (CM052
+            # docs/VENDOR_CM051.md). CM052_USER_EMAIL is the me-card
+            # identity captured at Q3; the final stdout line is the
+            # counts-only JSON summary.
+            _hydrate_heartbeat_start "$MSG_HYDRATE_AICONV_HEARTBEAT"
+            _aiconv_rc=0
+            CM052_USER_EMAIL="${USER_EMAIL:-}" \
+            OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \
+            OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \
+            OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
+            $_AICONV_TIMEOUT_WRAP "$_AICONV_BIN" \
+                --source all --since-days 365 --json \
+                >"$_AICONV_OUT" 2>>"$_AICONV_LOG" || _aiconv_rc=$?
+            _hydrate_heartbeat_stop
+            # gtimeout returns 124 (SIGTERM) / 137 (SIGKILL) on cap.
+            if [[ "$_aiconv_rc" -eq 124 ]] || [[ "$_aiconv_rc" -eq 137 ]]; then
+                _AICONV_TIMED_OUT=true
+            fi
+
+            _AICONV_JSON="$(tail -n 1 "$_AICONV_OUT" 2>/dev/null)" || _AICONV_JSON=""
+            rm -f "$_AICONV_OUT"
+            _AICONV_COUNT="$(
+                printf '%s' "$_AICONV_JSON" \
+                | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("written", 0)))
+except Exception:
+    print(0)' 2>/dev/null
+            )"
+            _AICONV_COUNT="${_AICONV_COUNT:-0}"
+
+            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
+                # 180s cap hit mid-drain. Do NOT record the 7-day
+                # sentinel here -- a timed-out drain is incomplete and
+                # the next install/re-run must retry, not skip for a
+                # week (w7-aiconv-honesty defect 1). Instead install a
+                # self-removing hourly LaunchAgent that resumes the
+                # drain in the background (same inline-plist pattern
+                # as com.ostler.meeting-brief-sender), records the
+                # sentinel itself on a completed run, then boots its
+                # own agent out. Pre-fix, the "still loading in the
+                # background" copy promised continuation no agent
+                # existed to deliver (defect 2) -- unlike the email
+                # leg, whose hourly email-ingest LaunchAgent makes the
+                # same promise true.
+                _AICONV_AGENT_OK=false
+                _AICONV_RESUME_BIN="${OSTLER_DIR}/bin/ostler-aiconv-resume"
+                _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
+                mkdir -p "${OSTLER_DIR}/bin" "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
+                cat > "$_AICONV_RESUME_BIN" <<AICONVRESUME
+#!/usr/bin/env bash
+# Resumes the install-time AI-conversations drain that hit its
+# wall-clock cap. Unbounded here (background, launchd-owned, hourly).
+# Self-removing: on a completed drain it writes the hydrate sentinel
+# and boots its own LaunchAgent out. Generated by install.sh -- do
+# not edit. Counts-only JSON crosses this process boundary; no
+# transcript text, titles or model names are ever logged.
+set -u
+SENTINEL="${_HYDRATE_SENTINEL_DIR}/ai_conversations.done"
+PLIST="${_AICONV_RESUME_PLIST}"
+LABEL="com.ostler.aiconv-resume"
+BIN="${_AICONV_BIN}"
+PYBIN="${_AICONV_VENV}/bin/python3"
+LOG="${LOGS_DIR}/aiconv-resume.log"
+
+self_remove() {
+    rm -f "\$PLIST"
+    launchctl bootout "gui/\$(id -u)/\$LABEL" 2>/dev/null \\
+        || launchctl remove "\$LABEL" 2>/dev/null || true
+}
+
+# Drain already completed elsewhere (re-install raced us): tidy up.
+if [ -f "\$SENTINEL" ]; then
+    self_remove
+    exit 0
+fi
+# Venv gone (uninstall/reinstall underway): retries can never
+# succeed, so remove the agent rather than spin hourly forever.
+if [ ! -x "\$BIN" ]; then
+    echo "\$(date -u +%Y-%m-%dT%H:%M:%SZ) producer missing at \$BIN; removing agent" >> "\$LOG"
+    self_remove
+    exit 0
+fi
+[ -x "\$PYBIN" ] || PYBIN="python3"
+
+OUT="\$(mktemp -t ostler-aiconv-resume.XXXXXX)" || exit 0
+if CM052_USER_EMAIL="${USER_EMAIL:-}" \\
+   OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \\
+   OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \\
+   OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \\
+   "\$BIN" --source all --since-days 365 --json >"\$OUT" 2>>"\$LOG"; then
+    COUNT="\$(tail -n 1 "\$OUT" | "\$PYBIN" -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("written", 0)))
+except Exception:
+    print(0)' 2>/dev/null)"
+    COUNT="\${COUNT:-0}"
+    rm -f "\$OUT"
+    mkdir -p "${_HYDRATE_SENTINEL_DIR}"
+    {
+        printf 'recorded_at=%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=ai_conversations\n'
+        printf 'payload=written=%s\n' "\$COUNT"
+    } > "\$SENTINEL"
+    self_remove
+    exit 0
+fi
+# Drain failed again: leave the agent loaded so launchd retries on
+# the next hourly tick.
+rm -f "\$OUT"
+exit 0
+AICONVRESUME
+                chmod 0755 "$_AICONV_RESUME_BIN"
+
+                cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.aiconv-resume</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${_AICONV_RESUME_BIN}</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/aiconv-resume.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/aiconv-resume.err</string>
+</dict>
+</plist>
+AICONVPLIST
+                launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || true
+                if launchctl bootstrap "gui/$(id -u)" "$_AICONV_RESUME_PLIST" 2>/dev/null \
+                   || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
+                    _AICONV_AGENT_OK=true
+                fi
+
+                if [[ "$_AICONV_AGENT_OK" == "true" ]]; then
+                    info "$MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES"
+                else
+                    # Agent failed to load: do not promise background
+                    # continuation we cannot keep. No sentinel either,
+                    # so the next run retries.
+                    info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+                fi
+                unset _AICONV_AGENT_OK _AICONV_RESUME_BIN _AICONV_RESUME_PLIST
+            elif [[ "$_aiconv_rc" -ne 0 ]]; then
+                # Producer failed outright (non-timeout). No sentinel:
+                # the next install/re-run must retry, not skip 7 days.
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
+            elif [[ "$_AICONV_COUNT" -gt 0 ]]; then
+                ok "$(printf "$MSG_HYDRATE_AICONV_DONE" "$_AICONV_COUNT")"
+                # Counts-only sentinel payload; never logged
+                # off-machine. Success arm ONLY -- a timed-out or
+                # failed drain must not suppress the retry for 7 days.
+                _hydrate_sentinel_record "ai_conversations" "written=${_AICONV_COUNT}"
+            else
+                info "$MSG_HYDRATE_AICONV_SKIPPED_NO_DATA"
+                # A clean zero-count run is still a completed drain.
+                _hydrate_sentinel_record "ai_conversations" "written=0"
+            fi
+
+            unset _AICONV_TIMED_OUT _AICONV_JSON _AICONV_COUNT
+            unset _AICONV_TIMEOUT_WRAP _AICONV_OUT _aiconv_rc
+        fi
+    fi
+
+    unset _AICONV_DIR _AICONV_VENV _AICONV_BIN _AICONV_LOG _AICONV_SRC
+fi
+# (disabled path: deliberately silent -- the section ships dark on
+# v1.0.x and the customer never hears about a feature that is off.)
 
 # ── Final assistant-daemon restart (FDA inheritance) ───────────────
 #
