@@ -143,6 +143,47 @@ final class TerminationExitCodeReconcileTests: XCTestCase {
         }
     }
 
+    // MARK: - Failure copy matches the CX-14 E2 failure pane (Section E closeout)
+
+    /// CX-14 Section E2 deliberately DROPPED the "Try again" button
+    /// from the failure surface, but the reconcileTermination copy
+    /// (added later by CX-126/CX-454) still told customers to "Use
+    /// Copy log and Try again" -- directing them at a button that no
+    /// longer exists. Pin every reconciliation failure message to the
+    /// actions that DO exist on InstallFailedBodyView (Email support +
+    /// Copy log) and to the support address.
+    func testFailureMessagesNeverReferenceDroppedTryAgainButton() {
+        let failureShapes: [(StepStatus?, Int32)] = [
+            (nil, 0),   // CX-126: no marker, masked exit
+            (nil, 2),   // no marker, non-zero exit
+            (.warn, 3), // warn finish, dirty exit
+            (.ok, 1)    // CX-454: ok marker contradicted by exit
+        ]
+        for (marker, exit) in failureShapes {
+            let outcome = InstallerCoordinator.reconcileTermination(
+                donedMarker: marker,
+                cancelled: false,
+                exitCode: exit
+            )
+            guard case .failure(let message) = outcome else {
+                XCTFail("Expected .failure for marker=\(String(describing: marker)) exit=\(exit), got \(outcome)")
+                continue
+            }
+            XCTAssertFalse(
+                message.contains("Try again"),
+                "E2 dropped the Try again button; failure copy must not reference it (marker=\(String(describing: marker)) exit=\(exit))."
+            )
+            XCTAssertTrue(
+                message.contains("support@ostler.ai"),
+                "Failure copy must carry the support address (marker=\(String(describing: marker)) exit=\(exit))."
+            )
+            XCTAssertTrue(
+                message.contains("Email support") && message.contains("Copy log"),
+                "Failure copy must point at the actions that exist on the failure pane (marker=\(String(describing: marker)) exit=\(exit))."
+            )
+        }
+    }
+
     // MARK: - End-to-end through handleTermination's public effects
 
     /// Drives a coordinator into the false-success shape via the test
