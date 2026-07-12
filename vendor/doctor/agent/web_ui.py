@@ -71,6 +71,8 @@ from web_ui_copy import (
     DASHBOARD_BTN_EMAIL_PREPARING,
     DASHBOARD_BTN_EMAIL_TITLE,
     DASHBOARD_BTN_REFRESH,
+    DASHBOARD_BTN_SETTINGS,
+    DASHBOARD_BTN_SETTINGS_TITLE,
     DASHBOARD_FIX_LABEL_FMT,
     DASHBOARD_FIX_NOTE,
     DASHBOARD_HEADING,
@@ -866,6 +868,7 @@ def render_dashboard(
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            text-decoration: none;
         }}
         .refresh-btn:hover, .auto-refresh-btn:hover {{
             border-color: var(--ostler-accent);
@@ -1260,6 +1263,7 @@ def render_dashboard(
             </div>
             <div>
                 <div class="header-controls">
+                    <a class="refresh-btn" href="/config" id="settingsBtn" title="{DASHBOARD_BTN_SETTINGS_TITLE}">{DASHBOARD_BTN_SETTINGS}</a>
                     <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                     <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                     <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>

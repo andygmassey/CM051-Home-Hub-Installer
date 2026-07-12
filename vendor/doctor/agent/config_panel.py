@@ -67,6 +67,24 @@ def _config_file() -> Path:
     return DEFAULT_CONFIG_FILE
 
 
+def _governor_env_file() -> Path:
+    """Resolve the path of the shell-sourceable governor bridge file.
+
+    This is the file the background-work engine
+    (``~/.ostler/lib/ostler-resource-tier.sh``) actually reads. The panel
+    writes YAML for humans AND this KEY=VALUE file for the engine, which
+    closes the writer/reader gap that made the old Config page a no-op.
+
+    ``OSTLER_GOVERNOR_ENV_FILE`` wins; otherwise it sits beside the
+    resolved ``config.yaml`` so a test that relocates the config also
+    relocates the bridge file.
+    """
+    raw = os.environ.get("OSTLER_GOVERNOR_ENV_FILE")
+    if raw:
+        return Path(raw)
+    return _config_file().parent / "governor.env"
+
+
 # -- Errors -----------------------------------------------------------
 
 
@@ -131,6 +149,34 @@ class FieldSpec:
 
 
 EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
+    # -- Background work ---------------------------------------------
+    # The two controls Andy asked for: a Pause and a throttle. Both are
+    # written straight through to the shell governor via governor.env, so
+    # they take effect on the next background tick -- no daemon restart.
+    FieldSpec(
+        key="background_paused",
+        kind="bool",
+        label="Pause background work",
+        section="Background work",
+        help=(
+            "Stop the background catch-up (conversation ingest, wiki "
+            "refresh, summaries) until you switch this off. Chatting with "
+            "your assistant still works while paused."
+        ),
+    ),
+    FieldSpec(
+        key="background_throttle",
+        kind="enum",
+        label="Background work speed",
+        section="Background work",
+        help=(
+            "How hard the background catch-up may push your Mac. "
+            "'gentle' eases off and saves the heavy work for overnight; "
+            "'balanced' matches the work to your hardware (recommended); "
+            "'full' runs it as fast as possible."
+        ),
+        choices=("gentle", "balanced", "full"),
+    ),
     # -- Channels ----------------------------------------------------
     FieldSpec(
         key="imessage_enabled",
@@ -199,8 +245,15 @@ EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
 _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
 
 
-# Section display order for the rendered panel.
-SECTION_ORDER: tuple[str, ...] = ("Channels", "Model", "Schedule", "Privacy")
+# Section display order for the rendered panel. "Background work" leads so
+# the Pause and throttle controls are the first thing the operator sees.
+SECTION_ORDER: tuple[str, ...] = (
+    "Background work",
+    "Channels",
+    "Model",
+    "Schedule",
+    "Privacy",
+)
 
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -395,16 +448,75 @@ def _atomic_write(path: Path, data: dict[str, Any]) -> None:
         raise ConfigError(500, f"Could not write config file: {exc}")
 
 
+# -- Governor bridge (the file the background-work engine reads) ------
+#
+# The old defect: the panel wrote config.yaml that NO daemon read, so
+# toggles silently did nothing. The background-work engine is a shell
+# library that reads environment variables, so the contract between panel
+# (Python writer) and engine (shell reader) is a tiny KEY=VALUE file it
+# sources. We regenerate it from the full merged config on every write so
+# it always matches config.yaml.
+
+# Throttle levels understood by the shell engine's OSTLER_THROTTLE_LEVEL.
+_THROTTLE_LEVELS: tuple[str, ...] = ("gentle", "balanced", "full")
+
+
+def render_governor_env(config: dict[str, Any]) -> str:
+    """Render the governor settings as a shell-sourceable KEY=VALUE file.
+
+    Only the two background-work controls are emitted; everything else in
+    config.yaml is irrelevant to the shell engine. Unknown/blank values
+    fall back to safe defaults (not paused, balanced) so a partial config
+    never produces a malformed bridge file.
+    """
+    paused = bool(config.get("background_paused", False))
+    throttle = config.get("background_throttle", "balanced")
+    if throttle not in _THROTTLE_LEVELS:
+        throttle = "balanced"
+    return (
+        "# Ostler background-work settings.\n"
+        "# Written by the Doctor Settings panel; read by\n"
+        "# ~/.ostler/lib/ostler-resource-tier.sh on the next background tick.\n"
+        "# Do not hand-edit while the Settings panel is open.\n"
+        f"export OSTLER_PAUSED={'1' if paused else '0'}\n"
+        f"export OSTLER_THROTTLE_LEVEL={throttle}\n"
+    )
+
+
+def _write_governor_env(config: dict[str, Any], path: Optional[Path] = None) -> None:
+    """Atomically write the governor bridge file the shell engine reads."""
+    p = path or _governor_env_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    text = render_governor_env(config)
+    fd, tmp = tempfile.mkstemp(
+        dir=str(p.parent), prefix=".governor-", suffix=".env.tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, p)
+    except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise ConfigError(500, f"Could not write governor settings file: {exc}")
+
+
 def write_config(updates: Any, path: Optional[Path] = None) -> dict[str, Any]:
     """Validate ``updates`` and merge them into the config file.
 
     Reads the existing file first and preserves every key the panel does
-    not understand, so a newer/foreign config is never clobbered. Returns
-    the fresh panel view model (so the client re-renders from authority).
+    not understand, so a newer/foreign config is never clobbered. After
+    persisting config.yaml, regenerates the ``governor.env`` bridge so the
+    background-work engine actually consumes the pause/throttle choices.
+    Returns the fresh panel view model (so the client re-renders from
+    authority).
     """
     p = path or _config_file()
     normalised = validate_updates(updates)
     current = _load_raw(p)
     current.update(normalised)
     _atomic_write(p, current)
+    _write_governor_env(current)
     return read_config_view(p)

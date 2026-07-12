@@ -110,10 +110,120 @@ ostler_rt_loadavg_1m() {
     printf '%s' "$raw" | tr -d '{}' | awk '{print $1}'
 }
 
+# ── User-facing controls (the Doctor "Settings" panel) ───────────────
+#
+# The hardware-tier policy above is the automatic floor. On top of it the
+# operator gets two explicit controls, surfaced in the Doctor Settings
+# panel and persisted by it as a tiny KEY=VALUE file the panel writes and
+# THIS engine reads (closing the writer/reader gap that made the old
+# Config page a no-op):
+#
+#   * Pause  -- stop background enrichment/ingest entirely (OSTLER_PAUSED).
+#   * Throttle -- how hard background work may push the machine
+#                 (OSTLER_THROTTLE_LEVEL = full | balanced | gentle).
+#
+# Both are read here so EVERY consumer (all five conversation feeds + the
+# wiki recompile) honours them from the one place they already source.
+
+# Load the operator's Settings-panel choices. The panel writes a small
+# KEY=VALUE file (governor.env). We parse it DEFENSIVELY -- only OSTLER_*
+# assignments, values stripped of optional surrounding quotes -- and
+# export each, so a corrupt or hostile file can never execute code the way
+# a blind `source` would. An already-set environment variable always wins
+# (we only fill keys the caller has not set), so a test or command-line
+# override still takes precedence over the file.
+#   OSTLER_GOVERNOR_SETTINGS -> override the settings file path
+#                               (default ~/.ostler/config/governor.env).
+ostler_rt_load_user_settings() {
+    local f="${OSTLER_GOVERNOR_SETTINGS:-$HOME/.ostler/config/governor.env}"
+    [ -f "$f" ] || return 0
+    local line key val
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Trim leading whitespace, drop blanks and comments.
+        line="${line#"${line%%[![:space:]]*}"}"
+        case "$line" in
+            ''|'#'*) continue ;;
+            'export '*) line="${line#export }" ;;
+        esac
+        # Only OSTLER_* = ... assignments are honoured; anything else is
+        # ignored (never executed).
+        case "$line" in
+            OSTLER_[A-Z0-9_]*=*) ;;
+            *) continue ;;
+        esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        # Strip a single pair of matching surrounding quotes.
+        case "$val" in
+            \"*\") val="${val#\"}"; val="${val%\"}" ;;
+            \'*\') val="${val#\'}"; val="${val%\'}" ;;
+        esac
+        # Explicit environment wins: only fill what is not already set.
+        if [ -z "${!key+x}" ]; then
+            export "$key=$val"
+        fi
+    done < "$f"
+}
+
+# Map the operator's throttle choice onto the concrete knobs the gates
+# already read. Only fills a knob the operator/tier has not pinned, so an
+# explicit ceiling still wins. "balanced" leaves the hardware-tier default
+# untouched.
+#   full    -- run freely: high per-core ceiling, no first-run defer, no
+#              off-peak clamp. The single-flight lock + interactive-chat
+#              yield still protect live replies.
+#   gentle  -- ease right off: low per-core ceiling, defer on, and restrict
+#              heavy history reads to the overnight off-peak window.
+ostler_rt_apply_throttle_level() {
+    case "${OSTLER_THROTTLE_LEVEL:-}" in
+        full)
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-8.0}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-0}"
+            OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-0}"
+            ;;
+        gentle)
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-1.0}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
+            OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
+            ;;
+        balanced|'') ;;   # keep the hardware-tier default
+        *) ;;             # unknown value: ignore, keep the tier default
+    esac
+}
+
+# True (return 0) if the operator has paused background work. Pause is a
+# soft, self-expiring yield: the panel writes OSTLER_PAUSED=1, optionally
+# with OSTLER_PAUSE_UNTIL=<epoch-seconds>. With an until in the future we
+# stay paused until it passes (auto-resume); with no until we stay paused
+# until the operator resumes. A malformed until fails OPEN (treated as not
+# paused) so a bad value can never wedge background work forever. Live
+# interactive chat is never gated by this -- pause only stops the
+# background enrichment/ingest storm.
+ostler_resource_tier_is_paused() {
+    [ "${OSTLER_PAUSED:-0}" = "1" ] || return 1
+    local until="${OSTLER_PAUSE_UNTIL:-}"
+    case "$until" in
+        ''|forever) return 0 ;;      # paused until the operator resumes
+        *[!0-9]*)  return 1 ;;       # malformed -> fail open (not paused)
+    esac
+    local now
+    now="$(date +%s 2>/dev/null || echo 0)"
+    if [ "$now" -lt "$until" ]; then
+        return 0                     # still inside the pause window
+    fi
+    return 1                         # window elapsed -> auto-resume
+}
+
 # Compose the tier policy. Sets the OSTLER_* vars in the caller's shell.
 # Honours pre-set overrides: if OSTLER_TIER is already exported we trust
 # it and only fill the blanks (lets tests and operators pin a tier).
 ostler_resource_tier_detect() {
+    # Seed the operator's Settings-panel choices FIRST so pause/throttle
+    # shape everything below, then let the throttle level fill its knobs
+    # before the hardware-tier defaults do.
+    ostler_rt_load_user_settings
+    ostler_rt_apply_throttle_level
+
     OSTLER_RAM_GB="$(ostler_rt_ram_gb)"
     OSTLER_CPU_CORES="$(ostler_rt_cpu_cores)"
     OSTLER_PERF_CORES="$(ostler_rt_perf_cores)"
@@ -181,6 +291,12 @@ ostler_resource_tier_detect() {
     export OSTLER_TIER OSTLER_ENRICH_CONCURRENCY OSTLER_DEFER_NONESSENTIAL \
         OSTLER_LOADAVG_CEILING OSTLER_ENRICH_NUM_CTX \
         OSTLER_RAM_GB OSTLER_CPU_CORES OSTLER_PERF_CORES
+    # Carry the operator controls into the caller's environment so the
+    # later off-peak block (and any downstream tool) sees the same values.
+    export OSTLER_PAUSED="${OSTLER_PAUSED:-0}" \
+        OSTLER_PAUSE_UNTIL="${OSTLER_PAUSE_UNTIL:-}" \
+        OSTLER_THROTTLE_LEVEL="${OSTLER_THROTTLE_LEVEL:-balanced}" \
+        OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
 }
 
 # Decide whether a NON-ESSENTIAL enrichment tick should defer right now.
@@ -200,6 +316,14 @@ ostler_resource_tier_detect() {
 # Args: none. Reads OSTLER_DEFER_NONESSENTIAL, OSTLER_LOADAVG_CEILING,
 # OSTLER_CPU_CORES (call ostler_resource_tier_detect first).
 ostler_resource_tier_should_defer_nonessential() {
+    # Operator pause wins over everything: yield unconditionally while
+    # paused (auto-resumes when the pause window elapses).
+    if ostler_resource_tier_is_paused; then
+        OSTLER_DEFER_REASON="paused"
+        return 0
+    fi
+    OSTLER_DEFER_REASON="load"
+
     local defer="${OSTLER_DEFER_NONESSENTIAL:-1}"
     local ceiling="${OSTLER_LOADAVG_CEILING:-1.5}"
     local cores="${OSTLER_CPU_CORES:-0}"
@@ -247,4 +371,7 @@ if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
     printf 'OSTLER_RAM_GB=%s\n' "$OSTLER_RAM_GB"
     printf 'OSTLER_CPU_CORES=%s\n' "$OSTLER_CPU_CORES"
     printf 'OSTLER_PERF_CORES=%s\n' "$OSTLER_PERF_CORES"
+    printf 'OSTLER_PAUSED=%s\n' "${OSTLER_PAUSED:-0}"
+    printf 'OSTLER_THROTTLE_LEVEL=%s\n' "${OSTLER_THROTTLE_LEVEL:-balanced}"
+    printf 'OSTLER_INGEST_OFFPEAK_ONLY=%s\n' "${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
 fi
