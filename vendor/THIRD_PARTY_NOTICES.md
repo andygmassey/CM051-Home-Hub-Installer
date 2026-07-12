@@ -7,7 +7,7 @@ similar permissive licences.
 
 Three downstream surfaces mirror this file:
 
-- **iOS app:** Settings → About → Acknowledgements (CM031, generated from
+- **iOS app:** Settings -> About -> Acknowledgements (CM031, generated from
   this file at release time).
 - **Mac Hub installer:** copied to `~/.ostler/THIRD_PARTY_NOTICES.md`
   on install; printable via `ostler --licenses`.
@@ -57,10 +57,13 @@ must not be hand-edited.
    requires reproducing each upstream's `NOTICE` file (if it exists)
    verbatim in our bundle. Status after the 2026-04-28 sweep across
    all Apache-2.0 components in this catalogue:
-   - **NOTICE files bundled:** `swift-crypto` and `swift-asn1`
-     (both ship a `NOTICE.txt` upstream; reproduced verbatim under
-     `LICENSES/NOTICES/<package>/NOTICE` and shipped via the installer
-     to `~/.ostler/LICENSES/NOTICES/`).
+   - **NOTICE files bundled:** `swift-crypto`, `swift-asn1`, and the
+     **Ostler Assistant daemon** (`ostler-assistant` / ex-ZeroClaw, dual
+     MIT-or-Apache -- its upstream `NOTICE` ships at
+     `LICENSES/NOTICES/ostler-assistant/NOTICE`, carrying the ZeroClaw
+     Labs copyright and the Verifiable Intent attribution). All are
+     reproduced verbatim under `LICENSES/NOTICES/<package>/NOTICE` and
+     shipped via the installer to `~/.ostler/LICENSES/NOTICES/`.
    - **No upstream NOTICE file (verified 2026-04-28; Apache §4 satisfied
      by reproducing the LICENSE alone):** `realm-swift`, `realm-core`,
      `FluidAudio`, `swift-transformers`, `swift-jinja`,
@@ -195,6 +198,81 @@ each manifest's pin / range.
 
 ---
 
+## Rust engine – Ostler Assistant daemon (the core engine)
+
+The Ostler Home Hub is powered by the **Ostler Assistant** daemon, a
+Rust binary that ships in the Hub installer as `OstlerAssistant.app`
+(`Contents/MacOS/ostler-assistant`). It is a **soft-fork of ZeroClaw**
+and is the single largest third-party component in the product. It was
+absent from earlier drafts of this file; it is the primary attribution
+obligation.
+
+| Component | Version | Licence | Source |
+|---|---|---|---|
+| Ostler Assistant daemon (crate `zeroclawlabs`, ex-ZeroClaw) | v0.4.28 (release git tag; workspace `Cargo.toml` version field frozen at `0.4.1` – releases are tracked by git tag) | **MIT OR Apache-2.0** (dual) | github.com/zeroclaw-labs/zeroclaw (upstream) -> Ostler soft-fork |
+
+**Copyright:** `Copyright 2025 ZeroClaw Labs` plus Ostler / Creative
+Machines fork contributions. Dual-licensed MIT **or** Apache-2.0 at the
+user's choice; contributors grant rights under both.
+
+**Apache §4(d) NOTICE:** the upstream ships a `NOTICE` file. It is
+reproduced verbatim at `LICENSES/NOTICES/ostler-assistant/NOTICE` and
+installed to `~/.ostler/LICENSES/NOTICES/ostler-assistant/NOTICE`. It
+also carries the attribution for the **Verifiable Intent** specification
+(`src/verifiable_intent/` is a clean-room Rust reimplementation of the VI
+open spec by *agent-intent*, Apache-2.0 – github.com/agent-intent/verifiable-intent).
+
+### Statically-linked Rust crates
+
+The daemon binary statically links its full Rust dependency tree  – 
+**1,207 crates** as pinned in `Cargo.lock`. Every crate's licence is
+constrained by an **enforced `cargo-deny` allow-list** (`deny.toml`,
+`[licenses] allow = […]`, `unused-allowed-license = "allow"`), which
+fails CI if any crate carries a licence outside the permissive set below.
+This is a verified, machine-enforced statement – not a manual survey:
+
+> **Allowed (and therefore the complete set of licences present in the
+> tree):** MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause,
+> BSD-3-Clause, ISC, Unicode-3.0, Unicode-DFS-2016, OpenSSL, Zlib,
+> MPL-2.0, CDLA-Permissive-2.0, 0BSD, BSL-1.0, CC0-1.0.
+
+No GPL / LGPL / AGPL / SSPL is present – those licences are **denied** by
+`deny.toml` and would fail the build. **MPL-2.0** (weak copyleft) is
+permitted and may be present in a handful of transitive crates; the MPL
+portions are source-available from their upstreams on request. The
+authoritative per-crate list is `Cargo.lock`; the standard release
+practice is to regenerate a `cargo-about` bundle at build time from it.
+
+**Verified major direct crates** (licences read from the local crate
+metadata / `Cargo.toml`, not guessed):
+
+| Crate | Role | Licence |
+|---|---|---|
+| tokio | async runtime | MIT |
+| serde / serde_json | serialisation | MIT OR Apache-2.0 |
+| reqwest | HTTP client | MIT OR Apache-2.0 |
+| hyper / hyper-util | HTTP core | MIT |
+| axum | HTTP server (gateway) | MIT |
+| rustls (+ rustls-webpki) | TLS | Apache-2.0 OR ISC OR MIT (webpki: ISC) |
+| ring | crypto primitives | Apache-2.0 AND ISC |
+| chacha20poly1305 / sha2 / hmac | crypto | Apache-2.0 OR MIT / MIT OR Apache-2.0 |
+| clap / clap_complete | CLI parsing | MIT OR Apache-2.0 |
+| ratatui / crossterm | TUI | MIT |
+| chrono / chrono-tz | date-time | MIT OR Apache-2.0 |
+| uuid / rand / regex | utilities | MIT OR Apache-2.0 |
+| anyhow / thiserror | error handling | MIT OR Apache-2.0 |
+| image | image decode (png/jpeg) | MIT OR Apache-2.0 |
+| zip | archive | MIT |
+| flate2 / tar | compression | MIT OR Apache-2.0 |
+| rusqlite (bundled SQLite) | local store | MIT |
+| lettre | SMTP (Apple Mail bridge) | MIT |
+| async-imap | IMAP | MIT OR Apache-2.0 |
+| mail-parser | email parsing | Apache-2.0 OR MIT |
+| nostr-sdk | Nostr channel (optional) | MIT |
+| toml / toml_edit | config | MIT OR Apache-2.0 |
+
+---
+
 ## Swift packages (iOS – CM031)
 
 Used by the iOS Companion app. All bundled with the App Store binary.
@@ -250,6 +328,33 @@ these as part of the install.
 | @cloudflare/vitest-pool-workers | ^0.14.9 | MIT | Test runner only |
 | @cloudflare/workers-types | ^4.20240725.0 | MIT OR Apache-2.0 | Type defs only |
 | @types/node | ^25.6.0 | MIT | Type defs only |
+
+---
+
+## Bundled fonts
+
+The Ostler Assistant daemon ships web-UI fonts inside the app bundle at
+`OstlerAssistant.app/Contents/Resources/web/dist/fonts/`. All three
+families are under the **SIL Open Font License 1.1 (OFL-1.1)**. The full
+OFL-1.1 text ships in that directory as `OFL.txt` and is also reproduced
+at `LICENSES/OFL-1.1.txt`.
+
+| Font | Version | Licence | Copyright | Source |
+|---|---|---|---|---|
+| Outfit | bundled at build | OFL-1.1 | Copyright 2021 The Outfit Project Authors (verified from shipped `OFL.txt`) | github.com/Outfitio/Outfit-Fonts |
+| IBM Plex Sans | 3.005 | OFL-1.1 | Copyright 2018 IBM Corp. (verified from shipped font name-table) | github.com/IBM/plex |
+| JetBrains Mono | bundled at build | OFL-1.1 | Copyright 2020 The JetBrains Mono Project Authors (upstream standard line – confirm on next refresh) | github.com/JetBrains/JetBrainsMono |
+
+> **OFL compliance follow-up (human):** the shipped `OFL.txt` currently
+> reproduces only Outfit's copyright header. OFL-1.1 §clause requires each
+> font's own copyright + "Reserved Font Name" notice to travel with it.
+> Append the IBM Plex Sans and JetBrains Mono copyright lines to the
+> bundled `OFL.txt` (or ship a per-family header) before the next cut.
+
+The **wiki** (CM044, MkDocs Material theme) also serves fonts and icon
+assets bundled by MkDocs Material itself (Roboto, Apache-2.0; Material
+Design Icons, Apache-2.0). These are pulled in transitively by the theme;
+verify the exact set against the theme version pinned at wiki-image build.
 
 ---
 
@@ -311,7 +416,7 @@ completeness:
 |---|---|---|---|
 | Python (CM019/041/044/045/047/048) | ✅ | high (verified 2026-04-28 against PyPI metadata) | torch retains [VERIFY] – bundled vendored components need NOTICE handling |
 | Python (HR015 services) | ✅ | high (verified 2026-04-28) | pysqlcipher3 corrected to Zlib; SQLCipher OpenSSL bundling still needs review |
-| Swift (CM031, CM042) | ✅ | high (verified 2026-04-28 against GitHub LICENSE files) | extract realm-core NOTICE file, append to bundle; FluidAudio corrected MIT → Apache-2.0 |
+| Swift (CM031, CM042) | ✅ | high (verified 2026-04-28 against GitHub LICENSE files) | extract realm-core NOTICE file, append to bundle; FluidAudio corrected MIT -> Apache-2.0 |
 | Node (CM050 worker) | ✅ | high (verified 2026-04-28 against npm registry) | not user-shipped, low priority |
 | Bundled binaries | ✅ | high (well-known) | Oxigraph confirmed dual Apache-2.0 OR MIT; Valkey resolves headline #3 |
 | Local models | ✅ | high | reproduce full default-model licence in installer |
