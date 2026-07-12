@@ -374,9 +374,29 @@ ollama_pull_with_retry() {
 # three times so it cannot be missed in CI logs or terminal scrollback.
 # This flag is dev/CI only. Production installs MUST run encrypted.
 if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+    # T16 encryption-hardening: --allow-plaintext is a developer/CI
+    # escape hatch, never a customer path. A loud warning is not enough
+    # (a mis-pasted install command could disable encryption on a real
+    # host), so require an EXPLICIT dev/CI signal. On a normal customer
+    # host none of these are set, so we refuse outright.
+    #
+    # Accepted signals:
+    #   OSTLER_DEV=1              developer opt-in
+    #   OSTLER_ALLOW_PLAINTEXT_OK=1   explicit plaintext acknowledgement
+    #   CI=true                   GitHub Actions / most CI runners
     # This block fires BEFORE the curl|bash bootstrap extracts the
-    # strings catalogue, so it cannot reference MSG_* vars. Dev/CI
-    # only flag -- not customer-facing.
+    # strings catalogue, so it cannot reference MSG_* vars.
+    if [[ "${OSTLER_DEV:-}" != "1" \
+          && "${OSTLER_ALLOW_PLAINTEXT_OK:-}" != "1" \
+          && "${CI:-}" != "true" ]]; then
+        warn "REFUSING --allow-plaintext on a non-dev host."  # i18n-exempt
+        printf '%s\n' \
+          "--allow-plaintext disables at-rest encryption and is for" \
+          "developers / CI only. To use it deliberately, set one of:" \
+          "  OSTLER_DEV=1  |  OSTLER_ALLOW_PLAINTEXT_OK=1  |  CI=true" \
+          "and re-run. A normal install does NOT need this flag." >&2
+        exit 1
+    fi
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
@@ -7163,6 +7183,20 @@ try:
     from ostler_security.audit_log import log_event, EVENT_UNLOCK
     passphrase = os.environ['RECOVERY_PASSPHRASE_FOR_SETUP']
     result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
+    # T16 encryption-hardening: deliver the DEK to headless services.
+    # Unwrap it with the passphrase we still hold and persist to a
+    # mode-0600 key file the launchd plists reference via
+    # OSTLER_DB_KEY_FILE. This keeps the raw key out of the
+    # world-readable plist while letting ical-server / CM048 open
+    # SQLCipher databases without a Touch ID / passphrase prompt.
+    from ostler_security.passphrase import unlock as _unlock
+    _dek = _unlock(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
+    _key_path = Path('${SECURITY_CONFIG_DIR}') / 'service_db.key'
+    _fd = os.open(str(_key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(_fd, _dek.hex().encode('ascii'))
+    finally:
+        os.close(_fd)
     log_event(
         EVENT_UNLOCK,
         source='install.sh',
@@ -10433,6 +10467,28 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     if "$OSTLER_PYTHON" -c "from ostler_security.database import get_db_connection" 2>/dev/null; then
         mkdir -p "${HOME}/Library/LaunchAgents"
         ICAL_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
+
+        # T16 encryption-hardening: deliver the SQLCipher key to this
+        # headless service. Preferred form is OSTLER_DB_KEY_FILE pointing
+        # at the mode-0600 key file the passphrase-setup step wrote, so
+        # the raw key never lands in this world-readable plist. In the
+        # --allow-plaintext dev/CI path there is no key file; instead we
+        # set OSTLER_ALLOW_PLAINTEXT=1 so the service's fail-closed
+        # startup gate permits an unencrypted run. If neither applies
+        # (encryption configured but the key file is missing, e.g. an
+        # upgrade from a pre-T16 install), we deliberately inject
+        # nothing: ical-server then fails closed at startup rather than
+        # silently opening plaintext, and we warn so it is not silent.
+        SERVICE_DB_KEY_FILE="${SECURITY_CONFIG_DIR}/service_db.key"
+        ICAL_DB_KEY_ENV_XML=""
+        if [[ -f "$SERVICE_DB_KEY_FILE" ]]; then
+            ICAL_DB_KEY_ENV_XML=$(printf '        <key>OSTLER_DB_KEY_FILE</key>\n        <string>%s</string>' "$SERVICE_DB_KEY_FILE")
+        elif [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
+            ICAL_DB_KEY_ENV_XML=$(printf '        <key>OSTLER_ALLOW_PLAINTEXT</key>\n        <string>1</string>')
+        else
+            warn "ical-server: no DB key file at ${SERVICE_DB_KEY_FILE}; the service will fail closed until security setup is re-run."  # i18n-exempt
+        fi
+
         cat > "$ICAL_PLIST" <<ICALPLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -10471,6 +10527,7 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>${OSTLER_DIR}/ical/ingest</string>
         <key>SYNC_STATE_DIR</key>
         <string>${OSTLER_DIR}/ical/sync-state</string>
+${ICAL_DB_KEY_ENV_XML}
     </dict>
 </dict>
 </plist>
