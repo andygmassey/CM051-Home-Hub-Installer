@@ -174,6 +174,19 @@ if [ -f "$PANEL_DIR/config_panel.py" ]; then
 fi
 [ "$FAILED" -eq 0 ] && pass "static wiring: lib + panel carry the pause/throttle contract"
 
+# The wiki recompile (the biggest LLM producer) must honour an explicit
+# operator Pause even though it is essential and not load-deferred.
+WIKI="$REPO_ROOT/wiki-recompile/bin/wiki-recompile-tick.sh"
+if [ -f "$WIKI" ]; then
+    bash -n "$WIKI" || failure "wiki tick has a bash syntax error"
+    grep -q 'ostler_resource_tier_is_paused' "$WIKI" \
+        || failure "wiki recompile must yield to an explicit operator Pause"
+    # It must still NOT load-defer (that behaviour is unchanged).
+    grep -q 'ostler_resource_tier_should_defer_nonessential' "$WIKI" \
+        && failure "wiki recompile must remain essential (never load-defer)"
+    [ "$FAILED" -eq 0 ] && pass "wiki recompile honours Pause but is still not load-deferred"
+fi
+
 # Discoverability: the dashboard header must carry a prominent Settings
 # entry point to /config (not just the buried footer meta link). The
 # RENDERED look is device-gated (needs the doctor venv); this asserts the
