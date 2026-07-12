@@ -87,6 +87,8 @@ from pathlib import Path
 import httpx
 
 from .turtle_escape import escape_turtle_literal
+from . import fact_quality as _fact_quality
+from . import fact_dedup as _fact_dedup
 from . import outstanding_todos as _outstanding_todos
 from .schemas import (
     Classification,
@@ -404,6 +406,25 @@ def _write_qdrant(
     if facts_path.exists():
         facts = read_json(facts_path)
         if isinstance(facts, list):
+            # Post-extraction quality gate (T12): drop degenerate /
+            # AI-self-referential / within-conversation-duplicate facts
+            # (and sub-floor signals when OSTLER_FACT_SIGNAL_FLOOR is
+            # set) before they reach Qdrant. Same call in _write_oxigraph
+            # keeps the two sinks in lock-step.
+            facts, _drops = _fact_quality.filter_facts(
+                facts, conversation_id=conversation_id
+            )
+            # Cross-conversation dedup (T12): skip a fact already stored
+            # for this subject from a PRIOR conversation. OPT-IN
+            # (OSTLER_FACT_CROSS_DEDUP), fail-open, dry-run no-op, so the
+            # shipping pipeline is unchanged until an operator enables it.
+            # Same call in _write_oxigraph keeps the two sinks in step.
+            facts, _ = _fact_dedup.drop_cross_conversation_duplicates(
+                facts,
+                conversation_id=conversation_id,
+                settings=settings,
+                dry_run=dry_run,
+            )
             for fact in facts:
                 text = fact.get("text", "")
                 if not text:
@@ -507,6 +528,21 @@ def _write_oxigraph(
     if facts_path.exists():
         facts = read_json(facts_path)
         if isinstance(facts, list):
+            # Post-extraction quality gate (T12) - identical filter to
+            # _write_qdrant so the triple and the embedding for a given
+            # fact are always written (or dropped) together.
+            facts, _drops = _fact_quality.filter_facts(
+                facts, conversation_id=conversation_id
+            )
+            # Cross-conversation dedup (T12) - identical guard to
+            # _write_qdrant so a fact's triple and embedding are written
+            # (or skipped) together. OPT-IN, fail-open, dry-run no-op.
+            facts, _ = _fact_dedup.drop_cross_conversation_duplicates(
+                facts,
+                conversation_id=conversation_id,
+                settings=settings,
+                dry_run=dry_run,
+            )
             for fact in facts:
                 triples.extend(
                     _fact_to_triples(conversation_id, fact, settings, metadata)

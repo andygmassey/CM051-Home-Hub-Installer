@@ -86,11 +86,11 @@ name             = "cm048_pipeline"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
-  pinned_sha = "36e22c5ca40954a49af63217a3d11019ad4cd11a"
-  divergence_patch = ""
+  pinned_sha = "c768fbb75de42b8e5c1aaac4ce87235140cfedde"
+  divergence_patch = "vendor/divergences/cm048_pipeline.patch"
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
-verify           = "skip"
-note             = "The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full."
+verify           = "full"
+note             = "2026-07-12 (v1.0.8): pin bumped 36e22c5 -> c768fbb (branch dc/cm048-fact-dedup-quality, Ideas Register T12 fact dedup + quality gate). c768fbb is a fast-forward descendant of the prior pin (no divergent base). CM048 object store is healthy again, so verify flipped skip -> full. Two LEGITIMATE grafts that the shared-file divergence diff CANNOT capture and that a naive `sync_vendor.sh` (rm -rf + re-materialise from source) WILL silently drop -- a full re-vendor MUST restore them by hand: (1) the pyproject BUG-036 packaging graft (packages.find include gains \"prompts*\" + a [tool.setuptools.package-data] stanza + the prompts/__init__.py package marker) so pip ships the prompt .md templates and conversations do not dead-loop at 01_classify. THIS graft IS captured in divergence_patch (pyproject is a shared file), so sync_vendor re-applies it, BUT the vendor-only prompts/__init__.py file it depends on is NOT patch-captured. (2) src/reply_debt_store_adapter.py -- a vendor-only module (absent from CM048 source at both pins), the off-box conversation-store reply-debt fallback the CM041 /api/v1/reply-debt route resolves against. Both vendor-only files (prompts/__init__.py, src/reply_debt_store_adapter.py) are graft-restored in the v1.0.8 cut tree and gate-verified (BUG-036 functional prompt-packaging gate GREEN, py_compile GREEN). Freshness gate: with CM048 checked out at c768fbb (its HEAD), verify=full reports OK (vendor == source@c768fbb + patch, no unshipped commits)."
 
 # ---- CM021 (Email Intelligence) ------------------------------------------
 

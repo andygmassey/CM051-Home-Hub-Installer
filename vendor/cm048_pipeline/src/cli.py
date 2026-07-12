@@ -145,12 +145,6 @@ def cmd_process(args, settings) -> int:
         ingest_sinks=not args.no_sinks,
     )
     print(json.dumps(state.to_dict(), indent=2))
-    # Dead-lettered = acknowledged-and-parked: exit 0 so the upstream
-    # feed advances its watermark and stops resubmitting the same
-    # transcript every tick (the 2026-07 runaway). A plain failure
-    # still exits 1 so the feed retries  –  bounded by MAX_JOB_ATTEMPTS.
-    if state.dead_lettered:
-        return 0
     return 0 if state.failed_step is None else 1
 
 
