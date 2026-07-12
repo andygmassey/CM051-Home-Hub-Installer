@@ -113,6 +113,17 @@
         -->
         <key>OSTLER_USER_ID</key>
         <string>OSTLER_USER_ID_VALUE</string>
+        <!--
+            T16 at-rest encryption: pwg-convo (CM048) fails closed
+            without a DB key, so the feed agent must carry it.
+            OSTLER_DB_KEY_FILE points at the installer's mode-0600
+            key file; OSTLER_ALLOW_PLAINTEXT is 1 only for a dev/CI
+            --allow-plaintext install (else 0, inert).
+        -->
+        <key>OSTLER_DB_KEY_FILE</key>
+        <string>OSTLER_DB_KEY_FILE_VALUE</string>
+        <key>OSTLER_ALLOW_PLAINTEXT</key>
+        <string>OSTLER_ALLOW_PLAINTEXT_VALUE</string>
     </dict>
 
     <key>ProcessType</key>

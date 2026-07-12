@@ -120,6 +120,23 @@ else
     ok "plutil unavailable; skipped plist lint (non-macOS runner)"
 fi
 
+echo "== 2b. conversation-feed agents (pwg-convo / CM048) carry the key =="
+# CM048's pwg-convo now fails closed without a key, so the feed agents
+# that invoke it must deliver OSTLER_DB_KEY_FILE (+ an inert
+# OSTLER_ALLOW_PLAINTEXT marker) or conversation processing bricks.
+grep -q 's#OSTLER_DB_KEY_FILE_VALUE#\$e_keyfile#g' "$INSTALL" \
+    && ok "_install_conversation_feed renders OSTLER_DB_KEY_FILE" \
+    || bad "feed render does not substitute OSTLER_DB_KEY_FILE_VALUE"
+for f in imessage whatsapp spoken email; do
+    t=$(ls "${HERE}/../vendor/${f}_source/launchd/"*.plist 2>/dev/null)
+    if [[ -n "$t" ]] && grep -q "OSTLER_DB_KEY_FILE_VALUE" "$t" \
+       && grep -q "OSTLER_ALLOW_PLAINTEXT_VALUE" "$t"; then
+        ok "${f} feed plist template carries the key placeholders"
+    else
+        bad "${f} feed plist template missing key placeholders"
+    fi
+done
+
 echo
 echo "==> ${PASS} passed, ${FAIL} failed"
 [[ "$FAIL" -eq 0 ]]

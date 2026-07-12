@@ -11154,6 +11154,14 @@ _install_conversation_feed() {
     # well before this phase, so the bundle agent never renders a blank
     # user_id (which would make CM048's fail-loud guard kill every tick).
     e_user_id="$(printf '%s' "${USER_ID:-}" | sed 's/[&/\]/\\&/g')"
+    # T16 at-rest encryption: deliver the DB key to CM048's pwg-convo, which
+    # this feed agent invokes and which now fails closed without a key.
+    # OSTLER_DB_KEY_FILE points at the installer's mode-0600 key file;
+    # OSTLER_ALLOW_PLAINTEXT is 1 only for a dev/CI --allow-plaintext install
+    # (else 0, inert) so the fail-closed gate permits an unencrypted dev run.
+    local e_keyfile plaintext_val
+    e_keyfile="$(printf '%s' "${SECURITY_CONFIG_DIR}/service_db.key" | sed 's/[&/\]/\\&/g')"
+    plaintext_val="0"; [[ "${ALLOW_PLAINTEXT:-0}" == "1" ]] && plaintext_val="1"
     # _VALUE/_PATH-suffixed placeholders before bare ones, so a bare token
     # is never a substring of a longer placeholder (byte-safe render).
     sed \
@@ -11162,6 +11170,8 @@ _install_conversation_feed() {
         -e "s/OSTLER_SOURCE_DIR_VALUE/$esc_base/g" \
         -e "s/OSTLER_USER_DISPLAY_NAME_VALUE/$e_user/g" \
         -e "s/OSTLER_USER_ID_VALUE/$e_user_id/g" \
+        -e "s#OSTLER_DB_KEY_FILE_VALUE#$e_keyfile#g" \
+        -e "s/OSTLER_ALLOW_PLAINTEXT_VALUE/$plaintext_val/g" \
         -e "s/OSTLER_BIN/$e_bin/g" \
         -e "s/OSTLER_HOME/$e_home/g" \
         -e "s/OSTLER_LOGS/$e_logs/g" \
