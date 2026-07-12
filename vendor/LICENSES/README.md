@@ -16,7 +16,8 @@ auditor can inspect what we redistribute under each licence.
 | `BSD-2-Clause.txt` | BSD-2-Clause | mkdocs |
 | `BSD-3-Clause.txt` | BSD-3-Clause | uvicorn, httpx, click, torch, rdflib, lxml, numpy, Valkey, cryptography (dual), passlib |
 | `Zlib.txt` | Zlib | pysqlcipher3 |
-| `MPL-2.0.txt` | MPL-2.0 | orjson (component) |
+| `MPL-2.0.txt` | MPL-2.0 | orjson (component); MPL-2.0-permitted transitive Rust crates in the Ostler Assistant daemon |
+| `OFL-1.1.txt` | OFL-1.1 | Bundled web-UI fonts in the Ostler Assistant daemon: Outfit, IBM Plex Sans, JetBrains Mono |
 | `MODELS.md` | various | catalogue of bundled local models and their upstream terms |
 
 ## What's NOT in this directory
@@ -26,8 +27,12 @@ auditor can inspect what we redistribute under each licence.
   text; each component supplies its own copyright line at distribution.
 - **Apache-2.0 NOTICE files** are reproduced under `NOTICES/<package>/NOTICE`
   for every shipped Apache-2.0 component whose upstream supplies one. As of
-  2026-04-28: `swift-crypto` and `swift-asn1` (both used by CM031 and on the
-  Hub via `cryptography` and TLS code paths). All other Apache-2.0 components
+  2026-04-28: `swift-crypto`, `swift-asn1`, and the **Ostler Assistant
+  daemon** (`ostler-assistant` / ex-ZeroClaw; NOTICE reproduced at
+  `NOTICES/ostler-assistant/NOTICE`, carrying the ZeroClaw Labs copyright
+  and the Verifiable Intent attribution). `swift-crypto`/`swift-asn1` are
+  used by CM031 and on the Hub via `cryptography` and TLS code paths. All
+  other Apache-2.0 components
   in `../THIRD_PARTY_NOTICES.md` were verified to have no upstream NOTICE
   file on 2026-04-28; Apache §4(d) is satisfied for those by reproducing the
   LICENSE alone.
@@ -39,6 +44,36 @@ auditor can inspect what we redistribute under each licence.
   of Use). If a user swaps in a non-default model under one of those
   licences, they're responsible for accepting the upstream terms; we
   do not redistribute the model weights, only point at them.
+
+## Ostler Assistant daemon (Rust engine) and outstanding licence texts
+
+The core engine ships as the **Ostler Assistant daemon** (`ostler-assistant`,
+a dual MIT-or-Apache soft-fork of ZeroClaw). Its full statically-linked Rust
+dependency tree (1,207 crates, `Cargo.lock`) is constrained to a permissive
+allow-list enforced by `deny.toml` (`cargo-deny`). See the daemon section in
+`../THIRD_PARTY_NOTICES.md` for the enforced allow-list and the verified major
+crates.
+
+**Licence texts still to add here for a complete offline bundle** (the Rust
+allow-list references SPDX licences whose verbatim text is not yet in this
+directory; fetch verbatim from the SPDX license-list-data repo -- could not be
+reproduced offline in this pass, human follow-up):
+
+- `ISC.txt` (ISC) -- e.g. `rustls-webpki`, `ring` (dual)
+- `OFL-1.1.txt` (OFL-1.1) -- **DONE this pass** (bundled fonts)
+- `Unicode-3.0.txt` / `Unicode-DFS-2016.txt` (Unicode data crates)
+- `OpenSSL.txt` (OpenSSL) -- `ring` component
+- `BSL-1.0.txt` (Boost Software License 1.0)
+- `CC0-1.0.txt` (CC0-1.0)
+- `CDLA-Permissive-2.0.txt` (CDLA-Permissive-2.0)
+- Apache-2.0 WITH LLVM-exception -- document the LLVM exception text
+  alongside `Apache-2.0.txt`.
+
+Until these are added, the deployed `~/.ostler/LICENSES/` bundle is complete
+for the Python/Swift/binary components but incomplete for a small set of the
+daemon's transitive Rust licences. This is an attribution-completeness gap,
+not a licence-compatibility problem: every licence in the tree is permissive
+and machine-enforced by `deny.toml`.
 
 ## Source of truth
 
