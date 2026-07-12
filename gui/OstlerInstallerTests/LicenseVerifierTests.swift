@@ -287,6 +287,71 @@ final class LicenseVerifierTests: XCTestCase {
         )
     }
 
+    // MARK: - Public-key override gating (SECURITY)
+    //
+    // OSTLER_LICENSE_PUBKEY_OVERRIDE lets QA/staging swap the trusted
+    // signing key. It MUST be honoured only in DEBUG/dev builds and
+    // ignored entirely in release builds, otherwise anyone can point a
+    // shipped verifier at their own keypair and self-sign a licence.
+    // `selectPublicKeyHex` is deterministic in `allowOverride`, so we
+    // exercise both build postures regardless of the test build config.
+
+    /// A syntactically valid but non-production 64-hex override.
+    private let fakeOverrideHex =
+        String(repeating: "ab", count: 32)
+
+    func testReleaseBuildIgnoresPubkeyOverride() {
+        let env = ["OSTLER_LICENSE_PUBKEY_OVERRIDE": fakeOverrideHex]
+        let hex = LicenseVerifier.selectPublicKeyHex(
+            environment: env,
+            allowOverride: false
+        )
+        // Release posture: the embedded production key is returned and
+        // the attacker-controlled override is ignored.
+        XCTAssertEqual(hex, LicenseVerifier.embeddedProductionPublicKeyHex)
+        XCTAssertNotEqual(hex, fakeOverrideHex)
+    }
+
+    func testDebugBuildHonoursPubkeyOverride() {
+        let env = ["OSTLER_LICENSE_PUBKEY_OVERRIDE": fakeOverrideHex]
+        let hex = LicenseVerifier.selectPublicKeyHex(
+            environment: env,
+            allowOverride: true
+        )
+        // Dev posture: the override wins.
+        XCTAssertEqual(hex, fakeOverrideHex)
+    }
+
+    func testOverrideRequiresExactly64Hex() {
+        // A malformed override (wrong length) is ignored even in dev.
+        let env = ["OSTLER_LICENSE_PUBKEY_OVERRIDE": "deadbeef"]
+        let hex = LicenseVerifier.selectPublicKeyHex(
+            environment: env,
+            allowOverride: true
+        )
+        XCTAssertEqual(hex, LicenseVerifier.embeddedProductionPublicKeyHex)
+    }
+
+    func testNoOverrideEnvUsesEmbeddedKey() {
+        let hex = LicenseVerifier.selectPublicKeyHex(
+            environment: [:],
+            allowOverride: true
+        )
+        XCTAssertEqual(hex, LicenseVerifier.embeddedProductionPublicKeyHex)
+    }
+
+    func testOverrideAllowedReflectsBuildConfiguration() {
+        // Documents the compiled posture: tests build under DEBUG, so
+        // the override is permitted here; a release build compiles this
+        // to false. If this ever flips under a release test build the
+        // gate has regressed.
+        #if DEBUG
+        XCTAssertTrue(LicenseVerifier.overrideAllowed)
+        #else
+        XCTAssertFalse(LicenseVerifier.overrideAllowed)
+        #endif
+    }
+
     func testCanonicalJSONPreservesIntegerOneAndZero() {
         // The Bool/NSNumber bridging gotcha specifically affects
         // 0 and 1, since those are the only Int values that round-

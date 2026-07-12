@@ -33,6 +33,7 @@ SHOW_HELP=false
 SHOW_LICENSES=false
 ALLOW_PLAINTEXT=0
 NO_EXTENSIONS=false
+ALLOW_UNLICENSED=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -41,6 +42,11 @@ for arg in "$@"; do
         --licenses|--licences) SHOW_LICENSES=true ;;
         --allow-plaintext) ALLOW_PLAINTEXT=1 ;;
         --no-extensions) NO_EXTENSIONS=true ;;
+        # Dev/CI escape: proceed without a valid Ostler licence.
+        # Production installs REQUIRE the GUI-validated licence
+        # artefact (see the AU-1 licence block). OSTLER_DEV=1 does
+        # the same thing via the environment.
+        --allow-unlicensed) ALLOW_UNLICENSED=true ;;
     esac
 done
 
@@ -1726,6 +1732,41 @@ gui_emit PCT "step=prereq_check" "pct=5"
 # PII note: license_id is an opaque identifier, explicitly "never
 # personal data" per CM050/docs/LICENSE_FILE_SCHEMA.md. issued_to_email
 # (which IS PII) is never read or logged here.
+#
+# ── SECURITY: licence enforcement posture ─────────────────────────
+#
+# Running install.sh directly must NOT bypass the GUI's Ed25519
+# signature enforcement. The GUI (LicenseVerifier + LicensePersistence)
+# only writes ~/.ostler/license/license.json AFTER an Ed25519 .valid
+# result. In production the shell path REQUIRES that GUI-validated
+# artefact and HARD-FAILS without it -- so a bare `curl | bash` with
+# no licence refuses instead of silently installing.
+#
+# Dev / CI escape (development installs still work):
+#   OSTLER_DEV=1                    (environment)
+#   ./install.sh --allow-unlicensed (flag)
+# Either one restores the historical fail-soft behaviour (warn + carry
+# on) so contributors and CI can install without a signed licence.
+if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == true ]]; then
+    LICENSE_ENFORCE=false
+else
+    LICENSE_ENFORCE=true
+fi
+
+# Reject-or-continue on a missing / malformed licence. In production
+# (LICENSE_ENFORCE=true) this HARD-FAILS with a stable error code; with
+# the dev escape it logs a diagnostic and continues (the historical
+# fail-soft path that keeps auto-updates gated as UNLICENSED but does
+# not abort the install).
+_license_gate_reject() {
+    local reason="$1"
+    if [[ "${LICENSE_ENFORCE:-true}" == true ]]; then
+        fail_with_code "ERR-02-LICENCE-REQUIRED" "${reason} A valid Ostler licence is required to install. Complete activation in the Ostler installer app (it verifies and stores your licence), or for a development install re-run with OSTLER_DEV=1 or --allow-unlicensed."
+    fi
+    warn "${reason} Proceeding without a valid licence (development mode); auto-updates stay gated as UNLICENSED."
+    return 0
+}
+
 au1_persist_license() {
     local lic_dir="${OSTLER_FINAL_DIR}/license"
     local lic_file="${lic_dir}/license.json"
@@ -1734,7 +1775,7 @@ au1_persist_license() {
     local uuid_v4_re='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
 
     if [[ ! -f "$lic_file" ]]; then
-        warn "Licence not found at ${lic_file} -- auto-updates stay gated as UNLICENSED until a valid licence is present. Install continues."
+        _license_gate_reject "Licence not found at ${lic_file}."
         return 0
     fi
 
@@ -1749,11 +1790,30 @@ au1_persist_license() {
         | sed -E 's/.*"license_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
 
     if [[ -z "$lic_id" ]]; then
-        warn "Licence at ${lic_file} has no readable license_id -- auto-updates gated as UNLICENSED. Install continues."
+        _license_gate_reject "Licence at ${lic_file} has no readable license_id."
         return 0
     fi
     if [[ ! "$lic_id" =~ $uuid_v4_re ]]; then
-        warn "Licence license_id at ${lic_file} is not a valid UUID v4 -- auto-updates gated as UNLICENSED. Install continues."
+        _license_gate_reject "Licence license_id at ${lic_file} is not a valid UUID v4."
+        return 0
+    fi
+
+    # Require the signed-artefact SHAPE the GUI writes: an Ed25519
+    # signature field must be present and the algorithm must be
+    # Ed25519. LicensePersistence only ever writes files that already
+    # passed LicenseVerifier's Ed25519 check, so this is the
+    # "GUI-validated licence artefact". A hand-crafted file carrying
+    # only a plausible UUID must NOT satisfy production enforcement.
+    # (Full cryptographic re-verification lives in the GUI verifier;
+    # jq / python3 / an ed25519 CLI are not guaranteed this early on a
+    # fresh Mac, so the shell path gates on the artefact the GUI
+    # produced rather than re-running Ed25519 here.)
+    if ! grep -Eq '"signature"[[:space:]]*:[[:space:]]*"[^"]+"' "$lic_file" 2>/dev/null; then
+        _license_gate_reject "Licence at ${lic_file} carries no Ed25519 signature."
+        return 0
+    fi
+    if ! grep -Eq '"signature_algorithm"[[:space:]]*:[[:space:]]*"Ed25519"' "$lic_file" 2>/dev/null; then
+        _license_gate_reject "Licence at ${lic_file} is not an Ed25519-signed v1 artefact."
         return 0
     fi
 

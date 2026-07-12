@@ -30,9 +30,11 @@ import Foundation
 // matching the LICENSE_SIGNING_PRIVATE_KEY Worker secret in CM050.
 // Keypair ceremonied 2026-05-13.
 //
-// To override at build time for QA / staging:
+// For QA / staging, DEBUG/dev builds ONLY honour an override:
 //     OSTLER_LICENSE_PUBKEY_OVERRIDE=<64-hex-char string>
-// is read from the process env at LicenseVerifier init time.
+// read from the process env at LicenseVerifier init time. Release
+// builds compile that path out and always use the embedded key, so
+// a shipped app cannot be pointed at an attacker-controlled key.
 // Test target injects its own keypair-derived public key via
 // `LicenseVerifier(publicKey: testKey)`.
 
@@ -94,17 +96,57 @@ final class LicenseVerifier {
 
     private let publicKey: Curve25519.Signing.PublicKey
 
-    /// Production initializer. Reads the embedded public key constant
-    /// (or the `OSTLER_LICENSE_PUBKEY_OVERRIDE` env var if set).
-    /// Returns `nil` if the embedded key is unusable.
-    init?() {
-        let hex: String
-        if let override = ProcessInfo.processInfo.environment["OSTLER_LICENSE_PUBKEY_OVERRIDE"],
+    // MARK: - Public-key selection
+    //
+    // SECURITY: `OSTLER_LICENSE_PUBKEY_OVERRIDE` lets a process swap
+    // the trusted signing key at runtime. That is a QA/staging
+    // convenience and MUST NOT be honoured in a shipped release build,
+    // otherwise anyone can point the verifier at their own keypair and
+    // self-sign a licence, defeating the gate entirely. The override is
+    // gated on `overrideAllowed`, which is compiled to `true` only in
+    // DEBUG/dev builds and compiled OUT of release builds.
+
+    /// Whether the env-var public-key override is permitted in this
+    /// build. DEBUG/dev only; compiled out of release builds.
+    static var overrideAllowed: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Resolve which public-key hex string to trust. When
+    /// `allowOverride` is false (release builds) the embedded
+    /// production key is always returned and the environment is
+    /// ignored entirely, so a release build cannot be pointed at an
+    /// attacker-controlled key.
+    static func selectPublicKeyHex(
+        environment: [String: String],
+        allowOverride: Bool
+    ) -> String {
+        if allowOverride,
+           let override = environment["OSTLER_LICENSE_PUBKEY_OVERRIDE"],
            override.count == 64 {
-            hex = override
-        } else {
-            hex = productionPublicKeyHex
+            return override
         }
+        return productionPublicKeyHex
+    }
+
+    /// The embedded production public-key hex, exposed for tests to
+    /// assert that the release path ignores the env override.
+    static var embeddedProductionPublicKeyHex: String { productionPublicKeyHex }
+
+    /// Production initializer. Reads the embedded public key constant.
+    /// In DEBUG/dev builds ONLY, the `OSTLER_LICENSE_PUBKEY_OVERRIDE`
+    /// env var may swap the trusted key for QA/staging; release builds
+    /// always use the embedded key (see `selectPublicKeyHex`).
+    /// Returns `nil` if the resolved key is unusable.
+    init?() {
+        let hex = Self.selectPublicKeyHex(
+            environment: ProcessInfo.processInfo.environment,
+            allowOverride: Self.overrideAllowed
+        )
         guard let bytes = Self.hexToData(hex), bytes.count == 32 else {
             NSLog("LicenseVerifier: embedded public key hex is malformed (length=\(hex.count))")
             return nil
