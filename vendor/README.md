@@ -189,3 +189,29 @@ Upstream repos are read-only as the source of truth. Bug fixes go
 upstream first, land in the upstream repo, and only then flow into
 the vendored copy via a sync PR. Never edit `vendor/<name>/` in
 place to fix a bug -- you will lose the change on the next sync.
+
+## The two vendor gates (freshness vs behaviour)
+
+Two complementary gates protect the vendored trees; they catch
+DIFFERENT failure classes and neither substitutes for the other:
+
+1. **`scripts/verify_vendor_fresh.sh` -- byte freshness.** Proves each
+   vendored tree equals `source_repo@pinned_sha` + the recorded
+   divergence patch, and that the source has not advanced past the pin.
+   Catches in-place rot and merged-but-never-grafted fixes.
+
+2. **`scripts/verify_vendor_behaviour.sh` -- graft function.** Runs
+   golden cases against the vendored code itself
+   (`tests/test_vendor_behaviour_gate.py`, services stubbed): the #657
+   dedupe goldens (same-run register_person dedupe, org-conflict guard,
+   shared-email guard), the cm048 qwen JSON-mode skip + num_ctx pin,
+   and the ostler_fda RULE 1 collision fold. Catches the class byte
+   freshness CANNOT see: a re-vendor whose divergence patch "applied
+   cleanly" but landed a graft in dead code / dropped a call site, so
+   the artefact looks right and ships broken (the F&F miss shape).
+
+`scripts/sync_vendor.sh` runs the behaviour gate automatically after
+every sync and refuses the sync on RED. CI runs both on any
+`vendor/**` PR (`.github/workflows/vendor-integrity.yml`). The cut
+should run both with all source repos present and
+`VENDOR_FRESH_STRICT=1`.

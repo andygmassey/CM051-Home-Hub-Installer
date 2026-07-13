@@ -23,6 +23,8 @@ on:
       - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
+      - 'tests/test_vendor_behaviour_gate.py'
+      - 'scripts/verify_vendor_behaviour.sh'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
@@ -68,6 +70,19 @@ jobs:
 
       - name: Vendor-freshness gate (degraded -- source repos absent on CI)
         run: bash scripts/verify_vendor_fresh.sh
+
+      # Behaviour gate (rec A3): freshness proves the vendored BYTES match
+      # source@pin + patch; this proves the load-bearing GRAFTS still
+      # FUNCTION (dedupe goldens: one-shot dupe -> 1, same-name pair stays 2,
+      # shared-family-email decline; qwen JSON-mode skip; num_ctx pin; RULE 1 fold). A
+      # re-vendor whose patch applied cleanly but neutralised a graft goes
+      # RED here instead of at box-walk. Deps are the vendored resolver's own
+      # imports. This tree has no source repos on CI, so it runs FULL (it
+      # needs only vendor/ itself).
+      - name: Vendor-BEHAVIOUR gate (load-bearing grafts still function)
+        run: |
+          pip install -q httpx phonenumbers
+          python3 tests/test_vendor_behaviour_gate.py
 
       # Pipeline-contract guard: the vendored /api/v1/conversation/process
       # handler must inject the derived conversation_id into the metadata it

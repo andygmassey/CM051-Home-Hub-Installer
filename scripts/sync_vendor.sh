@@ -166,3 +166,22 @@ fi
 rm -rf "$tmp2"
 
 echo "synced $TREE -> pinned_sha ${TO_SHA:0:12}. Review 'git diff vendor/$vendor_path' and the regenerated patch, then commit."
+
+# Behaviour gate (rec A3, 2026-07): a divergence patch that "applied cleanly"
+# onto moved source can still NEUTRALISE a load-bearing graft (hunk lands in
+# dead code, a call site vanishes -- the dropped-register_person / #657
+# class). Byte-freshness cannot see that; run the functional golden cases
+# NOW so a dropped graft fails at re-vendor time, not at box-walk.
+gate_rc=0
+"$SCRIPT_DIR/verify_vendor_behaviour.sh" || gate_rc=$?
+if [ "$gate_rc" = "3" ]; then
+    echo "WARN: vendor-BEHAVIOUR gate could not run (missing python3/deps -- see above)." >&2
+    echo "      The sync is in place but UNVERIFIED for graft function. Run" >&2
+    echo "      scripts/verify_vendor_behaviour.sh before committing; never treat this as a pass." >&2
+elif [ "$gate_rc" != "0" ]; then
+    echo "FAIL: vendor-BEHAVIOUR gate RED after syncing $TREE -- this sync dropped or" >&2
+    echo "      regressed a load-bearing graft (see FAIL lines above). The vendored tree is" >&2
+    echo "      left in place for inspection; re-graft the lost behaviour (or revert with" >&2
+    echo "      'git checkout -- vendor/') before committing." >&2
+    exit 1
+fi

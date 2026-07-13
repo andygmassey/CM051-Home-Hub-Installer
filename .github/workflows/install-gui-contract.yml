@@ -29,6 +29,8 @@ on:
       - 'tests/test_install_gui_contract.py'
       - 'tests/test_install_gui_contract_negatives.py'
       - 'tests/test_installer_app_bundle_contents.sh'
+      - 'tests/test_wiki_image_digest_pinned.sh'
+      - 'wiki-recompile/bin/**'
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
@@ -80,6 +82,15 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+
+      - name: Wiki-image digest-pin lint (F&F stale-wiki class)
+        # The F&F cut shipped a STALE wiki because the CM044 images were
+        # pinned by a MUTABLE version tag. install.sh now pins @sha256
+        # digests; this lint fails any PR that regresses a first-party
+        # ghcr.io/ostler-ai image ref back to a mutable tag.
+        run: |
+          set -euo pipefail
+          bash tests/test_wiki_image_digest_pinned.sh
 
       - name: Run app-bundle byte-by-byte regression
         # Per locked memory feedback_silent_bail_regression_test_shape.
