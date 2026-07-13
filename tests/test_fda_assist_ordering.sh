@@ -155,8 +155,19 @@ echo "PASS [case-6]: probe targets FDA-gated SQLite DBs (Safari + Messages)"
 # ── Case 7: assist dialog still opens FDA pane + osascript modal ───
 # Move/duplicate must not have stripped the System Settings deep
 # link or the blocking dialog.
-if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'x-apple.systempreferences.*Privacy_AllFiles'; then
-    echo "FAIL [case-7]: assist block missing System Settings FDA-pane deep link" >&2
+#
+# Platform seam (2026-07): the deep link itself now lives behind
+# platform_open_fda_pane in platform/macos.sh, so the guarantee is
+# asserted in two fail-closed halves: (a) the step body invokes the
+# opener (or still carries the raw link), AND (b) the macOS platform
+# module carries the deep link. Dropping either half fails.
+if ! printf '%s\n' "$FDA_STEP_BODY" | grep -qE 'platform_open_fda_pane|x-apple\.systempreferences.*Privacy_AllFiles'; then
+    echo "FAIL [case-7]: assist block missing System Settings FDA-pane deep link (raw or via platform_open_fda_pane)" >&2
+    exit 1
+fi
+PLATFORM_MODULE="${REPO_ROOT}/platform/macos.sh"
+if ! grep -q 'x-apple.systempreferences.*Privacy_AllFiles' "$PLATFORM_MODULE"; then
+    echo "FAIL [case-7]: platform/macos.sh missing the FDA-pane deep link behind platform_open_fda_pane" >&2
     exit 1
 fi
 if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'display dialog'; then

@@ -229,7 +229,16 @@ targets:
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
-          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh"
+          # platform/macos.sh is the platform seam module (launchd,
+          # FDA, System Settings panes, power/hardware, codesign
+          # verification behind platform_* functions). install.sh
+          # sources it from ${SCRIPT_DIR}/platform/macos.sh and
+          # hard-exits if missing, exactly like the strings catalogue,
+          # so it MUST land at ${DEST}/platform/macos.sh (subfolder
+          # mandatory -- same lesson as lib/progress_emitter.sh).
+          mkdir -p "${DEST}/platform"
+          cp "${SRCROOT}/../platform/macos.sh"                   "${DEST}/platform/macos.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/platform/macos.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
@@ -262,12 +271,14 @@ targets:
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
+          - $(SRCROOT)/../platform/macos.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/platform/macos.sh
       - name: Bundle ostler_security Python package into Resources
         script: |
           set -euo pipefail

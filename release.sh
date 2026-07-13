@@ -77,6 +77,7 @@ CM051_SOURCES=(
     "install.sh"
     "install.sh.strings.en-GB.sh"
     "lib"
+    "platform"
     "scripts"
     "assistant-agent"
     "wiki-recompile"

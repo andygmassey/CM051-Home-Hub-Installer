@@ -96,6 +96,18 @@ EXCEPTIONS: dict[str, str] = {
 # gate is robust to comment / whitespace drift in the postBuildScript body.
 # The keys here are the canonical "leaf" names install.sh probes for.
 COVERAGE_NEEDLES: dict[str, list[str]] = {
+    # platform/macos.sh is the installer platform seam (launchd / FDA /
+    # panes / power / hardware / codesign behind platform_* functions).
+    # install.sh sources it from ${SCRIPT_DIR}/platform/macos.sh and
+    # hard-exits when missing, so the .app bundle MUST ship it; the
+    # needle pins the "Bundle install.sh + lib/..." postBuildScript
+    # copy line.
+    "platform/macos.sh": ["platform/macos.sh"],
+    # Pre-existing bookkeeping gap (predates the platform seam): the
+    # "Bundle install.sh + lib/..." postBuildScript has copied
+    # lib/ostler-model-fit.sh since REUSE-4 landed, but the needle was
+    # never registered, so the gate reported a GAP on main.
+    "lib/ostler-model-fit.sh": ["lib/ostler-model-fit.sh"],
     "ostler_security": ["vendor/ostler_security"],
     "legal": ["vendor/legal"],
     "ostler_fda": ["vendor/ostler_fda"],

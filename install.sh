@@ -1132,6 +1132,45 @@ if [[ -n "${_ostler_modelfit_candidate}" ]]; then
 fi
 unset _ostler_modelfit_candidate
 
+# ── Platform seam (macOS implementation) ──────────────────────────
+#
+# platform/macos.sh holds the macOS-specific operations (launchd
+# service supervision, Full Disk Access probing, System Settings
+# panes, power/hardware detection, code-sign verification) behind
+# named platform_* functions, so the install flow below reads
+# platform-neutrally. It is a pure relocation of code that used to
+# sit inline here -- behaviour is unchanged. Ostler v1 is
+# single-machine, Mac-only (locked directive 2026-05-09): macos.sh is
+# the ONLY implementation and this block deliberately does not probe
+# the OS. See platform/PORTING.md for what a future, separately-
+# authorised port would implement.
+#
+# Search order (same shape as the strings catalogue + emitter):
+#   1. ${OSTLER_PLATFORM_MODULE}              (explicit env override -- tests)
+#   2. ${SCRIPT_DIR}/platform/macos.sh        (tarball / dev / curl|bash bootstrap / .app bundle)
+#   3. ${HOME}/.ostler/platform/macos.sh      (post-install re-run)
+#
+# The install flow depends on these functions, so a missing module is
+# a packaging bug and we hard-fail loudly, exactly like a missing
+# strings catalogue.
+_ostler_platform_candidate=""
+if [[ -n "${OSTLER_PLATFORM_MODULE:-}" && -f "${OSTLER_PLATFORM_MODULE}" ]]; then
+    _ostler_platform_candidate="${OSTLER_PLATFORM_MODULE}"
+elif [[ -f "${SCRIPT_DIR}/platform/macos.sh" ]]; then
+    _ostler_platform_candidate="${SCRIPT_DIR}/platform/macos.sh"
+elif [[ -f "${HOME}/.ostler/platform/macos.sh" ]]; then
+    _ostler_platform_candidate="${HOME}/.ostler/platform/macos.sh"
+fi
+if [[ -n "${_ostler_platform_candidate}" ]]; then
+    # shellcheck source=platform/macos.sh
+    source "${_ostler_platform_candidate}"
+else
+    printf 'install.sh: platform module not found at %s/platform/macos.sh\n' "${SCRIPT_DIR}" >&2
+    printf 'install.sh: this is a packaging bug; please report it.\n' >&2
+    exit 1
+fi
+unset _ostler_platform_candidate
+
 # ── Three-state data-source detection (CX-100, CX-101) ────────────
 #
 # Per launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
@@ -1179,17 +1218,12 @@ _accountsdb_path() {
 # so the caller can distinguish "FDA missing" from "no accounts".
 # Returns 0 if FDA is granted (or path missing -- nothing to probe).
 # Returns 1 if FDA is denied. Never raises.
+#
+# The probe mechanics live behind the platform seam
+# (platform_has_full_disk_access in platform/macos.sh); this wrapper
+# binds them to the canonical accounts-db probe target.
 _has_fda() {
-    local db
-    db="$(_accountsdb_path)"
-    [[ -f "$db" ]] || return 0
-    local err
-    err="$(sqlite3 "file:${db}?mode=ro" -bail "SELECT 1 LIMIT 1" 2>&1 >/dev/null)" || true
-    if [[ "$err" == *"authorization denied"* ]] \
-       || [[ "$err" == *"unable to open database"* ]]; then
-        return 1
-    fi
-    return 0
+    platform_has_full_disk_access "$(_accountsdb_path)"
 }
 
 # Returns the number of mail-capable accounts the customer has
@@ -1745,7 +1779,7 @@ fi
 gui_emit PCT "step=prereq_check" "pct=50"
 
 # RAM check
-RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+RAM_GB=$(platform_ram_gb)
 if [[ $RAM_GB -lt 16 ]]; then
     fail_with_code "ERR-02-PREREQ-RAM-LOW" "$(printf "$MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED" "${RAM_GB}")"
 elif [[ $RAM_GB -lt 24 ]]; then
@@ -1778,12 +1812,12 @@ gui_emit PCT "step=prereq_check" "pct=85"
 # installer's readiness probes for the full timeout (90 s / 300 s).
 # Warn the user to stay on AC.
 HAS_BATTERY=false
-if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+if platform_has_battery; then
     HAS_BATTERY=true
 fi
 
 if [[ "$HAS_BATTERY" == true ]]; then
-    POWER_SOURCE=$(pmset -g batt 2>/dev/null | grep -oE "'(AC Power|Battery Power)'" | head -1 | tr -d "'")
+    POWER_SOURCE=$(platform_power_source)
     if [[ "$POWER_SOURCE" == "AC Power" ]]; then
         ok "$MSG_OK_POWER_SOURCE_AC_GOOD_10_15"
     else
@@ -2286,7 +2320,7 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         killall "System Settings" >/dev/null 2>&1 || true
         killall "System Preferences" >/dev/null 2>&1 || true
         sleep 1
-        open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+        platform_open_fda_pane
 
         _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
             "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
@@ -3367,7 +3401,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
                 case "${_early_mail_answer:-n}" in
                     y|Y|yes|YES|Yes)
                         ok "$MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS"
-                        open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                        platform_open_internet_accounts_pane
                         ;;
                     *)
                         ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
@@ -5666,7 +5700,7 @@ progress() {
 # the original always-on behaviour.
 
 HAS_BATTERY=false
-if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+if platform_has_battery; then
     HAS_BATTERY=true
 fi
 
@@ -5722,7 +5756,7 @@ if [[ "$HAS_BATTERY" == true ]]; then
         last_seen="ac"
         while true; do
             sleep 60
-            current=$(pmset -g batt 2>/dev/null | grep -oE "'(AC Power|Battery Power)'" | head -1 | tr -d "'" || echo "unknown")
+            current=$(platform_power_source || echo "unknown")
             case "$current" in
                 "Battery Power")
                     if [[ "$last_seen" != "battery" ]]; then
@@ -6079,9 +6113,9 @@ else
 
     # Set up Colima auto-start on boot (if using Colima)
     if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
-        COLIMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
+        COLIMA_PLIST="$(platform_service_dir)/com.ostler.colima.plist"
         if [[ ! -f "$COLIMA_PLIST" ]]; then
-            mkdir -p "${HOME}/Library/LaunchAgents"
+            mkdir -p "$(platform_service_dir)"
             cat > "$COLIMA_PLIST" <<COLEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -6109,8 +6143,7 @@ else
 </dict>
 </plist>
 COLEOF
-            launchctl bootstrap "gui/$(id -u)" "$COLIMA_PLIST" 2>/dev/null || \
-                launchctl load "$COLIMA_PLIST" 2>/dev/null || true
+            platform_service_load "$COLIMA_PLIST"
             ok "$MSG_OK_COLIMA_WILL_START_AUTOMATICALLY_BOOT"
         fi
     fi
@@ -6163,7 +6196,7 @@ else
     if brew list --formula 2>/dev/null | grep -qx ollama; then
         info "$MSG_INFO_REMOVING_BROKEN_OLLAMA_FORMULA"
         brew services stop ollama 2>/dev/null || true
-        launchctl bootout "gui/$(id -u)/homebrew.mxcl.ollama" 2>/dev/null || true
+        platform_service_unload "homebrew.mxcl.ollama"
         brew uninstall --formula ollama 2>/dev/null || true
     fi
 
@@ -6188,8 +6221,8 @@ else
     # binary (NOT `open -a Ollama`, NOT brew services). This persists
     # across reboots and avoids the GUI app-launch quarantine dialog.
     OLLAMA_LOG_DIR="${LOGS_DIR:-${HOME}/.ostler/logs}"
-    mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
-    OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
+    mkdir -p "$OLLAMA_LOG_DIR" "$(platform_service_dir)"
+    OLLAMA_PLIST="$(platform_service_dir)/com.ostler.ollama.plist"
 
     # Resource-tier governor (v1.0.3): OLLAMA_NUM_PARALLEL scales to the
     # hardware tier. A second decode slot reserves chat headroom against
@@ -6263,8 +6296,7 @@ else
 </dict>
 </plist>
 OLLAMAPLIST
-    launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null || \
-        launchctl load "$OLLAMA_PLIST" 2>/dev/null || true
+    platform_service_load "$OLLAMA_PLIST"
     # Wait up to 90 seconds for Ollama to be ready
     OLLAMA_WAIT=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
@@ -7579,7 +7611,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+            platform_open_fda_pane
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
@@ -7701,7 +7733,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+            platform_open_fda_pane
 
             _fda_recover_msg="$(printf '%s\n\n%s' \
                 "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1" \
@@ -7885,7 +7917,7 @@ print(json.dumps(summary, default=str))
     # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
     # iCloud syncs. Calendar, Notes, Photos face recognition etc. can
     # take hours to fully sync after first app launch.
-    FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+    FDA_RERUN_PLIST="$(platform_service_dir)/com.ostler.fda-rerun.plist"
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
         # Calculate the run date: now + 12 hours
         FDA_RERUN_HOUR=$(date -v+12H +%H)
@@ -7894,7 +7926,7 @@ print(json.dumps(summary, default=str))
         FDA_RERUN_MONTH=$(date -v+12H +%m)
         FDA_RERUN_YEAR=$(date -v+12H +%Y)
 
-        mkdir -p "${HOME}/Library/LaunchAgents"
+        mkdir -p "$(platform_service_dir)"
         cat > "$FDA_RERUN_PLIST" <<FDARPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -7926,8 +7958,7 @@ print(json.dumps(summary, default=str))
 </dict>
 </plist>
 FDARPEOF
-        launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
-            launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
+        platform_service_load "$FDA_RERUN_PLIST"
         ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
     fi
 else
@@ -9576,8 +9607,8 @@ SCANEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-scan-exports"
 
 # Set up launchd plist to scan every 4 hours
-mkdir -p "${HOME}/Library/LaunchAgents"
-SCAN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
+mkdir -p "$(platform_service_dir)"
+SCAN_PLIST="$(platform_service_dir)/com.ostler.export-scan.plist"
 cat > "$SCAN_PLIST" <<SPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -9600,8 +9631,7 @@ cat > "$SCAN_PLIST" <<SPEOF
 </dict>
 </plist>
 SPEOF
-launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
-    launchctl load "$SCAN_PLIST" 2>/dev/null || true
+platform_service_load "$SCAN_PLIST"
 ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
 # ── Pre-meeting brief sender ───────────────────────────────────────
@@ -9803,8 +9833,8 @@ chmod +x "${OSTLER_DIR}/bin/ostler-meeting-brief-sender"
 # Install the LaunchAgent. StartInterval 600 s = 10 min; combined
 # with the 20-min look-ahead in the bin script gives 10-30 min
 # notice on every meeting without spamming.
-mkdir -p "${HOME}/Library/LaunchAgents"
-BRIEF_PLIST="${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist"
+mkdir -p "$(platform_service_dir)"
+BRIEF_PLIST="$(platform_service_dir)/com.ostler.meeting-brief-sender.plist"
 cat > "$BRIEF_PLIST" <<MBSPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -9827,8 +9857,7 @@ cat > "$BRIEF_PLIST" <<MBSPLIST
 </dict>
 </plist>
 MBSPLIST
-launchctl bootstrap "gui/$(id -u)" "$BRIEF_PLIST" 2>/dev/null || \
-    launchctl load "$BRIEF_PLIST" 2>/dev/null || true
+platform_service_load "$BRIEF_PLIST"
 ok "$MSG_OK_MEETING_BRIEF_SENDER_INSTALLED"
 else
     info "$MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED"
@@ -9850,7 +9879,7 @@ if [[ -f "${SCRIPT_DIR}/scripts/deferred-register-device.sh" ]]; then
         "${OSTLER_DIR}/bin/deferred-register-device"
     chmod 755 "${OSTLER_DIR}/bin/deferred-register-device"
 
-    REGISTER_PLIST="${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
+    REGISTER_PLIST="$(platform_service_dir)/com.ostler.deferred-register-device.plist"
     cat > "$REGISTER_PLIST" <<DRDPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -9873,8 +9902,7 @@ if [[ -f "${SCRIPT_DIR}/scripts/deferred-register-device.sh" ]]; then
 </dict>
 </plist>
 DRDPEOF
-    launchctl bootstrap "gui/$(id -u)" "$REGISTER_PLIST" 2>/dev/null || \
-        launchctl load "$REGISTER_PLIST" 2>/dev/null || true
+    platform_service_load "$REGISTER_PLIST"
     ok "$MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS"
 else
     # Surface a missing-bundle warning. The deferred-register agent
@@ -10300,8 +10328,8 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
     fi
     ok "$MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED"
 
-    mkdir -p "${HOME}/Library/LaunchAgents"
-    DOCTOR_PLIST="${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
+    mkdir -p "$(platform_service_dir)"
+    DOCTOR_PLIST="$(platform_service_dir)/com.ostler.doctor.plist"
     cat > "$DOCTOR_PLIST" <<DOCEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -10375,8 +10403,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
 DOCEOF
 
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
-    launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
-        launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
+    platform_service_load "$DOCTOR_PLIST"
     ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
 fi
 
@@ -10431,8 +10458,8 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     # ical-server that hard-fails on every launchd boot wastes log
     # space and confuses the diagnostic dashboard.
     if "$OSTLER_PYTHON" -c "from ostler_security.database import get_db_connection" 2>/dev/null; then
-        mkdir -p "${HOME}/Library/LaunchAgents"
-        ICAL_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
+        mkdir -p "$(platform_service_dir)"
+        ICAL_PLIST="$(platform_service_dir)/com.ostler.ical-server.plist"
         cat > "$ICAL_PLIST" <<ICALPLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -10481,6 +10508,13 @@ ICALPLISTEOF
         # GUI session can kick them back to the login screen. The
         # bootstrap call is idempotent enough for the first-install
         # path; re-install relies on the uninstaller bootout below.
+        #
+        # Platform-seam note: this call stays RAW launchctl (not
+        # platform_service_load) because the vendored contract test
+        # vendor/cm041/assistant_api/test_vendor_import.sh pins this
+        # exact invocation byte-for-byte, and vendored twins are
+        # grafted, never edited (see PORTING.md "Not yet behind the
+        # seam").
         launchctl bootstrap "gui/$(id -u)" "$ICAL_PLIST" 2>/dev/null || \
             launchctl load "$ICAL_PLIST" 2>/dev/null || \
             warn "$MSG_WARN_ICAL_SERVER_FAILED"
@@ -11082,7 +11116,7 @@ _install_conversation_feed() {
         "${pkg_dest}/bin/${wrapper}" > "${bin_dir}/${wrapper}"
     chmod 0755 "${bin_dir}/${wrapper}"
 
-    local la="${HOME}/Library/LaunchAgents"
+    local la="$(platform_service_dir)"
     mkdir -p "$la"
     local rendered="${la}/${plist}"
     local py_val="${venv_python:-python3}"
@@ -11111,10 +11145,10 @@ _install_conversation_feed() {
         "${pkg_dest}/launchd/${plist}" > "$rendered"
     chmod 0644 "$rendered"
 
-    # 6. Load via launchctl bootstrap (bootout first; not idempotent alone).
-    local domain="gui/$(id -u)"
-    launchctl bootout "${domain}/${label}" 2>/dev/null || true
-    if launchctl bootstrap "$domain" "$rendered"; then
+    # 6. Load via the platform service manager (unload first; bootstrap is
+    #    not idempotent alone).
+    platform_service_unload "${label}"
+    if platform_service_bootstrap "$rendered"; then
         ok "${!k_ok_loaded}"
         info "${!k_info_tick}"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
@@ -11386,7 +11420,7 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
                 # Internet Accounts pane on macOS 13+; older macOS
                 # versions silently fall back to the top-level pane,
                 # which is acceptable for v1.0.
-                open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                platform_open_internet_accounts_pane
                 ;;
             *)
                 ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
@@ -11455,11 +11489,8 @@ progress "$MSG_INFO_IMESSAGE_BRIDGE_STARTED" "imessage_bridge"
 # inbox so we do not leave a duplicate poller running on the customer's
 # Mac after they upgrade through this fix.
 _imb_label="com.ostler.imessage-bridge"
-_imb_domain="gui/$(id -u)"
-launchctl bootout "${_imb_domain}/${_imb_label}" 2>/dev/null \
-    || launchctl unload "${HOME}/Library/LaunchAgents/${_imb_label}.plist" 2>/dev/null \
-    || true
-rm -f "${HOME}/Library/LaunchAgents/${_imb_label}.plist"
+platform_service_unload_fallback "${_imb_label}"
+rm -f "$(platform_service_dir)/${_imb_label}.plist"
 rm -f "${OSTLER_DIR}/bin/bridge.py"
 rm -f /Users/Shared/imessage-bridge/inbox.jsonl
 rm -f /Users/Shared/imessage-bridge/state.json
@@ -11581,7 +11612,7 @@ if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
     WIKI_CATCHUP_INTERVAL_S="${WIKI_CATCHUP_INTERVAL_S:-1800}"
     WIKI_CATCHUP_MAX_TRIES="${WIKI_CATCHUP_MAX_TRIES:-24}"
     WIKI_CATCHUP_LABEL="com.creativemachines.ostler.wiki-recompile-catchup"
-    WIKI_CATCHUP_PLIST="${HOME}/Library/LaunchAgents/${WIKI_CATCHUP_LABEL}.plist"
+    WIKI_CATCHUP_PLIST="$(platform_service_dir)/${WIKI_CATCHUP_LABEL}.plist"
 
     # Self-removing, bounded catch-up wrapper. Single-quoted heredoc:
     # no install-time expansion -- it resolves OSTLER_DIR at run time
@@ -11638,7 +11669,7 @@ exit 0
 WCUEOF
     chmod +x "${OSTLER_DIR}/bin/ostler-wiki-recompile-catchup"
 
-    mkdir -p "${HOME}/Library/LaunchAgents"
+    mkdir -p "$(platform_service_dir)"
     cat > "$WIKI_CATCHUP_PLIST" <<WCUPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -11674,9 +11705,8 @@ WCUEOF
 WCUPLIST
     chmod 0644 "$WIKI_CATCHUP_PLIST"
 
-    launchctl bootout "gui/$(id -u)/${WIKI_CATCHUP_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$WIKI_CATCHUP_PLIST" 2>/dev/null || \
-       launchctl load "$WIKI_CATCHUP_PLIST" 2>/dev/null; then
+    platform_service_unload "${WIKI_CATCHUP_LABEL}"
+    if platform_service_load_check "$WIKI_CATCHUP_PLIST"; then
         ok "$MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED"
@@ -12117,7 +12147,7 @@ INFOPLISTEOF
         #      authorised install.
         ASSISTANT_BINARY_SIGN_STATE="unknown"
         binary_file_type="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
-        codesign_dv_output="$(codesign -dv --verbose=4 "$ASSISTANT_BINARY" 2>&1 || true)"
+        codesign_dv_output="$(platform_app_signature_info "$ASSISTANT_BINARY")"
 
         if [[ "$binary_file_type" != *"Mach-O"* ]]; then
             ASSISTANT_BINARY_SIGN_STATE="corrupt"
@@ -12432,7 +12462,7 @@ else
         if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
             _imessage_fda_needed="false"
             info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
-            launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+            platform_service_restart "com.creativemachines.ostler.assistant"
         else
             # The daemon-identity test above reported not-granted.
             # We still run install.sh's own read of chat.db as a
@@ -12489,7 +12519,7 @@ else
                 # falls back to Privacy & Security top-level which
                 # is acceptable. The 2>/dev/null swallows the rare
                 # "scheme not registered" warning on stripped builds.
-                open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+                platform_open_fda_pane
 
                 # Reveal the daemon .app bundle in Finder so the
                 # customer can drag it directly into System
@@ -12620,7 +12650,7 @@ else
                     # new FDA grant. launchctl kickstart -k restarts
                     # the agent without un/re-loading, so the new
                     # TCC posture takes effect immediately.
-                    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                    platform_service_restart "com.creativemachines.ostler.assistant"
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
@@ -12731,7 +12761,7 @@ OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.1}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
-REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
+REMOTECAPTURE_LAUNCHAGENT_PLIST="$(platform_service_dir)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
 REMOTECAPTURE_APP_SUPPORT_DIR="${HOME}/Library/Application Support/Ostler RemoteCapture"
 
@@ -12844,8 +12874,8 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
         # silently stage onto the customer's daily driver Mac.
         REMOTECAPTURE_CODESIGN_LOG="${REMOTECAPTURE_TMPDIR}/codesign.log"
         REMOTECAPTURE_SPCTL_LOG="${REMOTECAPTURE_TMPDIR}/spctl.log"
-        if codesign --verify --deep --strict "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_CODESIGN_LOG" \
-           && spctl --assess --type execute "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_SPCTL_LOG"; then
+        if platform_verify_app_signature "$REMOTECAPTURE_APP_PATH" \
+                "$REMOTECAPTURE_CODESIGN_LOG" "$REMOTECAPTURE_SPCTL_LOG"; then
 
             # Both checks passed. Clear quarantine so launchctl
             # can spawn the .app on login without the Gatekeeper
@@ -12895,7 +12925,7 @@ REMOTECAPTURE_TMPDIR=""
 # menu-bar icon appear on login. ProcessType=Interactive + Aqua
 # session is implicit for a user LaunchAgent under gui/<uid>.
 if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
-    mkdir -p "${HOME}/Library/LaunchAgents"
+    mkdir -p "$(platform_service_dir)"
     cat > "$REMOTECAPTURE_LAUNCHAGENT_PLIST" <<RCAPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -12922,9 +12952,8 @@ RCAPEOF
 
     # bootout-then-bootstrap so re-runs of the installer reload
     # the plist cleanly. bootout of a non-loaded label is a no-op.
-    launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null \
-       || launchctl load "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null; then
+    platform_service_unload "${REMOTECAPTURE_LAUNCHAGENT_LABEL}"
+    if platform_service_load_check "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
         ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
         info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
     else
@@ -13018,8 +13047,8 @@ if [[ -n "$HUB_APP_SOURCE" ]]; then
         # customer's daily-driver Mac.
         HUB_APP_CODESIGN_LOG="$(mktemp -t ostler-hub-app-codesign.XXXXXX)"
         HUB_APP_SPCTL_LOG="$(mktemp -t ostler-hub-app-spctl.XXXXXX)"
-        if codesign --verify --deep --strict "$HUB_APP_DEST" 2>"$HUB_APP_CODESIGN_LOG" \
-           && spctl --assess --type execute "$HUB_APP_DEST" 2>"$HUB_APP_SPCTL_LOG"; then
+        if platform_verify_app_signature "$HUB_APP_DEST" \
+                "$HUB_APP_CODESIGN_LOG" "$HUB_APP_SPCTL_LOG"; then
             xattr -dr com.apple.quarantine "$HUB_APP_DEST" 2>/dev/null || true
             if [[ "$HUB_APP_SOURCE" == "$HUB_APP_DEST" ]]; then
                 ok "$(printf "$MSG_OK_HUB_APP_PRESENT" "${HUB_APP_DEST}")"
@@ -13209,8 +13238,8 @@ if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
         # socket live under the user's ~/.ostler so the CLI (run as the
         # same user) reaches them via --socket. KeepAlive keeps the
         # tailnet up across reboots.
-        TS_LAUNCH_AGENT="${HOME}/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"
-        mkdir -p "${HOME}/Library/LaunchAgents" "$LOGS_DIR"
+        TS_LAUNCH_AGENT="$(platform_service_dir)/com.creativemachines.ostler.tailscaled.plist"
+        mkdir -p "$(platform_service_dir)" "$LOGS_DIR"
         cat > "$TS_LAUNCH_AGENT" <<TSPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -13240,8 +13269,8 @@ if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
 </plist>
 TSPLIST
         chmod 0644 "$TS_LAUNCH_AGENT"
-        launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.tailscaled" 2>/dev/null || true
-        if launchctl bootstrap "gui/$(id -u)" "$TS_LAUNCH_AGENT" 2>/dev/null; then
+        platform_service_unload "com.creativemachines.ostler.tailscaled"
+        if platform_service_bootstrap_check "$TS_LAUNCH_AGENT"; then
             ok "$MSG_OK_TAILSCALED_USERSPACE_STARTED"
         else
             warn "$MSG_WARN_TAILSCALED_USERSPACE_START_FAILED"
@@ -13549,12 +13578,12 @@ _hydrate_heartbeat_stop() {
 # the install pass already converged, this agent is never installed.
 _install_dedupe_catchup_agent() {
     local label="com.creativemachines.ostler.dedupe-catchup"
-    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local plist="$(platform_service_dir)/${label}.plist"
     local interval_s="${OSTLER_DEDUPE_CATCHUP_INTERVAL_S:-600}"
     local max_tries="${OSTLER_DEDUPE_CATCHUP_MAX_TRIES:-12}"
     local wrapper="${OSTLER_DIR}/bin/ostler-dedupe-catchup"
 
-    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+    mkdir -p "${OSTLER_DIR}/bin" "$(platform_service_dir)" 2>/dev/null || true
 
     # Self-removing, bounded catch-up wrapper. Single-quoted heredoc: no
     # install-time expansion -- it resolves OSTLER_DIR / PIPELINE_DIR at
@@ -13677,9 +13706,8 @@ DCUEOF
 DCUPLIST
     chmod 0644 "$plist"
 
-    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-    if launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
-       launchctl load "$plist" 2>/dev/null; then
+    platform_service_unload "${label}"
+    if platform_service_load_check "$plist"; then
         ok "$MSG_OK_DEDUPE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"
@@ -13712,11 +13740,11 @@ OSTLER_HYDRATE_BACKFILL_DAYS="${OSTLER_HYDRATE_BACKFILL_DAYS:-1825}"
 # Idempotent: if the plist already exists we leave it (it self-removes on
 # success), so two pending branches firing never double-schedule.
 _schedule_contact_resync() {
-    local plist="${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
+    local plist="$(platform_service_dir)/com.ostler.contact-resync.plist"
     local interval_s="${CONTACT_RESYNC_INTERVAL_S:-1800}"
     [[ -f "$plist" ]] && return 0
     [[ -x "${OSTLER_DIR}/bin/ostler-contact-resync" ]] || return 0
-    mkdir -p "${HOME}/Library/LaunchAgents"
+    mkdir -p "$(platform_service_dir)"
     cat > "$plist" <<CRSPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -13737,8 +13765,7 @@ _schedule_contact_resync() {
 </dict>
 </plist>
 CRSPLIST
-    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || \
-        launchctl load "$plist" 2>/dev/null || true
+    platform_service_load "$plist"
     info "$MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED"
 }
 
@@ -15650,8 +15677,7 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             # stop short of an extra modal so we don't risk regressing
             # the install completion flow this close to launch.
             if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-                open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation" \
-                    >/dev/null 2>&1 || true
+                platform_open_automation_pane
                 gui_emit IMESSAGE_TCC_DENIED "status=denied" "remediation=automation_pane"
                 info "$MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED"
             fi
@@ -16018,7 +16044,7 @@ fi
 # it can never abort a successful install.
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == true ]]; then
     info "$MSG_INFO_ASSISTANT_FINAL_RESTART_FDA"
-    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+    platform_service_restart "com.creativemachines.ostler.assistant"
 fi
 
 # ── Summary ────────────────────────────────────────────────────────
@@ -16201,7 +16227,7 @@ echo ""
 # cheap: pmset reports a percentage only on machines with a battery.
 
 HAS_BATTERY=false
-if pmset -g batt 2>/dev/null | grep -qE '[0-9]+%'; then
+if platform_has_battery; then
     HAS_BATTERY=true
 fi
 
