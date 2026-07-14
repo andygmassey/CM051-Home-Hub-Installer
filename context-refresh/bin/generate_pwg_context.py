@@ -39,7 +39,7 @@ from pathlib import Path
 BASE_URL = os.environ.get("OSTLER_ICAL_BASE_URL", "http://127.0.0.1:8090")
 
 # Oxigraph (the PWG triple store) also binds to loopback. User-asserted facts
-# -- things the customer explicitly confirmed to the assistant ("Alison is my
+# -- things the customer explicitly confirmed to the assistant ("Robin is my
 # wife"), banked by CM041's assert endpoint as pwg:PersonFact nodes -- live
 # here, not behind an ical-server endpoint. We read them directly with a small
 # SPARQL SELECT, mirroring the ical-server's own query helper. Default is
@@ -63,6 +63,11 @@ MAX_PEOPLE = 6
 MAX_MEETINGS = 5
 MAX_PREFERENCES = 6
 MAX_ORGS = 6
+# Calendar events (flights, trips, appointments) surfaced grouped by whose
+# calendar they came from, so the brief never merges one person's trip into
+# another's. Bounded per-owner and overall to respect MAX_CHARS.
+MAX_CALENDAR_PER_OWNER = 6
+MAX_CALENDAR_TOTAL = 14
 
 # User-asserted facts are authoritative and go at the top of the digest, so we
 # allow more of them than the mined sections -- but still bounded so a runaway
@@ -160,7 +165,7 @@ def _user_asserted_section() -> list[str]:
 
     These are pwg:PersonFact nodes carrying pwg:factSource "user_asserted"
     (banked by CM041's assert endpoint when the customer says something like
-    "Alison is my wife"). They are authoritative, so they sit at the very top
+    "Robin is my wife"). They are authoritative, so they sit at the very top
     of the digest -- the assistant should always know them. Most-recent-first,
     bounded by MAX_USER_ASSERTED, de-duplicated on the rendered line.
     """
@@ -268,6 +273,82 @@ def _meetings_section() -> tuple[list[str], list[str]]:
     return (upcoming, recent)
 
 
+def _calendar_by_owner_section() -> list[str]:
+    """Calendar events (flights, trips, appointments) grouped by OWNER.
+
+    This is the fix for travel/flight conflation in the daily brief. Calendar
+    events are stored as pwg:PersonFact rows with pwg:factDomain "calendar";
+    the CM041 ingest now stamps each with pwg:sourceCalendar (whose calendar
+    it came from) and, when the operator has confirmed it at install,
+    pwg:calendarType. We select those, drop L3, and render them GROUPED and
+    LABELLED by owner so the model is handed pre-attributed facts and can
+    never merge one person's trip into another's.
+
+    Events with no owner label are grouped under "Your calendar" (the
+    unlabelled-owner convention == the operator's own diary).
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?text ?owner ?type ?level ?valid WHERE {{\n'
+        '  ?f a pwg:PersonFact ;\n'
+        '     pwg:factDomain "calendar" ;\n'
+        '     pwg:factText ?text .\n'
+        '  OPTIONAL {{ ?f pwg:sourceCalendar ?owner }}\n'
+        '  OPTIONAL {{ ?f pwg:calendarType ?type }}\n'
+        '  OPTIONAL {{ ?f pwg:privacyLevel ?level }}\n'
+        '  OPTIONAL {{ ?f pwg:validFrom ?valid }}\n'
+        '}} ORDER BY DESC(?valid) LIMIT {limit}'.format(
+            ns=PWG_NS, limit=MAX_CALENDAR_TOTAL * 4
+        )
+    )
+    if not rows:
+        return []
+
+    # Group by owner, preserving most-recent-first order, honouring caps and
+    # dropping L3. "Your calendar" is the bucket for unlabelled-owner events.
+    order: list[str] = []
+    grouped: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    total = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _is_withheld({"level": row.get("level")}):
+            continue
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        owner = (row.get("owner") or "").strip() or "Your calendar"
+        key = (owner.lower(), text.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        bucket = grouped.setdefault(owner, [])
+        if owner not in order:
+            order.append(owner)
+        if len(bucket) >= MAX_CALENDAR_PER_OWNER:
+            continue
+        bucket.append(f"- {text}")
+        total += 1
+        if total >= MAX_CALENDAR_TOTAL:
+            break
+
+    if not grouped:
+        return []
+
+    # Render "Your calendar" first (most relevant to the operator), then the
+    # rest in first-seen order. Each owner is a labelled sub-block so the
+    # attribution survives into the prompt.
+    def _owner_sort_key(o: str) -> tuple[int, int]:
+        return (0 if o == "Your calendar" else 1, order.index(o))
+
+    lines: list[str] = []
+    for owner in sorted(order, key=_owner_sort_key):
+        lines.append(f"**{owner}:**")
+        lines.extend(grouped[owner])
+    return lines
+
+
 def _preferences_section() -> list[str]:
     """Top preferences from the coaching / observation surface.
 
@@ -335,10 +416,12 @@ def build_digest() -> str | None:
     user_asserted = _user_asserted_section()
     people = _people_section()
     upcoming, recent = _meetings_section()
+    calendar_by_owner = _calendar_by_owner_section()
     preferences = _preferences_section()
     orgs = _orgs_section()
 
-    if not (user_asserted or people or upcoming or recent or preferences or orgs):
+    if not (user_asserted or people or upcoming or recent
+            or calendar_by_owner or preferences or orgs):
         return None
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -383,6 +466,21 @@ def build_digest() -> str | None:
         out.append("## Recent meetings (last 7 days)")
         out.append("")
         out.extend(recent)
+        out.append("")
+
+    if calendar_by_owner:
+        out.append("## Calendar events by owner")
+        out.append("")
+        out.append(
+            "Each item is labelled with WHOSE calendar it came from. Use only "
+            "these facts; never merge two people's events, never reassign one "
+            "person's trip to another, and do not invent flight numbers, "
+            "routings, destinations or times. If an item is under another "
+            "person's calendar, attribute it to that person, not to the "
+            "person you assist."
+        )
+        out.append("")
+        out.extend(calendar_by_owner)
         out.append("")
 
     if preferences:

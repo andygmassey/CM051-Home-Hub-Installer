@@ -76,7 +76,7 @@ def test_user_asserted_section_present_and_first(monkeypatch, gen):
     """A user_asserted fact renders a 'Confirmed by you' section, ahead of the
     mined 'People you interact with most' section, and includes the fact text."""
     _patch_sparql(monkeypatch, gen, [
-        {"text": "Alison is your wife", "name": "Alison Massey",
+        {"text": "Robin is your wife", "name": "Robin Carter",
          "rel": "wife", "created": "2026-06-16T09:00:00Z"},
     ])
     _patch_hub(monkeypatch, gen, _MINED_HUB)
@@ -87,7 +87,7 @@ def test_user_asserted_section_present_and_first(monkeypatch, gen):
     # (a) the section exists
     assert "## Confirmed by you" in digest
     # (c) the user-asserted fact text is included
-    assert "Alison is your wife" in digest
+    assert "Robin is your wife" in digest
 
     # (b) it lands BEFORE the mined People section
     confirmed_at = digest.index("## Confirmed by you")
@@ -127,7 +127,7 @@ def test_user_asserted_survives_unreachable_oxigraph(monkeypatch, gen):
 
 def test_user_asserted_dedupes_and_caps(monkeypatch, gen):
     """Duplicate fact text collapses to one bullet; the section is capped."""
-    rows = [{"text": "Alison is your wife"} for _ in range(3)]
+    rows = [{"text": "Robin is your wife"} for _ in range(3)]
     rows += [{"text": f"Fact number {i}"} for i in range(gen.MAX_USER_ASSERTED + 10)]
     _patch_sparql(monkeypatch, gen, rows)
     _patch_hub(monkeypatch, gen, _MINED_HUB)
@@ -138,8 +138,8 @@ def test_user_asserted_dedupes_and_caps(monkeypatch, gen):
     section = digest.split("## Confirmed by you", 1)[1]
     section = section.split("## People you interact with most", 1)[0]
     bullets = [ln for ln in section.splitlines() if ln.startswith("- ")]
-    # de-duplicated: one "Alison" bullet, not three
-    assert sum(1 for b in bullets if "Alison is your wife" in b) == 1
+    # de-duplicated: one "Robin" bullet, not three
+    assert sum(1 for b in bullets if "Robin is your wife" in b) == 1
     # capped at MAX_USER_ASSERTED
     assert len(bullets) <= gen.MAX_USER_ASSERTED
 
@@ -150,3 +150,64 @@ def test_digest_none_when_nothing_anywhere(monkeypatch, gen):
     monkeypatch.setattr(gen, "_sparql_select", lambda sparql: None)
     monkeypatch.setattr(gen, "_get_json", lambda path: None)
     assert gen.build_digest() is None
+
+
+# ── Calendar-by-owner section (travel/flight conflation fix) ─────────────────
+
+
+def _patch_sparql_by_query(monkeypatch, module, *, calendar_rows=None,
+                           user_asserted_rows=None):
+    """Route _sparql_select by the query body so the calendar section and the
+    user-asserted section get their own rows (both use _sparql_select)."""
+    def fake(sparql: str):
+        if 'pwg:factDomain "calendar"' in sparql:
+            return calendar_rows or []
+        return user_asserted_rows or []
+    monkeypatch.setattr(module, "_sparql_select", fake)
+
+
+def test_calendar_events_grouped_and_labelled_by_owner(monkeypatch, gen):
+    """Two owners' flights with the SAME summary must render under distinct,
+    labelled owner blocks -- the core anti-conflation guarantee."""
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[
+        {"text": "Calendar event: 'Flight to Tokyo' on 01 August 2026",
+         "valid": "2026-08-01T09:00:00", "level": "L1"},
+        {"text": "Calendar event: 'Flight to Tokyo' on 01 August 2026",
+         "owner": "Robin", "type": "family",
+         "valid": "2026-08-01T09:00:00", "level": "L1"},
+    ])
+    _patch_hub(monkeypatch, gen, _MINED_HUB)
+
+    digest = gen.build_digest()
+    assert digest is not None
+    assert "## Calendar events by owner" in digest
+    # both owners labelled and distinct
+    assert "**Your calendar:**" in digest
+    assert "**Robin:**" in digest
+    # the attribution guardrail text is present for the model
+    assert "never merge two people's events" in digest
+    # Robin's block owns her flight; it is not merged into "Your calendar"
+    alison_at = digest.index("**Robin:**")
+    yours_at = digest.index("**Your calendar:**")
+    assert yours_at < alison_at  # operator's own diary rendered first
+
+
+def test_calendar_l3_event_withheld(monkeypatch, gen):
+    """An L3 (private) calendar event is never surfaced in the digest."""
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[
+        {"text": "Calendar event: 'Secret trip' on 02 August 2026",
+         "owner": "Work", "type": "work", "valid": "2026-08-02T00:00:00",
+         "level": "L3"},
+    ])
+    _patch_hub(monkeypatch, gen, _MINED_HUB)
+    digest = gen.build_digest()
+    # section omitted entirely (only row was L3) and content absent
+    assert "Secret trip" not in (digest or "")
+
+
+def test_calendar_section_omitted_when_no_calendar_facts(monkeypatch, gen):
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[])
+    _patch_hub(monkeypatch, gen, _MINED_HUB)
+    digest = gen.build_digest()
+    assert digest is not None
+    assert "## Calendar events by owner" not in digest
