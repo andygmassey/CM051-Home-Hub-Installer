@@ -19,6 +19,17 @@ Design constraints (TNM brief, locked 2026-05-31):
 
 Run it after each hydrate and on an interval (the CM051 installer wires a
 LaunchAgent that calls this; see the hand-off note in the builder report).
+
+SHIP-GATE (divergent-twin / paired fix): the per-owner calendar labelling
+below is the READ-SIDE half of a two-repo fix. The WRITE-SIDE half (which
+stamps pwg:sourceCalendar / pwg:calendarType and fails calendar privacy
+CLOSED to L3) lives in CM041 ``contact_syncer/google_calendar.py`` and
+ships to a customer Hub only via CM051 ``vendor/cm041/`` + the HR015
+tarball. This context-refresh script ships from CM051 ``context-refresh/``.
+Neither half is safe alone -- land + re-vendor + re-cut BOTH. If the CM041
+write-side has not landed, calendar rows carry no owner and fall under the
+"Your calendar" bucket, silently misattributing a partner's diary to the
+operator; do not ship this read-side change without its write-side twin.
 """
 
 from __future__ import annotations
@@ -242,20 +253,30 @@ def _people_section() -> list[str]:
     return lines
 
 
-def _meetings_section() -> tuple[list[str], list[str]]:
-    """Upcoming and recent meetings from the merged timeline.
+def _meetings_section() -> list[str]:
+    """Recent (past) meetings from the merged timeline.
 
-    Returns (upcoming_lines, recent_lines). The timeline endpoint returns both
-    calendar (future) and meeting (past) kinds.
+    The timeline endpoint returns both calendar (future) and meeting (past)
+    kinds. We render ONLY the meeting kind here.
+
+    The future / ``kind == "calendar"`` events are DELIBERATELY NOT rendered
+    from this endpoint. The timeline endpoint carries no owner attribution,
+    so surfacing calendar events here re-introduces the exact travel/flight
+    conflation the pair fixes: a partner's shared-calendar flight would land
+    under an un-labelled "Upcoming meetings" heading and the model would
+    default it to the operator (BATCH1 #3 F1). Owner-labelling this endpoint
+    is not feasible in this pass (no owner field on timeline rows), so the
+    un-attributed upcoming section is RETIRED. Future calendar events reach
+    the brief exclusively via ``_calendar_by_owner_section`` below, which
+    reads the CM041 owner + type provenance and fails closed on L3.
     """
     data = _get_json("/api/v1/timeline?days=7")
     if not data:
-        return ([], [])
+        return []
     items = data.get("items")
     if not isinstance(items, list):
-        return ([], [])
+        return []
 
-    upcoming: list[str] = []
     recent: list[str] = []
     for item in items:
         if not isinstance(item, dict) or _is_withheld(item):
@@ -263,14 +284,15 @@ def _meetings_section() -> tuple[list[str], list[str]]:
         summary = (item.get("summary") or "").strip()
         if not summary:
             continue
+        # Only past meetings (kind == "meeting"). Calendar-kind rows are
+        # skipped here -- see the docstring: they leak un-attributed.
+        if item.get("kind") != "meeting":
+            continue
         date = (item.get("date") or "").strip()
-        kind = item.get("kind")
         label = f"- {summary}" + (f" ({date})" if date else "")
-        if kind == "calendar" and len(upcoming) < MAX_MEETINGS:
-            upcoming.append(label)
-        elif kind == "meeting" and len(recent) < MAX_MEETINGS:
+        if len(recent) < MAX_MEETINGS:
             recent.append(label)
-    return (upcoming, recent)
+    return recent
 
 
 def _calendar_by_owner_section() -> list[str]:
@@ -415,12 +437,12 @@ def build_digest() -> str | None:
     """
     user_asserted = _user_asserted_section()
     people = _people_section()
-    upcoming, recent = _meetings_section()
+    recent = _meetings_section()
     calendar_by_owner = _calendar_by_owner_section()
     preferences = _preferences_section()
     orgs = _orgs_section()
 
-    if not (user_asserted or people or upcoming or recent
+    if not (user_asserted or people or recent
             or calendar_by_owner or preferences or orgs):
         return None
 
@@ -456,12 +478,11 @@ def build_digest() -> str | None:
         out.extend(people)
         out.append("")
 
-    if upcoming:
-        out.append("## Upcoming meetings (next 7 days)")
-        out.append("")
-        out.extend(upcoming)
-        out.append("")
-
+    # NOTE: there is deliberately no "## Upcoming meetings" section. Future
+    # calendar events are rendered only via "## Calendar events by owner"
+    # below, which carries per-owner attribution and L3 fail-closed filtering.
+    # The old un-attributed upcoming section leaked shared-calendar events as
+    # the operator's own (BATCH1 #3 F1) and has been retired.
     if recent:
         out.append("## Recent meetings (last 7 days)")
         out.append("")

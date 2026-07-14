@@ -211,3 +211,61 @@ def test_calendar_section_omitted_when_no_calendar_facts(monkeypatch, gen):
     digest = gen.build_digest()
     assert digest is not None
     assert "## Calendar events by owner" not in digest
+
+
+# ── Retirement of the un-attributed upcoming section (BATCH1 #3 F1) ───────────
+
+
+def test_upcoming_calendar_events_never_rendered_unattributed(monkeypatch, gen):
+    """A future calendar-kind timeline row (which carries NO owner) must never
+    surface under an un-labelled 'Upcoming meetings' heading. The section is
+    retired: calendar events reach the brief only via the owner-labelled
+    section, so a shared-calendar flight cannot leak as the operator's own."""
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[])
+    _patch_hub(monkeypatch, gen, {
+        "/api/v1/suggestions": {"recent_meetings": []},
+        "/api/v1/timeline": {"items": [
+            {"summary": "Partner's flight to Tokyo", "date": "2026-08-01",
+             "kind": "calendar"},
+        ]},
+        "/api/v1/coach/recent": {"observations": []},
+    })
+    digest = gen.build_digest()
+    # The un-attributed upcoming heading is gone entirely...
+    assert "## Upcoming meetings" not in (digest or "")
+    # ...and the leaky calendar summary does not reach the brief via this path.
+    assert "Partner's flight to Tokyo" not in (digest or "")
+
+
+def test_recent_meetings_still_render(monkeypatch, gen):
+    """Past meeting-kind timeline rows (genuine meeting history, not calendar
+    diary entries) still render under 'Recent meetings'."""
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[])
+    _patch_hub(monkeypatch, gen, {
+        "/api/v1/suggestions": {"recent_meetings": []},
+        "/api/v1/timeline": {"items": [
+            {"summary": "Standup with Danny", "date": "2026-06-10",
+             "kind": "meeting"},
+        ]},
+        "/api/v1/coach/recent": {"observations": []},
+    })
+    digest = gen.build_digest()
+    assert digest is not None
+    assert "## Recent meetings" in digest
+    assert "Standup with Danny" in digest
+
+
+def test_l3_calendar_kind_timeline_row_withheld(monkeypatch, gen):
+    """Even were a calendar-kind row L3, it is withheld; combined with the
+    retirement above, no un-attributed calendar entry can reach the brief."""
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[])
+    _patch_hub(monkeypatch, gen, {
+        "/api/v1/suggestions": {"recent_meetings": []},
+        "/api/v1/timeline": {"items": [
+            {"summary": "Private offsite", "date": "2026-08-01",
+             "kind": "calendar", "privacy_level": "L3"},
+        ]},
+        "/api/v1/coach/recent": {"observations": []},
+    })
+    digest = gen.build_digest()
+    assert "Private offsite" not in (digest or "")
