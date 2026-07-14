@@ -94,6 +94,39 @@ struct OnboardingQuestionView: View {
             .onAppear { seed(from: q) }
             .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
             .onChange(of: q.isReview) { _, _ in seed(from: q) }
+        } else if confirmLearnedPromptIds.contains(q.prompt.id) {
+            // End-of-install confirmation step ("confirm what we
+            // learned about you"): the four propose-and-confirm
+            // prompts emitted by install.sh's confirmation block
+            // (calendar owner/type + identity collapse/namesake) get
+            // a dedicated accept/correct screen with the helper's
+            // evidence panel, instead of the generic text field /
+            // menu picker / yes-no switch. Same dispatch shape as
+            // tailscale_connect above; the answer still routes
+            // through the standard submit(q) so install.sh's
+            // gui_read FIFO + decision writers behave identically
+            // to a TTY install.
+            ConfirmLearnedView(
+                question: q,
+                onSubmit: { value in
+                    switch q.prompt.kind {
+                    case .text:
+                        textValue = value
+                    case .yesno:
+                        // ConfirmLearnedView posts the canonical
+                        // "y"/"n" wire values; currentAnswer(q)
+                        // re-derives them from yesnoValue.
+                        yesnoValue = value.lowercased().hasPrefix("y")
+                    default:
+                        choiceValue = value
+                    }
+                    submit(q)
+                },
+                onReturn: { coordinator.exitBackReview() }
+            )
+            .onAppear { seed(from: q) }
+            .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
+            .onChange(of: q.isReview) { _, _ in seed(from: q) }
         } else {
             standardQuestionBody(q)
         }

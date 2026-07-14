@@ -317,5 +317,30 @@
     "faq_secure_a": "Yes. All traffic between your devices is end-to-end encrypted with WireGuard. Tailscale itself can never read your data – it only helps your devices find each other.",
     "faq_later_q": "Can I add it later?",
     "faq_later_a": "Yes. You can run the installer again with --repair, or open Settings inside Ostler and turn Tailscale on then."
+  },
+
+  "confirm_learned": {
+    "_meta": "End-of-install confirmation step (2026-07): dedicated 'Confirm what we learned' accept/correct screen rendered by ConfirmLearnedView.swift, dispatched from OnboardingQuestionView for prompt ids calendar_owner / calendar_type / identity_collapse / identity_namesake. Pairs with install.sh's 'End-of-install confirmation' block (lib/ostler-confirm-calendars.py + lib/ostler-confirm-identity.py). Prompt titles + evidence arrive already localised from install.sh.strings.{lang}.sh; this section carries only the GUI-side framing + card labels. Wire values on the cards ('y'/'n', 'different'/'me', calendar types) are pinned by tests/test_confirm_ui_gui_answer_contract.sh - do not translate values, only labels.",
+    "header_label": "Confirm what we learned",
+    "evidence_heading": "What we noticed",
+    "calendar_owner_hint": "Press Continue to accept this name, or type the right one.",
+    "calendar_type_personal_title": "Personal",
+    "calendar_type_personal_subtitle": "Your own appointments and plans.",
+    "calendar_type_work_title": "Work",
+    "calendar_type_work_subtitle": "Meetings and events from your work life.",
+    "calendar_type_family_title": "Family",
+    "calendar_type_family_subtitle": "Shared family plans – school, trips, birthdays.",
+    "calendar_type_shared_title": "Shared",
+    "calendar_type_shared_subtitle": "A calendar someone else shares with you – their events, not yours.",
+    "calendar_type_other_title": "Something else",
+    "calendar_type_other_subtitle": "None of the other types fits this calendar.",
+    "identity_collapse_y_title": "Yes – these are all me",
+    "identity_collapse_y_subtitle": "Combine them into one profile the next time Ostler updates itself.",
+    "identity_collapse_n_title": "No – keep them separate",
+    "identity_collapse_n_subtitle": "Nothing is combined. You can change this later.",
+    "identity_namesake_different_title": "Someone else who shares my name",
+    "identity_namesake_different_subtitle": "Keep us permanently separate – Ostler will never combine us.",
+    "identity_namesake_me_title": "That's me",
+    "identity_namesake_me_subtitle": "Leave it as it is for now – nothing is changed."
   }
 }

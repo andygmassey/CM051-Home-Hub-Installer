@@ -35,12 +35,12 @@
 		51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */; };
 		5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */; };
 		6294421D4362E4D2BB657559 /* StringsCatalogueEmDashTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */; };
-		C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */; };
 		66A0343A50F3D01C5CF42933 /* IBMPlexSans-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */; };
 		673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */; };
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
+		6CEA717AFC77CD850F0EA2D6 /* ConfirmLearnedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75ED48033676E187A4966AD /* ConfirmLearnedView.swift */; };
 		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
 		7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */; };
 		825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */; };
@@ -67,6 +67,7 @@
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
 		C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E1974AECCE8C351193A5257 /* DialogIcon.icns */; };
 		C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */; };
+		C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */; };
 		CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FF342212E569C1E337355B /* CaffeinateManager.swift */; };
 		CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */; };
 		D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */; };
@@ -77,6 +78,7 @@
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
 		DAB32AEC4502408333718B31 /* PermissionsPrewarmSequencingTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D6A276A313E76D98FEA20 /* PermissionsPrewarmSequencingTest.swift */; };
 		E03DD536A682B3269BAB3727 /* Outfit-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */; };
+		E2230040AFDB815B682DA42C /* ConfirmLearnedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CC77783F7A14D7DBED2B0A /* ConfirmLearnedViewTests.swift */; };
 		E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A13898725BE34B1AC2D3AD /* BiometricProbe.swift */; };
 		E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */; };
 		E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */; };
@@ -103,6 +105,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		03CC77783F7A14D7DBED2B0A /* ConfirmLearnedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmLearnedViewTests.swift; sourceTree = "<group>"; };
 		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroCatalogueKeysTest.swift; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
@@ -165,6 +168,7 @@
 		AAF575ABE11CBC6AF2FC1D3F /* InstallerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallerCoordinator.swift; sourceTree = "<group>"; };
 		B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogRedactorTests.swift; sourceTree = "<group>"; };
 		B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationExitCodeReconcileTests.swift; sourceTree = "<group>"; };
+		BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingQRAutoShowTest.swift; sourceTree = "<group>"; };
 		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryShortIdHeuristicTests.swift; sourceTree = "<group>"; };
@@ -177,7 +181,6 @@
 		E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessSheet.swift; sourceTree = "<group>"; };
 		E4C1249B5BB363F304334F02 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringsCatalogueEmDashTest.swift; sourceTree = "<group>"; };
-		BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingQRAutoShowTest.swift; sourceTree = "<group>"; };
 		E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementHeaderTests.swift; sourceTree = "<group>"; };
 		E92A90F0ED1636988B7278FB /* HintPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HintPanelView.swift; sourceTree = "<group>"; };
 		EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionXOfYTests.swift; sourceTree = "<group>"; };
@@ -185,6 +188,7 @@
 		F096DE1EF195479F3854214B /* AuthorizationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizationHelper.swift; sourceTree = "<group>"; };
 		F0FF342212E569C1E337355B /* CaffeinateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateManager.swift; sourceTree = "<group>"; };
 		F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeyView.swift; sourceTree = "<group>"; };
+		F75ED48033676E187A4966AD /* ConfirmLearnedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmLearnedView.swift; sourceTree = "<group>"; };
 		F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistence.swift; sourceTree = "<group>"; };
 		FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricProbeTests.swift; sourceTree = "<group>"; };
 		FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryDropzoneTests.swift; sourceTree = "<group>"; };
@@ -213,6 +217,7 @@
 		296BE68221AABD99A6B09E98 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				F75ED48033676E187A4966AD /* ConfirmLearnedView.swift */,
 				E4C1249B5BB363F304334F02 /* ContentView.swift */,
 				1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */,
 				66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */,
@@ -260,6 +265,7 @@
 			children = (
 				40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */,
 				FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */,
+				03CC77783F7A14D7DBED2B0A /* ConfirmLearnedViewTests.swift */,
 				FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */,
 				3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */,
 				4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */,
@@ -277,6 +283,7 @@
 				B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */,
 				091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */,
 				EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */,
+				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
 				9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */,
 				0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */,
 				41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */,
@@ -287,7 +294,6 @@
 				0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */,
 				58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */,
 				E815D5DF452D90B0BC613D81 /* StatementHeaderTests.swift */,
-				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
 				E72FA18E774D1E8714779AC2 /* StringsCatalogueEmDashTest.swift */,
 				DCE2A31F120A9538AB52609C /* StringsCatalogueYNSuffixTest.swift */,
 				B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */,
@@ -925,6 +931,7 @@
 				"$(SRCROOT)/../install.sh",
 				"$(SRCROOT)/../lib/progress_emitter.sh",
 				"$(SRCROOT)/../lib/write_pipeline_signals.py",
+				"$(SRCROOT)/../lib/ostler-model-fit.sh",
 				"$(SRCROOT)/../install.sh.strings.en-GB.sh",
 			);
 			name = "Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources";
@@ -934,11 +941,12 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on plain `` at *generation* time (replacing it\n# with the empty string when unset in the generator's env), which\n# silently broke hub bundling after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it\n# with the empty string when unset in the generator's env), which\n# silently broke hub bundling after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
 		};
 		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1034,6 +1042,7 @@
 				83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */,
 				E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */,
 				CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */,
+				6CEA717AFC77CD850F0EA2D6 /* ConfirmLearnedView.swift in Sources */,
 				F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */,
 				9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */,
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
@@ -1070,6 +1079,7 @@
 			files = (
 				32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */,
 				A2AF7698B580747649FC9363 /* BiometricProbeTests.swift in Sources */,
+				E2230040AFDB815B682DA42C /* ConfirmLearnedViewTests.swift in Sources */,
 				297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */,
 				41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */,
 				1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */,
@@ -1087,6 +1097,7 @@
 				F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */,
 				8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */,
 				673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */,
+				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
 				42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */,
 				7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */,
 				5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */,
@@ -1098,7 +1109,6 @@
 				ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */,
 				A437D3E3326FAE2B1C3BA371 /* StatementHeaderTests.swift in Sources */,
 				6294421D4362E4D2BB657559 /* StringsCatalogueEmDashTest.swift in Sources */,
-				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
 				0DC239B7F1A049A5293EEF7D /* StringsCatalogueYNSuffixTest.swift in Sources */,
 				D593E67900B5C491B3B2F624 /* TerminationExitCodeReconcileTests.swift in Sources */,
 				CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */,
