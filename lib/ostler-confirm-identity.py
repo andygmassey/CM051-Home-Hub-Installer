@@ -186,6 +186,29 @@ def _diverging_hard_evidence(owner: Dict[str, Any], cand: Dict[str, Any]) -> Lis
     return ev
 
 
+def _has_decisive_divergence(owner: Dict[str, Any], cand: Dict[str, Any]) -> bool:
+    """A hard signal that means two DIFFERENT people even when name / email
+    domain overlap (design §2). Decisive divergence OVERRIDES any shared
+    name-or-domain corroboration: a same-domain colleague with a different
+    LinkedIn (or a disjoint career track) is a namesake SPLIT, never a
+    self-COLLAPSE.
+
+    Precedence (design §2): a *shared* LinkedIn profile is itself decisive
+    same-person and outranks a job-history divergence (same person whose roles
+    simply changed over time), so it suppresses the split.
+    """
+    # Shared LinkedIn profile => decisively the same person; never split.
+    if owner["linkedin"] & cand["linkedin"]:
+        return False
+    # Both have a LinkedIn and none is shared => two live profiles => two people.
+    if owner["linkedin"] and cand["linkedin"]:
+        return True
+    # Distinct job history (both carry orgs, none overlap) => different person.
+    if owner["orgs"] and cand["orgs"] and not (owner["orgs"] & cand["orgs"]):
+        return True
+    return False
+
+
 def score_candidates(
     owner: Dict[str, Any], candidates: List[Dict[str, Any]]
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -201,8 +224,15 @@ def score_candidates(
             continue
         shared = _shared_hard_evidence(owner, cand)
         diverging = _diverging_hard_evidence(owner, cand)
-        if shared:
-            # A corroborating hard id ties it to the operator -> self-fragment.
+        if _has_decisive_divergence(owner, cand):
+            # A decisive divergence (different LinkedIn / disjoint career track)
+            # means a DIFFERENT real person -- even if they share the operator's
+            # email domain. Name-or-domain overlap must NEVER pull them into a
+            # merge (design §2: divergent LinkedIn is decisive namesake).
+            namesakes.append({**cand, "evidence": diverging or shared})
+        elif shared:
+            # A corroborating hard id, with no decisive divergence, ties it to
+            # the operator -> self-fragment.
             collapse.append({**cand, "evidence": shared})
         elif diverging:
             # Name matches but a hard id diverges and none is shared -> a
@@ -318,6 +348,26 @@ def _cmd_propose(args: argparse.Namespace) -> int:
 # still rejects whitespace and shell/YAML metacharacters.
 _ID_OK = re.compile(r"^[A-Za-z0-9_#.:/-]{1,128}$")
 
+# The operator's own canonical self node -- ``user_<id>`` or ``ontology#user_<id>``
+# (short_id of ``…/ontology#user_<id>`` keeps the ``#user_`` fragment). This node
+# must NEVER be folded into a merge group (folding it in risks CM041's
+# ``pick_canonical`` tombstoning it -- see ``_cmd_propose`` SAFETY note). A
+# ``distinct`` (namesake veto) pair legitimately *does* carry the owner sid, so
+# this reject is applied to MERGE lists only.
+_OWNER_SID = re.compile(r"(?:^|[#/])user_", re.IGNORECASE)
+
+
+def _is_owner_sid(sid: str) -> bool:
+    return bool(_OWNER_SID.search(sid or ""))
+
+
+def _entry_has_owner_merge(entry: Any) -> bool:
+    """True if a decisions-file entry is a ``merge`` group naming the owner sid."""
+    if not isinstance(entry, dict):
+        return False
+    ids = entry.get("merge")
+    return isinstance(ids, list) and any(_is_owner_sid(str(x)) for x in ids)
+
 
 def _same_set(a: Any, b: Any) -> bool:
     return isinstance(a, list) and isinstance(b, list) and set(a) == set(b)
@@ -337,9 +387,19 @@ def write_decisions(
 
     import yaml
 
+    rejected: List[Dict[str, Any]] = []
+
     entries: List[Dict[str, List[str]]] = []
     for grp in merges:
         ids = [x for x in grp if x]
+        # CRITICAL collapse-safety invariant, enforced INDEPENDENTLY at the
+        # recorder (defence in depth vs the proposer's score_candidates guard):
+        # the operator's own canonical owner node must never land in a merge
+        # group. Refuse the whole group -- a malformed / injected / hand-edited
+        # --merge that names the owner is rejected here, not silently merged.
+        if any(_is_owner_sid(x) for x in ids):
+            rejected.append({"merge": list(dict.fromkeys(ids)), "reason": "owner-sid"})
+            continue
         if len(set(ids)) >= 2:
             entries.append({"merge": list(dict.fromkeys(ids))})
     for pair in distinct_pairs:
@@ -355,7 +415,20 @@ def write_decisions(
                 data = loaded
         except yaml.YAMLError:
             pass  # malformed existing file -> start clean rather than crash install
-    existing = data["decisions"]
+    existing_raw = data["decisions"]
+
+    # Defence in depth: neutralise any owner-sid merge already sitting in the
+    # file (hand-edited / injected duplicates.yaml) before we append, so the
+    # recorder can never persist a collapse of the operator's canonical node.
+    existing: List[Any] = []
+    existing_dirty = False
+    for e in existing_raw:
+        if _entry_has_owner_merge(e):
+            rejected.append({"merge": list(e.get("merge")), "reason": "owner-sid"})
+            existing_dirty = True
+            continue
+        existing.append(e)
+    data["decisions"] = existing
 
     added: List[Dict[str, List[str]]] = []
     for entry in entries:
@@ -365,19 +438,24 @@ def write_decisions(
         existing.append(entry)
         added.append(entry)
 
-    if added:
+    if added or existing_dirty:
         os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(yaml.safe_dump(data, sort_keys=False, default_flow_style=False))
-    return {"status": "recorded", "added": added, "path": path}
+    return {"status": "recorded", "added": added, "rejected": rejected, "path": path}
 
 
-def _parse_id_list(raw: str) -> List[str]:
+def _parse_id_list(raw: str, reject_owner: bool = False) -> List[str]:
     out: List[str] = []
     for part in (raw or "").split(","):
         part = part.strip()
-        if part and _ID_OK.match(part):
-            out.append(part)
+        if not (part and _ID_OK.match(part)):
+            continue
+        if reject_owner and _is_owner_sid(part):
+            # An owner sid poisons a whole merge group -> refuse it entirely
+            # here at the CLI boundary (write_decisions re-checks regardless).
+            return []
+        out.append(part)
     return out
 
 
@@ -386,7 +464,9 @@ def _cmd_record(args: argparse.Namespace) -> int:
 
     corrections_dir = os.path.expanduser(args.corrections_dir)
     path = os.path.join(corrections_dir, "duplicates.yaml")
-    merges = [_parse_id_list(m) for m in (args.merge or [])]
+    # Merges reject the owner sid at the CLI boundary; distinct/namesake pairs
+    # legitimately carry it (the owner is one half of a namesake veto).
+    merges = [_parse_id_list(m, reject_owner=True) for m in (args.merge or [])]
     distincts = [_parse_id_list(d) for d in (args.distinct or [])]
     result = write_decisions(path, merges, distincts)
     sys.stdout.write(json.dumps(result) + "\n")
