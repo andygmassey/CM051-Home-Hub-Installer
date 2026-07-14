@@ -306,8 +306,10 @@ def _calendar_by_owner_section() -> list[str]:
     LABELLED by owner so the model is handed pre-attributed facts and can
     never merge one person's trip into another's.
 
-    Events with no owner label are grouped under "Your calendar" (the
-    unlabelled-owner convention == the operator's own diary).
+    Events with no owner label are grouped under "Unattributed" -- an
+    unknown-owner event is NEVER silently labelled as the operator's own
+    diary (that was a fail-open misattribution: a partner-diary event whose
+    owner label was lost would have rendered as "Your calendar").
     """
     rows = _sparql_select(
         'PREFIX pwg: <{ns}>\n'
@@ -327,7 +329,8 @@ def _calendar_by_owner_section() -> list[str]:
         return []
 
     # Group by owner, preserving most-recent-first order, honouring caps and
-    # dropping L3. "Your calendar" is the bucket for unlabelled-owner events.
+    # dropping L3. "Unattributed" is the bucket for unlabelled-owner events --
+    # never attributed to the operator.
     order: list[str] = []
     grouped: dict[str, list[str]] = {}
     seen: set[tuple[str, str]] = set()
@@ -340,7 +343,7 @@ def _calendar_by_owner_section() -> list[str]:
         text = (row.get("text") or "").strip()
         if not text:
             continue
-        owner = (row.get("owner") or "").strip() or "Your calendar"
+        owner = (row.get("owner") or "").strip() or "Unattributed"
         key = (owner.lower(), text.lower())
         if key in seen:
             continue
@@ -358,11 +361,12 @@ def _calendar_by_owner_section() -> list[str]:
     if not grouped:
         return []
 
-    # Render "Your calendar" first (most relevant to the operator), then the
-    # rest in first-seen order. Each owner is a labelled sub-block so the
-    # attribution survives into the prompt.
+    # Render named owners in first-seen order, with the unknown-owner
+    # "Unattributed" bucket LAST -- it is not privileged as the operator's
+    # own. Each owner is a labelled sub-block so the attribution survives
+    # into the prompt.
     def _owner_sort_key(o: str) -> tuple[int, int]:
-        return (0 if o == "Your calendar" else 1, order.index(o))
+        return (1 if o == "Unattributed" else 0, order.index(o))
 
     lines: list[str] = []
     for owner in sorted(order, key=_owner_sort_key):

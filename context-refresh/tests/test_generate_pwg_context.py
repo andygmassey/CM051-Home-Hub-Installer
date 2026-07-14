@@ -168,7 +168,8 @@ def _patch_sparql_by_query(monkeypatch, module, *, calendar_rows=None,
 
 def test_calendar_events_grouped_and_labelled_by_owner(monkeypatch, gen):
     """Two owners' flights with the SAME summary must render under distinct,
-    labelled owner blocks -- the core anti-conflation guarantee."""
+    labelled owner blocks -- the core anti-conflation guarantee. An
+    unknown-owner row goes under 'Unattributed', NOT 'Your calendar'."""
     _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[
         {"text": "Calendar event: 'Flight to Tokyo' on 01 August 2026",
          "valid": "2026-08-01T09:00:00", "level": "L1"},
@@ -181,15 +182,34 @@ def test_calendar_events_grouped_and_labelled_by_owner(monkeypatch, gen):
     digest = gen.build_digest()
     assert digest is not None
     assert "## Calendar events by owner" in digest
-    # both owners labelled and distinct
-    assert "**Your calendar:**" in digest
+    # unknown-owner row is never labelled as the operator's own diary
+    assert "**Your calendar:**" not in digest
+    assert "**Unattributed:**" in digest
     assert "**Robin:**" in digest
     # the attribution guardrail text is present for the model
     assert "never merge two people's events" in digest
-    # Robin's block owns her flight; it is not merged into "Your calendar"
-    alison_at = digest.index("**Robin:**")
-    yours_at = digest.index("**Your calendar:**")
-    assert yours_at < alison_at  # operator's own diary rendered first
+    # Robin's named block renders BEFORE the Unattributed bucket (last).
+    robin_at = digest.index("**Robin:**")
+    unattributed_at = digest.index("**Unattributed:**")
+    assert robin_at < unattributed_at
+
+
+def test_unknown_owner_calendar_event_never_labelled_your_calendar(monkeypatch, gen):
+    """Fail-open regression (BATCH1 #3 F2): a calendar event with no owner
+    label must render under 'Unattributed', never 'Your calendar' -- a
+    partner-diary event whose owner label was lost must not be silently
+    attributed to the operator."""
+    _patch_sparql_by_query(monkeypatch, gen, calendar_rows=[
+        {"text": "Calendar event: 'Flight to Nowhere' on 09 August 2026",
+         "valid": "2026-08-09T06:00:00", "level": "L1"},
+    ])
+    _patch_hub(monkeypatch, gen, _MINED_HUB)
+    digest = gen.build_digest()
+    assert digest is not None
+    assert "## Calendar events by owner" in digest
+    assert "**Unattributed:**" in digest
+    assert "**Your calendar:**" not in digest
+    assert "Flight to Nowhere" in digest
 
 
 def test_calendar_l3_event_withheld(monkeypatch, gen):
