@@ -783,6 +783,30 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
 
+# ── End-of-install confirmation (calendars + identity) ──
+#
+# One-time propose-and-confirm at the end of setup that seeds the
+# disambiguation the daily brief relies on. Calendar prompts confirm whose
+# diary each calendar is (so a partner's flight is not read as yours);
+# identity prompts confirm which look-alike profiles are you (collapse) and
+# which are a different person who happens to share your name (split). All
+# skippable -- hitting enter accepts the pre-filled guess. %s placeholders
+# carry runtime values (calendar name, event count/samples, the evidence
+# that links or separates a profile).
+MSG_CONFIRM_CALENDARS_INTRO="Let's confirm whose calendar is whose, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDAR_HELP="%s events, e.g. %s"
+MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_HELP="One of: personal, work, family, shared, other. This sets how sensitive its events are treated."
+MSG_CONFIRM_CALENDARS_SAVED="Saved your calendar owners"
+MSG_CONFIRM_CALENDARS_FAILED="Could not save calendar owners (non-fatal -- you can set these later)"
+MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="We think these profiles are all you (%s). Combine them into one?"
+MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="These profiles share a hard identity signal with you (an email domain, LinkedIn profile or employer). Combining them keeps your assistant from treating your own history as several different people. You can undo this later."
+MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="Someone shares your name but looks like a different person (%s). Is this you, or someone else?"
+MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="Pick 'different' to keep them as a separate person (your assistant will never merge them into you). Pick 'me' only if this really is you."
+MSG_CONFIRM_IDENTITY_SAVED="Saved who's you"
+MSG_CONFIRM_IDENTITY_FAILED="Could not save identity choices (non-fatal -- you can confirm later)"
+
 MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="Installing in the background (about 15 to 60 minutes)"
 
 MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="Use +%s?"
