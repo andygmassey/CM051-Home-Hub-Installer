@@ -1,3 +1,262 @@
+--- a/agent/config_panel.py
++++ b/agent/config_panel.py
+@@ -67,6 +67,24 @@
+     return DEFAULT_CONFIG_FILE
+ 
+ 
++def _governor_env_file() -> Path:
++    """Resolve the path of the shell-sourceable governor bridge file.
++
++    This is the file the background-work engine
++    (``~/.ostler/lib/ostler-resource-tier.sh``) actually reads. The panel
++    writes YAML for humans AND this KEY=VALUE file for the engine, which
++    closes the writer/reader gap that made the old Config page a no-op.
++
++    ``OSTLER_GOVERNOR_ENV_FILE`` wins; otherwise it sits beside the
++    resolved ``config.yaml`` so a test that relocates the config also
++    relocates the bridge file.
++    """
++    raw = os.environ.get("OSTLER_GOVERNOR_ENV_FILE")
++    if raw:
++        return Path(raw)
++    return _config_file().parent / "governor.env"
++
++
+ # -- Errors -----------------------------------------------------------
+ 
+ 
+@@ -107,10 +125,11 @@
+ # -- Whitelist of editable fields -------------------------------------
+ #
+ # Each entry describes ONE clearly-safe, flat top-level field the panel
+-# may write. Anything not here is read-only. Keys are intentionally a
+-# small, conservative set: channel toggles, model selection, schedule
+-# times, and the privacy default. Editing these cannot corrupt the
+-# assistant daemon's live state because this is a Doctor-owned file.
++# may write. Anything not here is read-only. The set is intentionally
++# minimal: only the two background-work controls (Pause + Throttle) that
++# are actually wired through to the engine live here. Editing these
++# cannot corrupt the assistant daemon's live state because this is a
++# Doctor-owned file.
+ #
+ # ``kind`` drives both the rendered control and the validator:
+ #   bool   -- checkbox; accepts true/false
+@@ -131,76 +150,59 @@
+ 
+ 
+ EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
+-    # -- Channels ----------------------------------------------------
++    # -- Background work ---------------------------------------------
++    # The two controls Andy asked for: a Pause and a throttle. Both are
++    # written straight through to the shell governor via governor.env, so
++    # they take effect on the next background tick -- no daemon restart.
+     FieldSpec(
+-        key="imessage_enabled",
++        key="background_paused",
+         kind="bool",
+-        label="iMessage",
+-        section="Channels",
+-        help="Let your assistant read and reply over iMessage.",
+-    ),
+-    FieldSpec(
+-        key="whatsapp_enabled",
+-        kind="bool",
+-        label="WhatsApp",
+-        section="Channels",
+-        help="Let your assistant read and reply over WhatsApp.",
+-    ),
+-    FieldSpec(
+-        key="email_enabled",
+-        kind="bool",
+-        label="Email",
+-        section="Channels",
+-        help="Let your assistant triage and reply to email.",
+-    ),
+-    # -- Model -------------------------------------------------------
+-    FieldSpec(
+-        key="assistant_model",
+-        kind="enum",
+-        label="Assistant model",
+-        section="Model",
+-        help="The local model your assistant uses to think and reply.",
+-        choices=(
+-            "qwen3.5:9b",
+-            "qwen2.5:14b",
+-            "qwen2.5:3b",
+-            "gemma4:e2b",
++        label="Pause background work",
++        section="Background work",
++        help=(
++            "Stop the background catch-up (conversation ingest, wiki "
++            "refresh, summaries) until you switch this off. Chatting with "
++            "your assistant still works while paused."
+         ),
+     ),
+-    # -- Schedule ----------------------------------------------------
+     FieldSpec(
+-        key="morning_brief_time",
+-        kind="time",
+-        label="Morning brief",
+-        section="Schedule",
+-        help="When your assistant sends the morning brief (24h, HH:MM).",
+-    ),
+-    FieldSpec(
+-        key="evening_wrap_time",
+-        kind="time",
+-        label="Evening wrap",
+-        section="Schedule",
+-        help="When your assistant sends the evening wrap (24h, HH:MM).",
+-    ),
+-    # -- Privacy -----------------------------------------------------
+-    FieldSpec(
+-        key="default_privacy_level",
++        key="background_throttle",
+         kind="enum",
+-        label="Default privacy level",
+-        section="Privacy",
++        label="Background work speed",
++        section="Background work",
+         help=(
+-            "The privacy level new conversations get by default. "
+-            "L3 is private by default and is never indexed for search."
++            "How hard the background catch-up may push your Mac. "
++            "'gentle' eases off and saves the heavy work for overnight; "
++            "'balanced' matches the work to your hardware (recommended); "
++            "'full' runs it as fast as possible."
+         ),
+-        choices=("L0", "L1", "L2", "L3"),
++        choices=("gentle", "balanced", "full"),
+     ),
++    # NOTE: the earlier Channels / Model / Schedule / Privacy controls
++    # were REMOVED (Batch-2 review #6 F6). They wrote keys into
++    # config.yaml that NO daemon reads -- the assistant daemon's live
++    # state lives in ~/.ostler/assistant-config/config.toml, not here --
++    # so they were dead controls that silently did nothing and compounded
++    # the confusion around the (real, wired) Pause + Throttle controls
++    # above. Rather than ship a panel where two controls work and six do
++    # nothing, the dead controls are gone. Wiring them through to the
++    # daemon TOML (channels have consent implications; brief times are the
++    # daemon's cron schedule) is a separate, larger piece of work. The
++    # channels remain editable via `ostler-assistant setup channels
++    # --interactive`, which the installer already points customers to.
+ )
+ 
+ _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
+ 
+ 
+-# Section display order for the rendered panel.
+-SECTION_ORDER: tuple[str, ...] = ("Channels", "Model", "Schedule", "Privacy")
++# Section display order for the rendered panel. Only the "Background
++# work" section survives -- it holds the two controls (Pause + Throttle)
++# that actually reach the engine. The Channels / Model / Schedule /
++# Privacy sections were removed with their dead controls (see the note in
++# EDITABLE_FIELDS).
++SECTION_ORDER: tuple[str, ...] = (
++    "Background work",
++)
+ 
+ 
+ _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+@@ -393,18 +395,97 @@
+         except OSError:
+             pass
+         raise ConfigError(500, f"Could not write config file: {exc}")
++
++
++# -- Governor bridge (the file the background-work engine reads) ------
++#
++# The old defect: the panel wrote config.yaml that NO daemon read, so
++# toggles silently did nothing. The background-work engine is a shell
++# library that reads environment variables, so the contract between panel
++# (Python writer) and engine (shell reader) is a tiny KEY=VALUE file it
++# sources. We regenerate it from the full merged config on every write so
++# it always matches config.yaml.
++
++# Throttle levels understood by the shell engine's OSTLER_THROTTLE_LEVEL.
++_THROTTLE_LEVELS: tuple[str, ...] = ("gentle", "balanced", "full")
++
++
++def render_governor_env(config: dict[str, Any]) -> str:
++    """Render the governor settings as a shell-sourceable KEY=VALUE file.
++
++    Only the two background-work controls are emitted; everything else in
++    config.yaml is irrelevant to the shell engine. Unknown/blank values
++    fall back to safe defaults (not paused, balanced) so a partial config
++    never produces a malformed bridge file.
++    """
++    paused = bool(config.get("background_paused", False))
++    throttle = config.get("background_throttle", "balanced")
++    if throttle not in _THROTTLE_LEVELS:
++        throttle = "balanced"
++    return (
++        "# Ostler background-work settings.\n"
++        "# Written by the Doctor Settings panel; read by\n"
++        "# ~/.ostler/lib/ostler-resource-tier.sh on the next background tick.\n"
++        "# Do not hand-edit while the Settings panel is open.\n"
++        f"export OSTLER_PAUSED={'1' if paused else '0'}\n"
++        f"export OSTLER_THROTTLE_LEVEL={throttle}\n"
++    )
+ 
+ 
++def _write_governor_env(config: dict[str, Any], path: Optional[Path] = None) -> None:
++    """Atomically write the governor bridge file the shell engine reads."""
++    p = path or _governor_env_file()
++    p.parent.mkdir(parents=True, exist_ok=True)
++    text = render_governor_env(config)
++    fd, tmp = tempfile.mkstemp(
++        dir=str(p.parent), prefix=".governor-", suffix=".env.tmp"
++    )
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as fh:
++            fh.write(text)
++        os.replace(tmp, p)
++    except OSError as exc:
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass
++        raise ConfigError(500, f"Could not write governor settings file: {exc}")
++
++
+ def write_config(updates: Any, path: Optional[Path] = None) -> dict[str, Any]:
+     """Validate ``updates`` and merge them into the config file.
+ 
+     Reads the existing file first and preserves every key the panel does
+-    not understand, so a newer/foreign config is never clobbered. Returns
+-    the fresh panel view model (so the client re-renders from authority).
++    not understand, so a newer/foreign config is never clobbered. After
++    persisting config.yaml, regenerates the ``governor.env`` bridge so the
++    background-work engine actually consumes the pause/throttle choices.
++    Returns the fresh panel view model (so the client re-renders from
++    authority).
+     """
+     p = path or _config_file()
+     normalised = validate_updates(updates)
+     current = _load_raw(p)
+     current.update(normalised)
+     _atomic_write(p, current)
++    _write_governor_env(current)
++    # If this write touched the Pause control, reflect it into the
++    # assistant daemon's OWN cron scheduler too -- not just the shell
++    # governor. The shell governor.env above stops the *-tick.sh
++    # enrichment/ingest jobs; this stops the daemon-embedded cron that
++    # fires the morning brief / evening wrap. Without it a Pause set at
++    # 08:45 would still let the 09:00 brief fire (Batch-2 review #6 F1).
++    if "background_paused" in normalised:
++        # Local import: daemon_cron needs tomllib (3.11+) and is only
++        # exercised on the write path, so a module-load failure never
++        # breaks the read view.
++        from daemon_cron import DaemonCronError, apply_pause_to_cron
++
++        try:
++            apply_pause_to_cron(bool(normalised["background_paused"]))
++        except DaemonCronError as exc:
++            # Surface as a ConfigError so the existing FastAPI handler
++            # maps it and the operator is told the daemon cron could not
++            # be paused (the shell-layer pause is already in force). We
++            # fail loud rather than silently leaving the brief armed.
++            raise ConfigError(exc.status, exc.detail)
+     return read_config_view(p)
 --- a/agent/duplicate_decision.py
 +++ b/agent/duplicate_decision.py
 @@ -25,7 +25,7 @@
@@ -48,280 +307,6 @@
      # distinct: record every pair so the resolver vetoes each one independently.
      return [
          {"distinct": [ids[i], ids[j]]}
---- a/agent/import_evernote_runner.py
-+++ b/agent/import_evernote_runner.py
-@@ -45,31 +45,6 @@
- from typing import Any, Dict, List
- 
- 
--# Sentinel that separates sequential phases in the command after ``--``.
--# Doctor passes ``convert ... --and-then embed ...`` so the supervisor
--# runs convert, then embed ONLY if convert succeeded. A command with no
--# sentinel is a single phase, preserving the original one-command contract.
--PHASE_SENTINEL = "--and-then"
--
--
--def _split_phases(tokens: List[str]) -> List[List[str]]:
--    """Split a flat token list into sequential command phases on the
--    ``--and-then`` sentinel. Empty phases (a leading/trailing/double
--    sentinel) are dropped so the runner never tries to exec ``[]``."""
--    phases: List[List[str]] = []
--    current: List[str] = []
--    for tok in tokens:
--        if tok == PHASE_SENTINEL:
--            if current:
--                phases.append(current)
--                current = []
--            continue
--        current.append(tok)
--    if current:
--        phases.append(current)
--    return phases
--
--
- def _parse_args(argv: List[str]) -> argparse.Namespace:
-     parser = argparse.ArgumentParser(
-         description="Evernote import supervisor (Doctor-internal).",
-@@ -83,8 +58,7 @@
-     parser.add_argument(
-         "command",
-         nargs=argparse.REMAINDER,
--        help="The command(s) to execute; precede with -- to disambiguate. "
--             "Multiple phases may be chained with the --and-then sentinel.",
-+        help="The command to execute; precede with -- to disambiguate.",
-     )
-     args = parser.parse_args(argv)
-     # argparse REMAINDER preserves the leading ``--`` token; drop it.
-@@ -92,9 +66,6 @@
-         args.command = args.command[1:]
-     if not args.command:
-         parser.error("no command supplied after --")
--    args.phases = _split_phases(args.command)
--    if not args.phases:
--        parser.error("no command supplied after --")
-     return args
- 
- 
-@@ -119,69 +90,30 @@
- def main(argv: List[str]) -> int:
-     args = _parse_args(argv)
- 
--    # Run phases in order; stop at the first non-zero exit so a failed
--    # convert never runs embed against a half-written staging tree. The
--    # state file records which phase was last attempted so Doctor can
--    # tell "convert failed" from "embed failed".
--    exit_code = 0
--    phase_index = 0
--    for phase_index, phase_cmd in enumerate(args.phases):
--        try:
--            result = subprocess.run(phase_cmd, check=False)
--            exit_code = result.returncode
--        except FileNotFoundError as exc:
--            # The bundled ``ostler-knowledge`` was not found on PATH.
--            # Surface as a non-zero exit and a note in the state file --
--            # Doctor's UI shows the failure to the operator who can then
--            # check that the installer ran.
--            exit_code = 127
--            sys.stderr.write(f"runner: command not found: {exc}\n")
--        except OSError as exc:
--            exit_code = 1
--            sys.stderr.write(f"runner: failed to exec command: {exc}\n")
--        if exit_code != 0:
--            break
-+    try:
-+        result = subprocess.run(args.command, check=False)
-+        exit_code = result.returncode
-+    except FileNotFoundError as exc:
-+        # The bundled ``ostler-knowledge`` was not found on PATH.
-+        # Surface as a non-zero exit and a note in the state file --
-+        # Doctor's UI shows the failure to the operator who can then
-+        # check that the installer ran.
-+        exit_code = 127
-+        sys.stderr.write(f"runner: command not found: {exc}\n")
-+    except OSError as exc:
-+        exit_code = 1
-+        sys.stderr.write(f"runner: failed to exec command: {exc}\n")
- 
--    # Graceful-degrade status. The phases are ordered so the *last* one is
--    # the non-critical enrichment step -- for a knowledge import that is
--    # ``embed`` (indexing into Qdrant for search), preceded by ``convert``
--    # (writing the markdown that IS the import). Because the loop above
--    # stops at the first non-zero exit, reaching the last phase means every
--    # earlier phase exited 0. So a non-zero exit *on the last phase of a
--    # multi-phase run* means the data landed and only search indexing
--    # failed (Qdrant/Ollama down) -- a degraded success, not a hard
--    # failure. The operator's notes ARE imported; search catches up on a
--    # re-run. We surface it as ``partial`` so the UI shows amber + a
--    # "search pending" note rather than a red "failed". A single-phase run
--    # (no --and-then) keeps the original succeeded/failed contract.
--    phases_total = len(args.phases)
--    is_last_phase = phase_index == phases_total - 1
--    if exit_code == 0:
--        status = "succeeded"
--    elif phases_total > 1 and is_last_phase:
--        status = "partial"
--    else:
--        status = "failed"
--
-     completed_at = datetime.now(timezone.utc).isoformat()
-     state = {
-         "job_id": args.job_id,
--        "status": status,
-+        "status": "succeeded" if exit_code == 0 else "failed",
-         "exit_code": exit_code,
--        "phase_index": phase_index,
--        "phases_total": phases_total,
-         "started_at": args.started_at,
-         "completed_at": completed_at,
-         "log_path": args.log_path,
-         "enex_path": args.enex_path,
-     }
--    if status == "partial":
--        # Human-facing hint the UI surfaces verbatim.
--        state["note"] = (
--            "Notes imported. Search indexing did not complete "
--            "(the embedding service may be offline); it will catch up "
--            "on the next import."
--        )
- 
-     try:
-         _atomic_write_json(Path(args.state), state)
---- a/agent/import_evernote.py
-+++ b/agent/import_evernote.py
-@@ -68,58 +68,12 @@
- DEFAULT_LOG_DIR = DEFAULT_OSTLER_DIR / "logs"
- DEFAULT_STATE_DIR = DEFAULT_OSTLER_DIR / "state"
- DEFAULT_STAGING_DIR = DEFAULT_OSTLER_DIR / "data" / "knowledge-staging"
--DEFAULT_METADATA_DB = DEFAULT_OSTLER_DIR / "data" / "knowledge-metadata.db"
- 
- LOCK_FILENAME = "import-evernote.lock"
- LOG_FILENAME_PREFIX = "import-evernote-"
- STATE_FILENAME_PREFIX = "import-evernote-"
- 
- DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
--
--# The knowledge source this import handles. ``evernote`` for now; the
--# Notion/Obsidian sources reuse this same convert+embed path with a
--# different value, which selects the ``<source>_knowledge`` collection.
--DEFAULT_SOURCE = "evernote"
--
--# Canonical Ostler Hub embedding model. The install pre-creates the
--# knowledge Qdrant collections at 768 dims (nomic-embed-text), so embed
--# MUST use the same model or every upsert fails the dimension check and
--# the wiki Knowledge section stays silently empty. Overridable for
--# operators who standardise on a different 768-dim model.
--DEFAULT_EMBED_MODEL = "nomic-embed-text"
--
--
--def _embed_model() -> str:
--    return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
--
--
--def _collection_for_source(source: str) -> str:
--    """The Qdrant collection the wiki + MCP read for a given source."""
--    return f"{source}_knowledge"
--
--
--# Privacy cap: the highest compartment level (sensitivity) that may be
--# embedded into the searchable collection. Default 2 keeps L3
--# (compartment_level 3, "private") notes OUT of search. They are still
--# converted to markdown in the staging tree -- just never indexed into
--# Qdrant. This matters because the wiki Knowledge reader does NOT filter
--# by level at render time, so excluding L3 at embed is the only thing
--# standing between a private note and the browsable wiki. Overridable via
--# env for an operator who deliberately wants their full corpus searchable
--# on their single-user box.
--DEFAULT_MAX_COMPARTMENT_LEVEL = 2
--
--
--def _max_compartment_level() -> int:
--    raw = os.environ.get("OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL")
--    if raw is None:
--        return DEFAULT_MAX_COMPARTMENT_LEVEL
--    try:
--        return int(raw)
--    except (TypeError, ValueError):
--        # A garbled override must never widen the cap and leak L3; fall
--        # back to the safe default.
--        return DEFAULT_MAX_COMPARTMENT_LEVEL
- 
- # Job IDs are ``YYYYMMDDTHHMMSSZ-<8 hex>``. The format is deliberately
- # narrow so the regex can double as a path-traversal defence on
-@@ -307,19 +261,15 @@
- def start_import(
-     enex_path: Path,
-     *,
--    source: str = DEFAULT_SOURCE,
-     _now: Optional[datetime] = None,
-     _lock_dir: Optional[Path] = None,
-     _log_dir: Optional[Path] = None,
-     _state_dir: Optional[Path] = None,
-     _staging_dir: Optional[Path] = None,
--    _metadata_db: Optional[Path] = None,
-     _binary: Optional[str] = None,
-     _subprocess: Any = None,
-     _runner: Optional[Path] = None,
-     _python: Optional[str] = None,
--    _embed_model_name: Optional[str] = None,
--    _max_compartment_level_value: Optional[int] = None,
- ) -> Dict[str, Any]:
-     """Fork ``ostler-knowledge`` via the supervisor wrapper.
- 
-@@ -333,13 +283,6 @@
-     log_dir = Path(_log_dir or DEFAULT_LOG_DIR).expanduser()
-     state_dir = Path(_state_dir or DEFAULT_STATE_DIR).expanduser()
-     staging_dir = Path(_staging_dir or DEFAULT_STAGING_DIR).expanduser()
--    metadata_db = Path(_metadata_db or DEFAULT_METADATA_DB).expanduser()
--    embed_model = _embed_model_name or _embed_model()
--    max_level = (
--        _max_compartment_level_value
--        if _max_compartment_level_value is not None
--        else _max_compartment_level()
--    )
- 
-     # Resolve subprocess at call time (not in the default arg) so
-     # ``monkeypatch.setattr(ie, "subprocess", rec)`` in tests actually
-@@ -386,28 +329,6 @@
- 
-         try:
-             try:
--                # Phase 1: convert the export to markdown in the staging
--                # tree. Phase 2: embed that markdown into the source's
--                # Qdrant collection so the wiki + MCP actually have
--                # something to read -- this is the step whose absence
--                # left Knowledge silently empty. nomic-embed-text/768
--                # matches the collection the installer pre-creates; the
--                # runner runs embed ONLY if convert exits 0.
--                convert_phase = [
--                    binary, "convert", "--source", source,
--                    str(enex_path), "--output", str(staging_dir),
--                ]
--                embed_phase = [
--                    binary, "embed", str(staging_dir),
--                    "--collection", _collection_for_source(source),
--                    "--embedding-model", embed_model,
--                    # Privacy gate: keep L3 ("private") notes out of the
--                    # searchable collection the wiki + MCP read. The
--                    # reader does not re-filter by level, so this is the
--                    # only barrier.
--                    "--max-compartment-level", str(max_level),
--                    "--db-path", str(metadata_db),
--                ]
-                 proc = sub.Popen(
-                     [
-                         python, str(runner),
-@@ -418,9 +339,8 @@
-                         "--enex-path", str(enex_path),
-                         "--started-at", started_at,
-                         "--",
--                        *convert_phase,
--                        "--and-then",
--                        *embed_phase,
-+                        binary, "convert", "--source", "evernote",
-+                        str(enex_path), "--output", str(staging_dir),
-                     ],
-                     stdout=log_handle,
-                     stderr=sub.STDOUT,
 --- a/agent/pair_status.py
 +++ b/agent/pair_status.py
 @@ -78,15 +78,8 @@
@@ -352,57 +337,45 @@
  pyyaml>=6.0,<7.0
 --- a/agent/web_ui_copy.py
 +++ b/agent/web_ui_copy.py
-@@ -260,10 +260,6 @@
- 
- DASHBOARD_PAIR_IOS_LINK = (
-     ' &ndash; <a href="/pair-ios">Pair iOS device</a>'
--)
--
--DASHBOARD_CONFIG_LINK = (
--    ' &ndash; <a href="/config">Configuration</a>'
+@@ -209,6 +209,11 @@
+     "Open your email client with the diagnostic report ready to send "
+     "to support"
  )
++DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
++DASHBOARD_BTN_SETTINGS_TITLE = (
++    "Pause or ease off background work, and adjust channels, model and "
++    "schedule"
++)
  
- DASHBOARD_ALERT_REPORT_FAIL = (
-@@ -436,39 +432,7 @@
-     "The QR is shown only on this Mac. The Companion sends the pairing "
-     "token back the first time it pairs &ndash; after that, the Hub "
-     "remembers the device by a key, not the token."
--)
--
--
--# ── Configuration panel (backlog #261) ──────────────────────────────
--#
--# Copy for the /config surface. Reads + edits the customer-safe settings
--# file at ~/.ostler/config/config.yaml. Secrets are never rendered.
--
--
--CONFIG_TITLE_TAG = "Ostler Doctor &ndash; Configuration"
--CONFIG_HEADING = "Configuration"
--CONFIG_SUBTITLE = (
--    'Ostler Doctor &ndash; <a href="/doctor">back to dashboard</a>'
--)
--CONFIG_SECTION_READONLY = "Other settings"
--CONFIG_READONLY_INTRO = (
--    "These settings are shown for reference and are not editable here. "
--    "Anything sensitive is shown only as set or not set, never as its "
--    "value."
- )
--CONFIG_BTN_SAVE = "Save changes"
--CONFIG_BTN_SAVING = "Saving..."
--CONFIG_OPT_UNSET = "Not set"
--CONFIG_SECRET_SET = "Set"
--CONFIG_SECRET_UNSET = "Not set"
--CONFIG_SAVED = "Saved. Some changes take effect the next time the assistant restarts."
--CONFIG_ERR_LOAD_PREFIX = "Could not load configuration: "
--CONFIG_ERR_SAVE_PREFIX = "Could not save configuration: "
--CONFIG_ERR_SAVE_GENERIC = "Could not save configuration. Please try again."
--CONFIG_META_FOOTER = (
--    "Settings are stored locally in your config file. Nothing is sent "
--    "anywhere. Secrets are never shown on this page."
--)
- 
- 
- # ── Console banner (printed at __main__) ─────────────────────────────
+ DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
+ DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
+@@ -71,6 +71,8 @@
+     DASHBOARD_BTN_EMAIL_PREPARING,
+     DASHBOARD_BTN_EMAIL_TITLE,
+     DASHBOARD_BTN_REFRESH,
++    DASHBOARD_BTN_SETTINGS,
++    DASHBOARD_BTN_SETTINGS_TITLE,
+     DASHBOARD_FIX_LABEL_FMT,
+     DASHBOARD_FIX_NOTE,
+     DASHBOARD_HEADING,
+@@ -866,6 +868,7 @@
+             display: inline-flex;
+             align-items: center;
+             gap: 6px;
++            text-decoration: none;
+         }}
+         .refresh-btn:hover, .auto-refresh-btn:hover {{
+             border-color: var(--ostler-accent);
+@@ -1260,6 +1263,7 @@
+             </div>
+             <div>
+                 <div class="header-controls">
++                    <a class="refresh-btn" href="/config" id="settingsBtn" title="{DASHBOARD_BTN_SETTINGS_TITLE}">{DASHBOARD_BTN_SETTINGS}</a>
+                     <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
+                     <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
+                     <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
 --- a/README.md
 +++ b/README.md
 @@ -1,100 +1,105 @@

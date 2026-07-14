@@ -131,9 +131,14 @@ esac
 # --------------------------------------------------------------------
 if python3 -c 'import yaml' >/dev/null 2>&1 && [ -f "$PANEL_DIR/config_panel.py" ]; then
     ENVF="$TMP/e2e-governor.env"
+    # Hermetic: point the daemon-config bridge at an absent tmp file and
+    # skip the real launchctl restart, so this shell-layer round-trip
+    # never touches the operator's assistant config.toml or daemon.
     ( cd "$PANEL_DIR" && \
       OSTLER_GOVERNOR_ENV_FILE="$ENVF" \
       OSTLER_CONFIG_FILE="$TMP/e2e-config.yaml" \
+      OSTLER_ASSISTANT_CONFIG_FILE="$TMP/e2e-absent-assistant.toml" \
+      OSTLER_SKIP_DAEMON_RESTART=1 \
       python3 -c "import config_panel as c; c.write_config({'background_paused': True, 'background_throttle': 'gentle'})" ) \
       || failure "panel write_config raised"
     grep -q '^export OSTLER_PAUSED=1$' "$ENVF"            || failure "panel did not write OSTLER_PAUSED=1"
@@ -198,6 +203,102 @@ if [ -f "$PANEL_DIR/web_ui.py" ]; then
         || failure "web_ui_copy must define the Settings button copy"
     [ "$FAILED" -eq 0 ] && pass "discoverability: dashboard header carries a Settings entry point"
 fi
+
+# --------------------------------------------------------------------
+# Section 6 -- DAEMON REACH: Pause must stop the assistant daemon's OWN
+# embedded cron scheduler (the one that fires the morning brief), not
+# just the shell ticks. The daemon spawns the scheduler only when
+# `[cron].enabled` is true (daemon/mod.rs: `if config.cron.enabled {
+# spawn scheduler }`), read at daemon start. So the panel writes
+# cron.enabled=false into the daemon config.toml on Pause and restarts
+# the daemon; a Pause set at 08:45 therefore stops the 09:00 fire. We
+# prove the daemon-side gate is set (not merely a shell config write) and
+# that the restart is invoked. Skips if python tomllib (3.11+) is absent.
+# --------------------------------------------------------------------
+if python3 -c 'import tomllib, yaml' >/dev/null 2>&1 && [ -f "$PANEL_DIR/config_panel.py" ]; then
+    ATOML="$TMP/assistant/config.toml"
+    mkdir -p "$TMP/assistant"
+    # Synthetic two-job config as install.sh emits (no [cron] table).
+    cat > "$ATOML" <<'TOMLEOF'
+model = "qwen3.5:9b"
+
+[[cron.jobs]]
+id = "morning-brief"
+job_type = "agent"
+schedule = { kind = "cron", expr = "0 9 * * *", tz = "Europe/London" }
+prompt = "brief"
+
+[[cron.jobs]]
+id = "evening-wrap"
+job_type = "agent"
+schedule = { kind = "cron", expr = "0 18 * * *", tz = "Europe/London" }
+prompt = "wrap"
+TOMLEOF
+    RESTARTED="$TMP/daemon-restarted"
+
+    # PAUSE ON -> cron.enabled must become false + daemon restarted.
+    ( cd "$PANEL_DIR" && \
+      OSTLER_CONFIG_FILE="$TMP/reach-config.yaml" \
+      OSTLER_GOVERNOR_ENV_FILE="$TMP/reach-governor.env" \
+      OSTLER_ASSISTANT_CONFIG_FILE="$ATOML" \
+      OSTLER_ASSISTANT_RESTART_CMD="/usr/bin/touch $RESTARTED" \
+      python3 -c "import config_panel as c; c.write_config({'background_paused': True})" ) \
+      || failure "panel write_config raised on daemon-reach pause"
+
+    got="$(python3 -c "import tomllib,sys; print(tomllib.load(open('$ATOML','rb')).get('cron',{}).get('enabled'))")"
+    case "$got" in
+        False) pass "DAEMON REACH: Pause sets [cron].enabled=false (scheduler will not spawn -> 09:00 brief cannot fire)" ;;
+        *) failure "Pause should set daemon cron.enabled=false, got '$got'" ;;
+    esac
+    [ -f "$RESTARTED" ] || failure "Pause must restart the daemon so it re-reads the disabled cron gate"
+    jobs="$(python3 -c "import tomllib; print(len(tomllib.load(open('$ATOML','rb')).get('cron',{}).get('jobs',[])))")"
+    [ "$jobs" = "2" ] || failure "daemon cron jobs must be preserved across pause, got '$jobs'"
+
+    # PAUSE OFF -> cron.enabled must return to true + daemon restarted.
+    rm -f "$RESTARTED"
+    ( cd "$PANEL_DIR" && \
+      OSTLER_CONFIG_FILE="$TMP/reach-config.yaml" \
+      OSTLER_GOVERNOR_ENV_FILE="$TMP/reach-governor.env" \
+      OSTLER_ASSISTANT_CONFIG_FILE="$ATOML" \
+      OSTLER_ASSISTANT_RESTART_CMD="/usr/bin/touch $RESTARTED" \
+      python3 -c "import config_panel as c; c.write_config({'background_paused': False})" ) \
+      || failure "panel write_config raised on daemon-reach resume"
+
+    got="$(python3 -c "import tomllib; print(tomllib.load(open('$ATOML','rb')).get('cron',{}).get('enabled'))")"
+    case "$got" in
+        True) pass "DAEMON REACH: resume sets [cron].enabled=true (scheduler spawns and fires normally)" ;;
+        *) failure "resume should set daemon cron.enabled=true, got '$got'" ;;
+    esac
+    [ -f "$RESTARTED" ] || failure "resume must restart the daemon so the scheduler starts again"
+else
+    echo "skip: python3 tomllib/PyYAML unavailable -- daemon-reach section not exercised"
+fi
+
+# Static wiring guard: the panel must invoke the daemon-cron bridge on a
+# pause write, and the bridge module must carry the gate + restart.
+grep -q 'apply_pause_to_cron' "$PANEL_DIR/config_panel.py" \
+    || failure "config_panel.write_config must call the daemon-cron bridge on a pause change"
+if [ -f "$PANEL_DIR/daemon_cron.py" ]; then
+    grep -q 'cron.enabled\|cron\].enabled\|enabled = ' "$PANEL_DIR/daemon_cron.py" \
+        || failure "daemon_cron must set the cron enabled gate"
+    grep -q 'kickstart' "$PANEL_DIR/daemon_cron.py" \
+        || failure "daemon_cron must restart the daemon (launchctl kickstart) so the change takes effect"
+else
+    failure "daemon_cron.py bridge module is missing"
+fi
+# No dead controls: the panel must expose ONLY the two wired background
+# controls (Batch-2 review #6 F6 -- the six dead-yaml siblings removed).
+deadcount="$(python3 -c "
+import sys; sys.path.insert(0, '$PANEL_DIR')
+import config_panel as c
+keys = [f.key for f in c.EDITABLE_FIELDS]
+allowed = {'background_paused', 'background_throttle'}
+dead = [k for k in keys if k not in allowed]
+print(len(dead))
+print(','.join(dead))
+" 2>/dev/null | head -1)"
+[ "$deadcount" = "0" ] || failure "the Settings panel still exposes dead controls (expected only the two background controls)"
+[ "$FAILED" -eq 0 ] && pass "no dead controls remain: panel exposes only the two wired background controls"
 
 # --------------------------------------------------------------------
 if [ "$FAILED" -eq 0 ]; then

@@ -125,10 +125,11 @@ def is_secret_key(key: str) -> bool:
 # -- Whitelist of editable fields -------------------------------------
 #
 # Each entry describes ONE clearly-safe, flat top-level field the panel
-# may write. Anything not here is read-only. Keys are intentionally a
-# small, conservative set: channel toggles, model selection, schedule
-# times, and the privacy default. Editing these cannot corrupt the
-# assistant daemon's live state because this is a Doctor-owned file.
+# may write. Anything not here is read-only. The set is intentionally
+# minimal: only the two background-work controls (Pause + Throttle) that
+# are actually wired through to the engine live here. Editing these
+# cannot corrupt the assistant daemon's live state because this is a
+# Doctor-owned file.
 #
 # ``kind`` drives both the rendered control and the validator:
 #   bool   -- checkbox; accepts true/false
@@ -177,82 +178,30 @@ EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
         ),
         choices=("gentle", "balanced", "full"),
     ),
-    # -- Channels ----------------------------------------------------
-    FieldSpec(
-        key="imessage_enabled",
-        kind="bool",
-        label="iMessage",
-        section="Channels",
-        help="Let your assistant read and reply over iMessage.",
-    ),
-    FieldSpec(
-        key="whatsapp_enabled",
-        kind="bool",
-        label="WhatsApp",
-        section="Channels",
-        help="Let your assistant read and reply over WhatsApp.",
-    ),
-    FieldSpec(
-        key="email_enabled",
-        kind="bool",
-        label="Email",
-        section="Channels",
-        help="Let your assistant triage and reply to email.",
-    ),
-    # -- Model -------------------------------------------------------
-    FieldSpec(
-        key="assistant_model",
-        kind="enum",
-        label="Assistant model",
-        section="Model",
-        help="The local model your assistant uses to think and reply.",
-        choices=(
-            "qwen3.5:9b",
-            "qwen2.5:14b",
-            "qwen2.5:3b",
-            "gemma4:e2b",
-        ),
-    ),
-    # -- Schedule ----------------------------------------------------
-    FieldSpec(
-        key="morning_brief_time",
-        kind="time",
-        label="Morning brief",
-        section="Schedule",
-        help="When your assistant sends the morning brief (24h, HH:MM).",
-    ),
-    FieldSpec(
-        key="evening_wrap_time",
-        kind="time",
-        label="Evening wrap",
-        section="Schedule",
-        help="When your assistant sends the evening wrap (24h, HH:MM).",
-    ),
-    # -- Privacy -----------------------------------------------------
-    FieldSpec(
-        key="default_privacy_level",
-        kind="enum",
-        label="Default privacy level",
-        section="Privacy",
-        help=(
-            "The privacy level new conversations get by default. "
-            "L3 is private by default and is never indexed for search."
-        ),
-        choices=("L0", "L1", "L2", "L3"),
-    ),
+    # NOTE: the earlier Channels / Model / Schedule / Privacy controls
+    # were REMOVED (Batch-2 review #6 F6). They wrote keys into
+    # config.yaml that NO daemon reads -- the assistant daemon's live
+    # state lives in ~/.ostler/assistant-config/config.toml, not here --
+    # so they were dead controls that silently did nothing and compounded
+    # the confusion around the (real, wired) Pause + Throttle controls
+    # above. Rather than ship a panel where two controls work and six do
+    # nothing, the dead controls are gone. Wiring them through to the
+    # daemon TOML (channels have consent implications; brief times are the
+    # daemon's cron schedule) is a separate, larger piece of work. The
+    # channels remain editable via `ostler-assistant setup channels
+    # --interactive`, which the installer already points customers to.
 )
 
 _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
 
 
-# Section display order for the rendered panel. "Background work" leads so
-# the Pause and throttle controls are the first thing the operator sees.
+# Section display order for the rendered panel. Only the "Background
+# work" section survives -- it holds the two controls (Pause + Throttle)
+# that actually reach the engine. The Channels / Model / Schedule /
+# Privacy sections were removed with their dead controls (see the note in
+# EDITABLE_FIELDS).
 SECTION_ORDER: tuple[str, ...] = (
     "Background work",
-    "Channels",
-    "Model",
-    "Schedule",
-    "Privacy",
 )
 
 
@@ -519,4 +468,24 @@ def write_config(updates: Any, path: Optional[Path] = None) -> dict[str, Any]:
     current.update(normalised)
     _atomic_write(p, current)
     _write_governor_env(current)
+    # If this write touched the Pause control, reflect it into the
+    # assistant daemon's OWN cron scheduler too -- not just the shell
+    # governor. The shell governor.env above stops the *-tick.sh
+    # enrichment/ingest jobs; this stops the daemon-embedded cron that
+    # fires the morning brief / evening wrap. Without it a Pause set at
+    # 08:45 would still let the 09:00 brief fire (Batch-2 review #6 F1).
+    if "background_paused" in normalised:
+        # Local import: daemon_cron needs tomllib (3.11+) and is only
+        # exercised on the write path, so a module-load failure never
+        # breaks the read view.
+        from daemon_cron import DaemonCronError, apply_pause_to_cron
+
+        try:
+            apply_pause_to_cron(bool(normalised["background_paused"]))
+        except DaemonCronError as exc:
+            # Surface as a ConfigError so the existing FastAPI handler
+            # maps it and the operator is told the daemon cron could not
+            # be paused (the shell-layer pause is already in force). We
+            # fail loud rather than silently leaving the brief armed.
+            raise ConfigError(exc.status, exc.detail)
     return read_config_view(p)
