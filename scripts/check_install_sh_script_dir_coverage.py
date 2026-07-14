@@ -116,6 +116,14 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "meeting_syncer": ["vendor/cm041"],
     "scripts": ["scripts/deferred-register-device.sh"],
     "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
+    # REUSE-4 (hardware-fit Ollama model picker): install.sh sources
+    # ${SCRIPT_DIR}/lib/ostler-model-fit.sh, which IS bundled into
+    # Resources/lib/ by the "Bundle install.sh + lib/progress_emitter.sh +
+    # strings catalogue" postBuildScript (gui/project.yml) and declared in its
+    # inputFiles/outputFiles. This needle was missing when the picker landed
+    # (commit d030468), so the gate false-flagged an asset that ships. Assert
+    # the bundling reference so a future removal of the cp line goes red.
+    "lib/ostler-model-fit.sh": ["lib/ostler-model-fit.sh"],
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
