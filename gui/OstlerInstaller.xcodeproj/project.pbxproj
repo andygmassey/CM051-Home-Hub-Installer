@@ -40,6 +40,7 @@
 		6746C4CED2FFC5217A1EF6FF /* HintPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92A90F0ED1636988B7278FB /* HintPanelView.swift */; };
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
+		6CEA717AFC77CD850F0EA2D6 /* ConfirmLearnedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F75ED48033676E187A4966AD /* ConfirmLearnedView.swift */; };
 		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
 		7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */; };
 		825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */; };
@@ -77,6 +78,7 @@
 		D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */; };
 		DAB32AEC4502408333718B31 /* PermissionsPrewarmSequencingTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6D6A276A313E76D98FEA20 /* PermissionsPrewarmSequencingTest.swift */; };
 		E03DD536A682B3269BAB3727 /* Outfit-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */; };
+		E2230040AFDB815B682DA42C /* ConfirmLearnedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CC77783F7A14D7DBED2B0A /* ConfirmLearnedViewTests.swift */; };
 		E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A13898725BE34B1AC2D3AD /* BiometricProbe.swift */; };
 		E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */; };
 		E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8D915A5F4F7C5D470DE627 /* LicenseEntryView.swift */; };
@@ -103,6 +105,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		03CC77783F7A14D7DBED2B0A /* ConfirmLearnedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmLearnedViewTests.swift; sourceTree = "<group>"; };
 		0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocatorTests.swift; sourceTree = "<group>"; };
 		0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsIntroCatalogueKeysTest.swift; sourceTree = "<group>"; };
 		08A68D9D961170201BC0E5A7 /* StepCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCatalog.swift; sourceTree = "<group>"; };
@@ -185,6 +188,7 @@
 		F096DE1EF195479F3854214B /* AuthorizationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorizationHelper.swift; sourceTree = "<group>"; };
 		F0FF342212E569C1E337355B /* CaffeinateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateManager.swift; sourceTree = "<group>"; };
 		F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeyView.swift; sourceTree = "<group>"; };
+		F75ED48033676E187A4966AD /* ConfirmLearnedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmLearnedView.swift; sourceTree = "<group>"; };
 		F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensePersistence.swift; sourceTree = "<group>"; };
 		FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricProbeTests.swift; sourceTree = "<group>"; };
 		FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseEntryDropzoneTests.swift; sourceTree = "<group>"; };
@@ -213,6 +217,7 @@
 		296BE68221AABD99A6B09E98 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				F75ED48033676E187A4966AD /* ConfirmLearnedView.swift */,
 				E4C1249B5BB363F304334F02 /* ContentView.swift */,
 				1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */,
 				66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */,
@@ -260,6 +265,7 @@
 			children = (
 				40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */,
 				FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */,
+				03CC77783F7A14D7DBED2B0A /* ConfirmLearnedViewTests.swift */,
 				FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */,
 				3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */,
 				4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */,
@@ -1040,6 +1046,7 @@
 				83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */,
 				E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */,
 				CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */,
+				6CEA717AFC77CD850F0EA2D6 /* ConfirmLearnedView.swift in Sources */,
 				F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */,
 				9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */,
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
@@ -1076,6 +1083,7 @@
 			files = (
 				32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */,
 				A2AF7698B580747649FC9363 /* BiometricProbeTests.swift in Sources */,
+				E2230040AFDB815B682DA42C /* ConfirmLearnedViewTests.swift in Sources */,
 				297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */,
 				41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */,
 				1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */,
