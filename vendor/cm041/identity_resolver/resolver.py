@@ -9,12 +9,25 @@ from typing import Dict, List, Optional
 import httpx
 
 from .canonical_name import choose_canonical_display_name
+from .compartment import (
+    UserCompartment,
+    assert_default_graph_isolated,
+    normalise_user_id,
+    resolve_compartment,
+)
 from .models import MatchResult, PersonIdentity
 from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
 PWG = "https://pwg.dev/ontology#"
+
+# Store URLs proven this process to NOT be in --union-default-graph mode
+# (AUDIT_4 HIGH-1 guard). Probed on the FIRST secondary-compartment wire
+# operation per store, then cached: the happy path is one set-membership
+# check. The primary compartment never consults or populates this -- its
+# wire path is byte-identical to the pre-groundwork code by golden test.
+_NON_UNION_VERIFIED_STORES: set[str] = set()
 
 
 class IdentityResolver:
@@ -24,9 +37,18 @@ class IdentityResolver:
         oxigraph_url: str,
         default_country_code: int = 852,
         timeout: float = 30.0,
+        compartment: Optional[UserCompartment] = None,
     ):
         self.oxigraph_url = oxigraph_url.rstrip("/")
         self.default_country_code = default_country_code
+        # Multiuser groundwork: every resolver is bound to exactly one
+        # user compartment. Default = the primary compartment, which maps
+        # to EXACTLY today's single-user layout (default graph, plain
+        # /query endpoint, unchanged update payloads) -- see
+        # identity_resolver/compartment.py and MULTIUSER_GROUNDWORK.md.
+        self.compartment = (
+            compartment if compartment is not None else resolve_compartment()
+        )
         self._client = httpx.Client(timeout=timeout)
         # Resolution health counters - the safety net's audit trail (#660).
         # Every contact that hits a resolver query error degrades to "create
@@ -43,6 +65,47 @@ class IdentityResolver:
         # person via register_person(), so matching is in-memory (microseconds)
         # with identical results. None = not yet loaded.
         self._fuzzy_candidates: Optional[List[Dict[str, Optional[str]]]] = None
+        # VENDOR GRAFT NOTE: upstream's opt-in bulk snapshot
+        # (begin_bulk/end_bulk/_fuzzy_snapshot) and the vendor twin's
+        # always-on lazy index (_fuzzy_candidates, above) solve the same
+        # O(handles x persons) problem. This vendored copy keeps ONE store
+        # (the twin's _fuzzy_candidates, whose two-flat-queries loader is
+        # the proven fix for the Oxigraph OPTIONAL-join stall) and keeps
+        # upstream's bulk() API as a thin delegate onto it, so both
+        # upstream call sites (resolver.bulk(), _register_in_snapshot)
+        # and twin call sites (register_person) work unchanged.
+        self._bulk_fuzzy: bool = False
+
+    # -- Bulk-mode lifecycle --------------------------------------------------
+
+    def begin_bulk(self) -> None:
+        """Enter bulk-resolve mode: pre-load the fuzzy-candidate index ONCE.
+
+        Bulk imports (e.g. iMessage hydration) resolve thousands of handles
+        in a tight loop. The vendored resolver's fuzzy index is lazy-loaded
+        on first use anyway; begin_bulk() forces the load up front and marks
+        bulk mode for observability.
+
+        Idempotent: calling it again refreshes the index from Oxigraph.
+        Always pair with ``end_bulk()`` (or use ``bulk()`` as a context
+        manager) so a later single-shot caller does not silently read a
+        stale snapshot.
+        """
+        self._load_fuzzy_candidates()
+        self._bulk_fuzzy = True
+        logger.info(
+            "IdentityResolver bulk mode ON (%d fuzzy candidates snapshotted)",
+            len(self._fuzzy_candidates or []),
+        )
+
+    def end_bulk(self) -> None:
+        """Exit bulk-resolve mode and drop the snapshot (lazy reload later)."""
+        self._bulk_fuzzy = False
+        self._fuzzy_candidates = None
+
+    def bulk(self) -> "_BulkContext":
+        """Context manager: ``with resolver.bulk(): ...`` for bulk imports."""
+        return _BulkContext(self)
 
     # -- Public API -----------------------------------------------------------
 
@@ -50,6 +113,7 @@ class IdentityResolver:
         self,
         identity: PersonIdentity,
         use_fuzzy: bool = True,
+        merge_on_resolve: bool = True,
     ) -> MatchResult:
         """Resolve an identity to an existing person node.
 
@@ -60,6 +124,14 @@ class IdentityResolver:
                 pass False to avoid false matches via first-name collisions
                 (e.g. "Sandra Andersson" matching "Sandra Stewart" via
                 Jaro-Winkler prefix bonus on "Sand").
+            merge_on_resolve: If True (default), when the incoming identity's
+                EXACT identifiers span more than one existing node, collapse
+                those nodes into one at resolve time (RULE 1: a shared exact
+                identifier always merges) and return the survivor. This closes
+                the ingest-time over-split gap where, previously, the first
+                identifier match short-circuited and a second identifier
+                pointing at a different node was never noticed. Set False to
+                get pure read-only matching with no graph writes.
 
         Safety net (#660): this method NEVER raises a resolver-query error. If
         any tier's Oxigraph call fails (a 30s timeout against a large graph, a
@@ -72,7 +144,9 @@ class IdentityResolver:
         """
         self.stats["total"] += 1
         try:
-            return self._resolve_tiers(identity, use_fuzzy=use_fuzzy)
+            return self._resolve_tiers(
+                identity, use_fuzzy=use_fuzzy, merge_on_resolve=merge_on_resolve,
+            )
         except httpx.HTTPError as exc:
             self.stats["degraded"] += 1
             logger.warning(
@@ -96,25 +170,21 @@ class IdentityResolver:
         self,
         identity: PersonIdentity,
         use_fuzzy: bool = True,
+        merge_on_resolve: bool = True,
     ) -> MatchResult:
         """Tiered match logic. May raise httpx.HTTPError on a query failure;
         the public resolve() wraps this and degrades to "new" so a failure
         never drops a contact. TNM's in-memory candidate index lands inside the
         Tier-3 path here; this error boundary sits outside it by design."""
-        # Tier 1: Exact match on any single identifier
-        for id_type, id_value in self._iter_identifiers(identity):
-            person_uri = self.find_by_identifier(id_type, id_value)
-            if person_uri and self._identifier_match_trustworthy(
-                id_type, person_uri, identity
-            ):
-                return MatchResult(
-                    person_uri=person_uri,
-                    match_type="exact_identifier",
-                    confidence=1.0,
-                    details=f"Matched on {id_type}={id_value}",
-                )
-
-        # Tier 2: Cross-identifier match — check if any person has ANY identifier
+        # Tier 1: Exact match on any single identifier.
+        #
+        # Collect EVERY node any incoming exact identifier points at, not just
+        # the first. The old code returned on the first identifier hit, so an
+        # incoming contact carrying e.g. a phone on node A and an email on node
+        # B never noticed B existed -- leaving a permanent duplicate that only a
+        # later batch pass might catch. We honour RULE 1 here: a shared exact
+        # identifier (E.164 phone / normalised email / iCloud UID / etc.) always
+        # merges, ignoring names and source. No fuzzy logic in this tier.
         found_uris: dict[str, tuple[str, str]] = {}
         for id_type, id_value in self._iter_identifiers(identity):
             uri = self.find_by_identifier(id_type, id_value)
@@ -130,14 +200,38 @@ class IdentityResolver:
             id_type, id_value = found_uris[uri]
             return MatchResult(
                 person_uri=uri,
-                match_type="cross_identifier",
-                confidence=0.95,
-                details=f"Cross-identifier match via {id_type}={id_value}",
+                match_type="exact_identifier",
+                confidence=1.0,
+                details=f"Matched on {id_type}={id_value}",
             )
+
         if len(found_uris) > 1:
-            # Multiple different persons matched — potential merge candidate.
-            # Return the first but log the conflict.
             uris = list(found_uris.keys())
+            if merge_on_resolve:
+                # RULE 1 collapse: keep the first node, fold the rest into it.
+                # merge_persons() moves identifiers/facts/meeting links and
+                # canonicalises the survivor's displayName (so a real Contacts
+                # name wins over a raw handle). Idempotent: re-ingesting the
+                # same identity finds a single node and falls into the branch
+                # above.
+                keep_uri = uris[0]
+                for discard_uri in uris[1:]:
+                    self.merge_persons(keep_uri, discard_uri)
+                logger.info(
+                    "Ingest-time merge: collapsed %d nodes sharing exact "
+                    "identifiers into %s",
+                    len(uris), keep_uri,
+                )
+                return MatchResult(
+                    person_uri=keep_uri,
+                    match_type="exact_identifier_merged",
+                    confidence=1.0,
+                    details=(
+                        f"Merged {len(uris)} nodes sharing exact identifiers "
+                        f"into {keep_uri}"
+                    ),
+                )
+            # Read-only mode: surface the conflict without mutating the graph.
             logger.warning(
                 "Cross-identifier conflict: identifiers map to multiple persons %s",
                 uris,
@@ -199,7 +293,37 @@ class IdentityResolver:
                 total,
             )
 
-    def create_person(self, identity: PersonIdentity, user_id: str) -> str:
+    def create_person(
+        self,
+        identity: PersonIdentity,
+        user_id: str,
+        consent_id: Optional[str] = None,
+    ) -> str:
+        """Mint a new Person node.
+
+        ``user_id`` is the owner the node belongs to (already explicit
+        here -- this method is the reference for the "no implicit me"
+        groundwork discipline). ``consent_id``, when supplied by an ingest
+        caller, is stamped as ``pwg:consentId`` -- the pointer back to the
+        per-source opt-in grant that authorised the ingest (groundwork
+        discipline 4: revocation / forget-what-this-source-brought-in
+        becomes a real query). Default ``None`` writes exactly the same
+        triples as before the groundwork.
+
+        ``user_id`` is interpolated into the ``pwg:belongsToUser`` IRI --
+        an ownership stamp that is now the isolation key -- so it must be
+        IRI-safe. It is **normalised** (not strictly validated) up front:
+        every caller in the estate passes ``config.USER_ID`` (the operator's
+        own id, e.g. ``meeting_syncer``), which is the free-text answer to
+        install.sh's "What should your assistant call you?" -- ``Andy``,
+        ``Mrs Smith``, ``andy@home`` -- and the operator's data write MUST
+        NOT crash on a non-canonical value. :func:`normalise_user_id` folds
+        any value into a slug that satisfies the id grammar by construction,
+        so it can never break out of the IRI (injection-proof, audit P11)
+        AND never raises. The string escaper is still the wrong tool for an
+        IRI context; normalisation forbids every IRI metacharacter instead.
+        """
+        user_id = normalise_user_id(user_id)
         short_id = uuid.uuid4().hex[:12]
         person_uri = f"{PWG}person_{short_id}"
         now = datetime.now(timezone.utc).isoformat()
@@ -222,8 +346,15 @@ class IdentityResolver:
             f'<{person_uri}> <{PWG}displayName> "{_escape(display_name)}"',
             f'<{person_uri}> <{PWG}privacyLevel> "L2"',
             f'<{person_uri}> <{PWG}createdAt> "{now}"^^<http://www.w3.org/2001/XMLSchema#dateTime>',
-            f"<{person_uri}> <{PWG}belongsToUser> <{PWG}user_{_escape(user_id)}>",
+            # user_id normalised above to match ^[a-z0-9][a-z0-9_-]{0,63}$,
+            # so it cannot break out of the IRI (no escaping needed or wanted).
+            f"<{person_uri}> <{PWG}belongsToUser> <{PWG}user_{user_id}>",
         ]
+
+        if consent_id:
+            triples.append(
+                f'<{person_uri}> <{PWG}consentId> "{_escape(consent_id)}"'
+            )
 
         if identity.given_name:
             triples.append(
@@ -253,7 +384,31 @@ class IdentityResolver:
         sparql = f"INSERT DATA {{ {' . '.join(triples)} . }}"
         self._sparql_update(sparql)
         logger.info("Created person %s (%s)", person_uri, identity.display_name)
+        # Keep the bulk fuzzy snapshot current: a person minted earlier in
+        # the same bulk run must be a fuzzy candidate for later handles so a
+        # run does not create N duplicates of the same new contact.
+        self._register_in_snapshot(
+            person_uri, display_name, identity.organization,
+            identity.linkedin_url,
+        )
         return person_uri
+
+    def _register_in_snapshot(
+        self, person_uri: str, name: Optional[str],
+        org: Optional[str] = None, linkedin: Optional[str] = None,
+    ) -> None:
+        """Append a newly-minted person to the in-memory fuzzy index.
+
+        Upstream API kept for its callers (e.g. the linkedin_messages
+        path); in this vendored copy it is a thin delegate onto
+        ``register_person`` -- the twin's single always-on candidate
+        store -- so both registration APIs feed the same index. Safe to
+        over-call: a duplicate row only costs a redundant Jaro-Winkler
+        comparison, it cannot cause an over-merge.
+        """
+        if not name:
+            return
+        self.register_person(person_uri, name, org=org, linkedin_url=linkedin)
 
     def add_identifier(
         self, person_uri: str, id_type: str, id_value: str, label: Optional[str] = None
@@ -351,7 +506,7 @@ class IdentityResolver:
         # 6. Collapse any accumulated displayName values on the kept node to a
         #    single canonical value. Step 4 copies every displayName from the
         #    discard when keep has none, so a merge can leave the node with
-        #    several (e.g. "Andrew Massey", "root", "me@..."). Pick one.
+        #    several (e.g. "Jane Doe", "root", "me@..."). Pick one.
         self.canonicalise_display_name(keep_uri)
 
         logger.info("Merged %s into %s", discard_uri, keep_uri)
@@ -476,6 +631,8 @@ class IdentityResolver:
         # once and appended on create, instead of re-running an unbounded
         # all-persons SELECT for every contact (the O(n^2) that hung the
         # install). Identical match results; microseconds instead of seconds.
+        # (Upstream's bulk-mode snapshot branch is subsumed by this always-on
+        # index -- begin_bulk() pre-loads the same store.)
         if self._fuzzy_candidates is None:
             self._load_fuzzy_candidates()
 
@@ -698,7 +855,46 @@ class IdentityResolver:
         value_hash = hashlib.md5(id_value.encode()).hexdigest()[:6]
         return f"{PWG}id_{person_short_id}_{id_type}_{value_hash}"
 
-    def _sparql_query(self, sparql: str) -> dict:
+    # -- Union-default-graph guard (AUDIT_4 HIGH-1) ---------------------------
+
+    def _ensure_compartment_isolation(self) -> None:
+        """Refuse SECONDARY-compartment I/O until the store is proven
+        non-union. Primary: immediate return, zero wire traffic.
+
+        The compartment wall's read isolation assumes an unqualified
+        default-graph query cannot see named graphs -- true only while
+        Oxigraph runs WITHOUT ``--union-default-graph`` (a flag set in
+        other repos' launch files; see compartment.py module docstring).
+        Before the first secondary read/write against a store, probe its
+        actual semantics via ``assert_default_graph_isolated`` and cache
+        the success per store URL for the life of the process. Union mode
+        (or any probe transport failure) raises, fail-closed, BEFORE the
+        real operation reaches the wire.
+        """
+        if self.compartment.is_primary:
+            return
+        if self.oxigraph_url in _NON_UNION_VERIFIED_STORES:
+            return
+        assert_default_graph_isolated(
+            self._probe_update, self._probe_default_graph_query
+        )
+        _NON_UNION_VERIFIED_STORES.add(self.oxigraph_url)
+
+    def _probe_update(self, sparql: str) -> None:
+        """Raw update for the probe ONLY: bypasses ``scope_update`` because
+        the probe payload is already GRAPH-scoped to the probe graph (and
+        must never be re-wrapped into a user compartment)."""
+        resp = self._client.post(
+            f"{self.oxigraph_url}/update",
+            content=sparql,
+            headers={"Content-Type": "application/sparql-update"},
+        )
+        resp.raise_for_status()
+
+    def _probe_default_graph_query(self, sparql: str) -> dict:
+        """Raw query for the probe ONLY, against the BARE default endpoint
+        (no ``default-graph-uri`` pin): the probe must see exactly what an
+        unqualified primary/operator read would see."""
         resp = self._client.post(
             f"{self.oxigraph_url}/query",
             content=sparql,
@@ -710,17 +906,75 @@ class IdentityResolver:
         resp.raise_for_status()
         return resp.json()
 
+    def _sparql_query(self, sparql: str) -> dict:
+        # Compartment read isolation happens at the HTTP boundary: for the
+        # primary (default) compartment this is the plain /query endpoint,
+        # byte-identical to the pre-compartment behaviour; for a secondary
+        # compartment the endpoint pins the dataset to that user's named
+        # graph, so other users' data is never on the read path.
+        #
+        # AUDIT_4 HIGH-1: for a secondary compartment, additionally prove
+        # (once per store) that the store is not in union-default-graph
+        # mode before trusting that pin. No-op for primary.
+        self._ensure_compartment_isolation()
+        resp = self._client.post(
+            self.compartment.query_endpoint(self.oxigraph_url),
+            content=sparql,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "application/sparql-results+json",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def _sparql_update(self, sparql: str) -> None:
+        # For the primary compartment scope_update() returns the payload
+        # unchanged (the identical object). For a secondary compartment it
+        # wraps INSERT DATA in the user's GRAPH block and REJECTS any other
+        # update shape (fail-closed) so an unscoped write can never land in
+        # the primary user's default graph.
+        scoped = self.compartment.scope_update(sparql)
+        # AUDIT_4 HIGH-1: scope first (an unscopable payload raises with
+        # ZERO wire traffic, as before), then -- for a secondary
+        # compartment only -- prove the store is non-union before letting
+        # the scoped write create named-graph data an operator's
+        # unqualified read could leak. No-op for primary.
+        self._ensure_compartment_isolation()
         resp = self._client.post(
             f"{self.oxigraph_url}/update",
-            content=sparql,
+            content=scoped,
             headers={"Content-Type": "application/sparql-update"},
         )
         resp.raise_for_status()
 
 
+class _BulkContext:
+    """``with resolver.bulk(): ...`` -- enter/exit bulk fuzzy-resolve mode.
+
+    Loads the fuzzy-candidate snapshot once on entry and drops it on exit,
+    so the speed-up never leaks into a later single-shot caller that would
+    otherwise read a stale snapshot.
+    """
+
+    def __init__(self, resolver: "IdentityResolver") -> None:
+        self._resolver = resolver
+
+    def __enter__(self) -> "IdentityResolver":
+        self._resolver.begin_bulk()
+        return self._resolver
+
+    def __exit__(self, *exc) -> None:
+        self._resolver.end_bulk()
+
+
 def _escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
 
 
 def _extract_short_id(person_uri: str) -> str:

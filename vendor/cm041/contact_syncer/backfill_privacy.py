@@ -42,6 +42,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from typing import Dict, List, Optional
 
@@ -158,6 +159,162 @@ def summarise(plan: List[Dict]) -> Dict[str, int]:
         counts[row["level"]] = counts.get(row["level"], 0) + 1
     counts["total"] = len(plan)
     return counts
+
+
+# -- Observability: cheap coverage count (reader-side signal) -----------------
+
+
+def _count_untagged(oxigraph_url: str, rdf_type: str) -> int:
+    """COUNT untagged nodes of one type. Cheaper than pulling every row.
+
+    Used by the reader-side observability surface (the /health coverage
+    line) so a silent mass-hide -- the fail-closed reader dropping the
+    whole historical coverage gap as unknown-privacy -- is visible.
+    """
+    sparql = f"""
+PREFIX pwg: <{PWG_NS}>
+SELECT (COUNT(?node) AS ?c)
+WHERE {{
+  ?node a pwg:{rdf_type} .
+  FILTER NOT EXISTS {{ ?node pwg:privacyLevel ?existing }}
+}}
+"""
+    transport = httpx.HTTPTransport(proxy=None)
+    with httpx.Client(timeout=30.0, transport=transport) as client:
+        resp = client.post(
+            f"{oxigraph_url}/query",
+            content=sparql,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "application/sparql-results+json",
+            },
+        )
+        resp.raise_for_status()
+        bindings = resp.json().get("results", {}).get("bindings", [])
+    if not bindings:
+        return 0
+    raw = bindings[0].get("c", {}).get("value", "0")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def count_untagged(oxigraph_url: str) -> Dict[str, int]:
+    """Per-type + total count of untagged PersonFact / RelationshipSignal.
+
+    Returns e.g. ``{"PersonFact": 12, "RelationshipSignal": 4196,
+    "total": 4208}``. A non-zero total is exactly the number of facts the
+    fail-closed reader hides as unknown-privacy until the backfill runs.
+    """
+    counts: Dict[str, int] = {}
+    total = 0
+    for rdf_type in TARGET_TYPES:
+        n = _count_untagged(oxigraph_url, rdf_type)
+        counts[rdf_type] = n
+        total += n
+    counts["total"] = total
+    return counts
+
+
+# -- Startup / install entrypoint (idempotent, guarded, observable) -----------
+
+
+def run_startup_backfill(
+    oxigraph_url: str,
+    apply: bool = True,
+    limit: Optional[int] = None,
+    logger: Optional[logging.Logger] = None,
+) -> Dict:
+    """Tag untagged fact/signal nodes so the fail-closed reader hides only
+    truly-private content, not the ~85% historical coverage gap.
+
+    Safe to call unconditionally on every Hub startup / install hydrate:
+
+    * IDEMPOTENT -- the plan only matches nodes with NO privacyLevel, so a
+      re-run after a prior apply finds nothing and is a genuine no-op.
+    * VISIBLE-DEFAULT -- every untagged node is stamped with the canonical
+      provenance-derived level (``privacy_model.level_for``): private
+      channels + unknown provenance -> L1, public/social -> L2, health/
+      finance -> L0. It NEVER stamps L3, so a backfilled fact inherits a
+      visible level rather than being body-suppressed.
+    * FAIL-SAFE -- any graph error is caught and reported; the caller can
+      still start serving because the reader stays fail-closed (a failed
+      backfill hides facts, it never leaks them).
+    * OBSERVABLE -- logs how many nodes would otherwise be silently hidden.
+
+    Returns a status dict: ``{"status": ..., "total": n, "by_level": {...},
+    "applied": n}``. ``status`` is one of ``clean`` / ``applied`` /
+    ``planned`` / ``refused`` / ``error``.
+    """
+    log = logger or logging.getLogger(__name__)
+
+    try:
+        plan = plan_backfill(oxigraph_url, limit=limit)
+    except Exception as exc:  # network / SPARQL failure -- fail safe.
+        log.warning(
+            "privacy backfill: graph query failed (%s); reader stays "
+            "fail-closed so untagged facts remain hidden, not leaked", exc
+        )
+        return {"status": "error", "error": str(exc), "total": 0,
+                "by_level": {}, "applied": 0}
+
+    counts = summarise(plan)
+    total = counts["total"]
+
+    # Leak-safety: refuse to write if any private-channel node planned to a
+    # publishable level (can only happen on a future rule bug).
+    leaks = [
+        r for r in plan
+        if pm._matches_any((r["source"] or "").lower(),
+                           pm.PRIVATE_CHANNEL_SOURCE_MARKERS)
+        and r["level"] in pm.PUBLISHABLE_LEVELS
+    ]
+    if leaks:
+        log.error(
+            "privacy backfill REFUSED: %d private-channel node(s) planned "
+            "as publishable -- a rule bug. Writing nothing.", len(leaks)
+        )
+        return {"status": "refused", "leaks": len(leaks), "total": total,
+                "by_level": {}, "applied": 0}
+
+    by_level = {lvl: counts[lvl] for lvl in pm.CANONICAL_LEVELS if counts.get(lvl)}
+
+    if total == 0:
+        log.info(
+            "privacy backfill: 0 untagged PersonFact/RelationshipSignal "
+            "nodes -- graph fully tagged, nothing to do."
+        )
+        return {"status": "clean", "total": 0, "by_level": {}, "applied": 0}
+
+    # This is the reader-side observability signal: the count that would
+    # otherwise be silently withheld by the fail-closed reader.
+    log.warning(
+        "privacy backfill: %d untagged PersonFact/RelationshipSignal node(s) "
+        "would be HIDDEN as unknown-privacy by the fail-closed reader; "
+        "tagging to visible provenance levels %s (never L3).", total, by_level
+    )
+
+    if not apply:
+        return {"status": "planned", "total": total,
+                "by_level": by_level, "applied": 0}
+
+    try:
+        written = apply_backfill(oxigraph_url, plan)
+    except Exception as exc:  # partial write is safe: still idempotent.
+        log.warning(
+            "privacy backfill: write failed (%s); reader stays fail-closed. "
+            "Re-run is safe (only untagged nodes are matched).", exc
+        )
+        return {"status": "error", "error": str(exc), "total": total,
+                "by_level": by_level, "applied": 0}
+
+    log.info(
+        "privacy backfill: tagged %d node(s) -> %s. Re-runs are no-ops.",
+        written, by_level
+    )
+    return {"status": "applied", "total": total,
+            "by_level": by_level, "applied": written}
 
 
 def main(argv=None) -> int:

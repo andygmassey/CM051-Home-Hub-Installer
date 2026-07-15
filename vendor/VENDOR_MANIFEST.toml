@@ -40,43 +40,66 @@ name             = "cm041/contact_syncer"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
 source_path      = "contact_syncer"
-  pinned_sha = "ba59711d10db23b24ce2b3c860d5c523f8d94c8c"
+  pinned_sha = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
   divergence_patch = "vendor/divergences/cm041_contact_syncer.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "Legit divergence: identity_resolver.normalise import (incl. normalise_phone) + BW-1 phone-normalisation graft + en-dash house style. Synced to CM041 main ba59711 (rescue cut: privacy model/owner-node/backfill + email normalisation adopted upstream)."
+note             = "Legit divergence: identity_resolver.normalise import (incl. normalise_phone) + BW-1 phone-normalisation graft + en-dash house style. 2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9 fixes: calendar owner attribution #96, backfill-at-startup wiring #100, PII sweeps #85/#86/#102). 3-way graft (base = old pin ba59711) preserved the twin-local register_person call sites; linkedin_messages keeps ONE snapshot registration (register_person) where upstream added a parallel _register_in_snapshot call for the same insert."
 
 [[tree]]
 name             = "cm041/identity_resolver"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
-  pinned_sha = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
+  pinned_sha = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
   divergence_patch = "vendor/divergences/cm041_identity_resolver.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "Vendor-only file canonical_name.py (vendor-side graft) captured in the patch."
+note             = "2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9: multiuser compartment groundwork #99 incl. new compartment.py, PII sweeps #85/#102, tidy.py). KEEP-BOTH graft in resolver.py + batch_resolver.py: the twin's #660 safety net (stats/degraded, _resolve_tiers error boundary), _identifier_match_trustworthy guard, always-on lazy _fuzzy_candidates index (two-flat-queries loader) + register_person, and the converge() fixpoint pass ALL coexist with upstream's compartment binding, merge_on_resolve RULE-1 collapse, reconcile_qdrant sweep and bulk() API. Upstream's opt-in _fuzzy_snapshot store was unified onto the twin's single _fuzzy_candidates store: begin_bulk/end_bulk pre-load/drop it and _register_in_snapshot delegates to register_person, so both APIs feed one index. Captured in the patch."
 
 [[tree]]
 name             = "cm041/meeting_syncer"
 vendor_path      = "vendor/cm041/meeting_syncer"
 source_repo      = "$CM041"
 source_path      = "meeting_syncer"
-pinned_sha       = "5b93782a810c559cb15ed9f4be66f176f9e1df98"
-  divergence_patch = "vendor/divergences/cm041_meeting_syncer.patch"
+pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
+  divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
+note             = "2026-07-15: re-synced to CM041 main 11ad1246 (v1.0.9: calendar owner+type attribution #96, fail-closed L3 brief reader #97 -- brief.py now imports repo-root pwg_privacy; see the cm041/pwg_privacy tree + install.sh PIPELINE_DIR staging). brief.py adopted from upstream WHOLESALE: the old patch's brief.py 'divergence' was pure staleness (the twin predated upstream's wiki_url/maps_url/todos/render_whatsapp_message enrichment), not deliberate local edits -- zero divergence now. New upstream files SCHEMA.md + decision_extractor.py adopted."
 
 [[tree]]
 name             = "cm041/assistant_api"
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
-pinned_sha       = "c6939f86bf81bc86c0f1eda6c6160f5248f51f27"
+pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
   divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
 verify           = "full"
-note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh (vendor-side grafts). ical-server.py local additions captured in patch. Pin bumped 5b93782 -> c6939f8 for the #51 POST /api/v1/memory/assert graft (learning-loop L1 write). c6939f8 is the #51 commit on CM041 branch feat/user-asserted-facts-v1.0.1 (origin/feat/user-asserted-facts-v1.0.1) -- the assert code is byte-identical to origin/main's 4931c53/#51; it deliberately excludes the unrelated #44 api_timeline rework, which is NOT in scope for this graft. Pinning to this SHA (the source repo HEAD the freshness gate measures against) keeps the gate fail-closed AND green for the grafted content. 2026-06-18: added the GET /api/v1/conversation/{id}/speakers graft (CM048 speaker-identity round-route: api_conversation_speakers + _safe_conversation_dir + /speakers do_GET dispatch + listing). The same route is being landed in canonical CM041 (NO-MERGE branch speaker-id/cm041-speakers-endpoint-v1.0.1); until that merges and the pin re-bumps, the route lives as a vendor-side divergence captured in this patch (regenerated via scripts/_vendor_lib.sh vlib_shared_diff against c6939f8). test_vendor_import.sh Part 9 asserts the handler + dispatch are present so a re-vendor cannot silently drop it."
+note             = "Vendor-only files subscription_gate.py + test_vendor_import.sh + tests/ (vendor-side grafts; tests/ is excluded from the freshness diff). 2026-07-15: pin moved OFF the c6939f8 side branch onto CM041 main 11ad1246 -- adopts the whole main line (stale-employer read #95, hygiene overlay #98, fail-closed L3 people_search #97, startup privacy backfill #100, PII sweep #102, plus the previously-excluded #44 timeline rework, moat/health/enrichment endpoints). The former speakers + memory/assert grafts are now native upstream and dropped from the patch. ical-server.py rebuilt as upstream@11ad1246 + five CM051-deploy grafts (captured in the patch): (1) _resolve_port/OSTLER_API_PORT, (2) GET /api/v1/recording/active + RECORDING_* constants (CM042 -> CM031 Live Activity), (3) POST /api/v1/subscription/receipt via vendor-only subscription_gate, (4) pwg-convo CLI invocation for conversation/process (PWG_CONVO_BIN; CM051 installs CM048 as a venv'd CLI, not OSTLER_PYTHON/-m src.cli), (5) _read_iso8601_marker validated-timestamp reads for caldav/last_sync (F-3) + module-level timezone import, (6) iOS wire-shape contract grafts: api_ingest_ios 'accepted' mirror (F-10), timeline degraded-fallback 'entries' mirror (F-1), people_stale en-GB 'organisation' key (F-2). test_vendor_import.sh + tests/test_ical_server_wire_shape.py assert the routes, dispatch and wire shapes survive future re-vendors. Upstream ical-server also imports repo-root pwg_privacy + sibling ostler_hygiene -- see the cm041/pwg_privacy + cm041/ostler_hygiene trees and the install.sh services staging."
+
+[[tree]]
+name             = "cm041/ostler_hygiene"
+vendor_path      = "vendor/cm041/ostler_hygiene"
+source_repo      = "$CM041"
+source_path      = "ostler_hygiene"
+pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
+  divergence_patch = ""
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+note             = "NEW 2026-07-15 (CM041 #98 memory-hygiene Phase 1+2). Byte-identical to upstream, no divergence. Must be staged as a SIBLING of assistant_api at runtime: ical-server.py's _hygiene_reader() resolves ../ostler_hygiene from the script dir (fail-open if absent). install.sh copies it next to the ical-server service dir; gui/project.yml + release.sh bundle it at the Resources/install root."
+
+[[tree]]
+name             = "cm041/pwg_privacy"
+vendor_path      = "vendor/cm041"
+source_repo      = "$CM041"
+source_path      = "pwg_privacy.py"
+pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
+  divergence_patch = ""
+exclude          = []
+verify           = "full"
+note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 privacy helper at the CM041 repo root, hard-imported (top-level, unguarded) by BOTH meeting_syncer/brief.py and assistant_api/ical-server.py since CM041 #97 -- without it those readers crash at import. vendor_path is the shared vendor/cm041 ROOT so the file sits at the twin repo-root the sys.path hacks expect; the freshness gate's shared-file diff therefore only compares pwg_privacy.py (the only file present in both the materialised single-file source and vendor/cm041). WARNING: NEVER run scripts/sync_vendor.sh FULL sync on this tree -- its tree-swap step (rm -rf vendor_path) would delete every sibling cm041 subtree. Graft by hand + --regen-patch only. Runtime staging: install.sh copies it to PIPELINE_DIR (for brief.py) and to the services root next to ical-server (for the Hub API); gui/project.yml + release.sh bundle it at the Resources/install root."
 
 # ---- CM048 (Conversation Processing) -------------------------------------
 

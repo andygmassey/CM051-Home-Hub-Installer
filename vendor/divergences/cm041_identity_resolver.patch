@@ -6,7 +6,7 @@
  
  Scans all person nodes in Oxigraph (and optionally Qdrant), applies multiple
  detection strategies with confidence scoring, and merges confirmed duplicates.
-@@ -67,7 +67,7 @@
+@@ -87,7 +87,7 @@
      "fuzzy_levenshtein_max_distance": 2,
      # Phone normalisation
      "default_country_code": 852,
@@ -15,7 +15,7 @@
      "common_email_domains": {
          "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk",
          "outlook.com", "live.com", "yahoo.com", "yahoo.co.uk",
-@@ -75,10 +75,10 @@
+@@ -95,10 +95,10 @@
          "protonmail.com", "proton.me", "163.com", "qq.com",
      },
      # Minimum Jaro-Winkler score between names for phone match to be high-confidence.
@@ -28,7 +28,7 @@
      "email_name_similarity_threshold": 0.7,
      # BW-2 correction loop: operator merge/distinct decisions live here as
      # duplicates.yaml. distinct pairs are a permanent never-merge block;
-@@ -245,7 +245,7 @@
+@@ -265,7 +265,7 @@
  
      If the display names are very different (JW < threshold), this may be an
      inherited or shared email account (e.g. deceased spouse's email used by
@@ -37,7 +37,7 @@
      auto-merge.
      """
      email_index: Dict[str, List[str]] = defaultdict(list)
-@@ -292,7 +292,7 @@
+@@ -312,7 +312,7 @@
      """Strategy 3: Shared phone number after normalisation (confidence 0.95).
  
      If the names are very different (JW < threshold), this is likely a shared
@@ -46,7 +46,7 @@
      of auto-merge.
      """
      phone_index: Dict[str, List[str]] = defaultdict(list)
-@@ -771,7 +771,7 @@
+@@ -996,7 +996,7 @@
          f"  ?entry <{PWG}aboutPerson> <{discard_uri}> }}"
      )
  
@@ -55,7 +55,7 @@
      scalar_props = [
          "displayName", "givenName", "familyName", "organization",
          "jobTitle", "relationship", "howWeMet", "notes", "birthday",
-@@ -856,7 +856,7 @@
+@@ -1081,7 +1081,7 @@
      try:
          from qdrant_client import QdrantClient
      except ImportError:
@@ -64,10 +64,10 @@
          return
  
      client = QdrantClient(url=qdrant_url, timeout=30)
-@@ -1018,6 +1018,62 @@
-                 action.keep_uri, action.discard_uri,
-             )
-             action.executed = True
+@@ -1489,6 +1489,62 @@
+             self.qdrant_url, self.qdrant_collection,
+             apply=apply, backup_dir=backup_dir,
+         )
 +
 +    def converge(
 +        self,
@@ -127,7 +127,7 @@
  
      def close(self) -> None:
          self._client.close()
-@@ -1028,7 +1084,7 @@
+@@ -1499,7 +1555,7 @@
  def format_report_yaml(report: ResolverReport) -> str:
      """Format the report as YAML-like text for human review."""
      lines = [
@@ -136,7 +136,7 @@
          f"# Generated: {datetime.now(timezone.utc).isoformat()}",
          "",
          f"total_persons: {report.total_persons}",
-@@ -1080,7 +1136,7 @@
+@@ -1551,7 +1607,7 @@
  
  def main() -> None:
      parser = argparse.ArgumentParser(
@@ -145,7 +145,7 @@
      )
      parser.add_argument(
          "--dry-run", action="store_true", default=True,
-@@ -1119,6 +1175,17 @@
+@@ -1590,6 +1646,17 @@
          help="Comma-separated list of 1-based indices to exclude from execution (e.g. '12,13,15')",
      )
      parser.add_argument(
@@ -160,10 +160,10 @@
 +        help="Safety cap on --converge rounds (default 10)",
 +    )
 +    parser.add_argument(
-         "--verbose", "-v", action="store_true",
-         help="Enable verbose logging",
-     )
-@@ -1142,6 +1209,29 @@
+         "--reconcile-qdrant", action="store_true",
+         help="Collapse Qdrant people-points that share a person_uri "
+              "(over-split vectors). Detect-only unless --execute is also set.",
+@@ -1618,6 +1685,29 @@
      )
  
      try:
@@ -190,10 +190,10 @@
 +            print(f"\n{'=' * 70}")
 +            return
 +
-         report = resolver.detect()
- 
-         print(f"\n{'=' * 70}")
-@@ -1204,7 +1294,7 @@
+         if args.reconcile_qdrant:
+             # Standalone Qdrant collapse sweep -- does NOT touch person nodes.
+             qreport = resolver.reconcile_qdrant(
+@@ -1705,7 +1795,7 @@
              with open(args.output, "w", encoding="utf-8") as f:
                  f.write(yaml_report)
          else:
@@ -213,20 +213,33 @@
  
  import httpx
  
-@@ -19,10 +19,30 @@
- 
- class IdentityResolver:
- 
--    def __init__(self, oxigraph_url: str, default_country_code: int = 852):
-+    def __init__(
-+        self,
-+        oxigraph_url: str,
-+        default_country_code: int = 852,
+@@ -36,6 +36,7 @@
+         self,
+         oxigraph_url: str,
+         default_country_code: int = 852,
 +        timeout: float = 30.0,
-+    ):
+         compartment: Optional[UserCompartment] = None,
+     ):
          self.oxigraph_url = oxigraph_url.rstrip("/")
-         self.default_country_code = default_country_code
+@@ -48,88 +49,64 @@
+         self.compartment = (
+             compartment if compartment is not None else resolve_compartment()
+         )
 -        self._client = httpx.Client(timeout=30.0)
+-        # Bulk fuzzy-candidate cache. OFF by default so single-shot callers
+-        # keep their existing live-query behaviour. ``begin_bulk()`` loads a
+-        # ONE-TIME snapshot of every Person's (uri, name, org, linkedin_url)
+-        # row; ``_fuzzy_match`` then scores against the in-memory snapshot
+-        # instead of issuing a full-table SPARQL SELECT per incoming
+-        # identity. This is the >5x win for bulk imports (iMessage
+-        # hydration): O(handles) full-table scans -> ONE.
+-        #
+-        # Correctness: exact/cross-identifier matches (Tier 1/2) are NEVER
+-        # cached -- they always hit live SPARQL so an exact phone/email merge
+-        # is authoritative. Only the FUZZY candidate set is snapshotted, and
+-        # ``create_person`` appends each newly-minted person to the snapshot
+-        # so a fuzzy match against someone created earlier in the SAME bulk
+-        # run still works (no run-internal duplicate explosion).
 +        self._client = httpx.Client(timeout=timeout)
 +        # Resolution health counters - the safety net's audit trail (#660).
 +        # Every contact that hits a resolver query error degrades to "create
@@ -243,13 +256,98 @@
 +        # person via register_person(), so matching is in-memory (microseconds)
 +        # with identical results. None = not yet loaded.
 +        self._fuzzy_candidates: Optional[List[Dict[str, Optional[str]]]] = None
++        # VENDOR GRAFT NOTE: upstream's opt-in bulk snapshot
++        # (begin_bulk/end_bulk/_fuzzy_snapshot) and the vendor twin's
++        # always-on lazy index (_fuzzy_candidates, above) solve the same
++        # O(handles x persons) problem. This vendored copy keeps ONE store
++        # (the twin's _fuzzy_candidates, whose two-flat-queries loader is
++        # the proven fix for the Oxigraph OPTIONAL-join stall) and keeps
++        # upstream's bulk() API as a thin delegate onto it, so both
++        # upstream call sites (resolver.bulk(), _register_in_snapshot)
++        # and twin call sites (register_person) work unchanged.
+         self._bulk_fuzzy: bool = False
+-        self._fuzzy_snapshot: Optional[list[dict]] = None
  
+     # -- Bulk-mode lifecycle --------------------------------------------------
+ 
+     def begin_bulk(self) -> None:
+-        """Enter bulk-resolve mode: load the fuzzy-candidate snapshot ONCE.
++        """Enter bulk-resolve mode: pre-load the fuzzy-candidate index ONCE.
+ 
+         Bulk imports (e.g. iMessage hydration) resolve thousands of handles
+-        in a tight loop. Without this, ``_fuzzy_match`` re-fetches and
+-        re-scores every Person in the graph on every call -- O(handles x
+-        persons) SPARQL + CPU. After ``begin_bulk()`` the candidate set is
+-        held in memory and refreshed incrementally via ``create_person``.
++        in a tight loop. The vendored resolver's fuzzy index is lazy-loaded
++        on first use anyway; begin_bulk() forces the load up front and marks
++        bulk mode for observability.
+ 
+-        Idempotent: calling it again refreshes the snapshot from Oxigraph.
++        Idempotent: calling it again refreshes the index from Oxigraph.
+         Always pair with ``end_bulk()`` (or use ``bulk()`` as a context
+         manager) so a later single-shot caller does not silently read a
+         stale snapshot.
+         """
+-        self._fuzzy_snapshot = self._load_fuzzy_candidates()
++        self._load_fuzzy_candidates()
+         self._bulk_fuzzy = True
+         logger.info(
+             "IdentityResolver bulk mode ON (%d fuzzy candidates snapshotted)",
+-            len(self._fuzzy_snapshot),
++            len(self._fuzzy_candidates or []),
+         )
+ 
+     def end_bulk(self) -> None:
+-        """Exit bulk-resolve mode and drop the snapshot."""
++        """Exit bulk-resolve mode and drop the snapshot (lazy reload later)."""
+         self._bulk_fuzzy = False
+-        self._fuzzy_snapshot = None
++        self._fuzzy_candidates = None
+ 
+     def bulk(self) -> "_BulkContext":
+         """Context manager: ``with resolver.bulk(): ...`` for bulk imports."""
+         return _BulkContext(self)
+ 
+-    def _load_fuzzy_candidates(self) -> list[dict]:
+-        """Fetch the full Person fuzzy-candidate set ONCE.
+-
+-        Returns a list of ``{"uri","name","org","linkedin"}`` dicts. This is
+-        the single full-table scan that ``_fuzzy_match`` would otherwise
+-        repeat per call. Mirrors the SELECT in ``_fuzzy_match`` exactly so
+-        the in-memory path scores identically to the live path.
+-        """
+-        sparql = (
+-            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
+-            f"  ?person a <{PWG}Person> ; "
+-            f"          <{PWG}displayName> ?name . "
+-            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
+-            f"  OPTIONAL {{ "
+-            f"    ?person <{PWG}hasIdentifier> ?lid . "
+-            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
+-            f"         <{PWG}identifierValue> ?linkedinUrl . "
+-            f"  }} "
+-            f"}}"
+-        )
+-        results = self._sparql_query(sparql)
+-        bindings = results.get("results", {}).get("bindings", [])
+-        out: list[dict] = []
+-        for row in bindings:
+-            out.append({
+-                "uri": row["person"]["value"],
+-                "name": row["name"]["value"],
+-                "org": row.get("org", {}).get("value"),
+-                "linkedin": row.get("linkedinUrl", {}).get("value"),
+-            })
+-        return out
+-
      # -- Public API -----------------------------------------------------------
  
-@@ -40,11 +60,53 @@
-                 pass False to avoid false matches via first-name collisions
-                 (e.g. "Sandra Andersson" matching "Sandra Stewart" via
-                 Jaro-Winkler prefix bonus on "Sand").
+     def resolve(
+@@ -155,7 +132,50 @@
+                 identifier match short-circuited and a second identifier
+                 pointing at a different node was never noticed. Set False to
+                 get pure read-only matching with no graph writes.
 +
 +        Safety net (#660): this method NEVER raises a resolver-query error. If
 +        any tier's Oxigraph call fails (a 30s timeout against a large graph, a
@@ -262,7 +360,9 @@
          """
 +        self.stats["total"] += 1
 +        try:
-+            return self._resolve_tiers(identity, use_fuzzy=use_fuzzy)
++            return self._resolve_tiers(
++                identity, use_fuzzy=use_fuzzy, merge_on_resolve=merge_on_resolve,
++            )
 +        except httpx.HTTPError as exc:
 +            self.stats["degraded"] += 1
 +            logger.warning(
@@ -286,22 +386,16 @@
 +        self,
 +        identity: PersonIdentity,
 +        use_fuzzy: bool = True,
++        merge_on_resolve: bool = True,
 +    ) -> MatchResult:
 +        """Tiered match logic. May raise httpx.HTTPError on a query failure;
 +        the public resolve() wraps this and degrades to "new" so a failure
 +        never drops a contact. TNM's in-memory candidate index lands inside the
 +        Tier-3 path here; this error boundary sits outside it by design."""
-         # Tier 1: Exact match on any single identifier
-         for id_type, id_value in self._iter_identifiers(identity):
-             person_uri = self.find_by_identifier(id_type, id_value)
--            if person_uri:
-+            if person_uri and self._identifier_match_trustworthy(
-+                id_type, person_uri, identity
-+            ):
-                 return MatchResult(
-                     person_uri=person_uri,
-                     match_type="exact_identifier",
-@@ -56,7 +118,11 @@
+         # Tier 1: Exact match on any single identifier.
+         #
+         # Collect EVERY node any incoming exact identifier points at, not just
+@@ -168,7 +188,11 @@
          found_uris: dict[str, tuple[str, str]] = {}
          for id_type, id_value in self._iter_identifiers(identity):
              uri = self.find_by_identifier(id_type, id_value)
@@ -314,7 +408,7 @@
                  found_uris[uri] = (id_type, id_value)
  
          if len(found_uris) == 1:
-@@ -93,7 +159,7 @@
+@@ -229,7 +253,7 @@
              if fuzzy:
                  return fuzzy
  
@@ -323,7 +417,7 @@
          return MatchResult(
              person_uri=None,
              match_type="new",
-@@ -101,6 +167,38 @@
+@@ -237,6 +261,38 @@
              details="No matching person found",
          )
  
@@ -359,10 +453,43 @@
 +                total,
 +            )
 +
-     def create_person(self, identity: PersonIdentity, user_id: str) -> str:
-         short_id = uuid.uuid4().hex[:12]
-         person_uri = f"{PWG}person_{short_id}"
-@@ -317,83 +415,159 @@
+     def create_person(
+         self,
+         identity: PersonIdentity,
+@@ -341,22 +397,18 @@
+         self, person_uri: str, name: Optional[str],
+         org: Optional[str] = None, linkedin: Optional[str] = None,
+     ) -> None:
+-        """Append a newly-minted person to the in-memory fuzzy snapshot.
+-
+-        No-op unless bulk mode is active. Callers that mint Person URIs
+-        OUTSIDE ``create_person`` (e.g. the linkedin_messages path) should
+-        call this after their INSERT so intra-run fuzzy matching sees the
+-        new node. Safe to over-call: a duplicate snapshot row only costs a
+-        redundant Jaro-Winkler comparison, it cannot cause an over-merge.
++        """Append a newly-minted person to the in-memory fuzzy index.
++
++        Upstream API kept for its callers (e.g. the linkedin_messages
++        path); in this vendored copy it is a thin delegate onto
++        ``register_person`` -- the twin's single always-on candidate
++        store -- so both registration APIs feed the same index. Safe to
++        over-call: a duplicate row only costs a redundant Jaro-Winkler
++        comparison, it cannot cause an over-merge.
+         """
+-        if not self._bulk_fuzzy or self._fuzzy_snapshot is None or not name:
++        if not name:
+             return
+-        self._fuzzy_snapshot.append({
+-            "uri": person_uri,
+-            "name": name,
+-            "org": org,
+-            "linkedin": linkedin,
+-        })
++        self.register_person(person_uri, name, org=org, linkedin_url=linkedin)
+ 
+     def add_identifier(
+         self, person_uri: str, id_type: str, id_value: str, label: Optional[str] = None
+@@ -518,6 +570,56 @@
          if bindings:
              return bindings[0]["person"]["value"]
          return None
@@ -399,7 +526,7 @@
 +        self, id_type: str, matched_uri: str, identity: PersonIdentity
 +    ) -> bool:
 +        """Whether an identifier match should be acted on (BW-1).
- 
++
 +        Unique identifiers are always trusted. A SHAREABLE identifier
 +        (email/phone) is trusted only when the incoming and matched display
 +        names are present and equal once normalised; otherwise we cannot
@@ -416,32 +543,50 @@
 +        if not existing:
 +            return False
 +        return incoming == existing
-+
+ 
      # -- Private helpers ------------------------------------------------------
  
-     def _fuzzy_match(
+@@ -525,93 +627,104 @@
          self, name: str, org: Optional[str] = None,
          exclude_linkedin_url: Optional[str] = None,
      ) -> Optional[MatchResult]:
--        # Include LinkedIn URL identifiers so we can reject conflicting matches
--        sparql = (
--            f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
--            f"  ?person a <{PWG}Person> ; "
--            f"          <{PWG}displayName> ?name . "
--            f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
--            f"  OPTIONAL {{ "
--            f"    ?person <{PWG}hasIdentifier> ?lid . "
--            f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
--            f"         <{PWG}identifierValue> ?linkedinUrl . "
--            f"  }} "
--            f"}}"
--        )
--        results = self._sparql_query(sparql)
--        bindings = results.get("results", {}).get("bindings", [])
+-        # In bulk mode, score against the in-memory snapshot (loaded ONCE in
+-        # begin_bulk) instead of issuing a full-table SPARQL SELECT for every
+-        # incoming identity -- the O(handles x persons) hot path during
+-        # iMessage hydration. Single-shot callers keep the live query.
+-        if self._bulk_fuzzy and self._fuzzy_snapshot is not None:
+-            candidates = self._fuzzy_snapshot
+-        else:
+-            # Include LinkedIn URL identifiers so we can reject conflicts.
+-            sparql = (
+-                f"SELECT ?person ?name ?org ?linkedinUrl WHERE {{ "
+-                f"  ?person a <{PWG}Person> ; "
+-                f"          <{PWG}displayName> ?name . "
+-                f"  OPTIONAL {{ ?person <{PWG}organization> ?org }} "
+-                f"  OPTIONAL {{ "
+-                f"    ?person <{PWG}hasIdentifier> ?lid . "
+-                f'    ?lid <{PWG}identifierType> "linkedin_url" ; '
+-                f"         <{PWG}identifierValue> ?linkedinUrl . "
+-                f"  }} "
+-                f"}}"
+-            )
+-            results = self._sparql_query(sparql)
+-            bindings = results.get("results", {}).get("bindings", [])
+-            candidates = [
+-                {
+-                    "uri": row["person"]["value"],
+-                    "name": row["name"]["value"],
+-                    "org": row.get("org", {}).get("value"),
+-                    "linkedin": row.get("linkedinUrl", {}).get("value"),
+-                }
+-                for row in bindings
+-            ]
 +        # CX-126 (#660): match against the in-memory candidate index, loaded
 +        # once and appended on create, instead of re-running an unbounded
 +        # all-persons SELECT for every contact (the O(n^2) that hung the
 +        # install). Identical match results; microseconds instead of seconds.
++        # (Upstream's bulk-mode snapshot branch is subsumed by this always-on
++        # index -- begin_bulk() pre-loads the same store.)
 +        if self._fuzzy_candidates is None:
 +            self._load_fuzzy_candidates()
  
@@ -451,9 +596,10 @@
 -        org_confirmed = False
 +        best_org_conflict = False
  
--        for row in bindings:
--            candidate_name = row["name"]["value"]
--            score = _jaro_winkler(name.lower(), candidate_name.lower())
+-        name_lower = name.lower()
+-        for row in candidates:
+-            candidate_name = row["name"]
+-            score = _jaro_winkler(name_lower, candidate_name.lower())
 +        # Best candidate that ALSO shares the organisation, tracked separately.
 +        # A same-name+same-org match is the strongest signal and is preferred
 +        # over a higher-scoring but org-conflicting candidate (two real people
@@ -472,7 +618,7 @@
              # not the same person. Two different LinkedIn profiles = two
              # different people, regardless of name similarity.
              if exclude_linkedin_url:
--                candidate_linkedin = row.get("linkedinUrl", {}).get("value")
+-                candidate_linkedin = row.get("linkedin")
 +                candidate_linkedin = row.get("linkedinUrl")
                  if candidate_linkedin and candidate_linkedin != exclude_linkedin_url:
                      continue
@@ -497,10 +643,10 @@
 +
              if score > best_score:
                  best_score = score
--                best_uri = row["person"]["value"]
+-                best_uri = row["uri"]
 +                best_uri = row["person"]
                  best_name = candidate_name
--                candidate_org = row.get("org", {}).get("value")
+-                candidate_org = row.get("org")
 -                org_confirmed = (
 -                    org is not None
 -                    and candidate_org is not None
@@ -518,6 +664,8 @@
 -        #   these as candidates so they can be reviewed, but we don't
 -        #   return a match. See CM043/TODO.md follow-ups for context.
 -        if best_score > 0.85 and org_confirmed:
+-            return MatchResult(
+-                person_uri=best_uri,
 +        # Threshold tiers (org-conflict-guarded):
 +        # 1. >0.85 + same org -> high-confidence match (strongest signal).
 +        # 2. >=0.93 + no org CONFLICT -> reliable (typos, stylised variants,
@@ -530,8 +678,7 @@
 +        #    "Sandra Stewart" scored 0.867) above 0.85 on shared-prefix
 +        #    alone, which blew up our People Graph on 2026-04-11.
 +        if conf_score > 0.85:
-             return MatchResult(
--                person_uri=best_uri,
++            return MatchResult(
 +                person_uri=conf_uri,
                  match_type="fuzzy_name",
 -                confidence=best_score,
@@ -564,7 +711,7 @@
          if best_score > 0.85:
              # Log-only: shared-prefix first-name collisions live here
              logger.info(
-@@ -405,6 +579,97 @@
+@@ -623,6 +736,97 @@
  
          return None
  
