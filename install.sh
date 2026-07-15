@@ -15384,6 +15384,49 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
           _places_rc _places_log_tail
 fi
 
+# ── Privacy-level backfill (CM041 #97 fail-closed gate) ───────────────
+#
+# The person-fact readers (ical-server /people/*, meeting brief) fail
+# CLOSED on unknown privacy: a fact/signal node with no pwg:privacyLevel
+# is treated as L3 and HIDDEN. On a freshly hydrated graph ~85% of the
+# historical fact/signal nodes land untagged, so serving before they are
+# tagged would silently hide most facts (near-empty People card / brief).
+#
+# This one-off backfill stamps every untagged PersonFact / RelationshipSignal
+# with its provenance-derived visible level (contact_syncer.privacy_model:
+# private/unknown -> L1, public/social -> L2, health/finance -> L0 -- NEVER
+# L3), so the fail-closed reader hides only genuinely-private content, not
+# the coverage gap.
+#
+# Ordering: runs AFTER every Oxigraph writer above (hydrate_graph
+# contacts/calendar + per-source FDA ingests + places) and BEFORE the first
+# wiki_compile / before ical-server serves, so both surfaces see a fully
+# tagged graph. Idempotent (the SELECT only matches untagged nodes, so a
+# re-run of install.sh writes nothing) and best-effort + non-fatal (a
+# failure is logged and install continues; the reader stays fail-closed, so
+# a failed backfill hides facts, it never leaks them). The reader-side
+# gate in ical-server also runs this on every boot as belt-and-braces.
+# Same import-pipeline venv as contact_syncer.syncer (carries httpx).
+if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
+    info "Tagging privacy levels on your graph"  # i18n-exempt
+    _privacy_rc=0
+    (
+        cd "$PIPELINE_DIR" \
+        && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           DEFAULT_PRIVACY_LEVEL="${DEFAULT_PRIVACY_LEVEL:-L2}" \
+           .venv/bin/python -m contact_syncer.backfill_privacy --apply
+    ) >>/tmp/ostler-privacy-backfill.log 2>&1 || _privacy_rc=$?
+    if [[ "$_privacy_rc" -eq 0 ]]; then
+        ok "Privacy levels tagged"  # i18n-exempt
+    else
+        # Non-fatal: readers stay fail-closed (safe), and the ical-server
+        # startup hook retries on the next boot. Surface it, do not abort.
+        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See /tmp/ostler-privacy-backfill.log"  # i18n-exempt
+    fi
+    _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    unset _privacy_rc
+fi
+
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
 
 progress "Compiling your personal wiki (first run)" "wiki_compile"
