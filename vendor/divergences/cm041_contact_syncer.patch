@@ -46,7 +46,7 @@
              if qdrant and not dry_run:
 --- a/linkedin_connections.py
 +++ b/linkedin_connections.py
-@@ -653,7 +653,13 @@
+@@ -727,7 +727,13 @@
      for i, row in enumerate(rows, 1):
          identity, extra = row_to_identity(row)
  
@@ -61,7 +61,7 @@
              counts["skipped"] += 1
              continue
  
-@@ -725,6 +731,21 @@
+@@ -799,6 +805,21 @@
                      )
                  counts["created"] += 1
  
@@ -85,11 +85,19 @@
                  embed_text_str = (
 --- a/linkedin_messages.py
 +++ b/linkedin_messages.py
-@@ -300,6 +300,20 @@
+@@ -306,15 +306,22 @@
+                             config.USER_ID,
                              config.DEFAULT_PRIVACY_LEVEL,
                          )
+-                    # This path mints the Person URI itself (not via
+-                    # resolver.create_person), so register it in the bulk
+-                    # fuzzy snapshot by hand -- otherwise two conversations
+-                    # with the same new contact would each mint a node.
+-                    resolver._register_in_snapshot(
+-                        person_uri, name, None, profile_url or None,
+-                    )
                      counts["participants_new"] += 1
-+
+ 
 +                    # Register the new person in the resolver's in-memory fuzzy
 +                    # index so LATER rows in this SAME run dedupe against it. The
 +                    # candidate snapshot is loaded once and frozen; without this
@@ -103,9 +111,10 @@
 +                        org=identity.organization,
 +                        linkedin_url=identity.linkedin_url,
 +                    )
- 
++
                  # Write messaging relationship signal
                  if not dry_run:
+                     conv["conv_id"] = conv_id
 --- a/syncer.py
 +++ b/syncer.py
 @@ -1,4 +1,4 @@

@@ -586,6 +586,80 @@ def upsert_qdrant(
     qdrant.upsert(collection_name=collection, points=[point])
 
 
+# ── Service-independent parse + report ───────────────────────────────
+
+
+def report_connections(
+    csv_path: str,
+    *,
+    limit: Optional[int] = None,
+    verbose: bool = False,
+) -> Dict[str, int]:
+    """Parse Connections.csv and report counts WITHOUT touching any service.
+
+    This is the offline counterpart to ``import_connections``: it parses
+    the CSV (skipping the LinkedIn export preamble), runs each row through
+    ``row_to_identity`` and reports field-coverage counts. It NEVER
+    contacts Oxigraph, Qdrant, Ollama or CardDAV, so it is safe to run
+    when those services are down (e.g. a pre-flight dry run before the
+    graph is up, or in CI). ``import_connections(..., dry_run=True)`` still
+    instantiates the resolver to preview merge decisions; this does not.
+
+    Returns counts: {total, named, with_company, with_position, with_email,
+    with_url, with_connected_on}. ``total`` is the number of parsed data
+    rows; ``named`` excludes rows whose display name is empty after
+    cleaning (which ``import_connections`` would skip).
+    """
+    rows = parse_connections_csv(csv_path)
+    if limit:
+        rows = rows[:limit]
+
+    counts = {
+        "total": len(rows),
+        "named": 0,
+        "with_company": 0,
+        "with_position": 0,
+        "with_email": 0,
+        "with_url": 0,
+        "with_connected_on": 0,
+    }
+
+    for row in rows:
+        identity, extra = row_to_identity(row)
+        if identity.display_name.strip():
+            counts["named"] += 1
+        if (extra.get("company") or "").strip():
+            counts["with_company"] += 1
+        if (extra.get("position") or "").strip():
+            counts["with_position"] += 1
+        if (extra.get("email") or "").strip():
+            counts["with_email"] += 1
+        if (extra.get("linkedin_url") or "").strip():
+            counts["with_url"] += 1
+        # connected_on only counts when it parses to a real date, so the
+        # number reflects how many rows can carry a real source date into
+        # the graph (createdAt / observed_at), not just a non-empty string.
+        connected_on = (extra.get("connected_on") or "").strip()
+        if connected_on:
+            try:
+                datetime.strptime(connected_on, "%d %b %Y")
+                counts["with_connected_on"] += 1
+            except (ValueError, TypeError):
+                pass
+
+    print(
+        f"Parsed {counts['total']} LinkedIn connections "
+        f"({counts['named']} named, {counts['with_company']} with company, "
+        f"{counts['with_position']} with position, {counts['with_email']} with email, "
+        f"{counts['with_url']} with URL, "
+        f"{counts['with_connected_on']} with a parseable connection date)."
+    )
+    if verbose:
+        print("  (report-only: no service was contacted, nothing was written)")
+
+    return counts
+
+
 # ── Main orchestrator ────────────────────────────────────────────────
 
 
@@ -800,6 +874,15 @@ def main():
         help="Path to Connections.csv from LinkedIn GDPR export",
     )
     parser.add_argument("--dry-run", action="store_true", help="Parse and resolve but don't write")
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help=(
+            "Parse the CSV and report counts only. Contacts NO service "
+            "(Oxigraph/Qdrant/Ollama/CardDAV), so it is safe to run when the "
+            "graph is down. Unlike --dry-run, it does not resolve identities."
+        ),
+    )
     parser.add_argument("--enrich-contacts", action="store_true",
                         help="Write LinkedIn URL/title/org back to matching iCloud contacts via CardDAV")
     parser.add_argument("--enrich-fields", type=str, default="url",
@@ -811,6 +894,12 @@ def main():
     if not os.path.isfile(args.csv):
         print(f"File not found: {args.csv}", file=sys.stderr)
         return 1
+
+    # Report-only short-circuits before any service config is required, so
+    # it works with the graph down. Returns 0 unless the parse itself fails.
+    if args.report_only:
+        report_connections(args.csv, limit=args.limit, verbose=args.verbose)
+        return 0
 
     # Validate config
     if not config.OXIGRAPH_URL:

@@ -1,4 +1,4 @@
-"""Master GDPR Import Script — runs all platform parsers in sequence.
+"""Master GDPR Import Script - runs all platform parsers in sequence.
 
 This is the one-stop import for beta testers. Point it at a directory
 containing GDPR exports from various platforms, and it will detect
@@ -30,7 +30,7 @@ Expected directory structure:
     └── Google/             (extracted/Takeout/)
         └── Calendar/*.ics
 
-Each parser is independent — missing exports are skipped gracefully.
+Each parser is independent - missing exports are skipped gracefully.
 """
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def run_import(
     start = time.time()
 
     print("=" * 60)
-    print("PWG GDPR Import — scanning for available exports...")
+    print("PWG GDPR Import - scanning for available exports...")
     print("=" * 60)
     print()
 
@@ -97,7 +97,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  LinkedIn Connections — not found, skipping")
+        print("⏭  LinkedIn Connections - not found, skipping")
 
     # ── 2. LinkedIn Career ──────────────────────────────────────
     positions_path = find_export(base, ["Positions.csv", "positions.csv"])
@@ -111,7 +111,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  LinkedIn Career — not found, skipping")
+        print("⏭  LinkedIn Career - not found, skipping")
 
     # ── 3. LinkedIn Messages ────────────────────────────────────
     messages_path = find_export(base, ["messages.csv"])
@@ -124,7 +124,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  LinkedIn Messages — not found, skipping")
+        print("⏭  LinkedIn Messages - not found, skipping")
 
     # ── 4. Facebook Friends ─────────────────────────────────────
     friends_path = find_export(base, ["your_friends.json"])
@@ -136,7 +136,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  Facebook Friends — not found, skipping")
+        print("⏭  Facebook Friends - not found, skipping")
 
     # ── 5. Facebook Events ──────────────────────────────────────
     events_dir = find_dir(base, ["events"])
@@ -150,7 +150,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  Facebook Events — not found, skipping")
+        print("⏭  Facebook Events - not found, skipping")
 
     # ── 6. Instagram Social ─────────────────────────────────────
     ig_dir = find_dir(base, ["followers_and_following"])
@@ -162,20 +162,50 @@ def run_import(
         )
         print()
     else:
-        print("⏭  Instagram Social — not found, skipping")
+        print("⏭  Instagram Social - not found, skipping")
 
     # ── 7. Google Calendar ──────────────────────────────────────
-    ics_path = find_export(base, ["*.ics"])
-    if ics_path and os.path.getsize(ics_path) > 1000:
-        print("📆 Google Calendar found")
-        from contact_syncer.google_calendar import import_calendar
-        results["google_calendar"] = import_calendar(
-            ics_path, dry_run=dry_run, verbose=verbose,
-            user_name=user_name,
+    # Import EVERY .ics under the export (Google Takeout writes one file
+    # per calendar: primary + any shared/family calendars the operator
+    # exported). Each file is imported with its own owner label, derived
+    # from the ICS X-WR-CALNAME header or the export filename, so a
+    # partner's / family flights land with whose-calendar provenance
+    # instead of being flattened onto the operator. Aggregate counts
+    # across all calendars into the single google_calendar result.
+    #
+    # NOTE (operator config / consent): this ingests whatever calendars
+    # are PRESENT in the export. A shared "Family" or partner calendar
+    # only appears here if the operator included it in the Takeout export
+    # (or, for a future live-API path, granted the extra read scope). We
+    # attribute correctly whatever we are given; obtaining another
+    # person's calendar in the first place remains an operator action.
+    ics_paths = sorted(str(p) for p in base.rglob("*.ics")
+                       if p.is_file() and p.stat().st_size > 1000)
+    if ics_paths:
+        print(f"📆 Google Calendar found ({len(ics_paths)} calendar file(s))")
+        from contact_syncer.google_calendar import (
+            import_calendar,
+            load_calendar_provenance,
         )
+        # Operator-confirmed owner/type map (authoritative; written by the
+        # end-of-install onboarding confirmation). Loaded once and shared
+        # across every calendar file. Empty when nothing confirmed yet ->
+        # ingest auto-detection is the fallback.
+        provenance = load_calendar_provenance()
+        agg = {"total": 0, "written": 0, "attendees_matched": 0,
+               "attendees_new": 0, "errors": 0, "calendars": len(ics_paths)}
+        for ics_path in ics_paths:
+            counts = import_calendar(
+                ics_path, dry_run=dry_run, verbose=verbose,
+                user_name=user_name, provenance=provenance,
+            )
+            for k in ("total", "written", "attendees_matched",
+                      "attendees_new", "errors"):
+                agg[k] += counts.get(k, 0)
+        results["google_calendar"] = agg
         print()
     else:
-        print("⏭  Google Calendar — not found, skipping")
+        print("⏭  Google Calendar - not found, skipping")
 
     # ── 8. WhatsApp Contacts ────────────────────────────────────
     wa_contacts = find_export(base, ["contacts.json"])
@@ -187,7 +217,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  WhatsApp Contacts — not found, skipping")
+        print("⏭  WhatsApp Contacts - not found, skipping")
 
     # ── 9. Twitter/X Contacts ───────────────────────────────────
     twitter_contacts = find_export(base, ["contact.js"])
@@ -199,7 +229,7 @@ def run_import(
         )
         print()
     else:
-        print("⏭  Twitter/X Contacts — not found, skipping")
+        print("⏭  Twitter/X Contacts - not found, skipping")
 
     # ── Summary ─────────────────────────────────────────────────
     elapsed = time.time() - start
@@ -217,7 +247,7 @@ def run_import(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PWG Master GDPR Import — detect and run all available parsers"
+        description="PWG Master GDPR Import - detect and run all available parsers"
     )
     parser.add_argument("--exports-dir", type=str, required=True,
                         help="Root directory containing GDPR exports from various platforms")
@@ -230,7 +260,7 @@ def main():
         help=(
             "Your name as it appears in platform exports (for sender "
             "matching). Falls back to the USER_DISPLAY_NAME (or PWG_USER_NAME) "
-            "env var. Required — no hardcoded default, so another user's "
+            "env var. Required - no hardcoded default, so another user's "
             "export can't get silently tagged under the developer's identity."
         ),
     )

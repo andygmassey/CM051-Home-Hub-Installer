@@ -4,7 +4,7 @@ CALENDAR: Use http_request with url="http://localhost:8089/calendar?days=7" (or 
 EMAIL: Use http_request with url="http://localhost:8089/email?q=is:unread"
 EMAIL WITH SUBJECT LINES: http://localhost:8089/email?q=is:unread&max=5
 PEOPLE SEARCH: Use http_request with url="http://localhost:8089/people/search?q=fintech" — finds people by topic, industry, role, or any context. Returns name, org, relationship, and facts.
-PERSON CONTEXT: Use http_request with url="http://localhost:8089/people/context?name=Danny" — returns everything known about a person: identifiers, facts, meeting history, last contact date. Use partial names.
+PERSON CONTEXT: Use http_request with url="http://localhost:8089/people/context?name=Jane" — returns everything known about a person: identifiers, facts, meeting history, last contact date. Use partial names.
 SEARCH: Use web_search_tool
 WEB PAGE: Use web_fetch
 MATHS: Use calculator
@@ -14,5 +14,5 @@ IMPORTANT: For calendar, email, and people queries, ALWAYS use http_request to l
 
 EXAMPLES:
 - "Who do I know at HSBC?" → http_request url="http://localhost:8089/people/search?q=HSBC+banking"
-- "What do I know about Arnaud?" → http_request url="http://localhost:8089/people/context?name=Arnaud"
+- "What do I know about Jane?" → http_request url="http://localhost:8089/people/context?name=Jane"
 - "Who have I met recently in tech?" → http_request url="http://localhost:8089/people/search?q=technology+innovation"

@@ -9,7 +9,7 @@ Usage::
 
     from identity_resolver.pre_ingest_hook import pre_ingest_check
 
-    result = pre_ingest_check("Danny Kwan", email="danny@example.com")
+    result = pre_ingest_check("Jane Doe", email="jane@example.com")
     if result["action"] == "create":
         # No existing match — safe to create a new person node.
         ...

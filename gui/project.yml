@@ -665,12 +665,39 @@ targets:
           # Remove any stale prior copy. Build phases run incrementally
           # so without this step a vendor-syncer rename or delete would
           # leave the old tree in place.
-          rm -rf "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api"
+          # CM041 v1.0.9 re-vendor (2026-07-15): two NEW root-level assets.
+          #   - pwg_privacy.py       canonical fail-closed L3 privacy helper.
+          #                          HARD-imported (top-level, unguarded) by
+          #                          meeting_syncer/brief.py AND
+          #                          assistant_api/ical-server.py since CM041
+          #                          #97; both resolve it from the parent dir
+          #                          of their package (the Resources root in
+          #                          this layout). Missing file = ImportError
+          #                          at service start, so hard-fail the build.
+          #   - ostler_hygiene/      memory-hygiene engine (CM041 #98).
+          #                          ical-server's _hygiene_reader() resolves
+          #                          it as a sibling package; import is
+          #                          fail-open, but ship it so the hygiene
+          #                          overlay actually works on customer Macs.
+          if [ ! -f "${VENDOR_ROOT}/pwg_privacy.py" ]; then
+              echo "error: vendor/cm041/pwg_privacy.py missing." >&2
+              echo "       ical-server.py + brief.py hard-import it (CM041 #97)." >&2
+              echo "       Re-sync from the CM041 PWG People Graph repo." >&2
+              exit 1
+          fi
+          if [ ! -d "${VENDOR_ROOT}/ostler_hygiene" ]; then
+              echo "error: vendor/cm041/ostler_hygiene/ missing." >&2
+              echo "       Re-sync from the CM041 PWG People Graph repo." >&2
+              exit 1
+          fi
+          rm -rf "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py"
           cp -R "${VENDOR_ROOT}/contact_syncer"    "${DEST}/contact_syncer"
           cp -R "${VENDOR_ROOT}/meeting_syncer"    "${DEST}/meeting_syncer"
           cp -R "${VENDOR_ROOT}/identity_resolver" "${DEST}/identity_resolver"
           cp -R "${VENDOR_ROOT}/assistant_api"     "${DEST}/assistant_api"
-          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api"
+          cp -R "${VENDOR_ROOT}/ostler_hygiene"    "${DEST}/ostler_hygiene"
+          cp    "${VENDOR_ROOT}/pwg_privacy.py"    "${DEST}/pwg_privacy.py"
+          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py"
           # ical-server.py is executable on the operator instance via
           # `python ical-server.py`, not chmod +x, so we don't toggle
           # the mode here. requirements.txt + .env.example land 644.

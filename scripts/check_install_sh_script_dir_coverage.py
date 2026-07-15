@@ -114,6 +114,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "imessage-bridge": ["vendor/imessage_bridge"],
     "identity_resolver": ["vendor/cm041"],
     "meeting_syncer": ["vendor/cm041"],
+    # CM041 v1.0.9 re-vendor (2026-07-15): repo-root companions bundled by
+    # the same "Bundle CM041 PWG People Graph" postBuildScript. pwg_privacy.py
+    # is HARD-imported by ical-server.py + brief.py (CM041 #97);
+    # ostler_hygiene/ is the memory-hygiene engine (CM041 #98). Needles are
+    # the explicit cp targets so a project.yml regression un-covers them.
+    "pwg_privacy.py": ['${DEST}/pwg_privacy.py'],
+    "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
     "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
     # REUSE-4 (hardware-fit Ollama model picker): install.sh sources

@@ -8573,6 +8573,13 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # raise ImportError at install time.
     [[ -d "${SCRIPT_DIR}/meeting_syncer" ]] && cp -R "${SCRIPT_DIR}/meeting_syncer" "$PIPELINE_DIR/"
     [[ -d "${SCRIPT_DIR}/identity_resolver" ]] && cp -R "${SCRIPT_DIR}/identity_resolver" "$PIPELINE_DIR/"
+    # CM041 v1.0.9 (2026-07-15): pwg_privacy.py is the canonical
+    # fail-closed L3 privacy helper at the CM041 repo root.
+    # meeting_syncer/brief.py hard-imports it (top-level, unguarded)
+    # from its parent dir (_PARENT_DIR sys.path hack = PIPELINE_DIR
+    # here), so it must land as a SIBLING of the three packages --
+    # without it the pre-meeting brief raises ImportError.
+    [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]] && cp "${SCRIPT_DIR}/pwg_privacy.py" "$PIPELINE_DIR/"
     [[ -f "${SCRIPT_DIR}/requirements.txt" ]] && cp "${SCRIPT_DIR}/requirements.txt" "$PIPELINE_DIR/"
     ok "$MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER"
     HAS_PIPELINE=true
@@ -10552,6 +10559,28 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     rm -rf "$ICAL_SERVER_DIR"
     mkdir -p "$ICAL_SERVER_DIR"
     cp -R "${SCRIPT_DIR}/assistant_api/." "$ICAL_SERVER_DIR/"
+
+    # CM041 v1.0.9 (2026-07-15): stage the two repo-root companions as
+    # SIBLINGS of the ical-server dir (the "repo root" in this layout).
+    #   - pwg_privacy.py: HARD-imported (top-level, unguarded) by
+    #     ical-server.py since CM041 #97 -- it resolves
+    #     dirname(dirname(ical-server.py)) = ${OSTLER_DIR}/services and
+    #     imports pwg_privacy from there. Missing file = the launchd
+    #     agent crash-loops at import time.
+    #   - ostler_hygiene/: the memory-hygiene engine (CM041 #98).
+    #     ical-server's _hygiene_reader() resolves it from the same
+    #     parent dir; the import is fail-open, but without it the
+    #     hygiene overlay silently degrades to raw source facts.
+    _ICAL_SERVICES_ROOT="$(dirname "$ICAL_SERVER_DIR")"
+    if [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]]; then
+        cp "${SCRIPT_DIR}/pwg_privacy.py" "${_ICAL_SERVICES_ROOT}/pwg_privacy.py"
+    else
+        warn "pwg_privacy.py not bundled with the installer - ical-server will fail to start (re-cut the DMG from a synced vendor/cm041)"  # i18n-exempt: vendor-sync build defect, not a customer flow
+    fi
+    if [[ -d "${SCRIPT_DIR}/ostler_hygiene" ]]; then
+        rm -rf "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
+        cp -R "${SCRIPT_DIR}/ostler_hygiene" "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
+    fi
 
     # Verify ostler_security is importable under OSTLER_VENV (Phase 7
     # is the install site). Refuse to render the plist if not: an

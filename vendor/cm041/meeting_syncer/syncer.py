@@ -180,7 +180,14 @@ class MeetingSyncer:
         Updates both Oxigraph and Qdrant. Oxigraph upsert uses the
         atomic DELETE-INSERT-WHERE-FILTER pattern: equal or older
         dates are no-ops, so the call is idempotent on re-runs.
+
+        Future-dated meetings are never a last contact and are rejected
+        here as well as at the call site, so no caller can poison the
+        freshness signal with an upcoming meeting.
         """
+        if meeting_date and meeting_date > datetime.now().strftime("%Y-%m-%d"):
+            return  # Upcoming meeting: a "next meeting", not a last contact
+
         current = self._get_last_calendar_contact(person_uri)
         if current and current >= meeting_date:
             return  # Stored value is already at or beyond this meeting
@@ -242,6 +249,11 @@ class MeetingSyncer:
         "updates", "auto", "automated", "mailer", "mailer-daemon",
         "postmaster", "bounce", "bounces", "feedback", "reply", "replies",
         "system", "webmaster", "hostmaster", "abuse", "security",
+        # Calendar-system sentinels. Google Calendar stamps an
+        # 'unknownorganizer' local-part (at the calendar.google.com host)
+        # as the organiser on events with no resolvable organiser; it is a
+        # placeholder, never a human.
+        "unknownorganizer",
     }
 
     # Domain substrings that signal bulk / transactional senders. Matched
@@ -263,6 +275,10 @@ class MeetingSyncer:
         ".beehiiv.com",
         ".mail.beehiiv.com",
         ".notifications.github.com",
+        # Calendar-system resource domain. Google Calendar uses
+        # 'calendar.google.com' for placeholder organisers and event
+        # resources, never for a real human's address.
+        ".calendar.google.com",
     )
 
     # Substrings that indicate a brand-ish display name even when the

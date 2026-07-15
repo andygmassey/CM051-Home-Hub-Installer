@@ -19,7 +19,7 @@ What it does
      how many meetings reference each location and the most-recent meeting date.
    - ``pwg:photoPlace`` on photo-event nodes (secondary, if present).
 2. De-dupe by a normalised location key (case-folded, whitespace-collapsed,
-   trailing punctuation stripped) so "Fuel Espresso" and "fuel espresso "
+   trailing punctuation stripped) so "Riverside Cafe" and "riverside cafe "
    collapse to one Place.
 3. Upsert one ``area_preference`` point per distinct place into the
    ``preferences`` collection with the exact payload shape the reader expects
