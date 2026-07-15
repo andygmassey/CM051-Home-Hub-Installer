@@ -228,9 +228,21 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # End-of-install confirmation helpers (whose calendars + who you
+          # are): install.sh's confirmation block probes
+          # ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py and
+          # ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and SILENTLY skips
+          # the whole propose-and-confirm step when either is absent (the
+          # block is deliberately fail-safe). Missing here = the GUI
+          # ConfirmLearnedView never receives its prompts on a .app install
+          # while the curl|bash tarball flow works -- the classic buried-
+          # failure shape the coverage gate exists to catch.
+          cp "${SRCROOT}/../lib/ostler-confirm-calendars.py"     "${DEST}/lib/ostler-confirm-calendars.py"
+          cp "${SRCROOT}/../lib/ostler-confirm-identity.py"      "${DEST}/lib/ostler-confirm-identity.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh"
-          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
+          chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py" \
+                    "${DEST}/lib/ostler-confirm-calendars.py" "${DEST}/lib/ostler-confirm-identity.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the
           # installer + drag-to-Applications) yet install.sh's source-
@@ -261,12 +273,16 @@ targets:
           - $(SRCROOT)/../lib/progress_emitter.sh
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/ostler-confirm-calendars.py
+          - $(SRCROOT)/../lib/ostler-confirm-identity.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Bundle ostler_security Python package into Resources
         script: |
