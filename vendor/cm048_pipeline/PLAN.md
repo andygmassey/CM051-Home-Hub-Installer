@@ -314,6 +314,26 @@ months." Surface these as User Coach meta-observations.
    threshold, emit nothing rather than a dubious fact. Better for graph
    hygiene downstream.
 
+   > **Status (T12, 2026-06-25):** a deterministic post-extraction
+   > quality gate now runs between `05_facts.json` and the sink-write
+   > step (`src/fact_quality.py`, called from both `_write_qdrant` and
+   > `_write_oxigraph` in `src/ingest.py`). It drops degenerate
+   > (empty / too-short) facts, AI self-referential facts (the AI
+   > Conversations wing guard), and within-conversation duplicates, and
+   > logs a per-reason drop count. The prompt's in-text "quality gates"
+   > are advisory instructions to a local model; this is the code-side
+   > enforcement that was missing.
+   >
+   > **Confidence-scoring follow-up (needs Andy):** facts today carry
+   > NO numeric confidence. They carry an enum `confidence`
+   > (`stated` | `inferred`) and an ordinal `signal_strength`
+   > (`strong` | `medium` | `weak`). The gate therefore exposes an
+   > OPT-IN signal floor (`OSTLER_FACT_SIGNAL_FLOOR`, default OFF so the
+   > shipping pipeline is unchanged) rather than inventing a fake
+   > confidence number. A genuine numeric confidence on each fact (so a
+   > true threshold like "drop < 0.6" is possible) would be a schema +
+   > extractor change and is deferred for a product decision.
+
 3. **Fact deduplication against existing graph.** When the same fact
    appears across multiple conversations (e.g., "Sam works at Firm
    Studio"), Omi deduplicates against existing graph nodes rather than

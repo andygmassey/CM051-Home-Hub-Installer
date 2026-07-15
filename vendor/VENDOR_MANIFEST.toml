@@ -108,11 +108,11 @@ name             = "cm048_pipeline"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
-  pinned_sha = "36e22c5ca40954a49af63217a3d11019ad4cd11a"
+  pinned_sha = "c768fbb75de42b8e5c1aaac4ce87235140cfedde"
   divergence_patch = ""
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
 verify           = "skip"
-note             = "The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full."
+note             = "v1.0.9 fold: pin bumped 36e22c5 (v1.0.7) -> c768fbb (v1.0.8 fact-quality re-vendor) so v1.0.9 is a clean superset of v1.0.8. c768fbb is a linear descendant of 36e22c5; the non-excluded delta grafted here is src/fact_quality.py + src/fact_dedup.py (both new) plus src/ingest.py wiring and PLAN.md (tests/ excluded). The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here; files were extracted via 'git show c768fbb:<path>'. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full."
 
 # ---- CM021 (Email Intelligence) ------------------------------------------
 
