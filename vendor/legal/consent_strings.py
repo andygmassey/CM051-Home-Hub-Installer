@@ -67,7 +67,7 @@ class ConsentString:
 # wording here is the canonical text the SHA-256 is computed over.
 ARTICLE_9_EU_CONSENT = ConsentString(
     tickbox_id="article_9_special_category_consent",
-    version="v1.0-2026-05-12",
+    version="v1.1-2026-07-15",
     text="""One last thing – what Ostler will look at on your Mac
 
 Ostler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.
