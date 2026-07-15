@@ -15,10 +15,17 @@ on:
   pull_request:
     paths:
       - 'vendor/**'
+      # context-refresh/ holds a grafted (divergent) vendored copy of
+      # ostler-assistant's generate_pwg_context.py. It lives outside vendor/
+      # so the filter above missed it -- a patch to that file could drift
+      # from its VENDOR.md byte-identity claim undetected (same failure
+      # class as the ostler_fda incident cited above). Watch it explicitly.
+      - 'context-refresh/**'
       - 'scripts/verify_vendor_fresh.sh'
       - 'scripts/sync_vendor.sh'
       - 'scripts/_vendor_lib.sh'
       - 'tests/test_no_divergent_vendor_twin.sh'
+      - 'tests/test_context_refresh_vendor_sha.sh'
       - 'tests/test_vendor_fresh_gate.sh'
       - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
@@ -46,6 +53,12 @@ jobs:
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         run: bash tests/test_no_divergent_vendor_twin.sh
+
+      # context-refresh/ holds a grafted vendored copy outside vendor/, so the
+      # freshness gate below never sees it. This pins it to the SHA recorded
+      # in its VENDOR.md so a patch that rots the provenance record fails CI.
+      - name: context-refresh vendored-file SHA guard
+        run: bash tests/test_context_refresh_vendor_sha.sh
 
       # Cross-repo vendor-freshness gate. The old twin guard above is BLIND to
       # the real failure mode -- it compares vendor/<pkg> against a top-level

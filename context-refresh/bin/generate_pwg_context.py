@@ -19,6 +19,17 @@ Design constraints (TNM brief, locked 2026-05-31):
 
 Run it after each hydrate and on an interval (the CM051 installer wires a
 LaunchAgent that calls this; see the hand-off note in the builder report).
+
+SHIP-GATE (divergent-twin / paired fix): the per-owner calendar labelling
+below is the READ-SIDE half of a two-repo fix. The WRITE-SIDE half (which
+stamps pwg:sourceCalendar / pwg:calendarType and fails calendar privacy
+CLOSED to L3) lives in CM041 ``contact_syncer/google_calendar.py`` and
+ships to a customer Hub only via CM051 ``vendor/cm041/`` + the HR015
+tarball. This context-refresh script ships from CM051 ``context-refresh/``.
+Neither half is safe alone -- land + re-vendor + re-cut BOTH. If the CM041
+write-side has not landed, calendar rows carry no owner and fall under the
+"Your calendar" bucket, silently misattributing a partner's diary to the
+operator; do not ship this read-side change without its write-side twin.
 """
 
 from __future__ import annotations
@@ -39,7 +50,7 @@ from pathlib import Path
 BASE_URL = os.environ.get("OSTLER_ICAL_BASE_URL", "http://127.0.0.1:8090")
 
 # Oxigraph (the PWG triple store) also binds to loopback. User-asserted facts
-# -- things the customer explicitly confirmed to the assistant ("Alison is my
+# -- things the customer explicitly confirmed to the assistant ("Robin is my
 # wife"), banked by CM041's assert endpoint as pwg:PersonFact nodes -- live
 # here, not behind an ical-server endpoint. We read them directly with a small
 # SPARQL SELECT, mirroring the ical-server's own query helper. Default is
@@ -63,6 +74,11 @@ MAX_PEOPLE = 6
 MAX_MEETINGS = 5
 MAX_PREFERENCES = 6
 MAX_ORGS = 6
+# Calendar events (flights, trips, appointments) surfaced grouped by whose
+# calendar they came from, so the brief never merges one person's trip into
+# another's. Bounded per-owner and overall to respect MAX_CHARS.
+MAX_CALENDAR_PER_OWNER = 6
+MAX_CALENDAR_TOTAL = 14
 
 # User-asserted facts are authoritative and go at the top of the digest, so we
 # allow more of them than the mined sections -- but still bounded so a runaway
@@ -160,7 +176,7 @@ def _user_asserted_section() -> list[str]:
 
     These are pwg:PersonFact nodes carrying pwg:factSource "user_asserted"
     (banked by CM041's assert endpoint when the customer says something like
-    "Alison is my wife"). They are authoritative, so they sit at the very top
+    "Robin is my wife"). They are authoritative, so they sit at the very top
     of the digest -- the assistant should always know them. Most-recent-first,
     bounded by MAX_USER_ASSERTED, de-duplicated on the rendered line.
     """
@@ -237,20 +253,30 @@ def _people_section() -> list[str]:
     return lines
 
 
-def _meetings_section() -> tuple[list[str], list[str]]:
-    """Upcoming and recent meetings from the merged timeline.
+def _meetings_section() -> list[str]:
+    """Recent (past) meetings from the merged timeline.
 
-    Returns (upcoming_lines, recent_lines). The timeline endpoint returns both
-    calendar (future) and meeting (past) kinds.
+    The timeline endpoint returns both calendar (future) and meeting (past)
+    kinds. We render ONLY the meeting kind here.
+
+    The future / ``kind == "calendar"`` events are DELIBERATELY NOT rendered
+    from this endpoint. The timeline endpoint carries no owner attribution,
+    so surfacing calendar events here re-introduces the exact travel/flight
+    conflation the pair fixes: a partner's shared-calendar flight would land
+    under an un-labelled "Upcoming meetings" heading and the model would
+    default it to the operator (BATCH1 #3 F1). Owner-labelling this endpoint
+    is not feasible in this pass (no owner field on timeline rows), so the
+    un-attributed upcoming section is RETIRED. Future calendar events reach
+    the brief exclusively via ``_calendar_by_owner_section`` below, which
+    reads the CM041 owner + type provenance and fails closed on L3.
     """
     data = _get_json("/api/v1/timeline?days=7")
     if not data:
-        return ([], [])
+        return []
     items = data.get("items")
     if not isinstance(items, list):
-        return ([], [])
+        return []
 
-    upcoming: list[str] = []
     recent: list[str] = []
     for item in items:
         if not isinstance(item, dict) or _is_withheld(item):
@@ -258,14 +284,95 @@ def _meetings_section() -> tuple[list[str], list[str]]:
         summary = (item.get("summary") or "").strip()
         if not summary:
             continue
+        # Only past meetings (kind == "meeting"). Calendar-kind rows are
+        # skipped here -- see the docstring: they leak un-attributed.
+        if item.get("kind") != "meeting":
+            continue
         date = (item.get("date") or "").strip()
-        kind = item.get("kind")
         label = f"- {summary}" + (f" ({date})" if date else "")
-        if kind == "calendar" and len(upcoming) < MAX_MEETINGS:
-            upcoming.append(label)
-        elif kind == "meeting" and len(recent) < MAX_MEETINGS:
+        if len(recent) < MAX_MEETINGS:
             recent.append(label)
-    return (upcoming, recent)
+    return recent
+
+
+def _calendar_by_owner_section() -> list[str]:
+    """Calendar events (flights, trips, appointments) grouped by OWNER.
+
+    This is the fix for travel/flight conflation in the daily brief. Calendar
+    events are stored as pwg:PersonFact rows with pwg:factDomain "calendar";
+    the CM041 ingest now stamps each with pwg:sourceCalendar (whose calendar
+    it came from) and, when the operator has confirmed it at install,
+    pwg:calendarType. We select those, drop L3, and render them GROUPED and
+    LABELLED by owner so the model is handed pre-attributed facts and can
+    never merge one person's trip into another's.
+
+    Events with no owner label are grouped under "Unattributed" -- an
+    unknown-owner event is NEVER silently labelled as the operator's own
+    diary (that was a fail-open misattribution: a partner-diary event whose
+    owner label was lost would have rendered as "Your calendar").
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?text ?owner ?type ?level ?valid WHERE {{\n'
+        '  ?f a pwg:PersonFact ;\n'
+        '     pwg:factDomain "calendar" ;\n'
+        '     pwg:factText ?text .\n'
+        '  OPTIONAL {{ ?f pwg:sourceCalendar ?owner }}\n'
+        '  OPTIONAL {{ ?f pwg:calendarType ?type }}\n'
+        '  OPTIONAL {{ ?f pwg:privacyLevel ?level }}\n'
+        '  OPTIONAL {{ ?f pwg:validFrom ?valid }}\n'
+        '}} ORDER BY DESC(?valid) LIMIT {limit}'.format(
+            ns=PWG_NS, limit=MAX_CALENDAR_TOTAL * 4
+        )
+    )
+    if not rows:
+        return []
+
+    # Group by owner, preserving most-recent-first order, honouring caps and
+    # dropping L3. "Unattributed" is the bucket for unlabelled-owner events --
+    # never attributed to the operator.
+    order: list[str] = []
+    grouped: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    total = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _is_withheld({"level": row.get("level")}):
+            continue
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        owner = (row.get("owner") or "").strip() or "Unattributed"
+        key = (owner.lower(), text.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        bucket = grouped.setdefault(owner, [])
+        if owner not in order:
+            order.append(owner)
+        if len(bucket) >= MAX_CALENDAR_PER_OWNER:
+            continue
+        bucket.append(f"- {text}")
+        total += 1
+        if total >= MAX_CALENDAR_TOTAL:
+            break
+
+    if not grouped:
+        return []
+
+    # Render named owners in first-seen order, with the unknown-owner
+    # "Unattributed" bucket LAST -- it is not privileged as the operator's
+    # own. Each owner is a labelled sub-block so the attribution survives
+    # into the prompt.
+    def _owner_sort_key(o: str) -> tuple[int, int]:
+        return (1 if o == "Unattributed" else 0, order.index(o))
+
+    lines: list[str] = []
+    for owner in sorted(order, key=_owner_sort_key):
+        lines.append(f"**{owner}:**")
+        lines.extend(grouped[owner])
+    return lines
 
 
 def _preferences_section() -> list[str]:
@@ -334,11 +441,13 @@ def build_digest() -> str | None:
     """
     user_asserted = _user_asserted_section()
     people = _people_section()
-    upcoming, recent = _meetings_section()
+    recent = _meetings_section()
+    calendar_by_owner = _calendar_by_owner_section()
     preferences = _preferences_section()
     orgs = _orgs_section()
 
-    if not (user_asserted or people or upcoming or recent or preferences or orgs):
+    if not (user_asserted or people or recent
+            or calendar_by_owner or preferences or orgs):
         return None
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -373,16 +482,30 @@ def build_digest() -> str | None:
         out.extend(people)
         out.append("")
 
-    if upcoming:
-        out.append("## Upcoming meetings (next 7 days)")
-        out.append("")
-        out.extend(upcoming)
-        out.append("")
-
+    # NOTE: there is deliberately no "## Upcoming meetings" section. Future
+    # calendar events are rendered only via "## Calendar events by owner"
+    # below, which carries per-owner attribution and L3 fail-closed filtering.
+    # The old un-attributed upcoming section leaked shared-calendar events as
+    # the operator's own (BATCH1 #3 F1) and has been retired.
     if recent:
         out.append("## Recent meetings (last 7 days)")
         out.append("")
         out.extend(recent)
+        out.append("")
+
+    if calendar_by_owner:
+        out.append("## Calendar events by owner")
+        out.append("")
+        out.append(
+            "Each item is labelled with WHOSE calendar it came from. Use only "
+            "these facts; never merge two people's events, never reassign one "
+            "person's trip to another, and do not invent flight numbers, "
+            "routings, destinations or times. If an item is under another "
+            "person's calendar, attribute it to that person, not to the "
+            "person you assist."
+        )
+        out.append("")
+        out.extend(calendar_by_owner)
         out.append("")
 
     if preferences:
