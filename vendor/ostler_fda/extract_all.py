@@ -15,7 +15,7 @@ is OFF unless explicitly enabled – see policy §2.
 Recognised source names:
     safari_history, safari_bookmarks, imessage, apple_notes,
     photos_metadata, photos_faces, calendar, reminders, apple_mail,
-    google_takeout
+    apple_music, google_takeout
 
 Usage:
     python -m ostler_fda.extract_all [--output-dir DIR]
@@ -49,9 +49,13 @@ DEFAULT_SOURCES = frozenset({
     "calendar",
     "reminders",
     "apple_mail",
+    "apple_music",
 })
 
-ALL_SOURCES = DEFAULT_SOURCES | {"photos_faces", "google_takeout", "whatsapp_history", "chrome_history"}
+ALL_SOURCES = DEFAULT_SOURCES | {
+    "photos_faces", "google_takeout", "whatsapp_history", "chrome_history",
+    "facebook_messenger",
+}
 
 
 def _resolve_enabled_sources(
@@ -313,24 +317,91 @@ def run_all(
     else:
         summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
 
+    # ── Facebook Messenger export (backlog T10) ─────────────────────
+    # Opt-in source: requires OSTLER_FDA_SOURCES contains
+    # "facebook_messenger" AND OSTLER_FACEBOOK_EXPORT_PATH points at an
+    # unzipped "Download Your Information" export (or a messages/inbox
+    # dir). Unlike the other FDA sources this one is body-carrying: it
+    # writes CM048 conversation payloads (conversation_id + transcript
+    # + metadata) for cm048.processor.process(), not a metadata-only
+    # pwg_ingest record. T3 (large+passive group) threads are filtered
+    # at JSON-write time so a downstream ingest cannot act on them.
+    if "facebook_messenger" in sources:
+        try:
+            from .facebook_messenger import (
+                parse_export as _fb_parse,
+                conversation_stats as _fb_stats,
+                thread_to_payload as _fb_payload,
+                resolve_operator_name as _fb_operator,
+                TIER_T3_SKIP as _FB_T3,
+            )
+
+            export_path_str = os.environ.get(
+                "OSTLER_FACEBOOK_EXPORT_PATH", ""
+            ).strip()
+            operator = _fb_operator()
+            if not export_path_str:
+                summary["sources"]["facebook_messenger"] = {"status": "not_found"}
+                logger.info(
+                    "[skip] Facebook Messenger: no export at "
+                    "OSTLER_FACEBOOK_EXPORT_PATH"
+                )
+            elif operator is None:
+                summary["sources"]["facebook_messenger"] = {"status": "no_operator"}
+                logger.info(
+                    "[skip] Facebook Messenger: operator name not configured "
+                    "(set OSTLER_USER_DISPLAY_NAME)"
+                )
+            else:
+                threads = _fb_parse(Path(export_path_str).expanduser(), operator)
+                stats = _fb_stats(threads)
+
+                ingestible = [t for t in threads if t.tier != _FB_T3]
+                (output_dir / "facebook_messenger_conversations.json").write_text(
+                    json.dumps(
+                        [_fb_payload(t) for t in ingestible], indent=2,
+                    )
+                )
+
+                summary["sources"]["facebook_messenger"] = {
+                    "status": "ok",
+                    **stats,
+                }
+                logger.info(
+                    "[ok] Facebook Messenger: t1_dm=%d, t2_group=%d, "
+                    "t3_skipped=%d, messages=%d, people_added=%d",
+                    stats.get("tier_t1_dm_threads", 0),
+                    stats.get("tier_t2_group_threads", 0),
+                    stats.get("tier_t3_skipped_threads", 0),
+                    stats.get("total_messages", 0),
+                    stats.get("people_added", 0),
+                )
+        except FileNotFoundError as e:
+            summary["sources"]["facebook_messenger"] = {"status": "not_found"}
+            logger.info("[skip] Facebook Messenger: %s", e)
+        except Exception as e:
+            summary["sources"]["facebook_messenger"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] Facebook Messenger: %s", e)
+    else:
+        summary["sources"]["facebook_messenger"] = {"status": "disabled_by_user"}
+
     # ── Apple Notes ─────────────────────────────────────────────────
     if "apple_notes" in sources:
         try:
-            from .apple_notes import extract_notes
+            from .apple_notes import extract_notes, notes_stats, _note_to_record
             notes = extract_notes(include_locked=False)
 
-            notes_data = [asdict(n) for n in notes]
+            notes_data = [_note_to_record(n) for n in notes]
             (output_dir / "apple_notes.json").write_text(
                 json.dumps(notes_data, indent=2, default=str)
             )
 
-            summary["sources"]["apple_notes"] = {
-                "status": "ok",
-                "notes": len(notes),
-                "total_words": sum(n.word_count for n in notes),
-                "folders": len(set(n.folder for n in notes if n.folder)),
-            }
-            logger.info("[ok] Apple Notes: %d notes (%d words)", len(notes), sum(n.word_count for n in notes))
+            stats = notes_stats(notes)
+            summary["sources"]["apple_notes"] = {"status": "ok", **stats}
+            logger.info(
+                "[ok] Apple Notes: %d notes (%d words)",
+                stats["notes"], stats["total_words"],
+            )
 
         except PermissionError:
             summary["sources"]["apple_notes"] = {"status": "no_fda"}
@@ -474,6 +545,42 @@ def run_all(
             logger.warning("[warn] Reminders: %s", e)
     else:
         summary["sources"]["reminders"] = {"status": "disabled_by_user"}
+
+    # ── Apple Music / iTunes library ────────────────────────────────
+    # Parses the Music/iTunes library XML into a privacy-safe taste
+    # signal (top artists/genres, playlist counts). extract_library()
+    # degrades to an empty library rather than raising when no XML is
+    # present, so "not_found" surfaces as ok-with-zero-tracks.
+    if "apple_music" in sources:
+        try:
+            from .apple_music import extract_library, library_stats, to_records
+            library = extract_library()
+
+            (output_dir / "apple_music.json").write_text(
+                json.dumps(to_records(library), indent=2, default=str)
+            )
+
+            stats = library_stats(library)
+            summary["sources"]["apple_music"] = {
+                "status": "ok",
+                **stats,
+            }
+            logger.info(
+                "[ok] Apple Music: %d tracks, %d artists, %d playlists",
+                stats["total_tracks"], stats["distinct_artists"], stats["total_playlists"],
+            )
+
+        except PermissionError:
+            summary["sources"]["apple_music"] = {"status": "no_fda"}
+            logger.info("[skip] Apple Music: Full Disk Access not granted")
+        except FileNotFoundError:
+            summary["sources"]["apple_music"] = {"status": "not_found"}
+            logger.info("[skip] Apple Music: library XML not found")
+        except Exception as e:
+            summary["sources"]["apple_music"] = {"status": "error", "error": str(e)}
+            logger.warning("[warn] Apple Music: %s", e)
+    else:
+        summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
 
     # ── Google Takeout (Gmail mbox) ─────────────────────────────────
     # Opt-in source: requires OSTLER_FDA_SOURCES contains "google_takeout"

@@ -133,11 +133,11 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "a15d82f39653857045265655232294da881302c9"
+  pinned_sha = "83912a91d2e1c692f6b419f5bd1c6546c33b6542"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
 verify           = "full"
-note             = "Graft #191 (createdAt) landed in HR015 ostler_fda (#326) and is synced here at a15d82f. 2026-06-23: added universal_import.py as a vendor-only graft (the previously-orphan P3 importer, wired into ostler-import this cut). It is ABSENT at the pinned a15d82f, so it is out-of-scope for the shared-file freshness diff (a vendor-only addition, like subscription_gate.py on cm041/contact_syncer) and does not move the gate. Its canonical source is HR015 ostler_fda/universal_import.py with the v1.0.3 CM048-persistence change (HR015 feat/wire-universal-import-leg-v1.0.3 @ ed12baa). When HR015 re-pins past universal_import, drop this graft and let the normal sync carry it as a shared file. facebook_messenger.py (the parser that makes the FB dispatch persist end to end) ships on a SEPARATE PR (HR015 #220); until it lands the FB dispatch returns recognised_no_parser honestly."
+note             = "v1.0.9 re-vendor (2026-07-15): 3-way grafted HR015 main (83912a9), a15d82f -> 83912a91. Adopted upstream WHOLESALE where the vendor was merely stale (the old a15d82f divergence was ~95% features that reached main via separate commits): pwg_ingest.py now carries the #600 people-search ingest the vendor LACKED, plus upstream's social-signal + phone-masking; universal_import.py -- the apple_mail_emlx detector that was a vendor-only graft is NATIVE upstream now, adopted with the FB-activity-dirname (#219) hardening; facebook_messenger.py is byte-identical to main (was HR015 #220, now landed); clean 3-way merges of apple_notes.py / extract_all.py / google_takeout.py / safari_bookmarks.py; new upstream file apple_music.py adopted. PRESERVED CM051-local grafts: the #576 provisional-display-name guard (_is_provisional_display_name + the iMessage/WhatsApp pwg:displayNameProvisional emits) re-grafted onto upstream's ingest paths since main has NO equivalent -- this is a live PII-leak suppression (bare-number-as-a-name), do not drop; and the apple_mail.py + dedupe_merge.py grafts (upstream unchanged since a15d82f, kept verbatim). pyproject.toml stays vendor-only. BOX-WALK FLAG: this is a large functional uplift to the FDA ingest surface (people-search #600, apple_music, apple_notes, FB messenger) landing at cut time -- verify on device before ship."
 
 [[tree]]
 name             = "ostler_security"
@@ -154,20 +154,22 @@ name             = "legal"
 vendor_path      = "vendor/legal"
 source_repo      = "$HR015/legal"
 source_path      = "."
-pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/legal.patch"
+pinned_sha       = "83912a91d2e1c692f6b419f5bd1c6546c33b6542"
+  divergence_patch = "vendor/divergences/legal.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
+note             = "v1.0.9 re-vendor (2026-07-15): 3-way grafted HR015 main (83912a9) onto the vendored copy. ADOPTED FIX-E: EU_VOICE_SPEAKER_ID_CONSENT is now v1.1-2026-06-21 iPhone-Companion wording (byte-identical to HR015 main; sha e242c62b). PRESERVED graft: the expanded WHATSAPP_UNOFFICIAL_RISK_CONSENT wording (diverges from HR015 main's shorter text; sha cd129fc9 -- matches the pinned daemon's bundled whatsapp.txt). ADDED vendor-only divergence (operator-approved, 2026-07-15): a minimal ARTICLE_9_EU_CONSENT umbrella tidy -- corrected the voice-speaker-ID bullet and the 'stays on your Mac' blanket to reflect that voice biometric is iPhone-only, not on this Mac (new sha ba4ed964; version tag left at v1.0-2026-05-12 deliberately -- version bump is a consent-record decision deferred to the operator/lawyer). DAEMON-STAGING FLAG: the v1.0.9-pinned daemon hub-v0.4.26-ffpair (df321daab7) bundles the CURRENT FIX-E voice.txt and expanded whatsapp.txt, but its article_9.txt is STALE (still carries the [DRAFT] marker, lacks the legal-grounding note, and predates this umbrella tidy; sha 471b4898). The daemon's consent-gate is internally self-consistent, but to align installer-shown vs daemon-recorded ARTICLE_9 wording the daemon must re-bundle article_9.txt to ba4ed964 and regen its consent_wording_hashes.json on a fresh tag. Not fixed here."
 
 [[tree]]
 name             = "doctor"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
-pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+pinned_sha       = "83912a91d2e1c692f6b419f5bd1c6546c33b6542"
   divergence_patch = "vendor/divergences/doctor.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh"]
 verify           = "full"
+note             = "v1.0.9 re-vendor (2026-07-15): 3-way grafted HR015 main (83912a9) onto the vendored copy. Adopted upstream's EventKit Reminders posture tile (new modules reminders_posture.py + reminders_runtime.py, imported by web_ui.py) plus the base->main changes to web_ui.py / web_ui_copy.py / dashboard_components.py (clean merge). PRESERVED CM051-local grafts: config_panel.py governor Pause+Throttle rework (upstream unchanged since 1bb0a0db), duplicate_decision.py 'split' action (#302), pair_status.py port-order revert, requirements.txt fastapi>=0.115 pin, the dashboard Settings button, and vendor-only files daemon_cron.py + test_daemon_cron.py + test_duplicate_decision_split.py + test_vendor_pairing.sh. Upstream import_notion.py/import_obsidian.py NOT adopted (connector-scaffold feature, unreferenced by the vendored web_ui surface, out of scope for this freshness re-vendor)."
 
 [[tree]]
 name             = "email_ingest"
@@ -175,9 +177,10 @@ vendor_path      = "vendor/email_ingest"
 source_repo      = "$HR015/email-ingest"
 source_path      = "."
 pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/email_ingest.patch"
+  divergence_patch = "vendor/divergences/email_ingest.patch"
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
+note             = "v1.0.9 re-vendor (2026-07-15): HR015 main has ZERO email-ingest changes since 1bb0a0db (source byte-identical), so the pin stays 1bb0a0db. The gate was RED here only because the vendor carried an UNCAPTURED launchd PATH-independence graft (the CX-17 OSTLER_PYTHON env + the silent-100%-drop PWG_EMAIL_INGEST resolution: PWG_EMAIL_INGEST env in the plist, OSTLER_EMAIL_INGEST_BIN rendering in INSTALL_SNIPPET.sh, and the PWG_EMAIL_INGEST_RESOLVED lookup + LOUD-GUARD/exit-127 in bin/email-ingest-tick.sh). Fixed by regenerating email_ingest.patch to capture the full divergence -- the vendor bytes were NOT touched (the PATH fix is preserved verbatim; plist/tick/INSTALL_SNIPPET sha256 unchanged before/after)."
 
 [[tree]]
 name             = "imessage_bridge"

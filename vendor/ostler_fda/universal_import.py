@@ -322,14 +322,48 @@ def _json_has_keys(path: Path, keys: Iterable[str]) -> bool:
 # signatures.
 
 
+def _is_facebook_activity_dirname(name: str) -> bool:
+    """True iff ``name`` is a Facebook "Download Your Information" activity
+    root (``your_facebook_activity`` in current exports,
+    ``your_activity_across_facebook`` in older ones).
+
+    Deliberately excludes Instagram. Instagram's Meta export is the same
+    shape (``your_instagram_activity/messages/inbox/<thread>/message_1.json``
+    with the same ``participants``/``messages`` keys), so a Facebook
+    detector must NOT claim it. We require a ``facebook`` token and reject
+    anything carrying an ``instagram`` token.
+    """
+    lower = name.lower()
+    if "instagram" in lower:
+        return False
+    return "facebook" in lower and "activity" in lower
+
+
 def _detect_facebook(root: Path) -> Optional[Detection]:
     # Facebook DYI: messages/inbox/<thread>/message_1.json with
-    # participants + messages keys. Accept the known root variants.
+    # participants + messages keys.
+    #
+    # Meta has reshuffled the export layout over time. Rather than chase a
+    # hardcoded full path that goes stale every generation, we accept the
+    # ``messages/inbox`` segment under any Facebook activity root
+    # (``your_facebook_activity`` today, ``your_activity_across_facebook``
+    # in older dumps), plus the two flatter shapes some exports use.
+    # Instagram is intentionally NOT matched here -- see
+    # ``_is_facebook_activity_dirname`` -- because its export is the same
+    # shape under its own ``your_instagram_activity`` root.
     inbox_roots = [
         root / "messages" / "inbox",
         root / "inbox",
-        root / "your_activity_across_facebook" / "messages" / "inbox",
     ]
+    # Generalise over the drifting Facebook activity-root segment: any
+    # top-level dir that looks like a Facebook activity root and holds a
+    # messages/inbox subtree.
+    try:
+        for child in root.iterdir():
+            if child.is_dir() and _is_facebook_activity_dirname(child.name):
+                inbox_roots.append(child / "messages" / "inbox")
+    except OSError:
+        pass
     if root.name == "inbox":
         inbox_roots.insert(0, root)
     for inbox in inbox_roots:
@@ -828,6 +862,79 @@ def _dispatch_facebook(detection: Detection, *, output_dir: Optional[Path]) -> d
     }
 
 
+# ---------------------------------------------------------------------------
+# Message people-graph persistence (reuse the real pwg_ingest sinks)
+# ---------------------------------------------------------------------------
+#
+# A dropped WhatsApp ``ChatStorage.sqlite`` or an iMessage ``chat.db`` becomes
+# the SAME staging JSON the live FDA sweep writes (``whatsapp_conversations.json``
+# / ``imessage_conversations.json``). The live sweep persists those by driving
+# ``pwg_ingest.ingest_whatsapp`` / ``pwg_ingest.ingest_imessage`` -- People-only
+# sinks that mint a ``pwg:Person`` (plus phone/email identifier and
+# last-contact) for each participant and NEVER store message bodies. We persist
+# by driving those SAME ingest functions over the staging dir the dispatch just
+# wrote. Reuse, never re-implement -- this module owns no graph writes.
+#
+# Privacy posture: People-only, identical to the mailbox correspondent leg.
+# Message bodies are never persisted or surfaced -- ``ingest_whatsapp`` /
+# ``ingest_imessage`` mint Person + identifier triples at
+# ``pwg_ingest.DEFAULT_PRIVACY`` (the normal People level) and read no body
+# text. Routing WhatsApp/iMessage THREAD bodies to the conversation sink is a
+# deliberate follow-up (the same one the mailbox leg defers): it needs the
+# per-message privacy levelling those bodies are not yet given in this pipeline.
+#
+# Skip-if-absent: when the graph (Oxigraph) is unreachable the staged JSON
+# remains as the durable, re-runnable artefact and the result reports
+# ``persist_status="no_graph"`` -- honest, never a crash, never an install
+# failure. One unreachable graph cannot abort the rest of an import.
+
+
+def _persist_people_from_staging(
+    staging_dir: Path, *, ingest_fn_name: str, source: str
+) -> dict:
+    """Drive a People-only ``pwg_ingest`` ingest over an already-staged dir.
+
+    The dispatch has already written the per-source staging JSON
+    (``whatsapp_conversations.json`` / ``imessage_conversations.json``) into
+    ``staging_dir``; this hands that dir to the matching ``pwg_ingest``
+    function -- the SAME People-only sink the live FDA sweep uses -- so each
+    participant lands as a ``pwg:Person`` with an identifier at the normal
+    People privacy level. Reuse, never re-implement; bodies are never read.
+
+    Args:
+        staging_dir: the dir the dispatch wrote the staging JSON into.
+        ingest_fn_name: ``"ingest_whatsapp"`` or ``"ingest_imessage"``.
+        source: short source label for log lines (privacy: label only).
+
+    Returns:
+        A counts-only dict: ``persist_status`` (``ok`` / ``no_graph``) plus
+        ``people_created`` / ``people_enriched``. No participants, no bodies.
+    """
+    try:
+        from . import pwg_ingest as pwg
+
+        ingest_fn = getattr(pwg, ingest_fn_name)
+        result = ingest_fn(staging_dir)
+        status = result.get("status")
+        if status == "ok":
+            return {
+                "persist_status": "ok",
+                "people_created": int(result.get("people_created", 0)),
+                "people_enriched": int(result.get("people_enriched", 0)),
+            }
+        # "skipped" (no staging file) or any other non-ok: nothing persisted,
+        # but not a failure -- the staged JSON stays for a re-run.
+        return {"persist_status": "ok", "people_created": 0, "people_enriched": 0}
+    except Exception as exc:  # noqa: BLE001 -- graph down or transient; type only
+        # Skip-if-absent: an unreachable Oxigraph (or any ingest failure) is
+        # not fatal. The staged JSON stays in staging_dir for a re-run.
+        logger.info(
+            "universal_import: %s participants staged but people-graph sink "
+            "unavailable (%s); not persisted", source, type(exc).__name__
+        )
+        return {"persist_status": "no_graph", "people_created": 0, "people_enriched": 0}
+
+
 def _dispatch_whatsapp_sqlite(detection: Detection, *, output_dir: Optional[Path]) -> dict:
     from . import whatsapp_history as wa
 
@@ -838,10 +945,30 @@ def _dispatch_whatsapp_sqlite(detection: Detection, *, output_dir: Optional[Path
     (out / "whatsapp_conversations.json").write_text(
         json.dumps([wa.chat_to_dict(c) for c in ingestible], indent=2)
     )
-    return {"status": "ok", "dispatched": "whatsapp_history", "summary": stats}
+    # Persist participants to the people graph via the real pwg_ingest sink
+    # (the same People-only function the live FDA sweep drives). Skip-if-absent:
+    # an unreachable graph leaves the JSON staged and reports "no_graph".
+    persist = _persist_people_from_staging(
+        out, ingest_fn_name="ingest_whatsapp", source="whatsapp_sqlite"
+    )
+    return {
+        "status": "ok",
+        "dispatched": "whatsapp_history",
+        "summary": stats,
+        **persist,
+    }
 
 
 def _dispatch_apple_notes(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+    # DEFERRED persistence (documented follow-up): the apple_notes parser
+    # emits a note-list JSON, but the ``ostler-knowledge`` converter the
+    # other knowledge formats persist through reads SOURCE directories
+    # (Obsidian vault / Evernote ``.enex`` / Notion markdown export) and has
+    # no confirmed ``--source apple_notes`` kind for a note-list JSON on this
+    # build. Wiring it to a guessed source kind would be a risky broad
+    # mapping, so this leg stays stage-only until the converter grows an
+    # apple_notes source (or a notes-JSON -> markdown shim is built). The
+    # staged JSON is the durable, re-runnable artefact in the meantime.
     from dataclasses import asdict
 
     from . import apple_notes as an
@@ -872,7 +999,18 @@ def _dispatch_imessage(detection: Detection, *, output_dir: Optional[Path]) -> d
     (out / "imessage_conversations.json").write_text(
         json.dumps([asdict(c) for c in convs], indent=2, default=str)
     )
-    return {"status": "ok", "dispatched": "imessage", "summary": stats}
+    # Persist participants to the people graph via the real pwg_ingest sink
+    # (the same People-only function the live FDA sweep drives). Skip-if-absent:
+    # an unreachable graph leaves the JSON staged and reports "no_graph".
+    persist = _persist_people_from_staging(
+        out, ingest_fn_name="ingest_imessage", source="imessage"
+    )
+    return {
+        "status": "ok",
+        "dispatched": "imessage",
+        "summary": stats,
+        **persist,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -894,9 +1032,25 @@ def _dispatch_imessage(detection: Detection, *, output_dir: Optional[Path]) -> d
 # the moment a count is taken) so no body content leaves this process. The
 # resulting Person nodes inherit ``pwg_ingest.DEFAULT_PRIVACY`` (L2), the
 # normal People privacy level, exactly as the live FDA Apple Mail ingest does.
-# Thread bodies -> the conversation sink are a deliberate follow-up (see the
-# module note above _dispatch_mbox): routing them safely needs the per-message
-# privacy levelling iMessage/WhatsApp bodies get, so this leg stays people-only.
+#
+# Email THREADS -> the conversation sink are a deliberate, documented
+# follow-up (v1.0.3 decision, P3): routing them is intentionally NOT done
+# here. Two reasons make it the safe call rather than risky broad wiring:
+#   1. This pipeline has no email thread -> CM048 payload builder. The mbox is
+#      streamed metadata-only (``_stream_mbox_correspondents`` discards the body
+#      preview the instant an address is counted), so no body content ever
+#      leaves this process. Routing threads would mean newly CAPTURING and
+#      persisting email bodies -- reversing the leg's body-never-stored design.
+#   2. The only conversation-body precedent that reaches ``pwg-convo`` here is
+#      the Facebook parser, which sets ``metadata['privacy_level']``
+#      EXPLICITLY (L2) because CM048's ``_CHANNEL_DEFAULTS`` table has no row
+#      for the channel and otherwise falls through to its L3 defence-in-depth
+#      default. There is no "email" row in that table either, and with the
+#      services down that sink cannot be verified end-to-end. Per the P3
+#      decision gate (a partial-but-correct result beats risky broad wiring),
+#      email stays People-only until an email thread->payload builder lands
+#      that sets a CONSERVATIVE explicit privacy_level (matching Facebook's
+#      explicit-level discipline, never lowering it).
 #
 # Skip-if-absent: when the graph (Oxigraph) is unreachable the staged JSON
 # remains as the durable, re-runnable artefact and the result reports
@@ -1020,8 +1174,11 @@ def _stream_mbox_correspondents(
 
 
 def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
-    contacts, total, sent, received = _stream_mbox_correspondents(
-        detection.route_path
+    # ONE bounded pass yields BOTH the People-only correspondent map AND the
+    # reduced message rows for the conversation leg. The 37GB file is never
+    # loaded into memory (the underlying stream is a generator).
+    contacts, messages, total, sent, received = (
+        _stream_mbox_messages_and_correspondents(detection.route_path)
     )
     out = _out_dir(output_dir)
     (out / "mbox_summary.json").write_text(
@@ -1037,12 +1194,18 @@ def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
             default=str,
         )
     )
-    # Stage the correspondent map as the durable artefact, then persist
-    # people-graph facts via the real pwg_ingest sink. Skip-if-absent: when
-    # the graph is unreachable the JSON stays staged and persist_status
-    # reports "no_graph" (no crash, no abort).
+    # Leg 1 (UNCHANGED, People-only): stage the correspondent map as the
+    # durable artefact, then persist people-graph facts via the real
+    # pwg_ingest sink. Skip-if-absent: when the graph is unreachable the JSON
+    # stays staged and persist_status reports "no_graph" (no crash, no abort).
     (out / _MAIL_CONTACTS_STAGING).write_text(json.dumps(contacts, indent=2))
     persist = _persist_mail_contacts(contacts, source="mbox")
+    # Leg 2 (ADDITIVE, v1.0.3): group the same messages into threads and
+    # persist them to the CM048 conversation sink, PRIVATE-BY-DEFAULT (explicit
+    # L2 on every payload). Reuses _persist_conversations / pwg-convo.
+    convo = _persist_email_conversations(
+        messages, source="email_mbox", output_dir=out
+    )
     return {
         "status": "ok",
         "dispatched": "google_takeout(mbox)",
@@ -1051,8 +1214,396 @@ def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
             "sent_count": sent,
             "received_count": received,
             "correspondent_count": len(contacts),
+            "conversation_threads": convo["conversation_threads"],
         },
         **persist,
+        **convo,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Email THREADS -> the CM048 conversation sink (v1.0.3, P-email)
+# ---------------------------------------------------------------------------
+#
+# ADDITIVE to the People-only correspondent leg above. A dropped mailbox
+# (Gmail Takeout .mbox or an Apple Mail .emlx tree) is now ALSO grouped into
+# threads and persisted to the SAME CM048 conversation sink the Facebook
+# Messenger parser drives -- ``pwg-convo process <transcript> <metadata>`` via
+# ``_persist_conversations``. We do NOT invent a new sink and we do NOT touch
+# the People-only ``_persist_mail_contacts`` leg: both run from one bounded
+# mbox pass.
+#
+# Privacy -- the crux of the v1.0.3 GREEN-light. Email content is
+# PRIVATE-BY-DEFAULT: ingested so the OWNER can search and have the assistant
+# answer over it, but NEVER surfaced in demo / shareable / public / third-party
+# views. We set ``metadata['privacy_level']`` EXPLICITLY to L2 (never a
+# default) on every email conversation payload. Why L2 and not L3, read against
+# this codebase's actual level semantics (CM048 ``privacy.py`` docstring; CM052
+# ``wire.py`` Option A; the CM044 ``bundle_conversation_pages`` / AI-chat
+# renderers):
+#
+#   L2  = embedded in Qdrant -> OWNER-searchable + assistant-answerable; body
+#         rendered COLLAPSED-by-default in the owner's LOCAL wiki (never raw);
+#         and the CM044 bundle/AI-chat wings HARD-SUPPRESS the entire wing in
+#         demo mode regardless of level. So L2 == owner-searchable AND
+#         withheld from demo/shareable. On a single-Mac product all L2 data is
+#         local-only by construction.
+#   L3  = body suppressed even for the owner in the wiki AND short-circuited
+#         BEFORE the CM048 embed -> NOT in Qdrant -> the assistant CANNOT find
+#         it without a deliberate ``request_unredacted=True`` MCP fetch. That
+#         breaks "owner can search", so L3 is TOO restrictive for this intent.
+#
+# L2 is therefore the conservative level that still satisfies "owner-
+# searchable": it is the MORE private of the two that keeps owner search
+# working, and it matches the explicit-L2 discipline the Facebook leg already
+# uses (CM048's ``_CHANNEL_DEFAULTS`` does carry an ``"email": "L2"`` row, but
+# we still set the level EXPLICITLY so the posture never depends on that table
+# nor on the L3 defence-in-depth fallback). The per-address L1 ladder
+# (``infer_for_email_addresses``: newsletters -> L1, legal/medical/financial
+# -> L3) is deliberately NOT applied here: L1 would make a body wiki-browseable
+# (less private than the floor the owner asked for), so the email-conversation
+# floor stays a flat, conservative L2 and CM048's adapter can still ESCALATE to
+# L3 for sensitive senders. We never LOWER below L2 and we never emit L0/L1.
+_EMAIL_CHANNEL = "email"
+_EMAIL_SOURCE = "email_mailbox"
+# Explicit, conservative privacy floor for every email conversation payload.
+# Private-by-default + owner-searchable. Never L0/L1 (would be less private).
+_EMAIL_PRIVACY_LEVEL = "L2"
+
+# Transcript body cap per message. google_takeout's default body preview is
+# 500 chars (a People-leg signal-only slice); a conversation transcript wants
+# more of the message, but we still bound it so one mailbox cannot balloon the
+# staged transcript. The owner can widen via OSTLER_EMAIL_BODY_CHARS.
+_EMAIL_BODY_CHARS_DEFAULT = 4000
+# Bound the number of threads we will persist from one mailbox so a pathological
+# mailbox cannot mint an unbounded number of conversation bundles. Override via
+# OSTLER_EMAIL_MAX_THREADS (0 or negative = unlimited).
+_EMAIL_MAX_THREADS = 20_000
+
+
+def _email_body_chars() -> int:
+    raw = os.environ.get("OSTLER_EMAIL_BODY_CHARS", "").strip()
+    if not raw:
+        return _EMAIL_BODY_CHARS_DEFAULT
+    try:
+        n = int(raw)
+    except ValueError:
+        return _EMAIL_BODY_CHARS_DEFAULT
+    return n if n > 0 else _EMAIL_BODY_CHARS_DEFAULT
+
+
+def _email_max_threads() -> Optional[int]:
+    raw = os.environ.get("OSTLER_EMAIL_MAX_THREADS", "").strip()
+    if not raw:
+        return _EMAIL_MAX_THREADS
+    try:
+        n = int(raw)
+    except ValueError:
+        return _EMAIL_MAX_THREADS
+    return None if n <= 0 else n
+
+
+def _normalise_subject(subject: str) -> str:
+    """Strip reply/forward prefixes + whitespace for thread keying.
+
+    ``"Re: Fwd: RE: Lunch?"`` and ``"Lunch?"`` collapse to the same key so a
+    reply chain that shares no Message-ID linkage still groups by subject.
+    Case-folded and whitespace-squashed. Empty/blank subjects fold to a single
+    sentinel so they group together rather than each spawning a lone thread.
+    """
+    import re
+
+    s = (subject or "").strip()
+    # Repeatedly peel a leading reply/forward marker (any locale's two-letter
+    # Re/Fw plus the common 3-letter Fwd), tolerating the ``Re[2]:`` count form.
+    prefix = re.compile(r"^(re|fwd|fw)(\[\d+\])?\s*:\s*", re.IGNORECASE)
+    while True:
+        new = prefix.sub("", s, count=1)
+        if new == s:
+            break
+        s = new.strip()
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s or "(no subject)"
+
+
+@dataclass
+class _EmailMessage:
+    """One mailbox message reduced to the fields a transcript needs."""
+
+    message_id: str
+    from_address: str
+    from_name: str
+    to_addresses: list[str] = field(default_factory=list)
+    subject: str = ""
+    date: Optional["object"] = None  # datetime | None
+    body: str = ""
+    is_sent: bool = False
+    in_reply_to: str = ""
+    references: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _EmailThread:
+    """A grouped email thread, ready to render to a CM048 payload."""
+
+    key: str
+    subject: str
+    messages: list = field(default_factory=list)  # list[_EmailMessage]
+    participants: set = field(default_factory=set)  # email addresses, non-user
+
+
+def _group_email_threads(
+    messages: Iterable["_EmailMessage"],
+    *,
+    user_email: Optional[str],
+    max_threads: Optional[int],
+) -> List["_EmailThread"]:
+    """Group a stream of messages into threads.
+
+    Grouping signal, strongest first:
+      1. Message-ID linkage: a message whose ``In-Reply-To`` or any
+         ``References`` id points at a Message-ID we have already seen joins
+         that message's thread (union-find over the id graph).
+      2. Otherwise, the normalised subject (``Re:``/``Fwd:`` stripped) keys the
+         thread, so a reply chain that dropped its References headers still
+         groups.
+
+    Bounded: once ``max_threads`` distinct threads exist, further messages that
+    would open a NEW thread are dropped (counted by the caller via the returned
+    length vs the stream) so a pathological mailbox cannot mint unbounded
+    bundles. Messages that join an EXISTING thread are always kept.
+    """
+    user = (user_email or "").lower()
+    threads: dict[str, _EmailThread] = {}
+    # Map a known Message-ID -> the thread key it belongs to.
+    id_to_key: dict[str, str] = {}
+
+    for m in messages:
+        # Resolve which thread this message belongs to.
+        key: Optional[str] = None
+        for parent in [m.in_reply_to, *m.references]:
+            if parent and parent in id_to_key:
+                key = id_to_key[parent]
+                break
+        if key is None:
+            key = _normalise_subject(m.subject)
+
+        thread = threads.get(key)
+        if thread is None:
+            if max_threads is not None and len(threads) >= max_threads:
+                # Cap reached: only messages joining an existing thread are
+                # kept; a brand-new thread is dropped.
+                continue
+            thread = _EmailThread(key=key, subject=m.subject or "(no subject)")
+            threads[key] = thread
+
+        thread.messages.append(m)
+        if m.message_id:
+            id_to_key[m.message_id] = key
+        # Participants = every address on the thread except the operator.
+        for addr in [m.from_address, *m.to_addresses]:
+            if addr and addr.lower() != user:
+                thread.participants.add(addr)
+
+    # Stable order: oldest-thread-first by earliest message date, deterministic.
+    def _thread_start(t: "_EmailThread"):
+        dates = [msg.date for msg in t.messages if msg.date is not None]
+        return min(dates) if dates else None
+
+    ordered = sorted(
+        threads.values(),
+        key=lambda t: (
+            _thread_start(t) is None,
+            str(_thread_start(t)),
+            t.key,
+        ),
+    )
+    return ordered
+
+
+def _render_email_transcript(thread: "_EmailThread") -> str:
+    """Render a thread to a speaker-labelled transcript.
+
+    One block per message, oldest first: ``[ISO date] Sender <addr>: body``.
+    Mirrors the Facebook ``render_transcript`` shape the CM048 processor
+    consumes. Messages are sorted by date (None dates sort last, stably).
+    """
+    def _msg_sort(m: "_EmailMessage"):
+        return (m.date is None, str(m.date) if m.date is not None else "")
+
+    lines: List[str] = []
+    for m in sorted(thread.messages, key=_msg_sort):
+        if m.date is not None:
+            try:
+                ts = m.date.strftime("%Y-%m-%d %H:%M")
+            except (AttributeError, ValueError):
+                ts = str(m.date)
+        else:
+            ts = "unknown"
+        speaker = m.from_name or m.from_address or "Unknown"
+        addr = f" <{m.from_address}>" if m.from_address else ""
+        body = (m.body or "").strip()
+        lines.append(f"[{ts}] {speaker}{addr}: {body}")
+    return "\n\n".join(lines)
+
+
+def _email_thread_to_payload(
+    thread: "_EmailThread", *, user_email: Optional[str]
+) -> dict:
+    """Convert an email thread to a CM048 ``process()`` payload.
+
+    Same three-key shape (``conversation_id`` / ``transcript`` / ``metadata``)
+    the Facebook parser emits. ``metadata['privacy_level']`` is set EXPLICITLY
+    to the conservative ``_EMAIL_PRIVACY_LEVEL`` (L2) on EVERY payload so the
+    posture never depends on a CM048 channel default nor the L3 fallback.
+    """
+    import hashlib
+
+    dates = [m.date for m in thread.messages if m.date is not None]
+    started = min(dates) if dates else None
+    ended = max(dates) if dates else None
+
+    def _iso(d):
+        try:
+            return d.isoformat() if d is not None else None
+        except (AttributeError, ValueError):
+            return None
+
+    def _ymd(d):
+        try:
+            return d.strftime("%Y-%m-%d") if d is not None else "1970-01-01"
+        except (AttributeError, ValueError):
+            return "1970-01-01"
+
+    # Stable id: date + a short hash of the thread key (which is a Message-ID
+    # lineage or the normalised subject), so a re-run of the same mailbox
+    # yields the same id -- the CM048 writer's idempotency contract.
+    date_part = started.strftime("%Y%m%d") if started is not None else "00000000"
+    key_hash = hashlib.sha1(thread.key.encode("utf-8")).hexdigest()[:12]
+    conversation_id = f"email_{date_part}_{key_hash}"
+
+    participants: List[dict] = []
+    if user_email:
+        participants.append(
+            {"id": user_email, "display": user_email, "role": "user"}
+        )
+    for addr in sorted(thread.participants):
+        participants.append({"id": addr, "display": addr, "role": "other"})
+
+    metadata = {
+        "conversation_id": conversation_id,
+        "date": _ymd(started),
+        "source": _EMAIL_SOURCE,
+        "channel": _EMAIL_CHANNEL,
+        "participants": participants,
+        "started_at": _iso(started),
+        "ended_at": _iso(ended),
+        # EXPLICIT conservative privacy floor: private-by-default, owner-
+        # searchable, demo-withheld. Never a default, never below L2.
+        "privacy_level": _EMAIL_PRIVACY_LEVEL,
+        "subject": thread.subject,
+        "is_group_chat": len(thread.participants) > 1,
+        "message_count": len(thread.messages),
+    }
+
+    return {
+        "conversation_id": conversation_id,
+        "transcript": _render_email_transcript(thread),
+        "metadata": metadata,
+    }
+
+
+def _stream_mbox_messages_and_correspondents(
+    mbox_path: Path,
+) -> tuple[dict, List["_EmailMessage"], int, int, int]:
+    """Single bounded pass over a mailbox.
+
+    Builds BOTH legs in ONE stream (the underlying ``stream_messages`` is a
+    generator -- a 37GB file is never loaded into memory):
+
+      1. the People-only ``{email: count}`` correspondent map (unchanged
+         behaviour), and
+      2. a list of reduced ``_EmailMessage`` rows for the conversation leg.
+
+    Bounded by the same ``OSTLER_MBOX_MAX_MESSAGES`` cap the correspondent leg
+    uses. Returns ``(contacts, messages, total, sent, received)`` -- counts +
+    reduced rows, never the raw mailbox object.
+    """
+    from . import google_takeout as gt
+
+    user_email = (os.environ.get("OSTLER_USER_EMAIL", "").strip() or None)
+    cap = _mbox_message_cap()
+    body_chars = _email_body_chars()
+    contacts: dict[str, int] = {}
+    messages: List[_EmailMessage] = []
+    total = sent = received = 0
+    for m in gt.stream_messages(
+        mbox_path,
+        since_days=365 * 5,
+        limit=cap,
+        user_email=user_email,
+        body_preview_chars=body_chars,
+    ):
+        total += 1
+        if m.is_sent:
+            sent += 1
+            for addr in m.to_addresses:
+                if addr:
+                    contacts[addr] = contacts.get(addr, 0) + 1
+        else:
+            received += 1
+            if m.from_address:
+                contacts[m.from_address] = contacts.get(m.from_address, 0) + 1
+        messages.append(
+            _EmailMessage(
+                message_id=getattr(m, "message_id", "") or "",
+                from_address=m.from_address or "",
+                from_name=getattr(m, "from_name", "") or "",
+                to_addresses=list(m.to_addresses or []),
+                subject=m.subject or "",
+                date=m.date,
+                body=getattr(m, "body_preview", "") or "",
+                is_sent=bool(m.is_sent),
+                in_reply_to=getattr(m, "in_reply_to", "") or "",
+                references=list(getattr(m, "references", []) or []),
+            )
+        )
+    return contacts, messages, total, sent, received
+
+
+def _persist_email_conversations(
+    messages: List["_EmailMessage"], *, source: str, output_dir: Path
+) -> dict:
+    """Group reduced mailbox rows into threads and persist them to CM048.
+
+    Reuse, never re-implement: groups the messages into threads, builds one
+    CM048 payload per thread (explicit L2 privacy on every one), stages them as
+    the durable ``email_conversations.json`` artefact, then hands them to the
+    SAME ``_persist_conversations`` -> ``pwg-convo`` path the Facebook leg uses.
+    Counts only in the returned dict; no subjects, no bodies, no addresses.
+    """
+    user_email = (os.environ.get("OSTLER_USER_EMAIL", "").strip() or None)
+    threads = _group_email_threads(
+        messages, user_email=user_email, max_threads=_email_max_threads()
+    )
+    payloads = [
+        _email_thread_to_payload(t, user_email=user_email)
+        for t in threads
+        if t.messages
+    ]
+    # Belt-and-braces: never let a non-L2 (or absent) level slip through to the
+    # sink. Every email conversation is owner-searchable + demo-withheld L2.
+    for p in payloads:
+        p["metadata"]["privacy_level"] = _EMAIL_PRIVACY_LEVEL
+    (output_dir / "email_conversations.json").write_text(
+        json.dumps(payloads, indent=2, default=str)
+    )
+    persist = _persist_conversations(payloads, source=source)
+    return {
+        "conversation_threads": len(payloads),
+        "conversation_persist_status": persist.get("persist_status"),
+        "conversations_persisted": persist.get("persisted", 0),
+        "conversations_failed": persist.get("persist_failed", 0),
     }
 
 
@@ -1093,8 +1644,9 @@ def _emlx_tree_to_mbox(emlx_root: Path, mbox_path: Path) -> int:
 def _dispatch_apple_mail_emlx(detection: Detection, *, output_dir: Optional[Path]) -> dict:
     # Apple Mail dropped as a ``.emlx`` tree. Convert it to a single mbox
     # (reusing the existing emlx parser), then route through the very same
-    # correspondent -> people-graph flow the Gmail mbox uses. People-only,
-    # bodies never persisted -- identical privacy posture to _dispatch_mbox.
+    # correspondent -> people-graph flow AND the conversation flow the Gmail
+    # mbox uses. People-only leg is UNCHANGED; the conversation leg is ADDITIVE
+    # and private-by-default (explicit L2) -- identical posture to _dispatch_mbox.
     out = _out_dir(output_dir)
     work = Path(tempfile.mkdtemp(prefix="ostler_emlx_"))
     mbox_path = work / "apple_mail.mbox"
@@ -1108,7 +1660,9 @@ def _dispatch_apple_mail_emlx(detection: Detection, *, output_dir: Optional[Path
                 "persist_status": "ok",
                 "people_created": 0,
             }
-        contacts, total, sent, received = _stream_mbox_correspondents(mbox_path)
+        contacts, messages, total, sent, received = (
+            _stream_mbox_messages_and_correspondents(mbox_path)
+        )
         (out / "mbox_summary.json").write_text(
             json.dumps(
                 {
@@ -1123,8 +1677,13 @@ def _dispatch_apple_mail_emlx(detection: Detection, *, output_dir: Optional[Path
                 default=str,
             )
         )
+        # Leg 1 (UNCHANGED, People-only).
         (out / _MAIL_CONTACTS_STAGING).write_text(json.dumps(contacts, indent=2))
         persist = _persist_mail_contacts(contacts, source="apple_mail_emlx")
+        # Leg 2 (ADDITIVE, private-by-default L2 conversations).
+        convo = _persist_email_conversations(
+            messages, source="email_apple_mail", output_dir=out
+        )
         return {
             "status": "ok",
             "dispatched": "apple_mail(emlx)",
@@ -1134,8 +1693,10 @@ def _dispatch_apple_mail_emlx(detection: Detection, *, output_dir: Optional[Path
                 "received_count": received,
                 "correspondent_count": len(contacts),
                 "emlx_converted": converted,
+                "conversation_threads": convo["conversation_threads"],
             },
             **persist,
+            **convo,
         }
     finally:
         _rmtree(work)

@@ -1,5 +1,20 @@
 --- a/consent_strings.py
 +++ b/consent_strings.py
+@@ -80,12 +80,12 @@
+ - Religious or philosophical beliefs mentioned in any of the above
+ - Sexual orientation mentioned in any of the above
+ - Trade union membership
+-- Voice recordings, used only to label *who* is speaking on calls (speaker identification). We do not infer mood, emotion, sentiment, stress or deception from voice.
++- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iPhone Companion app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice recordings or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)
+ - Mentions of criminal offences – your own or other people's – in any of the above
+ 
+ We do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.
+ 
+-All of this stays on your Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services). If you want to read those exceptions before consenting, click "Read the Privacy Policy" below.
++The categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services). If you want to read those exceptions before consenting, click "Read the Privacy Policy" below.
+ 
+ You can change your mind any time. You can:
+ 
 @@ -117,7 +117,7 @@
      version="v1.0-2026-05-12",
      text="""WhatsApp connector – please read carefully
