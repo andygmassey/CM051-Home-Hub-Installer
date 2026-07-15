@@ -209,6 +209,11 @@ DASHBOARD_BTN_EMAIL_TITLE = (
     "Open your email client with the diagnostic report ready to send "
     "to support"
 )
+DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
+DASHBOARD_BTN_SETTINGS_TITLE = (
+    "Pause or ease off background work, and adjust channels, model and "
+    "schedule"
+)
 
 DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
 DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "

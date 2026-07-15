@@ -79,6 +79,18 @@ if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
         . "$_ostler_tier_lib"
         if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
             ostler_resource_tier_detect
+            # An explicit operator Pause (from the Doctor Settings panel)
+            # stops even this essential recompile -- it is the single
+            # biggest LLM producer on the box, so a user who paused to get
+            # their Mac back would not expect it to keep running. This is
+            # deliberately stronger than the automatic load-deferral above,
+            # which leaves essential work running. Auto-resumes when the
+            # pause window elapses.
+            if command -v ostler_resource_tier_is_paused >/dev/null 2>&1 \
+                && ostler_resource_tier_is_paused; then
+                log "background work paused by the operator; skipping this wiki recompile (auto-resumes when the pause ends)."
+                exit 0
+            fi
             case "${OSTLER_TIER:-}" in
                 floor) WIKI_TIER_WORKERS=1 ;;
                 low)   WIKI_TIER_WORKERS=2 ;;

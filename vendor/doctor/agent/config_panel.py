@@ -67,6 +67,24 @@ def _config_file() -> Path:
     return DEFAULT_CONFIG_FILE
 
 
+def _governor_env_file() -> Path:
+    """Resolve the path of the shell-sourceable governor bridge file.
+
+    This is the file the background-work engine
+    (``~/.ostler/lib/ostler-resource-tier.sh``) actually reads. The panel
+    writes YAML for humans AND this KEY=VALUE file for the engine, which
+    closes the writer/reader gap that made the old Config page a no-op.
+
+    ``OSTLER_GOVERNOR_ENV_FILE`` wins; otherwise it sits beside the
+    resolved ``config.yaml`` so a test that relocates the config also
+    relocates the bridge file.
+    """
+    raw = os.environ.get("OSTLER_GOVERNOR_ENV_FILE")
+    if raw:
+        return Path(raw)
+    return _config_file().parent / "governor.env"
+
+
 # -- Errors -----------------------------------------------------------
 
 
@@ -107,10 +125,11 @@ def is_secret_key(key: str) -> bool:
 # -- Whitelist of editable fields -------------------------------------
 #
 # Each entry describes ONE clearly-safe, flat top-level field the panel
-# may write. Anything not here is read-only. Keys are intentionally a
-# small, conservative set: channel toggles, model selection, schedule
-# times, and the privacy default. Editing these cannot corrupt the
-# assistant daemon's live state because this is a Doctor-owned file.
+# may write. Anything not here is read-only. The set is intentionally
+# minimal: only the two background-work controls (Pause + Throttle) that
+# are actually wired through to the engine live here. Editing these
+# cannot corrupt the assistant daemon's live state because this is a
+# Doctor-owned file.
 #
 # ``kind`` drives both the rendered control and the validator:
 #   bool   -- checkbox; accepts true/false
@@ -131,76 +150,59 @@ class FieldSpec:
 
 
 EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
-    # -- Channels ----------------------------------------------------
+    # -- Background work ---------------------------------------------
+    # The two controls Andy asked for: a Pause and a throttle. Both are
+    # written straight through to the shell governor via governor.env, so
+    # they take effect on the next background tick -- no daemon restart.
     FieldSpec(
-        key="imessage_enabled",
+        key="background_paused",
         kind="bool",
-        label="iMessage",
-        section="Channels",
-        help="Let your assistant read and reply over iMessage.",
-    ),
-    FieldSpec(
-        key="whatsapp_enabled",
-        kind="bool",
-        label="WhatsApp",
-        section="Channels",
-        help="Let your assistant read and reply over WhatsApp.",
-    ),
-    FieldSpec(
-        key="email_enabled",
-        kind="bool",
-        label="Email",
-        section="Channels",
-        help="Let your assistant triage and reply to email.",
-    ),
-    # -- Model -------------------------------------------------------
-    FieldSpec(
-        key="assistant_model",
-        kind="enum",
-        label="Assistant model",
-        section="Model",
-        help="The local model your assistant uses to think and reply.",
-        choices=(
-            "qwen3.5:9b",
-            "qwen2.5:14b",
-            "qwen2.5:3b",
-            "gemma4:e2b",
-        ),
-    ),
-    # -- Schedule ----------------------------------------------------
-    FieldSpec(
-        key="morning_brief_time",
-        kind="time",
-        label="Morning brief",
-        section="Schedule",
-        help="When your assistant sends the morning brief (24h, HH:MM).",
-    ),
-    FieldSpec(
-        key="evening_wrap_time",
-        kind="time",
-        label="Evening wrap",
-        section="Schedule",
-        help="When your assistant sends the evening wrap (24h, HH:MM).",
-    ),
-    # -- Privacy -----------------------------------------------------
-    FieldSpec(
-        key="default_privacy_level",
-        kind="enum",
-        label="Default privacy level",
-        section="Privacy",
+        label="Pause background work",
+        section="Background work",
         help=(
-            "The privacy level new conversations get by default. "
-            "L3 is private by default and is never indexed for search."
+            "Stop the background catch-up (conversation ingest, wiki "
+            "refresh, summaries) until you switch this off. Chatting with "
+            "your assistant still works while paused."
         ),
-        choices=("L0", "L1", "L2", "L3"),
     ),
+    FieldSpec(
+        key="background_throttle",
+        kind="enum",
+        label="Background work speed",
+        section="Background work",
+        help=(
+            "How hard the background catch-up may push your Mac. "
+            "'gentle' eases off and saves the heavy work for overnight; "
+            "'balanced' matches the work to your hardware (recommended); "
+            "'full' runs it as fast as possible."
+        ),
+        choices=("gentle", "balanced", "full"),
+    ),
+    # NOTE: the earlier Channels / Model / Schedule / Privacy controls
+    # were REMOVED (Batch-2 review #6 F6). They wrote keys into
+    # config.yaml that NO daemon reads -- the assistant daemon's live
+    # state lives in ~/.ostler/assistant-config/config.toml, not here --
+    # so they were dead controls that silently did nothing and compounded
+    # the confusion around the (real, wired) Pause + Throttle controls
+    # above. Rather than ship a panel where two controls work and six do
+    # nothing, the dead controls are gone. Wiring them through to the
+    # daemon TOML (channels have consent implications; brief times are the
+    # daemon's cron schedule) is a separate, larger piece of work. The
+    # channels remain editable via `ostler-assistant setup channels
+    # --interactive`, which the installer already points customers to.
 )
 
 _FIELD_BY_KEY: dict[str, FieldSpec] = {f.key: f for f in EDITABLE_FIELDS}
 
 
-# Section display order for the rendered panel.
-SECTION_ORDER: tuple[str, ...] = ("Channels", "Model", "Schedule", "Privacy")
+# Section display order for the rendered panel. Only the "Background
+# work" section survives -- it holds the two controls (Pause + Throttle)
+# that actually reach the engine. The Channels / Model / Schedule /
+# Privacy sections were removed with their dead controls (see the note in
+# EDITABLE_FIELDS).
+SECTION_ORDER: tuple[str, ...] = (
+    "Background work",
+)
 
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -395,16 +397,95 @@ def _atomic_write(path: Path, data: dict[str, Any]) -> None:
         raise ConfigError(500, f"Could not write config file: {exc}")
 
 
+# -- Governor bridge (the file the background-work engine reads) ------
+#
+# The old defect: the panel wrote config.yaml that NO daemon read, so
+# toggles silently did nothing. The background-work engine is a shell
+# library that reads environment variables, so the contract between panel
+# (Python writer) and engine (shell reader) is a tiny KEY=VALUE file it
+# sources. We regenerate it from the full merged config on every write so
+# it always matches config.yaml.
+
+# Throttle levels understood by the shell engine's OSTLER_THROTTLE_LEVEL.
+_THROTTLE_LEVELS: tuple[str, ...] = ("gentle", "balanced", "full")
+
+
+def render_governor_env(config: dict[str, Any]) -> str:
+    """Render the governor settings as a shell-sourceable KEY=VALUE file.
+
+    Only the two background-work controls are emitted; everything else in
+    config.yaml is irrelevant to the shell engine. Unknown/blank values
+    fall back to safe defaults (not paused, balanced) so a partial config
+    never produces a malformed bridge file.
+    """
+    paused = bool(config.get("background_paused", False))
+    throttle = config.get("background_throttle", "balanced")
+    if throttle not in _THROTTLE_LEVELS:
+        throttle = "balanced"
+    return (
+        "# Ostler background-work settings.\n"
+        "# Written by the Doctor Settings panel; read by\n"
+        "# ~/.ostler/lib/ostler-resource-tier.sh on the next background tick.\n"
+        "# Do not hand-edit while the Settings panel is open.\n"
+        f"export OSTLER_PAUSED={'1' if paused else '0'}\n"
+        f"export OSTLER_THROTTLE_LEVEL={throttle}\n"
+    )
+
+
+def _write_governor_env(config: dict[str, Any], path: Optional[Path] = None) -> None:
+    """Atomically write the governor bridge file the shell engine reads."""
+    p = path or _governor_env_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    text = render_governor_env(config)
+    fd, tmp = tempfile.mkstemp(
+        dir=str(p.parent), prefix=".governor-", suffix=".env.tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, p)
+    except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise ConfigError(500, f"Could not write governor settings file: {exc}")
+
+
 def write_config(updates: Any, path: Optional[Path] = None) -> dict[str, Any]:
     """Validate ``updates`` and merge them into the config file.
 
     Reads the existing file first and preserves every key the panel does
-    not understand, so a newer/foreign config is never clobbered. Returns
-    the fresh panel view model (so the client re-renders from authority).
+    not understand, so a newer/foreign config is never clobbered. After
+    persisting config.yaml, regenerates the ``governor.env`` bridge so the
+    background-work engine actually consumes the pause/throttle choices.
+    Returns the fresh panel view model (so the client re-renders from
+    authority).
     """
     p = path or _config_file()
     normalised = validate_updates(updates)
     current = _load_raw(p)
     current.update(normalised)
     _atomic_write(p, current)
+    _write_governor_env(current)
+    # If this write touched the Pause control, reflect it into the
+    # assistant daemon's OWN cron scheduler too -- not just the shell
+    # governor. The shell governor.env above stops the *-tick.sh
+    # enrichment/ingest jobs; this stops the daemon-embedded cron that
+    # fires the morning brief / evening wrap. Without it a Pause set at
+    # 08:45 would still let the 09:00 brief fire (Batch-2 review #6 F1).
+    if "background_paused" in normalised:
+        # Local import: daemon_cron needs tomllib (3.11+) and is only
+        # exercised on the write path, so a module-load failure never
+        # breaks the read view.
+        from daemon_cron import DaemonCronError, apply_pause_to_cron
+
+        try:
+            apply_pause_to_cron(bool(normalised["background_paused"]))
+        except DaemonCronError as exc:
+            # Surface as a ConfigError so the existing FastAPI handler
+            # maps it and the operator is told the daemon cron could not
+            # be paused (the shell-layer pause is already in force). We
+            # fail loud rather than silently leaving the brief armed.
+            raise ConfigError(exc.status, exc.detail)
     return read_config_view(p)
