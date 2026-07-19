@@ -131,6 +131,28 @@ if ! grep -q 'ostler_security.consent_cli' "$INSTALL_SH"; then
 fi
 printf 'PASS: Phase 3 consent_cli hand-off wires all three tickboxes\n'
 
+# 6b. Spoken-capture recording-consent gate (region-agnostic).
+#     Distinct from the EU voice gate: it covers the operator's
+#     obligation towards OTHER people they record (member-state
+#     recording law), gates spoken transcription, and is registered
+#     in the consent_cli TICKBOX_REGISTRY.
+if ! grep -q 'OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=' "$INSTALL_SH"; then
+    printf 'FAIL: OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION variable not initialised\n' >&2
+    exit 1
+fi
+if ! grep -qE "(tickbox spoken_capture_recording_consent|^[[:space:]]+spoken_capture_recording_consent[[:space:]]*\\\\?[[:space:]]*\$)" "$INSTALL_SH"; then
+    printf 'FAIL: consent_cli hand-off missing tickbox spoken_capture_recording_consent\n' >&2
+    exit 1
+fi
+# Registered in the shared registry (else consent_cli argparse rejects
+# it and the record is silently dropped -- the #659 failure mode).
+CONSENT_CLI="${SCRIPT_DIR}/../vendor/ostler_security/consent_cli.py"
+if [[ -f "$CONSENT_CLI" ]] && ! grep -q 'SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id' "$CONSENT_CLI"; then
+    printf 'FAIL: spoken_capture_recording_consent not registered in TICKBOX_REGISTRY\n' >&2
+    exit 1
+fi
+printf 'PASS: spoken-capture recording-consent gate wired + registered\n'
+
 # 7. Decline path on Article 9 wipes ~/.ostler/.
 EU_BLOCK=$(awk '
     /OSTLER_REGION" == "eu"/ { in_block=1; print; next }
