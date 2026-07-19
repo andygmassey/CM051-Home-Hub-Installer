@@ -72,9 +72,9 @@
   },
   "encrypt_db": {
     "id": "encrypt_db",
-    "title": "Encrypting your databases",
+    "title": "Securing your databases",
     "subtitle": "Passphrase + SQLCipher",
-    "why": "Your knowledge graph is encrypted at rest with a passphrase you choose during setup. A recovery key is also generated and saved to your macOS Keychain. You'll type the passphrase each time you start the Hub UI.",
+    "why": "A passphrase you choose encrypts Ostler's sensitive databases with SQLCipher, and a recovery key is generated and stored securely on this Mac in case you forget it. You'll type the passphrase each time you start the Hub UI. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,
