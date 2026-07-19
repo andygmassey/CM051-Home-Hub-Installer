@@ -19,9 +19,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.0.9</string>
 	<key>CFBundleVersion</key>
-	<string>7</string>
+	<string>9</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -38,13 +38,13 @@
 	<string>Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Ostler reads photo metadata (date, location, captions) so the Hub can tie memories to people, places, and events on the wiki. Photos themselves stay on this Mac.</string>
-	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>Ostler reads and writes reminders so the Hub can push to-dos from emails, meetings, and chats into Apple Reminders. Reminders stay on this Mac and your iCloud account.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ostler reads photo metadata (date, location, captions) so the Hub can tie memories to people, places, and events on the wiki. Photos themselves stay on this Mac.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Ostler reads and writes reminders so the Hub can push to-dos from emails, meetings, and chats into Apple Reminders. Reminders stay on this Mac and your iCloud account.</string>
 </dict>
 </plist>
