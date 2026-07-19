@@ -135,6 +135,12 @@ final class StepCatalog {
         // wiki_recompile_agent; it recompiles once after late contact/iCloud
         // hydration (#598) so the wiki is not stuck on the pre-sync graph.
         "wiki_recompile_catchup_agent",
+        // The Editor Front Page refresh LaunchAgent. install.sh emits the
+        // matching `progress "..." "editor_frontpage"` at phase 3.14d-editor
+        // (between the wiki catch-up agent and the ostler-assistant binary);
+        // it installs the hourly agent that writes ~/.ostler/editor/
+        // front_page.json, the file the Hub Dashboard's Front Page reads.
+        "editor_frontpage",
         "ostler_assistant",
         "ostler_hub_app",
         "ostler_remotecapture",

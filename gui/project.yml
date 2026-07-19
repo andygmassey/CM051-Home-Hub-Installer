@@ -302,6 +302,28 @@ targets:
           - $(SRCROOT)/../vendor/ostler_fda
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler_fda
+      - name: Bundle cm059_editor Front Page producer into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's Front Page phase (3.14d-editor) probes
+          # ${SCRIPT_DIR}/cm059_editor/INSTALL_SNIPPET.sh to install the
+          # hourly LaunchAgent that writes ~/.ostler/editor/front_page.json
+          # (the file the Hub Dashboard's <FrontPageCards> reads). Without
+          # this bundle step the Front Page silently never refreshes on a
+          # productised install.
+          VENDOR_SRC="${SRCROOT}/../vendor/cm059_editor"
+          if [ ! -d "${VENDOR_SRC}" ]; then
+              echo "error: vendor/cm059_editor/ is missing." >&2
+              exit 1
+          fi
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "${DEST}/cm059_editor"
+          cp -R "${VENDOR_SRC}/." "${DEST}/cm059_editor/"
+          /usr/bin/xattr -cr "${DEST}/cm059_editor"
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm059_editor
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm059_editor
       - name: Bundle whatsapp_source conversation feed into Resources
         script: |
           set -euo pipefail
