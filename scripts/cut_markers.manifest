@@ -95,3 +95,10 @@ assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|Read-only PWG knowledge-
 # --- v1.0.1 cut: iMessage date-floor replay (hub-v0.4.18; ostler-assistant #135) ---
 # Verified present at v0.4.18 and ABSENT at v0.4.17 (freshness) before encoding.
 assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|date_floor_filters_old_high_rowid_synced_message|#135 iMessage date-floor replay fix: both poll queries are floored (AND m.date > ?2) so an iCloud back-fill of OLD messages carrying HIGH ROWIDs is not replayed as "new" on daemon restart (the old-message-spam trap). This regression test exists only with #135 -- present at v0.4.18, ABSENT at v0.4.17 (also proves daemon freshness). ERE-safe.
+
+# --- wiki privacy fixes baked into the pinned wiki-compiler image (CM044 main 70925fd) ---
+# The freshness gate proves the pinned digest is not BEHIND CM044 main; these two
+# provenance markers prove the specific privacy fixes are actually BAKED into the
+# image the cut ships. Digest sha256:5df56cae... recorded in wiki_image_provenance.tsv.
+wiki_image_grep|wiki-compiler:/app/compiler/privacy.py|def resolve_person_decision|#122 BUG-038: the wiki honours graph pwg:privacyLevel on person-page bodies -- privacy.py is the single resolve-level-onto-render-decision module (L0/L3 withhold, L1 pii_sanitise, L2 publish, name-list always withholds). Its presence in the pinned wiki-compiler image proves the person-page privacy gate ships (the old leak published full third-party pages regardless of level).
+wiki_image_grep|wiki-compiler:/app/compiler/oxigraph_corrections.py|Lives in Riverside|#121 (#R3-07): operator real-name PII swept out of the customer-shipping compiler source and replaced with the synthetic cast (Jane Doe / Acme / Globex / Riverside / Old Town). "Lives in Riverside" is a #121 synthetic replacement of a real-geography example; its presence in the pinned image proves the sweep is baked in (the shipped source no longer leaks the operator's real contacts/employers/geography).

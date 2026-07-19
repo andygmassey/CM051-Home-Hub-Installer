@@ -184,7 +184,8 @@ STEP          := @printf '\n[STEP] %s\n'
 .PHONY: all debug release package notarise staple archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
-        sign-python-bundle download-daemon stage-daemon check-provenance
+        sign-python-bundle download-daemon stage-daemon check-provenance \
+        check-freshness
 
 all: debug
 
@@ -646,7 +647,26 @@ check-provenance:
 	    exit 1; \
 	}
 
-package: check-tools check-identity check-create-dmg check-provenance
+# ---------------------------------------------------------------------------
+# Cut-freshness preflight (DMG). Compares EVERY shippable input (vendor pins,
+# daemon, wiki images) to its LIVE upstream GitHub HEAD and hard-fails the cut
+# if anything lags -- the structural cure for "built but not in the cut". This
+# runs BEFORE check-provenance: provenance proves named fixes are present;
+# freshness proves nothing has silently fallen behind live HEAD at all. Any
+# non-zero (RED stale, or exit 3 CANNOT-VERIFY when GitHub is unreachable)
+# aborts the cut fail-closed.
+# ---------------------------------------------------------------------------
+check-freshness:
+	$(STEP) "Cut-freshness preflight (live GitHub HEAD)"
+	@../scripts/verify_cut_freshness.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: cut-freshness preflight FAILED -- a shippable input lags live upstream HEAD" >&2; \
+	    echo "       (or could not be verified against GitHub). Re-pin / re-vendor / rebuild each" >&2; \
+	    echo "       RED input to current HEAD, then re-cut. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
+package: check-tools check-identity check-create-dmg check-freshness check-provenance
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \

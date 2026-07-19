@@ -1,0 +1,34 @@
+# wiki_image_provenance.tsv -- binds each PINNED wiki Docker image digest to the
+# CM044 source commit it was built from.
+# ============================================================================
+#
+# WHY THIS FILE EXISTS
+# The wiki-compiler / wiki-site images ship in the DMG pinned by digest in
+# install.sh (`image: ghcr.io/ostler-ai/ostler-<key>@sha256:...`). The image
+# metadata carries NO org.opencontainers.image.revision label and no CM044 sha
+# in its config/env, so the source commit an image was built from cannot be
+# read back from the registry. Without a recorded binding, a repin of the
+# digest that lags CM044 main ships silently -- exactly how the privacy fixes
+# CM044 #121 / #122 (BUG-038) missed a cut.
+#
+# scripts/verify_cut_freshness.sh reads the digest pinned in install.sh for
+# each image-key, looks it up HERE, and compares the recorded CM044 sha to
+# CM044 main HEAD (live GitHub). FAIL-CLOSED: a pinned digest with NO row here
+# is UNVERIFIABLE -> RED. A repin without a matching row cannot pass the gate.
+#
+# The ORM MUST add/update a row here whenever it repins a wiki image (the same
+# step that edits the install.sh digest). The image-content integrity (does the
+# recorded sha actually match what is baked in) is separately proven by the
+# wiki_image_grep markers in scripts/cut_markers.manifest.
+#
+# Format (TAB-separated, 3 fields). Lines starting with '#' and blank lines
+# are ignored.
+#   <image-key>   <digest>                <cm044_source_sha>
+# image-key is `wiki-compiler` or `wiki-site` (matches the install.sh pin).
+#
+# ---------------------------------------------------------------------------
+# Current pins (both rebuilt from CM044 main 70925fd -- "fix(wiki): honour graph
+# privacyLevel on person-page bodies (BUG-038) (#122)", which also carries the
+# #121 real-name-PII sweep of the customer-shipping compiler source).
+wiki-compiler	sha256:5df56cae505d72731266d190122a4738e3491c1f3a5926b945a666f56ff7ee99	70925fd0f48f166f660711c0f18351bb4acaed41
+wiki-site	sha256:40b8d612975af22686e5a1d0e945ccc5c5a8a526e1a44a54c63920a02096ffed	70925fd0f48f166f660711c0f18351bb4acaed41
