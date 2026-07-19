@@ -1,0 +1,33 @@
+# wiki_image_provenance.tsv -- binds each PINNED wiki Docker image digest to the
+# CM044 source commit it was built from.
+# ============================================================================
+#
+# WHY THIS FILE EXISTS
+# The wiki-compiler / wiki-site images ship in the DMG pinned by digest in
+# install.sh (`image: ghcr.io/ostler-ai/ostler-<key>@sha256:...`). The image
+# metadata carries NO org.opencontainers.image.revision label and no CM044 sha
+# in its config/env, so the source commit an image was built from cannot be
+# read back from the registry. Without a recorded binding, a repin of the
+# digest that lags CM044 main ships silently -- exactly how the privacy fixes
+# CM044 #121 / #122 (BUG-038) missed a cut.
+#
+# scripts/verify_cut_freshness.sh reads the digest pinned in install.sh for
+# each image-key, looks it up HERE, and compares the recorded CM044 sha to
+# CM044 main HEAD (live GitHub). FAIL-CLOSED: a pinned digest with NO row here
+# is UNVERIFIABLE -> RED. A repin without a matching row cannot pass the gate.
+#
+# The ORM MUST add/update a row here whenever it repins a wiki image (the same
+# step that edits the install.sh digest). The image-content integrity (does the
+# recorded sha actually match what is baked in) is separately proven by the
+# wiki_image_grep markers in scripts/cut_markers.manifest.
+#
+# Format (TAB-separated, 3 fields). Lines starting with '#' and blank lines
+# are ignored.
+#   <image-key>   <digest>                <cm044_source_sha>
+# image-key is `wiki-compiler` or `wiki-site` (matches the install.sh pin).
+#
+# ---------------------------------------------------------------------------
+# Current pins (both introduced by CM051 25fffd4 "cut(v1.0.3): re-pin wiki
+# images (compiler+site) to arm64 rebuild from CM044 cbe5dbb").
+wiki-compiler	sha256:2a5118a1f7a1c975dd6c4c1e62a53cfdb5cd2f51081a3696c51faeac0acfea69	cbe5dbbc100864b7ac7acf67dbdc5ca86534928f
+wiki-site	sha256:5f761a2a10175fd6b8918098c9e81bc8b955d586f915c0c14e0b6cff28649269	cbe5dbbc100864b7ac7acf67dbdc5ca86534928f
