@@ -27,7 +27,8 @@
 # image-key is `wiki-compiler` or `wiki-site` (matches the install.sh pin).
 #
 # ---------------------------------------------------------------------------
-# Current pins (both introduced by CM051 25fffd4 "cut(v1.0.3): re-pin wiki
-# images (compiler+site) to arm64 rebuild from CM044 cbe5dbb").
-wiki-compiler	sha256:2a5118a1f7a1c975dd6c4c1e62a53cfdb5cd2f51081a3696c51faeac0acfea69	cbe5dbbc100864b7ac7acf67dbdc5ca86534928f
-wiki-site	sha256:5f761a2a10175fd6b8918098c9e81bc8b955d586f915c0c14e0b6cff28649269	cbe5dbbc100864b7ac7acf67dbdc5ca86534928f
+# Current pins (both re-pinned to the CM044 70925fd build, which carries the
+# privacy fixes #121 / #122 (BUG-038)). Supersedes the earlier cbe5dbb arm64
+# rebuild that lagged CM044 main and shipped without those fixes.
+wiki-compiler	sha256:5df56cae505d72731266d190122a4738e3491c1f3a5926b945a666f56ff7ee99	70925fd0f48f166f660711c0f18351bb4acaed41
+wiki-site	sha256:40b8d612975af22686e5a1d0e945ccc5c5a8a526e1a44a54c63920a02096ffed	70925fd0f48f166f660711c0f18351bb4acaed41
