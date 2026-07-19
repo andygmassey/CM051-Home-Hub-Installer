@@ -1,0 +1,5 @@
+# Phase 0 interest-profile compiler.
+# Runtime uses only the Python standard library (urllib, csv, json) - no deps,
+# so it runs anywhere the daemon's bundled Python runs.
+# Dev/test only:
+pytest>=7.0

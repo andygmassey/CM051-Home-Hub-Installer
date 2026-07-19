@@ -285,3 +285,16 @@ divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+
+# ---- CM059 (The Editor) Front Page producer -----------------------------
+
+[[tree]]
+name             = "cm059_editor"
+vendor_path      = "vendor/cm059_editor/compiler"
+source_repo      = "$CM059"
+source_path      = "compiler"
+pinned_sha       = "9f23f83c9f6b38f8c61836d98b8b38ee13e15acf"
+divergence_patch = ""
+exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
+verify           = "full"
+note             = "Initial vendor of CM059 The Editor Front Page producer (compiler/ package only; the bin/, launchd/ and INSTALL_SNIPPET.sh siblings under vendor/cm059_editor/ are CM051-authored wrapper files and are intentionally outside vendor_path). Byte-identical to CM059 main 9f23f83 (PR #9 front-page feed + PR #8 lexicon privacy). Producer is stdlib-only, read-only SPARQL against Oxigraph; emits ~/.ostler/editor/front_page.{json,html}. Set VENDOR_SRC_CM059_EDITOR or export CM059=/path to the CM059 checkout for the freshness gate to verify=full; absent source WARNs, never fails."

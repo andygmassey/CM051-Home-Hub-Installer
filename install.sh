@@ -10229,6 +10229,8 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/d
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.editor-frontpage.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.dedupe-catchup" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
@@ -10253,6 +10255,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.pl
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.editor-frontpage.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
@@ -11840,6 +11843,52 @@ WCUPLIST
     fi
 else
     info "$MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK"
+fi
+
+# ── 3.14d-editor  The Editor Front Page refresh LaunchAgent (CM059) ──
+#
+# Installs the hourly LaunchAgent that recompiles the interest profile
+# from the live PWG graph and re-emits ~/.ostler/editor/front_page.json --
+# the file the Hub app Dashboard's <FrontPageCards> reads via the
+# get_front_page Tauri command. Without this agent front_page.json is
+# never written and the Dashboard shows a permanent empty state.
+#
+# The producer is stdlib-only (no Ollama, no Docker) and never blanks: on
+# a fresh / mid-hydration install RunAtLoad emits a graceful "still
+# settling in" card immediately, and the feed fills with interest cards as
+# preferences land in Oxigraph. Warn-not-abort throughout: a missing
+# producer or a failed load must never break the install (the wiki, chat
+# and conversation feeds are unaffected). A packaging regression is caught
+# earlier by the gui/project.yml bundle step + the vendor-freshness gate.
+#
+# Source resolution mirrors the doctor / hub-power / email-ingest vendored
+# pattern: productised path ${SCRIPT_DIR}/cm059_editor (staged into the
+# .app by gui/project.yml), dev path ${SCRIPT_DIR}/../vendor/cm059_editor.
+
+progress "$MSG_PROGRESS_EDITOR_FRONTPAGE" "editor_frontpage"
+
+EDITOR_FRONTPAGE_SRC=""
+if [[ -d "${SCRIPT_DIR}/cm059_editor" && -f "${SCRIPT_DIR}/cm059_editor/INSTALL_SNIPPET.sh" ]]; then
+    EDITOR_FRONTPAGE_SRC="${SCRIPT_DIR}/cm059_editor"
+    ok "$MSG_OK_EDITOR_FRONTPAGE_BUNDLED"
+elif [[ -d "${SCRIPT_DIR}/../vendor/cm059_editor" && -f "${SCRIPT_DIR}/../vendor/cm059_editor/INSTALL_SNIPPET.sh" ]]; then
+    EDITOR_FRONTPAGE_SRC="${SCRIPT_DIR}/../vendor/cm059_editor"
+fi
+
+if [[ -n "$EDITOR_FRONTPAGE_SRC" ]]; then
+    if OSTLER_INSTALL_ROOT="$EDITOR_FRONTPAGE_SRC" \
+       OSTLER_DIR="$OSTLER_DIR" \
+       LOGS_DIR="$LOGS_DIR" \
+       OSTLER_EDITOR_PYTHON="$PYTHON3_BIN" \
+       bash "$EDITOR_FRONTPAGE_SRC/INSTALL_SNIPPET.sh"; then
+        ok "$MSG_OK_EDITOR_FRONTPAGE_LOADED"
+        info "$MSG_INFO_EDITOR_FRONTPAGE_FIRST_EMIT"
+        info "$(printf "$MSG_INFO_EDITOR_FRONTPAGE_LOGS" "${LOGS_DIR}")"
+    else
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_FAILED"
+    fi
+else
+    warn "$MSG_WARN_EDITOR_FRONTPAGE_VENDOR_MISSING"
 fi
 
 # ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
