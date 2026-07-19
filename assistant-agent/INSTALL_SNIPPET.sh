@@ -147,14 +147,27 @@ chmod 0644 "$RENDERED_PLIST"
 LABEL="com.creativemachines.ostler.assistant"
 DOMAIN="gui/$(id -u)"
 
-launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-
-if launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
-    echo "ostler-assistant install: LaunchAgent bootstrapped ($LABEL)"
+# OSTLER_ASSISTANT_DEFER_BOOTSTRAP (mid-install permission-glut fix):
+# when set to 1, render the plist but do NOT bootstrap the LaunchAgent
+# here. The installer then bootstraps the daemon at a controlled point
+# (after a one-line pre-warn, before the Full Disk Access modal) so the
+# daemon's own "read your Messages" TCC prompt fires ALONE rather than
+# on top of the System Settings + Finder + osascript FDA cluster. The
+# plist keeps RunAtLoad=true, so login persistence is unchanged -- only
+# the FIRST start during install is deferred. Default (unset) keeps the
+# legacy behaviour of bootstrapping immediately.
+if [ "${OSTLER_ASSISTANT_DEFER_BOOTSTRAP:-}" = "1" ]; then
+    echo "ostler-assistant install: LaunchAgent rendered; bootstrap deferred to installer ($LABEL)"
 else
-    rc=$?
-    echo "ostler-assistant install: bootstrap returned $rc; check ${RENDERED_PLIST} and ${LOGS_DIR}/ostler-assistant.err" >&2
-    exit "$rc"
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+
+    if launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
+        echo "ostler-assistant install: LaunchAgent bootstrapped ($LABEL)"
+    else
+        rc=$?
+        echo "ostler-assistant install: bootstrap returned $rc; check ${RENDERED_PLIST} and ${LOGS_DIR}/ostler-assistant.err" >&2
+        exit "$rc"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

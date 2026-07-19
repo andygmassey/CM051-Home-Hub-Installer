@@ -10201,6 +10201,8 @@ launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.editor.frontpage" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.editor.frontpage.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
@@ -10240,6 +10242,7 @@ launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/de
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.editor.frontpage.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
@@ -10514,6 +10517,98 @@ DOCEOF
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
     ok "$MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089"
 fi
+
+# ── 3.13-editor  The Editor Front Page refresh agent ────────────
+#
+# Stages the vendored Editor sources, then registers the hourly Front
+# Page emitter LaunchAgent (com.ostler.editor.frontpage). The agent
+# re-runs `python -m compiler.emit_frontpage` from ${EDITOR_DIR} so
+# ~/.ostler/editor/front_page.{json,html} stays fresh and the Hub
+# Doctor's /frontpage route always serves a current feed.
+#
+# Two legs, both here:
+#   1. SOURCE-STAGING: copy the vendored CM059 sources (bundled at
+#      ${SCRIPT_DIR}/cm059_editor by gui/project.yml, mirroring the
+#      cm048 pipeline) into ${EDITOR_DIR}. The emitter is stdlib-only
+#      (urllib/csv/json/hashlib/...), so there is NO pip install -- the
+#      bundled interpreter runs it directly. Without this leg the plist
+#      below would point at an empty dir and the tick would thrash
+#      ModuleNotFoundError every hour.
+#   2. AGENT: sed-substitute the plist's two placeholders and load it,
+#      mirroring the Doctor / ical-server agents.
+#
+# Gated on the vendored sources (or an already-staged editor dir) being
+# present. A cut that predates the Editor bundles nothing, so the hook
+# no-ops cleanly. Best-effort throughout: a copy/load failure warns but
+# never fails the install.
+EDITOR_DIR="${OSTLER_EDITOR_DIR:-${OSTLER_DIR}/editor}"
+
+# Leg 1: stage the vendored Editor sources into ${EDITOR_DIR}. The
+# bundle lands at ${SCRIPT_DIR}/cm059_editor (.app code path) or, on a
+# dev checkout, at ${SCRIPT_DIR}/../vendor/cm059_editor. A legacy
+# ${SCRIPT_DIR}/editor layout is also accepted for forward-compat.
+EDITOR_SRC=""
+for _ed_cand in "${SCRIPT_DIR}/cm059_editor" \
+                "${SCRIPT_DIR}/../vendor/cm059_editor" \
+                "${SCRIPT_DIR}/editor"; do
+    if [[ -f "${_ed_cand}/compiler/emit_frontpage.py" ]]; then
+        EDITOR_SRC="$_ed_cand"
+        break
+    fi
+done
+if [[ -n "$EDITOR_SRC" ]]; then
+    info "$(printf "$MSG_INFO_EDITOR_FRONTPAGE_STAGING" "${EDITOR_DIR}")"
+    mkdir -p "${EDITOR_DIR}"
+    # Copy WITHOUT -p so source xattrs (com.apple.provenance / quarantine)
+    # do not propagate. Refresh on re-install so a newer cut's emitter
+    # replaces the staged copy.
+    if cp -R "${EDITOR_SRC}/compiler" "${EDITOR_DIR}/" 2>/dev/null \
+       && cp -R "${EDITOR_SRC}/deploy" "${EDITOR_DIR}/" 2>/dev/null; then
+        /usr/bin/xattr -cr "${EDITOR_DIR}" 2>/dev/null || true
+    else
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_STAGING_FAILED"
+    fi
+fi
+unset EDITOR_SRC _ed_cand
+
+# Leg 2: resolve the staged plist + register the agent.
+EDITOR_FRONTPAGE_PLIST_SRC=""
+if [[ -f "${EDITOR_DIR}/deploy/com.ostler.editor.frontpage.plist" ]]; then
+    EDITOR_FRONTPAGE_PLIST_SRC="${EDITOR_DIR}/deploy/com.ostler.editor.frontpage.plist"
+fi
+
+if [[ -n "$EDITOR_FRONTPAGE_PLIST_SRC" && -f "${EDITOR_DIR}/compiler/emit_frontpage.py" ]]; then
+    # The emitter is stdlib-only, so the bundled interpreter runs it
+    # directly -- no venv. A pre-staged editor venv is still honoured if
+    # a future cut ships one.
+    EDITOR_PYTHON="$PYTHON3_BIN"
+    if [[ -x "${EDITOR_DIR}/.venv/bin/python3" ]]; then
+        EDITOR_PYTHON="${EDITOR_DIR}/.venv/bin/python3"
+    fi
+
+    mkdir -p "${HOME}/Library/LaunchAgents"
+    EDITOR_FRONTPAGE_PLIST="${HOME}/Library/LaunchAgents/com.ostler.editor.frontpage.plist"
+    # Escape & / \ for the sed replacement. __PYTHON__ and
+    # __EDITOR_REPO__ are disjoint tokens (neither is a substring of the
+    # other) so substitution order is not load-bearing.
+    esc_editor_py="$(printf '%s' "$EDITOR_PYTHON" | sed 's/[&/\]/\\&/g')"
+    esc_editor_repo="$(printf '%s' "$EDITOR_DIR" | sed 's/[&/\]/\\&/g')"
+    sed \
+        -e "s/__EDITOR_REPO__/$esc_editor_repo/g" \
+        -e "s/__PYTHON__/$esc_editor_py/g" \
+        "$EDITOR_FRONTPAGE_PLIST_SRC" > "$EDITOR_FRONTPAGE_PLIST"
+    chmod 0644 "$EDITOR_FRONTPAGE_PLIST"
+
+    launchctl bootout "gui/$(id -u)/com.ostler.editor.frontpage" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$EDITOR_FRONTPAGE_PLIST" 2>/dev/null \
+       || launchctl load "$EDITOR_FRONTPAGE_PLIST" 2>/dev/null; then
+        ok "$MSG_OK_EDITOR_FRONTPAGE_AGENT_INSTALLED"
+    else
+        warn "$MSG_WARN_EDITOR_FRONTPAGE_PLIST_LOAD_FAILED"
+    fi
+    unset esc_editor_py esc_editor_repo EDITOR_PYTHON EDITOR_FRONTPAGE_PLIST
+fi
+unset EDITOR_DIR EDITOR_FRONTPAGE_PLIST_SRC
 
 # ── 3.13a Assistant API (ical-server.py) ────────────────────────
 #
@@ -12457,6 +12552,7 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
             ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
             INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
             OSTLER_IMESSAGE_SELF_HANDLES="$ASSISTANT_SELF_HANDLES" \
+            OSTLER_ASSISTANT_DEFER_BOOTSTRAP="1" \
             bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" 2>"$_snippet_stderr"
         ); then
             _snippet_ok=true
@@ -12548,6 +12644,36 @@ _imessage_daemon_fda_granted() {
     fi
 }
 
+# ── Serialised daemon bootstrap (mid-install permission-glut fix) ──
+#
+# The assistant LaunchAgent is RENDERED earlier (INSTALL_SNIPPET.sh,
+# invoked with OSTLER_ASSISTANT_DEFER_BOOTSTRAP=1) but its bootstrap is
+# deferred to here so the daemon's own async "read your Messages" TCC
+# prompt fires ALONE, after our one-line pre-warn, and not concurrently
+# with the System Settings + Finder + osascript Full Disk Access cluster
+# below. The plist keeps RunAtLoad=true, so login persistence is
+# unchanged -- only the FIRST start during install is gated.
+#
+# Idempotent: bootstraps at most once per install (guard flag), so the
+# happy-path call (before the FDA modal) and the safety-net call (after
+# the probe, for non-GUI / no-chat.db paths) cannot double-start it.
+# Best-effort: any launchctl failure is swallowed (the probe runs under
+# set +e) and surfaced as a warn so a missing daemon is still visible.
+_ASSISTANT_DAEMON_BOOTSTRAPPED=0
+_ostler_bootstrap_assistant_daemon() {
+    [[ "${_ASSISTANT_DAEMON_BOOTSTRAPPED:-0}" == "1" ]] && return 0
+    local _plist="${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
+    [[ -f "$_plist" ]] || return 0
+    launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null \
+       || launchctl load "$_plist" 2>/dev/null; then
+        _ASSISTANT_DAEMON_BOOTSTRAPPED=1
+    else
+        warn "$MSG_WARN_ASSISTANT_DAEMON_BOOTSTRAP_DEFERRED_FAILED"
+        _ASSISTANT_DAEMON_BOOTSTRAPPED=1  # don't retry-thrash; daemon also starts at next login (RunAtLoad)
+    fi
+}
+
 info "$MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN"
 set +e  # CX-60: probe is best-effort; never kill the install from here
 _imessage_fda_probe_failure_line=""
@@ -12555,15 +12681,60 @@ _imessage_fda_probe_failure_line=""
 if [[ "${ASSISTANT_BINARY_INSTALLED:-false}" != "true" ]]; then
     info "$MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON"
 else
+    # ── Serialise the daemon's first boot vs the FDA cluster (Job 1) ──
+    #
+    # The LaunchAgent was rendered-but-not-bootstrapped earlier (deferred
+    # via OSTLER_ASSISTANT_DEFER_BOOTSTRAP). Bootstrap it HERE, behind a
+    # single honest pre-warn, so the daemon's own "read your Messages"
+    # TCC prompt fires alone -- before, not on top of, the System Settings
+    # + Finder + osascript Full Disk Access modal further down. Booting it
+    # now (rather than after the modal) also means the daemon has touched
+    # chat.db by the time the modal shows, so it appears in the Full Disk
+    # Access list and the modal's "Find Ostler and turn it on" copy is
+    # accurate. One thing on screen at a time: the pre-warn modal blocks,
+    # the user acknowledges, then the macOS Messages prompt surfaces alone
+    # during the settle below.
+    # The "read your Messages" pre-warn only makes sense when the customer
+    # enabled the iMessage channel -- that is the only configuration in
+    # which the daemon polls chat.db and macOS raises the Messages TCC
+    # prompt. With iMessage off we still bootstrap the daemon (it runs for
+    # every channel) but skip the Messages-specific pre-warn + long settle.
+    if [[ "${OSTLER_GUI:-0}" == "1" && "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
+        info "$MSG_INFO_ASSISTANT_DAEMON_PREWARN"
+        _prewarn_msg="$(printf '%s\n\n%s' \
+            "$MSG_PROMPT_ASSISTANT_DAEMON_PREWARN_LINE1" \
+            "$MSG_PROMPT_ASSISTANT_DAEMON_PREWARN_LINE2")"
+        _prewarn_msg_esc="${_prewarn_msg//\"/\\\"}"
+        _prewarn_title_esc="${MSG_PROMPT_ASSISTANT_DAEMON_PREWARN_TITLE//\"/\\\"}"
+        _prewarn_button_esc="${MSG_PROMPT_ASSISTANT_DAEMON_PREWARN_BUTTON//\"/\\\"}"
+        osascript \
+            -e 'tell application "System Events" to activate' \
+            -e "tell application \"System Events\" to display dialog \"${_prewarn_msg_esc}\" with title \"${_prewarn_title_esc}\" buttons {\"${_prewarn_button_esc}\"} default button \"${_prewarn_button_esc}\" with icon note" \
+            >/dev/null 2>&1 || true
+        unset _prewarn_msg _prewarn_msg_esc _prewarn_title_esc _prewarn_button_esc
+        _prewarn_shown=1
+    else
+        _prewarn_shown=0
+    fi
+    # Start the daemon now (idempotent). With the pre-warn dismissed, its
+    # async Messages TCC prompt fires alone during the settle.
+    _ostler_bootstrap_assistant_daemon
+
     _imessage_chat_db_path="${HOME}/Library/Messages/chat.db"
     _imessage_fda_needed="true"  # conservative default
 
-    # Brief grace period: even with the LaunchAgent loaded, the
-    # daemon's iMessage channel needs a moment to attempt its first
-    # chat.db open. The probe itself is independent (install.sh
-    # opens chat.db directly), but waiting briefly avoids a noisy
-    # log entry from racing the LaunchAgent.
-    sleep 2
+    # Grace period: let the freshly-bootstrapped daemon attempt its first
+    # chat.db open so its own "read your Messages" prompt surfaces ALONE,
+    # before we open the FDA modal. Longer when we just pre-warned the user
+    # (a prompt can appear) than otherwise. The probe itself is independent
+    # (install.sh opens chat.db directly); this also avoids racing the
+    # LaunchAgent.
+    if [[ "$_prewarn_shown" == "1" ]]; then
+        sleep 5
+    else
+        sleep 2
+    fi
+    unset _prewarn_shown
 
     if [[ -f "$_imessage_chat_db_path" ]]; then
         # ── CX-90 (fresh-install P0): daemon-identity test is FIRST ──
@@ -12648,16 +12819,19 @@ else
                 # "scheme not registered" warning on stripped builds.
                 open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
 
-                # Reveal the daemon .app bundle in Finder so the
-                # customer can drag it directly into System
-                # Settings without navigating to ~/.ostler/
-                # themselves. The -R flag selects the bundle in
-                # the parent folder; macOS Finder renders the
-                # bundle with the Ostler v4 icon (read from
-                # OstlerAssistant.app/Contents/Resources/icon.icns)
-                # so the customer sees the product mark from the
-                # moment Finder opens.
-                open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                # (mid-install permission-glut fix) The stray Finder
+                # reveal of the daemon .app bundle used to fire HERE,
+                # concurrently with the System Settings pane and the
+                # osascript modal -- three windows at once. It is now
+                # removed from the concurrent path: the daemon was
+                # bootstrapped before this block, so it has already
+                # touched chat.db and appears in the Full Disk Access
+                # list, which makes the modal's "Find Ostler and turn
+                # it on" copy accurate without any drag-add. A guarded
+                # Finder reveal is fired AFTER the modal, and only if
+                # the grant still didn't land, as a drag-add fallback
+                # (see below). The reveal therefore never piles on top
+                # of the modal again.
 
                 # Modal that blocks install.sh until the customer
                 # dismisses it. The osascript dialog is reliable
@@ -12780,6 +12954,17 @@ else
                     launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
+                    # (mid-install permission-glut fix) Drag-add fallback:
+                    # only NOW, after the modal is dismissed AND the grant
+                    # still didn't land, reveal the daemon .app bundle in
+                    # Finder so the customer can drag it straight into the
+                    # still-open Full Disk Access list. Fired here -- never
+                    # concurrently with the modal -- it is the last-resort
+                    # path for the rare case where "Find Ostler and turn it
+                    # on" did not work (e.g. the daemon had not yet been
+                    # listed). The persistent Doctor card still backstops
+                    # this on the next refresh.
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
                 fi
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)

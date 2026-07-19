@@ -568,6 +568,42 @@ targets:
           - $(SRCROOT)/../vendor/cm048_pipeline
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm048_pipeline
+      - name: Bundle CM059 editor Front Page emitter into Resources
+        script: |
+          set -euo pipefail
+          # install.sh's 3.13-editor phase probes
+          # ${SCRIPT_DIR}/cm059_editor/ to discover the vendored Editor
+          # sources, stages them into ${OSTLER_DIR}/editor/, and registers
+          # the com.ostler.editor.frontpage LaunchAgent which runs
+          # `python -m compiler.emit_frontpage` from there hourly.
+          #
+          # For the .app code path, SCRIPT_DIR is Contents/Resources at
+          # install time, so the package must land at
+          # Contents/Resources/cm059_editor/. Without this bundling the
+          # editor sources never reach the customer Mac, the install probe
+          # finds nothing, and the Front Page never refreshes.
+          #
+          # Same vendoring discipline as cm048_pipeline above; different
+          # upstream (CM059 source-of-truth lives at ../CM059\ -\ Ostler\
+          # Editor/, feat/frontpage-live-wiring). The emitter is stdlib-only
+          # (no pip install at install time). Non-fatal if absent: a cut
+          # that predates the Editor still builds, and install.sh's 3.13
+          # editor hook no-ops cleanly when the sources are not staged.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../vendor/cm059_editor"
+          if [ -d "${SRC}" ]; then
+            echo "Bundling cm059_editor from ${SRC} into Resources/"
+            mkdir -p "${DEST}/cm059_editor"
+            # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).
+            cp -R "${SRC}/" "${DEST}/cm059_editor/"
+            /usr/bin/xattr -cr "${DEST}/cm059_editor" || true
+          else
+            echo "note: vendor/cm059_editor not found at ${SRC}; skipping Editor bundling (cut predates CM059)." >&2
+          fi
+        inputFiles:
+          - $(SRCROOT)/../vendor/cm059_editor
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm059_editor
       - name: Bundle CM019 preferences ingest pipeline into Resources
         script: |
           set -euo pipefail
