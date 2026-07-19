@@ -42,7 +42,7 @@ that person comes back into view (a meeting next week).
 
 ``subject_person_ids`` enumerates every non-user participant of the
 source conversation; those are the people who are relevant to the
-brief regardless of who owns the action. A todo "Andy sends Alice the
+brief regardless of who owns the action. A todo "John sends Alice the
 deck" extracted from a 1:1 with Alice surfaces when meeting Alice.
 A todo extracted from a 3-person work meeting with Alice + Bob
 surfaces when meeting EITHER Alice or Bob (whichever comes first).

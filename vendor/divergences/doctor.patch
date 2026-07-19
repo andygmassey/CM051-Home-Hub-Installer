@@ -351,7 +351,7 @@
  DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
 --- a/agent/web_ui.py
 +++ b/agent/web_ui.py
-@@ -71,6 +71,8 @@
+@@ -82,6 +82,8 @@
      DASHBOARD_BTN_EMAIL_PREPARING,
      DASHBOARD_BTN_EMAIL_TITLE,
      DASHBOARD_BTN_REFRESH,
@@ -360,7 +360,7 @@
      DASHBOARD_FIX_LABEL_FMT,
      DASHBOARD_FIX_NOTE,
      DASHBOARD_HEADING,
-@@ -866,6 +868,7 @@
+@@ -1149,6 +1151,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -368,7 +368,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1260,6 +1263,7 @@
+@@ -1543,6 +1546,7 @@
              </div>
              <div>
                  <div class="header-controls">

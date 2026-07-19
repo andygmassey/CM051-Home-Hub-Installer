@@ -71,7 +71,7 @@ the structured signal. Schema:
   "topics_of_interest_to_other": [
     {"topic": "CMS in the AI era", "salience": "strong"},
     {"topic": "Laravel framework migration", "salience": "strong"},
-    {"topic": "CCMF grant routes", "salience": "medium"},
+    {"topic": "innovation grant routes", "salience": "medium"},
     {"topic": "UK networking contacts", "salience": "medium"}
   ],
 

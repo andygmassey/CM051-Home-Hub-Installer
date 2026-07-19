@@ -1,3 +1,81 @@
+--- a/src/cli.py
++++ b/src/cli.py
+@@ -58,7 +58,7 @@
+ import os
+ import sys
+ import time
+-import urllib.parse
++import uuid
+ from datetime import datetime, timedelta, timezone
+ from pathlib import Path
+ from typing import Any, Dict, Optional, Set
+@@ -73,7 +73,17 @@
+ 
+ _OXIGRAPH_DEFAULT = "http://localhost:7878"
+ 
++# Canonical PWG ontology namespace. Must match the writer-side IRI
++# scheme used in vendor/ostler_fda/pwg_ingest.py (the FDA ingest
++# path that creates Person nodes from iMessage, WhatsApp, and Mail).
++# Diverging here means email-ingest's Person triples never join the
++# rest of the People graph in Oxigraph -- which was exactly the
++# Z2 P0-1 bug: the old `urn:pwg:` namespace + `urn:pwg:person/<email>`
++# IRI shape produced orphaned subgraphs and a blank Email column in
++# the wiki for every customer.
++PWG_NS = "https://pwg.dev/ontology#"
+ 
++
+ def _stderr(msg: str) -> None:
+     """Write a diagnostic line to stderr, never stdout.
+ 
+@@ -84,15 +94,32 @@
+     print(msg, file=sys.stderr, flush=True)
+ 
+ 
+-def _safe_person_iri(email: str) -> str:
+-    """Return a URL-safe Person IRI rooted at urn:pwg:person/.
++def _clean_email_for_iri(email: str) -> str:
++    """Normalise an email for use as a PWG Person IRI key.
+ 
+-    Uses ``urllib.parse.quote`` so addresses with ``+`` aliases,
+-    Unicode local parts, or dots round-trip cleanly. The IRI is
+-    deterministic so subsequent ticks UPSERT instead of creating
+-    duplicates.
++    Mirrors ``_person_id_from_identifier`` in
++    ``vendor/ostler_fda/pwg_ingest.py`` (the canonical writer for
++    iMessage / WhatsApp / Mail Person nodes), which uses
++    ``identifier.strip().lower()`` before hashing into a uuid5.
++    Keep these two helpers byte-for-byte equivalent so the resulting
++    Person IRIs collide deterministically across sources.
+     """
+-    return f"urn:pwg:person/{urllib.parse.quote(email.lower(), safe='')}"
++    return email.strip().lower()
++
++
++def _safe_person_iri(email: str) -> str:
++    """Return the canonical PWG Person IRI for an email address.
++
++    Shape: ``https://pwg.dev/ontology#person_<uuid5>`` where the
++    uuid5 is derived from ``https://pwg.dev/person/<clean>`` using
++    ``uuid.NAMESPACE_URL`` -- identical to the FDA ingest writer in
++    ``vendor/ostler_fda/pwg_ingest.py`` so emails ingested via this
++    CLI join the same Person nodes the FDA path creates from
++    iMessage / WhatsApp.
++    """
++    clean = _clean_email_for_iri(email)
++    person_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
++    return f"{PWG_NS}person_{person_id}"
+ 
+ 
+ def _escape_sparql_literal(value: str) -> str:
+@@ -133,7 +160,7 @@
+ 
+     parts = []
+     parts.append("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>")
+-    parts.append("PREFIX pwg: <urn:pwg:>")
++    parts.append(f"PREFIX pwg: <{PWG_NS}>")
+     parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
+     parts.append("")
+     parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
 --- a/src/filters.py
 +++ b/src/filters.py
 @@ -79,8 +79,11 @@
@@ -14,36 +92,3 @@
          'saintandsofia.com',
          'net-a-porter.com',
          'mrporter.com',
---- a/src/parsers/__init__.py
-+++ b/src/parsers/__init__.py
-@@ -1,30 +1,15 @@
- """
- Email parsers for various formats.
--
--Supported formats:
--- MBOX: Gmail exports (MboxParser, FastMboxParser)
--- EMLX: Apple Mail local storage (EmlxParser)
--- EML: iCloud Mail exports, standard RFC 822 (EmlParser)
- """
- 
- from .mbox_parser import MboxParser, ParsedEmail, parse_mbox
- from .fast_mbox_parser import FastMboxParser, FastEmail, fast_parse
--from .emlx_parser import EmlxParser, EmlxMetadata, find_apple_mail_root, list_apple_mail_accounts
--from .eml_parser import EmlParser
- 
- __all__ = [
--    # MBOX parsers
-     'MboxParser',
-     'ParsedEmail',
-     'parse_mbox',
-     'FastMboxParser',
-     'FastEmail',
-     'fast_parse',
--    # EMLX parser (Apple Mail local)
--    'EmlxParser',
--    'EmlxMetadata',
--    'find_apple_mail_root',
--    'list_apple_mail_accounts',
--    # EML parser (iCloud Mail exports)
--    'EmlParser',
- ]

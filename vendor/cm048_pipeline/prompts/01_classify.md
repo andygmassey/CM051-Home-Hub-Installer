@@ -223,9 +223,9 @@ Output ONE JSON object. No preamble, no explanation outside the JSON:
 **Input source:** `zoom_call`
 **Input hint:** (none)
 **Transcript excerpt:** ~100K characters covering e-ink hardware,
-Personal World Graph project, CCMF grant application, ContactCo-F
+Personal World Graph project, innovation grant application, ContactCo-F
 Laravel migration, Sarah's price prediction task, {colleague4}'s voting
-feature, tomorrow's co-working session, Hong Kong Web Dev meetup.
+feature, tomorrow's co-working session, a local web dev meetup.
 
 **Expected classifier output:**
 

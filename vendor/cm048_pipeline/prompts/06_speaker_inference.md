@@ -22,7 +22,7 @@ real person behind it.
 
 Use ONLY:
 
-- direct address ("Thanks, Danny", "as Sarah said earlier"),
+- direct address ("Thanks, John", "as Sarah said earlier"),
 - self-introduction ("Hi, I'm Marco"),
 - introductions by others ("this is my colleague Priya"),
 - role / employer / relationship clues that uniquely match exactly one
@@ -62,10 +62,10 @@ Respond with a JSON object of this exact shape:
   "labels": [
     {
       "raw_label": "Speaker 2",
-      "inferred_person_id": "danny_kwan",
-      "inferred_display_name": "Danny Kwan",
+      "inferred_person_id": "john_smith",
+      "inferred_display_name": "John Smith",
       "confidence": 0.92,
-      "evidence": "Speaker 1 addresses Speaker 2 as 'Danny' at turn 4; 'Danny Kwan' is in the candidate list."
+      "evidence": "Speaker 1 addresses Speaker 2 as 'John' at turn 4; 'John Smith' is in the candidate list."
     }
   ],
   "unresolved_labels": [

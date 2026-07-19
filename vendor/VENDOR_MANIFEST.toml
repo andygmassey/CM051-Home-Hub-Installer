@@ -108,7 +108,7 @@ name             = "cm048_pipeline"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
-  pinned_sha = "36e22c5ca40954a49af63217a3d11019ad4cd11a"
+  pinned_sha = "4b6b7f5c04fe49774c0c76dfe793b537d1c7f54d"
   divergence_patch = ""
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
 verify           = "skip"
@@ -121,10 +121,11 @@ name             = "cm021"
 vendor_path      = "vendor/cm021"
 source_repo      = "$CM021"
 source_path      = "."
-pinned_sha       = "0d73344fcb5c9ed068c10f0cf65829b2f06c554d"
-divergence_patch = "vendor/divergences/cm021.patch"
+  pinned_sha = "e1eefb3d3bd98c1c2f6c27080446b0d3e2f70a1b"
+  divergence_patch = "vendor/divergences/cm021.patch"
 exclude          = ["tests/", "docs/", "scripts/", "config/", "prompts/", "templates/", "output/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "CHANGELOG.md", "EMAIL_INTELLIGENCE_BRIEF.md", "MBOX_ANALYSIS.md", "README.md", "test_vendor_import.sh"]
 verify           = "full"
+note             = "Vendored as a DELIBERATE MINIMAL SUBSET (cli.py + filters.py + parsers/ + pyproject) -- the mbox parsing + filtering CM046/email-ingest needs. 2026-07-19 (v1.0.9 recut): a prior uncommitted attempt had expanded this to the FULL cm021 package (extractors/, classifiers/, pipeline/monitor/config), which ships OPERATOR-SPECIFIC PII (hardcoded sender-domain -> org mappings for specific operator business domains) that the pre-commit PII guard correctly blocks. Reverted to the origin/main minimal subset. The full-package re-vendor + productisation cleanup (strip hardcoded operator domains) is a CM021 feature-repo task -- the cleanup exists only on the unpushed 'andy' branch, NOT canonical main #1 (e1eefb3d). FILED for the CM021 owner; do NOT ship the full package until the operator-domain PII is removed upstream."
 
 # ---- HR015 (Gaming PC) sub-trees -----------------------------------------
 
@@ -133,7 +134,7 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "a15d82f39653857045265655232294da881302c9"
+  pinned_sha = "12a1452794d485273e6f8a955eba31967c56c68b"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
 verify           = "full"
@@ -154,8 +155,8 @@ name             = "legal"
 vendor_path      = "vendor/legal"
 source_repo      = "$HR015/legal"
 source_path      = "."
-pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/legal.patch"
+  pinned_sha = "12a1452794d485273e6f8a955eba31967c56c68b"
+  divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
 
@@ -164,9 +165,9 @@ name             = "doctor"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
-pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+  pinned_sha = "12a1452794d485273e6f8a955eba31967c56c68b"
   divergence_patch = "vendor/divergences/doctor.patch"
-exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh"]
+exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh", "test_*.py"]
 verify           = "full"
 
 [[tree]]
@@ -175,7 +176,7 @@ vendor_path      = "vendor/email_ingest"
 source_repo      = "$HR015/email-ingest"
 source_path      = "."
 pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/email_ingest.patch"
+  divergence_patch = "vendor/divergences/email_ingest.patch"
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
 
@@ -232,7 +233,7 @@ pinned_sha       = "43d6c5da8268e7cb2c51855ff54913b9469e36ac"
 divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "skip"
-note             = "Canonical source is GitHub andygmassey/evernote-knowledge (per vendor/README.md), NOT this local CM024 checkout; package was also renamed (source ostler_knowledge/ -> vendor src/). Structural remap. WARN until the GitHub canonical is wired as the source and the rename is encoded."
+note             = "Canonical source is GitHub andygmassey/evernote-knowledge (per vendor/README.md), NOT this local CM024 checkout; package was also renamed (source ostler_knowledge/ -> vendor src/). Structural remap. WARN until the GitHub canonical is wired as the source and the rename is encoded. 2026-07-19 (v1.0.9 recut): hand-grafted the customer-facing part of GitHub #14 (legacy-hostname scrub) into vendor/cm024_knowledge/config/settings.yaml + README.md -- ollama_host from a legacy personal-infra hostname -> localhost:11434 (env-overridable). This removed a shipped personal-infra hostname leak (CLAUDE.md forbids legacy infra in customer surface). pinned_sha HELD at 43d6c5da: the FULL re-pin to #14 head 7ace7672 is DEFERRED -- 7ace7672 also carries a substantial package re-vendor across the rename (NEW ingestion adapters apple_notes.py/notion.py/obsidian.py + coordinated drift in cli.py source= threading, classifier/enex_parser/importance_scorer/incremental/markdown_writer/adapters base+__init__) that needs a careful cross-rename graft + runtime verification, not a blind cut-window graft. FILED for the CM024 owner / next cut."
 
 # ---- Conversation-feed bundles: upstream not on disk ---------------------
 # email_source / imessage_source / whatsapp_source / spoken_source.

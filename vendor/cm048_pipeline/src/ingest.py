@@ -674,16 +674,44 @@ def _participant_identity_triples(
     return out
 
 
+def _coerce_signal_field(value: object, inner_key: str, default: str = "unknown") -> object:
+    """Extract a scalar from an LLM signal field that may arrive as either a
+    nested object (``{inner_key: X}``) or a bare scalar (``X``).
+
+    The model is *supposed* to emit nested objects (``{"score": "high"}``)
+    but in practice sometimes returns the bare value (``"high"``). The old
+    code did ``sig.get("warmth", {}).get("score", ...)`` which raises
+    ``AttributeError`` the moment ``warmth`` is a string. This tolerates both
+    shapes: dicts are dug into, bare scalars are used as-is, empty/None falls
+    back to ``default``.
+    """
+    if isinstance(value, dict):
+        return value.get(inner_key, default)
+    if value in (None, ""):
+        return default
+    return value
+
+
 def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> list[str]:
     """Emit a minimal-but-useful triple set for a relationship signal."""
     slug = sig.get("target_participant", "unknown")
     signal_uri = _urn(f"signal/{conversation_id}/{slug}")
     person_uri = _urn(f"person/{slug}")
     conv_uri = _urn(f"conversation/{conversation_id}")
-    warmth = sig.get("warmth", {}).get("score", "unknown")
-    trust = sig.get("trust_and_rapport", {}).get("signal",
-            sig.get("trust_signals", {}).get("level",
-            sig.get("trust", {}).get("score", "unknown")))
+    warmth = _coerce_signal_field(sig.get("warmth"), "score")
+    # Trust may be reported under any of three differently-shaped keys; take
+    # the first that yields a real value (preserving the original precedence).
+    trust: object = "unknown"
+    for _src_key, _inner in (
+        ("trust_and_rapport", "signal"),
+        ("trust_signals", "level"),
+        ("trust", "score"),
+    ):
+        if _src_key in sig:
+            _candidate = _coerce_signal_field(sig.get(_src_key), _inner)
+            if _candidate not in (None, "", "unknown"):
+                trust = _candidate
+                break
     confidence = sig.get("overall_confidence", 0.0)
     observed_at = sig.get("observed_at", "")
     # Each interpolated literal sourced from the LLM signal payload
@@ -694,6 +722,14 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
     safe_trust = escape_turtle_literal(trust)
     safe_confidence = escape_turtle_literal(confidence)
     safe_observed_at = escape_turtle_literal(observed_at)
+    # Privacy level stamped at write time so the signal is born-tagged.
+    # CM041's fact/signal readers are fail-closed: an untagged node is
+    # treated as L3/hidden and stays invisible until a reboot re-sweeps
+    # it via the startup backfill. This mirrors the sibling Fact node
+    # (`_fact_to_triples`) exactly -- read `privacy_level` off the payload
+    # with an L1 (visible / personal) default; the extractor may override
+    # via the payload. L1, never L3, matches the Fact default.
+    safe_privacy = escape_turtle_literal(sig.get("privacy_level", "L1"))
     t = [
         _turtle_prefixes(),
         f"{signal_uri} a <urn:pwg:RelationshipSignal> ;",
@@ -701,6 +737,7 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
         f'  <urn:pwg:about> {person_uri} ;',
         f'  <urn:pwg:userId> "{safe_user}" ;',
         f'  <urn:pwg:visibility> "private" ;',
+        f'  <urn:pwg:privacyLevel> "{safe_privacy}" ;',
         f'  <urn:pwg:warmth> "{safe_warmth}" ;',
         f'  <urn:pwg:trust> "{safe_trust}" ;',
         f'  <urn:pwg:overallConfidence> "{safe_confidence}"^^<http://www.w3.org/2001/XMLSchema#float> ;',

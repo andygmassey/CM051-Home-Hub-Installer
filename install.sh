@@ -5715,7 +5715,11 @@ TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/nul
 # resolves to an unreadable /dev/fd/N, the grep returns 0, etc.).
 # Better to overshoot 100% by a step or two than divide by zero.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
-    TOTAL_STEPS=16
+    # Fallback base = the non-GDPR progress-call count. Must track the real
+    # count (currently 38 calls; 37 non-GDPR + the EXPORTS_DIR-gated GDPR step).
+    # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
+    # unresolvable under `bash -c`) and fails if this constant drifts.
+    TOTAL_STEPS=37
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -11287,6 +11291,9 @@ _install_conversation_feed() {
 # hydrate sub-phase rides (reading bodies is strictly more sensitive than
 # the metadata the hydrate reads, so never a weaker gate). Needs ostler_fda
 # (its reader reuses ostler_fda.whatsapp_history) plus pyyaml (contacts).
+# Step-count: WhatsApp body-feed is a gated (Phase 2) progress step. Subtract
+# its slot from TOTAL_STEPS when skipped, so the bar never overshoots 100%.
+[[ "$CHANNEL_WHATSAPP_ENABLED" != true || "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" != true ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
     _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
@@ -11297,6 +11304,9 @@ fi
 # never source-presence alone -- reading others' bodies is predicated on
 # that acknowledgement (declined wipes ~/.ostler/imports). Needs
 # ostler_fda (reader reuses ostler_fda.apple_mail_mbox) + pyyaml.
+# Step-count: Email body-feed is a gated progress step (Apple Mail present +
+# third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -d "${HOME}/Library/Mail" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
     _install_conversation_feed email email_source "ostler_fda pyyaml"
@@ -11307,6 +11317,9 @@ fi
 # is source-presence (the Transcripts dir), NOT the third-party ack --
 # over-gating own-recordings would be wrong. Self-contained reader
 # (no ostler_fda); pyyaml for the optional contacts/label map.
+# Step-count: Spoken/voice body-feed is a gated progress step (Transcripts dir
+# present). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -d "${USER_FACING_ROOT}/Transcripts" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
     progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
     _install_conversation_feed spoken spoken_source "pyyaml"
@@ -11318,6 +11331,9 @@ fi
 # alone. Self-contained chat.db reader (no ostler_fda); pyyaml for the
 # optional contacts/label map. Module is services.imessage_source.pipeline,
 # so the package stages under services/ (stage_subpath services/imessage_source).
+# Step-count: iMessage body-feed is a gated progress step (chat.db present +
+# third-party consent). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -f "${HOME}/Library/Messages/chat.db" || "$OSTLER_CONSENT_THIRD_PARTY_DECISION" != "accepted" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
     _install_conversation_feed imessage services/imessage_source "pyyaml"
@@ -11735,6 +11751,9 @@ fi
 #
 # Defaults: every 1800s (30 min), capped at 24 tries (~12 hours),
 # both overridable via env for testing.
+# Step-count: first-day wiki catch-up LaunchAgent is a gated progress step
+# (tick script present). Subtract its slot from TOTAL_STEPS when skipped.
+[[ ! -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -x "${OSTLER_DIR}/bin/wiki-recompile-tick.sh" ]]; then
     progress "Setting up first-day wiki catch-up LaunchAgent" "wiki_recompile_catchup_agent"
 
@@ -11935,9 +11954,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.26-ffpair})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.31})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.26-ffpair}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.31}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an

@@ -1370,9 +1370,9 @@ def _step_speaker_feedback(
 """
     schema_hint = (
         '{"labels": [{"raw_label": "Speaker 2", '
-        '"inferred_person_id": "danny_kwan", '
-        '"inferred_display_name": "Danny Kwan", "confidence": 0.92, '
-        '"evidence": "addressed as Danny at turn 4"}], '
+        '"inferred_person_id": "john_smith", '
+        '"inferred_display_name": "John Smith", "confidence": 0.92, '
+        '"evidence": "addressed as John at turn 4"}], '
         '"unresolved_labels": [{"raw_label": "Speaker 3", '
         '"sample_turns": ["Speaker 3: I will send the deck."]}]}'
     )
