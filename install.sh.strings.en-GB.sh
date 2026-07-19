@@ -902,7 +902,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is strongly recommended. Without it, physical access to your Mac means access to your data."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
-MSG_PROMPT_PASSKEY_ACK_HELP="Your knowledge graph is encrypted with a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
