@@ -139,7 +139,7 @@ final class OnboardingQuestionViewSnapshotTests: XCTestCase {
             // Note: this bash-emitted help is deliberately IGNORED by
             // the Q12 branch; the view reads from ViewCopy.json
             // keyed by BiometricProbe.cachedModality.
-            help: "Your knowledge graph is encrypted with a key wrapped by Touch ID (if available on this Mac) or by your login password."
+            help: "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose. A recovery key can optionally be wrapped by Touch ID (if available on this Mac) or by your login password."
         )
         let image = render(
             OnboardingQuestionView().environmentObject(coord)
