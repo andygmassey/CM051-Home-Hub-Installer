@@ -40,6 +40,7 @@ try:
     from legal import (  # noqa: E402
         ARTICLE_9_EU_CONSENT,
         EU_VOICE_SPEAKER_ID_CONSENT,
+        SPOKEN_CAPTURE_RECORDING_CONSENT,
         THIRD_PARTY_DATA_NOTICE,
         WHATSAPP_UNOFFICIAL_RISK_CONSENT,
     )
@@ -62,6 +63,13 @@ TICKBOX_REGISTRY = {
     # consent was silently dropped (Doctor showed it "missing" despite an
     # active accept).
     THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
+    # Spoken-capture recording-consent acknowledgement (every region).
+    # Gates spoken/meeting transcription: the operator acknowledges they
+    # are responsible for member-state recording-consent law before Ostler
+    # will transcribe audio they record. Declining keeps transcription off
+    # (does not abort the install), so an unregistered id here would drop
+    # the record silently — same failure mode as #659's third-party gate.
+    SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
 }
 
 
