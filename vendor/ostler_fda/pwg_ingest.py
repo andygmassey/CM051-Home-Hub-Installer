@@ -347,6 +347,14 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
     _SOURCE_PREDICATE and produce a debug-log no-op rather than
     poisoning the freshness signal. Same discipline as the PR-A fix
     that stopped contact_syncer using vCard REV as a contact event.
+
+    Future-dated events are NEVER a "last contact". A calendar export
+    routinely carries upcoming meetings, so this writer must reject any
+    timestamp after today, otherwise an upcoming meeting (e.g. a fixture
+    a week away) wins the read-side max() and the assistant reports a
+    future date as "last contact". A scheduled future meeting is a
+    "next meeting" signal, not a last-contact one; it is surfaced by the
+    Meeting nodes the calendar ingest also emits, never here.
     """
     predicate = _SOURCE_PREDICATE.get(source)
     if predicate is None:
@@ -361,6 +369,20 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
     try:
         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         date_str = dt.strftime("%Y-%m-%d")
+
+        # A last-contact must be in the past (or today). Comparing the
+        # derived YYYY-MM-DD strings sidesteps tz-aware/naive subtraction
+        # errors: both sides are plain ISO date strings, lexicographically
+        # ordered the same as chronologically. Future-dated events (an
+        # upcoming meeting in a calendar export) are dropped here.
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if date_str > today_str:
+            logger.debug(
+                "Skipping future last-contact %s for %s (source=%s); "
+                "future events are not last-contact signals",
+                date_str, person_uri, source,
+            )
+            return
 
         sparql = (
             "PREFIX pwg: <https://pwg.dev/ontology#>\n"
