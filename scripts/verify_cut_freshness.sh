@@ -29,16 +29,37 @@
 #   - THIS gate proves NOTHING has silently fallen behind live upstream HEAD --
 #     including the daemon + wiki-image inputs the other two only spot-check.
 #
+# NO SILENT DOWNGRADE (the hole this rev closes)
+#   A previous rev let a `verify = skip` tree WARN (non-fatal) when stale. That
+#   was the leak: a tree whose source IS fetchable from GitHub could silently
+#   fall behind. This rev removes that downgrade entirely. Two -- and only two --
+#   ways a tree may be anything other than fresh:
+#     1. EXEMPTION (auditable allowlist). A GENUINELY unverifiable source (e.g.
+#        CM019 -- not a git repo; a source path relocated off GitHub) may opt out
+#        ONLY via  verify_exempt = true  PLUS  exempt_reason = "..."  in its
+#        manifest entry. Exempt WITHOUT a reason is fail-closed RED. There is no
+#        silent WARN: an exemption is a visible, reasoned ledger row.
+#     2. DELIBERATE HOLD (the must-acknowledge ledger). A pin may sit BEHIND live
+#        HEAD only if its entry carries a hold_ack block:
+#          hold_ack_shas             = "<every delta commit, space/comma list>"
+#          hold_ack_reason           = "why the pin is held"
+#          shipping_bugfixes_grafted = true   (explicit human assertion)
+#        On each run the gate enumerates the LIVE path-scoped delta (pin..HEAD).
+#        If ANY delta commit is NOT in hold_ack_shas -> RED, naming the
+#        un-acknowledged commits and telling the operator to classify each
+#        (graft-the-bugfix, or add-to-hold_ack-with-reason). This converts silent
+#        drift into a loud decision -- it is what catches the calendar-date bug
+#        (HR015 7f7710f) fixed in source but never grafted into the vendored tree.
+#
 # FAIL-CLOSED, BOUNDED, AUTHORITATIVE
-#   * Exit 1 if ANY shippable (verify=full) input is behind live HEAD -- the cut
-#     mechanism must be UNABLE to proceed past this gate with a stale input.
+#   * Exit 1 if ANY verifiable input is behind live HEAD without a covering
+#     hold_ack, or is exempt without a reason -- the cut CANNOT proceed past here.
 #   * Exit 3 (CANNOT VERIFY) -- a DISTINCT, still-non-zero status -- if GitHub is
 #     genuinely unreachable after a retry. Never a false "fresh". The cut aborts.
-#   * Exit 0 only when every full input equals (or already contains) live HEAD.
+#   * Exit 0 only when every input is FRESH, HELD (fully-acknowledged) or EXEMPT
+#     (with a reason).
 #   * Every network read has a generous timeout + one retry; a hung endpoint
 #     degrades to CANNOT VERIFY, never an infinite wait.
-#   * verify=skip trees are still REPORTED (their freshness is visible) but a
-#     stale skip-tree WARNs rather than reds -- unless FRESHNESS_SKIP_STRICT=1.
 #
 # Inputs checked:
 #   1. Vendor pins  (vendor/VENDOR_MANIFEST.toml -- per-tree, path-scoped)
@@ -54,7 +75,8 @@
 #   CM044_BRANCH               wiki source branch (default: main)
 #   WIKI_PROVENANCE_FILE       path to the digest->CM044-sha ledger
 #                              (default: scripts/wiki_image_provenance.tsv)
-#   FRESHNESS_SKIP_STRICT=1    make a stale verify=skip tree RED, not WARN
+#   FRESHNESS_ONLY             restrict the run to a single vendor tree by name
+#                              (ops/debug + self-demo; daemon+wiki still checked)
 #   GH_API_TIMEOUT             per-call timeout in seconds (default: 25)
 #   FRESHNESS_GH_BIN           override the `gh` binary (tests inject a mock)
 #
@@ -79,19 +101,24 @@ GUI_MAKEFILE="${GUI_MAKEFILE_OVERRIDE:-$REPO_ROOT/gui/Makefile}"
 DAEMON_INTEGRATION_BRANCH="${DAEMON_INTEGRATION_BRANCH:-integration/hub-v1.0.9}"
 CM044_BRANCH="${CM044_BRANCH:-main}"
 WIKI_PROVENANCE_FILE="${WIKI_PROVENANCE_FILE:-$SCRIPT_DIR/wiki_image_provenance.tsv}"
-FRESHNESS_SKIP_STRICT="${FRESHNESS_SKIP_STRICT:-0}"
+FRESHNESS_ONLY="${FRESHNESS_ONLY:-}"
 GH_API_TIMEOUT="${GH_API_TIMEOUT:-25}"
 GH_BIN="${FRESHNESS_GH_BIN:-gh}"
 
 # --- verdict tallies ---
 n_fresh=0
-n_stale=0        # RED  -- a full input behind live HEAD (fail the cut)
-n_warn=0         # visible, non-fatal (skip trees, unmapped sources)
+n_stale=0        # RED  -- behind live HEAD w/o hold_ack, or exempt w/o reason
+n_held=0         # behind but FULLY acknowledged via hold_ack -- non-fatal
+n_exempt=0       # genuinely-unverifiable source, exempt WITH a reason -- non-fatal
 n_cannot=0       # GitHub unreachable -- fail-closed, distinct exit
 
 # Rows for the final table:  input \t pinned \t live \t status
 ROWS_FILE="$(mktemp)"
-trap 'rm -f "$ROWS_FILE"' EXIT
+# Human-readable detail lines (RED reasons, un-acked commit lists) printed
+# before the verdict so the operator sees exactly what to do.
+DETAILS_FILE="$(mktemp)"
+trap 'rm -f "$ROWS_FILE" "$DETAILS_FILE"' EXIT
+add_detail() { printf '%s\n' "$*" >> "$DETAILS_FILE"; }
 
 short() { printf '%.8s' "${1:-}"; }
 
@@ -264,28 +291,73 @@ join_path() {
     else printf '%s' "$sub"; fi
 }
 
-# Record a verdict into the tallies + table, applying skip-tree downgrade.
-record() { # input  pinned  live  verdict  is_skip
-    local input="$1" pinned="$2" live="$3" verdict="$4" is_skip="$5"
-    local base="${verdict%%:*}" disp="$verdict"
+# Classify a verdict for a NON-vendor input (daemon, wiki images). These carry
+# no hold_ack / exemption: a stale daemon or wiki image is ALWAYS fail-closed.
+classify_simple() { # input  pinned  live  verdict
+    local input="$1" pinned="$2" live="$3" verdict="$4"
+    local base="${verdict%%:*}"
     case "$base" in
-        FRESH)
-            n_fresh=$((n_fresh+1)); disp="FRESH" ;;
-        STALE|DIVERGED)
-            if [ "$is_skip" = "1" ] && [ "$FRESHNESS_SKIP_STRICT" != "1" ]; then
-                n_warn=$((n_warn+1)); disp="WARN ${verdict} (skip)"
-            else
-                n_stale=$((n_stale+1)); disp="RED ${verdict}"
-            fi ;;
-        UNREACH)
-            if [ "$is_skip" = "1" ]; then n_warn=$((n_warn+1)); disp="WARN cannot-verify (skip)"
-            else n_cannot=$((n_cannot+1)); disp="CANNOT-VERIFY"; fi ;;
-        UNRESOLVED|*)
-            # A shippable input we cannot resolve is fail-closed; a skip tree WARNs.
-            if [ "$is_skip" = "1" ]; then n_warn=$((n_warn+1)); disp="WARN unresolved (skip)"
-            else n_stale=$((n_stale+1)); disp="RED unresolved"; fi ;;
+        FRESH)          n_fresh=$((n_fresh+1));  add_row "$input" "$pinned" "$live" "FRESH" ;;
+        UNREACH)        n_cannot=$((n_cannot+1)); add_row "$input" "$pinned" "$live" "CANNOT-VERIFY" ;;
+        STALE|DIVERGED) n_stale=$((n_stale+1));   add_row "$input" "$pinned" "$live" "RED ${verdict}" ;;
+        *)              n_stale=$((n_stale+1));   add_row "$input" "$pinned" "$live" "RED unresolved" ;;
     esac
-    add_row "$input" "$pinned" "$live" "$disp"
+}
+
+# Read a manifest field as a boolean. Tolerates  field = true  and  field = "true".
+manifest_bool() { # tree  field
+    local v; v="$(vlib_field "$1" "$2" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    [ "$v" = "true" ] && { echo true; return; }
+    echo false
+}
+
+# Is <sha> acknowledged by <list> (space/comma-separated, entries may be short)?
+# Prefix-tolerant in BOTH directions so a 12-hex ack matches a 40-hex delta sha.
+sha_in_list() { # sha  list
+    local c="$1" e
+    for e in $(printf '%s' "$2" | tr ',' ' '); do
+        [ -z "$e" ] && continue
+        case "$c" in "$e"*) return 0 ;; esac
+        case "$e" in "$c"*) return 0 ;; esac
+    done
+    return 1
+}
+
+# Enumerate the LIVE path-scoped delta: SHAs of commits touching <gpath> on
+# <branch> that are AHEAD of <pin> (newest first, one per line into DELTA_OUT).
+# Sets DELTA_STATUS:
+#   OK       enumerated precisely (pin found within the path history)
+#   OVERFLOW pin not within the newest 100 path-commits -- catastrophically stale
+#   DIVERGED pin absent from the path history (side branch / rewritten)
+#   UNREACH  GitHub unreachable
+DELTA_OUT=""
+DELTA_STATUS=""
+path_delta_shas() { # acct  owner/repo  branch  gpath  pin
+    local acct="$1" repo="$2" branch="$3" gpath="$4" pin="$5"
+    DELTA_OUT=""; DELTA_STATUS=""
+    if [ -n "$gpath" ] && [ "$gpath" != "." ]; then
+        api "$acct" "repos/$repo/commits?sha=$branch&path=$gpath&per_page=100" --jq '.[].sha'
+    else
+        api "$acct" "repos/$repo/commits?sha=$branch&per_page=100" --jq '.[].sha'
+    fi
+    local rc=$?
+    if [ "$rc" -eq 2 ]; then DELTA_STATUS=UNREACH; return; fi
+    if [ "$rc" -eq 1 ]; then DELTA_STATUS=DIVERGED; return; fi
+    local list="$API_OUT" line acc="" found=0 n=0
+    while IFS= read -r line; do
+        line="$(printf '%s' "$line" | tr -d '[:space:]')"
+        [ -z "$line" ] && continue
+        n=$((n+1))
+        case "$line" in "$pin"*) found=1; break ;; esac
+        case "$pin" in "$line"*) found=1; break ;; esac
+        acc="$acc$line
+"
+    done <<EOF
+$list
+EOF
+    if [ "$found" -eq 1 ]; then DELTA_STATUS=OK; DELTA_OUT="$acc"
+    elif [ "$n" -ge 100 ]; then DELTA_STATUS=OVERFLOW
+    else DELTA_STATUS=DIVERGED; fi
 }
 
 echo "=== Cut-freshness gate (live GitHub HEAD) ==="
@@ -300,35 +372,121 @@ echo
 # ===========================================================================
 while IFS= read -r tree; do
     [ -z "$tree" ] && continue
+    [ -n "$FRESHNESS_ONLY" ] && [ "$tree" != "$FRESHNESS_ONLY" ] && continue
     pinned="$(vlib_field "$tree" pinned_sha)"
     subpath="$(vlib_field "$tree" source_path)"
     srcrepo="$(vlib_field "$tree" source_repo)"
-    verify="$(vlib_field "$tree" verify)"
-    is_skip=0; [ "$verify" = "skip" ] && is_skip=1
+    exempt="$(manifest_bool "$tree" verify_exempt)"
+    exreason="$(vlib_field "$tree" exempt_reason)"
 
-    # Non-git pin (CM019 WORKING_TREE) -- freshness is undefined; report + WARN.
+    # --- EXEMPTION: an auditable allowlist, never a silent WARN. A genuinely
+    #     unverifiable source may opt out ONLY with a reason. No reason => RED. ---
+    if [ "$exempt" = "true" ]; then
+        if [ -z "$exreason" ]; then
+            n_stale=$((n_stale+1))
+            add_row "vendor:$tree" "$pinned" "-" "RED exempt-without-reason"
+            add_detail "vendor:$tree RED: verify_exempt=true but exempt_reason is empty -- add an auditable reason or remove the exemption."
+        else
+            n_exempt=$((n_exempt+1))
+            add_row "vendor:$tree" "$pinned" "exempt" "EXEMPT"
+            add_detail "vendor:$tree EXEMPT: $exreason"
+        fi
+        continue
+    fi
+
+    # A non-git pin on a NON-exempt tree is unverifiable -> fail-closed (this was
+    # the silent-WARN hole). Mark it verify_exempt + exempt_reason if truly so.
     if [ "$pinned" = "WORKING_TREE" ] || [ -z "$pinned" ]; then
-        n_warn=$((n_warn+1))
-        add_row "vendor:$tree" "$pinned" "-" "WARN no-git-pin"
+        n_stale=$((n_stale+1))
+        add_row "vendor:$tree" "$pinned" "-" "RED non-git-pin"
+        add_detail "vendor:$tree RED: pin is '$pinned' but the tree is not exempt. If the source is genuinely unverifiable, add verify_exempt = true + exempt_reason; otherwise pin a real SHA."
         continue
     fi
 
     IFS=$'\t' read -r acct owner prefix < <(resolve_github "$srcrepo")
     if [ -z "$owner" ]; then
-        n_warn=$((n_warn+1))
-        add_row "vendor:$tree" "$pinned" "-" "WARN no-github-source"
+        n_stale=$((n_stale+1))
+        add_row "vendor:$tree" "$pinned" "-" "RED no-github-source"
+        add_detail "vendor:$tree RED: source_repo '$srcrepo' maps to no GitHub repo and the tree is not exempt. Wire a source or add verify_exempt = true + exempt_reason."
         continue
     fi
 
     gpath="$(join_path "$prefix" "$subpath")"
     live="$(gh_head "$acct" "$owner" "main" "$gpath")"
     verdict="$(freshness_verdict "$acct" "$owner" "$pinned" "$live")"
-    record "vendor:$tree" "$pinned" "$live" "$verdict" "$is_skip"
+    base="${verdict%%:*}"
+
+    case "$base" in
+        FRESH)
+            n_fresh=$((n_fresh+1)); add_row "vendor:$tree" "$pinned" "$live" "FRESH" ;;
+        UNREACH)
+            n_cannot=$((n_cannot+1)); add_row "vendor:$tree" "$pinned" "$live" "CANNOT-VERIFY" ;;
+        STALE|DIVERGED)
+            # A pin behind HEAD is allowed ONLY via a hold_ack that acknowledges
+            # EVERY commit in the live delta AND asserts the bugfixes are grafted.
+            hold_shas="$(vlib_field "$tree" hold_ack_shas)"
+            hold_reason="$(vlib_field "$tree" hold_ack_reason)"
+            grafted="$(manifest_bool "$tree" shipping_bugfixes_grafted)"
+            if [ -z "$hold_shas" ]; then
+                n_stale=$((n_stale+1))
+                add_row "vendor:$tree" "$pinned" "$live" "RED ${verdict}"
+                add_detail "vendor:$tree RED ${verdict} vs live HEAD, NO hold_ack. Classify each un-grafted commit below: graft the bugfix into the vendored tree, or add its SHA to hold_ack_shas with a reason + shipping_bugfixes_grafted = true."
+                path_delta_shas "$acct" "$owner" "main" "$gpath" "$pinned"
+                if [ "$DELTA_STATUS" = "OK" ]; then
+                    _list=""; while IFS= read -r c; do [ -n "$c" ] && _list="$_list ${c:0:12}"; done <<EOF
+$DELTA_OUT
+EOF
+                    add_detail "    un-acknowledged delta commits (pin..HEAD, path $gpath):$_list"
+                fi
+            else
+                path_delta_shas "$acct" "$owner" "main" "$gpath" "$pinned"
+                if [ "$DELTA_STATUS" = "UNREACH" ]; then
+                    n_cannot=$((n_cannot+1))
+                    add_row "vendor:$tree" "$pinned" "$live" "CANNOT-VERIFY delta"
+                elif [ "$DELTA_STATUS" != "OK" ]; then
+                    n_stale=$((n_stale+1))
+                    add_row "vendor:$tree" "$pinned" "$live" "RED delta-$DELTA_STATUS"
+                    add_detail "vendor:$tree RED: cannot enumerate the pin..HEAD delta ($DELTA_STATUS) -- the pin is either off the branch history or >100 path-commits behind. Re-pin to current HEAD, then re-run."
+                else
+                    unacked=""
+                    while IFS= read -r c; do
+                        [ -z "$c" ] && continue
+                        sha_in_list "$c" "$hold_shas" || unacked="$unacked ${c:0:12}"
+                    done <<EOF
+$DELTA_OUT
+EOF
+                    if [ -n "$unacked" ]; then
+                        n_stale=$((n_stale+1))
+                        add_row "vendor:$tree" "$pinned" "$live" "RED ${verdict} unacked"
+                        add_detail "vendor:$tree RED: delta commit(s) NOT in hold_ack_shas:$unacked"
+                        add_detail "    classify each: graft-the-bugfix (then re-run), or add its SHA to hold_ack_shas with a reason."
+                    elif [ "$grafted" != "true" ]; then
+                        n_stale=$((n_stale+1))
+                        add_row "vendor:$tree" "$pinned" "$live" "RED hold_ack no-grafted-assert"
+                        add_detail "vendor:$tree RED: hold_ack covers the delta but shipping_bugfixes_grafted is not asserted true. Graft the bugfixes among the held commits, then set shipping_bugfixes_grafted = true."
+                    elif [ -z "$hold_reason" ]; then
+                        n_stale=$((n_stale+1))
+                        add_row "vendor:$tree" "$pinned" "$live" "RED hold_ack no-reason"
+                        add_detail "vendor:$tree RED: hold_ack_shas present but hold_ack_reason is empty. Record WHY the pin is held."
+                    else
+                        n_held=$((n_held+1))
+                        add_row "vendor:$tree" "$pinned" "$live" "HELD ${verdict}"
+                        add_detail "vendor:$tree HELD ${verdict}: every delta commit acknowledged. Reason: $hold_reason"
+                    fi
+                fi
+            fi ;;
+        *) # UNRESOLVED
+            n_stale=$((n_stale+1))
+            add_row "vendor:$tree" "$pinned" "$live" "RED unresolved"
+            add_detail "vendor:$tree RED: pinned SHA could not be resolved against live GitHub (bad pin, or pin absent from the source repo). Re-pin, or mark verify_exempt + reason if the source is genuinely unverifiable." ;;
+    esac
 done < <(vlib_tree_names)
 
 # ===========================================================================
 # 2. DAEMON  (install.sh / gui/Makefile pin -> tag -> vs integration HEAD)
+#    Not a vendor tree: no hold_ack / exemption -- a stale daemon is always RED.
 # ===========================================================================
+check_daemon() {
 sh_pin="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "$INSTALL_SH" 2>/dev/null \
           | sed -E 's/.*:-([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?)\}.*/\1/')"
 mk_pin="$(grep -m1 -E '^DAEMON_VERSION[[:space:]]*\?=' "$GUI_MAKEFILE" 2>/dev/null \
@@ -358,13 +516,17 @@ else
         fi
     else
         verdict="$(freshness_verdict ostler-ai ostler-ai/ostler-assistant "$daemon_commit" "$integ_head")"
-        record "daemon (${daemon_pin})" "$daemon_commit" "$integ_head" "$verdict" 0
+        classify_simple "daemon (${daemon_pin})" "$daemon_commit" "$integ_head" "$verdict"
     fi
 fi
+}
+[ -z "$FRESHNESS_ONLY" ] && check_daemon
 
 # ===========================================================================
 # 3. WIKI IMAGES  (install.sh digest -> provenance ledger -> vs CM044 main HEAD)
+#    Not a vendor tree: no hold_ack / exemption -- a stale wiki image is always RED.
 # ===========================================================================
+check_wiki() {
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
 for key in wiki-compiler wiki-site; do
     digest="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
@@ -389,8 +551,10 @@ for key in wiki-compiler wiki-site; do
         continue
     fi
     verdict="$(freshness_verdict andygmassey andygmassey/CM044-PWG-Personal-Wiki "$cm044_sha" "$cm044_head")"
-    record "wiki:$key" "$cm044_sha" "$cm044_head" "$verdict" 0
+    classify_simple "wiki:$key" "$cm044_sha" "$cm044_head" "$verdict"
 done
+}
+[ -z "$FRESHNESS_ONLY" ] && check_wiki
 
 # ===========================================================================
 # TABLE + VERDICT
@@ -401,12 +565,21 @@ while IFS=$'\t' read -r input pinned live status; do
     printf '%-34s %-9s %-10s %s\n' "$input" "$pinned" "$live" "$status"
 done < "$ROWS_FILE"
 echo "-----------------------------------------------------------------------"
-echo "fresh=$n_fresh  stale/RED=$n_stale  warn=$n_warn  cannot-verify=$n_cannot"
+echo "fresh=$n_fresh  held=$n_held  exempt=$n_exempt  stale/RED=$n_stale  cannot-verify=$n_cannot"
 echo
 
+# Detail block: RED reasons, EXEMPT reasons, HELD reasons + un-acked commits.
+if [ -s "$DETAILS_FILE" ]; then
+    echo "DETAIL:"
+    sed 's/^/  /' "$DETAILS_FILE"
+    echo
+fi
+
 if [ "$n_stale" -gt 0 ]; then
-    echo "GATE: RED -- $n_stale shippable input(s) lag live upstream HEAD (or are unresolved)." >&2
-    echo "      Re-pin / re-vendor / rebuild each RED input to current HEAD, then re-run. DO NOT CUT." >&2
+    echo "GATE: RED -- $n_stale input(s) lag live upstream HEAD without a covering hold_ack," >&2
+    echo "      are exempt without a reason, or are unresolved. For each RED above: graft the" >&2
+    echo "      bugfix + re-pin, add a hold_ack (with shipping_bugfixes_grafted = true) covering" >&2
+    echo "      the whole delta, or add verify_exempt + exempt_reason. Then re-run. DO NOT CUT." >&2
     exit 1
 fi
 if [ "$n_cannot" -gt 0 ]; then
@@ -414,9 +587,11 @@ if [ "$n_cannot" -gt 0 ]; then
     echo "      This is fail-closed: the cut must NOT proceed on an unverified input. Restore network + re-run." >&2
     exit 3
 fi
-if [ "$n_warn" -gt 0 ]; then
-    echo "GATE: GREEN with $n_warn warning(s) -- skip-marked / non-git inputs reported but not enforced."
-    echo "      (set FRESHNESS_SKIP_STRICT=1 to make a stale skip-tree fatal)"
+extra=""
+[ "$n_held" -gt 0 ]   && extra="$extra $n_held held (acknowledged)"
+[ "$n_exempt" -gt 0 ] && extra="$extra${extra:+,} $n_exempt exempt (with reason)"
+if [ -n "$extra" ]; then
+    echo "GATE: GREEN -- every input is fresh, held or exempt.$extra. See DETAIL above (audit them)."
 else
     echo "GATE: GREEN -- every shippable input is at (or ahead of) live upstream HEAD."
 fi

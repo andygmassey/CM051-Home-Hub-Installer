@@ -8,7 +8,10 @@ name: cut-freshness
 # those private cross-org repos, so we run the HERMETIC self-test (mocked gh)
 # that proves the gate's logic still holds: all-fresh -> 0, stale vendor/daemon/
 # wiki -> 1, unrecorded wiki provenance -> 1, GitHub-unreachable -> distinct
-# CANNOT-VERIFY (never a false pass), stale skip-tree -> WARN not RED.
+# CANNOT-VERIFY (never a false pass); a fetchable verify=skip tree that is stale
+# -> RED (no silent WARN downgrade); exempt-with-reason -> GREEN, exempt-without
+# -> RED; a pin behind HEAD -> RED unless a hold_ack covers the WHOLE delta with
+# shipping_bugfixes_grafted = true (partial ack names the un-acknowledged commit).
 #
 # Registering the self-test here means the gate cannot be silently dropped or
 # rotted: any change to the gate, its provenance ledger, or its test fails CI.

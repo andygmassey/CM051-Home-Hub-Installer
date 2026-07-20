@@ -12,14 +12,19 @@
 # inputs under test is controlled.
 #
 # Scenarios proven (the mission's acceptance set):
-#   (a) everything fresh                      -> exit 0, GATE GREEN
-#   (b) a vendor pin behind live HEAD         -> exit 1, names the tree, +N
-#   (c) a stale daemon (tag predates integ)   -> exit 1, names the daemon
-#   (d) a stale wiki image (CM044 lag)        -> exit 1, names the image
-#   (e) GitHub unreachable                    -> exit 3 CANNOT-VERIFY (no false pass)
-# Plus:
-#   (f) a repinned wiki digest with NO provenance row -> exit 1 (fail-closed)
-#   (g) a stale but verify=skip tree          -> exit 0 (WARN, not RED)
+#   (a) everything fresh                          -> exit 0, GATE GREEN
+#   (b) a vendor pin behind live HEAD, no hold_ack -> exit 1, names tree + delta
+#   (c) a stale daemon (tag predates integ)       -> exit 1, names the daemon
+#   (d) a stale wiki image (CM044 lag)            -> exit 1, names the image
+#   (e) GitHub unreachable                        -> exit 3 CANNOT-VERIFY (no false pass)
+#   (f) a repinned wiki digest with NO provenance -> exit 1 (fail-closed)
+# The hardening set (this rev):
+#   (g) verify=skip tree that is FETCHABLE + stale -> exit 1 (WARN hole CLOSED)
+#   (h) exempt WITH a reason                       -> exit 0, EXEMPT (non-fatal)
+#   (i) exempt WITHOUT a reason                    -> exit 1 (fail-closed)
+#   (j) stale tree, hold_ack covers WHOLE delta    -> exit 0, HELD (non-fatal)
+#   (k) stale tree, hold_ack MISSING one delta sha -> exit 1, names the un-acked sha
+#   (l) hold_ack covers delta but grafted!=true    -> exit 1 (assertion required)
 #
 # British English; " -- " not em-dashes.
 
@@ -36,7 +41,7 @@ bad()  { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 # --- canonical SHAs used across scenarios (40-hex, arbitrary but distinct) ---
 SHA_FRESH="1111111111111111111111111111111111111111"   # == live head (fresh)
-SHA_OLD="2222222222222222222222222222222222222222"     # behind live head
+SHA_OLD="2222222222222222222222222222222222222222"     # behind live head (a pin)
 LIVE_HEAD="1111111111111111111111111111111111111111"
 DAEMON_TAG_FRESH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DAEMON_TAG_OLD="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -44,53 +49,56 @@ INTEG_HEAD="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 CM044_FRESH="3333333333333333333333333333333333333333"
 CM044_OLD="4444444444444444444444444444444444444444"
 CM044_HEAD="3333333333333333333333333333333333333333"
+# delta commits (pin SHA_OLD .. live SHA_FRESH), newest-first
+D1="d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1"
+D2="d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2"
+D3="d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3"
 
 # ---------------------------------------------------------------------------
-# Build a mock `gh` that answers `gh api <path> --jq <expr>` deterministically.
-# The mock ignores --jq and returns the FINAL value the gate expects for each
-# call shape, driven by an env "database" the scenario exports:
-#   MOCK_UNREACH=1               -> every call exits 2 with empty stdout (network down)
-#   MOCK_HEAD_<key>=<sha>        -> commits/<ref> or path-scoped head for a repo
-#   MOCK_CMP_<base8>_<head8>=... -> "status ahead behind" for a compare
-# Keys are derived from the repo + ref, sanitised to A-Za-z0-9_.
+# Mock `gh`: implements `gh api ...` deterministically from env.
+#   MOCK_UNREACH=1                     -> every call exits 2 (network down)
+#   MOCK_HEAD_<repo>_<ref>=<sha>       -> commits/<ref> or per_page=1 path head
+#   MOCK_CMP_<base8>_<head8>=...       -> "status ahead behind" for a compare
+#   MOCK_DELTA_<repo>_<path>=<list>    -> per_page=100 path-commit list (multiline)
+# Keys are sanitised to A-Za-z0-9_ (non-alnum -> _). ":" in a ref -> "_".
 # ---------------------------------------------------------------------------
 make_mock_gh() {
     cat > "$WORK/gh" <<'MOCK'
 #!/usr/bin/env bash
-# Mock gh: only implements `gh api ...`. Reads canned answers from env.
 set -u
-[ "${1:-}" = "auth" ] && exit 0          # token_for is bypassed in mock mode anyway
+[ "${1:-}" = "auth" ] && exit 0
 [ "${1:-}" != "api" ] && { echo "mock gh: unsupported: $*" >&2; exit 99; }
 shift
-if [ "${MOCK_UNREACH:-0}" = "1" ]; then exit 2; fi   # simulate transport failure
+if [ "${MOCK_UNREACH:-0}" = "1" ]; then exit 2; fi
 
-# Find the api path (first non-flag arg).
 path=""
 for a in "$@"; do case "$a" in --*|-*) ;; *) path="$a"; break ;; esac; done
-
 san() { printf '%s' "$1" | tr -c 'A-Za-z0-9' '_'; }
 
 case "$path" in
   repos/*/compare/*)
-    # repos/<owner>/<repo>/compare/<base>...<head>
     spec="${path#*/compare/}"; base="${spec%%...*}"; head="${spec#*...}"
     key="MOCK_CMP_$(san "${base:0:8}")_$(san "${head:0:8}")"
     val="$(eval "printf '%s' \"\${$key:-}\"")"
     if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
     echo "$val"; exit 0 ;;
   repos/*/commits*)
-    # Either repos/<o>/<r>/commits/<ref>  or  repos/<o>/<r>/commits?sha=..&path=..
-    ref=""
+    repo="${path%%/commits*}"; repo="${repo#repos/}"
     case "$path" in
-      *"/commits/"*) ref="${path##*/commits/}" ;;
       *"/commits?"*)
         q="${path#*\?}"
-        # extract sha= and path=
         b="$(printf '%s\n' "$q" | tr '&' '\n' | sed -n 's/^sha=//p')"
         p="$(printf '%s\n' "$q" | tr '&' '\n' | sed -n 's/^path=//p')"
+        # per_page=100 => the path-scoped DELTA list (multiline). Else a head.
+        if printf '%s' "$q" | grep -q 'per_page=100'; then
+          key="MOCK_DELTA_$(san "$repo")_$(san "$p")"
+          val="$(eval "printf '%s' \"\${$key:-}\"")"
+          if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
+          printf '%s\n' "$val"; exit 0
+        fi
         ref="${b}::${p}" ;;
+      *"/commits/"*) ref="${path##*/commits/}" ;;
     esac
-    repo="${path%%/commits*}"; repo="${repo#repos/}"
     key="MOCK_HEAD_$(san "$repo")_$(san "$ref")"
     val="$(eval "printf '%s' \"\${$key:-}\"")"
     if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
@@ -102,60 +110,53 @@ MOCK
 }
 
 # ---------------------------------------------------------------------------
-# A minimal fixture estate: manifest (2 trees), install.sh, gui/Makefile,
-# provenance ledger. The gate reads pins from these.
+# Fixture estate. Tree 1 = cm041/contact_syncer (source $CM041 -> CM041-People-
+# Graph, path contact_syncer). Tree 2 = a second tree over $CM048 whose extra
+# manifest fields are configurable. Globals drive the build:
+#   T1_PIN T1_EXTRA  T2_PIN T2_EXTRA  DAEMON_PIN COMP_DIGEST COMP_PROV
 # ---------------------------------------------------------------------------
 FIXROOT="$WORK/estate"
 build_fixture() {
-    local vendor_pin="$1" daemon_pin="$2" comp_digest="$3" comp_prov_sha="$4" skip_pin="$5"
     rm -rf "$FIXROOT"; mkdir -p "$FIXROOT/scripts" "$FIXROOT/gui" "$FIXROOT/vendor"
+    {
+      echo '[[tree]]'
+      echo 'name             = "cm041/contact_syncer"'
+      echo 'vendor_path      = "vendor/cm041/contact_syncer"'
+      echo 'source_repo      = "$CM041"'
+      echo 'source_path      = "contact_syncer"'
+      echo "pinned_sha       = \"$T1_PIN\""
+      echo 'verify           = "full"'
+      printf '%s\n' "$T1_EXTRA"
+      echo
+      echo '[[tree]]'
+      echo 'name             = "cm048_pipeline"'
+      echo 'vendor_path      = "vendor/cm048_pipeline"'
+      echo 'source_repo      = "$CM048"'
+      echo 'source_path      = "."'
+      echo "pinned_sha       = \"$T2_PIN\""
+      echo 'verify           = "skip"'
+      printf '%s\n' "$T2_EXTRA"
+    } > "$FIXROOT/vendor/VENDOR_MANIFEST.toml"
 
-    cat > "$FIXROOT/vendor/VENDOR_MANIFEST.toml" <<EOF
-[[tree]]
-name             = "cm041/contact_syncer"
-vendor_path      = "vendor/cm041/contact_syncer"
-source_repo      = "\$CM041"
-source_path      = "contact_syncer"
-pinned_sha       = "$vendor_pin"
-verify           = "full"
-
-[[tree]]
-name             = "cm019_preferences"
-vendor_path      = "vendor/cm019_preferences"
-source_repo      = "\$CM048"
-source_path      = "."
-pinned_sha       = "$skip_pin"
-verify           = "skip"
-EOF
-
-    # install.sh: daemon pin + one wiki-compiler digest (+ a valid wiki-site pin).
     cat > "$FIXROOT/install.sh" <<EOF
 #!/usr/bin/env bash
-OSTLER_ASSISTANT_VERSION="\${OSTLER_ASSISTANT_VERSION:-$daemon_pin}"
+OSTLER_ASSISTANT_VERSION="\${OSTLER_ASSISTANT_VERSION:-$DAEMON_PIN}"
     image: ghcr.io/ostler-ai/ostler-wiki-site@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
-    image: ghcr.io/ostler-ai/ostler-wiki-compiler@$comp_digest
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler@$COMP_DIGEST
 EOF
-
     cat > "$FIXROOT/gui/Makefile" <<EOF
-DAEMON_VERSION       ?= $daemon_pin
+DAEMON_VERSION       ?= $DAEMON_PIN
 EOF
-
-    # Provenance ledger. wiki-site always mapped fresh; wiki-compiler maps to
-    # the requested source sha ONLY if comp_prov_sha is non-"MISSING".
     {
       echo "# fixture ledger"
       echo -e "wiki-site\tsha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\t$CM044_FRESH"
-      if [ "$comp_prov_sha" != "MISSING" ]; then
-        echo -e "wiki-compiler\t$comp_digest\t$comp_prov_sha"
+      if [ "$COMP_PROV" != "MISSING" ]; then
+        echo -e "wiki-compiler\t$COMP_DIGEST\t$COMP_PROV"
       fi
     } > "$FIXROOT/scripts/wiki_image_provenance.tsv"
-
-    # The gate resolves REPO_ROOT from its own location; point it at the fixture
-    # via env overrides instead. Symlink the real lib so the TOML reader loads.
     cp "$REPO_ROOT/scripts/_vendor_lib.sh" "$FIXROOT/scripts/_vendor_lib.sh"
 }
 
-# Run the gate against the fixture estate with a given MOCK env db.
 run_gate() { # extra env assignments passed as args
     env \
       FRESHNESS_GH_BIN="$WORK/gh" \
@@ -170,19 +171,31 @@ run_gate() { # extra env assignments passed as args
       bash "$GATE"
 }
 
+# Defaults: everything fresh, tree2 fresh + no extra fields.
+reset_defaults() {
+    T1_PIN="$SHA_FRESH"; T1_EXTRA=""
+    T2_PIN="$SHA_FRESH"; T2_EXTRA=""
+    DAEMON_PIN="0.9.9"
+    COMP_DIGEST="sha256:cafe00000000000000000000000000000000000000000000000000000000cafe"
+    COMP_PROV="$CM044_FRESH"
+}
+
+# The full estate's "everything else fresh" mock env (daemon + wiki + tree2 fresh).
+FULL_FRESH_ENV=(
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD"
+  MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD"
+  MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH"
+  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD"
+  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD"
+)
+
 make_mock_gh
 
 # ===========================================================================
 # (a) ALL FRESH -> exit 0
 # ===========================================================================
-build_fixture "$SHA_FRESH" "0.9.9" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "$CM044_FRESH" "$SHA_FRESH"
-OUT="$(run_gate \
-  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
-  MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD" \
-  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD" \
-  2>&1)"; RC=$?
+reset_defaults; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
     ok "(a) all fresh -> exit 0, GATE GREEN"
 else
@@ -190,38 +203,28 @@ else
 fi
 
 # ===========================================================================
-# (b) STALE VENDOR PIN -> exit 1, names the tree
-#   pin = SHA_OLD, live head = SHA_FRESH, compare OLD...FRESH = ahead 5
+# (b) STALE VENDOR PIN, no hold_ack -> exit 1, names the tree + delta commits
 # ===========================================================================
-build_fixture "$SHA_OLD" "0.9.9" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "$CM044_FRESH" "$SHA_FRESH"
-OUT="$(run_gate \
-  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
-  MOCK_CMP_22222222_11111111="ahead 5 0" \
-  MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD" \
-  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD" \
+reset_defaults; T1_PIN="$SHA_OLD"; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
   2>&1)"; RC=$?
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "vendor:cm041/contact_syncer" \
-   && printf '%s' "$OUT" | grep -qE "RED STALE:\+5"; then
-    ok "(b) stale vendor pin -> exit 1, names tree + '+5'"
+   && printf '%s' "$OUT" | grep -qE "RED STALE:\+3" \
+   && printf '%s' "$OUT" | grep -q "d1d1d1d1d1d1"; then
+    ok "(b) stale vendor pin, no hold_ack -> exit 1, names tree + un-acked delta"
 else
     bad "(b) stale vendor: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 # ===========================================================================
 # (c) STALE DAEMON -> exit 1
-#   daemon pin 0.9.8 -> tag hub-v0.9.8 -> DAEMON_TAG_OLD; integ head newer.
-#   compare OLD...INTEG = ahead 12
 # ===========================================================================
-build_fixture "$SHA_FRESH" "0.9.8" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "$CM044_FRESH" "$SHA_FRESH"
-OUT="$(run_gate \
-  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
-  MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD" \
+reset_defaults; DAEMON_PIN="0.9.8"; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_8="$DAEMON_TAG_OLD" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD" \
   MOCK_CMP_bbbbbbbb_aaaaaaaa="ahead 12 0" \
-  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD" \
   2>&1)"; RC=$?
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .* RED STALE:\+12"; then
     ok "(c) stale daemon -> exit 1, names daemon + '+12'"
@@ -231,16 +234,9 @@ fi
 
 # ===========================================================================
 # (d) STALE WIKI IMAGE -> exit 1
-#   provenance maps compiler digest -> CM044_OLD; CM044 head newer.
-#   compare CM044_OLD...CM044_HEAD = ahead 7
 # ===========================================================================
-build_fixture "$SHA_FRESH" "0.9.9" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "$CM044_OLD" "$SHA_FRESH"
-OUT="$(run_gate \
-  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
-  MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD" \
-  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD" \
+reset_defaults; COMP_PROV="$CM044_OLD"; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
   MOCK_CMP_44444444_33333333="ahead 7 0" \
   2>&1)"; RC=$?
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "wiki:wiki-compiler .* RED STALE:\+7"; then
@@ -250,9 +246,9 @@ else
 fi
 
 # ===========================================================================
-# (e) GITHUB UNREACHABLE -> exit 3 CANNOT-VERIFY (never a false pass)
+# (e) GITHUB UNREACHABLE -> exit 3 CANNOT-VERIFY
 # ===========================================================================
-build_fixture "$SHA_FRESH" "0.9.9" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "$CM044_FRESH" "$SHA_FRESH"
+reset_defaults; build_fixture
 OUT="$(run_gate MOCK_UNREACH=1 2>&1)"; RC=$?
 if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q "GATE: CANNOT VERIFY"; then
     ok "(e) github unreachable -> exit 3 CANNOT-VERIFY (no false pass)"
@@ -263,14 +259,8 @@ fi
 # ===========================================================================
 # (f) REPINNED WIKI DIGEST WITH NO PROVENANCE ROW -> exit 1 (fail-closed)
 # ===========================================================================
-build_fixture "$SHA_FRESH" "0.9.9" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "MISSING" "$SHA_FRESH"
-OUT="$(run_gate \
-  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
-  MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD" \
-  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD" \
-  2>&1)"; RC=$?
+reset_defaults; COMP_PROV="MISSING"; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" 2>&1)"; RC=$?
 if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED unrecorded-provenance"; then
     ok "(f) wiki repin w/o provenance row -> exit 1, fail-closed"
 else
@@ -278,22 +268,103 @@ else
 fi
 
 # ===========================================================================
-# (g) STALE verify=skip TREE -> exit 0 (WARN, not RED)
-#   skip-tree pin = SHA_OLD behind live; compare ahead 3. Everything else fresh.
+# (g) verify=skip tree that is FETCHABLE + stale -> exit 1 (WARN HOLE CLOSED)
+#   Tree2 (cm048) is verify=skip but has a GitHub source; it is stale by +4.
+#   Old behaviour: WARN, exit 0. New behaviour: RED, exit 1.
+#   Isolate with FRESHNESS_ONLY so only tree2 runs.
 # ===========================================================================
-build_fixture "$SHA_FRESH" "0.9.9" "sha256:cafe00000000000000000000000000000000000000000000000000000000cafe" "$CM044_FRESH" "$SHA_OLD"
-OUT="$(run_gate \
-  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+reset_defaults; T2_PIN="$SHA_OLD"; build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" \
   MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD" \
-  MOCK_CMP_22222222_11111111="ahead 3 0" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH" \
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD" \
-  MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 4 0" \
+  MOCK_DELTA_andygmassey_CM048_PWG_Conversation_Processing_="$(printf '%s\n%s' "$D1" "$SHA_OLD")" \
   2>&1)"; RC=$?
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE "WARN STALE:\+3 \(skip\)"; then
-    ok "(g) stale verify=skip tree -> exit 0, WARN not RED"
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "vendor:cm048_pipeline" \
+   && printf '%s' "$OUT" | grep -qE "RED STALE:\+4"; then
+    ok "(g) fetchable verify=skip tree, stale -> exit 1 (WARN hole closed)"
 else
-    bad "(g) skip warn: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+    bad "(g) skip-hole: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (h) EXEMPT WITH a reason -> exit 0, EXEMPT (non-fatal)
+# ===========================================================================
+reset_defaults
+T2_EXTRA=$'verify_exempt    = true\nexempt_reason    = "CM019 is not a git repo -- genuinely unverifiable"'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "EXEMPT" \
+   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+    ok "(h) exempt WITH reason -> exit 0, EXEMPT non-fatal"
+else
+    bad "(h) exempt-with-reason: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (i) EXEMPT WITHOUT a reason -> exit 1 (fail-closed)
+# ===========================================================================
+reset_defaults
+T2_EXTRA=$'verify_exempt    = true'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm048_pipeline" 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "RED exempt-without-reason"; then
+    ok "(i) exempt WITHOUT reason -> exit 1, fail-closed"
+else
+    bad "(i) exempt-without-reason: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (j) STALE tree, hold_ack covers the WHOLE delta + grafted=true -> exit 0 HELD
+# ===========================================================================
+reset_defaults; T1_PIN="$SHA_OLD"
+T1_EXTRA=$'hold_ack_shas    = "d1d1d1d1 d2d2d2d2 d3d3d3d3"\nhold_ack_reason  = "v1.1 features deferred; bugfixes grafted"\nshipping_bugfixes_grafted = true'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE "HELD STALE:\+3" \
+   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+    ok "(j) stale + hold_ack covers whole delta -> exit 0, HELD"
+else
+    bad "(j) fully-acked: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (k) STALE tree, hold_ack MISSING one delta sha -> exit 1, names the un-acked
+# ===========================================================================
+reset_defaults; T1_PIN="$SHA_OLD"
+T1_EXTRA=$'hold_ack_shas    = "d1d1d1d1 d2d2d2d2"\nhold_ack_reason  = "partial"\nshipping_bugfixes_grafted = true'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "unacked" \
+   && printf '%s' "$OUT" | grep -q "d3d3d3d3d3d3" \
+   && ! printf '%s' "$OUT" | grep -q "d1d1d1d1d1d1 "; then
+    ok "(k) stale + hold_ack missing a delta sha -> exit 1, names ONLY the un-acked d3"
+else
+    bad "(k) partial-ack: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (l) hold_ack covers delta but shipping_bugfixes_grafted != true -> exit 1
+# ===========================================================================
+reset_defaults; T1_PIN="$SHA_OLD"
+T1_EXTRA=$'hold_ack_shas    = "d1d1d1d1 d2d2d2d2 d3d3d3d3"\nhold_ack_reason  = "held"'
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD" \
+  MOCK_CMP_22222222_11111111="ahead 3 0" \
+  MOCK_DELTA_andygmassey_CM041_People_Graph_contact_syncer="$(printf '%s\n%s\n%s\n%s' "$D1" "$D2" "$D3" "$SHA_OLD")" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "no-grafted-assert"; then
+    ok "(l) hold_ack without shipping_bugfixes_grafted=true -> exit 1"
+else
+    bad "(l) grafted-assert: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 echo
