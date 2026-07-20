@@ -257,6 +257,24 @@
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
+--- a/agent/dashboard_components.py
++++ b/agent/dashboard_components.py
+@@ -68,6 +68,7 @@
+     from legal import (  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+         ARTICLE_9_EU_CONSENT,
+         EU_VOICE_SPEAKER_ID_CONSENT,
++        SPOKEN_CAPTURE_RECORDING_CONSENT,
+         THIRD_PARTY_DATA_NOTICE,
+         WHATSAPP_UNOFFICIAL_RISK_CONSENT,
+     )
+@@ -77,6 +78,7 @@
+         WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
+         EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
+         THIRD_PARTY_DATA_NOTICE.tickbox_id: THIRD_PARTY_DATA_NOTICE,
++        SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT,
+     }
+ except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
+     _BUNDLED_CONSENTS = {}
 --- a/agent/duplicate_decision.py
 +++ b/agent/duplicate_decision.py
 @@ -25,7 +25,7 @@

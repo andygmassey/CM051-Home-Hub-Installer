@@ -1906,6 +1906,9 @@ WA_CONSENT=""
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+# Spoken-capture recording-consent acknowledgement (every region). Empty
+# default = spoken transcription off on a reuse run until re-acknowledged.
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
 
 # Region + ISO + source. Read at line ~3498 (EU branch entry),
 # ~5265 (region-persist Python heredoc), ~5300 (consent_cli
@@ -5080,6 +5083,7 @@ fi
 OSTLER_CONSENT_ARTICLE_9_DECISION=""
 OSTLER_CONSENT_VOICE_EU_DECISION=""
 OSTLER_CONSENT_THIRD_PARTY_DECISION=""
+OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
 
 if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
@@ -5329,6 +5333,72 @@ while true; do
             echo "  If you change your mind, re-run the installer."
             gui_cancelled   # CX-126: neutral cancelled terminal, not a failure
             exit 0
+            ;;
+        *)
+            echo "  Please answer Y or N."
+            ;;
+    esac
+done
+
+# ── 10b.6 Spoken-capture recording-consent acknowledgement ───────
+#
+# Region-agnostic. DISTINCT from the EU voice gate at 10b: that one is
+# the operator's own biometric (voice fingerprint => who is speaking);
+# THIS one is the operator's obligation towards OTHER people they record.
+# Spoken/meeting transcription is governed by member-state recording law
+# (e.g. German StGB §201, French Penal Code Art. 226-1) which keeping
+# everything local does NOT override. Text/messaging is unaffected.
+#
+# Not EU-gated: recording-consent law is not EU-exclusive (US two-party
+# states, etc.), and the notice tells the operator to follow THEIR local
+# law, so every region sees it.
+#
+# Wording is verbatim from legal/consent_strings.py
+# (SPOKEN_CAPTURE_RECORDING_CONSENT). Decision held in
+# OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION until Phase 3 pip-installs
+# ostler_security; then persisted via consent_cli alongside the others.
+#
+# Decline does NOT abort (proportionate, normie-facing): it mirrors the
+# EU voice gate -- declining just keeps spoken transcription off; text
+# conversations are unaffected. Default seeded "n" so spoken transcription
+# is opt-in (the safe posture for someone who clicks straight through).
+echo ""
+echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${BOLD}${MSG_CONSENT_SPOKEN_CAPTURE_HEADING}${NC}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_INTRO}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_LAW}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_LOCAL}"
+echo ""
+echo -e "  ${BOLD}${MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING}${NC}"
+echo ""
+echo "    - ${MSG_CONSENT_SPOKEN_CAPTURE_ASK_1}"
+echo "    - ${MSG_CONSENT_SPOKEN_CAPTURE_ASK_2}"
+echo "    - ${MSG_CONSENT_SPOKEN_CAPTURE_ASK_3}"
+echo ""
+echo "  ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL}"
+echo ""
+echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y}"
+echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N}"
+echo ""
+echo -e "  ${DIM}${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL}${NC}"
+echo ""
+while true; do
+    # gui_read so the GUI installer renders a sheet (bare `read -p`
+    # hangs OSTLER_GUI=1 because stdin is /dev/null).
+    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP" "" "consent_spoken_capture")"
+    case "${SPOKEN_CAPTURE:-}" in
+        y|Y)
+            OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="accepted"
+            break
+            ;;
+        n|N)
+            OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="declined"
+            info "$MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF"
+            break
             ;;
         *)
             echo "  Please answer Y or N."
@@ -7486,6 +7556,22 @@ PY
             third_party_data_personal_records \
             "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
             "Could not persist third-party-data acknowledgement (continuing)"
+    fi
+
+    # Spoken-capture recording-consent acknowledgement (every region).
+    # accepted => spoken/meeting transcription allowed; declined => it
+    # stays off (decline does not abort the install). Record either way so
+    # Doctor shows "user declined" rather than "missing".
+    if [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "accepted" ]]; then
+        _consent_cli_record blocking \
+            spoken_capture_recording_consent \
+            accepted \
+            "Could not persist spoken-capture consent (continuing - transcription will stay off)"
+    elif [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "declined" ]]; then
+        _consent_cli_record declined \
+            spoken_capture_recording_consent \
+            declined \
+            "Could not persist spoken-capture decline record"
     fi
 
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
