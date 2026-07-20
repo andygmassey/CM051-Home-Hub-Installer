@@ -18,8 +18,28 @@
 #   pinned_sha      = "<full sha>"  |  "WORKING_TREE" (non-git source, e.g. CM019)
 #   divergence_patch= "vendor/divergences/<id>.patch"   # "" if byte-identical
 #   exclude         = ["tests/", "__pycache__/"]        # source paths NOT vendored
-#   verify          = "full" | "skip"           # "skip" => WARN, never silently pass
+#   verify          = "full" | "skip"           # verify_vendor_fresh.sh content check
 #   note            = "free text"
+#
+# LIVE-HEAD FRESHNESS GATE FIELDS (scripts/verify_cut_freshness.sh).
+# The freshness gate compares every FETCHABLE pin to its live GitHub HEAD. It does
+# NOT key off `verify` (that field drives the content-diff gate). Two -- and only
+# two -- ways a tree may be anything other than fresh, both auditable, never a
+# silent WARN:
+#   verify_exempt   = true                      # opt a GENUINELY unverifiable
+#   exempt_reason   = "why it cannot be checked" #   source out (no git / no live
+#                                                #   GitHub HEAD). REASON REQUIRED --
+#                                                #   exempt without a reason = RED.
+#   hold_ack_shas   = "<sha> <sha> ..."         # DELIBERATE HOLD ledger: a pin may
+#   hold_ack_reason = "why the pin is held"     #   sit behind HEAD only if EVERY
+#   shipping_bugfixes_grafted = true            #   commit in the live path-scoped
+#                                                #   delta (pin..HEAD) is listed here
+#                                                #   AND the bugfixes among them are
+#                                                #   grafted (asserted true). Any
+#                                                #   delta commit NOT listed = RED,
+#                                                #   naming it. This is what catches
+#                                                #   a source-fixed-but-un-grafted
+#                                                #   bug (e.g. HR015 7f7710f).
 #
 # Source repo paths are overridable for operators/CI:
 #   - per tree:  VENDOR_SRC_CM041_CONTACT_SYNCER=/path
@@ -225,6 +245,8 @@ pinned_sha       = "WORKING_TREE"
 divergence_patch = ""
 exclude          = ["__pycache__/"]
 verify           = "skip"
+verify_exempt    = true
+exempt_reason    = "CM019 is not a git repo -- there is no commit to pin and no GitHub source to compare a live HEAD against. Genuinely unverifiable by the freshness gate until CM019 is gitified or its layout reconciled. verify_vendor_fresh.sh still content-checks it."
 note             = "CM019 is NOT a git repo -- no commit to pin. Vendor sub-tree (services/, ontology/) also remaps non-trivially into '02 - Code/'. Verification deferred until CM019 is gitified or the layout is reconciled. WARN, never silent pass."
 
 [[tree]]
@@ -236,6 +258,8 @@ pinned_sha       = "43d6c5da8268e7cb2c51855ff54913b9469e36ac"
 divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "skip"
+verify_exempt    = true
+exempt_reason    = "Pin 43d6c5da was captured from a LOCAL CM024 checkout that is NOT the canonical GitHub source (andygmassey/evernote-knowledge); the package was also renamed (ostler_knowledge/ -> src/). The pin does not resolve against the canonical repo, so the live-HEAD gate cannot verify it. PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the canonical GitHub source is wired as source_repo and the rename encoded."
 note             = "Canonical source is GitHub andygmassey/evernote-knowledge (per vendor/README.md), NOT this local CM024 checkout; package was also renamed (source ostler_knowledge/ -> vendor src/). Structural remap. WARN until the GitHub canonical is wired as the source and the rename is encoded. 2026-07-19 (v1.0.9 recut): hand-grafted the customer-facing part of GitHub #14 (legacy-hostname scrub) into vendor/cm024_knowledge/config/settings.yaml + README.md -- ollama_host from a legacy personal-infra hostname -> localhost:11434 (env-overridable). This removed a shipped personal-infra hostname leak (CLAUDE.md forbids legacy infra in customer surface). pinned_sha HELD at 43d6c5da: the FULL re-pin to #14 head 7ace7672 is DEFERRED -- 7ace7672 also carries a substantial package re-vendor across the rename (NEW ingestion adapters apple_notes.py/notion.py/obsidian.py + coordinated drift in cli.py source= threading, classifier/enex_parser/importance_scorer/incremental/markdown_writer/adapters base+__init__) that needs a careful cross-rename graft + runtime verification, not a blind cut-window graft. FILED for the CM024 owner / next cut."
 
 # ---- Conversation-feed bundles: upstream not on disk ---------------------
@@ -255,6 +279,8 @@ pinned_sha       = "af4ae65"
 divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
+verify_exempt    = true
+exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
 
 [[tree]]
@@ -266,6 +292,8 @@ pinned_sha       = "af4ae65"
 divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
+verify_exempt    = true
+exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
 
 [[tree]]
@@ -277,6 +305,8 @@ pinned_sha       = "af4ae65"
 divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
+verify_exempt    = true
+exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
 
 [[tree]]
@@ -288,6 +318,8 @@ pinned_sha       = "af4ae65"
 divergence_patch = ""
 exclude          = ["tests/", "__pycache__/"]
 verify           = "skip"
+verify_exempt    = true
+exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
 note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
 
 # ---- CM059 (The Editor) Front Page producer -----------------------------

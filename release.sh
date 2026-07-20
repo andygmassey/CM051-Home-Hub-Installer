@@ -248,6 +248,28 @@ done
 [[ -d "${CM021_DIR}" ]] || die "--cm021 path not found: ${CM021_DIR}" 3
 
 # -----------------------------------------------------------------------------
+# Cut-freshness preflight (UNBYPASSABLE for a real cut)
+# -----------------------------------------------------------------------------
+# Compares EVERY shippable input (vendor pins, daemon, wiki images) to its LIVE
+# upstream GitHub HEAD and hard-fails if anything lags. This is the structural
+# cure for "built but not in the cut": it would have caught RED a daemon tarball
+# predating the Ollama fix, and wiki images lagging the CM044 privacy fixes
+# #121/#122. It runs BEFORE provenance (broad live-HEAD sweep first, then the
+# named-fix ledger). Fail-closed: RED (exit 1) or CANNOT-VERIFY (exit 3, GitHub
+# unreachable) both abort. Skipped only for --dry-run (never a shippable cut).
+FRESHNESS_GATE="${CM051_DIR}/scripts/verify_cut_freshness.sh"
+if [[ "${DO_DRY_RUN}" -eq 0 ]]; then
+    echo "==> Cut-freshness preflight (live GitHub HEAD)"
+    [[ -x "${FRESHNESS_GATE}" ]] || die "freshness gate missing/not executable: ${FRESHNESS_GATE}" 2
+    if ! "${FRESHNESS_GATE}"; then
+        die "cut-freshness preflight FAILED -- a shippable input lags live upstream HEAD (or could not be verified). Re-pin/re-vendor/rebuild each RED input, then re-cut. DO NOT SHIP." 2
+    fi
+    ok "cut-freshness preflight GREEN"
+else
+    warn "--dry-run: skipping cut-freshness preflight (inspection only, not a shippable cut)"
+fi
+
+# -----------------------------------------------------------------------------
 # Cut-provenance preflight (UNBYPASSABLE for a real cut)
 # -----------------------------------------------------------------------------
 # Proves every fix merged to a source main is actually present in this tree +

@@ -1,0 +1,59 @@
+name: cut-freshness
+
+# Guards the live-HEAD pre-cut freshness gate (scripts/verify_cut_freshness.sh)
+# -- the structural cure for "built but not in the cut". The gate itself talks
+# to the GitHub API across TWO accounts (andygmassey source repos + ostler-ai
+# daemon) and so can only run for real on the ORM cut host, where it is wired
+# fail-closed into gui/Makefile `package` and release.sh. On CI we cannot reach
+# those private cross-org repos, so we run the HERMETIC self-test (mocked gh)
+# that proves the gate's logic still holds: all-fresh -> 0, stale vendor/daemon/
+# wiki -> 1, unrecorded wiki provenance -> 1, GitHub-unreachable -> distinct
+# CANNOT-VERIFY (never a false pass); a fetchable verify=skip tree that is stale
+# -> RED (no silent WARN downgrade); exempt-with-reason -> GREEN, exempt-without
+# -> RED; a pin behind HEAD -> RED unless a hold_ack covers the WHOLE delta with
+# shipping_bugfixes_grafted = true (partial ack names the un-acknowledged commit).
+#
+# Registering the self-test here means the gate cannot be silently dropped or
+# rotted: any change to the gate, its provenance ledger, or its test fails CI.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_cut_freshness.sh'
+      - 'scripts/wiki_image_provenance.tsv'
+      - 'scripts/_vendor_lib.sh'
+      - 'tests/test_cut_freshness_gate.sh'
+      - 'gui/Makefile'
+      - 'release.sh'
+      - '.github/workflows/cut-freshness.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cut-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cut-freshness gate self-test (hermetic, mocked gh)
+        run: bash tests/test_cut_freshness_gate.sh
+
+      - name: Gate is wired fail-closed into both cut paths
+        run: |
+          set -e
+          # gui/Makefile: package must depend on check-freshness AND the target
+          # must abort on non-zero (|| { ... exit 1; }).
+          grep -qE '^package:.*check-freshness' gui/Makefile \
+            || { echo "gui/Makefile package target does not depend on check-freshness" >&2; exit 1; }
+          grep -qE 'verify_cut_freshness\.sh \|\| \{' gui/Makefile \
+            || { echo "check-freshness target is not fail-closed (missing '|| { ... exit 1; }')" >&2; exit 1; }
+          # release.sh: must run the gate and die on failure for a real cut.
+          grep -q 'FRESHNESS_GATE=' release.sh \
+            || { echo "release.sh does not invoke the freshness gate" >&2; exit 1; }
+          grep -q 'cut-freshness preflight FAILED' release.sh \
+            || { echo "release.sh does not abort on a failed freshness preflight" >&2; exit 1; }
+          echo "OK: freshness gate wired fail-closed into gui/Makefile + release.sh"

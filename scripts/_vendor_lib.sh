@@ -99,11 +99,18 @@ vlib_field() {
             name=line
         }
         intree && name==want {
-            # match "field = "value""
+            # match  field = "value"   (quoted string)   OR
+            #        field = true      (bare scalar: bool / number / bareword)
             if ($0 ~ "^[[:space:]]*"field"[[:space:]]*=") {
                 line=$0
-                sub(/^[^=]*=[[:space:]]*"/, "", line)
-                sub(/".*$/, "", line)
+                sub(/^[^=]*=[[:space:]]*/, "", line)   # strip up to and incl "field = "
+                if (line ~ /^"/) {                      # quoted string value
+                    sub(/^"/, "", line)
+                    sub(/".*$/, "", line)
+                } else {                                # bare scalar (true/false/number)
+                    sub(/[[:space:]]*#.*$/, "", line)   # drop trailing comment
+                    sub(/[[:space:]]+$/, "", line)      # drop trailing whitespace
+                }
                 print line
                 exit
             }
