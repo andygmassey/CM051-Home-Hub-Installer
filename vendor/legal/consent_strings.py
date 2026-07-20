@@ -189,21 +189,21 @@ Legal note: For records you keep on this Mac, you are the data controller under 
 # a brand-new tickbox + record, not silent expansion of this one.
 EU_VOICE_SPEAKER_ID_CONSENT = ConsentString(
     tickbox_id="voice_speaker_id_eu",
-    version="v1.0-2026-05-12",
+    version="v1.1-2026-06-21",
     scope="speaker_identification_only",
-    text="""Recognising voices on calls
+    text="""Recognising voices on calls (in the Ostler iPhone app)
 
-Ostler can label transcripts with who is speaking – for example, "Sam", "Alex" – by storing a numeric fingerprint of each voice locally on this Mac. Under UK and EU privacy law this is biometric data, so we have to ask first.
+The Ostler iPhone Companion app can label transcripts with who is speaking - for example, "Sam", "Alex" - by storing a numeric fingerprint of each voice in an encrypted store on your iPhone. The fingerprints never leave your phone and are never sent to this Mac or to us; the Mac only ever receives the text label (the name), never the fingerprint. Under UK and EU privacy law a voice fingerprint is biometric data, so we ask before the Companion enrols any voices.
 
 What we do. Identify *who* is speaking on a recording you make.
 What we do not do. Detect mood, emotion, sentiment, stress or any other inferred psychological state from voice.
 
-The fingerprints stay on this Mac. We never receive them. You can turn this off any time in Settings → Privacy → Voice recognition; turning it off deletes any fingerprints already stored.
+The fingerprints stay on your iPhone. We never receive them, and neither does this Mac. You can turn this off any time in the iPhone app under Settings -> Voice recognition; turning it off deletes any fingerprints already stored on the phone. If you never install the iPhone Companion, no voice fingerprint is ever created.
 
 [ ] Yes, recognise voices and label my transcripts.
 [ ] No thanks, leave voices unlabelled.
 
-Legal note: Voice fingerprints stored on this Mac are biometric data under UK GDPR Article 9(1). Your explicit consent above (Article 9(2)(a)) is the lawful basis for processing. You are the data controller (Article 4(7)); Creative Machines never receives the fingerprints. For personal and household use, Article 2(2)(c) further limits scope. Withdrawing consent in Settings deletes stored fingerprints.
+Legal note: Voice fingerprints stored on your iPhone by the Ostler Companion app are biometric data under UK GDPR Article 9(1). Your explicit consent above (Article 9(2)(a)) is the lawful basis for processing. You are the data controller (Article 4(7)); Creative Machines never receives the fingerprints, and they are never sent to this Mac. For personal and household use, Article 2(2)(c) further limits scope. Withdrawing consent in the iPhone app deletes stored fingerprints.
 """,
 )
 
