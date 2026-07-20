@@ -316,21 +316,20 @@ def run_all(
     # ── Apple Notes ─────────────────────────────────────────────────
     if "apple_notes" in sources:
         try:
-            from .apple_notes import extract_notes
+            from .apple_notes import extract_notes, notes_stats, _note_to_record
             notes = extract_notes(include_locked=False)
 
-            notes_data = [asdict(n) for n in notes]
+            notes_data = [_note_to_record(n) for n in notes]
             (output_dir / "apple_notes.json").write_text(
                 json.dumps(notes_data, indent=2, default=str)
             )
 
-            summary["sources"]["apple_notes"] = {
-                "status": "ok",
-                "notes": len(notes),
-                "total_words": sum(n.word_count for n in notes),
-                "folders": len(set(n.folder for n in notes if n.folder)),
-            }
-            logger.info("[ok] Apple Notes: %d notes (%d words)", len(notes), sum(n.word_count for n in notes))
+            stats = notes_stats(notes)
+            summary["sources"]["apple_notes"] = {"status": "ok", **stats}
+            logger.info(
+                "[ok] Apple Notes: %d notes (%d words)",
+                stats["notes"], stats["total_words"],
+            )
 
         except PermissionError:
             summary["sources"]["apple_notes"] = {"status": "no_fda"}

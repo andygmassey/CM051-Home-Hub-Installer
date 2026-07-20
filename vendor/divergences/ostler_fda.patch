@@ -21,6 +21,682 @@
          limit: Maximum number of messages to extract.
  
      Returns:
+--- a/apple_notes.py
++++ b/apple_notes.py
+@@ -1,46 +1,87 @@
+-"""Extract notes from Apple Notes' NoteStore.sqlite.
++"""Extract notes from Apple Notes' NoteStore.sqlite for the KNOWLEDGE ingest.
+ 
+-Apple Notes stores data in:
++Apple Notes (iCloud Notes) stores data in::
++
+     ~/Library/Group Containers/group.com.apple.notes/NoteStore.sqlite
+ 
+-The schema uses ZICCLOUDSYNCINGOBJECT as the main table with
+-different ZTYPEID values for notes, folders, attachments, etc.
++This is a Core-Data-backed SQLite database. The main table is
++``ZICCLOUDSYNCINGOBJECT``, which holds notes, folders and attachments
++distinguished by their column population (notes carry ``ZNOTEDATA``;
++folders carry a ``ZTITLE2`` title and are referenced via ``ZFOLDER``).
+ 
+-Note content is stored as gzipped HTML in ZDATA field of
+-ZICCLOUDSYNCINGOBJECT. The ZTITLE field contains the note title.
++Note bodies are NOT plain HTML. ``ZICNOTEDATA.ZDATA`` is a **gzip-
++compressed Apple "notesgardenpb" protobuf** (``NoteStoreProto`` ->
++``Document`` -> ``Note`` -> ``note_text``). We recover the plain text
++with a tiny hand-rolled protobuf walk (pure stdlib -- no protobuf
++dependency, keeps the DMG slim). A gzipped-HTML and a raw-UTF-8 path
++are kept as defensive fallbacks for older / future store formats.
+ 
+-Requires Full Disk Access (FDA) permission on macOS Sequoia+.
++KNOWLEDGE, not conversations
++============================
++
++Apple Notes are personal knowledge/notes. This extractor emits the
++KNOWLEDGE record shape consumed by the CM024 knowledge ingest
++(Evernote / Obsidian / Notion adapters -> ``ParsedNote`` ->
++markdown_writer -> Qdrant), NOT a ConversationBundle. The emitted dict
++keys mirror the CM024 markdown-writer frontmatter so the convert step
++can map straight across:
++
++    title, content, created, updated, tags, notebook, source
++
++``source`` is the literal ``"apple_notes"``. Privacy default is L2
++(personal), matching the CM024 PrivacyClassifier default for knowledge
++notes; password-locked notes are skipped by default (the user
++deliberately protected them).
++
++Requires Full Disk Access (FDA) on macOS Sequoia+.
+ """
+ from __future__ import annotations
+ 
++import argparse
+ import gzip
++import json
+ import logging
+ import sqlite3
+-from dataclasses import dataclass
++import sys
++from dataclasses import asdict, dataclass
+ from datetime import datetime, timezone
+ from html.parser import HTMLParser
+ from pathlib import Path
+-from typing import Optional
++from typing import List, Optional
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# Mac absolute time epoch offset
++# Core-Data absolute-time epoch (2001-01-01) -> Unix epoch offset.
+ MAC_EPOCH_OFFSET = 978307200
+ 
++# Default location of the Apple Notes store. Overridable for tests /
++# custom installs via the OSTLER_NOTES_DB_PATH env var or --db-path.
+ DEFAULT_NOTES_PATH = (
+     Path.home() / "Library" / "Group Containers"
+     / "group.com.apple.notes" / "NoteStore.sqlite"
+ )
+ 
++# Source identifier stamped onto every emitted record. The CM024
++# knowledge ingest keys off this to attribute provenance.
++SOURCE = "apple_notes"
+ 
++# Default privacy compartment level for Apple Notes knowledge content.
++# Matches CM024's PrivacyClassifier default (L2 = personal).
++DEFAULT_COMPARTMENT_LEVEL = 2
++
++
++# ---------------------------------------------------------------------------
++# Body decoding
++# ---------------------------------------------------------------------------
++
+ class _HTMLTextExtractor(HTMLParser):
+-    """Strip HTML tags, keep text content."""
++    """Strip HTML tags, keep text content (defensive fallback path)."""
+ 
+-    def __init__(self):
++    def __init__(self) -> None:
+         super().__init__()
+-        self.text_parts = []
++        self.text_parts: List[str] = []
+ 
+-    def handle_data(self, data):
++    def handle_data(self, data: str) -> None:
+         self.text_parts.append(data)
+ 
+     def get_text(self) -> str:
+@@ -54,37 +95,272 @@
+     return parser.get_text()
+ 
+ 
++def _read_varint(buf: bytes, i: int) -> tuple[int, int]:
++    """Decode a protobuf base-128 varint at offset ``i``.
++
++    Returns ``(value, new_offset)``. Raises IndexError if the buffer
++    ends mid-varint (the caller treats that as a malformed message).
++    """
++    shift = 0
++    result = 0
++    while True:
++        b = buf[i]
++        i += 1
++        result |= (b & 0x7F) << shift
++        if not (b & 0x80):
++            return result, i
++        shift += 7
++        if shift > 70:  # guard against absurd / corrupt varints
++            raise ValueError("varint too long")
++
++
++def _proto_fields(buf: bytes) -> List[tuple[int, bytes]]:
++    """Walk one protobuf message, returning ``(field_number, payload)``.
++
++    Only length-delimited (wire type 2) fields carry a payload we care
++    about; we skip varint / 32-bit / 64-bit fields. On any framing
++    error we return what we have so far (best-effort, never raises to
++    the caller).
++    """
++    out: List[tuple[int, bytes]] = []
++    i = 0
++    n = len(buf)
++    while i < n:
++        try:
++            key, i = _read_varint(buf, i)
++        except (IndexError, ValueError):
++            break
++        field = key >> 3
++        wire = key & 0x7
++        if wire == 2:  # length-delimited
++            try:
++                length, i = _read_varint(buf, i)
++            except (IndexError, ValueError):
++                break
++            payload = buf[i:i + length]
++            i += length
++            out.append((field, payload))
++        elif wire == 0:  # varint
++            try:
++                _, i = _read_varint(buf, i)
++            except (IndexError, ValueError):
++                break
++        elif wire == 5:  # 32-bit
++            i += 4
++        elif wire == 1:  # 64-bit
++            i += 8
++        else:  # groups / unknown -- stop, can't safely advance
++            break
++    return out
++
++
++def _extract_proto_text(raw: bytes) -> Optional[str]:
++    """Extract ``note_text`` from a decompressed notesgardenpb message.
++
++    Path through the schema:
++        NoteStoreProto.document (field 2)
++          -> Document.note      (field 3)
++            -> Note.note_text   (field 2, UTF-8 string)
++
++    Returns the decoded note text, or None if the structure does not
++    match (caller falls back to HTML / plain decode).
++    """
++    document = [p for f, p in _proto_fields(raw) if f == 2]
++    if not document:
++        return None
++    note = [p for f, p in _proto_fields(document[0]) if f == 3]
++    if not note:
++        return None
++    note_text = [p for f, p in _proto_fields(note[0]) if f == 2]
++    if not note_text:
++        return None
++    try:
++        return note_text[0].decode("utf-8", "replace")
++    except Exception:  # pragma: no cover - decode w/ replace is robust
++        return None
++
++
++def _decode_body(blob: Optional[bytes], title: str, snippet: Optional[str]) -> str:
++    """Turn the raw ``ZDATA`` blob into plain-text body content.
++
++    Decode order:
++        1. gzip -> notesgardenpb protobuf -> note_text  (the real path)
++        2. gzip -> HTML -> stripped text                (legacy stores)
++        3. gzip -> raw UTF-8                             (last resort)
++        4. snippet                                       (no usable body)
++
++    The protobuf ``note_text`` includes the title as its first line.
++    We strip a leading duplicate of the title so the body is just the
++    note content.
++    """
++    if not blob:
++        return (snippet or "").strip()
++
++    decompressed: Optional[bytes] = None
++    try:
++        decompressed = gzip.decompress(blob)
++    except (OSError, EOFError, gzip.BadGzipFile):
++        # Some stores / fixtures may hold uncompressed bytes.
++        decompressed = blob
++
++    # 1. protobuf
++    text = _extract_proto_text(decompressed)
++
++    # 2 / 3. HTML or raw text fallback
++    if not text:
++        try:
++            payload = decompressed.decode("utf-8", "replace")
++        except Exception:
++            payload = ""
++        if "<" in payload and ">" in payload:
++            text = _html_to_text(payload)
++        else:
++            text = payload
++
++    if not text:
++        return (snippet or "").strip()
++
++    return _strip_leading_title(text, title)
++
++
++def _strip_leading_title(text: str, title: str) -> str:
++    """Drop a leading line that merely repeats the note title.
++
++    Apple stores the title as the first line of ``note_text``. The
++    title column gives us the title separately, so we avoid emitting it
++    twice in the body.
++    """
++    text = text.replace("\r\n", "\n").replace("\r", "\n")
++    if not title:
++        return text.strip()
++    lines = text.split("\n")
++    if lines and lines[0].strip() == title.strip():
++        lines = lines[1:]
++        # Also drop an immediately-following blank line.
++        while lines and not lines[0].strip():
++            lines.pop(0)
++    return "\n".join(lines).strip()
++
++
++# ---------------------------------------------------------------------------
++# Date conversion
++# ---------------------------------------------------------------------------
++
++def _mac_to_datetime(raw: Optional[float]) -> Optional[datetime]:
++    """Convert a Core-Data absolute timestamp to a UTC datetime.
++
++    Returns None for null / non-positive / out-of-range values so the
++    caller can fall back to a sibling timestamp rather than fabricate a
++    bogus date.
++    """
++    if not raw or raw <= 0:
++        return None
++    try:
++        return datetime.fromtimestamp(raw + MAC_EPOCH_OFFSET, tz=timezone.utc)
++    except (ValueError, OSError, OverflowError):
++        return None
++
++
++# ---------------------------------------------------------------------------
++# Record shape
++# ---------------------------------------------------------------------------
++
+ @dataclass
+ class Note:
+-    """A single Apple Note."""
++    """A single Apple Note, in KNOWLEDGE record shape.
++
++    Field names mirror the CM024 markdown-writer frontmatter so the
++    knowledge convert step maps straight across:
++    ``title / content / created / updated / tags / notebook / source``.
++    """
++
+     title: str
+-    text: str
+-    folder: Optional[str]
+-    created_at: datetime
+-    modified_at: datetime
++    content: str            # plain-text body
++    notebook: Optional[str]  # Apple Notes folder name (-> knowledge notebook)
++    created: Optional[datetime]
++    updated: Optional[datetime]
++    tags: List[str]
++    source: str
++    compartment_level: int
+     is_pinned: bool
+     is_locked: bool
+     word_count: int
+ 
+ 
++def _note_to_record(n: Note) -> dict:
++    """Serialise a Note to a JSON-friendly KNOWLEDGE record dict."""
++    d = asdict(n)
++    d["created"] = n.created.isoformat() if n.created else None
++    d["updated"] = n.updated.isoformat() if n.updated else None
++    return d
++
++
++# ---------------------------------------------------------------------------
++# Extraction
++# ---------------------------------------------------------------------------
++
++# Primary query against the real Apple Notes schema. Title is ZTITLE1;
++# the folder name lives on the referenced folder object's ZTITLE2.
++# Creation / modification dates have several columns across macOS
++# versions; COALESCE picks the first populated one.
++_QUERY_REAL = """
++    SELECT
++        n.ZTITLE1                                       AS title,
++        n.ZSNIPPET                                      AS snippet,
++        COALESCE(n.ZCREATIONDATE3, n.ZCREATIONDATE1,
++                 n.ZCREATIONDATE, n.ZMODIFICATIONDATE1) AS created,
++        COALESCE(n.ZMODIFICATIONDATE1, n.ZMODIFICATIONDATE,
++                 n.ZCREATIONDATE3, n.ZCREATIONDATE1)    AS modified,
++        n.ZISPINNED                                     AS pinned,
++        n.ZISPASSWORDPROTECTED                          AS locked,
++        f.ZTITLE2                                       AS folder_name,
++        nb.ZDATA                                        AS body_data
++    FROM ZICCLOUDSYNCINGOBJECT n
++    LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
++    LEFT JOIN ZICNOTEDATA nb          ON n.ZNOTEDATA = nb.Z_PK
++    WHERE n.ZNOTEDATA IS NOT NULL
++      AND (n.ZMARKEDFORDELETION IS NULL OR n.ZMARKEDFORDELETION != 1)
++    ORDER BY modified DESC
++"""
++
++# Fallback for older stores that used the un-suffixed column names.
++_QUERY_LEGACY = """
++    SELECT
++        n.ZTITLE                          AS title,
++        n.ZSNIPPET                        AS snippet,
++        n.ZCREATIONDATE                   AS created,
++        n.ZMODIFICATIONDATE               AS modified,
++        COALESCE(n.ZISPINNED, 0)          AS pinned,
++        COALESCE(n.ZISPASSWORDPROTECTED, 0) AS locked,
++        f.ZTITLE                          AS folder_name,
++        nb.ZDATA                          AS body_data
++    FROM ZICCLOUDSYNCINGOBJECT n
++    LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
++    LEFT JOIN ZICNOTEDATA nb          ON n.ZNOTEDATA = nb.Z_PK
++    WHERE n.ZTITLE IS NOT NULL
++      AND (n.ZMARKEDFORDELETION IS NULL OR n.ZMARKEDFORDELETION != 1)
++    ORDER BY n.ZMODIFICATIONDATE DESC
++"""
++
++
+ def extract_notes(
+     db_path: Optional[Path] = None,
+     include_locked: bool = False,
+-) -> list[Note]:
+-    """Extract all notes from Apple Notes.
++) -> List[Note]:
++    """Extract all notes from Apple Notes as KNOWLEDGE records.
+ 
+     Args:
+-        db_path: Path to NoteStore.sqlite.
+-        include_locked: Include password-locked notes. Default: False
+-            (locked notes likely contain sensitive info the user
+-            deliberately protected — respect that by default).
++        db_path: Path to NoteStore.sqlite. Defaults to the standard
++            Group Container path (or ``OSTLER_NOTES_DB_PATH``).
++        include_locked: Include password-locked notes. Default False --
++            locked notes hold info the user deliberately protected.
+ 
+     Returns:
+-        List of Note objects, most recently modified first.
++        List of Note records, most recently modified first.
+ 
+     Raises:
+         PermissionError: If FDA is not granted.
+-        FileNotFoundError: If NoteStore.sqlite doesn't exist.
++        FileNotFoundError: If NoteStore.sqlite does not exist.
+     """
+     db_path = db_path or DEFAULT_NOTES_PATH
+ 
+@@ -103,109 +379,192 @@
+     conn.row_factory = sqlite3.Row
+ 
+     try:
+-        # Query notes with their folder names
+-        # ZICCLOUDSYNCINGOBJECT contains both notes and folders
+-        # Notes have ZTITLE and ZBODY / reference to ZDATA
+-        rows = conn.execute("""
+-            SELECT
+-                n.ZTITLE as title,
+-                n.ZSNIPPET as snippet,
+-                n.ZCREATIONDATE as created,
+-                n.ZMODIFICATIONDATE as modified,
+-                n.ZISPINNED as pinned,
+-                n.ZISPASSWORDPROTECTED as locked,
+-                f.ZTITLE as folder_name,
+-                nb.ZDATA as body_data
+-            FROM ZICCLOUDSYNCINGOBJECT n
+-            LEFT JOIN ZICCLOUDSYNCINGOBJECT f
+-                ON n.ZFOLDER = f.Z_PK
+-            LEFT JOIN ZICNOTEDATA nb
+-                ON n.ZNOTEDATA = nb.Z_PK
+-            WHERE n.ZTITLE IS NOT NULL
+-              AND n.ZMARKEDFORDELETION != 1
+-            ORDER BY n.ZMODIFICATIONDATE DESC
+-        """).fetchall()
+-    except sqlite3.OperationalError as e:
+-        logger.debug("Primary Notes query failed: %s", e)
+-        # Try simpler query without pinned/locked columns (older macOS)
+         try:
+-            rows = conn.execute("""
+-                SELECT
+-                    n.ZTITLE as title,
+-                    n.ZSNIPPET as snippet,
+-                    n.ZCREATIONDATE as created,
+-                    n.ZMODIFICATIONDATE as modified,
+-                    0 as pinned,
+-                    0 as locked,
+-                    NULL as folder_name,
+-                    nb.ZDATA as body_data
+-                FROM ZICCLOUDSYNCINGOBJECT n
+-                LEFT JOIN ZICNOTEDATA nb
+-                    ON n.ZNOTEDATA = nb.Z_PK
+-                WHERE n.ZTITLE IS NOT NULL
+-                ORDER BY n.ZMODIFICATIONDATE DESC
+-            """).fetchall()
+-        except sqlite3.OperationalError:
+-            logger.error("Apple Notes schema not recognised on this macOS version")
+-            conn.close()
+-            return []
++            rows = conn.execute(_QUERY_REAL).fetchall()
++        except sqlite3.OperationalError as e:
++            logger.debug("Primary Apple Notes query failed (%s); trying legacy", e)
++            try:
++                rows = conn.execute(_QUERY_LEGACY).fetchall()
++            except sqlite3.OperationalError:
++                logger.error(
++                    "Apple Notes schema not recognised on this macOS version"
++                )
++                return []
++    finally:
++        conn.close()
+ 
+-    conn.close()
+-
+-    notes = []
++    notes: List[Note] = []
+     for row in rows:
+-        # Skip locked notes unless explicitly included
+-        if row["locked"] and not include_locked:
++        locked = bool(row["locked"])
++        if locked and not include_locked:
+             continue
+ 
+-        # Extract text from the gzipped HTML body
+-        text = ""
+-        if row["body_data"]:
+-            try:
+-                html = gzip.decompress(row["body_data"]).decode("utf-8")
+-                text = _html_to_text(html)
+-            except Exception:
+-                text = row["snippet"] or ""
+-        else:
+-            text = row["snippet"] or ""
++        title = (row["title"] or "Untitled").strip() or "Untitled"
++        body = _decode_body(row["body_data"], title, row["snippet"])
+ 
+-        # Convert Mac absolute time — guard against null/zero/negative
+-        # timestamps which produce "year 0 out of range" errors
+-        raw_created = row["created"]
+-        raw_modified = row["modified"]
++        created = _mac_to_datetime(row["created"])
++        updated = _mac_to_datetime(row["modified"])
++        # Cross-fill so a record always has both if it has either.
++        if created is None:
++            created = updated
++        if updated is None:
++            updated = created
+ 
+-        if raw_created and raw_created > 0:
+-            try:
+-                created = datetime.fromtimestamp(
+-                    raw_created + MAC_EPOCH_OFFSET, tz=timezone.utc
+-                )
+-            except (ValueError, OSError, OverflowError):
+-                created = datetime.now(timezone.utc)
+-                logger.debug("Invalid creation date for note '%s', using now", row["title"])
+-        else:
+-            created = datetime.now(timezone.utc)
+-
+-        if raw_modified and raw_modified > 0:
+-            try:
+-                modified = datetime.fromtimestamp(
+-                    raw_modified + MAC_EPOCH_OFFSET, tz=timezone.utc
+-                )
+-            except (ValueError, OSError, OverflowError):
+-                modified = created
+-                logger.debug("Invalid modification date for note '%s', using created", row["title"])
+-        else:
+-            modified = created
+-
+         notes.append(Note(
+-            title=row["title"] or "Untitled",
+-            text=text,
+-            folder=row["folder_name"],
+-            created_at=created,
+-            modified_at=modified,
++            title=title,
++            content=body,
++            notebook=row["folder_name"],
++            created=created,
++            updated=updated,
++            tags=[],
++            source=SOURCE,
++            compartment_level=DEFAULT_COMPARTMENT_LEVEL,
+             is_pinned=bool(row["pinned"]),
+-            is_locked=bool(row["locked"]),
+-            word_count=len(text.split()),
++            is_locked=locked,
++            word_count=len(body.split()),
+         ))
+ 
+     logger.info("Extracted %d notes from Apple Notes", len(notes))
+     return notes
++
++
++def notes_stats(notes: List[Note]) -> dict:
++    """Aggregate counts for the CLI / extract_all summary."""
++    return {
++        "notes": len(notes),
++        "total_words": sum(n.word_count for n in notes),
++        "notebooks": len({n.notebook for n in notes if n.notebook}),
++    }
++
++
++# ---------------------------------------------------------------------------
++# CLI (mirrors whatsapp_history.py / facebook_messenger.py shape)
++# ---------------------------------------------------------------------------
++
++def main(argv: Optional[List[str]] = None) -> int:
++    """CLI entrypoint.
++
++    ``python -m ostler_fda.apple_notes --json`` extracts Apple Notes
++    knowledge records and writes ``apple_notes.json`` into the FDA
++    import dir. Only counts go to stdout (privacy: never echo note
++    bodies). Default DB path is overridable via ``OSTLER_NOTES_DB_PATH``
++    or ``--db-path``.
++    """
++    import os
++
++    parser = argparse.ArgumentParser(
++        prog="pwg-apple-notes",
++        description=(
++            "Extract Apple Notes (iCloud Notes) as KNOWLEDGE records from "
++            "NoteStore.sqlite. Feeds the CM024 knowledge ingest, NOT the "
++            "conversation pipeline."
++        ),
++    )
++    parser.add_argument(
++        "--db-path",
++        type=Path,
++        default=None,
++        help=(
++            "Override the NoteStore.sqlite path. Defaults to "
++            "$OSTLER_NOTES_DB_PATH then the standard Group Container path."
++        ),
++    )
++    parser.add_argument(
++        "--output-dir",
++        type=Path,
++        default=None,
++        help=(
++            "Directory to write apple_notes.json. "
++            "Default: ~/.ostler/imports/fda/"
++        ),
++    )
++    parser.add_argument(
++        "--include-locked",
++        action="store_true",
++        help="Include password-locked notes (default: skip them).",
++    )
++    parser.add_argument(
++        "--json",
++        action="store_true",
++        help="Emit a single structured JSON status line to stdout (counts only).",
++    )
++    parser.add_argument(
++        "--dry-run",
++        action="store_true",
++        help="Extract but do not write the JSON output file.",
++    )
++    args = parser.parse_args(argv)
++
++    result: dict = {
++        "notes": 0,
++        "total_words": 0,
++        "notebooks": 0,
++        "errors": [],
++        "status": "ok",
++    }
++
++    def _stderr(msg: str) -> None:
++        print(msg, file=sys.stderr, flush=True)
++
++    db_path = args.db_path
++    if db_path is None:
++        env = os.environ.get("OSTLER_NOTES_DB_PATH")
++        if env:
++            db_path = Path(env)
++
++    try:
++        notes = extract_notes(db_path=db_path, include_locked=args.include_locked)
++    except PermissionError as exc:
++        _stderr(f"pwg-apple-notes: FDA pending ({exc})")
++        result["status"] = "no_fda"
++        if args.json:
++            print(json.dumps(result))
++        return 0
++    except FileNotFoundError as exc:
++        _stderr(f"pwg-apple-notes: NoteStore.sqlite not found ({exc})")
++        result["status"] = "not_found"
++        if args.json:
++            print(json.dumps(result))
++        return 0
++    except Exception as exc:  # noqa: BLE001 - never leak note content
++        msg = type(exc).__name__
++        _stderr(f"pwg-apple-notes: unexpected failure ({msg})")
++        result["status"] = "error"
++        result["errors"].append(msg)
++        if args.json:
++            print(json.dumps(result))
++        return 1
++
++    stats = notes_stats(notes)
++    result.update(stats)
++
++    if not args.dry_run:
++        output_dir = args.output_dir or (
++            Path.home() / ".ostler" / "imports" / "fda"
++        )
++        output_dir.mkdir(parents=True, exist_ok=True)
++        try:
++            (output_dir / "apple_notes.json").write_text(
++                json.dumps([_note_to_record(n) for n in notes], indent=2)
++            )
++        except OSError as exc:
++            msg = type(exc).__name__
++            _stderr(f"pwg-apple-notes: could not write JSON ({msg})")
++            result["status"] = "write_error"
++            result["errors"].append(msg)
++            if args.json:
++                print(json.dumps(result))
++            return 0
++
++    _stderr(
++        f"pwg-apple-notes: extracted {stats['notes']} notes "
++        f"({stats['total_words']} words, {stats['notebooks']} notebooks)"
++    )
++
++    if args.json:
++        print(json.dumps(result))
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
 --- a/dedupe_merge.py
 +++ b/dedupe_merge.py
 @@ -45,19 +45,12 @@
@@ -118,7 +794,37 @@
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -407,12 +417,31 @@
+@@ -306,21 +316,20 @@
+     # ── Apple Notes ─────────────────────────────────────────────────
+     if "apple_notes" in sources:
+         try:
+-            from .apple_notes import extract_notes
++            from .apple_notes import extract_notes, notes_stats, _note_to_record
+             notes = extract_notes(include_locked=False)
+ 
+-            notes_data = [asdict(n) for n in notes]
++            notes_data = [_note_to_record(n) for n in notes]
+             (output_dir / "apple_notes.json").write_text(
+                 json.dumps(notes_data, indent=2, default=str)
+             )
+ 
+-            summary["sources"]["apple_notes"] = {
+-                "status": "ok",
+-                "notes": len(notes),
+-                "total_words": sum(n.word_count for n in notes),
+-                "folders": len(set(n.folder for n in notes if n.folder)),
+-            }
+-            logger.info("[ok] Apple Notes: %d notes (%d words)", len(notes), sum(n.word_count for n in notes))
++            stats = notes_stats(notes)
++            summary["sources"]["apple_notes"] = {"status": "ok", **stats}
++            logger.info(
++                "[ok] Apple Notes: %d notes (%d words)",
++                stats["notes"], stats["total_words"],
++            )
+ 
+         except PermissionError:
+             summary["sources"]["apple_notes"] = {"status": "no_fda"}
+@@ -407,12 +416,31 @@
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -152,7 +858,7 @@
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -547,7 +576,21 @@
+@@ -547,7 +575,21 @@
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -175,7 +881,7 @@
              stats = email_stats(messages)
              contacts = frequent_contacts(messages)
  
-@@ -558,14 +601,31 @@
+@@ -558,14 +600,31 @@
                  json.dumps(contacts, indent=2, default=str)
              )
  
@@ -275,7 +981,43 @@
  
                  # Add identifier
                  id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
-@@ -452,6 +484,12 @@
+@@ -315,6 +347,14 @@
+     _SOURCE_PREDICATE and produce a debug-log no-op rather than
+     poisoning the freshness signal. Same discipline as the PR-A fix
+     that stopped contact_syncer using vCard REV as a contact event.
++
++    Future-dated events are NEVER a "last contact". A calendar export
++    routinely carries upcoming meetings, so this writer must reject any
++    timestamp after today, otherwise an upcoming meeting (e.g. a fixture
++    a week away) wins the read-side max() and the assistant reports a
++    future date as "last contact". A scheduled future meeting is a
++    "next meeting" signal, not a last-contact one; it is surfaced by the
++    Meeting nodes the calendar ingest also emits, never here.
+     """
+     predicate = _SOURCE_PREDICATE.get(source)
+     if predicate is None:
+@@ -330,6 +370,20 @@
+         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+         date_str = dt.strftime("%Y-%m-%d")
+ 
++        # A last-contact must be in the past (or today). Comparing the
++        # derived YYYY-MM-DD strings sidesteps tz-aware/naive subtraction
++        # errors: both sides are plain ISO date strings, lexicographically
++        # ordered the same as chronologically. Future-dated events (an
++        # upcoming meeting in a calendar export) are dropped here.
++        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
++        if date_str > today_str:
++            logger.debug(
++                "Skipping future last-contact %s for %s (source=%s); "
++                "future events are not last-contact signals",
++                date_str, person_uri, source,
++            )
++            return
++
+         sparql = (
+             "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+             "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+@@ -452,6 +506,12 @@
                      f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                      f'<{uri}> pwg:source "whatsapp_fda"',
                  ]
@@ -288,7 +1030,7 @@
                  id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
                  triples.extend([
                      f"<{uri}> pwg:hasIdentifier <{id_uri}>",
-@@ -490,7 +528,7 @@
+@@ -490,7 +550,7 @@
                          f"<{uri}> pwg:hasIdentifier <{id_uri}>",
                          f"<{id_uri}> a pwg:PersonIdentifier",
                          f'<{id_uri}> pwg:identifierType "phone"',
@@ -297,7 +1039,7 @@
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -786,6 +824,10 @@
+@@ -786,6 +846,10 @@
  # thousands of visits; 200 is Qdrant's tested upsert chunk.
  _BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
  _BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
@@ -308,7 +1050,7 @@
  
  # Sensitive-domain blocklist. Substring match on the lowercased domain
  # so subdomains (e.g. secure.bank.example.com) are caught too.
-@@ -860,47 +902,56 @@
+@@ -860,47 +924,56 @@
      return vectors
  
  
@@ -316,9 +1058,7 @@
 -    collection: str, vector_size: int, distance: str = "Cosine"
 -) -> None:
 -    """Create a Qdrant collection if it does not already exist.
-+def _qdrant_ensure_collection(collection: str, dim: int) -> None:
-+    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
- 
+-
 -    On a fresh single-Mac install nothing pre-creates the Qdrant
 -    collections (``install.sh graph_db_start`` brings the container up
 -    empty). A bare PUT of points into a missing collection lands 0 rows
@@ -326,17 +1066,20 @@
 -    -- otherwise the iOS People tab / Hub People card / semantic search
 -    stay blank by design. See HR015 #600 + the
 -    feedback_qdrant_collections_no_self_create_fresh_install memory.
-+    Single-Mac product: there is no gateway to lazily create the
-+    collection, and nothing else on a fresh install creates
-+    safari_history. Qdrant rejects a PUT of points into a missing
-+    collection (404), which would silently land zero rows. So the
-+    direct writer ensures its own collection first.
++def _qdrant_ensure_collection(collection: str, dim: int) -> None:
++    """Create the Qdrant ``collection`` at ``dim`` (Cosine) if absent.
  
 -    Idempotent: a GET on an existing collection short-circuits, so a
 -    re-install does not clobber existing vectors. A genuinely missing
 -    collection (404 on GET) is created with the given vector size +
 -    distance. Any other error is logged and re-raised so the caller can
 -    decide whether to fail loud.
++    Single-Mac product: there is no gateway to lazily create the
++    collection, and nothing else on a fresh install creates
++    safari_history. Qdrant rejects a PUT of points into a missing
++    collection (404), which would silently land zero rows. So the
++    direct writer ensures its own collection first.
++
 +    Idempotent and non-destructive: an existing collection is left
 +    untouched (a dim mismatch is logged, never auto-recreated, so a
 +    customer's data is never dropped). Failures are swallowed: a
@@ -393,7 +1136,7 @@
  
  
  def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
-@@ -1061,6 +1112,10 @@
+@@ -1061,6 +1134,10 @@
  
      sent = 0
      try:
@@ -404,7 +1147,7 @@
          vectors = _ollama_embed_batch([item["doc"] for item in queue])
          points = [
              {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
-@@ -1109,47 +1164,305 @@
+@@ -1109,47 +1186,305 @@
      }
  
  
@@ -453,13 +1196,13 @@
 +# display name with the local Ollama instance, and upserts one point
 +# per person into `people`, self-creating the collection at 768-dim
 +# (same no-gateway / no-precreate gap the browsing writer closes).
-+
-+PEOPLE_QDRANT_COLLECTION = QDRANT_COLLECTION  # "people"; override via QDRANT_COLLECTION
-+# nomic-embed-text emits 768-dim vectors (same model + dim as browsing).
-+_PEOPLE_VECTOR_DIM = int(os.getenv("PEOPLE_VECTOR_DIM", "768"))
  
 -# The reader scrolls exactly this collection name. Overridable for
 -# tests only. Defaults to "preferences" to match CM019 + reading_pages.
++PEOPLE_QDRANT_COLLECTION = QDRANT_COLLECTION  # "people"; override via QDRANT_COLLECTION
++# nomic-embed-text emits 768-dim vectors (same model + dim as browsing).
++_PEOPLE_VECTOR_DIM = int(os.getenv("PEOPLE_VECTOR_DIM", "768"))
++
 +
 +# ── iMessage social-graph signal (Social wiki page, Prefs Piece 3 #524) ──
 +#
@@ -699,7 +1442,7 @@
 +            "skipped_thin": skipped_thin,
 +            "total": len(queue),
 +        }
-+
+ 
 +    logger.info(
 +        "Social: %d upserted to Qdrant '%s' (%d group, %d thin skipped).",
 +        sent, PREFERENCES_QDRANT_COLLECTION, skipped_group, skipped_thin,
@@ -712,7 +1455,7 @@
 +        "skipped_thin": skipped_thin,
 +        "total": len(queue),
 +    }
- 
++
 +
 +# ── Safari bookmarks signal (Reading wiki page, day-one follow-up #524) ──
 +#
@@ -743,7 +1486,7 @@
  # Folder -> strength. Reading List items were explicitly saved to read
  # later; Favourites (BookmarksBar) are pinned. Both are stronger signals
  # than an ordinary filed bookmark. Mirrors CM019 apple.py's favourite
-@@ -1161,7 +1474,7 @@
+@@ -1161,7 +1496,7 @@
  _BOOKMARK_DEFAULT_STRENGTH = 0.70
  
  
@@ -752,7 +1495,7 @@
      """Read safari_bookmarks.json from ``fda_dir``.
  
      The file is a list of dicts emitted by extract_all.py
-@@ -1198,7 +1511,7 @@
+@@ -1198,7 +1533,7 @@
      installer.
  
      Each bookmark becomes one ``preferences`` point with
@@ -761,7 +1504,7 @@
      reads. The point id is derived stably from the bookmark URL so a
      re-install upserts in place rather than duplicating rows.
  
-@@ -1223,8 +1536,8 @@
+@@ -1223,8 +1558,8 @@
  
      now_iso = datetime.now(timezone.utc).isoformat()
      skipped_sensitive = 0
@@ -772,12 +1515,10 @@
      for b in bookmarks:
          url = (b.get("url") or "").strip()
          if not url or url in seen_urls:
-@@ -1362,312 +1675,138 @@
-         "skipped_sensitive": skipped_sensitive,
-         "total": len(queue),
+@@ -1364,310 +1699,136 @@
      }
--
--
+ 
+ 
 -# ── People search index (#600) ────────────────────────────────────
 -#
 -# Populate the Qdrant `people` collection from Oxigraph so the iOS
@@ -813,7 +1554,7 @@
 -# Person nodes but nothing landed in Qdrant -- a silent ok-with-zero
 -# would let the installer claim success while the People surfaces stay
 -# blank, the exact #600 silent-fail this function exists to kill.
- 
+-
 -# The readers scroll/search exactly this collection name. Overridable
 -# for tests only.
 -PEOPLE_QDRANT_COLLECTION = os.getenv("PEOPLE_QDRANT_COLLECTION", "people")
@@ -821,7 +1562,7 @@
 -# only when no live embedding length is available to size the
 -# collection (e.g. the embedder is down and every embed returns []).
 -PEOPLE_EMBED_DIM = int(os.getenv("PEOPLE_EMBED_DIM", "768"))
- 
+-
 -
 -def _load_people_from_oxigraph() -> list[dict]:
 -    """SPARQL-query Oxigraph for every pwg:Person with a display name.
@@ -1177,7 +1918,7 @@
      }
  
  
-@@ -1700,6 +1839,7 @@
+@@ -1700,6 +1861,7 @@
          ("photos", ingest_photos_people),
          ("apple_mail", ingest_mail_contacts),
          ("browser_history", ingest_browser_history),
@@ -1185,7 +1926,7 @@
          ("bookmarks", ingest_bookmarks),
      ]:
          try:
-@@ -1708,16 +1848,6 @@
+@@ -1708,16 +1870,6 @@
              logger.warning("[warn] %s ingestion failed: %s", name, e)
              results[name] = {"status": "error", "error": str(e)}
  
