@@ -127,6 +127,8 @@ struct OnboardingQuestionView: View {
                 consentInstallBody()
             } else if q.prompt.id == "consent_third_party" {
                 consentThirdPartyBody()
+            } else if q.prompt.id == "consent_article_9" {
+                consentArticle9Body()
             } else if q.prompt.id == "passkey_ack" {
                 passkeyAckBody()
             } else if q.prompt.id == "recovery_passphrase" {
@@ -289,6 +291,48 @@ struct OnboardingQuestionView: View {
     private func consentThirdPartyBody() -> some View {
         let intro = ViewCopy.shared.string(for: "consent_third_party.intro_body")
         let legal = ViewCopy.shared.string(for: "consent_third_party.legal_note")
+        return VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(linkifiedHelp(intro))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(linkifiedHelp(legal))
+                .font(.ostlerCaption.italic())
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// consent_article_9 (EU/UK Article-9 special-category) body.
+    /// Compliance fix 2026-07-15: the install.sh `region==eu` branch
+    /// emits a `consent_article_9` PROMPT whose bash-side
+    /// MSG_PROMPT_CONSENT_ARTICLE_9_HELP is only a one-line summary,
+    /// while the full special-category disclosure is echoed to stdout
+    /// and filtered out of the GUI window. The customer therefore only
+    /// ever saw the one-liner -- the actual Article-9 wording (health,
+    /// beliefs, orientation, union, voice speaker-ID, criminal offences)
+    /// never rendered. That is a GDPR disclosure gap.
+    ///
+    /// Sister to consentThirdPartyBody(): the screen splits into two
+    /// Text() views, both fed from ViewCopy keys (Rule 0.9 catalogue):
+    ///   - intro_body  (standard body copy, the special-category
+    ///                  disclosure reflowed for the GUI medium)
+    ///   - legal_note  (smaller, italic, .secondary-coloured fine
+    ///                  print: the UK GDPR Article 4(7) / 9(2)(a) /
+    ///                  2(2)(c) controller + lawful-basis note)
+    ///
+    /// The yes/no toggle + Continue button rendered by the standard
+    /// body carry the actual consent decision, so the intro_body omits
+    /// the TTY-only "Your decision" [Y]/[N] block (mirroring how
+    /// consentThirdPartyBody omits its own [Y]/[N] lines).
+    ///
+    /// Bash-side MSG_PROMPT_CONSENT_ARTICLE_9_HELP is unchanged so the
+    /// TTY install path still renders the full text inline.
+    private func consentArticle9Body() -> some View {
+        let intro = ViewCopy.shared.string(for: "consent_article_9.intro_body")
+        let legal = ViewCopy.shared.string(for: "consent_article_9.legal_note")
         return VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(linkifiedHelp(intro))
                 .font(.ostlerBodyLg)
