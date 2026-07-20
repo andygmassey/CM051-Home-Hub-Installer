@@ -7,7 +7,8 @@
 # stays dark by default on v1.0.x. This guard fails if either
 # invariant is lost in a future edit or a stale re-vendor:
 #
-#   1. ENABLE flag exists and defaults to false (section ships dark).
+#   1. ENABLE flag exists and defaults to true (v1.0.10 lights the
+#      AI Chats section up; export "false" to opt an install back out).
 #   2. The producer run is gated on the flag being exactly "true".
 #   3. install.sh invokes the vendored pwg-ai-convo producer with the
 #      v1.0.3 contract flags (--source all / --since-days / --json).
@@ -30,12 +31,12 @@ cd "$REPO_ROOT"
 INSTALL="install.sh"
 STRINGS="install.sh.strings.en-GB.sh"
 
-# 1. ENABLE flag defaults OFF.
-if ! grep -q 'OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-false}"' "$INSTALL"; then
-    echo "FAIL: OSTLER_AI_CONVERSATIONS_ENABLED missing or no longer defaults to false (v1.0.x must ship dark)" >&2
+# 1. ENABLE flag defaults ON (v1.0.10 lights the section up).
+if ! grep -q 'OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-true}"' "$INSTALL"; then
+    echo "FAIL: OSTLER_AI_CONVERSATIONS_ENABLED missing or no longer defaults to true (v1.0.10 lights the AI Chats section up)" >&2
     exit 1
 fi
-echo "flag check: OSTLER_AI_CONVERSATIONS_ENABLED defaults to false"
+echo "flag check: OSTLER_AI_CONVERSATIONS_ENABLED defaults to true"
 
 # 2. The leg is gated on the flag being exactly "true".
 if ! grep -q 'if \[\[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" \]\]' "$INSTALL"; then

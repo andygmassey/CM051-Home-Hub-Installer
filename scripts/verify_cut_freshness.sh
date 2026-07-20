@@ -273,6 +273,7 @@ resolve_github() {
         CM041) acct=andygmassey; owner="andygmassey/CM041-People-Graph" ;;
         CM019) acct=andygmassey; owner="andygmassey/personal-world-graph" ;;
         CM048) acct=andygmassey; owner="andygmassey/CM048-PWG-Conversation-Processing" ;;
+        CM052) acct=andygmassey; owner="andygmassey/CM052" ;;
         CM021) acct=andygmassey; owner="andygmassey/email-intelligence" ;;
         CM024) acct=andygmassey; owner="andygmassey/evernote-knowledge" ;;
         CM059) acct=andygmassey; owner="andygmassey/CM059-Ostler-Editor" ;;

@@ -16353,11 +16353,13 @@ fi
 # ~/Documents/Ostler/AI Conversations/<YYYY-MM-DD>/<id>.md -- the same
 # path CM044's ai_conversation_pages.py reads for the AI Chats wing.
 #
-# GATED OFF for v1.0.x: OSTLER_AI_CONVERSATIONS_ENABLED defaults to
-# false and the whole leg (venv + pip install + producer run) is
-# skipped SILENTLY -- the AI Chats section ships dark. Flip the env
-# var to "true" to light it up; the vendored package is bundled in the
-# .app either way (gui/project.yml), so no rebuild is needed.
+# ON for v1.0.10: OSTLER_AI_CONVERSATIONS_ENABLED defaults to true so
+# the leg (venv + pip install + producer run) runs at install and the
+# AI Chats section renders live (Andy's call, task #553/#613). Earlier
+# v1.0.x cuts shipped this dark (default false). Export the env var to
+# "false" to opt a given install back out; the vendored package is
+# bundled in the .app either way (gui/project.yml), so toggling the
+# flag needs no rebuild.
 #
 # ORDERING CONSTRAINT (do not hoist this block above G2): CM052's
 # wire.post() subscription gate PAUSES with no episodic write when
@@ -16374,7 +16376,7 @@ fi
 # privacy defaults to L2/L2 (Option A); a per-conversation
 # privacy_level: L3 override still writes the file but short-circuits
 # the CM048 POST.
-OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-false}"
+OSTLER_AI_CONVERSATIONS_ENABLED="${OSTLER_AI_CONVERSATIONS_ENABLED:-true}"
 
 if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     _AICONV_DIR="${OSTLER_DIR}/services/cm052"
