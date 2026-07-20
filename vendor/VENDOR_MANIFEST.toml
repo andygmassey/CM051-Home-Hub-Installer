@@ -175,9 +175,10 @@ vendor_path      = "vendor/email_ingest"
 source_repo      = "$HR015/email-ingest"
 source_path      = "."
 pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/email_ingest.patch"
+  divergence_patch = "vendor/divergences/email_ingest.patch"
 exclude          = ["tests/", "__pycache__/"]
 verify           = "full"
+note             = "2026-07-20: bin/email-ingest-tick.sh, INSTALL_SNIPPET.sh and the launchd plist carry a CM051-only graft (commit f16ae6e, 'silent 100% drop' fix, 2026-05-2x) -- CM046->CM021 CLI rename comment cleanup plus PWG_EMAIL_INGEST absolute-path wiring + a LOUD guard so a harvested-but-unresolvable ingest binary fails the tick instead of silently dropping mail under launchd's minimal PATH. Pre-existing (predates any recent PR); was previously applied to the vendored tree WITHOUT being captured in email_ingest.patch, so the freshness gate flagged vendor != source@pinned_sha+patch. This note + the regenerated patch record it correctly; no re-pin needed (email-ingest source at pinned_sha has not advanced -- vlib's unshipped-commits check was already clean). The commit message states the fix mirrors the existing OSTLER_PYTHON wiring and is CM051-only, i.e. deliberately not destined for upstream HR015 email-ingest -- so this graft is expected to stay a permanent vendor-side divergence, not a hold pending a source PR."
 
 [[tree]]
 name             = "imessage_bridge"
