@@ -2284,6 +2284,34 @@ def _hygiene_weight(uri: str, verdicts: dict, fallback: float) -> float:
     return fallback
 
 
+def _hygiene_drop_retired(fact_rows):
+    """Drop the fact rows the Memory-Hygiene pass retired.
+
+    Read-side consumer for the person-page fact lists (``person_context`` /
+    ``person_enrichment``). ``build_facts_query`` (ostler_hygiene/graph_io)
+    scores facts about EVERY person, not just the operator, so a person
+    page must honour the same superseded/archived/deleted verdicts the
+    memory tab (``api_memory_list``) already does -- otherwise a fact the
+    pass retired keeps surfacing on the person card ("ships dark" on these
+    two surfaces).
+
+    Each row is keyed by its ``f`` binding (the fact URI selected by the
+    caller's SPARQL). Routed through the ONE canonical overlay reader
+    (``_hygiene_overlay`` -> ``ostler_hygiene.reader``); no second, drifting
+    verdict parser. Fail-safe: an empty overlay (hygiene never run, Oxigraph
+    down, absent graph) or a row with no ``f`` binding is kept unchanged --
+    absence of a verdict means "active" per the hygiene contract. Never
+    raises.
+    """
+    hygiene, verdicts = _hygiene_overlay()
+    if hygiene is None or not verdicts:
+        return fact_rows
+    return [
+        r for r in fact_rows
+        if not hygiene.is_dropped(r.get("f", ""), verdicts)
+    ]
+
+
 def _career_month(value: str) -> str:
     """Normalise a career date to a lexically-sortable ``YYYY-MM`` prefix.
 
@@ -2950,16 +2978,25 @@ def person_context(name):
         # person's level (most-restrictive wins). An untagged fact on an
         # L2 person stays visible (People section is L2); an L3 fact, or
         # any fact whose owning person is L3, or a fact with no parseable
-        # clearance on either axis, is dropped.
+        # clearance on either axis, is dropped. ``?f`` (the fact URI) is
+        # selected so the Memory-Hygiene overlay can be keyed per fact.
         facts = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?text ?fpriv WHERE {{\n'
+            'SELECT ?f ?text ?fpriv WHERE {{\n'
             '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
             '  OPTIONAL {{ ?f pwg:privacyLevel ?fpriv }}\n'
             '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
             '}}'.format(ns=PWG_NS, uri=uri)
         )
         if facts:
+            # Memory-Hygiene overlay (LEFT JOIN <urn:pwg:hygiene>): drop any
+            # fact the pass retired (superseded/archived/deleted) BEFORE the
+            # L3 filter, via the canonical ostler_hygiene reader. build_facts_
+            # query() scores facts about EVERY person, not just the operator,
+            # so a person page must honour the same verdicts the memory tab
+            # does. Empty overlay (hygiene never run / Oxigraph down) => the
+            # list is unchanged; the reader never raises.
+            facts = _hygiene_drop_retired(facts)
             visible = pwg_privacy.filter_l3_facts(
                 [{"text": f["text"], "privacy_level": f.get("fpriv")}
                  for f in facts],
@@ -3261,16 +3298,22 @@ def person_enrichment(slug):
 
         # Facts -- fail-closed L3 filter via the shared pwg_privacy helper,
         # inheriting the owning person's privacyLevel (most-restrictive
-        # wins). Mirrors person_context exactly.
+        # wins). Mirrors person_context exactly, including the Memory-Hygiene
+        # overlay drop that precedes the L3 filter. ``?f`` (the fact URI) is
+        # selected so the overlay can be keyed per fact.
         facts = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?text ?fpriv WHERE {{\n'
+            'SELECT ?f ?text ?fpriv WHERE {{\n'
             '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
             '  OPTIONAL {{ ?f pwg:privacyLevel ?fpriv }}\n'
             '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
             '}}'.format(ns=PWG_NS, uri=person_uri)
         )
         if facts:
+            # Drop facts the hygiene pass retired before the L3 filter (same
+            # verdicts the memory tab and person_context honour). Empty
+            # overlay => unchanged; never raises.
+            facts = _hygiene_drop_retired(facts)
             visible = pwg_privacy.filter_l3_facts(
                 [{"text": f["text"], "privacy_level": f.get("fpriv")}
                  for f in facts],
