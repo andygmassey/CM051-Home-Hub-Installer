@@ -30,5 +30,5 @@
 # Current pins (both re-pinned to the CM044 70925fd build, which carries the
 # privacy fixes #121 / #122 (BUG-038)). Supersedes the earlier cbe5dbb arm64
 # rebuild that lagged CM044 main and shipped without those fixes.
-wiki-compiler	sha256:5df56cae505d72731266d190122a4738e3491c1f3a5926b945a666f56ff7ee99	70925fd0f48f166f660711c0f18351bb4acaed41
-wiki-site	sha256:40b8d612975af22686e5a1d0e945ccc5c5a8a526e1a44a54c63920a02096ffed	70925fd0f48f166f660711c0f18351bb4acaed41
+wiki-compiler	sha256:9016133893c8398ef26d716c7f2a0bd195f85bca3f61185b9643e2522694b9a8	3408e1a928e8a1e61bbfbcc03b13959899717cfa
+wiki-site	sha256:40b8d612975af22686e5a1d0e945ccc5c5a8a526e1a44a54c63920a02096ffed	3408e1a928e8a1e61bbfbcc03b13959899717cfa
