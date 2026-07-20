@@ -3560,11 +3560,29 @@ else
     echo ""
     echo "  Enable it: System Settings > Privacy & Security > FileVault"
     echo ""
+    echo "  Ostler stores a plaintext copy of your entire personal graph"
+    echo "  (wiki, conversations, knowledge) under ~/Documents/Ostler and"
+    echo "  service secrets under ~/.ostler. Without FileVault, anyone with"
+    echo "  physical access to this Mac can read all of it. FileVault is"
+    echo "  strongly recommended and the default answer here is NO."
+    echo ""
     FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "n" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
     if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
         echo "  Enable FileVault first, then re-run this installer."
         exit 1
     fi
+    # v1.0.10 security lockdown: the operator explicitly chose to
+    # proceed with an UNENCRYPTED disk. Record a loud, timestamped
+    # acknowledgement so the Doctor surface + a later support touch
+    # can see the at-rest protection was knowingly declined (rather
+    # than silently absent). Best-effort -- never abort on a marker
+    # write failure this early.
+    warn "Proceeding WITHOUT FileVault -- your Ostler data is NOT encrypted at rest on this disk."
+    mkdir -p "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}" 2>/dev/null || true
+    {
+        echo "filevault_declined_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        echo "filevault_status=${FV_STATUS}"
+    } > "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}/filevault_ack.txt" 2>/dev/null || true
 fi
 
 fi  # end of SKIP_PHASE2 check (user input questions)
@@ -3604,6 +3622,56 @@ if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
 else
     info "$MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL"
 fi
+
+# ── At-rest exposure hardening (v1.0.10 security lockdown) ─────────
+# The plaintext personal graph lives in two host trees:
+#   * ${OSTLER_DIR} (~/.ostler): secrets/ (service + admin tokens,
+#     JWT_SECRET in .env), the SQLCipher DBs, and state/. Some of
+#     this is encrypted (SQLCipher) but the secrets + .env are NOT.
+#   * ${USER_FACING_ROOT} (~/Documents/Ostler): the compiled wiki +
+#     Obsidian vault + conversation transcripts + daily briefs, all
+#     plaintext markdown of the customer's entire life graph.
+#
+# Two exposures we close here:
+#   1. Spotlight indexing. Spotlight builds a searchable index (and
+#      snippet cache) of everything under these trees. Drop a
+#      `.metadata_never_index` marker in each so mds stops indexing
+#      the subtree -- the plaintext graph no longer leaks into the
+#      Spotlight store (which itself is not encrypted the way the
+#      SQLCipher DBs are).
+#   2. Time Machine. A TM destination is frequently a NAS or an
+#      external disk that leaves the house, so a plaintext copy of
+#      the graph would travel OFF-box. `tmutil addexclusion` (path
+#      xattr form, no sudo) keeps these trees out of every backup.
+#
+# The Qdrant / Oxigraph / Redis volumes are Docker NAMED volumes
+# inside the Colima VM disk image, not host-FS paths, so the host
+# Spotlight / Time Machine never traverses into them individually
+# (the VM image is one opaque file). Nothing to exclude per-volume
+# here; the Colima image as a whole is rebuildable state.
+#
+# All best-effort + idempotent: a marker that already exists or an
+# exclusion already set is a no-op, and a tmutil / touch failure
+# must never abort the install.
+_ostler_harden_at_rest() {
+    local _dir="$1"
+    [[ -d "$_dir" ]] || return 0
+    # Spotlight opt-out marker.
+    touch "${_dir}/.metadata_never_index" 2>/dev/null || true
+    # Time Machine exclusion (per-path xattr form -- no root needed).
+    tmutil addexclusion "$_dir" 2>/dev/null || true
+}
+info "Applying at-rest hardening (Spotlight + Time Machine exclusions) to the Ostler data trees..."
+_ostler_harden_at_rest "$OSTLER_DIR"
+_ostler_harden_at_rest "$USER_FACING_ROOT"
+ok "At-rest hardening applied: ${OSTLER_DIR} and ${USER_FACING_ROOT} are excluded from Spotlight indexing and Time Machine backups."
+# TRADEOFF (surfaced for Andy/Archie): excluding ${USER_FACING_ROOT}
+# from Time Machine means the customer's generated wiki + Obsidian
+# vault + transcripts are NOT captured by TM. That is deliberate --
+# a plaintext life-graph on an off-site NAS is the exposure we are
+# closing -- but a customer who WANTS those backed up would need an
+# encrypted backup target instead. Revisit if product decides the
+# backup convenience outweighs the off-box plaintext risk.
 
 # ── 2.99 Python 3.10/3.11 check (must run BEFORE any venv is created) ──
 #
@@ -6774,6 +6842,75 @@ else
     ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
 fi
 
+# ── Data-store auth secrets + compose auth-readiness (v1.0.10
+# security lockdown: unauthenticated data stores) ─────────────────
+# Qdrant (:6333), Oxigraph (:7878) and Redis/valkey (:6379) all bind
+# 127.0.0.1 ONLY (see the host port maps in the compose heredoc --
+# nothing is reachable off-box without Tailscale, and the wiki is no
+# longer tailscale-served). The remaining exposure is LOCAL: any
+# process / user on this Mac can read the stores with no credential.
+#
+# We generate a strong per-install secret for each store now so the
+# stack is auth-READY, and the compose heredoc is parameterised so
+# enforcement is a single-switch flip. Enforcement is DEFAULT-OFF
+# for v1.0.10: the vendored, pinned client code the cut ships (CM041
+# syncers build QdrantClient(url=...) with no api_key; every Oxigraph
+# client POSTs /query,/update with no Authorization header; the
+# Doctor's _check_redis does a raw unauthenticated PING and
+# int()-parses REDIS_URL) does NOT send credentials, so flipping
+# native auth ON without the matching client-side changes would 401
+# the whole ingest/hydration pipeline and crash the Doctor's status
+# collector -- i.e. red the box-walk. Those client changes live in
+# feature repos consumed at pinned SHAs and must NOT be edited here.
+# See the PR body + the filed follow-ups for the client half.
+_seed_store_secret() {
+    # $1 = secrets/ filename, $2 = out-var name. Reuse if present +
+    # non-empty (rotating would strand any client already bootstrapped
+    # against the old value); else generate 32 bytes of hex, 0600.
+    local _file="${SECRETS_DIR}/$1" _outvar="$2" _val=""
+    if [[ -s "$_file" ]]; then
+        _val="$(cat "$_file")"
+    else
+        _val="$(openssl rand -hex 32)"
+        local _um; _um="$(umask)"; umask 0077
+        printf '%s' "$_val" > "$_file"
+        umask "$_um"
+        chmod 600 "$_file"
+    fi
+    printf -v "$_outvar" '%s' "$_val"
+}
+_seed_store_secret "qdrant_api_key" QDRANT_API_KEY
+_seed_store_secret "redis_password" REDIS_PASSWORD
+_seed_store_secret "oxigraph_token" OXIGRAPH_TOKEN
+ok "Generated per-install data-store auth secrets under ${SECRETS_DIR} (qdrant_api_key, redis_password, oxigraph_token)."
+
+# Enforcement plumbing. When OSTLER_STORE_AUTH_ENFORCE=1, thread the
+# secrets into the compose .env (the docker-compose heredoc
+# interpolates ${QDRANT_API_KEY} / ${REDIS_AUTH_ARGS} from it) and
+# into the client config .env so host-side clients authenticate.
+# Default (unset) leaves both empty => Qdrant sees an empty api key
+# (no auth) and valkey starts with no --requirepass (no auth),
+# matching today's behaviour so the pinned clients keep working.
+_store_auth_upsert_env() {
+    # $1 = env file, $2 = KEY, $3 = VALUE. Replace-or-append, 0600.
+    local _f="$1" _k="$2" _v="$3"
+    touch "$_f"; chmod 600 "$_f"
+    if grep -q "^${_k}=" "$_f" 2>/dev/null; then
+        sed -i.bak "/^${_k}=/d" "$_f"; rm -f "${_f}.bak"
+    fi
+    printf '%s=%s\n' "$_k" "$_v" >> "$_f"
+}
+if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" == "1" ]]; then
+    warn "OSTLER_STORE_AUTH_ENFORCE=1: enabling native auth on Qdrant + Redis. This REQUIRES the matching client-side PRs (CM041/CM024/CM052/doctor); without them, ingest + Doctor status will fail."
+    _store_auth_upsert_env "$OSTLER_ENV_FILE" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+    _store_auth_upsert_env "$OSTLER_ENV_FILE" "REDIS_AUTH_ARGS" "--requirepass ${REDIS_PASSWORD}"
+    _store_auth_upsert_env "${CONFIG_DIR}/.env" "QDRANT_API_KEY" "$QDRANT_API_KEY"
+    _store_auth_upsert_env "${CONFIG_DIR}/.env" "REDIS_URL" "redis://:${REDIS_PASSWORD}@localhost:6379"
+    ok "Store auth ENFORCED: Qdrant API key + Redis requirepass threaded into compose + client env."
+else
+    info "Store native auth is staged but DEFAULT-OFF (loopback-only binding is the operative control for v1.0.10). Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
+fi
+
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
 
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
@@ -8194,6 +8331,15 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.12.1
     container_name: ostler-qdrant
+    # v1.0.10 security lockdown: host ports are 127.0.0.1-only (no
+    # off-box reach). QDRANT__SERVICE__API_KEY enables native API-key
+    # auth for defence-in-depth against LOCAL processes. Interpolated
+    # from the compose .env: EMPTY => Qdrant runs with no auth (the
+    # v1.0.10 default, since the pinned vendored clients do not send
+    # an api key). Set OSTLER_STORE_AUTH_ENFORCE=1 at install time to
+    # populate it once the client-side auth PRs land.
+    environment:
+      QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     ports:
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
@@ -8204,6 +8350,16 @@ services:
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph:0.4.6
     container_name: ostler-oxigraph
+    # v1.0.10 security lockdown: host port is 127.0.0.1-only. Oxigraph
+    # 0.4.6 has NO native auth, and every vendored client posts to
+    # /query,/update with no Authorization header, so we cannot flip a
+    # bearer on without breaking the pinned clients. The brief's
+    # reverse-proxy option (loopback proxy enforcing a Host allowlist +
+    # bearer) is deferred: it requires the SAME client-side changes as
+    # Qdrant/Oxigraph auth (CM041/CM024/CM052) to send the bearer, and
+    # those live in feature repos the cut consumes at pinned SHAs.
+    # Operative control for v1.0.10 is the loopback-only bind below.
+    # Tracked in the PR body + filed follow-up.
     ports:
       - "127.0.0.1:7878:7878"
     volumes:
@@ -8216,6 +8372,14 @@ services:
     # Drop-in compatible with our redis-py client and protocol.
     image: valkey/valkey:8-alpine
     container_name: ostler-redis
+    # v1.0.10 security lockdown: host port is 127.0.0.1-only. Native
+    # auth via --requirepass is interpolated from the compose .env as
+    # ${REDIS_AUTH_ARGS}. EMPTY => `valkey-server` with no password
+    # (the v1.0.10 default, matching the image's default CMD, since
+    # the pinned Doctor client PINGs without AUTH). Set
+    # OSTLER_STORE_AUTH_ENFORCE=1 to populate it as
+    # `--requirepass <secret>` once the client-side auth PRs land.
+    command: valkey-server ${REDIS_AUTH_ARGS:-}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -10599,6 +10763,17 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              removes a latent class of failure. -->
         <key>OSTLER_CHAT_ADMIN_TOKEN_FILE</key>
         <string>${OSTLER_DIR}/secrets/zeroclaw_admin_token</string>
+        <!-- v1.0.10 security lockdown (#200 service token): the
+             Doctor proxies the iOS /api/v1/* paths to the loopback
+             ical-server on 127.0.0.1:8090 (DOCTOR_GATEWAY_URL). This
+             carries the per-install #200 service token so the proxy
+             can attach `Authorization: Bearer <token>` on the
+             forwarded request, and the ical-server (which now
+             requires it, see com.ostler.ical-server plist) accepts
+             it. Same PWG_SERVICE_TOKEN name on both sides so the two
+             halves line up with CM041's fix/v1010-ical-server-auth. -->
+        <key>PWG_SERVICE_TOKEN</key>
+        <string>${PWG_SERVICE_TOKEN}</string>
     </dict>
 </dict>
 </plist>
@@ -10723,6 +10898,18 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>${OSTLER_DIR}/ical/ingest</string>
         <key>SYNC_STATE_DIR</key>
         <string>${OSTLER_DIR}/ical/sync-state</string>
+        <!-- v1.0.10 security lockdown (#200 service token): the
+             ical-server binds 127.0.0.1:8090 and is fronted by the
+             Doctor proxy on :8089. This env var carries the per-
+             install #200 service token (secrets/service_token,
+             generated ~L6768) so the ical-server can require a
+             matching bearer on inbound requests. The Doctor proxy
+             carries the SAME token (see com.ostler.doctor plist)
+             and attaches it as `Authorization: Bearer` when
+             forwarding to :8090. Env-var name is PWG_SERVICE_TOKEN,
+             matching CM041's fix/v1010-ical-server-auth reader. -->
+        <key>PWG_SERVICE_TOKEN</key>
+        <string>${PWG_SERVICE_TOKEN}</string>
     </dict>
 </dict>
 </plist>
@@ -12080,6 +12267,26 @@ ASSISTANT_FALLBACK_VERSION="0.4.1"
 # bundled payload.
 OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-releases}"
 OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
+
+# ── Daemon tarball integrity pin (v1.0.10 security lockdown) ───────
+# Cross-origin defence for the curl recovery path. The same-origin
+# `<archive>.sha256` sidecar (fetched from the SAME GitHub release
+# as the tarball) proves nothing against a compromised release: an
+# attacker who can replace the tarball can replace its sidecar too.
+# This pin is baked into install.sh itself, which is served from a
+# DIFFERENT origin (ostler.ai/install.sh via the CM055 edge worker,
+# or the notarised DMG), so a tampered release cannot satisfy it.
+# The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 to the notarised
+# tarball's sha256 at cut time -- same discipline as the installer
+# tarball pin (DEFAULT_INSTALLER_TARBALL_SHA256) and the GWS pins.
+# Placeholder / empty => the codesign --verify + spctl --assess gate
+# below is the sole authority (there is still NO unsigned-launch
+# path). A real 64-hex value => an ADDITIONAL hard check layered on
+# top of the signature gate. Override at install time with
+# OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
+DEFAULT_ASSISTANT_TARBALL_SHA256="REPLACE_AT_RELEASE_TIME"
+ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
+
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
 # .app bundle path (v0.4.3+ shape). The bundle wrapper carries
 # CFBundleIconFile + icon.icns, so macOS TCC and Activity Monitor
@@ -12121,6 +12328,83 @@ _ostler_assistant_set_urls() {
     # under one repository.
     ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
     ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+}
+
+# ── Daemon signature gate (v1.0.10 security lockdown) ─────────────
+# Returns 0 iff the staged daemon bundle clears BOTH
+# codesign --verify --deep --strict AND spctl --assess --type
+# execute -- the exact Gatekeeper posture RemoteCapture and
+# Ostler.app are held to before their quarantine is cleared. Tool
+# output goes to the caller-provided log paths for surfacing on
+# failure.
+_verify_daemon_signature() {
+    local _bundle="$1" _cs_log="$2" _sp_log="$3"
+    codesign --verify --deep --strict "$_bundle" 2>"$_cs_log" \
+        && spctl --assess --type execute "$_bundle" 2>"$_sp_log"
+}
+
+# ── Shared daemon-staging finaliser (v1.0.10 security lockdown) ───
+# EVERY path that stages a daemon into ${ASSISTANT_APP_BUNDLE}
+# (DMG-bundled .app, DMG-bundled bare binary wrapped locally, or the
+# curl recovery download) MUST funnel through this gate before the
+# quarantine xattr is stripped or ASSISTANT_BINARY_INSTALLED is set.
+# There is NO unsigned-launch path: a bundle that is not a
+# Developer-ID-signed, notarised .app is deleted and the install
+# aborts. Pre-v1.0.10 the curl path stripped quarantine on ANY valid
+# Mach-O ("unsigned" state) and launched it, so an attacker who could
+# serve a tarball plus a matching SAME-ORIGIN sidecar ran arbitrary
+# code as the daemon. Uses ASSISTANT_TMPDIR (always allocated by this
+# phase) for the codesign/spctl logs.
+_finalise_daemon_staging() {
+    local _cs_log="${ASSISTANT_TMPDIR}/daemon-codesign.log"
+    local _sp_log="${ASSISTANT_TMPDIR}/daemon-spctl.log"
+
+    local _ft
+    _ft="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
+    if [[ "$_ft" != *"Mach-O"* ]]; then
+        # Not even a Mach-O -- malformed extract or upstream pipeline
+        # bug. Refuse: delete + abort.
+        err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
+        err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${_ft}")"
+        err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
+        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    if _verify_daemon_signature "$ASSISTANT_APP_BUNDLE" "$_cs_log" "$_sp_log"; then
+        # Signed + notarised => Gatekeeper-trusted. Clear quarantine
+        # so launchctl can spawn it without a first-run dialog.
+        xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+        info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
+        if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
+            ASSISTANT_BINARY_INSTALLED=true
+        else
+            warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
+            warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
+        fi
+    else
+        # Signature / notarisation FAILED. No unsigned-launch path:
+        # delete the staged bundle and abort. Mirrors the
+        # RemoteCapture fail_with_code + Ostler.app posture.
+        err "Refusing to install ostler-assistant: not a Developer-ID-signed, notarised bundle (no unsigned-launch path)."
+        err "Both codesign --verify --deep --strict and spctl --assess --type execute must pass on this daemon."
+        if [[ -s "$_cs_log" ]]; then
+            err "codesign reported:"
+            sed -e 's/^/    /' "$_cs_log" | head -5
+        fi
+        if [[ -s "$_sp_log" ]]; then
+            err "spctl reported:"
+            sed -e 's/^/    /' "$_sp_log" | head -5
+        fi
+        err "Deleting the staged bundle and aborting. Re-run once a signed + notarised daemon is available."
+        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
 }
 
 _ostler_assistant_set_urls "${OSTLER_ASSISTANT_VERSION}"
@@ -12209,14 +12493,12 @@ if [[ "$_assistant_bundled_shape" == "app" ]]; then
     mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
     ditto "$ASSISTANT_BUNDLED_APP" "$ASSISTANT_APP_BUNDLE"
     chmod 0755 "$ASSISTANT_BINARY"
-    # Clear quarantine from the whole bundle tree. The DMG itself
-    # was already Gatekeeper-cleared by the customer at install
-    # time, so this is not a security downgrade. -r recurses so
-    # the inner Mach-O + the Resources/icon.icns both lose the
-    # quarantine flag.
-    xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_APP_BUNDLE}")"
-    ASSISTANT_BINARY_INSTALLED=true
+    # v1.0.10 security lockdown: gate the DMG-bundled daemon on the
+    # SAME codesign + spctl chain RemoteCapture and Ostler.app clear
+    # (both are also DMG-sourced and still verified) before the
+    # quarantine xattr is stripped. A notarised daemon .app passes
+    # cleanly; anything else is deleted and the install aborts.
+    _finalise_daemon_staging
 elif [[ "$_assistant_bundled_shape" == "bin" ]]; then
     # DMG bundled the legacy bare-binary shape. Stage the binary
     # into the .app bundle structure locally so the TCC icon
@@ -12292,10 +12574,14 @@ INFOPLISTEOF
         chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
     fi
     unset _local_wrap_icon_src
-    # Clear quarantine from the freshly-staged bundle.
-    xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-    ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_APP_BUNDLE}")"
-    ASSISTANT_BINARY_INSTALLED=true
+    # v1.0.10 security lockdown: this legacy path wraps a BARE binary
+    # in a locally-synthesised .app, which is unsigned by
+    # construction and therefore cannot clear the signature gate.
+    # That is intentional -- "no unsigned daemon may ever launch".
+    # v1.0.10 DMGs ship the signed .app shape, so this path is dead
+    # in practice; a customer on a pre-.app legacy DMG is refused
+    # rather than silently run an unsigned daemon.
+    _finalise_daemon_staging
 elif [[ "$_assistant_download_ok" == "true" ]]; then
 
     # Verify SHA-256. Phase B writes the sidecar as
@@ -12314,6 +12600,27 @@ elif [[ "$_assistant_download_ok" == "true" ]]; then
         rm -rf "$ASSISTANT_TMPDIR"
         ASSISTANT_TMPDIR=""
         exit 1
+    fi
+
+    # Cross-origin pin (v1.0.10 security lockdown). The sidecar
+    # verified above is SAME-ORIGIN (fetched from the same release as
+    # the tarball) and is worthless against a compromised release.
+    # ASSISTANT_TARBALL_SHA256 is baked into install.sh (a different
+    # origin) so a tampered release cannot satisfy it. Enforce it as
+    # an additional hard check when the ORM has populated a real
+    # value; a placeholder / empty pin leaves the codesign + spctl
+    # gate below as the authority (still no unsigned-launch path).
+    if [[ -n "$ASSISTANT_TARBALL_SHA256" && "$ASSISTANT_TARBALL_SHA256" != "REPLACE_AT_RELEASE_TIME" ]]; then
+        if [[ "$ACTUAL_SHA" != "$ASSISTANT_TARBALL_SHA256" ]]; then
+            err "ostler-assistant tarball failed the cross-origin integrity pin baked into install.sh."
+            err "$(printf "$MSG_ERR_EXPECTED" "${ASSISTANT_TARBALL_SHA256}")"
+            err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
+            err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+            err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
+            rm -rf "$ASSISTANT_TMPDIR"
+            ASSISTANT_TMPDIR=""
+            exit 1
+        fi
     fi
 
     # Extract the tarball into a private staging dir first so we
@@ -12398,111 +12705,21 @@ INFOPLISTEOF
         rm -rf "$_assistant_extract_dir"
         chmod 0755 "$ASSISTANT_BINARY" 2>/dev/null || true
 
-        # Three-state binary check. The SHA-256 verification
-        # earlier in this section already caught a tampered
-        # download, but a malformed extract or an upstream
-        # release-pipeline bug could still hand us a file that
-        # is not even a Mach-O. We refuse to silently degrade
-        # such a binary to the unsigned-quarantine-strip path:
-        # clearing the quarantine xattr on a corrupt binary
-        # would let it run without the right-click-and-Allow
-        # ceremony that would otherwise alert the operator.
-        # Per feedback_no_silent_security_fallback: security
-        # paths must hard-fail, not silently degrade.
-        #
-        # State distinction:
-        #   1. `file` does not report Mach-O => state "corrupt".
-        #      A random-bytes replacement, an empty file, or any
-        #      non-executable extracted in error lands here. We
-        #      can't trust codesign output below for non-Mach-O
-        #      input -- codesign reports "not signed at all" for
-        #      both legitimately-unsigned binaries AND completely
-        #      garbage data, so without this Mach-O gate the
-        #      detection silently misclassifies garbage as
-        #      "unsigned" and strips the quarantine xattr.
-        #   2. `codesign -dv` reports Authority=Developer ID
-        #      Application => state "signed". Upstream pipeline
-        #      stamped this build via release/sign-and-notarize.sh.
-        #   3. Otherwise => state "unsigned". Today's default
-        #      tarball, an ad-hoc-signed local build, or any
-        #      non-Developer-ID signature. Trust path is the
-        #      same: clear the quarantine xattr on the operator-
-        #      authorised install.
-        ASSISTANT_BINARY_SIGN_STATE="unknown"
-        binary_file_type="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
-        codesign_dv_output="$(codesign -dv --verbose=4 "$ASSISTANT_BINARY" 2>&1 || true)"
-
-        if [[ "$binary_file_type" != *"Mach-O"* ]]; then
-            ASSISTANT_BINARY_SIGN_STATE="corrupt"
-        elif echo "$codesign_dv_output" | grep -qE "Authority=Developer ID Application"; then
-            ASSISTANT_BINARY_SIGN_STATE="signed"
-        else
-            # A valid Mach-O without a Developer ID signature
-            # (today's default unsigned, or an ad-hoc / non-
-            # Developer-ID signed build). Trust path: the
-            # operator authorised this install, FileVault
-            # protects the artefact at rest, the SHA-256
-            # verified the download. Strip the xattr.
-            ASSISTANT_BINARY_SIGN_STATE="unsigned"
-        fi
-
-        case "$ASSISTANT_BINARY_SIGN_STATE" in
-            signed)
-                # Signed + notarised binaries are Gatekeeper-
-                # trusted; the quarantine xattr resolves cleanly
-                # on first run via Apple's online ticket lookup,
-                # so we leave it in place rather than stripping.
-                ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
-                info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
-                ;;
-            unsigned)
-                # Unsigned binary (today's default, or a forked
-                # build that opted out of signing). Clearing the
-                # quarantine xattr lets the LaunchAgent run
-                # without the user having to right-click + Allow
-                # in Privacy & Security on first launch.
-                # Operator-installed daemons under
-                # ~/.ostler/OstlerAssistant.app are explicitly
-                # trusted by the install they just authorised;
-                # quarantine adds friction without buying
-                # anything beyond what FileVault and the SHA
-                # verify above already cover. -r recurses so the
-                # inner Mach-O + Resources/icon.icns both lose
-                # the xattr.
-                xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-                ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
-                info "$MSG_INFO_QUARANTINE_XATTR_CLEARED_ONCE_DEVELOPER_ID"
-                info "$MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP"
-                ;;
-            corrupt)
-                # Refuse to install. The SHA-256 sidecar already
-                # passed (we wouldn't be here otherwise), so a
-                # corrupt binary at this point implies an
-                # upstream release-pipeline bug or a runtime
-                # filesystem fault. Either way: don't strip
-                # quarantine, don't load the LaunchAgent, leave
-                # the binary in place for the operator to
-                # inspect.
-                err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
-                err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${binary_file_type}")"
-                err "$MSG_ERR_CODESIGN_DV_REPORTED"
-                err "$(printf '%s\n' "$codesign_dv_output" | sed -e 's/^/    /' | head -5)"
-                err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
-                err "$MSG_ERR_RE_RUN_INSTALLER_ONCE_UPSTREAM_TARBALL"
-                # ASSISTANT_BINARY_INSTALLED stays false (its
-                # initial value), so the LaunchAgent step
-                # downstream is skipped without further action.
-                ;;
-        esac
-
-        if [[ "$ASSISTANT_BINARY_SIGN_STATE" != "corrupt" ]]; then
-            if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
-                ASSISTANT_BINARY_INSTALLED=true
-            else
-                warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
-                warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
-            fi
-        fi
+        # v1.0.10 security lockdown (daemon download integrity).
+        # The SHA sidecar + cross-origin pin above prove the bytes
+        # match what the ORM published, but a curl-fetched bundle on
+        # the curl|bash path never passes through a DMG Gatekeeper
+        # ceremony, so it is NOT yet trusted to run. Funnel it
+        # through the SAME codesign --verify --deep --strict + spctl
+        # --assess --type execute gate that RemoteCapture and
+        # Ostler.app clear. Pass => strip quarantine + mark installed.
+        # Fail => delete the staged bundle and abort. There is NO
+        # unsigned-launch path any more: pre-v1.0.10 an "unsigned"
+        # (valid Mach-O, no Developer ID) daemon had its quarantine
+        # xattr stripped and was launched, so an attacker who could
+        # serve a tarball plus a matching same-origin sidecar ran
+        # arbitrary code as the daemon.
+        _finalise_daemon_staging
     else
         warn "$MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL"
     fi
@@ -13650,11 +13867,23 @@ TSPLIST
             # ── Expose the Hub's local ports on the tailnet ─────────
             # In userspace mode the tailnet IP does not reach local
             # listeners without an explicit proxy, so serve each Hub
-            # port: 8089 (Doctor API the iOS Companion uses) and 8044
-            # (the wiki). --bg keeps the forwarder running after the
+            # port. --bg keeps the forwarder running after the
             # installer exits. Best-effort: a serve failure is surfaced
             # but does not fail the install (on-LAN pairing still works).
-            for _ts_port in 8089 8044; do
+            #
+            # v1.0.10 security lockdown: ONLY 8089 (the Doctor API) is
+            # tailscale-served. 8089 has its own device-pairing bearer
+            # auth, so a tailnet peer still cannot read anything without
+            # a paired token. The wiki on :8044 is DELIBERATELY NOT
+            # served: it has no identity gate of its own, so a raw
+            # `serve --tcp=8044` passthrough would expose the customer's
+            # ENTIRE personal graph (People, Conversations, Knowledge)
+            # unauthenticated to any peer on the tailnet. The wiki is
+            # on-device only (http://localhost:8044); remote wiki
+            # browsing is out of scope until it sits behind the #200
+            # localhost token or `tailscale serve https` identity
+            # headers. See the CM044 wiki CSP / auth work.
+            for _ts_port in 8089; do
                 if "$TS_CLI" --socket="$TS_SOCK" serve --bg --tcp="$_ts_port" "tcp://localhost:${_ts_port}" >/dev/null 2>&1; then
                     info "$(printf "$MSG_INFO_TAILSCALE_SERVE_PORT" "$_ts_port")"
                 else
@@ -13662,6 +13891,7 @@ TSPLIST
                 fi
             done
             unset _ts_port
+            info "Wiki (:8044) is intentionally on-device only -- not exposed over Tailscale (it has no auth of its own). Browse it at http://localhost:8044 on this Mac."
             ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
             echo "  Use this address in the Ostler iOS companion app:"
             echo "    http://${OSTLER_TAILSCALE_IP}:8089"
