@@ -12040,9 +12040,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.31})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.32})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.31}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.32}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an

@@ -157,13 +157,13 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.31
+DAEMON_VERSION       ?= 0.4.32
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
 # so an unverified / wrong-version daemon can never reach the DMG. Bump in
 # lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
-DAEMON_SHA256        ?= cd252afc79290325a57ba250e4cea73f88883b777506229929fef6443e02fc0d
+DAEMON_SHA256        ?= 3d520ab1fc9cb8fc2642db31fe7ab7f12e4a56e96a178c1fb806b85de9686dc1
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
