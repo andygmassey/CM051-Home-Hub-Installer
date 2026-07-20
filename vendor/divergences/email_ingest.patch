@@ -33,9 +33,70 @@
  OSTLER_BACKFILL_CHUNK_DAYS="${OSTLER_BACKFILL_CHUNK_DAYS:-30}"
  
  # Where to drop the hourly mbox. One file per hour means a re-run
+@@ -89,18 +93,53 @@
+ # 2. Hand the mbox to CM046's email adapter -> CM048
+ # ---------------------------------------------------------------------------
+ 
+-# pwg-email-ingest is CM046's CLI entry point. It threads + cleans
+-# the mbox and writes per-conversation state directories that CM048
+-# then promotes into Qdrant + Oxigraph + the conversation MDs.
++# pwg-email-ingest is CM021's CLI entry point (console script). It
++# threads + cleans the mbox and writes per-conversation state
++# directories that CM048 then promotes into Qdrant + Oxigraph + the
++# conversation MDs.
++#
++# PATH-INDEPENDENCE (the silent-100%-drop fix): under launchd the
++# agent inherits a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), which
++# does NOT include the email-ingest venv's bin/. So a bare
++# `pwg-email-ingest` lookup ALWAYS missed -- the emit leg above
++# succeeded (it uses the absolute $OSTLER_PYTHON the plist passes), the
++# tick logged "Emitted N message(s)", then this lookup failed with exit
++# 127 and EVERY harvested message was dropped before reaching the
++# graph. The plist now passes the absolute venv binary via
++# PWG_EMAIL_INGEST (mirrors how it already passes OSTLER_PYTHON), so the
++# resolution below succeeds under launchd. We keep a PATH fallback so a
++# manual dev run with the venv on PATH still works.
+ PWG_EMAIL_INGEST="${PWG_EMAIL_INGEST:-pwg-email-ingest}"
+ 
+-if ! command -v "$PWG_EMAIL_INGEST" >/dev/null 2>&1; then
+-    log "ERROR: $PWG_EMAIL_INGEST is not on PATH. CM046 not installed?"
+-    log "       The mbox at $MBOX is preserved; re-run after install."
++# Resolve to a runnable binary. An absolute/relative path that exists +
++# is executable is taken as-is; otherwise we look it up on PATH.
++if [ -x "$PWG_EMAIL_INGEST" ]; then
++    PWG_EMAIL_INGEST_RESOLVED="$PWG_EMAIL_INGEST"
++elif command -v "$PWG_EMAIL_INGEST" >/dev/null 2>&1; then
++    PWG_EMAIL_INGEST_RESOLVED="$PWG_EMAIL_INGEST"
++else
++    PWG_EMAIL_INGEST_RESOLVED=""
++fi
++
++# LOUD GUARD (silent-100%-drop tripwire): the emitter just wrote a
++# NON-EMPTY mbox ($MBOX passed the `-s` check above), so messages WERE
++# harvested. If the ingest binary cannot be resolved here, those
++# messages would be silently dropped and 0 emails would reach the
++# graph -- the exact regression this guard exists to make impossible.
++# Fail LOUDLY and non-zero so launchd records it in email-ingest.err
++# and Doctor's backfill-progress diagnostic surfaces it, rather than a
++# quiet no-op. The mbox is preserved for the re-run after the fix.
++if [ -z "$PWG_EMAIL_INGEST_RESOLVED" ]; then
++    log "ERROR: messages were harvested into $MBOX but the ingest binary"
++    log "       '$PWG_EMAIL_INGEST' could not be resolved (not an executable"
++    log "       path and not on PATH). 0 emails would reach the graph."
++    log "       CM021 (pwg-email-ingest) is not installed in the email-ingest"
++    log "       venv, or the LaunchAgent did not pass PWG_EMAIL_INGEST."
++    log "       The mbox is preserved; re-run after install/repair."
+     exit 127
+ fi
+ 
+-"$PWG_EMAIL_INGEST" mbox "$MBOX" || {
++"$PWG_EMAIL_INGEST_RESOLVED" mbox "$MBOX" || {
+     rc=$?
+     log "ERROR: pwg-email-ingest failed (exit $rc); mbox preserved at $MBOX."
+     exit "$rc"
 --- a/INSTALL_SNIPPET.sh
 +++ b/INSTALL_SNIPPET.sh
-@@ -94,10 +94,22 @@
+@@ -94,10 +94,41 @@
  esc_home="$(printf '%s' "$EMAIL_INGEST_HOME_RESOLVED"        | sed 's/[&/\]/\\&/g')"
  esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/g')"
  
@@ -50,17 +111,36 @@
 +OSTLER_PYTHON_PATH_VALUE="${OSTLER_VENV_PYTHON:-python3}"
 +esc_python="$(printf '%s' "$OSTLER_PYTHON_PATH_VALUE"        | sed 's/[&/\]/\\&/g')"
 +
++# OSTLER_EMAIL_INGEST_BIN: absolute path to CM021's pwg-email-ingest
++# console script inside the email-ingest venv (created by CM051
++# install.sh's CM021 pip-install). Rendered into the plist's
++# PWG_EMAIL_INGEST env var so the tick's ingest leg resolves the binary
++# under launchd's minimal PATH. If unset/empty we fall back to the
++# literal "pwg-email-ingest" so a dev run with the venv on PATH still
++# works; the tick's LOUD guard then fails the tick if the binary is
++# genuinely absent rather than dropping harvested mail silently.
++# This is the sibling fix to OSTLER_VENV_PYTHON: that wired the emit
++# leg's interpreter, this wires the ingest leg's binary. Without it the
++# emit leg succeeded and EVERY harvested message was dropped at the
++# ingest leg with "not on PATH" / exit 127.
++OSTLER_EMAIL_INGEST_BIN_VALUE="${OSTLER_EMAIL_INGEST_BIN:-pwg-email-ingest}"
++esc_ingest="$(printf '%s' "$OSTLER_EMAIL_INGEST_BIN_VALUE"   | sed 's/[&/\]/\\&/g')"
++
++# PWG_EMAIL_INGEST_PATH is rendered before OSTLER_PYTHON_PATH purely for
++# readability; the two placeholders share no common substring so the
++# order is byte-safe either way.
  sed \
      -e "s/OSTLER_BIN/$esc_bin/g" \
      -e "s/OSTLER_HOME/$esc_home/g" \
      -e "s/OSTLER_LOGS/$esc_logs/g" \
++    -e "s/PWG_EMAIL_INGEST_PATH/$esc_ingest/g" \
 +    -e "s/OSTLER_PYTHON_PATH/$esc_python/g" \
      "$EMAIL_INGEST_PLIST_SRC" > "$RENDERED_PLIST"
  
  chmod 0644 "$RENDERED_PLIST"
 --- a/launchd/com.creativemachines.ostler.email-ingest.plist
 +++ b/launchd/com.creativemachines.ostler.email-ingest.plist
-@@ -78,6 +78,25 @@
+@@ -78,6 +78,40 @@
      <string>OSTLER_LOGS/email-ingest.err</string>
  
      <!--
@@ -76,10 +156,25 @@
 +        ${OSTLER_DIR}/services/email-ingest/.venv/bin/python3 at
 +        install time.
 +    -->
++    <!--
++        PWG_EMAIL_INGEST is the ABSOLUTE path to CM021's
++        pwg-email-ingest console script for the ingest leg. Under
++        launchd the agent inherits a minimal PATH
++        (/usr/bin:/bin:/usr/sbin:/sbin) that does NOT include the
++        email-ingest venv's bin/, so a bare `pwg-email-ingest` lookup
++        always missed and EVERY harvested message was silently dropped
++        before reaching the graph (the "Emitted N message(s)" then
++        "not on PATH" / exit-127 shape). The installer renders
++        PWG_EMAIL_INGEST_PATH ->
++        ${OSTLER_DIR}/services/email-ingest/.venv/bin/pwg-email-ingest
++        at install time, mirroring OSTLER_PYTHON_PATH above.
++    -->
 +    <key>EnvironmentVariables</key>
 +    <dict>
 +        <key>OSTLER_PYTHON</key>
 +        <string>OSTLER_PYTHON_PATH</string>
++        <key>PWG_EMAIL_INGEST</key>
++        <string>PWG_EMAIL_INGEST_PATH</string>
 +    </dict>
 +
 +    <!--
