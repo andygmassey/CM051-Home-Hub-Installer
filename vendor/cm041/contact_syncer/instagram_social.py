@@ -5,7 +5,7 @@ and imports contacts into the PWG people graph.
 For each connection:
 1. Parse JSON entry → PersonIdentity (display_name = username)
 2. Resolve via IdentityResolver (fuzzy matching — some usernames
-   contain real names like "belindaburwell" or "alisonmassey")
+   contain real names like "janedoe" or "johnsmith")
 3. Match → enrich existing person with Instagram username identifier
 4. No match → create new person node in PWG
 5. Upsert Qdrant point with embedding
@@ -412,8 +412,8 @@ def _username_to_display_name(username: str) -> str:
     """Best-effort conversion of Instagram username to a display name.
 
     Strips trailing digits, replaces separators with spaces, title-cases.
-    E.g. "belindaburwell" stays as "belindaburwell" (no separators to split on),
-    "isla.whittet" → "Isla Whittet", "guy.williams.779" → "Guy Williams".
+    E.g. "janedoe" stays as "janedoe" (no separators to split on),
+    "jane.doe" → "Jane Doe", "john.smith.779" → "John Smith".
     """
     # Remove common suffixes like trailing numbers after dots/underscores
     import re
@@ -552,7 +552,7 @@ def import_instagram(
 
         try:
             # Resolve — fuzzy matching may pick up usernames that look like
-            # real names (e.g. "belindaburwell" matches "Belinda Burwell")
+            # real names (e.g. "janedoe" matches "Jane Doe")
             match = resolver.resolve(identity, use_fuzzy=True)
 
             if match and match.person_uri and match.match_type != "new":

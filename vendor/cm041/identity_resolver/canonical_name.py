@@ -128,7 +128,7 @@ def choose_canonical_display_name(
          ``familyName`` (the strongest, structured signal). Used only if the
          assembled name itself passes the acceptability guard.
       2. The first acceptable candidate from ``candidates`` (named-source
-         display name) -- e.g. "Andrew Massey" beats "root"/"me@..."/aliases
+         display name) -- e.g. "Jane Doe" beats "root"/"me@..."/aliases
          because the junk values are filtered out.
       3. If nothing is acceptable, fall back to the first non-empty candidate
          (so the node never ends up nameless). The caller may still prefer to

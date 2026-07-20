@@ -110,6 +110,13 @@ HR015_SOURCES=(
 # ${CM051_DIR}/vendor/cm041/.
 CM051_VENDOR_CM041_SUBDIRS=(
     "assistant_api"
+    # CM041 v1.0.9 (2026-07-15): repo-root companions of assistant_api.
+    # pwg_privacy.py is HARD-imported by ical-server.py (CM041 #97) from
+    # the parent dir of assistant_api/ -- the install root in this
+    # layout. ostler_hygiene/ is the memory-hygiene engine (CM041 #98),
+    # resolved fail-open from the same parent dir.
+    "pwg_privacy.py"
+    "ostler_hygiene"
 )
 
 # Files / dirs sourced from CM021. Format: src_relpath. Staged under

@@ -238,7 +238,14 @@ def import_messages(
         "errors": 0,
     }
 
-    for i, (conv_id, conv) in enumerate(sorted_convos, 1):
+    # Bulk fuzzy-resolve mode: snapshot every Person's fuzzy-candidate row
+    # ONCE up front instead of re-running a full-table SPARQL SELECT for
+    # every conversation participant. For a large message export this turns
+    # an O(participants x persons) scan into O(persons) + in-memory scoring
+    # -- the iMessage-hydration hot path. Newly-minted persons are
+    # registered back into the snapshot below so intra-run dedup still works.
+    with resolver.bulk():
+      for i, (conv_id, conv) in enumerate(sorted_convos, 1):
         # Find the non-user participants
         others = [
             p for p in conv["participants"].values()

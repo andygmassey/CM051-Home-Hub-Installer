@@ -2894,7 +2894,7 @@ case "$CHANNEL_CHOICE" in
         ;;
 esac
 
-# ── Messages Automation prompt — FRONT-LOADED (v1.0.2, P1) ────────
+# ── Messages Automation prompt - FRONT-LOADED (v1.0.2, P1) ────────
 #
 # Previously the macOS "OstlerInstaller wants to control Messages"
 # Automation prompt fired only at section 3.18 (~95% through install),
@@ -4362,10 +4362,120 @@ ostler_rt_loadavg_1m() {
     printf '%s' "$raw" | tr -d '{}' | awk '{print $1}'
 }
 
+# ── User-facing controls (the Doctor "Settings" panel) ───────────────
+#
+# The hardware-tier policy above is the automatic floor. On top of it the
+# operator gets two explicit controls, surfaced in the Doctor Settings
+# panel and persisted by it as a tiny KEY=VALUE file the panel writes and
+# THIS engine reads (closing the writer/reader gap that made the old
+# Config page a no-op):
+#
+#   * Pause  -- stop background enrichment/ingest entirely (OSTLER_PAUSED).
+#   * Throttle -- how hard background work may push the machine
+#                 (OSTLER_THROTTLE_LEVEL = full | balanced | gentle).
+#
+# Both are read here so EVERY consumer (all five conversation feeds + the
+# wiki recompile) honours them from the one place they already source.
+
+# Load the operator's Settings-panel choices. The panel writes a small
+# KEY=VALUE file (governor.env). We parse it DEFENSIVELY -- only OSTLER_*
+# assignments, values stripped of optional surrounding quotes -- and
+# export each, so a corrupt or hostile file can never execute code the way
+# a blind `source` would. An already-set environment variable always wins
+# (we only fill keys the caller has not set), so a test or command-line
+# override still takes precedence over the file.
+#   OSTLER_GOVERNOR_SETTINGS -> override the settings file path
+#                               (default ~/.ostler/config/governor.env).
+ostler_rt_load_user_settings() {
+    local f="${OSTLER_GOVERNOR_SETTINGS:-$HOME/.ostler/config/governor.env}"
+    [ -f "$f" ] || return 0
+    local line key val
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Trim leading whitespace, drop blanks and comments.
+        line="${line#"${line%%[![:space:]]*}"}"
+        case "$line" in
+            ''|'#'*) continue ;;
+            'export '*) line="${line#export }" ;;
+        esac
+        # Only OSTLER_* = ... assignments are honoured; anything else is
+        # ignored (never executed).
+        case "$line" in
+            OSTLER_[A-Z0-9_]*=*) ;;
+            *) continue ;;
+        esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        # Strip a single pair of matching surrounding quotes.
+        case "$val" in
+            \"*\") val="${val#\"}"; val="${val%\"}" ;;
+            \'*\') val="${val#\'}"; val="${val%\'}" ;;
+        esac
+        # Explicit environment wins: only fill what is not already set.
+        if [ -z "${!key+x}" ]; then
+            export "$key=$val"
+        fi
+    done < "$f"
+}
+
+# Map the operator's throttle choice onto the concrete knobs the gates
+# already read. Only fills a knob the operator/tier has not pinned, so an
+# explicit ceiling still wins. "balanced" leaves the hardware-tier default
+# untouched.
+#   full    -- run freely: high per-core ceiling, no first-run defer, no
+#              off-peak clamp. The single-flight lock + interactive-chat
+#              yield still protect live replies.
+#   gentle  -- ease right off: low per-core ceiling, defer on, and restrict
+#              heavy history reads to the overnight off-peak window.
+ostler_rt_apply_throttle_level() {
+    case "${OSTLER_THROTTLE_LEVEL:-}" in
+        full)
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-8.0}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-0}"
+            OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-0}"
+            ;;
+        gentle)
+            OSTLER_LOADAVG_CEILING="${OSTLER_LOADAVG_CEILING:-1.0}"
+            OSTLER_DEFER_NONESSENTIAL="${OSTLER_DEFER_NONESSENTIAL:-1}"
+            OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
+            ;;
+        balanced|'') ;;   # keep the hardware-tier default
+        *) ;;             # unknown value: ignore, keep the tier default
+    esac
+}
+
+# True (return 0) if the operator has paused background work. Pause is a
+# soft, self-expiring yield: the panel writes OSTLER_PAUSED=1, optionally
+# with OSTLER_PAUSE_UNTIL=<epoch-seconds>. With an until in the future we
+# stay paused until it passes (auto-resume); with no until we stay paused
+# until the operator resumes. A malformed until fails OPEN (treated as not
+# paused) so a bad value can never wedge background work forever. Live
+# interactive chat is never gated by this -- pause only stops the
+# background enrichment/ingest storm.
+ostler_resource_tier_is_paused() {
+    [ "${OSTLER_PAUSED:-0}" = "1" ] || return 1
+    local until="${OSTLER_PAUSE_UNTIL:-}"
+    case "$until" in
+        ''|forever) return 0 ;;      # paused until the operator resumes
+        *[!0-9]*)  return 1 ;;       # malformed -> fail open (not paused)
+    esac
+    local now
+    now="$(date +%s 2>/dev/null || echo 0)"
+    if [ "$now" -lt "$until" ]; then
+        return 0                     # still inside the pause window
+    fi
+    return 1                         # window elapsed -> auto-resume
+}
+
 # Compose the tier policy. Sets the OSTLER_* vars in the caller's shell.
 # Honours pre-set overrides: if OSTLER_TIER is already exported we trust
 # it and only fill the blanks (lets tests and operators pin a tier).
 ostler_resource_tier_detect() {
+    # Seed the operator's Settings-panel choices FIRST so pause/throttle
+    # shape everything below, then let the throttle level fill its knobs
+    # before the hardware-tier defaults do.
+    ostler_rt_load_user_settings
+    ostler_rt_apply_throttle_level
+
     OSTLER_RAM_GB="$(ostler_rt_ram_gb)"
     OSTLER_CPU_CORES="$(ostler_rt_cpu_cores)"
     OSTLER_PERF_CORES="$(ostler_rt_perf_cores)"
@@ -4433,6 +4543,12 @@ ostler_resource_tier_detect() {
     export OSTLER_TIER OSTLER_ENRICH_CONCURRENCY OSTLER_DEFER_NONESSENTIAL \
         OSTLER_LOADAVG_CEILING OSTLER_ENRICH_NUM_CTX \
         OSTLER_RAM_GB OSTLER_CPU_CORES OSTLER_PERF_CORES
+    # Carry the operator controls into the caller's environment so the
+    # later off-peak block (and any downstream tool) sees the same values.
+    export OSTLER_PAUSED="${OSTLER_PAUSED:-0}" \
+        OSTLER_PAUSE_UNTIL="${OSTLER_PAUSE_UNTIL:-}" \
+        OSTLER_THROTTLE_LEVEL="${OSTLER_THROTTLE_LEVEL:-balanced}" \
+        OSTLER_INGEST_OFFPEAK_ONLY="${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
 }
 
 # Decide whether a NON-ESSENTIAL enrichment tick should defer right now.
@@ -4452,6 +4568,14 @@ ostler_resource_tier_detect() {
 # Args: none. Reads OSTLER_DEFER_NONESSENTIAL, OSTLER_LOADAVG_CEILING,
 # OSTLER_CPU_CORES (call ostler_resource_tier_detect first).
 ostler_resource_tier_should_defer_nonessential() {
+    # Operator pause wins over everything: yield unconditionally while
+    # paused (auto-resumes when the pause window elapses).
+    if ostler_resource_tier_is_paused; then
+        OSTLER_DEFER_REASON="paused"
+        return 0
+    fi
+    OSTLER_DEFER_REASON="load"
+
     local defer="${OSTLER_DEFER_NONESSENTIAL:-1}"
     local ceiling="${OSTLER_LOADAVG_CEILING:-1.5}"
     local cores="${OSTLER_CPU_CORES:-0}"
@@ -4499,6 +4623,9 @@ if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
     printf 'OSTLER_RAM_GB=%s\n' "$OSTLER_RAM_GB"
     printf 'OSTLER_CPU_CORES=%s\n' "$OSTLER_CPU_CORES"
     printf 'OSTLER_PERF_CORES=%s\n' "$OSTLER_PERF_CORES"
+    printf 'OSTLER_PAUSED=%s\n' "${OSTLER_PAUSED:-0}"
+    printf 'OSTLER_THROTTLE_LEVEL=%s\n' "${OSTLER_THROTTLE_LEVEL:-balanced}"
+    printf 'OSTLER_INGEST_OFFPEAK_ONLY=%s\n' "${OSTLER_INGEST_OFFPEAK_ONLY:-1}"
 fi
 OSTLER_RESOURCE_TIER_EOF
 chmod +x "${HOME}/.ostler/lib/ostler-resource-tier.sh" 2>/dev/null || true
@@ -6984,8 +7111,8 @@ TOMLPREAMBLE
         _imsg_brief_recipient="${_imsg_brief_recipient% }"
         _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
-        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
+        _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
         echo
@@ -8446,6 +8573,13 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # raise ImportError at install time.
     [[ -d "${SCRIPT_DIR}/meeting_syncer" ]] && cp -R "${SCRIPT_DIR}/meeting_syncer" "$PIPELINE_DIR/"
     [[ -d "${SCRIPT_DIR}/identity_resolver" ]] && cp -R "${SCRIPT_DIR}/identity_resolver" "$PIPELINE_DIR/"
+    # CM041 v1.0.9 (2026-07-15): pwg_privacy.py is the canonical
+    # fail-closed L3 privacy helper at the CM041 repo root.
+    # meeting_syncer/brief.py hard-imports it (top-level, unguarded)
+    # from its parent dir (_PARENT_DIR sys.path hack = PIPELINE_DIR
+    # here), so it must land as a SIBLING of the three packages --
+    # without it the pre-meeting brief raises ImportError.
+    [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]] && cp "${SCRIPT_DIR}/pwg_privacy.py" "$PIPELINE_DIR/"
     [[ -f "${SCRIPT_DIR}/requirements.txt" ]] && cp "${SCRIPT_DIR}/requirements.txt" "$PIPELINE_DIR/"
     ok "$MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER"
     HAS_PIPELINE=true
@@ -10425,6 +10559,28 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     rm -rf "$ICAL_SERVER_DIR"
     mkdir -p "$ICAL_SERVER_DIR"
     cp -R "${SCRIPT_DIR}/assistant_api/." "$ICAL_SERVER_DIR/"
+
+    # CM041 v1.0.9 (2026-07-15): stage the two repo-root companions as
+    # SIBLINGS of the ical-server dir (the "repo root" in this layout).
+    #   - pwg_privacy.py: HARD-imported (top-level, unguarded) by
+    #     ical-server.py since CM041 #97 -- it resolves
+    #     dirname(dirname(ical-server.py)) = ${OSTLER_DIR}/services and
+    #     imports pwg_privacy from there. Missing file = the launchd
+    #     agent crash-loops at import time.
+    #   - ostler_hygiene/: the memory-hygiene engine (CM041 #98).
+    #     ical-server's _hygiene_reader() resolves it from the same
+    #     parent dir; the import is fail-open, but without it the
+    #     hygiene overlay silently degrades to raw source facts.
+    _ICAL_SERVICES_ROOT="$(dirname "$ICAL_SERVER_DIR")"
+    if [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]]; then
+        cp "${SCRIPT_DIR}/pwg_privacy.py" "${_ICAL_SERVICES_ROOT}/pwg_privacy.py"
+    else
+        warn "pwg_privacy.py not bundled with the installer - ical-server will fail to start (re-cut the DMG from a synced vendor/cm041)"  # i18n-exempt: vendor-sync build defect, not a customer flow
+    fi
+    if [[ -d "${SCRIPT_DIR}/ostler_hygiene" ]]; then
+        rm -rf "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
+        cp -R "${SCRIPT_DIR}/ostler_hygiene" "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
+    fi
 
     # Verify ostler_security is importable under OSTLER_VENV (Phase 7
     # is the install site). Refuse to render the plist if not: an
@@ -15255,6 +15411,49 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
     _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
     unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
           _places_rc _places_log_tail
+fi
+
+# ── Privacy-level backfill (CM041 #97 fail-closed gate) ───────────────
+#
+# The person-fact readers (ical-server /people/*, meeting brief) fail
+# CLOSED on unknown privacy: a fact/signal node with no pwg:privacyLevel
+# is treated as L3 and HIDDEN. On a freshly hydrated graph ~85% of the
+# historical fact/signal nodes land untagged, so serving before they are
+# tagged would silently hide most facts (near-empty People card / brief).
+#
+# This one-off backfill stamps every untagged PersonFact / RelationshipSignal
+# with its provenance-derived visible level (contact_syncer.privacy_model:
+# private/unknown -> L1, public/social -> L2, health/finance -> L0 -- NEVER
+# L3), so the fail-closed reader hides only genuinely-private content, not
+# the coverage gap.
+#
+# Ordering: runs AFTER every Oxigraph writer above (hydrate_graph
+# contacts/calendar + per-source FDA ingests + places) and BEFORE the first
+# wiki_compile / before ical-server serves, so both surfaces see a fully
+# tagged graph. Idempotent (the SELECT only matches untagged nodes, so a
+# re-run of install.sh writes nothing) and best-effort + non-fatal (a
+# failure is logged and install continues; the reader stays fail-closed, so
+# a failed backfill hides facts, it never leaks them). The reader-side
+# gate in ical-server also runs this on every boot as belt-and-braces.
+# Same import-pipeline venv as contact_syncer.syncer (carries httpx).
+if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
+    info "Tagging privacy levels on your graph"  # i18n-exempt
+    _privacy_rc=0
+    (
+        cd "$PIPELINE_DIR" \
+        && OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+           DEFAULT_PRIVACY_LEVEL="${DEFAULT_PRIVACY_LEVEL:-L2}" \
+           .venv/bin/python -m contact_syncer.backfill_privacy --apply
+    ) >>/tmp/ostler-privacy-backfill.log 2>&1 || _privacy_rc=$?
+    if [[ "$_privacy_rc" -eq 0 ]]; then
+        ok "Privacy levels tagged"  # i18n-exempt
+    else
+        # Non-fatal: readers stay fail-closed (safe), and the ical-server
+        # startup hook retries on the next boot. Surface it, do not abort.
+        warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See /tmp/ostler-privacy-backfill.log"  # i18n-exempt
+    fi
+    _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    unset _privacy_rc
 fi
 
 info "$MSG_HYDRATE_WIKI_RECOMPILE"
