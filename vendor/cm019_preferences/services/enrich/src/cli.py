@@ -16,6 +16,7 @@ Usage:
 
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 from typing import List, Optional
@@ -25,6 +26,11 @@ import httpx
 
 from .config import settings
 from .enricher import EnrichmentService, EnrichmentStats
+
+# Default operator user id for CLI commands. Parameterised so no real owner
+# identifier ships as a default in vendored copies; override with the
+# OSTLER_USER_ID env var or the explicit --user-id/-u option.
+DEFAULT_USER_ID = os.environ.get("OSTLER_USER_ID", "default_user")
 
 # Configure logging
 logging.basicConfig(
@@ -369,8 +375,8 @@ def cli():
 )
 @click.option(
     "--user-id", "-u",
-    default="andy",
-    help="User ID to filter by (default: andy)"
+    default=DEFAULT_USER_ID,
+    help="User ID to filter by (default: $OSTLER_USER_ID)"
 )
 @click.option(
     "--skip-enriched/--no-skip-enriched",
@@ -633,8 +639,8 @@ async def _run_enrichment(
 @cli.command()
 @click.option(
     "--user-id", "-u",
-    default="andy",
-    help="User ID to show stats for (default: andy)"
+    default=DEFAULT_USER_ID,
+    help="User ID to show stats for (default: $OSTLER_USER_ID)"
 )
 @click.option(
     "--json", "as_json",
@@ -875,8 +881,8 @@ async def _run_normalization(verbose: bool):
 @cli.command()
 @click.option(
     "--user-id", "-u",
-    default="andy",
-    help="User ID to filter by (default: andy)"
+    default=DEFAULT_USER_ID,
+    help="User ID to filter by (default: $OSTLER_USER_ID)"
 )
 @click.option(
     "--min-strength", "-s",

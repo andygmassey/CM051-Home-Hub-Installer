@@ -82,7 +82,26 @@ if DEFAULT_COUNTRY_CODE is None:
 DEFAULT_PRIVACY_LEVEL: str = os.environ.get("DEFAULT_PRIVACY_LEVEL", "L2")
 
 # -- User ---------------------------------------------------------------------
-USER_ID: str = os.environ.get("USER_ID", "")
+# USER_ID is normalised into the strict id grammar at this single
+# authoritative boundary. compartment.UserCompartment.primary() already
+# folds the operator's free-text USER_ID (``Jane``, ``jane.doe``,
+# ``Mrs Smith`` from CM051 install.sh) into a safe slug so the resolver
+# cannot crash -- but config.USER_ID itself is interpolated RAW into
+# ``pwg:belongsToUser <...user_{USER_ID}>`` by the syncer (syncer.py) and
+# into the owner IRI by owner_node, where a space / ``@`` / dot would
+# produce a malformed IRI and mismatch the compartment's normalised owner
+# node. Normalising here (with the SAME idempotent helper) makes every raw
+# interpolation site emit a valid IRI that agrees with owner_node_iri.
+#
+# Empty stays empty -- an unset USER_ID must NOT be given the "primary"
+# fallback label here (normalise_user_id folds "" -> PRIMARY_USER_FALLBACK,
+# which is right for the compartment LABEL but wrong for this value): the
+# owner_node "user_id is required" raise and the read-side degrade paths
+# key on an empty USER_ID and must be preserved.
+from identity_resolver.compartment import normalise_user_id as _normalise_user_id
+
+_raw_user_id = os.environ.get("USER_ID", "").strip()
+USER_ID: str = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
 # Display name as it appears in platform exports (FROM fields, sender headers,
 # etc.). Used to disambiguate the user's own messages from other participants.
 # Must be provided either via env or an explicit --user-name flag — we refuse

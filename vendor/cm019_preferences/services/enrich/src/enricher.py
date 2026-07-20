@@ -433,7 +433,7 @@ INSERT DATA {{
 
                 # Validate it looks like a show name (not a personal reminder)
                 # Skip if it looks like a name or short phrase
-                if len(show_name) > 2 and not show_name.lower() in ("andy", "me", "my", "we"):
+                if len(show_name) > 2 and not show_name.lower() in ("me", "my", "we"):
                     search_title = show_name
                     logger.debug(f"TV: Extracted show name '{show_name}' from '{subject}'")
 

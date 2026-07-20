@@ -453,7 +453,17 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # convention. We never silently default; the endpoint surfaces an
 # empty list + `degraded:true` if USER_ID is unset, the same shape the
 # other endpoints use for upstream-unavailable fallback.
-USER_ID = os.environ.get("USER_ID", "").strip()
+# Normalised through the SAME idempotent helper the compartment / owner_node
+# paths use, so a human-typed value (``Jane Doe``, ``jane@home`` from CM051
+# install.sh) yields the SAME owner IRI here as the writers mint -- otherwise
+# this reader's USER_URI would never match the owner node on the graph and
+# every owner-scoped read would silently return empty. Empty stays empty so
+# the existing degraded-when-USER_ID-unset path is preserved (normalise folds
+# "" -> the "primary" label, which is wrong for a graph IRI here).
+from identity_resolver.compartment import normalise_user_id as _normalise_user_id
+
+_raw_user_id = os.environ.get("USER_ID", "").strip()
+USER_ID = _normalise_user_id(_raw_user_id) if _raw_user_id else ""
 USER_URI = (
     f"https://pwg.dev/ontology#user_{USER_ID}" if USER_ID else ""
 )

@@ -15,6 +15,22 @@ from .base import BaseParser, ParsedPreference
 
 logger = logging.getLogger(__name__)
 
+
+def _profiles_from_env() -> Optional[List[str]]:
+    """Read the optional profile allow-list from the environment.
+
+    ``DISNEY_PROFILES`` is a comma-separated list of profile names to
+    include. When unset, all profiles are ingested. Operator-specific
+    profile names must NOT be hard-coded here; set the env var on the
+    deployment instead.
+    """
+    raw = os.environ.get("DISNEY_PROFILES", "").strip()
+    if not raw:
+        return None
+    profiles = [p.strip() for p in raw.split(",") if p.strip()]
+    return profiles or None
+
+
 # Optional Excel dependencies (only needed for .xlsx exports)
 try:
     import openpyxl
@@ -52,9 +68,11 @@ class DisneyPlusParser(BaseParser):
         'sensor', 'thermostat', 'routine', 'automation', 'smart_home',
     }
 
-    # Default profiles to include (None = all profiles)
-    # Set to filter family account to only specific users
-    ALLOWED_PROFILES: Optional[List[str]] = ["Andy", "The Masseys"]
+    # Default profiles to include (None = all profiles).
+    # To filter a family account to specific users, set the comma-separated
+    # DISNEY_PROFILES env var on the deployment, or pass profiles=[...] to
+    # parse(). Operator/personal profile names must never be hard-coded here.
+    ALLOWED_PROFILES: Optional[List[str]] = _profiles_from_env()
 
     # Patterns in subjects that indicate non-viewing data (smart home, calendar, etc.)
     BAD_SUBJECT_PATTERNS = [
@@ -62,7 +80,7 @@ class DisneyPlusParser(BaseParser):
         'echo show', 'alexa', 'hue lights', 'aircon', 'dehumidifier',
         'purifier', 'charger', 'sensor', 'switch', 'lamp', 'lights off',
         'lights on', 'dyson', 'nanoleaf', 'firetv', 'fire tv', 'bedroom',
-        'living room', 'man cave', 'massey\'s home',
+        'living room', 'man cave', '\'s home',
         # Calendar/reminder patterns
         'pay tax', 'pay bill', 'meeting', 'parking due', 'easter holidays',
         'christmas', 'birthday', ' - pay ', ' - call ', ' - meet ',
