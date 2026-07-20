@@ -34,6 +34,12 @@ green() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 red()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); }
 info()  { printf '        %s\n' "$1"; }
 
+# A git checkout may be a normal repo (.git is a directory) OR a linked worktree
+# (.git is a FILE pointing at the real gitdir). A plain `-d .git` test false-REDs
+# on a worktree -- which bit the v1.0.8 cut (16 spurious "not found" fails when
+# OSTLER_ASSISTANT_DIR pointed at a worktree). Use a git-aware check instead.
+is_git_checkout() { git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1; }
+
 echo "=== Cut-provenance preflight (CM051) ==="
 echo "CM051:     ${CM051_DIR}"
 echo "assistant: ${ASSISTANT_DIR}"
@@ -60,7 +66,7 @@ fi
 
 # Resolve the assistant tag the pin maps to (try v<pin>, <pin>, hub-v<pin>).
 DAEMON_TAG=""
-if [[ -n "${DAEMON_PIN}" && -d "${ASSISTANT_DIR}/.git" ]]; then
+if [[ -n "${DAEMON_PIN}" ]] && is_git_checkout "${ASSISTANT_DIR}"; then
   git -C "${ASSISTANT_DIR}" fetch origin --tags -q 2>/dev/null
   for cand in "v${DAEMON_PIN}" "${DAEMON_PIN}" "hub-v${DAEMON_PIN}"; do
     if git -C "${ASSISTANT_DIR}" rev-parse -q --verify "refs/tags/${cand}" >/dev/null 2>&1; then
@@ -79,7 +85,7 @@ while IFS='|' read -r kind target pattern desc; do
       if [[ -z "${DAEMON_PIN}" ]]; then
         red "daemon_tag ${sha} :: could not read daemon pin -- cannot verify"; continue
       fi
-      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+      if ! is_git_checkout "${ASSISTANT_DIR}"; then
         red "daemon_tag ${sha} :: ostler-assistant not found at ${ASSISTANT_DIR} (set OSTLER_ASSISTANT_DIR)"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
@@ -120,7 +126,7 @@ while IFS='|' read -r kind target pattern desc; do
       # that have no vendored footprint -- e.g. the Hub web bundle, rebuilt
       # from source at cut time. `target` = path inside ostler-assistant;
       # `pattern` = regex that must appear in that file at the pinned tag.
-      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+      if ! is_git_checkout "${ASSISTANT_DIR}"; then
         red "assistant_tag_grep ${target} :: ostler-assistant not at ${ASSISTANT_DIR} (${desc})"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then

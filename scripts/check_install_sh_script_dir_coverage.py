@@ -124,6 +124,19 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
     "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
+    # End-of-install confirmation (whose calendars + who you are):
+    # install.sh's confirmation block probes
+    # ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py and
+    # ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and silently skips the
+    # whole propose-and-confirm step when either is absent (the block is
+    # deliberately fail-safe). Both are bundled into Resources/lib/ by the
+    # "Bundle install.sh + lib/progress_emitter.sh + strings catalogue"
+    # postBuildScript (gui/project.yml) and declared in its
+    # inputFiles/outputFiles. Assert the bundling reference so a future
+    # removal of the cp lines goes red instead of silently degrading the
+    # .app flow to no-confirmation.
+    "lib/ostler-confirm-calendars.py": ["lib/ostler-confirm-calendars.py"],
+    "lib/ostler-confirm-identity.py": ["lib/ostler-confirm-identity.py"],
     # REUSE-4 (hardware-fit Ollama model picker): install.sh sources
     # ${SCRIPT_DIR}/lib/ostler-model-fit.sh, which IS bundled into
     # Resources/lib/ by the "Bundle install.sh + lib/progress_emitter.sh +
