@@ -146,29 +146,32 @@ vendor_path      = "vendor/ostler_security"
 source_repo      = "$HR015/ostler_security"
 source_path      = "."
 pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
-divergence_patch = "vendor/divergences/ostler_security.patch"
+  divergence_patch = "vendor/divergences/ostler_security.patch"
 exclude          = ["tests/", "bin/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
+note             = "2026-07-20: consent_cli.py carries the spoken_capture_recording_consent registration as a vendor-side graft, added alongside the existing #659 THIRD_PARTY_DATA_NOTICE graft (both are ABSENT at pin 1bb0a0db). Its canonical source is HR015 legal + this consent_cli registration on HR015 feat/spoken-capture-consent-source (PR pending). Pin held at 1bb0a0db deliberately: HR015 main has ZERO ostler_security drift, but re-pinning past a merged consent PR is a separate freshness exercise. When HR015 re-pins past the SPOKEN + THIRD_PARTY registrations, drop those graft hunks and let the normal sync carry them natively."
 
 [[tree]]
 name             = "legal"
 vendor_path      = "vendor/legal"
 source_repo      = "$HR015/legal"
 source_path      = "."
-  pinned_sha = "12a1452794d485273e6f8a955eba31967c56c68b"
-  divergence_patch = ""
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
+  divergence_patch = "vendor/divergences/legal.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
+note             = "2026-07-20: consent_strings.py appends SPOKEN_CAPTURE_RECORDING_CONSENT (+ __init__.py export) as a vendor-side graft (ABSENT at pin 1bb0a0db). Canonical source = HR015 feat/spoken-capture-consent-source (PR pending). Pin HELD at 1bb0a0db deliberately: HR015 main (12a1452) has since reworded Article-9 + EU voice consent to v1.1 (iPhone-Companion posture) which the vendored tree does NOT ship; re-pinning legal to main would change shipped consent WORDING + versions (triggering renewal prompts) -- out of scope for adding the spoken-capture notice, and a separate legal-reviewed freshness exercise. legal.patch also still carries the WhatsApp-wording graft. When legal is re-pinned to a main that includes the merged SPOKEN PR, drop the SPOKEN graft hunks."
 
 [[tree]]
 name             = "doctor"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
-  pinned_sha = "12a1452794d485273e6f8a955eba31967c56c68b"
+pinned_sha       = "1bb0a0dbf4c007ed2d8296bafc354cee9e5e7ded"
   divergence_patch = "vendor/divergences/doctor.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh", "test_*.py"]
 verify           = "full"
+note             = "2026-07-20: agent/dashboard_components.py carries the spoken_capture_recording_consent registration in _BUNDLED_CONSENTS as a vendor-side graft (ABSENT at pin 1bb0a0db). Canonical source = HR015 feat/spoken-capture-consent-source (PR pending). Pin HELD at 1bb0a0db deliberately: doctor.patch carries the load-bearing Pause+Throttle governor rework of agent/config_panel.py; HR015 main (12a1452) has since replaced config_panel.py with the upstream #261 config panel and added the Reminders (EventKit) tile + get-support diagnostics -- re-pinning doctor to main would drag those un-box-walked surfaces AND conflict the governor graft, out of scope for the spoken-capture notice. When doctor is next re-pinned (a separate exercise that must re-graft the governor rework onto #261), the SPOKEN registration becomes native and this graft hunk drops."
 
 [[tree]]
 name             = "email_ingest"

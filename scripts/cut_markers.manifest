@@ -96,3 +96,10 @@ assistant_tag_grep|crates/zeroclaw-config/src/schema.rs|Read-only PWG knowledge-
 # --- v1.0.1 cut: iMessage date-floor replay (hub-v0.4.18; ostler-assistant #135) ---
 # Verified present at v0.4.18 and ABSENT at v0.4.17 (freshness) before encoding.
 assistant_tag_grep|crates/zeroclaw-channels/src/imessage.rs|date_floor_filters_old_high_rowid_synced_message|#135 iMessage date-floor replay fix: both poll queries are floored (AND m.date > ?2) so an iCloud back-fill of OLD messages carrying HIGH ROWIDs is not replayed as "new" on daemon restart (the old-message-spam trap). This regression test exists only with #135 -- present at v0.4.18, ABSENT at v0.4.17 (also proves daemon freshness). ERE-safe.
+
+# --- spoken-capture recording-consent notice (vendor grafts; canonical source HR015 feat/spoken-capture-consent-source) ---
+# Region-agnostic member-state recording-consent acknowledgement gate. Verified: the
+# vendored consent string + registration + installer wiring are all present in this tree.
+vendor_grep|vendor/legal/consent_strings.py|SPOKEN_CAPTURE_RECORDING_CONSENT = ConsentString|spoken-capture consent string bundled in vendored legal (graft; canonical in HR015 legal source)
+vendor_grep|vendor/ostler_security/consent_cli.py|SPOKEN_CAPTURE_RECORDING_CONSENT.tickbox_id: SPOKEN_CAPTURE_RECORDING_CONSENT|spoken-capture consent registered in vendored consent_cli TICKBOX_REGISTRY (else argparse drops the record -- #659 failure mode)
+vendor_grep|install.sh|OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION|install.sh prompts + persists the spoken-capture recording-consent acknowledgement (every region)
