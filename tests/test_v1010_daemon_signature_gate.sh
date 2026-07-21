@@ -26,8 +26,10 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 grep -q '_verify_daemon_signature()' "$INSTALL_SCRIPT" \
     || fail "_verify_daemon_signature helper missing"
 # Both checks must appear inside the helper body (single line, &&-joined).
-grep -q 'codesign --verify --deep --strict "\$_bundle"' "$INSTALL_SCRIPT" \
-    || fail "daemon gate does not run 'codesign --verify --deep --strict'"
+# v1.0.10 red-team-3: the codesign invocation now also carries the
+# Team-ID designated requirement (-R), so match the strict+ -R form.
+grep -Eq 'codesign --verify --deep --strict -R "=\$\{OSTLER_CODESIGN_REQ\}" "\$_bundle"' "$INSTALL_SCRIPT" \
+    || fail "daemon gate does not run 'codesign --verify --deep --strict -R <team-id req>'"
 grep -q 'spctl --assess --type execute "\$_bundle"' "$INSTALL_SCRIPT" \
     || fail "daemon gate does not run 'spctl --assess --type execute'"
 

@@ -12441,13 +12441,44 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 to the notarised
 # tarball's sha256 at cut time -- same discipline as the installer
 # tarball pin (DEFAULT_INSTALLER_TARBALL_SHA256) and the GWS pins.
-# Placeholder / empty => the codesign --verify + spctl --assess gate
-# below is the sole authority (there is still NO unsigned-launch
-# path). A real 64-hex value => an ADDITIONAL hard check layered on
-# top of the signature gate. Override at install time with
+#
+# ┌─ ORM CUT-TIME ACTION REQUIRED (v1.0.10 red-team-3 lockdown) ──┐
+# │ The sentinel below MUST be replaced with the real 64-hex     │
+# │ sha256 of the notarised ostler-assistant tarball AT CUT      │
+# │ ASSEMBLY. As of red-team-3 the curl RECOVERY DOWNLOAD PATH   │
+# │ now FAILS CLOSED while this is still the sentinel: the       │
+# │ cross-origin pin is the mandatory second origin of trust for │
+# │ a network-fetched daemon, so an unresolved pin ABORTS that   │
+# │ path rather than proceeding on same-origin sidecar +         │
+# │ notarisation alone. The DMG-BUNDLED .app path (no network    │
+# │ download) still proceeds on the Team-ID-pinned signature     │
+# │ gate. Ship the sentinel unpinned => curl-recovery installs   │
+# │ are refused. Pin the real hex => curl-recovery re-enabled    │
+# │ with cross-origin integrity + Team-ID signature both         │
+# │ enforced. Do NOT hard-code a real SHA in source control --   │
+# │ this is the ORM's assembly-time step ONLY.                   │
+# └──────────────────────────────────────────────────────────────┘
+#
+# A real 64-hex value => an ADDITIONAL hard check layered on top of
+# the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
 DEFAULT_ASSISTANT_TARBALL_SHA256="REPLACE_AT_RELEASE_TIME"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
+
+# ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
+# Team ID of the ONLY Apple Developer-ID account allowed to sign a
+# bundle this installer will stage + quarantine-strip + LaunchAgent.
+# Without this pin, `spctl --assess` + `codesign --verify` accept ANY
+# notarised Developer-ID app -- an attacker who notarises their own
+# $99 Apple-ID malware and can steer a release asset / download URL
+# gets it staged as a persistent user LaunchAgent. The designated
+# requirement below is enforced (codesign -R) behind ALL THREE
+# staging gates: the daemon, RemoteCapture, and the Hub .app.
+# Validated empirically against the notarised 0.4.34 daemon and the
+# signed Hub Ostler.app (subject.OU == TeamIdentifier for our
+# Developer ID Application cert); a wrong Team ID is rejected.
+OSTLER_TEAM_ID="V95N2B8X7A"
+OSTLER_CODESIGN_REQ="anchor apple generic and certificate leaf[subject.OU] = \"${OSTLER_TEAM_ID}\""
 
 OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
 # .app bundle path (v0.4.3+ shape). The bundle wrapper carries
@@ -12501,7 +12532,11 @@ _ostler_assistant_set_urls() {
 # failure.
 _verify_daemon_signature() {
     local _bundle="$1" _cs_log="$2" _sp_log="$3"
-    codesign --verify --deep --strict "$_bundle" 2>"$_cs_log" \
+    # -R pins the Creative Machines Team ID (V95N2B8X7A) so a
+    # foreign-but-notarised Developer-ID bundle is REJECTED here, not
+    # just any notarised app. spctl alone accepts anyone's notarised
+    # $99 build; codesign -R with our designated requirement does not.
+    codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$_bundle" 2>"$_cs_log" \
         && spctl --assess --type execute "$_bundle" 2>"$_sp_log"
 }
 
@@ -12783,6 +12818,29 @@ elif [[ "$_assistant_download_ok" == "true" ]]; then
             ASSISTANT_TMPDIR=""
             exit 1
         fi
+    else
+        # v1.0.10 red-team-3: FAIL CLOSED on the curl RECOVERY DOWNLOAD
+        # path when the cross-origin pin is unresolved (still the
+        # REPLACE_AT_RELEASE_TIME sentinel or empty). A network-fetched
+        # daemon has ONLY a same-origin sidecar for byte integrity --
+        # worthless against a compromised release -- so notarisation +
+        # the same-origin sidecar alone are NOT sufficient to stage it.
+        # The cross-origin pin (baked into install.sh, a DIFFERENT
+        # origin) is the mandatory second root of trust for this path.
+        # Abort rather than proceed. NOTE: this does NOT affect the
+        # DMG-bundled .app path -- that path never runs this download
+        # branch and is authorised by the Team-ID-pinned signature gate
+        # alone. The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 at cut
+        # time to re-enable curl-recovery installs.
+        err "ostler-assistant curl-recovery download refused: the cross-origin integrity pin is unresolved."
+        err "DEFAULT_ASSISTANT_TARBALL_SHA256 is still the REPLACE_AT_RELEASE_TIME sentinel, so a network-fetched"
+        err "daemon cannot be verified against a second origin of trust. This build only supports the"
+        err "DMG-bundled daemon path. Re-run from the notarised DMG, or set OSTLER_ASSISTANT_TARBALL_SHA256"
+        err "to the notarised tarball's sha256 to authorise a curl-recovery install."
+        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+        rm -rf "$ASSISTANT_TMPDIR"
+        ASSISTANT_TMPDIR=""
+        exit 1
     fi
 
     # Extract the tarball into a private staging dir first so we
@@ -13534,9 +13592,12 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
         # Gatekeeper policy (Developer ID + notarisation ticket).
         # A bundle that fails either is not something we will
         # silently stage onto the customer's daily driver Mac.
+        # -R pins the Creative Machines Team ID (V95N2B8X7A): a
+        # foreign notarised Developer-ID bundle steered into this
+        # path is rejected, not staged. (v1.0.10 red-team-3.)
         REMOTECAPTURE_CODESIGN_LOG="${REMOTECAPTURE_TMPDIR}/codesign.log"
         REMOTECAPTURE_SPCTL_LOG="${REMOTECAPTURE_TMPDIR}/spctl.log"
-        if codesign --verify --deep --strict "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_CODESIGN_LOG" \
+        if codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_CODESIGN_LOG" \
            && spctl --assess --type execute "$REMOTECAPTURE_APP_PATH" 2>"$REMOTECAPTURE_SPCTL_LOG"; then
 
             # Both checks passed. Clear quarantine so launchctl
@@ -13708,9 +13769,12 @@ if [[ -n "$HUB_APP_SOURCE" ]]; then
         # the quarantine xattr: an unverified bundle bypassing
         # Gatekeeper is not something we silently stage onto the
         # customer's daily-driver Mac.
+        # -R pins the Creative Machines Team ID (V95N2B8X7A): only our
+        # own Developer-ID-signed Hub .app clears this gate, not any
+        # notarised bundle dropped into place. (v1.0.10 red-team-3.)
         HUB_APP_CODESIGN_LOG="$(mktemp -t ostler-hub-app-codesign.XXXXXX)"
         HUB_APP_SPCTL_LOG="$(mktemp -t ostler-hub-app-spctl.XXXXXX)"
-        if codesign --verify --deep --strict "$HUB_APP_DEST" 2>"$HUB_APP_CODESIGN_LOG" \
+        if codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$HUB_APP_DEST" 2>"$HUB_APP_CODESIGN_LOG" \
            && spctl --assess --type execute "$HUB_APP_DEST" 2>"$HUB_APP_SPCTL_LOG"; then
             xattr -dr com.apple.quarantine "$HUB_APP_DEST" 2>/dev/null || true
             if [[ "$HUB_APP_SOURCE" == "$HUB_APP_DEST" ]]; then
