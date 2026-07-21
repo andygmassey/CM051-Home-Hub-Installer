@@ -8368,7 +8368,7 @@ fi
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
-    image: qdrant/qdrant:v1.12.1
+    image: qdrant/qdrant@sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f  # v1.12.1
     container_name: ostler-qdrant
     # v1.0.10 security lockdown: the REST port (6333) is NO LONGER
     # published to the host directly -- it is fronted by store-proxy
@@ -8388,7 +8388,7 @@ services:
     restart: unless-stopped
 
   oxigraph:
-    image: ghcr.io/oxigraph/oxigraph:0.4.6
+    image: ghcr.io/oxigraph/oxigraph@sha256:dd52e0da758fcbbd5dc5249ce818bac26122611e8315a67200f2982d8563a2a5  # 0.4.6
     container_name: ostler-oxigraph
     # v1.0.10 security lockdown: Oxigraph 0.4.6 has NO native auth and
     # every vendored client posts to /query,/update with no bearer, so
@@ -8418,7 +8418,7 @@ services:
   # installer just below this heredoc. Full native token-auth is the
   # v1.0.1 project; this closes the remote (rebind) surface now.
   store-proxy:
-    image: nginx:1.27-alpine
+    image: nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10  # 1.27-alpine
     container_name: ostler-store-proxy
     depends_on:
       - qdrant
@@ -8433,7 +8433,7 @@ services:
   redis:
     # Valkey: BSD-3-Clause LF fork of Redis (Redis 7.4+ relicensed to RSAL/SSPL).
     # Drop-in compatible with our redis-py client and protocol.
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey@sha256:94365b275456ae14621001c03556c732b1d93a0cdeacc317d1bdd52eba680885  # 8-alpine (8.1.8)
     container_name: ostler-redis
     # v1.0.10 security lockdown: host port is 127.0.0.1-only. Native
     # auth via --requirepass is interpolated from the compose .env as
@@ -8590,7 +8590,7 @@ services:
   #     Vane-side config the customer can edit at the web UI
   #     (model selection, etc.). Survives container restarts.
   vane:
-    image: itzcrazykns1337/vane:v1.12.2
+    image: ghcr.io/ostler-ai/vane@sha256:61f2bbf3386ff3df08911fb3de0e1893b04702a4d49ef13fbadbda937b47ab7c  # mirrored from itzcrazykns1337/vane:v1.12.2
     container_name: ostler-vane
     ports:
       - "127.0.0.1:3000:3000"
