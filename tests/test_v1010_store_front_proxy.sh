@@ -73,7 +73,26 @@ grep -q 'client_max_body_size 0;' "$NGCONF" || fail "no unlimited body size -- l
 grep -q 'listen 6333;' "$NGCONF" || fail "proxy does not listen on 6333"
 grep -q 'listen 7878;' "$NGCONF" || fail "proxy does not listen on 7878"
 
-echo "PASS [structure]: store-proxy fronts 6333+7878, stores no longer publish them, Host allowlist + 403 + transparent passthrough present."
+# FIX-RT2-F5: cross-origin CSRF write defence. The Host allowlist stops
+# DNS-rebind but NOT a plain cross-origin form POST (a CORS simple
+# request), so the config must ALSO reject a foreign Origin header. An
+# Origin allowlist map + an Origin-based 403 guard must be present in
+# BOTH server blocks (a Host-only config would let attacker.com wipe the
+# graph via update=DROP ALL).
+grep -q 'map \$http_origin \$ostler_store_origin_ok' "$NGCONF" \
+    || fail "FIX-RT2-F5: Origin allowlist map missing -- cross-origin CSRF write not blocked"
+# The map must allow an ABSENT origin (non-browser clients send none)
+# and local origins, but default-deny a foreign origin.
+grep -qE '""[[:space:]]+1;' "$NGCONF" \
+    || fail "FIX-RT2-F5: empty/absent Origin not explicitly allowed (would 403 legit Python clients)"
+grep -qF 'https?://(localhost' "$NGCONF" \
+    || fail "FIX-RT2-F5: local Origin allowlist regex missing"
+# Both server blocks must gate on the origin map, not just the host map.
+origin_guards="$(grep -c 'if (\$ostler_store_origin_ok = 0) { return 403; }' "$NGCONF" || true)"
+[[ "$origin_guards" -ge 2 ]] \
+    || fail "FIX-RT2-F5: expected the Origin 403 guard in BOTH server blocks (found ${origin_guards})"
+
+echo "PASS [structure]: store-proxy fronts 6333+7878, stores no longer publish them, Host allowlist + Origin(CSRF) allowlist + 403 + transparent passthrough present."
 
 # ── Part 2: behaviour (docker) ───────────────────────────────────
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
@@ -125,4 +144,25 @@ check "evil.example"       403 "DNS-rebind blocked"
 check "attacker.com:6333"  403 "DNS-rebind with port blocked"
 check "127.0.0.1.evil.com" 403 "subdomain spoof blocked"
 
-echo "PASS [behaviour]: bad Host -> 403, loopback/service Host -> transparent passthrough."
+# FIX-RT2-F5: cross-origin CSRF. Host stays allowlisted (localhost) in
+# every case here -- we vary ONLY the Origin header, which is exactly the
+# browser-CSRF shape the Host map cannot see. A foreign Origin must 403;
+# an absent Origin (non-browser client) and a local Origin must pass.
+ocheck() { # $1 = Origin (empty => header omitted), $2 = expected, $3 = label
+    local got
+    if [[ -z "$1" ]]; then
+        got="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: localhost' "http://127.0.0.1:${PORT}/")"
+    else
+        got="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: localhost' -H "Origin: $1" "http://127.0.0.1:${PORT}/")"
+    fi
+    [[ "$got" == "$2" ]] || fail "$3: Origin '${1:-<none>}' returned $got, expected $2"
+    echo "  ok: Origin '${1:-<none>}' -> $got ($3)"
+}
+ocheck ""                        200 "absent Origin (non-browser client) passes"
+ocheck "http://localhost:8044"   200 "local wiki origin passes"
+ocheck "http://127.0.0.1:8044"   200 "local loopback-IP origin passes"
+ocheck "https://evil.example"    403 "cross-origin CSRF blocked"
+ocheck "http://attacker.com"     403 "cross-origin CSRF (http) blocked"
+ocheck "http://localhost.evil.com" 403 "origin suffix-spoof blocked"
+
+echo "PASS [behaviour]: bad Host -> 403; foreign Origin -> 403; loopback/service Host + absent/local Origin -> transparent passthrough."
