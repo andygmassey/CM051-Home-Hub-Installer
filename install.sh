@@ -3645,10 +3645,13 @@ fi
 #      xattr form, no sudo) keeps these trees out of every backup.
 #
 # The Qdrant / Oxigraph / Redis volumes are Docker NAMED volumes
-# inside the Colima VM disk image, not host-FS paths, so the host
-# Spotlight / Time Machine never traverses into them individually
-# (the VM image is one opaque file). Nothing to exclude per-volume
-# here; the Colima image as a whole is rebuildable state.
+# inside the Colima VM disk image. The individual volumes are not
+# host-FS paths, but the VM disk image that CONTAINS them
+# (~/.colima/default/) very much is: it is an ordinary host file that
+# Spotlight indexes and Time Machine copies off-box, and the embedded
+# Qdrant + Oxigraph stores inside it are PLAINTEXT (not SQLCipher). So
+# ~/.colima is added to the exclusion set (FIX-RT2-F4); the Colima
+# image as a whole is otherwise rebuildable state.
 #
 # All best-effort + idempotent: a marker that already exists or an
 # exclusion already set is a no-op, and a tmutil / touch failure
@@ -3661,17 +3664,20 @@ _ostler_harden_at_rest() {
     # Time Machine exclusion (per-path xattr form -- no root needed).
     tmutil addexclusion "$_dir" 2>/dev/null || true
 }
-info "Applying at-rest hardening (Spotlight + Time Machine exclusions) to the Ostler data trees..."
-_ostler_harden_at_rest "$OSTLER_DIR"
-_ostler_harden_at_rest "$USER_FACING_ROOT"
-ok "At-rest hardening applied: ${OSTLER_DIR} and ${USER_FACING_ROOT} are excluded from Spotlight indexing and Time Machine backups."
-# TRADEOFF (surfaced for Andy/Archie): excluding ${USER_FACING_ROOT}
-# from Time Machine means the customer's generated wiki + Obsidian
-# vault + transcripts are NOT captured by TM. That is deliberate --
-# a plaintext life-graph on an off-site NAS is the exposure we are
-# closing -- but a customer who WANTS those backed up would need an
-# encrypted backup target instead. Revisit if product decides the
-# backup convenience outweighs the off-box plaintext risk.
+# FIX-RT2-F3 (v1.0.10 red-team wave 2): the at-rest hardening call
+# used to live HERE, but at this point in the fresh-install flow
+# OSTLER_DIR is still the ephemeral staging tree
+# (${OSTLER_PRELAUNCH_DIR}, /tmp/ostler-prelaunch-$$). Setting the
+# tmutil exclusion + .metadata_never_index marker on that /tmp node was
+# useless: _ostler_promote_prelaunch_tree later rm -rf's the staging
+# tree, so ~/.ostler/ (holding secrets/service_token,
+# secrets/zeroclaw_admin_token and the .env JWT_SECRET) NEVER got the
+# exclusion and got copied off-box by Time Machine -- while the banner
+# lied that the /tmp path was "excluded". The call is therefore
+# deferred to Phase 3.7b (search "FIX-RT2-F3"), AFTER promotion has
+# rebound OSTLER_DIR to the real ~/.ostler node. USER_FACING_ROOT is a
+# host path (created just above) and was never staged, but it moves
+# with the OSTLER_DIR call so the whole exclusion set lands in one place.
 
 # ── 2.99 Python 3.10/3.11 check (must run BEFORE any venv is created) ──
 #
@@ -8300,6 +8306,39 @@ else
     _ostler_promote_prelaunch_tree
 fi
 
+# ── 3.7b At-rest hardening (Spotlight + Time Machine exclusions) ───
+# Applied HERE, post-promotion, not in Phase 2. FIX-RT2-F3 (v1.0.10
+# red-team wave 2): the FDA block above guarantees
+# _ostler_promote_prelaunch_tree has run (idempotent catch-all on every
+# branch, including the no-FDA-module else), so OSTLER_DIR has been
+# rebound from the ephemeral /tmp staging tree to the persistent
+# ${OSTLER_FINAL_DIR} (~/.ostler). The exclusion xattr +
+# .metadata_never_index therefore land on the REAL directory node that
+# holds the plaintext secrets/service_token, secrets/zeroclaw_admin_token
+# and the .env JWT_SECRET -- not on a /tmp node that promotion then
+# deletes. tmutil addexclusion + the Spotlight marker are path-scoped to
+# the directory, so files written under these trees LATER in the install
+# (secrets, wiki, transcripts) are covered too.
+#
+# FIX-RT2-F4 (v1.0.10 red-team wave 2): ~/.colima is added to the set.
+# The embedded Qdrant + Oxigraph stores are PLAINTEXT (not SQLCipher)
+# inside the Colima VM disk image under ~/.colima/default/, and that
+# image is an ordinary host file that Spotlight indexes and Time Machine
+# copies off-box. Colima has already been started (docker bring-up
+# above) so ~/.colima exists here; the helper no-ops harmlessly if not.
+info "Applying at-rest hardening (Spotlight + Time Machine exclusions) to the Ostler data trees..."
+_ostler_harden_at_rest "$OSTLER_DIR"
+_ostler_harden_at_rest "$USER_FACING_ROOT"
+_ostler_harden_at_rest "${HOME}/.colima"
+ok "At-rest hardening applied: ${OSTLER_DIR}, ${USER_FACING_ROOT} and ${HOME}/.colima are excluded from Spotlight indexing and Time Machine backups."
+# TRADEOFF (surfaced for Andy/Archie): excluding ${USER_FACING_ROOT}
+# from Time Machine means the customer's generated wiki + Obsidian
+# vault + transcripts are NOT captured by TM. That is deliberate --
+# a plaintext life-graph on an off-site NAS is the exposure we are
+# closing -- but a customer who WANTS those backed up would need an
+# encrypted backup target instead. Revisit if product decides the
+# backup convenience outweighs the off-box plaintext risk.
+
 # ── 3.8 Docker services ───────────────────────────────────────────
 
 progress "Starting your knowledge graph databases" "graph_db_start"
@@ -8598,6 +8637,29 @@ http {
         "~*^(localhost|127\.0\.0\.1|\[::1\]|::1|qdrant|oxigraph|ostler-qdrant|ostler-oxigraph|store-proxy|ostler-store-proxy)(:[0-9]+)?$" 1;
     }
 
+    # Origin allowlist (FIX-RT2-F5, v1.0.10 red-team wave 2). The Host
+    # map above defeats DNS-rebind but NOT a plain cross-origin CSRF
+    # write: a page on attacker.com can POST
+    # `update=DROP ALL` (application/x-www-form-urlencoded) to
+    # http://localhost:7878/update -- that is a CORS *simple* request,
+    # so the browser sends it with NO preflight, Host stays "localhost"
+    # (allowlisted) and Oxigraph would wipe the whole RDF graph. Same
+    # class for state-changing Qdrant REST. Defence: reject any request
+    # carrying an Origin header that is NOT a local origin.
+    #   - Non-browser clients (the Python ingest, curl, the daemon) send
+    #     NO Origin header => $http_origin is empty => "" => 1 (allowed).
+    #   - A browser CSRF from attacker.com sends Origin: http://attacker.com
+    #     => default => 0 => 403.
+    #   - Legit local browser origins (the wiki on :8044, any dashboard)
+    #     are http(s)://localhost | 127.0.0.1 | [::1] on any port => 1.
+    # The stores are internal-only; no Tauri/dashboard surface talks to
+    # them cross-origin, so a strict local-origin allowlist is safe.
+    map $http_origin $ostler_store_origin_ok {
+        default 0;
+        ""      1;
+        "~*^https?://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?$" 1;
+    }
+
     # Transparent passthrough: no body-size cap (Qdrant vector upserts
     # and SPARQL updates can be large) and generous timeouts so the
     # proxy never alters store behaviour for a legitimate client.
@@ -8613,6 +8675,7 @@ http {
         listen 6333;
         location / {
             if ($ostler_store_host_ok = 0) { return 403; }
+            if ($ostler_store_origin_ok = 0) { return 403; }
             set $ostler_qdrant_upstream "http://qdrant:6333";
             proxy_pass $ostler_qdrant_upstream$request_uri;
         }
@@ -8623,6 +8686,7 @@ http {
         listen 7878;
         location / {
             if ($ostler_store_host_ok = 0) { return 403; }
+            if ($ostler_store_origin_ok = 0) { return 403; }
             set $ostler_oxigraph_upstream "http://oxigraph:7878";
             proxy_pass $ostler_oxigraph_upstream$request_uri;
         }
