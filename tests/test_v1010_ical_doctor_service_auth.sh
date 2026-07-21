@@ -44,4 +44,11 @@ echo "$DOC" | grep -q '<key>PWG_SERVICE_TOKEN</key>' \
 echo "$DOC" | grep -q '<string>${PWG_SERVICE_TOKEN}</string>' \
     || fail "Doctor plist PWG_SERVICE_TOKEN value not wired to the generated token"
 
-echo "PASS: ical-server + Doctor plists both carry PWG_SERVICE_TOKEN (the #200 service token)."
+# Both plists now carry the token, so they must be chmod 0600 (default
+# umask leaves them 0644 world-readable -> token leak on a multi-user Mac).
+grep -q 'chmod 0600 "\$ICAL_PLIST"' "$INSTALL_SCRIPT" \
+    || fail "ical-server plist not chmod 0600 (PWG_SERVICE_TOKEN would be world-readable)"
+grep -q 'chmod 0600 "\$DOCTOR_PLIST"' "$INSTALL_SCRIPT" \
+    || fail "Doctor plist not chmod 0600 (PWG_SERVICE_TOKEN would be world-readable)"
+
+echo "PASS: ical-server + Doctor plists both carry PWG_SERVICE_TOKEN (the #200 service token) and are chmod 0600."

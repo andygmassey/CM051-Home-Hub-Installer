@@ -10865,6 +10865,12 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
 </plist>
 DOCEOF
 
+    # v1.0.10 security lockdown: this plist now carries
+    # PWG_SERVICE_TOKEN in EnvironmentVariables. Default umask leaves
+    # it 0644 (world-readable); tighten to 0600 so the #200 service
+    # token cannot be read by another local user.
+    chmod 0600 "$DOCTOR_PLIST"
+
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
@@ -11000,6 +11006,12 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
 </dict>
 </plist>
 ICALPLISTEOF
+
+        # v1.0.10 security lockdown: this plist now carries
+        # PWG_SERVICE_TOKEN in EnvironmentVariables. Default umask
+        # leaves it 0644 (world-readable); tighten to 0600 so the
+        # #200 service token cannot be read by another local user.
+        chmod 0600 "$ICAL_PLIST"
 
         # Use bootstrap on Sequoia+ (load is deprecated). Do NOT
         # `bootout` first -- per CLAUDE.md a bootout on a customer

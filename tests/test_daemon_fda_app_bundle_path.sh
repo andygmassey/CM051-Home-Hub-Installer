@@ -77,17 +77,39 @@ if ! grep -qE '^ASSISTANT_BINARY_LEGACY="\$\{OSTLER_DIR\}/bin/ostler-assistant"'
 fi
 echo "PASS [case-3]: ASSISTANT_BINARY_LEGACY definition present"
 
-# Case 4: every staging exit point ends with ASSISTANT_BINARY_INSTALLED=true.
-# Three sites total: bundled-.app, bundled-bare-bin-local-wrap, and the
-# converged download path (which handles both .app and bare-bin shapes via a
-# single sign-state + --version-check gate).
-SET_TRUE_COUNT=$(grep -cE '^[[:space:]]*ASSISTANT_BINARY_INSTALLED=true' "$INSTALL_SH" || true)
-if (( SET_TRUE_COUNT < 3 )); then
-    echo "FAIL [case-4]: only $SET_TRUE_COUNT ASSISTANT_BINARY_INSTALLED=true sites; expected >= 3"
-    echo "   (one per exit point: bundled-app, bundled-bin-wrap, converged-download)"
+# Case 4: every staging exit point converges on the shared
+# _finalise_daemon_staging fan-in (v1.0.10 security lockdown, PR #419).
+# The three staging paths (bundled-.app, bundled-bare-bin-local-wrap,
+# converged download) no longer each set ASSISTANT_BINARY_INSTALLED=true
+# inline -- they all call _finalise_daemon_staging, which runs the
+# codesign + spctl gate and sets ASSISTANT_BINARY_INSTALLED=true in ONE
+# place (behaviour preserved, dedup'd). Assert the fan-in exists, is
+# called from all three paths, and is the SOLE setter of =true, so a
+# future edit cannot re-introduce an ungated inline install.
+if ! grep -qE '^_finalise_daemon_staging\(\)' "$INSTALL_SH"; then
+    echo "FAIL [case-4a]: shared _finalise_daemon_staging fan-in missing"
     exit 1
 fi
-echo "PASS [case-4]: ${SET_TRUE_COUNT} ASSISTANT_BINARY_INSTALLED=true sites cover the staging exit points"
+FINALISE_CALLS=$(grep -cE '^[[:space:]]*_finalise_daemon_staging[[:space:]]*$' "$INSTALL_SH" || true)
+if (( FINALISE_CALLS < 3 )); then
+    echo "FAIL [case-4b]: only $FINALISE_CALLS _finalise_daemon_staging call sites; expected >= 3"
+    echo "   (one per staging path: bundled-app, bundled-bin-wrap, converged-download)"
+    exit 1
+fi
+# The fan-in is the sole place ASSISTANT_BINARY_INSTALLED is set true.
+SET_TRUE_COUNT=$(grep -cE '^[[:space:]]*ASSISTANT_BINARY_INSTALLED=true' "$INSTALL_SH" || true)
+if (( SET_TRUE_COUNT != 1 )); then
+    echo "FAIL [case-4c]: expected exactly 1 ASSISTANT_BINARY_INSTALLED=true site (inside _finalise_daemon_staging), found $SET_TRUE_COUNT"
+    echo "   an inline =true outside the fan-in would bypass the codesign + spctl gate"
+    grep -nE '^[[:space:]]*ASSISTANT_BINARY_INSTALLED=true' "$INSTALL_SH"
+    exit 1
+fi
+# And that lone site is inside the fan-in function body.
+if ! awk '/^_finalise_daemon_staging\(\)/{c=1} c&&/ASSISTANT_BINARY_INSTALLED=true/{f=1} c&&/^}/{c=0} END{exit f?0:1}' "$INSTALL_SH"; then
+    echo "FAIL [case-4d]: the lone ASSISTANT_BINARY_INSTALLED=true is not inside _finalise_daemon_staging"
+    exit 1
+fi
+echo "PASS [case-4]: 3 staging paths converge on _finalise_daemon_staging; it is the sole (gated) ASSISTANT_BINARY_INSTALLED=true setter"
 
 # Case 5: both local-wrap synthesis sites write CFBundleIdentifier = ai.ostler.assistant
 # Count the Info.plist heredocs containing the bundle ID.
