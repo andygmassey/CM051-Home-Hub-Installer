@@ -6908,7 +6908,7 @@ if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" == "1" ]]; then
     _store_auth_upsert_env "${CONFIG_DIR}/.env" "REDIS_URL" "redis://:${REDIS_PASSWORD}@localhost:6379"
     ok "Store auth ENFORCED: Qdrant API key + Redis requirepass threaded into compose + client env."
 else
-    info "Store native auth is staged but DEFAULT-OFF (loopback-only binding is the operative control for v1.0.10). Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
+    info "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Operative controls for v1.0.10: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
 fi
 
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
@@ -8331,17 +8331,18 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.12.1
     container_name: ostler-qdrant
-    # v1.0.10 security lockdown: host ports are 127.0.0.1-only (no
-    # off-box reach). QDRANT__SERVICE__API_KEY enables native API-key
-    # auth for defence-in-depth against LOCAL processes. Interpolated
-    # from the compose .env: EMPTY => Qdrant runs with no auth (the
-    # v1.0.10 default, since the pinned vendored clients do not send
-    # an api key). Set OSTLER_STORE_AUTH_ENFORCE=1 at install time to
-    # populate it once the client-side auth PRs land.
+    # v1.0.10 security lockdown: the REST port (6333) is NO LONGER
+    # published to the host directly -- it is fronted by store-proxy
+    # (below), a loopback nginx that validates the Host header to
+    # defeat DNS-rebind before passing through. Only the gRPC port
+    # (6334) stays on the host loopback (not browser-DNS-rebindable;
+    # covered by the v1.0.1 token-auth project). QDRANT__SERVICE__
+    # API_KEY is the staged (default-OFF) native-auth scaffolding for
+    # v1.0.1: EMPTY => no auth (the v1.0.10 default, since the pinned
+    # vendored clients do not send an api key).
     environment:
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     ports:
-      - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
@@ -8350,21 +8351,44 @@ services:
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph:0.4.6
     container_name: ostler-oxigraph
-    # v1.0.10 security lockdown: host port is 127.0.0.1-only. Oxigraph
-    # 0.4.6 has NO native auth, and every vendored client posts to
-    # /query,/update with no Authorization header, so we cannot flip a
-    # bearer on without breaking the pinned clients. The brief's
-    # reverse-proxy option (loopback proxy enforcing a Host allowlist +
-    # bearer) is deferred: it requires the SAME client-side changes as
-    # Qdrant/Oxigraph auth (CM041/CM024/CM052) to send the bearer, and
-    # those live in feature repos the cut consumes at pinned SHAs.
-    # Operative control for v1.0.10 is the loopback-only bind below.
-    # Tracked in the PR body + filed follow-up.
-    ports:
-      - "127.0.0.1:7878:7878"
+    # v1.0.10 security lockdown: Oxigraph 0.4.6 has NO native auth and
+    # every vendored client posts to /query,/update with no bearer, so
+    # full token-auth is deferred to the v1.0.1 project. For THIS cut
+    # the HTTP port (7878) is NO LONGER published to the host directly
+    # -- it is fronted by store-proxy (below), a loopback nginx that
+    # validates the Host header to defeat DNS-rebind (the remote
+    # vector) and passes through transparently. Internal compose
+    # clients still reach it directly as oxigraph:7878; host clients
+    # reach localhost:7878 via the proxy with NO client-side change.
     volumes:
       - oxigraph_data:/data
     command: serve --location /data --bind 0.0.0.0:7878
+    restart: unless-stopped
+
+  # ── Store front proxy (v1.0.10 security lockdown) ────────────────
+  # Loopback nginx that fronts the two HTTP data stores (Qdrant REST
+  # :6333 and Oxigraph :7878) on the host and validates the Host
+  # header before passing through. Any request whose Host is not in
+  # the loopback / compose-service allowlist gets 403 -- this defeats
+  # DNS-rebind, where a malicious web page re-resolves its own domain
+  # to 127.0.0.1 and drives the browser to fetch localhost:6333 while
+  # still sending Host: attacker.com. Transparent passthrough
+  # otherwise: legitimate clients hit localhost:6333 / :7878 with
+  # Host localhost|127.0.0.1 and keep working with NO changes. Config
+  # is written to ${OSTLER_DIR}/ostler-store-proxy.conf by the
+  # installer just below this heredoc. Full native token-auth is the
+  # v1.0.1 project; this closes the remote (rebind) surface now.
+  store-proxy:
+    image: nginx:1.27-alpine
+    container_name: ostler-store-proxy
+    depends_on:
+      - qdrant
+      - oxigraph
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:7878:7878"
+    volumes:
+      - ${HOME}/.ostler/ostler-store-proxy.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped
 
   redis:
@@ -8545,6 +8569,68 @@ volumes:
   vane_data:
 DCEOF
 
+# ── Store front-proxy nginx config (v1.0.10 security lockdown) ────
+# Written next to the compose file and bind-mounted into the
+# store-proxy service. Transparent loopback passthrough for the two
+# HTTP stores that REJECTS any request whose Host is outside the
+# allowlist (403), defeating DNS-rebind. Quoted heredoc: nginx's own
+# $host / $request_uri / $upstream variables must land in the file
+# verbatim, NOT be expanded by the installer shell.
+cat > "${OSTLER_DIR}/ostler-store-proxy.conf" <<'NGINXEOF'
+# Ostler store front proxy -- generated by the Ostler installer.
+# Do not edit by hand; re-run the installer to regenerate.
+worker_processes 1;
+events { worker_connections 1024; }
+http {
+    # Docker embedded DNS so upstreams re-resolve if a store restarts
+    # with a new container IP (stores use restart: unless-stopped).
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    # Host allowlist. $host is the Host header with the port stripped
+    # and lower-cased. A DNS-rebind request arrives with the
+    # attacker's own Host (e.g. evil.example) and falls through to the
+    # default 0 => 403. Loopback names + the compose service /
+    # container names that internal and host clients legitimately send
+    # map to 1 => allowed. The optional :port group is belt-and-braces
+    # for nginx builds that retain the port on $host.
+    map $host $ostler_store_host_ok {
+        default 0;
+        "~*^(localhost|127\.0\.0\.1|\[::1\]|::1|qdrant|oxigraph|ostler-qdrant|ostler-oxigraph|store-proxy|ostler-store-proxy)(:[0-9]+)?$" 1;
+    }
+
+    # Transparent passthrough: no body-size cap (Qdrant vector upserts
+    # and SPARQL updates can be large) and generous timeouts so the
+    # proxy never alters store behaviour for a legitimate client.
+    client_max_body_size 0;
+    proxy_http_version 1.1;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+
+    # Qdrant REST.
+    server {
+        listen 6333;
+        location / {
+            if ($ostler_store_host_ok = 0) { return 403; }
+            set $ostler_qdrant_upstream "http://qdrant:6333";
+            proxy_pass $ostler_qdrant_upstream$request_uri;
+        }
+    }
+
+    # Oxigraph HTTP (SPARQL).
+    server {
+        listen 7878;
+        location / {
+            if ($ostler_store_host_ok = 0) { return 403; }
+            set $ostler_oxigraph_upstream "http://oxigraph:7878";
+            proxy_pass $ostler_oxigraph_upstream$request_uri;
+        }
+    }
+}
+NGINXEOF
+chmod 644 "${OSTLER_DIR}/ostler-store-proxy.conf"
+
 cd "$OSTLER_DIR"
 # Bring up the data services only at this phase. The wiki-site
 # image is added by piece 1 of the wiki-container brief but its
@@ -8602,7 +8688,7 @@ info "$MSG_INFO_PULLING_GRAPH_DB_IMAGES"
 _gdb_pulled=false
 _gdb_backoff=10
 for _gdb_attempt in 1 2 3 4 5; do
-    if docker compose pull qdrant oxigraph redis; then
+    if docker compose pull qdrant oxigraph redis store-proxy; then
         _gdb_pulled=true; break
     fi
     if (( _gdb_attempt < 5 )); then
@@ -8619,7 +8705,7 @@ unset _gdb_pulled _gdb_backoff _gdb_attempt
 # (3) Bring them up (images cached now -> fast) with a short retry.
 _gdb_up=false
 for _gdb_up_attempt in 1 2 3; do
-    if docker compose up -d qdrant oxigraph redis; then
+    if docker compose up -d qdrant oxigraph redis store-proxy; then
         _gdb_up=true; break
     fi
     if (( _gdb_up_attempt < 3 )); then
