@@ -78,19 +78,30 @@ assert_contains "vane-service-key" \
     "  vane:"
 echo "PASS: compose heredoc declares the vane service"
 
-# ── Compose: pinned image tag (not :latest) ─────────────────────
-# Pin matters for productisation -- :latest can silently change
-# behaviour mid-flight. Slim variant requires external SearXNG
-# and would defeat the single-container productisation goal.
+# ── Compose: digest-pinned first-party mirror ───────────────────
+# Supply-chain hardening (v1.0.10 redteam3, PR #422): the vane image
+# is mirrored to our own first-party GHCR namespace and pinned by
+# immutable @sha256 digest -- NOT a mutable third-party tag. A tag
+# (even a version tag like v1.12.2) can be silently re-pushed at the
+# upstream registry mid-flight; a digest cannot. This mirrors the
+# v1.12.2 full variant (bundles SearXNG) at the pinned digest.
 assert_contains "vane-image-pinned" \
-    "image: itzcrazykns1337/vane:v1.12.2"
-echo "PASS: vane image is pinned to v1.12.2 (full variant, bundles SearXNG)"
+    "image: ghcr.io/ostler-ai/vane@sha256:61f2bbf3386ff3df08911fb3de0e1893b04702a4d49ef13fbadbda937b47ab7c"
+echo "PASS: vane image is digest-pinned to the first-party ghcr.io/ostler-ai mirror"
 
-if grep -qE 'image: itzcrazykns1337/vane:latest' "$COMPOSE"; then
-    echo "FAIL [vane-image-not-latest]: vane image must be a pinned tag, not :latest" >&2
+# No mutable third-party pull-ref may be used as the compose image
+# value -- not the old itzcrazykns1337 upstream (any tag), and no
+# :latest anywhere. (The upstream name may still appear in a trailing
+# '# mirrored from ...' provenance comment; that is not an image ref.)
+if grep -qE '^[[:space:]]*image:[[:space:]]*itzcrazykns1337/vane' "$COMPOSE"; then
+    echo "FAIL [vane-image-not-thirdparty]: vane image must be the first-party digest-pinned mirror, not a third-party upstream ref" >&2
     exit 1
 fi
-echo "PASS: vane image is not pinned to :latest"
+if grep -qE '^[[:space:]]*image:[[:space:]]*[^#]*:latest' "$COMPOSE"; then
+    echo "FAIL [vane-image-not-latest]: no compose image may use the mutable :latest tag" >&2
+    exit 1
+fi
+echo "PASS: vane image is not a mutable third-party tag or :latest"
 
 # ── Compose: container name matches uninstaller list ────────────
 assert_contains "vane-container-name" \
