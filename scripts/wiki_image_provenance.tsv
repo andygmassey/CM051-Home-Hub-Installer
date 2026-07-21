@@ -27,9 +27,11 @@
 # image-key is `wiki-compiler` or `wiki-site` (matches the install.sh pin).
 #
 # ---------------------------------------------------------------------------
-# Current pins (both re-pinned to the CM044 2d9d5d9a build = post-#140 v1.0.10
-# security lockdown: Gravatar beacon removal, private-meeting leak fix, nh3
-# stored-XSS sanitiser + CSP). Supersedes the earlier 3408e1a9 build that
-# predated #140 and shipped without those fixes.
-wiki-compiler	sha256:d285575bdaf0f80bd39c4b5a1209a9725b781b09c2f10d3916583f755be560e9	2d9d5d9a06af4d44ca8c6a46a2402d022b34da4b
-wiki-site	sha256:42590728415d74ae432cbe3a5541d5be3d0d6aba71714778897032aef187152a	2d9d5d9a06af4d44ca8c6a46a2402d022b34da4b
+# Current pins (both re-pinned to the CM044 77300f6 build = post-#142 v1.0.10
+# red-team wave-2: nh3-sole-authority XSS gate + private-contact key-dates leak
+# fix + broadcast-gate sweep, on top of the #140 lockdown set). Supersedes the
+# earlier 2d9d5d9a (#140) build. Note the site image digest also moved this
+# round because #142 edited compiler/html_sanitise.py, which Dockerfile.site
+# copies into the site image.
+wiki-compiler	sha256:86947c0b69946966120592fbf82325c73f033bdc0219517c9ecc10199347dc13	77300f6163f0efed6ad092e48d179a49d117e8ec
+wiki-site	sha256:303b3a1a164720cfbc39da5d9380c98ebde89b32600ce4653e4b02b800194a81	77300f6163f0efed6ad092e48d179a49d117e8ec
