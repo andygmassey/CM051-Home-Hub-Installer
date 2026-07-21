@@ -212,7 +212,7 @@
    GET /api/v1/memory               – list facts Ostler has learnt about the user (CM031 iOS Memory tab v1.0)
    POST /api/v1/conversation/process – submit conversation for processing (CM048)
    POST /api/v1/ingest/ios          – batch upload from iOS companion
-@@ -122,9 +123,38 @@
+@@ -123,9 +124,38 @@
  from http.server import HTTPServer, BaseHTTPRequestHandler
  from pathlib import Path
  from urllib.parse import urlparse, parse_qs
@@ -253,7 +253,7 @@
  ICAL_SCRIPT = os.environ.get(
      "ICAL_SCRIPT", os.path.expanduser("~/.zeroclaw/ical-query.sh")
  )
-@@ -399,6 +429,15 @@
+@@ -471,6 +501,15 @@
      "tauri://localhost",
      "https://tauri.localhost",
  }
@@ -269,7 +269,7 @@
  
  # ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
  # The Memory tab is the customer's window into what Ostler has inferred
-@@ -464,6 +503,29 @@
+@@ -536,6 +575,29 @@
  # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
@@ -299,7 +299,7 @@
  
  try:
      from zoneinfo import ZoneInfo
-@@ -1114,7 +1176,21 @@
+@@ -1186,7 +1248,21 @@
  
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
@@ -321,7 +321,7 @@
  def _conversation_process_background(conversation_id, transcript, metadata):
      """Run CM048 processing in a background thread.
  
-@@ -1122,9 +1198,10 @@
+@@ -1194,9 +1270,10 @@
      invokes the CM048 processor. Updates state.json on completion or
      failure.
  
@@ -335,7 +335,7 @@
      """
      state_dir = PROCESSING_DIR / conversation_id
      state_dir.mkdir(parents=True, exist_ok=True)
-@@ -1167,17 +1244,13 @@
+@@ -1239,17 +1316,13 @@
          json.dumps(state, indent=2), encoding="utf-8"
      )
  
@@ -357,7 +357,7 @@
          )
          if result.returncode == 0:
              state["current_step"] = "completed"
-@@ -1186,6 +1259,18 @@
+@@ -1258,6 +1331,18 @@
              state["failed_step"] = "processor"
              state["failure_reason"] = result.stderr[:500] or "Non-zero exit"
              state["last_updated_at"] = datetime.utcnow().isoformat() + "Z"
@@ -376,7 +376,7 @@
      except subprocess.TimeoutExpired:
          state["failed_step"] = "processor"
          state["failure_reason"] = "Processing timed out (15 min limit)"
-@@ -1212,10 +1297,23 @@
+@@ -1284,10 +1369,23 @@
      if not transcript:
          return {"error": "Missing 'transcript' field"}, 400
  
@@ -403,7 +403,7 @@
          }, 503
  
      # Generate conversation_id from metadata or UUID
-@@ -4361,7 +4459,10 @@
+@@ -4433,7 +4531,10 @@
              "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
              "last_contact": p.get("last_contact", ""),
              "months_since_contact": months_since,
@@ -415,7 +415,7 @@
          })
      contacts.sort(key=lambda c: c["months_since_contact"], reverse=True)
      return {"contacts": contacts[:limit]}
-@@ -5120,6 +5221,9 @@
+@@ -5192,6 +5293,9 @@
              "ok": True,
              "batch_id": batch_id,
              "item_count": len(batch),
@@ -425,7 +425,7 @@
              "path": path,
          }
          if health_written:
-@@ -5138,13 +5242,74 @@
+@@ -5210,13 +5314,74 @@
  # can fan out work and collect named results. Every helper is wrapped in
  # a blanket try/except – a misbehaving dependency must NEVER propagate
  # up to the endpoint handler.
@@ -501,7 +501,7 @@
      """
      try:
          if path.exists():
-@@ -5155,6 +5320,185 @@
+@@ -5227,6 +5392,185 @@
      return None
  
  
@@ -687,7 +687,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -5267,7 +5611,7 @@
+@@ -5339,7 +5683,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -696,7 +696,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -5390,7 +5734,7 @@
+@@ -5462,7 +5806,7 @@
      except Exception:
          queue_depth = 0
  
@@ -705,7 +705,7 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -6121,7 +6465,11 @@
+@@ -6307,7 +6651,11 @@
              try:
                  result = api_timeline(days=days, past_days=past_days, limit=limit)
              except Exception as exc:
@@ -718,7 +718,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -6463,6 +6811,31 @@
+@@ -6649,6 +6997,31 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -750,7 +750,7 @@
          # Conversation processing status (CM048)
          # Per-slug person enrichment for the iOS / Hub person card.
          # GET /api/v1/people/{slug}/enrichment
-@@ -6682,6 +7055,22 @@
+@@ -6874,6 +7247,22 @@
          if parsed.path == "/api/v1/ingest/ios":
              try:
                  result, status = api_ingest_ios(payload)

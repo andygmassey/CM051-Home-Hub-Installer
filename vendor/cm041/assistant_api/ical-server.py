@@ -38,6 +38,7 @@ import json
 import re
 import os
 import hashlib
+import hmac
 import sqlite3
 import sys
 import unicodedata
@@ -164,6 +165,77 @@ WIKI_BASE_URL = os.environ.get("WIKI_BASE_URL", "http://localhost:8044")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "http://localhost:7878")
 EMBED_OLLAMA_URL = os.environ.get("EMBED_OLLAMA_URL", "http://localhost:11434")
+
+
+# ── Localhost service-token auth (#200 / v1.0.10 lockdown) ───────────────
+#
+# The Assistant API binds loopback and, historically, self-enforced NO auth:
+# do_GET/do_POST/do_OPTIONS dispatched straight to the endpoints. The only
+# gate was the external Doctor proxy (:8089 front / :8090 service on some
+# topologies) -- a co-resident local process, or a DNS-rebind attack against
+# a browser, could reach the raw service and read L1/L2 PII
+# (/api/v1/timeline), WRITE facts (POST /api/v1/memory/assert) or destroy
+# records (POST /api/v1/people/{slug}/forget).
+#
+# The #200 localhost service token (openssl rand -hex 32, chmod 600) that is
+# already wired into the CM044/CM048/CM041 *readers* now also gates this
+# service. The token is read from the environment; CM051's launchd plist
+# injection is responsible for exporting it into this process's environment
+# (see the PR body for the exact env-var name the CM051 side must match).
+#
+#   * Primary env var:  OSTLER_SERVICE_TOKEN
+#   * Fallback env var: PWG_SERVICE_TOKEN   (accepted so either name the
+#                       CM051 plist chooses works without a code change)
+#
+# Enforcement model (secure-by-default):
+#   * A token IS configured  -> every non-public request must present it via
+#                               `Authorization: Bearer <token>` or the
+#                               `X-Ostler-Service: <token>` header. Constant-
+#                               time compare. Absent/mismatch -> 401.
+#   * No token configured     -> non-public requests are DENIED (401),
+#                               unconditionally. A misconfigured install
+#                               fails CLOSED, never open. There is no
+#                               environment escape hatch: an env-var opt-out
+#                               would be a footgun -- any co-resident process
+#                               able to rewrite this service's LaunchAgent
+#                               plist could set it and defeat the auth. Tests
+#                               configure a real token instead (see
+#                               assistant_api/tests/conftest.py).
+#
+# Public (never require the token): the liveness/counts-only surfaces the
+# Doctor proxy and the first-run wiki hydration panel poll -- `/health` and
+# `/api/v1/hydration/status` (+ its CORS preflight). These carry no PII and
+# perform no writes. The Doctor proxy may still present the token; the extra
+# header is simply ignored on public routes, so gating never locks it out.
+_SERVICE_TOKEN_ENV_VARS = ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN")
+
+# Host header values accepted by the loopback service. Anything else is a
+# 403 -- BaseHTTPRequestHandler does no Host validation of its own, so this
+# is the defence against DNS-rebind (a browser tricked into resolving an
+# attacker-controlled hostname to 127.0.0.1 sends that hostname in Host).
+# Stored lowercased -- the comparison in _host_allowed() folds case so
+# `Host: LocalHost` is accepted. `::ffff:127.0.0.1` is the IPv4-mapped IPv6
+# form of loopback (bracketed or bare) that some clients emit.
+_ALLOWED_HOST_NAMES = {
+    "127.0.0.1", "localhost", "[::1]", "::1",
+    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
+}
+
+# Public routes (GET) that never require the service token.
+_PUBLIC_GET_PATHS = {"/health", "/api/v1/hydration/status"}
+
+
+def _expected_service_token():
+    """Return the configured service token (stripped) or "" if none set.
+
+    Read from the environment on every call so the launchd plist injection
+    (CM051) and the test harness can both drive it without an import-time
+    freeze."""
+    for name in _SERVICE_TOKEN_ENV_VARS:
+        val = (os.environ.get(name) or "").strip()
+        if val:
+            return val
+    return ""
 
 
 def _pipeline_import_roots():
@@ -6080,6 +6152,104 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    # ── Security guards (v1.0.10 lockdown) ───────────────────────────────
+    def _send_guard_error(self, code, message):
+        """Emit a small JSON error for a rejected request and return."""
+        body = json.dumps({"error": message}).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        # HEAD has no body; GET/POST/OPTIONS do.
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _host_allowed(self):
+        """Reject Host headers that are not this loopback service.
+
+        Defeats DNS-rebind: BaseHTTPRequestHandler performs no Host
+        validation, so a browser coerced into resolving an attacker
+        hostname to 127.0.0.1 would otherwise reach us with that hostname
+        in Host. Only 127.0.0.1 / localhost / ::1 (any port, or none) pass.
+        The operator-configured bind host is also accepted so an explicit
+        OSTLER_API_BIND still works.
+        """
+        raw = self.headers.get("Host")
+        if not raw:
+            # HTTP/1.0 clients may omit Host entirely; that cannot be a
+            # rebind (no hostname was resolved), so allow it.
+            return True
+        # Strip the port. Bracketed IPv6 keeps its brackets ([::1]:8089).
+        # Case-folded so `Host: LocalHost` (or a mixed-case IPv6 literal) is
+        # not spuriously 403'd.
+        host = raw.strip()
+        if host.startswith("["):
+            hostname = host.split("]")[0] + "]"
+        else:
+            hostname = host.rsplit(":", 1)[0] if ":" in host else host
+        hostname = hostname.lower()
+        allowed = set(_ALLOWED_HOST_NAMES)
+        bind = os.environ.get("OSTLER_API_BIND", "127.0.0.1").strip().lower()
+        if bind and bind != "0.0.0.0":
+            allowed.add(bind)
+        return hostname in allowed
+
+    def _presented_token(self):
+        """Pull the caller's service token from either accepted header."""
+        auth = (self.headers.get("Authorization") or "").strip()
+        if auth:
+            parts = auth.split(None, 1)
+            if len(parts) == 2 and parts[0].lower() == "bearer":
+                return parts[1].strip()
+        xhdr = (self.headers.get("X-Ostler-Service") or "").strip()
+        if xhdr:
+            return xhdr
+        return ""
+
+    def _authorized(self):
+        """True iff this request may proceed to a non-public endpoint.
+
+        Constant-time compare against the configured token. Fails closed
+        when no token is configured -- there is no environment escape
+        hatch (a plist-writable opt-out would defeat the auth)."""
+        expected = _expected_service_token()
+        if not expected:
+            # No server-side token -> misconfiguration. Fail CLOSED,
+            # unconditionally. Never serve non-public data without a token.
+            return False
+        presented = self._presented_token()
+        if not presented:
+            return False
+        return hmac.compare_digest(presented, expected)
+
+    def _is_public_get(self, path):
+        return path in _PUBLIC_GET_PATHS
+
+    def _guard(self, method, path):
+        """Run the Host allowlist + service-token check before any route
+        dispatch. Returns True if the request may proceed; otherwise emits
+        the appropriate 403/401 response and returns False.
+
+        `path` is the request path (already alias-normalised for GET).
+        `method` is "GET" | "POST" | "OPTIONS"."""
+        if not self._host_allowed():
+            self._send_guard_error(403, "Forbidden: host not allowed")
+            return False
+        # Public, PII-free, write-free routes skip the token check so the
+        # Doctor proxy liveness probe and the browser hydration-panel poll
+        # keep working even before the token is provisioned.
+        if method == "GET" and self._is_public_get(path):
+            return True
+        if method == "OPTIONS" and path == "/api/v1/hydration/status":
+            # CORS preflight for the public hydration poll -- browsers never
+            # attach the Authorization header to a preflight, so it must be
+            # allowed through the token gate (the actual GET is public too).
+            return True
+        if not self._authorized():
+            self._send_guard_error(401, "Unauthorized: missing or invalid service token")
+            return False
+        return True
+
     def _send_hydration_cors(self):
         """Emit Access-Control-Allow-Origin for the hydration route ONLY.
 
@@ -6098,6 +6268,8 @@ class Handler(BaseHTTPRequestHandler):
         # if a custom header ever creeps into the fetch). Other paths get
         # a plain 405 with no CORS headers.
         parsed = urlparse(self.path)
+        if not self._guard("OPTIONS", parsed.path):
+            return
         if parsed.path == "/api/v1/hydration/status":
             self.send_response(204)
             self._send_hydration_cors()
@@ -6127,9 +6299,23 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in self._VERSIONED_TO_LEGACY:
             parsed = parsed._replace(path=self._VERSIONED_TO_LEGACY[parsed.path])
 
+        # Host allowlist + service-token auth BEFORE any route dispatch.
+        if not self._guard("GET", parsed.path):
+            return
+
         if parsed.path == "/health":
+            # Bare /health is public (liveness for the Doctor proxy). The
+            # detailed=1 variant leaks per-instance dependency reachability
+            # (Qdrant/Oxigraph/Ollama) and the untagged-fact-node count, so
+            # it is gated behind the service token like any other non-public
+            # surface.
+            detailed = parse_qs(parsed.query).get("detailed", ["0"])[0] in ("1", "true")
+            if detailed and not self._authorized():
+                self._send_guard_error(
+                    401, "Unauthorized: detailed health requires the service token"
+                )
+                return
             try:
-                detailed = parse_qs(parsed.query).get("detailed", ["0"])[0] in ("1", "true")
                 result = api_health_detailed() if detailed else {"status": "ok"}
             except Exception as exc:
                 result = {"status": "error", "error": str(exc)}
@@ -6979,6 +7165,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
+        # Host allowlist + service-token auth BEFORE any route dispatch.
+        # No POST route is public: every POST either writes facts, mutates
+        # memory, or triggers destructive erasure.
+        if not self._guard("POST", parsed.path):
+            return
+
         # Route: POST /api/v1/people/{slug}/forget – no body required.
         # Handled before body validation because the iOS contract
         # (CM031 ForgetPersonService PR #90) sends an empty body, and
@@ -7197,6 +7389,24 @@ if __name__ == "__main__":
     BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
     # Tag the historical privacy coverage gap before answering /people/*.
     _run_privacy_backfill_on_startup()
+    # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
+    # is never silent: without it, every non-public endpoint fails closed
+    # (401). There is no environment escape hatch.
+    if _expected_service_token():
+        print(
+            "Service-token auth ENABLED "
+            f"(reading {'/'.join(_SERVICE_TOKEN_ENV_VARS)}); "
+            "non-public endpoints require Authorization: Bearer / X-Ostler-Service."
+        )
+    else:
+        print(
+            "WARNING: no service token configured "
+            f"({'/'.join(_SERVICE_TOKEN_ENV_VARS)} unset) -- non-public "
+            "endpoints will fail closed with HTTP 401. Set OSTLER_SERVICE_TOKEN "
+            "(injected by the CM051 launchd plist) to enable access.",
+            file=sys.stderr,
+            flush=True,
+        )
     print(f"Assistant API running on http://{BIND_HOST}:{PORT}")
     print("Endpoints: /calendar, /people/{search,context,stale,recent,birthdays}, /email, /api/v1/email/recent, /api/v1/suggestions, /api/v1/timeline, /api/v1/contacts/diff, /api/v1/meeting/upcoming, /api/v1/reply-debt, /api/v1/hub/health, /api/v1/health/day, /api/v1/memory, POST /api/v1/ingest/ios, POST /api/v1/people/{slug}/forget, POST /api/v1/memory/correct/{id}, POST /api/v1/memory/assert, /health")
     if BIND_HOST == "0.0.0.0":
