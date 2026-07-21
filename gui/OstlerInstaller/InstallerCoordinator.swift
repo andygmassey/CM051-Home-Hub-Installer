@@ -246,6 +246,11 @@ final class InstallerCoordinator: ObservableObject {
         case ready
         case limitReached(maxFingerprints: Int, registeredCount: Int)
         case fatal(reason: String)
+        // v1.0.10 security lockdown: the bounded offline fail-open
+        // grace has been exhausted for this licence on this Mac. We
+        // refuse to proceed until the device can reach the Worker and
+        // complete a real registration.
+        case offlineGraceExhausted(attempts: Int)
     }
 
     /// Test hook: inject a client with a mock transport.
@@ -888,6 +893,9 @@ final class InstallerCoordinator: ObservableObject {
             OstlerLog.fingerprint.info("result=ok max=\(max, privacy: .public) count=\(count, privacy: .public)")
             persistFingerprintCache(fingerprint: fingerprint)
             FingerprintState.clearPending()
+            // v1.0.10: a real registration resolved -- reset the
+            // bounded offline fail-open ledger.
+            FingerprintState.clearOfflineGrace()
             registrationGate = .ready
             bootstrap()
         case .limitReached(let max, let count):
@@ -896,6 +904,9 @@ final class InstallerCoordinator: ObservableObject {
                 msg: "Device limit reached (\(count)/\(max == 0 ? "?" : String(max)) Macs). Refusing install."
             )
             OstlerLog.fingerprint.warning("result=limitReached max=\(max, privacy: .public) count=\(count, privacy: .public)")
+            // v1.0.10: a definitive cap answer resolves the bounded
+            // offline fail-open ledger.
+            FingerprintState.clearOfflineGrace()
             registrationGate = .limitReached(
                 maxFingerprints: max,
                 registeredCount: count
@@ -919,25 +930,47 @@ final class InstallerCoordinator: ObservableObject {
                 reason: "Your licence file was rejected by our server (\(reason)). Please email hello@ostler.ai."
             )
         case .networkFailure(let message):
-            appendLog(
-                level: "warn",
-                msg: "Device registration deferred (network: \(message)). Proceeding with install -- Hub will retry."
-            )
-            OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- queuing for deferred retry")
-            do {
-                try FingerprintState.writePending(
-                    licenseId: claims.licenseId,
-                    fingerprint: fingerprint
-                )
-            } catch {
+            // v1.0.10 security lockdown: BOUNDED fail-open. Pre-fix
+            // this unconditionally set `.ready` + bootstrapped, so a
+            // blocked appcast.ostler.ai let one licence install on
+            // unlimited Macs. We now consult a per-licence, per-Mac
+            // bounded grace: proceed a small, time-boxed number of
+            // times (each queuing a deferred hard re-check), then
+            // refuse. The cross-Mac case is only fully closable
+            // Hub-side (the deferred re-check must DEACTIVATE, not
+            // just warn, on a 409) -- see the PR body tradeoff note.
+            switch FingerprintState.evaluateOfflineGrace(licenseId: claims.licenseId) {
+            case .proceed(let attempt):
                 appendLog(
                     level: "warn",
-                    msg: "Could not write pending-registration queue: \(error.localizedDescription)"
+                    msg: "Device registration deferred (network: \(message)). Proceeding offline (grace \(attempt)/\(FingerprintState.maxOfflineProceeds)) -- Hub will hard re-check."
                 )
-                OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
+                OstlerLog.fingerprint.warning("result=networkFailure message=\(message, privacy: .public) -- offline grace attempt=\(attempt, privacy: .public) queuing for deferred retry")
+                do {
+                    try FingerprintState.writePending(
+                        licenseId: claims.licenseId,
+                        fingerprint: fingerprint
+                    )
+                } catch {
+                    appendLog(
+                        level: "warn",
+                        msg: "Could not write pending-registration queue: \(error.localizedDescription)"
+                    )
+                    OstlerLog.fingerprint.error("writePending failed: \(error.localizedDescription, privacy: .public)")
+                }
+                registrationGate = .ready
+                bootstrap()
+            case .exhausted(let attempts):
+                appendLog(
+                    level: "error",
+                    msg: "Device registration keeps failing offline (\(attempts) attempts). Refusing to proceed until this Mac can reach our server."
+                )
+                OstlerLog.fingerprint.error("result=networkFailure offline grace EXHAUSTED attempts=\(attempts, privacy: .public) -- blocking install")
+                // Keep the pending queue so a later online run / the
+                // Hub-side deferred script can still resolve it, but do
+                // NOT bootstrap: the install is blocked.
+                registrationGate = .offlineGraceExhausted(attempts: attempts)
             }
-            registrationGate = .ready
-            bootstrap()
         }
     }
 
