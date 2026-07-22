@@ -33,5 +33,5 @@
 # earlier 2d9d5d9a (#140) build. Note the site image digest also moved this
 # round because #142 edited compiler/html_sanitise.py, which Dockerfile.site
 # copies into the site image.
-wiki-compiler	sha256:86947c0b69946966120592fbf82325c73f033bdc0219517c9ecc10199347dc13	77300f6163f0efed6ad092e48d179a49d117e8ec
+wiki-compiler	sha256:a7e8c7e8151e8e559ddefb8f6fb463b0ed25469ea42d74ffa9ccd74c7e032923	77300f6163f0efed6ad092e48d179a49d117e8ec
 wiki-site	sha256:303b3a1a164720cfbc39da5d9380c98ebde89b32600ce4653e4b02b800194a81	77300f6163f0efed6ad092e48d179a49d117e8ec
