@@ -6914,7 +6914,31 @@ if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" == "1" ]]; then
     _store_auth_upsert_env "${CONFIG_DIR}/.env" "REDIS_URL" "redis://:${REDIS_PASSWORD}@localhost:6379"
     ok "Store auth ENFORCED: Qdrant API key + Redis requirepass threaded into compose + client env."
 else
-    info "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Operative controls for v1.0.10: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
+    # v1.0.10 install-abort fix: default-OFF must be an ENFORCED keyless
+    # state, not merely "not written". The compose project .env
+    # ($OSTLER_ENV_FILE) is PRESERVED across installs, so a QDRANT_API_KEY /
+    # REDIS_AUTH_ARGS / credentialled REDIS_URL threaded by any prior
+    # enforce=1 run (or an earlier candidate / red-team install) would
+    # persist and make Qdrant boot REQUIRING auth while every shipped client
+    # sends none -- a 401 that aborts "Importing your data" 37 min in.
+    # Scrub those lines so compose interpolation always resolves empty =>
+    # Qdrant no-auth + valkey no --requirepass, matching the pinned keyless
+    # client fleet regardless of box history.
+    for _sa_env in "$OSTLER_ENV_FILE" "${CONFIG_DIR}/.env"; do
+        [[ -f "$_sa_env" ]] || continue
+        sed -i.bak \
+            -e '/^QDRANT_API_KEY=/d' \
+            -e '/^REDIS_AUTH_ARGS=/d' \
+            -e '/^REDIS_URL=redis:\/\/:/d' \
+            "$_sa_env" 2>/dev/null && rm -f "${_sa_env}.bak"
+    done
+    # Ensure clients still find a (keyless) REDIS_URL if the credentialled
+    # form was scrubbed from config/.env.
+    if [[ -f "${CONFIG_DIR}/.env" ]] && ! grep -q '^REDIS_URL=' "${CONFIG_DIR}/.env" 2>/dev/null; then
+        printf 'REDIS_URL=%s\n' "redis://localhost:6379" >> "${CONFIG_DIR}/.env"
+    fi
+    unset _sa_env
+    info "Store native token-auth is staged but DEFAULT-OFF -- deferred to the v1.0.1 project. Any previously-threaded store credentials have been scrubbed so the stores boot keyless (matching the shipped clients). Operative controls for v1.0.10: 127.0.0.1-only binds + the store-proxy Host-header gate (defeats DNS-rebind) on Qdrant/Oxigraph. Set OSTLER_STORE_AUTH_ENFORCE=1 once the client-side auth PRs land."
 fi
 
 unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
@@ -8377,9 +8401,17 @@ services:
     # (6334) stays on the host loopback (not browser-DNS-rebindable;
     # covered by the v1.0.1 token-auth project). QDRANT__SERVICE__
     # API_KEY is the staged (default-OFF) native-auth scaffolding for
-    # v1.0.1: EMPTY => no auth (the v1.0.10 default, since the pinned
-    # vendored clients do not send an api key).
+    # v1.0.1. IMPORTANT (verified on-device): Qdrant treats a PRESENT-but-
+    # empty QDRANT__SERVICE__API_KEY as auth-ENABLED (empty => 401, absent
+    # => 200) -- the original "EMPTY => no auth" assumption was WRONG and was
+    # the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So when store-auth is
+    # default-OFF the installer REMOVES the API_KEY line from this block
+    # after generating the compose (see "empty-api-key quirk" below),
+    # leaving QDRANT__LOG_LEVEL as the sole entry so the block stays valid
+    # YAML and Qdrant runs keyless -- matching the pinned vendored clients
+    # that send no api key.
     environment:
+      QDRANT__LOG_LEVEL: "INFO"
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     ports:
       - "127.0.0.1:6334:6334"
@@ -8608,6 +8640,22 @@ volumes:
   vane_data:
 DCEOF
 
+# ── v1.0.10 install-abort fix: Qdrant empty-api-key quirk ─────────
+# Verified empirically on-device: Qdrant treats a PRESENT-but-empty
+# QDRANT__SERVICE__API_KEY env var as auth-ENABLED (empty => HTTP 401,
+# absent => 200). The compose line above interpolates ${QDRANT_API_KEY:-},
+# which is EMPTY whenever store-auth is default-OFF (the v1.0.10 shipping
+# default), so Qdrant would boot DEMANDING a credential the shipped keyless
+# client fleet never sends -> 401 on the first readback -> abort at
+# "Importing your data" (the ERR-99-INSTALL-ABORT-L9858 box-walk failure).
+# When enforce is OFF, REMOVE the key line entirely so Qdrant runs keyless.
+# (Redis uses empty ${REDIS_AUTH_ARGS:-} = no --requirepass flag = keyless,
+# and Oxigraph 0.4.6 has no native auth, so ONLY Qdrant needs this.)
+if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" != "1" ]]; then
+    sed -i.bak '/QDRANT__SERVICE__API_KEY:/d' "${OSTLER_DIR}/docker-compose.yml" \
+        && rm -f "${OSTLER_DIR}/docker-compose.yml.bak"
+fi
+
 # ── Store front-proxy nginx config (v1.0.10 security lockdown) ────
 # Written next to the compose file and bind-mounted into the
 # store-proxy service. Transparent loopback passthrough for the two
@@ -8822,6 +8870,20 @@ for _ in $(seq 1 30); do
 done
 
 if [[ "$_qdrant_ready" == true ]]; then
+    # v1.0.10 install-abort fix (regression gate): the shipped client fleet
+    # is keyless, so an AUTH-REQUIRING Qdrant endpoint MUST answer WITHOUT a
+    # credential here. The readiness loop above uses /readyz which is
+    # unauthenticated, so it cannot catch a store-auth leak; /collections
+    # can. If a leaked API key ever re-arms Qdrant auth, fail NOW with a
+    # clear named error at the database step rather than a mystery ERR-99
+    # abort at "Importing your data" ~30 min later. One retry distinguishes
+    # a persistent 401 (leak) from a one-off blip.
+    if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+        sleep 2
+        if ! curl -sf -m 5 "${_qdrant_url}/collections" &>/dev/null; then
+            fail_with_code "ERR-06-STORE-AUTH-LEAK" "$MSG_FAIL_STORE_AUTH_LEAK"
+        fi
+    fi
     for _coll in people conversations preferences evernote_knowledge; do
         # Already present? Leave it untouched (never clobber real data).
         if curl -sf -m 5 "${_qdrant_url}/collections/${_coll}" &>/dev/null; then
@@ -9777,6 +9839,11 @@ if [[ ${#_IMPORT_DIRS[@]} -gt 0 && -x "$IMPORT_SCRIPT" ]]; then
         warn "$(printf "$MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE" "${_IMPORT_DIRS[0]}" "${USER_NAME}")"
     fi
     # Counts-only preferences readback; no item content leaves the process.
+    # v1.0.10 install-abort fix: this is a counts-only, non-fatal
+    # diagnostic, but under `set -Eeuo pipefail` a failing curl (401 /
+    # timeout / 5xx) rides pipefail through the python guard and aborts
+    # the whole install at the bare assignment. `|| printf '0'` keeps the
+    # command-substitution exit 0 so it degrades to its designed warn path.
     _PREFS_POINTS="$(
         curl -sf -m 5 "${QDRANT_URL:-http://localhost:6333}/collections/preferences" 2>/dev/null \
         | python3 -c 'import json,sys
@@ -9784,7 +9851,8 @@ try:
     d=json.loads(sys.stdin.read())
     print(int(((d.get("result") or {}).get("points_count")) or 0))
 except Exception:
-    print(0)' 2>/dev/null
+    print(0)' 2>/dev/null \
+        || printf '0'
     )"
     _PREFS_POINTS="${_PREFS_POINTS:-0}"
     if [[ "$_PREFS_POINTS" -gt 0 ]]; then
@@ -9810,7 +9878,8 @@ try:
     d=json.loads(sys.stdin.read())
     print(int(((d.get("result") or {}).get("count")) or 0))
 except Exception:
-    print(0)' 2>/dev/null
+    print(0)' 2>/dev/null \
+            || printf '0'
         }
         _FOOD_POINTS="$(_cat_count food)";          _FOOD_POINTS="${_FOOD_POINTS:-0}"
         _MUSIC_POINTS="$(_cat_count music)";         _MUSIC_POINTS="${_MUSIC_POINTS:-0}"
@@ -9828,7 +9897,8 @@ try:
     d=json.loads(sys.stdin.read())
     print(int(((d.get("result") or {}).get("count")) or 0))
 except Exception:
-    print(0)' 2>/dev/null
+    print(0)' 2>/dev/null \
+            || printf '0'
         )"
         _UNCAT_POINTS="${_UNCAT_POINTS:-0}"
 
@@ -15024,6 +15094,13 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
     # under ~/.ostler/imports/fda/ for the pwg_ingest step to read.
     # T3 chats are filtered at the extractor's JSON-write boundary,
     # so a subsequent ingest cannot accidentally emit T3 triples.
+    # v1.0.10 install-abort fix: bracket the extract in the same #640-class
+    # ERR-trap / set +e guard the browsing/imessage/people hydrate siblings
+    # already use, so a non-zero exit from the extractor (a store-auth 401,
+    # an unexpected ChatStorage.sqlite schema, or any non-124 error under
+    # set -Eeuo pipefail) is captured in rc and degraded to "skipped"
+    # instead of aborting the whole install at this late hydrate step.
+    _wa_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e
     _HYDRATE_WHATSAPP_JSON="$(
         OXIGRAPH_URL="$_HYDRATE_OXIGRAPH_WA" $_HYDRATE_WHATSAPP_TIMEOUT_WRAP \
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.whatsapp_history \
@@ -15033,6 +15110,7 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         | tail -n 1
     )"
     rc=$?
+    set -e; eval "${_wa_saved_err_trap:-}"; unset _wa_saved_err_trap
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_WHATSAPP_TIMED_OUT=true
     fi
@@ -15354,10 +15432,15 @@ else
         # The ingest CLI prints "Preferences created: <n>" to stderr (now
         # in the log). Parse the count for the customer-facing line; the
         # name/value pairs themselves never leave the process.
+        # v1.0.10 install-abort fix: grep exits 1 on no-match (a NORMAL case
+        # when no email preferences were created), which under pipefail
+        # aborts the whole install at this late hydrate step. `|| printf '0'`
+        # keeps the substitution exit 0 so the ${VAR:-0} default applies.
         _HYDRATE_EMAILPREFS_COUNT="$(
             grep -aE 'Preferences created:' "$_HYDRATE_EMAILPREFS_LOG" 2>/dev/null \
             | tail -n 1 \
-            | tr -dc '0-9'
+            | tr -dc '0-9' \
+            || printf '0'
         )"
         _HYDRATE_EMAILPREFS_COUNT="${_HYDRATE_EMAILPREFS_COUNT:-0}"
         if [[ "$_HYDRATE_EMAILPREFS_COUNT" -gt 0 ]]; then
