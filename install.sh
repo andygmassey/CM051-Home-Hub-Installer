@@ -8309,7 +8309,9 @@ print(json.dumps(summary, default=str))
     <string>com.ostler.fda-rerun</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-fda</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>fda-rerun</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -10216,7 +10218,9 @@ cat > "$SCAN_PLIST" <<SPEOF
     <string>com.ostler.export-scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-scan-exports</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>export-scan</string>
     </array>
     <key>StartInterval</key>
     <integer>14400</integer>
@@ -11788,9 +11792,19 @@ _install_conversation_feed() {
     # well before this phase, so the bundle agent never renders a blank
     # user_id (which would make CM048's fail-loud guard kill every tick).
     e_user_id="$(printf '%s' "${USER_ID:-}" | sed 's/[&/\]/\\&/g')"
+    # Ingest-reroute (v1.0.10): ProgramArguments[0] is the SHIPPED,
+    # code-signed daemon binary INSIDE the .app bundle -- never
+    # ${OSTLER_DIR}/bin/ostler-assistant (the legacy path e_bin renders).
+    # The tick now runs as `run-source <src>`, a child fork of this
+    # FDA-holding binary, so its protected read inherits Full Disk Access.
+    # Distinct token (OSTLER_ASSISTANT_BINARY, not OSTLER_BIN) because in
+    # THIS renderer OSTLER_BIN == ${OSTLER_DIR}/bin, the wrong path.
+    local e_asst
+    e_asst="$(printf '%s' "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" | sed 's/[&/\]/\\&/g')"
     # _VALUE/_PATH-suffixed placeholders before bare ones, so a bare token
     # is never a substring of a longer placeholder (byte-safe render).
     sed \
+        -e "s/OSTLER_ASSISTANT_BINARY/$e_asst/g" \
         -e "s/OSTLER_PYTHON_PATH/$e_py/g" \
         -e "s/PWG_CONVO_CMD_VALUE/$e_pwg/g" \
         -e "s/OSTLER_SOURCE_DIR_VALUE/$esc_base/g" \
@@ -14585,7 +14599,9 @@ _schedule_contact_resync() {
     <string>com.ostler.contact-resync</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-contact-resync</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>contact-resync</string>
     </array>
     <key>StartInterval</key>
     <integer>${interval_s}</integer>
@@ -17115,7 +17131,9 @@ AICONVRESUME
     <string>com.ostler.aiconv-resume</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${_AICONV_RESUME_BIN}</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>aiconv</string>
     </array>
     <key>StartInterval</key>
     <integer>3600</integer>

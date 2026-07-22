@@ -94,6 +94,14 @@ esc_bin="$(printf '%s' "$OSTLER_BIN_DIR"                    | sed 's/[&/\]/\\&/g
 esc_home="$(printf '%s' "$EMAIL_INGEST_HOME_RESOLVED"        | sed 's/[&/\]/\\&/g')"
 esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/g')"
 
+# Ingest-reroute (v1.0.10): ProgramArguments[0] is the SHIPPED,
+# code-signed daemon binary INSIDE the .app bundle -- the FDA holder --
+# so `run-source email-ingest` forks the tick as its child and the
+# protected Apple Mail read inherits Full Disk Access. A distinct token
+# (OSTLER_ASSISTANT_BINARY) because OSTLER_BIN here == $OSTLER_DIR/bin,
+# the wrong (legacy, non-FDA) path.
+esc_assistant="$(printf '%s' "$OSTLER_DIR/OstlerAssistant.app/Contents/MacOS/ostler-assistant" | sed 's/[&/\]/\\&/g')"
+
 # OSTLER_VENV_PYTHON: absolute path to a python3 binary that has
 # `ostler_fda` installed (created by CM051 install.sh's email-ingest
 # venv setup). If unset/empty we fall back to the literal "python3"
@@ -124,6 +132,7 @@ esc_ingest="$(printf '%s' "$OSTLER_EMAIL_INGEST_BIN_VALUE"   | sed 's/[&/\]/\\&/
 # readability; the two placeholders share no common substring so the
 # order is byte-safe either way.
 sed \
+    -e "s/OSTLER_ASSISTANT_BINARY/$esc_assistant/g" \
     -e "s/OSTLER_BIN/$esc_bin/g" \
     -e "s/OSTLER_HOME/$esc_home/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
