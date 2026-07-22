@@ -6353,43 +6353,18 @@ else
     echo ""
     ok "$(printf "$MSG_OK_DOCKER_RUNNING_TOOK_S" "${DOCKER_WAIT}")"
 
-    # Set up Colima auto-start on boot (if using Colima)
-    if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
-        COLIMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-        if [[ ! -f "$COLIMA_PLIST" ]]; then
-            mkdir -p "${HOME}/Library/LaunchAgents"
-            cat > "$COLIMA_PLIST" <<COLEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.ostler.colima</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$(which colima)</string>
-        <string>start</string>
-        <string>--cpu</string>
-        <string>2</string>
-        <string>--memory</string>
-        <string>4</string>
-        <string>--disk</string>
-        <string>30</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${LOGS_DIR}/colima.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOGS_DIR}/colima.err</string>
-</dict>
-</plist>
-COLEOF
-            launchctl bootstrap "gui/$(id -u)" "$COLIMA_PLIST" 2>/dev/null || \
-                launchctl load "$COLIMA_PLIST" 2>/dev/null || true
-            ok "$MSG_OK_COLIMA_WILL_START_AUTOMATICALLY_BOOT"
-        fi
-    fi
+    # Colima auto-start on boot is now OWNED BY THE DAEMON (v1.0.10, Group C).
+    #
+    # The old bare `com.ostler.colima` LaunchAgent started Colima at login with
+    # NO Full Disk Access, so Colima could not mount ~/Documents and the wiki
+    # died on every reboot. The signed daemon (OstlerAssistant.app) holds FDA,
+    # and a child it fork-execs inherits that FDA (Gate A). So the daemon now
+    # runs `colima start` itself on launch (see ostler-assistant
+    # ensure_colima_running()), and the bare LaunchAgent is intentionally NOT
+    # created here. The install-time `colima start` above still runs under the
+    # installer's own FDA, which is correct for the first install; steady-state
+    # reboot start is the daemon's job. Upgrade cleanup of any pre-existing
+    # com.ostler.colima agent lives in the LaunchAgent teardown section below.
 fi
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
@@ -6541,9 +6516,29 @@ else
 OLLAMAPLIST
     launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null || \
         launchctl load "$OLLAMA_PLIST" 2>/dev/null || true
-    # Wait up to 90 seconds for Ollama to be ready
+    # Wait for Ollama to be ready. The launchd bootstrap above can fail
+    # transiently ("Bootstrap failed: 5: Input/output error") when launchd
+    # state is messy -- e.g. after a mid-install reboot -- leaving the agent
+    # registered but not serving. Rather than hard-abort at the timeout (which
+    # aborted a box-walk), fall back to launching the cask binary DIRECTLY for
+    # this run if the launchd path hasn't come up within a grace window. The
+    # LaunchAgent stays installed and takes over on the next reboot; the
+    # upstream line-6459 "already running" check then sees :11434 and the
+    # install proceeds. We only hard-abort if BOTH the launchd path and the
+    # direct start fail to serve within the full timeout.
     OLLAMA_WAIT=0
+    OLLAMA_BOOTSTRAP_GRACE=45
+    _ollama_direct_started=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
+        if [[ $_ollama_direct_started -eq 0 && $OLLAMA_WAIT -ge $OLLAMA_BOOTSTRAP_GRACE ]]; then
+            warn "$MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT"
+            if [[ -x "$OLLAMA_APP_BIN" ]]; then
+                OLLAMA_NUM_PARALLEL="$OSTLER_NUM_PARALLEL" OLLAMA_KEEP_ALIVE=-1 \
+                    nohup "$OLLAMA_APP_BIN" serve \
+                    >>"${OLLAMA_LOG_DIR}/ollama.log" 2>>"${OLLAMA_LOG_DIR}/ollama.err" &
+            fi
+            _ollama_direct_started=1
+        fi
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
@@ -8289,7 +8284,9 @@ print(json.dumps(summary, default=str))
     <string>com.ostler.fda-rerun</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-fda</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>fda-rerun</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -10196,7 +10193,9 @@ cat > "$SCAN_PLIST" <<SPEOF
     <string>com.ostler.export-scan</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-scan-exports</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>export-scan</string>
     </array>
     <key>StartInterval</key>
     <integer>14400</integer>
@@ -11768,9 +11767,19 @@ _install_conversation_feed() {
     # well before this phase, so the bundle agent never renders a blank
     # user_id (which would make CM048's fail-loud guard kill every tick).
     e_user_id="$(printf '%s' "${USER_ID:-}" | sed 's/[&/\]/\\&/g')"
+    # Ingest-reroute (v1.0.10): ProgramArguments[0] is the SHIPPED,
+    # code-signed daemon binary INSIDE the .app bundle -- never
+    # ${OSTLER_DIR}/bin/ostler-assistant (the legacy path e_bin renders).
+    # The tick now runs as `run-source <src>`, a child fork of this
+    # FDA-holding binary, so its protected read inherits Full Disk Access.
+    # Distinct token (OSTLER_ASSISTANT_BINARY, not OSTLER_BIN) because in
+    # THIS renderer OSTLER_BIN == ${OSTLER_DIR}/bin, the wrong path.
+    local e_asst
+    e_asst="$(printf '%s' "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" | sed 's/[&/\]/\\&/g')"
     # _VALUE/_PATH-suffixed placeholders before bare ones, so a bare token
     # is never a substring of a longer placeholder (byte-safe render).
     sed \
+        -e "s/OSTLER_ASSISTANT_BINARY/$e_asst/g" \
         -e "s/OSTLER_PYTHON_PATH/$e_py/g" \
         -e "s/PWG_CONVO_CMD_VALUE/$e_pwg/g" \
         -e "s/OSTLER_SOURCE_DIR_VALUE/$esc_base/g" \
@@ -12647,6 +12656,22 @@ _finalise_daemon_staging() {
         ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
         info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
         if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
+            # v1.0.10 run-source preflight gate (BLOCKER: version-skew silent
+            # ingest death). The v1.0.10 install emits `run-source <enum>`
+            # LaunchAgent plists for every ingest source so each tick reads
+            # under the FDA-holding signed daemon. A daemon that PREDATES the
+            # run-source subcommand (an OSTLER_ASSISTANT_VERSION pin skew to
+            # v0.4.34 / v0.4.1) passes --version yet clap-REJECTS run-source,
+            # so every ingest tick would silently no-op and the product would
+            # go stale with no visible error. `run-source --help` exits 0 iff
+            # the subcommand exists in the staged daemon's clap tree; if it
+            # fails, this is a skew -- hard-fail rather than ship dead ingest.
+            # This makes the pin skew impossible to ship silently regardless
+            # of the pin value.
+            if ! "$ASSISTANT_BINARY" run-source --help >/dev/null 2>&1; then
+                fail_with_code "ERR-11-DAEMON-RUN-SOURCE-SKEW" \
+                    "$(printf "$MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+            fi
             ASSISTANT_BINARY_INSTALLED=true
         else
             warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
@@ -14565,7 +14590,9 @@ _schedule_contact_resync() {
     <string>com.ostler.contact-resync</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-contact-resync</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>contact-resync</string>
     </array>
     <key>StartInterval</key>
     <integer>${interval_s}</integer>
@@ -17002,91 +17029,28 @@ except Exception:
             )"
             _AICONV_COUNT="${_AICONV_COUNT:-0}"
 
-            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
-                # 180s cap hit mid-drain. Do NOT record the 7-day
-                # sentinel here -- a timed-out drain is incomplete and
-                # the next install/re-run must retry, not skip for a
-                # week (w7-aiconv-honesty defect 1). Instead install a
-                # self-removing hourly LaunchAgent that resumes the
-                # drain in the background (same inline-plist pattern
-                # as com.ostler.meeting-brief-sender), records the
-                # sentinel itself on a completed run, then boots its
-                # own agent out. Pre-fix, the "still loading in the
-                # background" copy promised continuation no agent
-                # existed to deliver (defect 2) -- unlike the email
-                # leg, whose hourly email-ingest LaunchAgent makes the
-                # same promise true.
-                _AICONV_AGENT_OK=false
-                _AICONV_RESUME_BIN="${OSTLER_DIR}/bin/ostler-aiconv-resume"
-                _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
-                mkdir -p "${OSTLER_DIR}/bin" "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
-                cat > "$_AICONV_RESUME_BIN" <<AICONVRESUME
-#!/usr/bin/env bash
-# Resumes the install-time AI-conversations drain that hit its
-# wall-clock cap. Unbounded here (background, launchd-owned, hourly).
-# Self-removing: on a completed drain it writes the hydrate sentinel
-# and boots its own LaunchAgent out. Generated by install.sh -- do
-# not edit. Counts-only JSON crosses this process boundary; no
-# transcript text, titles or model names are ever logged.
-set -u
-SENTINEL="${_HYDRATE_SENTINEL_DIR}/ai_conversations.done"
-PLIST="${_AICONV_RESUME_PLIST}"
-LABEL="com.ostler.aiconv-resume"
-BIN="${_AICONV_BIN}"
-PYBIN="${_AICONV_VENV}/bin/python3"
-LOG="${LOGS_DIR}/aiconv-resume.log"
+            # ── Steady-state recurring feed: register UNCONDITIONALLY ──
+            # v1.0.10 (Fix 2): the aiconv reroute turned
+            # com.ostler.aiconv-resume into a proper recurring steady feed
+            # (ProgramArguments = run-source aiconv, RunAtLoad + hourly
+            # StartInterval), exactly like the email-ingest LaunchAgent. It
+            # MUST register on EVERY install path. Previously the plist
+            # creation + launchctl bootstrap were nested inside the
+            # "$_AICONV_TIMED_OUT" branch, so a happy-path install whose
+            # install-time drain finished within the 180s cap NEVER got a
+            # recurring agent -- there was NO steady feed and AI conversations
+            # silently went stale. The install-time drain above is preserved
+            # verbatim; only this recurring-agent registration is now
+            # unconditional. (The old self-removing ostler-aiconv-resume
+            # wrapper bin the plist used to invoke is gone -- the reroute
+            # runs the CM052 producer via the FDA daemon directly, so the
+            # wrapper was dead code.) On the happy path RunAtLoad harmlessly
+            # re-runs the idempotent producer once shortly after the drain.
+            _AICONV_AGENT_OK=false
+            _AICONV_RESUME_PLIST="${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
+            mkdir -p "$LOGS_DIR" "${HOME}/Library/LaunchAgents"
 
-self_remove() {
-    rm -f "\$PLIST"
-    launchctl bootout "gui/\$(id -u)/\$LABEL" 2>/dev/null \\
-        || launchctl remove "\$LABEL" 2>/dev/null || true
-}
-
-# Drain already completed elsewhere (re-install raced us): tidy up.
-if [ -f "\$SENTINEL" ]; then
-    self_remove
-    exit 0
-fi
-# Venv gone (uninstall/reinstall underway): retries can never
-# succeed, so remove the agent rather than spin hourly forever.
-if [ ! -x "\$BIN" ]; then
-    echo "\$(date -u +%Y-%m-%dT%H:%M:%SZ) producer missing at \$BIN; removing agent" >> "\$LOG"
-    self_remove
-    exit 0
-fi
-[ -x "\$PYBIN" ] || PYBIN="python3"
-
-OUT="\$(mktemp -t ostler-aiconv-resume.XXXXXX)" || exit 0
-if CM052_USER_EMAIL="${USER_EMAIL:-}" \\
-   OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \\
-   OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}" \\
-   OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \\
-   "\$BIN" --source all --since-days 365 --json >"\$OUT" 2>>"\$LOG"; then
-    COUNT="\$(tail -n 1 "\$OUT" | "\$PYBIN" -c 'import json,sys
-try:
-    d=json.loads(sys.stdin.read())
-    print(int(d.get("written", 0)))
-except Exception:
-    print(0)' 2>/dev/null)"
-    COUNT="\${COUNT:-0}"
-    rm -f "\$OUT"
-    mkdir -p "${_HYDRATE_SENTINEL_DIR}"
-    {
-        printf 'recorded_at=%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        printf 'source=ai_conversations\n'
-        printf 'payload=written=%s\n' "\$COUNT"
-    } > "\$SENTINEL"
-    self_remove
-    exit 0
-fi
-# Drain failed again: leave the agent loaded so launchd retries on
-# the next hourly tick.
-rm -f "\$OUT"
-exit 0
-AICONVRESUME
-                chmod 0755 "$_AICONV_RESUME_BIN"
-
-                cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
+            cat > "$_AICONV_RESUME_PLIST" <<AICONVPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -17095,12 +17059,30 @@ AICONVRESUME
     <string>com.ostler.aiconv-resume</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${_AICONV_RESUME_BIN}</string>
+        <string>${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant</string>
+        <string>run-source</string>
+        <string>aiconv</string>
     </array>
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
+    <!-- Steady-state AI-conversation feed (v1.0.10): the reroute replaces the
+         old self-removing catch-up wrapper, so this agent now runs the CM052
+         producer via the FDA daemon (run-source aiconv) every hour and on
+         login, keeping AI conversations as fresh as the other ingest sources.
+         The tick reads these vars from the daemon's inherited environment. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CM052_USER_EMAIL</key>
+        <string>${USER_EMAIL:-}</string>
+        <key>OSTLER_AI_CONVERSATIONS_DIR</key>
+        <string>${HOME}/Documents/Ostler/AI Conversations</string>
+        <key>OSTLER_AI_CONV_TRANSCRIPT_PRIVACY</key>
+        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}</string>
+        <key>OSTLER_AI_CONV_GIST_PRIVACY</key>
+        <string>${OSTLER_AI_CONV_GIST_PRIVACY:-L2}</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>${LOGS_DIR}/aiconv-resume.log</string>
     <key>StandardErrorPath</key>
@@ -17108,12 +17090,23 @@ AICONVRESUME
 </dict>
 </plist>
 AICONVPLIST
-                launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || true
-                if launchctl bootstrap "gui/$(id -u)" "$_AICONV_RESUME_PLIST" 2>/dev/null \
-                   || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
-                    _AICONV_AGENT_OK=true
-                fi
+            launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || true
+            if launchctl bootstrap "gui/$(id -u)" "$_AICONV_RESUME_PLIST" 2>/dev/null \
+               || launchctl load "$_AICONV_RESUME_PLIST" 2>/dev/null; then
+                _AICONV_AGENT_OK=true
+            fi
 
+            # ── Drain outcome: user-facing message + hydrate sentinel ──
+            # The recurring steady feed is registered above regardless; this
+            # only decides the install-time message + whether to stamp the
+            # 7-day hydrate sentinel (success arms only).
+            if [[ "$_AICONV_TIMED_OUT" == "true" ]]; then
+                # 180s cap hit mid-drain: do NOT record the sentinel here --
+                # an incomplete drain must retry, not skip for a week
+                # (w7-aiconv-honesty defect 1). The recurring agent registered
+                # above (RunAtLoad + hourly run-source aiconv) resumes the
+                # drain in the background, so the "continues in the background"
+                # copy is truthful whenever the agent loaded.
                 if [[ "$_AICONV_AGENT_OK" == "true" ]]; then
                     info "$MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES"
                 else
@@ -17122,7 +17115,6 @@ AICONVPLIST
                     # so the next run retries.
                     info "$MSG_HYDRATE_AICONV_SKIPPED_NOT_READY"
                 fi
-                unset _AICONV_AGENT_OK _AICONV_RESUME_BIN _AICONV_RESUME_PLIST
             elif [[ "$_aiconv_rc" -ne 0 ]]; then
                 # Producer failed outright (non-timeout). No sentinel:
                 # the next install/re-run must retry, not skip 7 days.
@@ -17139,6 +17131,7 @@ AICONVPLIST
                 _hydrate_sentinel_record "ai_conversations" "written=0"
             fi
 
+            unset _AICONV_AGENT_OK _AICONV_RESUME_PLIST
             unset _AICONV_TIMED_OUT _AICONV_JSON _AICONV_COUNT
             unset _AICONV_TIMEOUT_WRAP _AICONV_OUT _aiconv_rc
         fi

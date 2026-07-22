@@ -3,41 +3,46 @@
 # ==========================================================
 #
 # Behavioural test: extracts the real AI-Conversations leg from
-# install.sh and EXECUTES it against a fake producer, asserting the
-# two honesty fixes hold:
+# install.sh and EXECUTES it against a fake producer.
 #
-#   Defect 1 (sentinel): the 7-day hydrate sentinel must be recorded
-#   ONLY when the drain completes (rc 0). A timed-out (124/137) or
-#   crashed (any other non-zero rc) drain must NOT record it, so the
+# Updated for the v1.0.10 ingest-reroute (Fix 2 -- steady feed). The old
+# design installed the com.ostler.aiconv-resume LaunchAgent (a
+# self-removing wrapper bin) ONLY on the timed-out arm. That meant a
+# happy-path install whose drain finished in time got NO recurring agent
+# and NO steady feed -- AI conversations silently went stale. The leg now
+# registers the recurring agent UNCONDITIONALLY (like the email-ingest
+# LaunchAgent), and the agent runs the CM052 producer via the FDA daemon
+# directly (ProgramArguments = [<.app daemon>, run-source, aiconv]); the
+# self-removing wrapper bin is gone.
+#
+# Invariants asserted:
+#
+#   Defect 1 (sentinel) -- STILL VALID: the 7-day hydrate sentinel is
+#   recorded ONLY when the drain completes (rc 0). A timed-out (124/137)
+#   or crashed (any other non-zero rc) drain must NOT record it, so the
 #   next install/re-run retries instead of skipping for a week.
 #
-#   Defect 2 (false promise): MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES
-#   says "still loading in the background". That is only honest if a
-#   background agent actually exists. The timed-out arm must install
-#   and load the self-removing com.ostler.aiconv-resume LaunchAgent
-#   (wrapper + plist + launchctl) BEFORE emitting the message, and
-#   must fall back to the not-ready message if the agent fails to
-#   load.
+#   Steady feed (Fix 2) -- NEW: the recurring com.ostler.aiconv-resume
+#   LaunchAgent (plist + launchctl bootstrap) installs on EVERY arm
+#   (success, empty, crash, timeout) -- not just on timeout. Its
+#   ProgramArguments run the signed .app daemon as `run-source aiconv`
+#   with an hourly StartInterval + RunAtLoad. No wrapper bin is generated.
 #
-#   The generated resume wrapper itself is also exercised: on a
-#   successful resumed drain it writes the sentinel and removes its
-#   own agent; on a failed drain it leaves the agent loaded for the
-#   next hourly tick; once the sentinel exists it self-removes
-#   without invoking the producer.
+#   Defect 2 (false promise) -- STILL VALID: the
+#   MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES "still loading in the
+#   background" copy is emitted from the timed-out arm ONLY when the
+#   recurring agent actually loaded; if launchctl refuses the load, the
+#   leg falls back to the not-ready message instead.
 #
 # Scenarios (each runs the REAL leg text, not a copy):
-#   A. producer exits 124 (timeout)  -> no sentinel record, agent
-#      installed + bootstrapped, TOKEN_BG_CONTINUES emitted
-#   B. producer succeeds written=3   -> sentinel written=3, DONE
-#      message, NO agent installed
-#   C. producer exits 1 (crash)      -> no sentinel, no agent,
-#      not-ready message
+#   A. producer exits 124 (timeout)  -> no sentinel; recurring agent
+#      installed + bootstrapped (run-source aiconv); TOKEN_BG_CONTINUES
+#   B. producer succeeds written=3   -> sentinel written=3, DONE message;
+#      recurring agent STILL installed (steady feed)
+#   C. producer exits 1 (crash)      -> no sentinel; not-ready message;
+#      recurring agent STILL installed (steady feed)
 #   D. producer succeeds written=0   -> sentinel written=0, no-data
-#      message, no agent
-#   E. resume wrapper (generated in A): success -> sentinel file +
-#      self-removal; re-run with sentinel present -> producer NOT
-#      invoked again
-#   F. resume wrapper: producer crash -> no sentinel, plist kept
+#      message; recurring agent STILL installed (steady feed)
 #   G. timed-out arm with launchctl refusing to load -> not-ready
 #      message instead of the background promise, still no sentinel
 
@@ -77,8 +82,10 @@ check "leg extraction is non-trivial (>100 lines)" \
     test "$(wc -l < "$LEG_FILE")" -gt 100
 check "extracted leg parses standalone (bash -n)" \
     bash -n "$LEG_FILE"
-check "extracted leg contains the resume-agent heredoc" \
-    grep -q "AICONVRESUME" "$LEG_FILE"
+check "extracted leg contains the recurring-agent plist heredoc" \
+    grep -q "AICONVPLIST" "$LEG_FILE"
+check "extracted leg registers the reroute (run-source aiconv), not a wrapper" \
+    bash -c 'grep -q "<string>run-source</string>" "$1" && grep -q "<string>aiconv</string>" "$1"' _ "$LEG_FILE"
 
 # ---------------------------------------------------------------------------
 # Scenario harness
@@ -105,6 +112,7 @@ new_scenario() {
     SHIM="$SCEN/shim"
     VENV_BIN_DIR="$OSTLER_DIR/services/cm052/.venv/bin"
     FAKE_BIN="$VENV_BIN_DIR/pwg-ai-convo"
+    # The reroute runs the daemon directly; this path must NEVER be created.
     RESUME_BIN="$OSTLER_DIR/bin/ostler-aiconv-resume"
     RESUME_PLIST="$HOME_DIR/Library/LaunchAgents/com.ostler.aiconv-resume.plist"
     SENTINEL_FILE="$_HYDRATE_SENTINEL_DIR/ai_conversations.done"
@@ -137,7 +145,6 @@ case "${FAKE_PRODUCER_MODE:?}" in
     crash)     exit 1 ;;
     success)   echo '{"discovered": 3, "written": 3}' ;;
     nodata)    echo '{"discovered": 0, "written": 0}' ;;
-    resume_ok) echo '{"discovered": 5, "written": 5}' ;;
 esac
 exit 0
 FAKEEOF
@@ -176,15 +183,30 @@ run_leg() {
         bash "$SCEN/runner.sh"
 }
 
-run_wrapper() {
-    # run_wrapper <producer-mode>
-    local mode="$1"
-    env FAKE_PRODUCER_MODE="$mode" PATH="$SHIM:$PATH" \
-        bash "$RESUME_BIN"
+# assert_recurring_agent <scenario-prefix>: the steady feed (Fix 2) must be
+# registered on this arm -- the plist runs the signed .app daemon as
+# `run-source aiconv`, hourly + RunAtLoad, bootstrapped via launchctl, and
+# NO self-removing wrapper bin is generated.
+assert_recurring_agent() {
+    local p="$1"
+    check "$p: recurring plist written (steady feed installs unconditionally)" \
+        test -f "$RESUME_PLIST"
+    check "$p: plist runs the .app daemon via run-source aiconv" \
+        bash -c 'grep -q "<string>run-source</string>" "$1" \
+              && grep -q "<string>aiconv</string>" "$1" \
+              && grep -q "OstlerAssistant.app/Contents/MacOS/ostler-assistant" "$1"' _ "$RESUME_PLIST"
+    check "$p: plist carries the hourly StartInterval" \
+        grep -q "<integer>3600</integer>" "$RESUME_PLIST"
+    check "$p: plist RunAtLoad true (fires on login too)" \
+        grep -q "<key>RunAtLoad</key>" "$RESUME_PLIST"
+    check "$p: agent bootstrapped (or loaded) via launchctl" \
+        grep -Eq "launchctl (bootstrap|load) .*com\.ostler\.aiconv-resume" "$LAUNCHCTL_LOG"
+    check "$p: NO self-removing wrapper bin generated (reroute runs daemon directly)" \
+        test ! -e "$RESUME_BIN"
 }
 
 # ---------------------------------------------------------------------------
-# Scenario A: timeout (rc 124)
+# Scenario A: timeout (rc 124) -- sentinel withheld, agent + bg promise
 # ---------------------------------------------------------------------------
 echo "--- scenario A: producer times out (rc 124) ---"
 new_scenario A
@@ -193,48 +215,12 @@ check "A: producer was invoked with the v1.0.3 contract flags" \
     grep -q -- "CALL --source all --since-days 365 --json" "$PRODUCER_LOG"
 check "A: sentinel NOT recorded on timeout (retry next run)" \
     test ! -s "$SENTLOG"
-check "A: background-continues message emitted" \
+check "A: background-continues message emitted (agent loaded)" \
     grep -q "INFO:TOKEN_BG_CONTINUES" "$MSGLOG"
-check "A: resume wrapper generated and executable" \
-    test -x "$RESUME_BIN"
-check "A: resume LaunchAgent plist written" \
-    test -f "$RESUME_PLIST"
-check "A: plist carries the hourly StartInterval" \
-    grep -q "<integer>3600</integer>" "$RESUME_PLIST"
-check "A: plist points at the generated wrapper" \
-    grep -q "<string>$RESUME_BIN</string>" "$RESUME_PLIST"
-check "A: agent bootstrapped (or loaded) via launchctl" \
-    grep -Eq "launchctl (bootstrap|load) .*com\.ostler\.aiconv-resume" "$LAUNCHCTL_LOG"
-check "A: wrapper drains with the v1.0.3 contract flags" \
-    grep -q -- "--source all --since-days 365 --json" "$RESUME_BIN"
-check "A: wrapper parses standalone (bash -n)" \
-    bash -n "$RESUME_BIN"
+assert_recurring_agent A
 
 # ---------------------------------------------------------------------------
-# Scenario E (continues in A's tree): the generated resume wrapper
-# ---------------------------------------------------------------------------
-echo "--- scenario E: resume wrapper completes the drain ---"
-check "E: wrapper exits 0 on a successful resumed drain" \
-    run_wrapper resume_ok
-check "E: wrapper recorded the sentinel file" \
-    test -f "$SENTINEL_FILE"
-check "E: sentinel payload carries the resumed count" \
-    grep -q "payload=written=5" "$SENTINEL_FILE"
-check "E: sentinel names the ai_conversations source" \
-    grep -q "source=ai_conversations" "$SENTINEL_FILE"
-check "E: wrapper removed its own plist after completing" \
-    test ! -f "$RESUME_PLIST"
-check "E: wrapper booted its own agent out" \
-    grep -q "launchctl bootout gui/$(id -u)/com.ostler.aiconv-resume" "$LAUNCHCTL_LOG"
-
-PRODUCER_CALLS_BEFORE="$(grep -c '^CALL' "$PRODUCER_LOG")"
-check "E: wrapper re-run with sentinel present exits 0" \
-    run_wrapper resume_ok
-check "E: producer NOT re-invoked once sentinel exists" \
-    test "$(grep -c '^CALL' "$PRODUCER_LOG")" -eq "$PRODUCER_CALLS_BEFORE"
-
-# ---------------------------------------------------------------------------
-# Scenario B: success (written=3)
+# Scenario B: success (written=3) -- sentinel recorded, agent STILL installed
 # ---------------------------------------------------------------------------
 echo "--- scenario B: producer succeeds with written=3 ---"
 new_scenario B
@@ -245,11 +231,12 @@ check "B: sentinel payload is written=3" \
     grep -q "RECORD:ai_conversations:written=3" "$SENTLOG"
 check "B: done message emitted with the count" \
     grep -q "OK:TOKEN_DONE_3" "$MSGLOG"
-check "B: no resume agent installed on success" \
-    test ! -e "$RESUME_BIN" -a ! -e "$RESUME_PLIST"
+check "B: background-continues NOT emitted on a completed drain" \
+    bash -c '! grep -q "TOKEN_BG_CONTINUES" "$MSGLOG"'
+assert_recurring_agent B
 
 # ---------------------------------------------------------------------------
-# Scenario C: crash (rc 1, not a timeout)
+# Scenario C: crash (rc 1, not a timeout) -- no sentinel, agent STILL installed
 # ---------------------------------------------------------------------------
 echo "--- scenario C: producer crashes (rc 1) ---"
 new_scenario C
@@ -260,11 +247,10 @@ check "C: not-ready message emitted (no false background promise)" \
     grep -q "INFO:TOKEN_NOT_READY" "$MSGLOG"
 check "C: background-continues NOT emitted on crash" \
     bash -c '! grep -q "TOKEN_BG_CONTINUES" "$MSGLOG"'
-check "C: no resume agent installed on crash" \
-    test ! -e "$RESUME_BIN" -a ! -e "$RESUME_PLIST"
+assert_recurring_agent C
 
 # ---------------------------------------------------------------------------
-# Scenario D: clean zero-count run
+# Scenario D: clean zero-count run -- sentinel recorded, agent STILL installed
 # ---------------------------------------------------------------------------
 echo "--- scenario D: producer succeeds with written=0 ---"
 new_scenario D
@@ -273,32 +259,16 @@ check "D: sentinel recorded for a completed zero-count drain" \
     grep -q "RECORD:ai_conversations:written=0" "$SENTLOG"
 check "D: no-data message emitted" \
     grep -q "INFO:TOKEN_NO_DATA" "$MSGLOG"
-check "D: no resume agent installed on clean empty drain" \
-    test ! -e "$RESUME_BIN" -a ! -e "$RESUME_PLIST"
+assert_recurring_agent D
 
 # ---------------------------------------------------------------------------
-# Scenario F: resume wrapper drain fails -> agent stays for next tick
-# ---------------------------------------------------------------------------
-echo "--- scenario F: resume wrapper drain fails ---"
-new_scenario F
-run_leg timeout >/dev/null 2>&1 || true   # generate wrapper + plist
-check "F precondition: wrapper + plist exist after timeout" \
-    test -x "$RESUME_BIN" -a -f "$RESUME_PLIST"
-check "F: wrapper exits 0 on failed resumed drain" \
-    run_wrapper crash
-check "F: no sentinel after failed resumed drain" \
-    test ! -f "$SENTINEL_FILE"
-check "F: plist kept so launchd retries next hour" \
-    test -f "$RESUME_PLIST"
-
-# ---------------------------------------------------------------------------
-# Scenario G: timeout but the agent cannot be loaded
+# Scenario G: timeout but the agent cannot be loaded -> honest not-ready
 # ---------------------------------------------------------------------------
 echo "--- scenario G: timeout with launchctl refusing to load ---"
 new_scenario G
 check "G: leg exits 0 when agent fails to load" \
     run_leg timeout LAUNCHCTL_FAIL=1
-check "G: background promise NOT made when no agent is running" \
+check "G: background promise NOT made when the agent did not load" \
     bash -c '! grep -q "TOKEN_BG_CONTINUES" "$MSGLOG"'
 check "G: not-ready message emitted instead" \
     grep -q "INFO:TOKEN_NOT_READY" "$MSGLOG"

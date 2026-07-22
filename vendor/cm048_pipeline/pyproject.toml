@@ -21,7 +21,10 @@ pwg-convo = "src.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "prompts*"]
+
+[tool.setuptools.package-data]
+prompts = ["*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
