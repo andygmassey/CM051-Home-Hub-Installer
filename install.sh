@@ -6353,43 +6353,18 @@ else
     echo ""
     ok "$(printf "$MSG_OK_DOCKER_RUNNING_TOOK_S" "${DOCKER_WAIT}")"
 
-    # Set up Colima auto-start on boot (if using Colima)
-    if command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "Running"; then
-        COLIMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-        if [[ ! -f "$COLIMA_PLIST" ]]; then
-            mkdir -p "${HOME}/Library/LaunchAgents"
-            cat > "$COLIMA_PLIST" <<COLEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.ostler.colima</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$(which colima)</string>
-        <string>start</string>
-        <string>--cpu</string>
-        <string>2</string>
-        <string>--memory</string>
-        <string>4</string>
-        <string>--disk</string>
-        <string>30</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${LOGS_DIR}/colima.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOGS_DIR}/colima.err</string>
-</dict>
-</plist>
-COLEOF
-            launchctl bootstrap "gui/$(id -u)" "$COLIMA_PLIST" 2>/dev/null || \
-                launchctl load "$COLIMA_PLIST" 2>/dev/null || true
-            ok "$MSG_OK_COLIMA_WILL_START_AUTOMATICALLY_BOOT"
-        fi
-    fi
+    # Colima auto-start on boot is now OWNED BY THE DAEMON (v1.0.10, Group C).
+    #
+    # The old bare `com.ostler.colima` LaunchAgent started Colima at login with
+    # NO Full Disk Access, so Colima could not mount ~/Documents and the wiki
+    # died on every reboot. The signed daemon (OstlerAssistant.app) holds FDA,
+    # and a child it fork-execs inherits that FDA (Gate A). So the daemon now
+    # runs `colima start` itself on launch (see ostler-assistant
+    # ensure_colima_running()), and the bare LaunchAgent is intentionally NOT
+    # created here. The install-time `colima start` above still runs under the
+    # installer's own FDA, which is correct for the first install; steady-state
+    # reboot start is the daemon's job. Upgrade cleanup of any pre-existing
+    # com.ostler.colima agent lives in the LaunchAgent teardown section below.
 fi
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
