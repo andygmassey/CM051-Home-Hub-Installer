@@ -8401,9 +8401,17 @@ services:
     # (6334) stays on the host loopback (not browser-DNS-rebindable;
     # covered by the v1.0.1 token-auth project). QDRANT__SERVICE__
     # API_KEY is the staged (default-OFF) native-auth scaffolding for
-    # v1.0.1: EMPTY => no auth (the v1.0.10 default, since the pinned
-    # vendored clients do not send an api key).
+    # v1.0.1. IMPORTANT (verified on-device): Qdrant treats a PRESENT-but-
+    # empty QDRANT__SERVICE__API_KEY as auth-ENABLED (empty => 401, absent
+    # => 200) -- the original "EMPTY => no auth" assumption was WRONG and was
+    # the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So when store-auth is
+    # default-OFF the installer REMOVES the API_KEY line from this block
+    # after generating the compose (see "empty-api-key quirk" below),
+    # leaving QDRANT__LOG_LEVEL as the sole entry so the block stays valid
+    # YAML and Qdrant runs keyless -- matching the pinned vendored clients
+    # that send no api key.
     environment:
+      QDRANT__LOG_LEVEL: "INFO"
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     ports:
       - "127.0.0.1:6334:6334"
@@ -8631,6 +8639,22 @@ volumes:
   wiki-docs:
   vane_data:
 DCEOF
+
+# ── v1.0.10 install-abort fix: Qdrant empty-api-key quirk ─────────
+# Verified empirically on-device: Qdrant treats a PRESENT-but-empty
+# QDRANT__SERVICE__API_KEY env var as auth-ENABLED (empty => HTTP 401,
+# absent => 200). The compose line above interpolates ${QDRANT_API_KEY:-},
+# which is EMPTY whenever store-auth is default-OFF (the v1.0.10 shipping
+# default), so Qdrant would boot DEMANDING a credential the shipped keyless
+# client fleet never sends -> 401 on the first readback -> abort at
+# "Importing your data" (the ERR-99-INSTALL-ABORT-L9858 box-walk failure).
+# When enforce is OFF, REMOVE the key line entirely so Qdrant runs keyless.
+# (Redis uses empty ${REDIS_AUTH_ARGS:-} = no --requirepass flag = keyless,
+# and Oxigraph 0.4.6 has no native auth, so ONLY Qdrant needs this.)
+if [[ "${OSTLER_STORE_AUTH_ENFORCE:-0}" != "1" ]]; then
+    sed -i.bak '/QDRANT__SERVICE__API_KEY:/d' "${OSTLER_DIR}/docker-compose.yml" \
+        && rm -f "${OSTLER_DIR}/docker-compose.yml.bak"
+fi
 
 # ── Store front-proxy nginx config (v1.0.10 security lockdown) ────
 # Written next to the compose file and bind-mounted into the
