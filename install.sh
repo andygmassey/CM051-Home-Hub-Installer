@@ -3568,7 +3568,10 @@ else
     echo ""
     FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "n" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
     if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
-        echo "  Enable FileVault first, then re-run this installer."
+        echo ""
+        echo "  Stopping here as you asked -- nothing has failed."
+        echo "  Turn FileVault on (System Settings > Privacy & Security >"
+        echo "  FileVault), then re-run this installer to continue."
         exit 1
     fi
     # v1.0.10 security lockdown: the operator explicitly chose to

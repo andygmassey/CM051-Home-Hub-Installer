@@ -909,8 +909,12 @@ Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them
 
 Skip any you do not use; you can always import more later."
 
-MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue without FileVault?"
-MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is strongly recommended. Without it, physical access to your Mac means access to your data."
+MSG_PROMPT_FILEVAULT_SKIP_TITLE="Proceed without full-disk encryption?"
+MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is off on this Mac. It is strongly recommended.
+
+Choose No (the recommended default) to stop here and turn FileVault on first. This is the safe choice, and the installer will exit cleanly so you can re-run it afterwards — nothing has gone wrong.
+
+Choose Yes only if you understand that your Ostler data will be stored UNENCRYPTED, so anyone with physical access to this Mac can read it."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
 MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
@@ -961,9 +965,9 @@ Read more at docs.ostler.ai/privacy/third-party-data."
 # in the Phase-2 consent batch. The HELP string is the substantive text
 # GUI installer users read on the decision sheet, so it is self-contained.
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Recording spoken conversations"
-MSG_CONSENT_SPOKEN_CAPTURE_INTRO="Ostler can turn spoken conversations you record – calls and meetings – into searchable text. Typing and messaging is not affected; this is only about audio you choose to record."
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="The law on recording people speaking is different from the law on written messages, and it varies by country. In some places – for example Germany and France – everyone taking part has to agree before a spoken conversation is recorded. Because you are the person doing the recording, meeting that obligation is your responsibility, not ours."
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping everything on your own Mac does not change this. Ostler never sends your recordings anywhere, but storing them locally does not remove your duty to obtain consent where your local law requires it."
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you record spoken audio, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you record – calls and meetings – into searchable text; this is only about audio you choose to record. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping recordings on your own Mac does not remove this duty – Ostler never sends them anywhere, but you still need consent where your local law requires it."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you record a spoken conversation."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that recording is happening – for example, say so at the start, or keep a visible recording indicator on."
@@ -974,13 +978,16 @@ MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Record spoken conversations into text?"
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="Ostler can turn spoken conversations you record – calls and meetings – into searchable text. Typing and messaging is not affected; this is only about audio you choose to record.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you record spoken audio, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
 
-Recording people speaking is governed by local law and it varies by country. In some places – for example Germany and France – everyone taking part has to agree before a spoken conversation is recorded. As the person doing the recording, obtaining any required consent is your responsibility, and make it clear to the people you are with that recording is happening (for example, keep a visible recording indicator on).
+Ostler can turn spoken conversations you record – calls and meetings – into searchable text. This is only about audio you choose to record.
 
-Keeping everything on your own Mac does not remove this duty: Ostler never sends your recordings anywhere, but you still need consent where your local law requires it. If in doubt, leave this off – your text conversations work either way, and you can turn it on later in Settings.
+What we ask of you:
+• Get whatever consent your local law requires before you record.
+• Make it clear recording is happening – say so, or keep a visible recording indicator on.
+• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
 
-Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
 MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
