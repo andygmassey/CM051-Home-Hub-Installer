@@ -17138,7 +17138,23 @@ AICONVRESUME
     <key>StartInterval</key>
     <integer>3600</integer>
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
+    <!-- Steady-state AI-conversation feed (v1.0.10): the reroute replaces the
+         old self-removing catch-up wrapper, so this agent now runs the CM052
+         producer via the FDA daemon (run-source aiconv) every hour and on
+         login, keeping AI conversations as fresh as the other ingest sources.
+         The tick reads these vars from the daemon's inherited environment. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CM052_USER_EMAIL</key>
+        <string>${USER_EMAIL:-}</string>
+        <key>OSTLER_AI_CONVERSATIONS_DIR</key>
+        <string>${HOME}/Documents/Ostler/AI Conversations</string>
+        <key>OSTLER_AI_CONV_TRANSCRIPT_PRIVACY</key>
+        <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L2}</string>
+        <key>OSTLER_AI_CONV_GIST_PRIVACY</key>
+        <string>${OSTLER_AI_CONV_GIST_PRIVACY:-L2}</string>
+    </dict>
     <key>StandardOutPath</key>
     <string>${LOGS_DIR}/aiconv-resume.log</string>
     <key>StandardErrorPath</key>
