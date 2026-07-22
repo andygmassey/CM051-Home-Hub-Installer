@@ -6541,9 +6541,29 @@ else
 OLLAMAPLIST
     launchctl bootstrap "gui/$(id -u)" "$OLLAMA_PLIST" 2>/dev/null || \
         launchctl load "$OLLAMA_PLIST" 2>/dev/null || true
-    # Wait up to 90 seconds for Ollama to be ready
+    # Wait for Ollama to be ready. The launchd bootstrap above can fail
+    # transiently ("Bootstrap failed: 5: Input/output error") when launchd
+    # state is messy -- e.g. after a mid-install reboot -- leaving the agent
+    # registered but not serving. Rather than hard-abort at the timeout (which
+    # aborted a box-walk), fall back to launching the cask binary DIRECTLY for
+    # this run if the launchd path hasn't come up within a grace window. The
+    # LaunchAgent stays installed and takes over on the next reboot; the
+    # upstream line-6459 "already running" check then sees :11434 and the
+    # install proceeds. We only hard-abort if BOTH the launchd path and the
+    # direct start fail to serve within the full timeout.
     OLLAMA_WAIT=0
+    OLLAMA_BOOTSTRAP_GRACE=45
+    _ollama_direct_started=0
     while ! curl -s http://localhost:11434/api/tags &>/dev/null; do
+        if [[ $_ollama_direct_started -eq 0 && $OLLAMA_WAIT -ge $OLLAMA_BOOTSTRAP_GRACE ]]; then
+            warn "$MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT"
+            if [[ -x "$OLLAMA_APP_BIN" ]]; then
+                OLLAMA_NUM_PARALLEL="$OSTLER_NUM_PARALLEL" OLLAMA_KEEP_ALIVE=-1 \
+                    nohup "$OLLAMA_APP_BIN" serve \
+                    >>"${OLLAMA_LOG_DIR}/ollama.log" 2>>"${OLLAMA_LOG_DIR}/ollama.err" &
+            fi
+            _ollama_direct_started=1
+        fi
         if [[ $OLLAMA_WAIT -ge 90 ]]; then
             warn "$MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY"
             info "$(printf "$MSG_INFO_OLLAMA_MANUAL_START_HINT" "$OLLAMA_PLIST")"
