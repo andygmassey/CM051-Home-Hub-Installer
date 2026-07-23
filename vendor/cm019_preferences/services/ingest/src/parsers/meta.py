@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict, Any
+from typing import AsyncIterator, Iterator, Optional, Dict, Any
 from datetime import datetime
 import aiofiles
 import zipfile
@@ -137,7 +137,17 @@ class MetaParser(BaseParser):
         elif "music" in file_name and "apple" not in file_name.lower():
             async for pref in self._parse_music(data, default_compartment):
                 yield pref
-        elif "your_posts" in file_name or "check_ins" in file_name:
+        elif (
+            "your_posts" in file_name
+            or "check_ins" in file_name
+            # Comments/activity exports share the "posts" node shape
+            # (attachments -> external_context -> name for shared links).
+            # comments_and_reactions/comments.json,
+            # groups/your_comments_in_groups.json,
+            # groups/group_posts_and_comments.json
+            or "comment" in file_name
+            or "posts_and_comments" in file_name
+        ):
             async for pref in self._parse_posts(data, default_compartment):
                 yield pref
 
@@ -192,7 +202,12 @@ class MetaParser(BaseParser):
             url = None
             timestamp = item.get("timestamp", 0)
 
-            for label_value in item.get("label_values", []):
+            label_values = item.get("label_values", [])
+            if not isinstance(label_values, list):
+                label_values = []
+            for label_value in label_values:
+                if not isinstance(label_value, dict):
+                    continue
                 label = label_value.get("label", "")
 
                 if label == "Reaction":
@@ -202,10 +217,12 @@ class MetaParser(BaseParser):
                 elif label_value.get("title") == "Owner":
                     # Navigate nested dict structure for owner name
                     dicts = label_value.get("dict", [])
-                    if dicts and len(dicts) > 0:
+                    if isinstance(dicts, list) and dicts and isinstance(dicts[0], dict):
                         inner_dict = dicts[0].get("dict", [])
-                        if inner_dict and len(inner_dict) > 0:
+                        if isinstance(inner_dict, list) and inner_dict:
                             for field in inner_dict:
+                                if not isinstance(field, dict):
+                                    continue
                                 if field.get("label") == "Name":
                                     owner_name = field.get("value")
                                     break
@@ -531,6 +548,37 @@ class MetaParser(BaseParser):
 
         return cleaned.strip()
 
+    @staticmethod
+    def _iter_external_contexts(item: Any) -> "Iterator[Dict]":
+        """Yield ``external_context`` dicts from an activity node's attachments.
+
+        Facebook "Download Your Information" exports are not schema-stable:
+        an ``attachments`` value, an attachment's ``data`` value, or an
+        individual data node can be a bare string or a list of strings
+        instead of the expected dict. Calling ``.get()`` on those blindly
+        raises ``'str' object has no attribute 'get'`` and, in the un-wrapped
+        parsers, aborts the whole file (dropping every activity in it). This
+        helper type-checks every node before ``.get()`` and simply skips the
+        malformed ones, so the well-formed activity still parses.
+        """
+        if not isinstance(item, dict):
+            return
+        attachments = item.get("attachments", [])
+        if not isinstance(attachments, list):
+            return
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            data_list = attachment.get("data", [])
+            if not isinstance(data_list, list):
+                continue
+            for data_item in data_list:
+                if not isinstance(data_item, dict):
+                    continue
+                ext_context = data_item.get("external_context", {})
+                if isinstance(ext_context, dict):
+                    yield ext_context
+
     async def _parse_movies_tv(
         self,
         data: Any,
@@ -549,13 +597,8 @@ class MetaParser(BaseParser):
 
             # Extract title from attachments -> external_context -> name
             title = None
-            attachments = item.get("attachments", [])
-            for attachment in attachments:
-                for data_item in attachment.get("data", []):
-                    ext_context = data_item.get("external_context", {})
-                    title = ext_context.get("name")
-                    if title:
-                        break
+            for ext_context in self._iter_external_contexts(item):
+                title = ext_context.get("name")
                 if title:
                     break
 
@@ -600,13 +643,8 @@ class MetaParser(BaseParser):
 
             # Extract title from attachments -> external_context -> name
             title = None
-            attachments = item.get("attachments", [])
-            for attachment in attachments:
-                for data_item in attachment.get("data", []):
-                    ext_context = data_item.get("external_context", {})
-                    title = ext_context.get("name")
-                    if title:
-                        break
+            for ext_context in self._iter_external_contexts(item):
+                title = ext_context.get("name")
                 if title:
                     break
 
@@ -651,13 +689,8 @@ class MetaParser(BaseParser):
 
             # Extract from attachments or direct name
             title = None
-            attachments = item.get("attachments", [])
-            for attachment in attachments:
-                for data_item in attachment.get("data", []):
-                    ext_context = data_item.get("external_context", {})
-                    title = ext_context.get("name")
-                    if title:
-                        break
+            for ext_context in self._iter_external_contexts(item):
+                title = ext_context.get("name")
                 if title:
                     break
 
@@ -706,9 +739,16 @@ class MetaParser(BaseParser):
         if isinstance(data, dict):
             items = (data.get("your_posts_1", []) or
                      data.get("your_posts", []) or
-                     data.get("status_updates", []))
+                     data.get("status_updates", []) or
+                     # Comments/activity exports (same node shape as posts)
+                     data.get("comments_v2", []) or
+                     data.get("group_comments_v2", []) or
+                     data.get("group_posts_v2", []) or
+                     data.get("comments", []))
         elif isinstance(data, list):
             items = data
+        if not isinstance(items, list):
+            items = []
 
         for item in items:
             if not isinstance(item, dict):
@@ -718,14 +758,9 @@ class MetaParser(BaseParser):
             url = None
             link_title = None
 
-            attachments = item.get("attachments", [])
-            for attachment in attachments:
-                for data_item in attachment.get("data", []):
-                    ext_context = data_item.get("external_context", {})
-                    url = ext_context.get("url")
-                    link_title = ext_context.get("name")
-                    if url and link_title:
-                        break
+            for ext_context in self._iter_external_contexts(item):
+                url = ext_context.get("url")
+                link_title = ext_context.get("name")
                 if url and link_title:
                     break
 
