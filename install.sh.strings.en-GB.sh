@@ -912,7 +912,7 @@ Skip any you do not use; you can always import more later."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Proceed without full-disk encryption?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is off on this Mac. It is strongly recommended.
 
-Choose No (the recommended default) to stop here and turn FileVault on first. This is the safe choice, and the installer will exit cleanly so you can re-run it afterwards — nothing has gone wrong.
+Choose No (the recommended default) to stop here and turn FileVault on first. This is the safe choice, and the installer will exit cleanly so you can re-run it afterwards. Nothing has gone wrong.
 
 Choose Yes only if you understand that your Ostler data will be stored UNENCRYPTED, so anyone with physical access to this Mac can read it."
 
