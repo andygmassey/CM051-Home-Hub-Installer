@@ -76,12 +76,27 @@ grep -q 'Conversation-ingest guard' "$INSTALL" \
 grep -q 'PersonIdentifier' "$INSTALL" \
     || failure "install.sh landing guard does not query for chat-identifier facts"
 
-# 6. iMessage bundle tick has anti-starvation fairness (never-run feeds
-#    wait for the slot instead of instant-yielding forever).
-grep -q 'Anti-starvation fairness' "$TICK" \
-    || failure "imessage-bundle-tick.sh has no anti-starvation fairness -- a never-run feed yields on every tick"
-grep -q 'OSTLER_INGEST_STARVE_WAIT' "$TICK" \
-    || failure "imessage-bundle-tick.sh starvation wait is not configurable"
+# 6. ALL FOUR conversation feeds carry anti-starvation fairness (never-run
+#    feeds wait for the shared Ollama slot instead of instant-yielding
+#    forever). Without this, a large backlog on one feed (e.g. a ~65k-msg
+#    mailbox) monopolises the single slot and the other feeds never run a
+#    first pass. Each feed must key the "never ran" check on ITS OWN
+#    watermark file, else the fairness gate reads the wrong signal.
+_assert_feed_fairness() {
+    local feed="$1" wm="$2"
+    local tick="$REPO_ROOT/vendor/${feed}_source/bin/${feed}-bundle-tick.sh"
+    [[ -f "$tick" ]] || { failure "missing shipped file: $tick"; return; }
+    grep -q 'Anti-starvation fairness' "$tick" \
+        || failure "${feed}-bundle-tick.sh has no anti-starvation fairness -- a never-run feed yields on every tick"
+    grep -q 'OSTLER_INGEST_STARVE_WAIT' "$tick" \
+        || failure "${feed}-bundle-tick.sh starvation wait is not configurable"
+    grep -q "$wm" "$tick" \
+        || failure "${feed}-bundle-tick.sh fairness gate does not key on its own watermark ($wm)"
+}
+_assert_feed_fairness imessage imessage_source_state.json
+_assert_feed_fairness email    email_source_state.json
+_assert_feed_fairness whatsapp whatsapp_source_state.json
+_assert_feed_fairness spoken   spoken_source_state.json
 
 if [[ "$FAILED" -ne 0 ]]; then
     echo "test_conversations_ingest_wiring: RED" >&2

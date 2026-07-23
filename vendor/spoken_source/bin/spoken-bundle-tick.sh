@@ -165,20 +165,74 @@ fi
 # killed mid-run.
 _ostler_lock="${OSTLER_INGEST_LOCK:-${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/ingest-ollama.lock.d}"
 mkdir -p "$(dirname "$_ostler_lock")" 2>/dev/null || true
+
+# --- Anti-starvation fairness (CM044 conversations-ingest fix) -------
+# On a fresh install with several feeds active, a large backlog on ONE
+# feed (e.g. a ~65k-message mailbox) grabs the shared slot for long runs
+# and every OTHER feed instant-yields on EVERY tick -- the live-box
+# symptom was a feed that had never run a single pass (no watermark,
+# empty Conversations dir) while the slot churned through another feed's
+# backlog. A feed that has NEVER produced a watermark is starving, so it
+# waits (bounded) for the slot instead of yielding immediately,
+# guaranteeing it a first drain. Once it has a watermark it reverts to
+# the instant-yield behaviour, so a healthy feed never blocks live chat
+# for hours. Mirrors the imessage-bundle-tick fairness block so all four
+# conversation feeds share one arbitration contract.
+#   OSTLER_INGEST_STARVE_WAIT  -> max seconds a never-run feed waits for
+#                                 the slot (default 75; 0 disables, i.e.
+#                                 restores pure instant-yield).
+_ostler_watermark="${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/spoken_source_state.json"
+_ostler_starve_wait="${OSTLER_INGEST_STARVE_WAIT:-75}"
+_ostler_never_ran=0
+if [ ! -s "$_ostler_watermark" ]; then
+    _ostler_never_ran=1
+fi
+
 if ! mkdir "$_ostler_lock" 2>/dev/null; then
     # Lock held. Reclaim ONLY if the recorded holder PID is dead. A
     # time-based steal would wrongly evict the wiki summary backfill, which
     # holds this SAME lock for hours (v1.0.0 chat-saturation fix); if the
-    # holder is alive, yield this tick (the watermark catches up next tick).
+    # holder is alive, yield this tick (the watermark catches up next tick)
+    # -- UNLESS this feed has never run, in which case wait (bounded) for
+    # the slot so a starving feed gets its first turn.
     _ostler_h="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
     if [ -n "${_ostler_h:-}" ] && kill -0 "$_ostler_h" 2>/dev/null; then
-        echo "spoken-bundle tick: another LLM job (pid ${_ostler_h}) holds the model slot; yielding this tick."
-        exit 0
-    fi
-    rm -rf "$_ostler_lock" 2>/dev/null || true
-    if ! mkdir "$_ostler_lock" 2>/dev/null; then
-        echo "spoken-bundle tick: lost the race for the model slot; yielding this tick."
-        exit 0
+        if [ "$_ostler_never_ran" = "1" ] && [ "$_ostler_starve_wait" -gt 0 ]; then
+            echo "spoken-bundle tick: slot held by pid ${_ostler_h}; this feed has never run, waiting up to ${_ostler_starve_wait}s for a turn."
+            _ostler_waited=0
+            _ostler_got_lock=0
+            while [ "$_ostler_waited" -lt "$_ostler_starve_wait" ]; do
+                sleep 5
+                _ostler_waited=$((_ostler_waited + 5))
+                if mkdir "$_ostler_lock" 2>/dev/null; then
+                    _ostler_got_lock=1
+                    break
+                fi
+                # Holder died mid-wait -> reclaim the stale lock.
+                _ostler_h2="$(cat "$_ostler_lock/pid" 2>/dev/null || true)"
+                if [ -z "${_ostler_h2:-}" ] || ! kill -0 "$_ostler_h2" 2>/dev/null; then
+                    rm -rf "$_ostler_lock" 2>/dev/null || true
+                    if mkdir "$_ostler_lock" 2>/dev/null; then
+                        _ostler_got_lock=1
+                        break
+                    fi
+                fi
+            done
+            if [ "$_ostler_got_lock" != "1" ]; then
+                # Still could not take it within the window -- next tick retries.
+                echo "spoken-bundle tick: slot still busy after waiting ${_ostler_waited}s; yielding this tick (next tick retries)."
+                exit 0
+            fi
+        else
+            echo "spoken-bundle tick: another LLM job (pid ${_ostler_h}) holds the model slot; yielding this tick."
+            exit 0
+        fi
+    else
+        rm -rf "$_ostler_lock" 2>/dev/null || true
+        if ! mkdir "$_ostler_lock" 2>/dev/null; then
+            echo "spoken-bundle tick: lost the race for the model slot; yielding this tick."
+            exit 0
+        fi
     fi
 fi
 printf '%s\n' "$$" > "$_ostler_lock/pid"
