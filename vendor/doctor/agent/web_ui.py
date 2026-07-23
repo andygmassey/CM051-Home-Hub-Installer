@@ -28,13 +28,20 @@ import os
 import re
 import urllib.parse
 from collections import deque
+from pathlib import Path
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+)
 
 from status_collector import (
     collect_full_snapshot,
@@ -1069,7 +1076,64 @@ def render_dashboard(
            (assets/ostler.css on os001) shifted to a dark-mode admin
            dashboard palette. Components: header, status-grid + status-card,
            findings + fix-box, disk + model lists, chat. */
-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product
+           must not beacon the customer IP+timestamp to googleapis.com on every
+           dashboard open. Branded type (Outfit / IBM Plex Sans / Mono) is now
+           self-hosted via the @font-face block below, served same-origin from
+           /doctor/fonts. System fallbacks remain for graceful degradation.
+           Do NOT re-add the googleapis @import. */
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-SemiBold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Bold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
+        }}
+        /* --font-mono ('IBM Plex Mono') intentionally NOT self-hosted: the repo
+           ships JetBrains Mono, not Plex Mono, so the mono stack keeps its
+           'SF Mono'/Menlo system fallback rather than mislabelling the family. */
 
         :root {{
             --ostler-ink: #0d0b08;
@@ -1908,7 +1972,64 @@ def render_history(history_entries: list[dict]) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{HISTORY_TITLE_TAG}</title>
     <style>
-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product
+           must not beacon the customer IP+timestamp to googleapis.com on every
+           dashboard open. Branded type (Outfit / IBM Plex Sans / Mono) is now
+           self-hosted via the @font-face block below, served same-origin from
+           /doctor/fonts. System fallbacks remain for graceful degradation.
+           Do NOT re-add the googleapis @import. */
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-SemiBold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Bold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
+        }}
+        /* --font-mono ('IBM Plex Mono') intentionally NOT self-hosted: the repo
+           ships JetBrains Mono, not Plex Mono, so the mono stack keeps its
+           'SF Mono'/Menlo system fallback rather than mislabelling the family. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-panel: #1a1612;
@@ -2252,6 +2373,47 @@ from proxy import register_proxy_routes
 _registered_proxy_paths = register_proxy_routes(app)
 
 
+# --- Self-hosted brand fonts -------------------------------------------------
+# Privacy: the dashboard previously @import-ed Outfit / IBM Plex from
+# fonts.googleapis.com, which beacons the customer IP + timestamp to Google on
+# every dashboard open. The @import is gone; these OFL-licensed TTFs are
+# bundled next to the agent and served same-origin so branded type renders
+# with zero third-party fetches. See the @font-face block in the dashboard CSS.
+FONTS_DIR = Path(__file__).resolve().parent / "fonts"
+
+# Allow-list: only these bundled families are servable. Guards against any
+# path-traversal via the {filename} path param.
+_ALLOWED_FONT_FILES = {
+    "Outfit-Regular.ttf",
+    "Outfit-Medium.ttf",
+    "Outfit-SemiBold.ttf",
+    "Outfit-Bold.ttf",
+    "IBMPlexSans-Regular.ttf",
+    "IBMPlexSans-Medium.ttf",
+    "IBMPlexSans-SemiBold.ttf",
+    # Bundled but not currently referenced by @font-face -- the mono stack keeps
+    # its system fallback (see CSS note). Allow-listed so the bundle stays
+    # self-consistent if the mono family is wired up later.
+    "JetBrainsMono-Regular.ttf",
+    "JetBrainsMono-Medium.ttf",
+}
+
+
+@app.get("/doctor/fonts/{filename}")
+def serve_font(filename: str) -> Response:
+    """Serve a bundled, OFL-licensed brand font (same-origin, no third party)."""
+    if filename not in _ALLOWED_FONT_FILES:
+        return Response(status_code=404)
+    path = FONTS_DIR / filename
+    if not path.is_file():
+        return Response(status_code=404)
+    return FileResponse(
+        path,
+        media_type="font/ttf",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
 def _config_section_order() -> tuple[str, ...]:
     """Section display order for the Configuration panel.
 
@@ -2300,7 +2462,64 @@ def _render_import_evernote_page(active_job_id=None) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{EVERNOTE_TITLE_TAG}</title>
     <style>
-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product
+           must not beacon the customer IP+timestamp to googleapis.com on every
+           dashboard open. Branded type (Outfit / IBM Plex Sans / Mono) is now
+           self-hosted via the @font-face block below, served same-origin from
+           /doctor/fonts. System fallbacks remain for graceful degradation.
+           Do NOT re-add the googleapis @import. */
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-SemiBold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Bold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
+        }}
+        /* --font-mono ('IBM Plex Mono') intentionally NOT self-hosted: the repo
+           ships JetBrains Mono, not Plex Mono, so the mono stack keeps its
+           'SF Mono'/Menlo system fallback rather than mislabelling the family. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
@@ -2905,7 +3124,64 @@ def _render_pair_ios_page() -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{PAIR_IOS_TITLE_TAG}</title>
     <style>
-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product
+           must not beacon the customer IP+timestamp to googleapis.com on every
+           dashboard open. Branded type (Outfit / IBM Plex Sans / Mono) is now
+           self-hosted via the @font-face block below, served same-origin from
+           /doctor/fonts. System fallbacks remain for graceful degradation.
+           Do NOT re-add the googleapis @import. */
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-SemiBold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Bold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
+        }}
+        /* --font-mono ('IBM Plex Mono') intentionally NOT self-hosted: the repo
+           ships JetBrains Mono, not Plex Mono, so the mono stack keeps its
+           'SF Mono'/Menlo system fallback rather than mislabelling the family. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
@@ -3344,7 +3620,64 @@ def _render_config_page() -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{CONFIG_TITLE_TAG}</title>
     <style>
-        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
+        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product
+           must not beacon the customer IP+timestamp to googleapis.com on every
+           dashboard open. Branded type (Outfit / IBM Plex Sans / Mono) is now
+           self-hosted via the @font-face block below, served same-origin from
+           /doctor/fonts. System fallbacks remain for graceful degradation.
+           Do NOT re-add the googleapis @import. */
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-SemiBold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'Outfit';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('/doctor/fonts/Outfit-Bold.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Regular.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+        }}
+        @font-face {{
+            font-family: 'IBM Plex Sans';
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url('/doctor/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
+        }}
+        /* --font-mono ('IBM Plex Mono') intentionally NOT self-hosted: the repo
+           ships JetBrains Mono, not Plex Mono, so the mono stack keeps its
+           'SF Mono'/Menlo system fallback rather than mislabelling the family. */
         :root {{
             --ostler-ink: #0d0b08;
             --ostler-ink-deep: #07060a;
