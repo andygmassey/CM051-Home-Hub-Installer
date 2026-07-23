@@ -35,3 +35,7 @@
 # copies into the site image.
 wiki-compiler	sha256:a7e8c7e8151e8e559ddefb8f6fb463b0ed25469ea42d74ffa9ccd74c7e032923	77300f6163f0efed6ad092e48d179a49d117e8ec
 wiki-site	sha256:303b3a1a164720cfbc39da5d9380c98ebde89b32600ce4653e4b02b800194a81	77300f6163f0efed6ad092e48d179a49d117e8ec
+# v1.0.10 recut (2026-07-24): both images rebuilt arm64 from CM044 648f7491
+# (folds #144 scaffolding strip + #145 dedup endpoint + #146 settling panel).
+wiki-compiler	sha256:2f7b0b7332f8e6e9e75206f9ea126702b46d9c4d3202d15fb040c1bd9710161a	648f7491ea2fa74aee3c669fd2be5503b4924a36
+wiki-site	sha256:563fbcecc46c2679b5aa5db47821712e51a0bfa6904a669dcfde57ab599aa5ea	648f7491ea2fa74aee3c669fd2be5503b4924a36
