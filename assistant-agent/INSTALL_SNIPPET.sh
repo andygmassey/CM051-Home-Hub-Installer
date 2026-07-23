@@ -47,6 +47,17 @@
 #                            (the daemon's content-based backstop still
 #                            applies). Must be the user's own identity
 #                            only, NOT the allowed-contacts list.
+#   OSTLER_ASSISTANT_DEFER_START  "true" => render + clean up the
+#                            LaunchAgent but do NOT bootstrap it, so the
+#                            plist's RunAtLoad start does not fire yet.
+#                            The installer defers the daemon start until
+#                            AFTER the Full Disk Access grant flow so the
+#                            FDA-less daemon cannot touch ~/Documents and
+#                            raise the per-folder Documents TCC prompt on
+#                            top of the FDA windows (BW3-1 pile-up). The
+#                            installer bootstraps the agent itself once all
+#                            permission flows have finished. Default unset
+#                            => bootstrap immediately (legacy behaviour).
 #
 # Side effects:
 #   - Renders com.creativemachines.ostler.assistant.plist into
@@ -149,7 +160,22 @@ DOMAIN="gui/$(id -u)"
 
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 
-if launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
+# BW3-1 (2026-07-23): defer the daemon's RunAtLoad start until FDA is
+# granted. The rendered plist sets RunAtLoad=true + KeepAlive, so
+# `launchctl bootstrap` starts the daemon PROCESS immediately. On a fresh
+# install this snippet runs BEFORE the daemon's Full Disk Access has been
+# granted (the daemon FDA grant flow runs later in install.sh), so the
+# freshly started, FDA-less daemon touches ~/Documents and macOS raises
+# the per-folder "OstlerAssistant would like to access files in your
+# Documents folder" TCC prompt -- which stacks on top of the FDA grant
+# flow (System Settings + Finder + the Allow/Done modal), the window
+# pile-up seen on the .98 box-walk. When the installer sets
+# OSTLER_ASSISTANT_DEFER_START=true we render + bootout the agent here but
+# leave it UNLOADED; install.sh bootstraps it once, after every permission
+# flow has finished (see _ostler_start_assistant_daemon in install.sh).
+if [ "${OSTLER_ASSISTANT_DEFER_START:-}" = "true" ]; then
+    echo "ostler-assistant install: plist rendered; RunAtLoad start deferred until FDA granted ($LABEL)"
+elif launchctl bootstrap "$DOMAIN" "$RENDERED_PLIST"; then
     echo "ostler-assistant install: LaunchAgent bootstrapped ($LABEL)"
 else
     rc=$?
