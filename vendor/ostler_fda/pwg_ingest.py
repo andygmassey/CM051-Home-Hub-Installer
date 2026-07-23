@@ -847,6 +847,12 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
 BROWSING_QDRANT_COLLECTION = os.getenv(
     "BROWSING_QDRANT_COLLECTION", "safari_history"
 )
+# nomic-embed-text emits 768-dim vectors; this fallback is used only to
+# size a fresh `safari_history` collection when nothing embedded (every
+# other collection in this repo embeds at 768). We prefer the FIRST real
+# embedding length and fall back to this only if no live embedder is
+# reachable -- same pattern as the people/preferences ingestors.
+BROWSING_EMBED_DIM = int(os.getenv("BROWSING_EMBED_DIM", "768"))
 # Batch sizes: 64 keeps Ollama responsive on a 16GB Mac across
 # thousands of visits; 200 is Qdrant's tested upsert chunk.
 _BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
@@ -1127,6 +1133,22 @@ def ingest_browser_history(fda_dir: Path) -> dict:
     sent = 0
     try:
         vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+        # Self-create the `safari_history` collection before upserting.
+        # On a fresh single-Mac install nothing pre-creates it
+        # (install.sh graph_db_start brings Qdrant up empty), and a bare
+        # PUT of points into a missing collection lands 0 rows -- Qdrant
+        # does NOT auto-create it. Without this the hydrator embedded
+        # 11,447 visits but reported sent=0 and the CM044 Browsing wing
+        # stayed blank. Mirrors the people/preferences/social ingestors.
+        # See feedback_qdrant_collections_no_self_create_fresh_install.
+        vector_size = BROWSING_EMBED_DIM
+        for vec in vectors:
+            if vec:
+                vector_size = len(vec)
+                break
+        _qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION, vector_size)
+
         points = [
             {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
             for item, vec in zip(queue, vectors)
