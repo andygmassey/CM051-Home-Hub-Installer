@@ -3601,38 +3601,58 @@ FV_ENABLED=false
 if echo "$FV_STATUS" | grep -q "FileVault is On"; then
     FV_ENABLED=true
 else
+    # FileVault posture (v1.0.10). Plaintext-at-rest is an ACCEPTED v1
+    # posture, so a Mac with FileVault off must NOT block the install.
+    # But the operator must not slide past it silently either: we
+    # surface a strengthened, explicit warning that spells out exactly
+    # what stays unencrypted, then require a deliberate informed choice.
+    # Continuing is allowed (and recorded); the safe "enable FileVault
+    # first" path is offered but never forced.
     warn "$MSG_WARN_FILEVAULT_NOT_ENABLED"
     echo ""
-    echo "  FileVault encrypts your entire disk. Without it, anyone"
-    echo "  with physical access to your Mac can read your data."
+    echo "  Your disk is NOT encrypted at rest. If you continue, everything"
+    echo "  Ostler stores is written to disk UNENCRYPTED:"
     echo ""
-    echo "  Enable it: System Settings > Privacy & Security > FileVault"
+    echo "    - your whole personal graph (wiki, conversations, knowledge)"
+    echo "      under ~/Documents/Ostler"
+    echo "    - service secrets and databases under ~/.ostler"
     echo ""
-    echo "  Ostler stores a plaintext copy of your entire personal graph"
-    echo "  (wiki, conversations, knowledge) under ~/Documents/Ostler and"
-    echo "  service secrets under ~/.ostler. Without FileVault, anyone with"
-    echo "  physical access to this Mac can read all of it. FileVault is"
-    echo "  strongly recommended and the default answer here is NO."
+    echo "  Anyone who can boot from this drive, remove it, or reach an"
+    echo "  unlocked session can then read all of it. Ostler still encrypts"
+    echo "  its most sensitive databases with your passphrase, but the rest"
+    echo "  is only as protected as the disk itself."
     echo ""
-    FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "n" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
-    if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
+    echo "  FileVault is strongly recommended. Turn it on any time in"
+    echo "  System Settings > Privacy & Security > FileVault (it encrypts"
+    echo "  in the background -- no reinstall needed)."
+    echo ""
+    # Default Yes: plaintext-at-rest is accepted for v1, so the install
+    # continues by default rather than blocking. The choice is still
+    # explicit and informed (the warning above + the prompt copy spell
+    # out the unencrypted-at-rest consequence), and it is recorded below.
+    FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "y" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
+    if [[ "${FV_CONTINUE:-y}" == "n" || "${FV_CONTINUE:-y}" == "N" ]]; then
+        # The operator chose the safer path: stop so they can enable
+        # FileVault first. This is a user-selected exit, not an
+        # installer-imposed block on the plaintext posture.
         echo ""
         echo "  Stopping here as you asked -- nothing has failed."
         echo "  Turn FileVault on (System Settings > Privacy & Security >"
         echo "  FileVault), then re-run this installer to continue."
         exit 1
     fi
-    # v1.0.10 security lockdown: the operator explicitly chose to
-    # proceed with an UNENCRYPTED disk. Record a loud, timestamped
-    # acknowledgement so the Doctor surface + a later support touch
-    # can see the at-rest protection was knowingly declined (rather
-    # than silently absent). Best-effort -- never abort on a marker
-    # write failure this early.
-    warn "Proceeding WITHOUT FileVault -- your Ostler data is NOT encrypted at rest on this disk."
+    # v1.0.10 security lockdown: the operator made the deliberate,
+    # informed choice to proceed with an UNENCRYPTED disk. Record a
+    # loud, timestamped acknowledgement so the Doctor surface + a later
+    # support touch can see the at-rest protection was knowingly
+    # declined (rather than silently absent). Best-effort -- never abort
+    # on a marker write failure this early.
+    warn "Proceeding WITHOUT FileVault -- your Ostler data is NOT encrypted at rest on this disk (you acknowledged this)."
     mkdir -p "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}" 2>/dev/null || true
     {
         echo "filevault_declined_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         echo "filevault_status=${FV_STATUS}"
+        echo "filevault_decline_acknowledged=true"
     } > "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}/filevault_ack.txt" 2>/dev/null || true
 fi
 
@@ -6659,6 +6679,12 @@ OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
 OSTLER_TAILSCALE_IP="${OSTLER_TAILSCALE_IP:-}"
 ENVEOF
 
+# This .env carries USER_ID + config the whole install reads; it is
+# created under the default umask (world-readable 0644). Every other
+# Ostler dotfile is 0600 -- tighten this one to match so a second local
+# user cannot read the operator's identity/config.
+chmod 600 "${CONFIG_DIR}/.env"
+
 ok "$(printf "$MSG_OK_CONFIG_SAVED_ENV" "${CONFIG_DIR}")"
 
 # ── 3.5b Assistant config (channels TOML) ──────────────────────────
@@ -7306,6 +7332,24 @@ TOMLPREAMBLE
     echo "port = 8000"
     echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
 
+    # v1.0.10 phone pairing (operator opted IN for this cut). Turn the
+    # gateway's device-companion pairing ON. This is the config half
+    # install.sh owns; the routable TLS companion listener itself is
+    # built separately (gateway-side PR). Two hard rules the pairing UX
+    # must honour, documented here because this flag switches it on:
+    #   1. NEVER advertise a loopback pairing QR. 127.0.0.1:8000 is
+    #      unreachable from a phone, so a QR encoding it is dead on
+    #      arrival. The phone must reach the companion over the ROUTABLE
+    #      path -- the Tailscale IP the installer persists to
+    #      ${CONFIG_DIR}/.env as OSTLER_TAILSCALE_IP (served with TLS;
+    #      see the `tailscale serve` block ~L14370) -- so the address the
+    #      QR encodes resolves off-device.
+    #   2. The companion listener must be TLS + routable. Until the
+    #      gateway-side listener lands, the companion has no reachable
+    #      surface; this flag makes the intent explicit and lets the
+    #      pairing UI light up the moment that listener ships.
+    echo "companion_enabled = true"
+
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
     # Vane running AND the assistant supports Vane (ostler-assistant
@@ -7434,6 +7478,22 @@ unset CHANNEL_EMAIL_PASSWORD
 unset CHAT_ADMIN_TOKEN
 
 ok "$(printf "$MSG_OK_ASSISTANT_CONFIG_SAVED_MODE_0600" "${ASSISTANT_CONFIG}")"
+
+# The ONLY assistant config this installer writes is
+# ${ASSISTANT_CONFIG_DIR}/config.toml (above), and the daemon reads it
+# via ZEROCLAW_WORKSPACE=${OSTLER_DIR}/assistant-config. A config.toml
+# sitting at the workspace ROOT (${OSTLER_DIR}/config.toml) is never
+# read by the shipped daemon, but a legacy installer used to drop one
+# there and it becomes an edit-wrong-file trap: the operator edits the
+# root copy, nothing changes, because the live config is under
+# assistant-config/. Remove any stale root copy so re-installs and
+# upgrades cannot leave the shadow file behind. (This installer no
+# longer emits it; this is a one-line belt-and-braces cleanup.)
+if [[ -f "${OSTLER_DIR}/config.toml" ]]; then
+    rm -f "${OSTLER_DIR}/config.toml"
+    info "$MSG_INFO_REMOVED_LEGACY_ROOT_CONFIG_TOML"
+fi
+
 if [[ "$CHANNEL_IMESSAGE_ENABLED" != true && "$CHANNEL_EMAIL_ENABLED" != true && "$CHANNEL_WHATSAPP_ENABLED" != true ]]; then
     info "$(printf "$MSG_INFO_NO_CHANNELS_CONFIGURED_RUN_LATER_BIN" "${OSTLER_DIR}")"
 fi
@@ -11052,7 +11112,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              the internal mint (the _URL override only changes the public iOS
              URL). Setting 8000 also makes the iOS public chat_base_url use
              :8000, which is correct since the daemon is pinned there. Keep in
-             lockstep with the `port = 8000` echo in the [gateway] config. -->
+             lockstep with the \`port = 8000\` echo in the [gateway] config. -->
         <key>OSTLER_CHAT_GATEWAY_PORT</key>
         <string>8000</string>
         <!-- #652 (hardening, not the root cause): pin the admin-token path to
@@ -11066,7 +11126,7 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              Doctor proxies the iOS /api/v1/* paths to the loopback
              ical-server on 127.0.0.1:8090 (DOCTOR_GATEWAY_URL). This
              carries the per-install #200 service token so the proxy
-             can attach `Authorization: Bearer <token>` on the
+             can attach \`Authorization: Bearer <token>\` on the
              forwarded request, and the ical-server (which now
              requires it, see com.ostler.ical-server plist) accepts
              it. Same PWG_SERVICE_TOKEN name on both sides so the two
@@ -11158,6 +11218,20 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         cp -R "${SCRIPT_DIR}/ostler_hygiene" "${_ICAL_SERVICES_ROOT}/ostler_hygiene"
     fi
 
+    # ical-server runtime deps. The ical-server reuses OSTLER_VENV
+    # (~/.ostler/.venv) but its identity_resolver + calendar/People
+    # paths import `phonenumbers` (E.164 normalisation) and `httpx`
+    # (async graph calls) which the security-only Phase 7 pip step
+    # does NOT provide. Without them the launchd agent crash-loops
+    # (ModuleNotFoundError) and People/Timeline stay empty. Install
+    # them here so the plist we render below boots cleanly. Best-
+    # effort: a failure downgrades to a warn rather than aborting the
+    # whole install (the ostler_security import gate below still
+    # refuses to render a plist that cannot boot at all).
+    info "$MSG_INFO_ICAL_SERVER_DEPS_INSTALLING"
+    "$OSTLER_PIP" install --quiet "phonenumbers>=8.13" "httpx>=0.24" \
+        || warn "$MSG_WARN_ICAL_SERVER_DEPS_FAILED"
+
     # Verify ostler_security is importable under OSTLER_VENV (Phase 7
     # is the install site). Refuse to render the plist if not: an
     # ical-server that hard-fails on every launchd boot wastes log
@@ -11193,6 +11267,17 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <string>8090</string>
         <key>OSTLER_API_BIND</key>
         <string>127.0.0.1</string>
+        <!-- ical-server.py imports identity_resolver as a top-level
+             package. It is staged as a sibling tree under the
+             import-pipeline dir (~/.ostler/import-pipeline), NOT
+             pip-installed into the venv, so launchd (which inherits no
+             login PYTHONPATH) must be told where to find it. Without
+             this the agent crash-loops with
+             ModuleNotFoundError: identity_resolver and People/Timeline
+             stay empty. Path is derived from OSTLER_DIR so it tracks a
+             non-default install home. -->
+        <key>PYTHONPATH</key>
+        <string>${OSTLER_DIR}/import-pipeline</string>
         <key>HOME</key>
         <string>${HOME}</string>
         <key>USER_ID</key>
@@ -11210,7 +11295,7 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              generated ~L6768) so the ical-server can require a
              matching bearer on inbound requests. The Doctor proxy
              carries the SAME token (see com.ostler.doctor plist)
-             and attaches it as `Authorization: Bearer` when
+             and attaches it as \`Authorization: Bearer\` when
              forwarding to :8090. Env-var name is PWG_SERVICE_TOKEN,
              matching CM041's fix/v1010-ical-server-auth reader. -->
         <key>PWG_SERVICE_TOKEN</key>
@@ -16693,6 +16778,46 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             warn "$(printf "$MSG_WARN_SEE_STDERR_FRAGMENT" "${IMESSAGE_POSTURE_FILE}")"
             ;;
     esac
+
+    # ── chat.db READ probe (Full Disk Access) ────────────────────
+    #
+    # The Automation probe above only tells us whether the installer can
+    # DRIVE Messages.app (outbound sends). The daemon's iMessage channel
+    # additionally needs to READ ~/Library/Messages/chat.db (inbound
+    # history), which is gated by Full Disk Access on the SIGNED DAEMON
+    # bundle -- a different grant from Automation. A box can pass the
+    # Automation probe yet have no chat.db FDA, in which case the
+    # iMessage feed's `run-source imessage` tick exits EX_CONFIG(78)
+    # every interval. Probe the actual read here with the same honest
+    # `head -c 1` open() the installer's own FDA probe uses -- a plain
+    # `[[ -r ]]` passes on the parent directory entry without FDA and
+    # lies. This is a SNAPSHOT: the daemon FDA grant is requested near
+    # the end of install and may land after this point, so a failure is
+    # a warn, never a hard stop.
+    _IMESSAGE_CHAT_DB="${HOME}/Library/Messages/chat.db"
+    IMESSAGE_FDA_READ_STATUS="not-present"
+    if [[ -e "$_IMESSAGE_CHAT_DB" ]]; then
+        if head -c 1 "$_IMESSAGE_CHAT_DB" >/dev/null 2>&1; then
+            IMESSAGE_FDA_READ_STATUS="readable"
+        else
+            IMESSAGE_FDA_READ_STATUS="fda-denied"
+        fi
+    fi
+    {
+        echo "## chat.db read (Full Disk Access)"
+        echo ""
+        echo "chat.db read status: ${IMESSAGE_FDA_READ_STATUS}"
+        echo "Probe: head -c 1 ${_IMESSAGE_CHAT_DB} (honest open(); FDA-gated)"
+        echo ""
+        echo "Note: this is the INBOUND path (reading iMessage history),"
+        echo "gated by Full Disk Access on the Ostler daemon -- separate"
+        echo "from the Automation permission above (OUTBOUND sends). Both"
+        echo "must be granted for the iMessage channel to fully work."
+        echo ""
+    } >> "$IMESSAGE_POSTURE_FILE"
+    if [[ "$IMESSAGE_FDA_READ_STATUS" == "fda-denied" ]]; then
+        warn "$MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED"
+    fi
 
     chmod 600 "$IMESSAGE_POSTURE_FILE"
 fi

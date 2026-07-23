@@ -36,9 +36,18 @@ grep -q '_ostler_harden_at_rest "\$USER_FACING_ROOT"' "$INSTALL_SCRIPT" \
 # 3. FileVault decline is a recorded acknowledgement, not a silent skip.
 grep -q 'filevault_ack.txt' "$INSTALL_SCRIPT" \
     || fail "FileVault decline is not recorded (filevault_ack.txt marker missing)"
-# And the pre-existing hard gate (refuse unless explicit opt-in) is intact.
-grep -q 'Enable FileVault first, then re-run this installer.' "$INSTALL_SCRIPT" \
-    || fail "FileVault hard gate (refuse + exit) removed"
+# v1.0.10 posture: plaintext-at-rest is an ACCEPTED v1 posture, so a
+# FileVault-off Mac must NOT hard-block the install. Declining must
+# instead be a deliberate, INFORMED choice: a strengthened warning that
+# spells out the unencrypted-at-rest consequence, an explicit
+# acknowledgement recorded to disk, and a default that proceeds (never a
+# refuse-and-exit gate). Assert the informed-consent shape, not a block.
+grep -q 'filevault_decline_acknowledged=true' "$INSTALL_SCRIPT" \
+    || fail "FileVault decline acknowledgement flag (filevault_decline_acknowledged=true) missing"
+grep -q 'UNENCRYPTED' "$INSTALL_SCRIPT" \
+    || fail "FileVault warning no longer spells out the UNENCRYPTED-at-rest consequence"
+grep -q 'gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "y"' "$INSTALL_SCRIPT" \
+    || fail "FileVault prompt must default to proceed (non-blocking informed consent), not a hard gate"
 
 # ── FIX-RT2-F3: hardening must run AFTER promotion, not on staging ──
 # On a fresh curl|bash install OSTLER_DIR is the ephemeral staging tree
