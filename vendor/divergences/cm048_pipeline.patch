@@ -1,0 +1,14 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -21,7 +21,10 @@
+ 
+ [tool.setuptools.packages.find]
+ where = ["."]
+-include = ["src*"]
++include = ["src*", "prompts*"]
+ 
++[tool.setuptools.package-data]
++prompts = ["*.md"]
++
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
