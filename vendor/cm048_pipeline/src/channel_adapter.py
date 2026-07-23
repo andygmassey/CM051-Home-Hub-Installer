@@ -817,6 +817,17 @@ def _build_extra_metadata(
     location = metadata.get("location")
     if isinstance(location, str) and location.strip():
         extra["location"] = location.strip()
+    # Non-relational flag (bulk / marketing / no-reply email). Set
+    # upstream by ``processor.process`` via ``bulk_classifier`` so the
+    # on-disk bundle records that this "conversation" must not be
+    # attached to any participant's person page (CM044 reads it to keep
+    # a newsletter off the co-recipients' wiki pages while still
+    # rendering it as browseable content in the Conversations wing).
+    if metadata.get("non_relational"):
+        extra["non_relational"] = True
+        reason = metadata.get("non_relational_reason")
+        if isinstance(reason, str) and reason.strip():
+            extra["non_relational_reason"] = reason.strip()
     return extra
 
 

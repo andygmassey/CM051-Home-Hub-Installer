@@ -26,6 +26,7 @@ from pathlib import Path
 
 from . import prompts
 from . import enrichment_validation
+from . import bulk_classifier as _bulk_classifier
 from . import bundle_extractor as _bundle_extractor
 from . import channel_adapter as _channel_adapter
 from . import conversation_writer as _conversation_writer
@@ -133,6 +134,34 @@ def process(
         conversation_id,
     )
 
+    # Non-relational gate (bulk / marketing / no-reply email).
+    # CM046 feeds newsletters, shipping notifications and marketing
+    # blasts through this pipeline as ``channel="email"`` conversations
+    # that are structurally identical to genuine person-to-person mail.
+    # Left ungated they fan a relationship signal, extracted facts and a
+    # contact-recency bump onto every co-recipient's person page – a
+    # "28car" digest ends up as an interaction on two real people who
+    # never corresponded. Detect it here, UPSTREAM of the relationship-
+    # graph steps, and keep it out of the graph while still letting the
+    # message land as browseable content in the Conversations wing (the
+    # bundle step stamps ``non_relational`` so CM044 can suppress the
+    # person-page attachment). Only the email channel carries the
+    # signals; every other channel returns a non-bulk verdict.
+    bulk_verdict = _bulk_classifier.classify(metadata)
+    if bulk_verdict.is_non_relational:
+        logger.info(
+            "Non-relational (bulk/marketing) conversation %s "
+            "[%s]: %s – skipping relationship / coaching / fact "
+            "fan-out and tagging bundle non_relational.",
+            conversation_id,
+            bulk_verdict.confidence,
+            bulk_verdict.reason_text,
+        )
+        # Stamp the metadata so the bundle adapter records the verdict
+        # in ``extra_metadata`` for the downstream (CM044) consumer.
+        metadata["non_relational"] = True
+        metadata["non_relational_reason"] = bulk_verdict.reason_text
+
     # Step 02  –  enrich
     if _should_run("02_enrich", state.completed_steps, resume_from_step):
         _run_step(
@@ -145,9 +174,11 @@ def process(
         )
 
     # Step 03  –  relationship signal (conditional)
+    #  Skipped for non-relational bulk mail: a mailing-list / no-reply
+    #  "conversation" has no relationship to signal about its recipients.
     if _should_run(
         "03_relationship_signal", state.completed_steps, resume_from_step
-    ) and _should_run_relationship(classification):
+    ) and _should_run_relationship(classification) and not bulk_verdict.is_non_relational:
         _run_step(
             state_dir,
             state,
@@ -158,9 +189,11 @@ def process(
         )
 
     # Step 04  –  coaching (conditional)
+    #  Skipped for non-relational bulk mail: there is no two-way
+    #  conversation for the user to be coached on.
     if _should_run(
         "04_coaching", state.completed_steps, resume_from_step
-    ) and _should_run_coach(classification):
+    ) and _should_run_coach(classification) and not bulk_verdict.is_non_relational:
         _run_step(
             state_dir,
             state,
@@ -171,9 +204,13 @@ def process(
         )
 
     # Step 05  –  fact extraction
+    #  Skipped for non-relational bulk mail: facts extracted from a
+    #  marketing / transactional body fan onto ``other:<slug>`` subjects
+    #  (co-recipients), polluting real people's pages with newsletter
+    #  content. Genuine correspondence is unaffected.
     if _should_run(
         "05_fact_extraction", state.completed_steps, resume_from_step
-    ) and classification.processing_depth == "full":
+    ) and classification.processing_depth == "full" and not bulk_verdict.is_non_relational:
         _run_step(
             state_dir,
             state,
@@ -1916,6 +1953,17 @@ def _step_bundle(
     # channels without a recency predicate, for L3 bundles, and on a
     # SPARQL hiccup -- the conversation is already written, this is a
     # secondary index and must never fail the ingest.
+    # A non-relational bulk message must not bump any participant's
+    # contact-recency: a "last contacted on email" badge driven by a
+    # marketing blast is exactly the false-interaction symptom this
+    # change removes. The bundle carries the flag in extra_metadata.
+    if bundle.extra_metadata.get("non_relational"):
+        logger.info(
+            "Non-relational bundle %s: skipping lastContact recency bump",
+            bundle.conversation_id,
+        )
+        return
+
     from .last_contact_updater import update_last_contact_for_bundle
     try:
         update_last_contact_for_bundle(

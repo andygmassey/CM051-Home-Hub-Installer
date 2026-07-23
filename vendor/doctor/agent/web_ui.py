@@ -2105,6 +2105,53 @@ async def health():
     return {"status": "healthy", "service": "ostler-doctor"}
 
 
+@app.get("/api/v1/box-status", response_class=JSONResponse)
+async def api_box_status():
+    """Aggregated live box status for the Hub header chip + Governor page.
+
+    The Hub WebView polls ``GET /api/v1/box-status`` on the Doctor
+    (:8089) roughly once a second (``web/src/lib/boxStatus.ts`` in
+    ostler-assistant). The chip is typed against ``BoxStatus`` and reads
+    ``status.state`` first; anything without a top-level ``state`` field
+    falls into the ``unknown`` branch and renders "Status unavailable".
+
+    This returns the correct ``BoxStatus`` shape from the slim
+    :mod:`box_status` aggregator: a real ``state`` band derived from
+    load / memory / resident-model pressure, plus the ``load``,
+    ``memory``, ``llm``, ``governor``, ``pause``, ``settling``,
+    ``running`` and ``attribution`` sub-objects the client reads.
+
+    Fail-soft by construction: :func:`box_status.box_status` never
+    raises -- every probe degrades its own field to ``None`` (or a
+    documented idle default) independently, so a transient probe failure
+    degrades a section rather than 500-ing the ~1 Hz poll. Only when the
+    aggregator genuinely cannot read *either* load or memory does
+    ``state`` become ``"unknown"`` (an honest "can't tell", not a
+    default). The whole call is still wrapped so an unexpected import or
+    environment failure returns a well-formed unknown payload instead of
+    a 500.
+    """
+    try:
+        from box_status import box_status as _box_status
+
+        return _box_status()
+    except Exception:
+        # Last-resort degrade: a well-formed, honest "unknown" payload the
+        # chip can render as "Status unavailable" -- never a 500 that would
+        # 404/500-spam the once-a-second poll.
+        return {
+            "state": "unknown",
+            "load": None,
+            "memory": None,
+            "llm": None,
+            "governor": None,
+            "pause": None,
+            "settling": None,
+            "running": [],
+            "attribution": None,
+        }
+
+
 @app.post("/api/v1/wiki/correct", response_class=JSONResponse)
 async def api_wiki_correct(request: Request):
     """Record a wiki correction (#277).
