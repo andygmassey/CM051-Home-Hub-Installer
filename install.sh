@@ -7332,11 +7332,14 @@ TOMLPREAMBLE
     echo "port = 8000"
     echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
 
-    # v1.0.10 phone pairing (operator opted IN for this cut). Turn the
-    # gateway's device-companion pairing ON. This is the config half
-    # install.sh owns; the routable TLS companion listener itself is
-    # built separately (gateway-side PR). Two hard rules the pairing UX
-    # must honour, documented here because this flag switches it on:
+    # v1.0.10 phone pairing DEFERRED (operator decision): companion
+    # pairing depends on a coordinated CM031 change that isn't ready for
+    # this cut, so the generated config defaults the gateway's
+    # device-companion pairing OFF. The value is env-gated -- set
+    # OSTLER_COMPANION_ENABLED=true at re-cut to flip it on with no code
+    # change once the gateway-side listener + CM031 flow land. Two hard
+    # rules the pairing UX must honour when this is flipped on,
+    # documented here because this flag switches it on:
     #   1. NEVER advertise a loopback pairing QR. 127.0.0.1:8000 is
     #      unreachable from a phone, so a QR encoding it is dead on
     #      arrival. The phone must reach the companion over the ROUTABLE
@@ -7348,7 +7351,7 @@ TOMLPREAMBLE
     #      gateway-side listener lands, the companion has no reachable
     #      surface; this flag makes the intent explicit and lets the
     #      pairing UI light up the moment that listener ships.
-    echo "companion_enabled = true"
+    echo "companion_enabled = ${OSTLER_COMPANION_ENABLED:-false}"
 
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
