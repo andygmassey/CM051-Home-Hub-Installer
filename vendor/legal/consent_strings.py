@@ -223,25 +223,25 @@ Legal note: Voice fingerprints stored on your iPhone by the Ostler Companion app
 # acknowledgement of responsibility, not a scare screen.
 SPOKEN_CAPTURE_RECORDING_CONSENT = ConsentString(
     tickbox_id="spoken_capture_recording_consent",
-    version="v1.0-2026-07-20",
+    version="v1.1-2026-07-23",
     scope="spoken_capture_recording_consent",
-    text="""Recording spoken conversations
+    text="""Turning spoken conversations into text
 
-Ostler can turn spoken conversations you record – calls and meetings – into searchable text. Typing and messaging is not affected; this is only about audio you choose to record.
+Ostler can turn spoken conversations – calls and meetings – into searchable text. Typing and messaging is not affected; this is only about audio you choose to capture.
 
-The law on recording people speaking is different from the law on written messages, and it varies by country. In some places – for example Germany and France – everyone taking part has to agree before a spoken conversation is recorded. Because you are the person doing the recording, meeting that obligation is your responsibility, not ours.
+The law on capturing people speaking is different from the law on written messages, and it varies by country. In some places – for example Germany and France – everyone taking part has to agree before a spoken conversation is captured. Because you are the person doing the capturing, meeting that obligation is your responsibility, not ours.
 
-Keeping everything on your own Mac does not change this. Ostler never sends your recordings anywhere, but storing them locally does not remove your duty to obtain consent where your local law requires it.
+By default, Ostler turns the audio into text on this Mac and then deletes it, keeping only the transcript; you can choose to keep the audio in Settings. Either way it never leaves your Mac. Keeping everything local does not remove your duty to obtain consent where your local law requires it.
 
 What we ask of you:
 
-- Obtain whatever consent your local law requires before you record a spoken conversation.
-- Make it clear to the people you are with that recording is happening – for example, say so at the start, or keep a visible recording indicator on.
+- Obtain whatever consent your local law requires before you capture a spoken conversation.
+- Make it clear to the people you are with that their words are being captured – for example, say so at the start, or keep the on-screen capture indicator visible.
 - If in doubt, leave spoken transcription off. Your text conversations work either way.
 
 [ ] I understand, and I will obtain any consent my local law requires.
 [ ] Not now – keep spoken transcription off. (You can turn it on later in Settings.)
 
-Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.
+Legal note: Capturing the spoken word – including to turn it into text – can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person capturing the conversation on this Mac, you are responsible for compliance. Creative Machines never receives your audio and is not a party to it.
 """,
 )
