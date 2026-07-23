@@ -48,6 +48,35 @@ from .threader import (
 
 logger = logging.getLogger(__name__)
 
+# Channel key for the conversation-hydration progress signal (BUG-037).
+_CONV_CHANNEL = "imessage"
+
+
+def _bump_conversation_progress(delta: int = 1) -> None:
+    """Bump this channel's `done` counter in the conversation-hydration
+    signal (~/.ostler/state/conversation_hydration.json) so the CM044
+    "still settling in" panel shows climbing progress as the background
+    feed drains the backlog. Best-effort: the install seeds the helper to
+    ~/.ostler/lib; if it is absent (dev run, or the install seed did not
+    run) the feed still works, only the panel dot is skipped. Never raises.
+    """
+    try:
+        import importlib.util
+
+        override = os.getenv("OSTLER_CONVERSATION_HYDRATION_HELPER")
+        candidates = [override] if override else []
+        candidates.append(str(Path.home() / ".ostler" / "lib" / "conversation_hydration.py"))
+        for cand in candidates:
+            if cand and Path(cand).is_file():
+                spec = importlib.util.spec_from_file_location("ostler_conv_hydration", cand)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    mod.bump_done_safe(_CONV_CHANNEL, delta)
+                return
+    except Exception:  # noqa: BLE001 -- progress signal is never load-bearing
+        return
+
 
 # Engine-zone state under ~/.ostler/ (two-zone architecture). The
 # watermark records the highest message ROWID processed per chat.
@@ -249,6 +278,8 @@ def process_imessage(
             )
             if rc == 0:
                 dispatched += 1
+                if not dry_run:
+                    _bump_conversation_progress(1)
             else:
                 failed += 1
                 # Don't advance the watermark past a failed session so

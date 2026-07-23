@@ -447,6 +447,12 @@ MSG_WARN_DEDUPE_INCOMPLETE="Whole-graph dedupe pass did not complete cleanly (se
 MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP="Duplicate contacts fully merged during install; no background catch-up needed"
 MSG_OK_DEDUPE_CATCHUP_LOADED="Background contact-dedupe LaunchAgent loaded (finishes merging duplicates after install, then stops)"
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="Background contact-dedupe LaunchAgent could not be loaded. Duplicates will still be merged by the daily maintenance pass; it will simply take longer to settle."
+# ── Conversation hydration seed (BUG-037: background enrichment) ──
+MSG_PROGRESS_CONV_SEED="Getting your conversations ready"
+MSG_INFO_CONV_SEED_QUEUED="Queued %s conversations from %s to read through in the background -- you do not need to wait for this."
+MSG_INFO_CONV_SEED_DRAINS_BACKGROUND="Ostler will read through your conversations in the background over the next few hours. You can start using it straight away; it gets sharper as it finishes."
+MSG_INFO_CONV_SEED_NONE="No conversations to read through yet -- they will be picked up automatically as they arrive."
+MSG_WARN_CONV_SEED_SIGNAL_FAILED="Could not write the conversation-progress signal; the background feeds still run, the settling-in panel just will not show a live count."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="Wiki-recompile LaunchAgent loaded (label com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki-recompile scripts bundled with installer"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-recompile scripts cloned from %s"

@@ -11935,6 +11935,144 @@ if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECI
     _install_conversation_feed imessage services/imessage_source "pyyaml"
 fi
 
+# ── 3.14c-seed  Conversation-hydration progress signal (BUG-037) ──
+#
+# BUG-037 (Andy 2026-06-25): the conversation feeds above each run ~6 LLM
+# calls per conversation across the whole backlog -- a MULTI-HOUR grind.
+# The agreed fix is NOT to drain that synchronously in the installer. The
+# four bundle LaunchAgents installed above ALREADY do the heavy enrichment
+# in the background (RunAtLoad + a 15-minute cadence + a per-chat watermark
+# + the shared single-flight Ollama lock + the resource-tier governor), so
+# the install must just REACH THE PAIR-QR -- in minutes, not hours -- and
+# let the feeds drain over hours/days.
+#
+# What the installer DOES do here, in seconds and with NO LLM calls:
+#   1. Cheaply count the QUEUED backlog per channel (a sqlite row count for
+#      iMessage, a file count for the others -- never a body read, never a
+#      summary) and SEED ~/.ostler/state/conversation_hydration.json. This
+#      is the sibling of wiki_hydration.json and the small "queued + done
+#      per channel" signal the CM044 "still settling in" panel (BUG-039,
+#      separate agent) reads to show real, climbing progress.
+#   2. Copy the shared progress helper to ~/.ostler/lib so the background
+#      feeds (running long after install) can bump the per-channel `done`
+#      counter as each conversation is processed -- the per-conversation
+#      heartbeat the panel needs.
+#   3. Tell the customer, in plain words, that this happens in the
+#      background and they can start using Ostler straight away.
+#
+# Best-effort throughout: a failed probe or signal-write must NEVER abort
+# the install (warn-not-abort, same posture as the feeds themselves). The
+# counts are CAPPED so the probe itself is fast on a huge history.
+progress "$MSG_PROGRESS_CONV_SEED" "conversation_seed"
+
+# Resolve the shared helper (bundled / dev / post-install re-run), same
+# fallback chain as write_pipeline_signals.py / progress_emitter.sh.
+_conv_seed_helper=""
+if [[ -n "${OSTLER_CONVERSATION_HYDRATION_HELPER:-}" && -f "${OSTLER_CONVERSATION_HYDRATION_HELPER}" ]]; then
+    _conv_seed_helper="${OSTLER_CONVERSATION_HYDRATION_HELPER}"
+elif [[ -f "${SCRIPT_DIR}/lib/conversation_hydration.py" ]]; then
+    _conv_seed_helper="${SCRIPT_DIR}/lib/conversation_hydration.py"
+elif [[ -f "${SCRIPT_DIR}/../lib/conversation_hydration.py" ]]; then
+    _conv_seed_helper="${SCRIPT_DIR}/../lib/conversation_hydration.py"
+elif [[ -f "${HOME}/.ostler/lib/conversation_hydration.py" ]]; then
+    _conv_seed_helper="${HOME}/.ostler/lib/conversation_hydration.py"
+fi
+
+# Stage the helper into ~/.ostler/lib so the background feed agents can
+# bump the `done` counter on every tick (they run from their own service
+# dirs, long after SCRIPT_DIR may be gone). Best-effort copy.
+if [[ -n "$_conv_seed_helper" ]]; then
+    mkdir -p "${HOME}/.ostler/lib" 2>/dev/null || true
+    if [[ "$_conv_seed_helper" != "${HOME}/.ostler/lib/conversation_hydration.py" ]]; then
+        cp -f "$_conv_seed_helper" "${HOME}/.ostler/lib/conversation_hydration.py" 2>/dev/null || true
+    fi
+fi
+
+# State dir is the engine-zone sibling of wiki_hydration.json. The feeds
+# read the same OSTLER_STATE_DIR, so seed + bump agree on one path.
+_CONV_SEED_STATE_DIR="${OSTLER_STATE_DIR:-${HOME}/.ostler/state}"
+_CONV_SEED_FILE="${_CONV_SEED_STATE_DIR}/conversation_hydration.json"
+_CONV_SEED_TOTAL=0
+
+# Seed one channel: $1 = channel key, $2 = queued count (integer >= 0).
+# Skips channels with a zero backlog so the panel never shows an empty row
+# for a source the customer does not have. Never fatal.
+_conv_seed_channel() {
+    local _ch="$1" _queued="$2"
+    [[ "$_queued" =~ ^[0-9]+$ ]] || _queued=0
+    [[ "$_queued" -gt 0 ]] || return 0
+    if [[ -n "$_conv_seed_helper" ]]; then
+        if python3 "$_conv_seed_helper" --output "$_CONV_SEED_FILE" \
+                seed --channel "$_ch" --queued "$_queued" 2>/dev/null; then
+            _CONV_SEED_TOTAL=$(( _CONV_SEED_TOTAL + _queued ))
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Cheap, capped backlog probes. NONE of these read a message body or call
+# an LLM -- they count rows/files only, so they finish in well under a
+# second even on a large history. The cap (5000) bounds the count for the
+# panel's denominator; the feeds drain everything regardless.
+_CONV_SEED_CAP=5000
+
+# iMessage: distinct chats with at least one message in the feed's default
+# 30-day window. Gated identically to the iMessage feed above.
+if [[ -f "${HOME}/Library/Messages/chat.db" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+    _conv_imsg_n="$(sqlite3 -readonly "${HOME}/Library/Messages/chat.db" \
+        "SELECT COUNT(*) FROM (SELECT DISTINCT m.handle_id FROM message m WHERE m.date/1000000000 + 978307200 >= strftime('%s','now','-30 days') LIMIT ${_CONV_SEED_CAP});" \
+        2>/dev/null || echo 0)"
+    [[ "$_conv_imsg_n" =~ ^[0-9]+$ ]] || _conv_imsg_n=0
+    _conv_seed_channel imessage "$_conv_imsg_n" || true
+    unset _conv_imsg_n
+fi
+
+# WhatsApp: gated on the same channel+consent as its feed. Count staged
+# chat exports if present (best-effort; the WhatsApp store layout varies).
+if [[ "${CHANNEL_WHATSAPP_ENABLED:-false}" == true && "${CHANNEL_WHATSAPP_CONSENT_ACCEPTED:-false}" == true ]]; then
+    _conv_wa_n="$(find "${HOME}/.ostler/imports/whatsapp" -maxdepth 2 -type f \
+        \( -name '*.txt' -o -name '*.json' \) 2>/dev/null | head -n "$_CONV_SEED_CAP" | wc -l | tr -d ' ')"
+    [[ "$_conv_wa_n" =~ ^[0-9]+$ ]] || _conv_wa_n=0
+    _conv_seed_channel whatsapp "$_conv_wa_n" || true
+    unset _conv_wa_n
+fi
+
+# Email: gated on Apple Mail present + third-party consent (its feed's
+# gate). Count messages staged for ingest (mbox/emlx under imports/email).
+if [[ -d "${HOME}/Library/Mail" && "$OSTLER_CONSENT_THIRD_PARTY_DECISION" == "accepted" ]]; then
+    _conv_em_n="$(find "${HOME}/.ostler/imports/email" -maxdepth 3 -type f \
+        \( -name '*.emlx' -o -name '*.mbox' -o -name '*.eml' \) 2>/dev/null | head -n "$_CONV_SEED_CAP" | wc -l | tr -d ' ')"
+    [[ "$_conv_em_n" =~ ^[0-9]+$ ]] || _conv_em_n=0
+    _conv_seed_channel email "$_conv_em_n" || true
+    unset _conv_em_n
+fi
+
+# Meeting / voice: source-presence gate (the Transcripts dir), same as its
+# feed. Count transcript files.
+if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
+    _conv_sp_n="$(find "${USER_FACING_ROOT}/Transcripts" -maxdepth 3 -type f \
+        \( -name '*.txt' -o -name '*.md' -o -name '*.json' -o -name '*.vtt' \) 2>/dev/null | head -n "$_CONV_SEED_CAP" | wc -l | tr -d ' ')"
+    [[ "$_conv_sp_n" =~ ^[0-9]+$ ]] || _conv_sp_n=0
+    _conv_seed_channel spoken "$_conv_sp_n" || true
+    unset _conv_sp_n
+fi
+
+# One plain-English summary line so the customer understands the feeds run
+# in the background and the install is NOT stuck (the BUG-037 symptom).
+if [[ "$_CONV_SEED_TOTAL" -gt 0 ]]; then
+    info "$(printf "$MSG_INFO_CONV_SEED_QUEUED" "${_CONV_SEED_TOTAL}" "$(printf '%s' "${USER_NAME:-your Mac}")")"
+    info "$MSG_INFO_CONV_SEED_DRAINS_BACKGROUND"
+    gui_emit CONVERSATION_HYDRATION_SEEDED "queued=${_CONV_SEED_TOTAL}"
+elif [[ -z "$_conv_seed_helper" ]]; then
+    warn "$MSG_WARN_CONV_SEED_SIGNAL_FAILED"
+else
+    info "$MSG_INFO_CONV_SEED_NONE"
+fi
+
+unset _conv_seed_helper _CONV_SEED_STATE_DIR _CONV_SEED_FILE _CONV_SEED_TOTAL _CONV_SEED_CAP
+unset -f _conv_seed_channel 2>/dev/null || true
+
 # ── 3.14a-probe Mail content probe + sidecar (#259) ─────────────
 #
 # Writes the install-time half of ~/.ostler/state/pipeline_signals.json
