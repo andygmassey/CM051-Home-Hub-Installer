@@ -331,7 +331,7 @@ MSG_WARN_SPOKEN_SOURCE_FAILED="Meeting and voice conversation reader install fai
 MSG_WARN_SPOKEN_SOURCE_SRC_NOT_FOUND="Meeting and voice conversation reader source not found; skipping the feed."
 MSG_WARN_SPOKEN_BUNDLE_VENDOR_MISSING="Meeting and voice conversation feed package not found in this installer; skipping."
 MSG_OK_SPOKEN_BUNDLE_LOADED="Meeting and voice conversation feed LaunchAgent loaded (label com.creativemachines.ostler.spoken-bundle)"
-MSG_INFO_SPOKEN_BUNDLE_TICK="  Turns your own recorded meetings and voice notes into searchable conversations; everything stays on your Mac."
+MSG_INFO_SPOKEN_BUNDLE_TICK="  Transcribes your own meetings and voice notes into searchable conversations; everything stays on your Mac."
 MSG_INFO_SPOKEN_BUNDLE_LOGS="  Logs: %s/spoken-bundle.log and spoken-bundle.err"
 MSG_WARN_SPOKEN_BUNDLE_FAILED="Meeting and voice conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
 # iMessage body feed (Messages chat.db). Reads recent threads (about the last month).
@@ -956,7 +956,7 @@ MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
 MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
 MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
 
-MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on your call recordings?"
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
