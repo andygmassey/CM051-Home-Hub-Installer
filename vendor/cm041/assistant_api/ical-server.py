@@ -532,6 +532,16 @@ PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
 # every owner-scoped read would silently return empty. Empty stays empty so
 # the existing degraded-when-USER_ID-unset path is preserved (normalise folds
 # "" -> the "primary" label, which is wrong for a graph IRI here).
+#
+# This is a MODULE-LEVEL import that runs at import time, before any request
+# handler executes. ``_ensure_pipeline_on_path()`` (which puts the
+# import-pipeline roots -- where ``identity_resolver`` lives -- onto sys.path)
+# is otherwise only called inside the request handlers, so without the call
+# below the package is not importable here and the whole module fails to load
+# with ``ModuleNotFoundError`` in a launchd crash-loop. Prime the path first.
+# (``identity_resolver/__init__`` is lazy, so importing the stdlib-only
+# ``.compartment`` submodule does NOT pull httpx/phonenumbers.)
+_ensure_pipeline_on_path()
 from identity_resolver.compartment import normalise_user_id as _normalise_user_id
 
 _raw_user_id = os.environ.get("USER_ID", "").strip()
