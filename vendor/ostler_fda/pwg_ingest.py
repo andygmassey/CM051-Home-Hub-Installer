@@ -851,6 +851,9 @@ BROWSING_QDRANT_COLLECTION = os.getenv(
 # thousands of visits; 200 is Qdrant's tested upsert chunk.
 _BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
 _BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
+# nomic-embed-text emits 768-dim vectors; fallback used only when no
+# live embedding length is available to size a fresh collection.
+BROWSING_EMBED_DIM = int(os.getenv("BROWSING_EMBED_DIM", "768"))
 
 # Sensitive-domain blocklist. Substring match on the lowercased domain
 # so subdomains (e.g. secure.bank.example.com) are caught too.
@@ -1127,6 +1130,24 @@ def ingest_browser_history(fda_dir: Path) -> dict:
     sent = 0
     try:
         vectors = _ollama_embed_batch([item["doc"] for item in queue])
+
+        # Self-create the target collection before upserting. On a fresh
+        # single-Mac install nothing pre-creates Qdrant collections, and a
+        # bare PUT of points into a missing collection lands 0 rows (Qdrant
+        # does NOT auto-create). Without this the writer embedded all
+        # 11k+ visits and reported sent=0 / status=error, leaving the CM044
+        # Browsing wing permanently empty -- the exact silent-fail the
+        # bookmarks + people ingestors below already guard against with the
+        # same _qdrant_ensure_collection call. Size from the first real
+        # embedding; fall back to the nomic-embed-text default if nothing
+        # embedded (an all-empty vectors run is handled as 0-landed below).
+        vector_size = BROWSING_EMBED_DIM
+        for vec in vectors:
+            if vec:
+                vector_size = len(vec)
+                break
+        _qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION, vector_size)
+
         points = [
             {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
             for item, vec in zip(queue, vectors)
