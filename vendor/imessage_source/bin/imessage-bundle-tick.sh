@@ -21,6 +21,48 @@ SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
 SINCE_DAYS="${OSTLER_IMESSAGE_SINCE_DAYS:-30}"
 USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
 
+# --- Config + Full Disk Access preflight (v1.0.10) -------------------
+# The daemon forks this wrapper via `run-source imessage`. Two failure
+# modes used to die with EMPTY logs: (1) a missing/broken required env
+# and (2) chat.db unreadable because Full Disk Access was never granted
+# to the FDA-holding daemon. Both now LOG a clear reason before exiting,
+# so the launchd .err log and Doctor are never left blank.
+#
+# EX_CONFIG (78) is the sysexits code for a configuration problem; we
+# exit it EXPLICITLY, with a logged reason, on the config-precondition
+# failures below (was previously a bare `set -e` death or a silent
+# daemon-side 78). The LaunchAgent is StartInterval-scheduled (900s) with
+# NO KeepAlive, so a non-zero exit backs off to the next 15-minute tick
+# rather than spinning in a tight restart loop.
+EX_CONFIG=78
+CHAT_DB="${OSTLER_IMESSAGE_CHAT_DB:-$HOME/Library/Messages/chat.db}"
+
+if [ -z "${OSTLER_USER_ID:-}" ]; then
+    echo "imessage-bundle tick: EX_CONFIG (78) -- OSTLER_USER_ID is empty; the plist must render OSTLER_USER_ID_VALUE. Refusing to run an unscoped ingest." >&2
+    exit "$EX_CONFIG"
+fi
+if [ ! -d "$SOURCE_DIR" ]; then
+    echo "imessage-bundle tick: EX_CONFIG (78) -- source dir not found at '${SOURCE_DIR}' (OSTLER_SOURCE_DIR). The installer render did not land." >&2
+    exit "$EX_CONFIG"
+fi
+
+# Full Disk Access probe: actually READ the first byte of chat.db.
+# `head -c 1` returns non-zero on a macOS TCC 'authorization denied'
+# open(), unlike `[ -r ]` / `ls` which only test the parent directory
+# entry -- the same honest probe install.sh uses for the installer's own
+# FDA. This GATES the ingest pass: no point handing the pipeline a DB it
+# cannot open, and doing the check here keeps the reason in this feed's
+# own log rather than a bare daemon-side EX_CONFIG.
+if [ ! -e "$CHAT_DB" ]; then
+    echo "imessage-bundle tick: chat.db not present at ${CHAT_DB} (Messages never used on this Mac?); nothing to ingest. Backing off to the next interval." >&2
+    exit 0
+fi
+if ! head -c 1 "$CHAT_DB" >/dev/null 2>&1; then
+    echo "imessage-bundle tick: EX_CONFIG (78) -- cannot read ${CHAT_DB}: Full Disk Access is not granted to the Ostler Hub. Grant it in System Settings > Privacy & Security > Full Disk Access, then wait for the next tick. Backing off to the next 15-minute interval (StartInterval, no restart loop)." >&2
+    exit "$EX_CONFIG"
+fi
+# --------------------------------------------------------------------
+
 # --- Interactive-chat priority yield (v1.0.3 chat-saturation fix) ----
 # Live chat (the Hub app's /ws/chat AND iMessage / WhatsApp / email
 # replies, all routed through the daemon's agent turn) must win the one
@@ -207,4 +249,20 @@ cd "$SOURCE_DIR"
 # Run as a module so the package-relative imports resolve. SOURCE_DIR
 # is the parent of the `services/` tree on the Hub install layout.
 # (No exec -- we keep the shell alive so the EXIT trap releases the lock.)
+#
+# Capture the exit code instead of letting `set -e` kill the wrapper
+# silently: the pipeline logs its own reason to stderr, but we add a
+# one-line summary keyed on the exit code so the feed's .err log always
+# names WHY the tick failed (chat.db read denied = 2, db not found = 1).
+set +e
 "$PYTHON_BIN" -m services.imessage_source.pipeline "${ARGS[@]}"
+_pipeline_rc=$?
+set -e
+if [ "$_pipeline_rc" -ne 0 ]; then
+    case "$_pipeline_rc" in
+        2) echo "imessage-bundle tick: pipeline exit 2 -- chat.db read denied (Full Disk Access). Grant it to the Ostler Hub; retry next interval." >&2 ;;
+        1) echo "imessage-bundle tick: pipeline exit 1 -- chat.db not found. See the message above." >&2 ;;
+        *) echo "imessage-bundle tick: pipeline exit ${_pipeline_rc}. See the message above for the reason." >&2 ;;
+    esac
+fi
+exit "$_pipeline_rc"

@@ -116,6 +116,8 @@ MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="AC-only hub (no battery det
 MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub power scripts not bundled with installer."
 MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installer; using vendored source."
 MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; iOS Companion endpoints will be limited."
+MSG_INFO_ICAL_SERVER_DEPS_INSTALLING="Installing Assistant API runtime dependencies (phonenumbers, httpx)..."
+MSG_WARN_ICAL_SERVER_DEPS_FAILED="Could not install Assistant API runtime dependencies (phonenumbers/httpx); People and Timeline may stay empty until the next install run."
 MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="When the Tailscale window appears, sign in with Apple / Google / Microsoft."
 MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="Opening Tailscale so you can sign in..."
 # WALK-1 (Wave 2.1): pre-announce the one late, optional Tailscale sign-in
@@ -172,6 +174,7 @@ MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI="Need help? Email support@ostler.ai. 
 MSG_INFO_MKDIR_P_CP_R_TMP_HUB="  mkdir -p %s && cp -R /tmp/hub-power-src/hub-power/* %s/"
 MSG_INFO_MKDIR_P_CP_R_TMP_HUB_2="  mkdir -p %s && cp -R /tmp/hub-src/email-ingest/* %s/"
 MSG_INFO_NO_CHANNELS_CONFIGURED_RUN_LATER_BIN="No channels configured. Run later: %s/bin/ostler-assistant setup channels --interactive"
+MSG_INFO_REMOVED_LEGACY_ROOT_CONFIG_TOML="Removed a stale legacy config.toml at the workspace root; the live assistant config lives under assistant-config/."
 MSG_INFO_NO_FDA_SOURCES_AVAILABLE_RIGHT_NOW="No FDA sources available right now. You can grant Full Disk Access"
 MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP="No GDPR exports found in Downloads, Desktop, or Documents."
 MSG_WARN_FOLDER_ACCESS_DENIED_SCAN="Could not read %s to look for data exports. macOS is blocking access to that folder."
@@ -579,6 +582,7 @@ MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Could not write iMessage FDA si
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="IMAP host is empty – try again."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage Automation permission: not granted (-1743)."
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="iMessage Automation permission: probe inconclusive."
+MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="iMessage history (chat.db) is not readable: Full Disk Access is not yet granted to the Ostler daemon. Reading iMessage history stays off until you grant it in System Settings > Privacy & Security > Full Disk Access."
 MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="Opening System Settings > Privacy & Security > Automation. Tick the Messages row for OstlerInstaller (or Terminal) to wire iMessage delivery up."
 MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="iMessage needs at least one allowed contact. Try again or"
 MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO="Import pipeline not available (private repo - beta testers only)."
@@ -909,12 +913,15 @@ Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them
 
 Skip any you do not use; you can always import more later."
 
-MSG_PROMPT_FILEVAULT_SKIP_TITLE="Proceed without full-disk encryption?"
-MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is off on this Mac. It is strongly recommended.
+MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
+MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
-Choose No (the recommended default) to stop here and turn FileVault on first. This is the safe choice, and the installer will exit cleanly so you can re-run it afterwards. Nothing has gone wrong.
+What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler encrypts its most sensitive databases with a passphrase regardless, but the rest of your data is only as protected as the disk itself.
 
-Choose Yes only if you understand that your Ostler data will be stored UNENCRYPTED, so anyone with physical access to this Mac can read it."
+FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
+
+Choose Yes to continue now with the disk unencrypted at rest (this is a deliberate, informed choice -- it will be recorded).
+Choose No to stop here so you can turn FileVault on first, then re-run the installer. Nothing has gone wrong either way."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
 MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
