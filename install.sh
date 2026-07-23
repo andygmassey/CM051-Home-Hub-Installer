@@ -1658,6 +1658,19 @@ gui_emit PCT "step=prereq_check" "pct=20"
 # also takes ~5 min). The wait-for-CLT loop has moved to the top of
 # the homebrew_install step (lower in this script), where it only
 # fires if CLT is still finishing.
+#
+# BW3-1 (2026-07-23): cross-process marker so the CLT focus-bounce loop
+# below (a disowned subshell) never fights an FDA/permission modal for
+# focus. A modal site touches this file for the lifetime of its dialog;
+# the loop skips its OstlerInstaller re-activation while the file exists
+# (but keeps polling, so it still exits when the CLT installer closes).
+# File-based because the loop runs in a disowned subshell that cannot see
+# later in-process variable changes; the path is expanded here so both
+# the forked subshell and the main process reference the same file. PID
+# suffix avoids collision between concurrent installs.
+OSTLER_MODAL_LOCK_FILE="${TMPDIR:-/tmp}/ostler-installer-modal-active.$$"
+rm -f "$OSTLER_MODAL_LOCK_FILE" 2>/dev/null || true
+export OSTLER_MODAL_LOCK_FILE
 CLT_INSTALL_TRIGGERED=false
 if ! /usr/bin/xcode-select -p &>/dev/null; then
     info "$MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND"
@@ -1712,6 +1725,15 @@ if ! /usr/bin/xcode-select -p &>/dev/null; then
                 # against a window that does not exist.
                 if ! pgrep -f "Install Command Line Developer Tools" >/dev/null 2>&1; then
                     break
+                fi
+                # BW3-1: never bounce focus while an FDA/permission modal
+                # is on screen -- that is the focus-fight the pile-up fix
+                # removes. Skip only the re-activation; keep polling (the
+                # pgrep break above still fires) so the loop exits promptly
+                # when the CLT installer closes.
+                if [[ -e "$OSTLER_MODAL_LOCK_FILE" ]]; then
+                    sleep 4
+                    continue
                 fi
                 osascript -e 'tell application "OstlerInstaller" to activate' 2>/dev/null || \
                     open -a "OstlerInstaller" 2>/dev/null || true
@@ -2239,6 +2261,15 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         warn "$MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL"
         warn "$MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM"
 
+        # BW3-1 (2026-07-23): hold the modal lock for the WHOLE early-FDA
+        # grant interaction -- prewarn, the send-to-Settings step, the
+        # assist modal, and the poll-until-detected re-probe below. The
+        # concurrently-running CLT focus-bounce loop skips its
+        # OstlerInstaller re-activation while this file exists, so it never
+        # yanks focus off our dialogs or off System Settings where we just
+        # sent the customer to toggle FDA. Cleared before the branch closes.
+        : > "$OSTLER_MODAL_LOCK_FILE" 2>/dev/null || true
+
         # Pre-warn modal (CX-87 shape). The crucial guidance is the
         # "Quit & Reopen" hint -- macOS fires that dialog straight after
         # the customer toggles FDA on for OstlerInstaller.app, and a
@@ -2317,11 +2348,13 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         fi
 
         # Pause briefly to let System Settings finish its window animation
-        # before raising the modal, then activate + display so the dialog
-        # renders in front of Settings (#279 z-order fix, kept verbatim).
+        # before raising the modal, then display it. BW3-2 (2026-07-23):
+        # the standalone `activate` was DROPPED here -- `display dialog` is
+        # already app-modal and frontmost, and the extra activate only
+        # yanked focus back off System Settings, where we just sent the
+        # customer to toggle FDA (the focus-steal flagged on the box-walk).
         sleep 1
         osascript \
-            -e 'tell application "System Events" to activate' \
             -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
             >/dev/null 2>&1 || true
         unset _installer_fda_msg _installer_fda_msg_esc \
@@ -2333,25 +2366,40 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         # as soon as the user toggles it on, so a direct read returns the
         # live state without re-exec. Same honest read-probe so a false
         # positive cannot creep back in.
-        sleep 2
-        _fda_early_retried=0
-        _fda_early_reok=0
-        for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
-            [[ -e "$probe" ]] || continue
-            _fda_early_retried=$((_fda_early_retried + 1))
-            if _fda_read_probe_early "$probe"; then
-                _fda_early_reok=$((_fda_early_reok + 1))
+        #
+        # BW3-6 (2026-07-23): POLL until the protected read actually
+        # succeeds rather than a single post-dismiss `sleep 2` re-probe.
+        # The customer needs several seconds to find + flip the FDA toggle
+        # after the modal appears, so a single probe reported "still needed"
+        # while the grant was seconds away (the "Done before detected"
+        # ambiguity). Cap ~40s (20 x 2s); on timeout FDA_GRANTED stays
+        # false and we fall through to the existing graceful-degrade /
+        # Doctor-card path unchanged.
+        for _fda_early_poll in $(seq 1 20); do
+            _fda_early_retried=0
+            _fda_early_reok=0
+            for probe in "${INSTALLER_FDA_PROBE_PATHS_EARLY[@]}"; do
+                [[ -e "$probe" ]] || continue
+                _fda_early_retried=$((_fda_early_retried + 1))
+                if _fda_read_probe_early "$probe"; then
+                    _fda_early_reok=$((_fda_early_reok + 1))
+                fi
+            done
+            if [[ $_fda_early_retried -gt 0 && $_fda_early_reok -eq $_fda_early_retried ]]; then
+                FDA_GRANTED=true
+                break
             fi
+            sleep 2
         done
-        if [[ $_fda_early_retried -gt 0 && $_fda_early_reok -eq $_fda_early_retried ]]; then
-            FDA_GRANTED=true
-        fi
+        unset _fda_early_poll
         if [[ "$FDA_GRANTED" == true ]]; then
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
         else
             info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
         fi
         unset _fda_early_retried _fda_early_reok
+        # BW3-1: grant interaction over -- release the CLT focus-bounce.
+        rm -f "$OSTLER_MODAL_LOCK_FILE" 2>/dev/null || true
     fi
     unset _fda_early_tried _fda_early_ok
 
@@ -3568,7 +3616,10 @@ else
     echo ""
     FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "n" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
     if [[ "${FV_CONTINUE:-n}" != "y" && "${FV_CONTINUE:-n}" != "Y" ]]; then
-        echo "  Enable FileVault first, then re-run this installer."
+        echo ""
+        echo "  Stopping here as you asked -- nothing has failed."
+        echo "  Turn FileVault on (System Settings > Privacy & Security >"
+        echo "  FileVault), then re-run this installer to continue."
         exit 1
     fi
     # v1.0.10 security lockdown: the operator explicitly chose to
@@ -7988,12 +8039,13 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             fi
 
             # Pause briefly to let System Settings finish its window
-            # animation before raising the modal, then activate +
-            # display so the dialog renders in front of Settings
-            # (same z-order fix as CX-66).
+            # animation before raising the modal, then display it. BW3-2
+            # (2026-07-23): the standalone `activate` was DROPPED --
+            # `display dialog` is already app-modal and frontmost, and the
+            # extra activate only stole focus back off System Settings
+            # where we just sent the customer to grant FDA.
             sleep 1
             osascript \
-                -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_installer_fda_msg_esc}\" with title \"${_installer_fda_title_esc}\" buttons {\"${_installer_fda_button_esc}\"} default button \"${_installer_fda_button_esc}\" ${_installer_fda_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _installer_fda_msg _installer_fda_msg_esc \
@@ -8007,19 +8059,30 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             # the live state without needing to re-exec. Use the
             # same honest read-probe as the initial check so a false
             # positive cannot creep back in.
-            sleep 2
-            FDA_REPROBE_TRIED=0
-            FDA_REPROBE_SUCCEEDED=0
-            for probe in "${FDA_PROBE_PATHS[@]}"; do
-                [[ -e "$probe" ]] || continue
-                FDA_REPROBE_TRIED=$((FDA_REPROBE_TRIED + 1))
-                if _fda_read_probe "$probe"; then
-                    FDA_REPROBE_SUCCEEDED=$((FDA_REPROBE_SUCCEEDED + 1))
+            #
+            # BW3-6 (2026-07-23): POLL until the read succeeds rather than
+            # a single post-dismiss `sleep 2` re-probe -- the customer
+            # takes several seconds to flip the toggle, so a lone probe
+            # reported "still needed" while the grant was seconds away.
+            # Cap ~40s (20 x 2s); on timeout FDA_GRANTED stays false and
+            # the existing graceful-degrade / Doctor-card path is unchanged.
+            for _fda_reprobe_poll in $(seq 1 20); do
+                FDA_REPROBE_TRIED=0
+                FDA_REPROBE_SUCCEEDED=0
+                for probe in "${FDA_PROBE_PATHS[@]}"; do
+                    [[ -e "$probe" ]] || continue
+                    FDA_REPROBE_TRIED=$((FDA_REPROBE_TRIED + 1))
+                    if _fda_read_probe "$probe"; then
+                        FDA_REPROBE_SUCCEEDED=$((FDA_REPROBE_SUCCEEDED + 1))
+                    fi
+                done
+                if [[ $FDA_REPROBE_TRIED -gt 0 && $FDA_REPROBE_SUCCEEDED -eq $FDA_REPROBE_TRIED ]]; then
+                    FDA_GRANTED=true
+                    break
                 fi
+                sleep 2
             done
-            if [[ $FDA_REPROBE_TRIED -gt 0 && $FDA_REPROBE_SUCCEEDED -eq $FDA_REPROBE_TRIED ]]; then
-                FDA_GRANTED=true
-            fi
+            unset _fda_reprobe_poll
             if [[ "$FDA_GRANTED" == true ]]; then
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
             else
@@ -8105,9 +8168,12 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             else
                 _fda_recover_icon_clause="with icon note"
             fi
+            # BW3-2 (2026-07-23): standalone `activate` DROPPED -- `display
+            # dialog` is already app-modal and frontmost; the extra activate
+            # only stole focus back off System Settings where the customer
+            # was just sent to grant FDA.
             sleep 1
             osascript \
-                -e 'tell application "System Events" to activate' \
                 -e "tell application \"System Events\" to display dialog \"${_fda_recover_msg_esc}\" with title \"${_fda_recover_title_esc}\" buttons {\"${_fda_recover_button_esc}\"} default button \"${_fda_recover_button_esc}\" ${_fda_recover_icon_clause}" \
                 >/dev/null 2>&1 || true
             unset _fda_recover_msg _fda_recover_msg_esc _fda_recover_title_esc \
@@ -8115,18 +8181,32 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
                   _fda_recover_icon_path_esc _fda_recover_icon_clause
 
             # Final re-probe after the recovery grant.
-            sleep 2
-            FDA_RECOVER_TRIED=0
-            FDA_RECOVER_SUCCEEDED=0
-            for probe in "${FDA_PROBE_PATHS[@]}"; do
-                [[ -e "$probe" ]] || continue
-                FDA_RECOVER_TRIED=$((FDA_RECOVER_TRIED + 1))
-                if _fda_read_probe "$probe"; then
-                    FDA_RECOVER_SUCCEEDED=$((FDA_RECOVER_SUCCEEDED + 1))
+            #
+            # BW3-6 (2026-07-23): POLL until the read succeeds rather than a
+            # single post-dismiss `sleep 2` re-probe. This recovery modal is
+            # the FDA prompt the NORMAL walk-away path reaches (site 1 ran, so
+            # the late-assist above is suppressed and this one fires), so the
+            # same "Done before detected" gate applies here. Cap ~40s (20 x
+            # 2s); on timeout FDA_GRANTED stays false and the graceful-degrade
+            # / Doctor-card path below is unchanged.
+            for _fda_recover_poll in $(seq 1 20); do
+                FDA_RECOVER_TRIED=0
+                FDA_RECOVER_SUCCEEDED=0
+                for probe in "${FDA_PROBE_PATHS[@]}"; do
+                    [[ -e "$probe" ]] || continue
+                    FDA_RECOVER_TRIED=$((FDA_RECOVER_TRIED + 1))
+                    if _fda_read_probe "$probe"; then
+                        FDA_RECOVER_SUCCEEDED=$((FDA_RECOVER_SUCCEEDED + 1))
+                    fi
+                done
+                if [[ $FDA_RECOVER_TRIED -gt 0 && $FDA_RECOVER_SUCCEEDED -eq $FDA_RECOVER_TRIED ]]; then
+                    FDA_GRANTED=true
+                    break
                 fi
+                sleep 2
             done
-            if [[ $FDA_RECOVER_TRIED -gt 0 && $FDA_RECOVER_SUCCEEDED -eq $FDA_RECOVER_TRIED ]]; then
-                FDA_GRANTED=true
+            unset _fda_recover_poll
+            if [[ "$FDA_GRANTED" == true ]]; then
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED"
             else
                 info "$MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED"
@@ -13427,18 +13507,16 @@ else
                 else
                     _imessage_fda_icon_clause="with icon note"
                 fi
-                # CX-66 z-order fix: System Settings was opened above, so
-                # without an explicit `activate` the dialog would render
-                # behind it. Wrapping the display dialog inside a
-                # `tell application "System Events"` block + activate
-                # brings the modal to the front of every other window
-                # so the customer can't miss it. We also pause briefly
-                # before display to let System Settings finish its
-                # window animation -- racing a half-rendered Settings
-                # pane was the original z-order risk.
+                # BW3-2 (2026-07-23): the CX-66 standalone `activate` was
+                # DROPPED here. System Settings + Finder were opened above to
+                # send the customer to drag the daemon into the FDA pane; the
+                # `activate` yanked focus straight back off them (the
+                # focus-steal flagged on the box-walk). `display dialog` run
+                # via System Events is already app-modal and frontmost, so the
+                # modal still surfaces. We keep the brief pause so the dialog
+                # does not race a half-rendered Settings pane.
                 sleep 1
                 osascript \
-                    -e 'tell application "System Events" to activate' \
                     -e "tell application \"System Events\" to display dialog \"${_imessage_fda_dialog_msg_esc}\" with title \"${_imessage_fda_title_esc}\" buttons {\"${_imessage_fda_button_esc}\"} default button \"${_imessage_fda_button_esc}\" ${_imessage_fda_icon_clause}" \
                     >/dev/null 2>&1 || true
                 unset _imessage_fda_dialog_msg _imessage_fda_dialog_msg_esc \
@@ -13457,8 +13535,25 @@ else
                 # second after the grant) is covered by the Doctor
                 # card's live re-probe (status_collector +
                 # check_imessage_fda) on next refresh.
-                sleep 2
-                if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
+                #
+                # BW3-6 (2026-07-23): POLL the daemon's TCC posture until the
+                # protected read succeeds rather than a single post-dismiss
+                # `sleep 2` re-probe -- the customer takes several seconds to
+                # drag the daemon into the FDA pane, so a lone probe reported
+                # "still needed" while the grant was seconds away. Reuses the
+                # same _imessage_daemon_fda_granted helper as the initial test.
+                # Cap ~40s (20 x 2s); on timeout the CX-60 Doctor card's live
+                # re-probe takes over as the persistent reminder (unchanged).
+                _imessage_fda_reprobe_ok=false
+                for _imessage_fda_poll in $(seq 1 20); do
+                    if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
+                        _imessage_fda_reprobe_ok=true
+                        break
+                    fi
+                    sleep 2
+                done
+                unset _imessage_fda_poll
+                if [[ "$_imessage_fda_reprobe_ok" == true ]]; then
                     _imessage_fda_needed="false"
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
                     # Kick the assistant LaunchAgent to pick up the
@@ -13469,6 +13564,7 @@ else
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
+                unset _imessage_fda_reprobe_ok
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
