@@ -13225,6 +13225,7 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
             ASSISTANT_CONFIG_DIR="$ASSISTANT_CONFIG_DIR" \
             INSTALL_WHATSAPP_KEEPALIVE="$ASSISTANT_INSTALL_KEEPALIVE" \
             OSTLER_IMESSAGE_SELF_HANDLES="$ASSISTANT_SELF_HANDLES" \
+            OSTLER_ASSISTANT_DEFER_START="true" \
             bash "${OSTLER_ASSISTANT_DIR}/INSTALL_SNIPPET.sh" 2>"$_snippet_stderr"
         ); then
             _snippet_ok=true
@@ -13316,6 +13317,43 @@ _imessage_daemon_fda_granted() {
     fi
 }
 
+# ── BW3-1 (2026-07-23): deferred assistant-daemon start ─────────────
+#
+# INSTALL_SNIPPET.sh renders the assistant LaunchAgent plist but is now
+# invoked with OSTLER_ASSISTANT_DEFER_START=true, so it does NOT bootstrap
+# the agent. The plist sets RunAtLoad=true + KeepAlive, so a bootstrap
+# there would start the daemon PROCESS immediately -- before the daemon's
+# own Full Disk Access has been granted (the daemon FDA grant flow runs
+# below). An FDA-less daemon touches ~/Documents and macOS raises the
+# per-folder Documents TCC prompt, which stacked on the FDA grant windows
+# (System Settings + Finder + the Allow/Done modal) on the .98 box-walk.
+#
+# This helper performs the deferred start. It is called ONLY after FDA has
+# been confirmed by the detection poll (the two daemon-FDA-granted sites
+# below) or, as an unconditional catch-all, at the very end of the install
+# after every permission flow has had its turn. Idempotent: the first call
+# bootstraps the agent (RunAtLoad then starts it, now with FDA); any later
+# call kickstart -k restarts it in place to pick up a grant that landed
+# after the first start (the old end-of-install `kickstart -k` intent).
+# No-op if the assistant binary was not installed or the plist was never
+# rendered.
+_ostler_start_assistant_daemon() {
+    [[ "${ASSISTANT_BINARY_INSTALLED:-false}" == true ]] || return 0
+    local _label="com.creativemachines.ostler.assistant"
+    local _domain="gui/$(id -u)"
+    local _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
+    [[ -f "$_plist" ]] || return 0
+    if [[ "${OSTLER_ASSISTANT_STARTED:-0}" == "1" ]]; then
+        launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        return 0
+    fi
+    launchctl bootout "${_domain}/${_label}" 2>/dev/null || true
+    if launchctl bootstrap "${_domain}" "$_plist" 2>/dev/null \
+       || launchctl load "$_plist" 2>/dev/null; then
+        OSTLER_ASSISTANT_STARTED=1
+    fi
+}
+
 info "$MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN"
 set +e  # CX-60: probe is best-effort; never kill the install from here
 _imessage_fda_probe_failure_line=""
@@ -13357,7 +13395,10 @@ else
         if [[ "$(_imessage_daemon_fda_granted)" == "granted" ]]; then
             _imessage_fda_needed="false"
             info "$MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED"
-            launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+            # BW3-1: daemon FDA already granted -> safe to start the deferred
+            # daemon now; it launches WITH FDA and never self-prompts for
+            # Documents. (Was a bare kickstart -k, a no-op post-deferral.)
+            _ostler_start_assistant_daemon
         else
             # The daemon-identity test above reported not-granted.
             # We still run install.sh's own read of chat.db as a
@@ -13556,11 +13597,12 @@ else
                 if [[ "$_imessage_fda_reprobe_ok" == true ]]; then
                     _imessage_fda_needed="false"
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED"
-                    # Kick the assistant LaunchAgent to pick up the
-                    # new FDA grant. launchctl kickstart -k restarts
-                    # the agent without un/re-loading, so the new
-                    # TCC posture takes effect immediately.
-                    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
+                    # BW3-1: the detection poll confirmed the daemon now holds
+                    # FDA. Start the deferred daemon now -- it launches WITH
+                    # FDA, so it never self-prompts for the Documents folder.
+                    # (Was a bare kickstart -k, a no-op post-deferral since the
+                    # agent is not bootstrapped until this point.)
+                    _ostler_start_assistant_daemon
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
@@ -17267,8 +17309,21 @@ fi
 # it can never abort a successful install.
 if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == true ]]; then
     info "$MSG_INFO_ASSISTANT_FINAL_RESTART_FDA"
-    launchctl kickstart -k "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || true
 fi
+# BW3-1 (2026-07-23): the daemon's RunAtLoad start was DEFERRED at
+# INSTALL_SNIPPET time (OSTLER_ASSISTANT_DEFER_START) so the FDA-less
+# daemon could not self-prompt for the Documents folder during the FDA
+# grant flow. Start it now -- after every permission flow (installer FDA,
+# daemon FDA, iMessage Automation, the Phase 4 health-check) has had its
+# turn. UNCONDITIONAL: non-iMessage installs previously relied on the
+# INSTALL_SNIPPET RunAtLoad start, so they must get a running daemon here
+# too. Idempotent: if a daemon-FDA-confirmed start already fired above,
+# this is a kickstart -k restart in place (the old end-of-install intent);
+# otherwise it bootstraps the agent for the first time. If the customer
+# declined / the FDA poll timed out, the daemon starts here without FDA and
+# may raise the Documents prompt once -- but ALONE, after the FDA windows
+# are gone, never stacked on them.
+_ostler_start_assistant_daemon
 
 # ── Summary ────────────────────────────────────────────────────────
 

@@ -176,7 +176,12 @@ def _stage_inputs(tmp_path: Path, *, with_binary: bool = True) -> dict:
     }
 
 
-def _run_snippet(setup: dict, *, self_handles: str | None = None) -> subprocess.CompletedProcess:
+def _run_snippet(
+    setup: dict,
+    *,
+    self_handles: str | None = None,
+    defer_start: bool | None = None,
+) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.update(
         {
@@ -190,6 +195,8 @@ def _run_snippet(setup: dict, *, self_handles: str | None = None) -> subprocess.
     )
     if self_handles is not None:
         env["OSTLER_IMESSAGE_SELF_HANDLES"] = self_handles
+    if defer_start is not None:
+        env["OSTLER_ASSISTANT_DEFER_START"] = "true" if defer_start else "false"
     return subprocess.run(
         ["bash", str(SNIPPET)],
         env=env,
@@ -261,6 +268,44 @@ def test_snippet_renders_empty_self_handles_when_unset(tmp_path):
 def test_snippet_calls_launchctl_bootstrap(tmp_path):
     setup = _stage_inputs(tmp_path)
     result = _run_snippet(setup)
+    assert result.returncode == 0, result.stderr
+
+    log = setup["launchctl_log"].read_text()
+    assert "bootstrap" in log
+    assert "com.creativemachines.ostler.assistant.plist" in log
+
+
+def test_snippet_defers_bootstrap_when_defer_start_set(tmp_path):
+    # BW3-1: with OSTLER_ASSISTANT_DEFER_START=true the snippet must render
+    # the plist but NOT bootstrap the agent, so the daemon's RunAtLoad start
+    # does not fire (and self-prompt for the Documents folder) before FDA is
+    # granted. install.sh bootstraps it later, after the FDA grant flow.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup, defer_start=True)
+    assert result.returncode == 0, result.stderr
+
+    # Plist is still rendered (so install.sh can bootstrap it later).
+    rendered = setup["home_dir"] / "Library" / "LaunchAgents" / "com.creativemachines.ostler.assistant.plist"
+    assert rendered.is_file()
+
+    # But the main agent must NOT have been bootstrapped. The only launchctl
+    # call permitted is the idempotent bootout that precedes the (skipped)
+    # bootstrap; a `bootstrap` of the assistant label would mean the deferral
+    # failed.
+    log = setup["launchctl_log"].read_text() if setup["launchctl_log"].exists() else ""
+    assert "bootstrap gui" not in log, log
+    assert "bootstrap" not in log or "bootout" in log
+    # Belt-and-braces: no line should bootstrap the assistant plist.
+    for line in log.splitlines():
+        if "bootstrap" in line:
+            assert "com.creativemachines.ostler.assistant.plist" not in line, line
+
+
+def test_snippet_bootstraps_when_defer_start_false(tmp_path):
+    # Default / explicit-false path must keep the legacy immediate bootstrap
+    # so a caller that does NOT opt into deferral is unaffected.
+    setup = _stage_inputs(tmp_path)
+    result = _run_snippet(setup, defer_start=False)
     assert result.returncode == 0, result.stderr
 
     log = setup["launchctl_log"].read_text()
