@@ -7233,24 +7233,28 @@ TOMLPREAMBLE
     # When USER_EMAIL is unknown we omit the block entirely (absent = inert),
     # never enabling a deny-all reply loop with an unknown owner.
     #
-    # v0.4.17 GATE (2026-06-18, Andy decision): the Apple Mail COMMS *reply*
-    # channel is held OFF for this cut. The live .157 walk exposed three
-    # defects in the daemon channel (ostler-assistant), all of which must be
-    # fixed + verified before re-enable:
-    #   (A) a NoReply outcome still emitted an outbound email whose body was
-    #       the internal "[No reply sent: ...]" history marker;
-    #   (B) no self-echo / owner-loop guard, so an auto-reply landing back in
-    #       the watched local mailbox can re-trigger -> a reply loop into the
-    #       operator's own inbox;
-    #   (C) on connect the channel processed the existing mail backlog
-    #       (~3 min/email, pegging Ollama) instead of only mail arriving after
-    #       start; needs a high-water-mark.
-    # We omit the [channels.apple_mail] block so the daemon ships it inert
-    # (AppleMailConfig default enabled=false). Email INGEST ([channels.email]
-    # apple_mail = true, above) is UNAFFECTED and still drains mail into the
-    # graph. Flip OSTLER_APPLE_MAIL_COMMS_GATE back to "on" (or remove this
-    # guard) once A+B+C are fixed. Tracked in ARCHIE_TNM_CHANNEL.
-    OSTLER_APPLE_MAIL_COMMS_GATE="${OSTLER_APPLE_MAIL_COMMS_GATE:-off}"
+    # v1.0.1 GATE (2026-06-22, TNM + Andy decision): the Apple Mail COMMS
+    # *reply* channel is now flipped ON. The v0.4.17 hold (2026-06-18 .157
+    # walk) gated re-enable on fixing three daemon-channel (ostler-assistant)
+    # defects; all three are now fixed + verified on ostler-assistant main:
+    #   (A) a NoReply outcome no longer emits an outbound: send() returns early
+    #       on is_no_reply_marker() BEFORE any script is built (=zero draft),
+    #       anchored to the orchestrator's exact "[No reply sent...]" shape.
+    #   (B) owner-loop is guarded: owner-only allowed_senders (is_sender_allowed)
+    #       + looks_like_self_echo recent-sent backstop + the SQL Sent/Drafts
+    #       mailbox exclusion as the primary owner-loop defence.
+    #   (C) the backlog flood is fixed: a baseline cursor at the current
+    #       MAX(ROWID) on first listen means only mail arriving after start is
+    #       processed (mirrors the iMessage init-rowid baseline), plus a
+    #       per-tick POLL_LIMIT.
+    # The reply path is draft-to-Drafts (ostler-assistant #153): the assistant
+    # composes a reply and SAVES it to Mail Drafts via osascript, it never
+    # auto-sends. Non-destructive: worst case is a junk draft the operator
+    # reviews and never sends. owner-only allowed_senders means the assistant
+    # replies solely to mail FROM the operator (no third-party auto-reply).
+    # BOX-WALK gate criterion before F&F: email yourself, confirm a draft
+    # appears in Mail Drafts and nothing is sent. Tracked in ARCHIE_TNM_CHANNEL.
+    OSTLER_APPLE_MAIL_COMMS_GATE="${OSTLER_APPLE_MAIL_COMMS_GATE:-on}"
     if [[ "$OSTLER_APPLE_MAIL_COMMS_GATE" == on \
        && "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true && -n "${USER_EMAIL:-}" ]]; then
         _apple_mail_owner_esc=$(printf '%s' "$USER_EMAIL" | sed 's/"/\\"/g')
