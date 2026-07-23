@@ -1,0 +1,3 @@
+{"subject": "Synthetic Outdoor Gear Brand", "preference_type": "Like", "category": "brand", "strength": 0.8, "source": "email_order", "observed_at": "2025-06-15T10:30:00Z", "compartment_level": 2, "email_id": "synthetic-0001", "extra": {}}
+{"subject": "Invented Travel Newsletter", "preference_type": "Like", "category": "newsletter", "strength": 0.6, "source": "email_newsletter", "observed_at": "2025-07-01T08:00:00Z", "compartment_level": 2, "email_id": "synthetic-0002", "extra": {}}
+{"subject": "Placeholder Tech Conference", "preference_type": "Like", "category": "topic", "strength": 0.7, "source": "email_marketing", "observed_at": "2025-08-10T14:15:00Z", "compartment_level": 2, "email_id": "synthetic-0003", "extra": {}}
