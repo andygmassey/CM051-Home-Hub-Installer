@@ -7306,6 +7306,43 @@ TOMLPREAMBLE
     echo "port = 8000"
     echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
 
+    # CX-WEB-DIST (#667 recurrence, .158 walk 2026-06-18): point the
+    # gateway at the bundled web dashboard so the iOS pairing QR panel
+    # and the Channels tab render instead of returning
+    #   "API 503: Web dashboard not available. Set gateway.web_dist_dir
+    #    ... and build the frontend"
+    #
+    # WHY this is needed: the gateway serves the SPA dashboard (and the
+    # static /_app/* assets the QR + Channels panes load) from a
+    # filesystem directory resolved from gateway.web_dist_dir
+    # (crates/zeroclaw-gateway/src/static_files.rs handle_spa_fallback
+    # -> 503 when web_dist_dir is None). The daemon's auto-detect only
+    # probes web/dist relative to the binary's own dir
+    # (current_exe()/web/dist) and a handful of Docker/AUR/XDG paths --
+    # NONE of which match the macOS .app layout
+    # (~/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant),
+    # and nothing set web_dist_dir, so the dashboard was dead on every
+    # fresh install. See crates/zeroclaw-gateway/src/lib.rs:828-856.
+    #
+    # The dashboard frontend (web/dist) ships INSIDE the .app bundle
+    # under Contents/Resources/web/dist -- this is the macOS-convention
+    # location for bundled non-executable resources, a sibling of the
+    # Contents/MacOS dir that holds the binary. The matching daemon-side
+    # change (build-binary.sh copies web/dist into the bundle) is
+    # tracked as the ostler-assistant half of this fix; see
+    # OSTLER_ASSISTANT_DAEMON_DEP below.
+    #
+    # DEPENDENCY (OSTLER_ASSISTANT_DAEMON_DEP): this config line is
+    # harmless-but-inert until the shipped OstlerAssistant.app actually
+    # carries Contents/Resources/web/dist/index.html. Until the daemon
+    # build bundles it, the path below does not exist and the gateway
+    # still 503s (its auto-detect already failed). Setting it now means
+    # the install side is correct the instant the bundling lands -- no
+    # second install.sh edit needed -- and the gate probe (CM051
+    # tests/test_gateway_web_dist_dir_configured.sh) keeps both halves
+    # honest.
+    echo "web_dist_dir = \"${OSTLER_DIR}/OstlerAssistant.app/Contents/Resources/web/dist\""
+
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has
     # Vane running AND the assistant supports Vane (ostler-assistant
