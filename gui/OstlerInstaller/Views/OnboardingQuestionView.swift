@@ -129,6 +129,8 @@ struct OnboardingQuestionView: View {
                 consentThirdPartyBody()
             } else if q.prompt.id == "consent_article_9" {
                 consentArticle9Body()
+            } else if q.prompt.id == "consent_spoken_capture" {
+                consentSpokenCaptureBody()
             } else if q.prompt.id == "passkey_ack" {
                 passkeyAckBody()
             } else if q.prompt.id == "recovery_passphrase" {
@@ -333,6 +335,54 @@ struct OnboardingQuestionView: View {
     private func consentArticle9Body() -> some View {
         let intro = ViewCopy.shared.string(for: "consent_article_9.intro_body")
         let legal = ViewCopy.shared.string(for: "consent_article_9.legal_note")
+        return VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(linkifiedHelp(intro))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(linkifiedHelp(legal))
+                .font(.ostlerCaption.italic())
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// consent_spoken_capture (region-agnostic spoken-transcription
+    /// consent) body. BW3-8 / BW3-9 fix (v1.0.10, 2026-07-23).
+    ///
+    /// BW3-8 (styling): before this, the prompt fell through to the
+    /// generic `else if let help = q.prompt.help` path, which rendered
+    /// the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP string --
+    /// intro + "what we ask" bullets + "Legal note:" fine print -- as
+    /// ONE equal-weight `.ostlerBodyLg` Text() view with no visual
+    /// subordination of the statute fine-print. Sister to
+    /// consentThirdPartyBody() / consentArticle9Body(): the screen now
+    /// splits into two Text() views fed from ViewCopy keys (Rule 0.9
+    /// catalogue):
+    ///   - intro_body  (standard body copy: explanation + bullets)
+    ///   - legal_note  (smaller, italic, .secondary-coloured fine
+    ///                  print: the DE StGB s201 / FR Penal Code 226-1
+    ///                  national-law note, pinned to the operator)
+    ///
+    /// BW3-9 (reframe): the catalogue strings purge "record/recording"
+    /// in favour of "capture / turn into text", so the copy does not
+    /// adopt the *recording*-law framing the product posture is built
+    /// to stay clear of. The audio-retention sentence reflects the
+    /// verified CM042 default (deleteAfterTranscription) rather than an
+    /// unconditional "never keeps audio" claim.
+    ///
+    /// The yes/no toggle + Continue button rendered by the standard
+    /// body carry the actual consent decision, so intro_body omits the
+    /// TTY-only "[ ] I understand / [ ] Not now" block (mirroring how
+    /// consentThirdPartyBody / consentArticle9Body omit theirs).
+    ///
+    /// Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so
+    /// the TTY install path still renders the full text inline.
+    private func consentSpokenCaptureBody() -> some View {
+        let intro = ViewCopy.shared.string(for: "consent_spoken_capture.intro_body")
+        let legal = ViewCopy.shared.string(for: "consent_spoken_capture.legal_note")
         return VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(linkifiedHelp(intro))
                 .font(.ostlerBodyLg)
