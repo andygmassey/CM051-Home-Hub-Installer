@@ -153,8 +153,12 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'x-apple.systempreferences.*Privacy
     echo "FAIL [case-6]: assist block missing System Settings deep-link" >&2
     exit 1
 fi
-# Block must reveal the daemon binary in Finder
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -R.*ostler-assistant'; then
+# Block must reveal the daemon .app bundle in Finder. The reveal target
+# is the OstlerAssistant.app bundle (via $ASSISTANT_APP_BUNDLE) so the
+# customer can drag the app itself into the FDA pane; earlier revisions
+# revealed the bare ostler-assistant binary path, hence the historical
+# grep -- updated to the current .app-bundle reveal.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -R.*ASSISTANT_APP_BUNDLE'; then
     echo "FAIL [case-6]: assist block missing Finder reveal" >&2
     exit 1
 fi
@@ -168,9 +172,12 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'display dialog'; then
     echo "FAIL [case-6]: assist block missing display dialog AppleScript" >&2
     exit 1
 fi
-# z-order fix: must bring dialog to front before/around display
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'System Events.*activate'; then
-    echo "FAIL [case-6]: assist block missing z-order activate" >&2
+# z-order: the dialog must be surfaced frontmost. BW3-2 (2026-07-23)
+# dropped the standalone `activate` (it stole focus back off System
+# Settings/Finder); the dialog is now run THROUGH System Events, which
+# is app-modal and frontmost on its own. Lock that mechanism.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'System Events.*display dialog'; then
+    echo "FAIL [case-6]: assist block missing System Events frontmost dialog" >&2
     exit 1
 fi
 # Block must re-probe chat.db after dialog dismissal
@@ -178,9 +185,13 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'sleep 2' ; then
     echo "FAIL [case-6]: assist block missing re-probe sleep" >&2
     exit 1
 fi
-# Block must launchctl kickstart the assistant LaunchAgent on success
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'launchctl kickstart.*com.creativemachines.ostler.assistant'; then
-    echo "FAIL [case-6]: assist block missing LaunchAgent kickstart" >&2
+# Block must start the assistant daemon on success. BW3-1 (2026-07-23)
+# replaced the inline `launchctl kickstart` with the deferred-start
+# helper _ostler_start_assistant_daemon (it bootstraps the LaunchAgent
+# on first call now that RunAtLoad is deferred until FDA lands, and
+# kickstart -k's it on subsequent calls). Lock the helper call.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q '_ostler_start_assistant_daemon'; then
+    echo "FAIL [case-6]: assist block missing assistant-daemon start on success" >&2
     exit 1
 fi
 echo "PASS [case-6]: assist block has all 6 required components"
@@ -305,5 +316,64 @@ if ! file "$DIALOG_ICNS" 2>/dev/null | grep -q "Mac OS X icon"; then
 fi
 echo "PASS [case-9]: DialogIcon.icns asset bundled + parses as valid .icns"
 
+# ── Case 10 (BW4-A): TCC auto-register nudge before the FDA pane ──
+# Box-walk (.184): OstlerAssistant did not auto-list in the FDA pane
+# because no read had ever been attributed to ai.ostler.assistant. The
+# fix launches the daemon .app via LaunchServices with the one-shot
+# `run-source imessage --self-test` probe BEFORE opening the pane, so
+# macOS registers the daemon as a toggleable row. Lock its shape.
+#
+# The nudge lives inside the CX-66 assist block; reuse ASSIST_BLOCK
+# extracted in case-6.
+# Must launch the assistant .app bundle via LaunchServices (`open`),
+# NOT a bare fork/exec (which TCC attributes to the installer ancestor).
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -gjnW -a "\$ASSISTANT_APP_BUNDLE"'; then
+    echo "FAIL [case-10]: register nudge missing LaunchServices open of the assistant .app" >&2
+    exit 1
+fi
+# Must hand it the one-shot self-test probe (attributes a chat.db read
+# to ai.ostler.assistant; exits immediately; never touches ~/Documents).
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'run-source imessage --self-test'; then
+    echo "FAIL [case-10]: register nudge missing 'run-source imessage --self-test' probe" >&2
+    exit 1
+fi
+# The nudge must run BEFORE the System Settings pane is opened, so the
+# row is already registered when the customer looks. Assert ordering:
+# the open-assistant line precedes the x-apple deep-link line.
+NUDGE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'run-source imessage --self-test' | head -1 | cut -d: -f1)
+PANE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'x-apple.systempreferences.*Privacy_AllFiles' | head -1 | cut -d: -f1)
+if [[ -z "$NUDGE_LINE" || -z "$PANE_LINE" ]]; then
+    echo "FAIL [case-10]: could not measure nudge vs pane ordering" >&2
+    exit 1
+fi
+if (( NUDGE_LINE >= PANE_LINE )); then
+    echo "FAIL [case-10]: register nudge ($NUDGE_LINE) must precede opening the FDA pane ($PANE_LINE)" >&2
+    exit 1
+fi
+# Must NOT bootstrap/load the persistent LaunchAgent as part of the nudge
+# (that would reintroduce the #428 pre-FDA crash-loop). The only
+# launchctl start of the assistant stays in _ostler_start_assistant_daemon,
+# which is gated behind FDA-confirmed -- assert the nudge block itself
+# carries no launchctl bootstrap/load of the assistant label.
+NUDGE_BLOCK=$(awk '
+    /BW4-A .2026-07-24.: TCC auto-register nudge/ { in_block=1 }
+    in_block && /FDA_PANE_REFRESH/ { exit }
+    in_block { print }
+' "$INSTALL_SH")
+if [[ -z "$NUDGE_BLOCK" ]]; then
+    echo "FAIL [case-10]: could not extract BW4-A nudge block" >&2
+    exit 1
+fi
+if printf '%s\n' "$NUDGE_BLOCK" | grep -Eq 'launchctl (bootstrap|load|kickstart)'; then
+    echo "FAIL [case-10]: nudge block must not bootstrap the persistent daemon (would risk #428 crash-loop)" >&2
+    exit 1
+fi
+# Catalogue must carry the nudge log string.
+if ! grep -q "^MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE=" "$STRINGS_FILE"; then
+    echo "FAIL [case-10]: catalogue missing MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE" >&2
+    exit 1
+fi
+echo "PASS [case-10]: BW4-A register nudge present, ordered before the pane, crash-loop-safe"
+
 echo ""
-echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b IMESSAGE FDA PROBE TESTS PASSED"
+echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A IMESSAGE FDA PROBE TESTS PASSED"

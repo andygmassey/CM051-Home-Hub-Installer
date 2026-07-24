@@ -13523,6 +13523,61 @@ else
                 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
 
+                # BW4-A (2026-07-24): TCC auto-register nudge for the daemon.
+                #
+                # Box-walk (.184) finding: at this daemon-FDA step OstlerAssistant
+                # did NOT appear as a ready-to-toggle (greyed) row in System
+                # Settings -> Full Disk Access -- only OstlerInstaller (already
+                # granted) was listed -- so the customer was forced to drag the
+                # .app in from Finder. macOS lists an app in the FDA pane only
+                # once THAT app's code-signing identity has *attempted* an
+                # FDA-gated read; a denied attempt is enough to register the
+                # greyed toggle. install.sh's own chat.db probe above is
+                # attributed by TCC to OstlerInstaller (the responsible-process
+                # ancestor of the forked sqlite3 / helper), NOT to the daemon
+                # identity ai.ostler.assistant -- so the daemon never got listed.
+                # BW3-1 also (correctly, #428) defers the persistent daemon
+                # LaunchAgent until AFTER FDA is granted, so nothing else runs as
+                # ai.ostler.assistant pre-grant to trigger the listing either.
+                #
+                # Fix: BEFORE opening the FDA pane, launch OstlerAssistant.app
+                # via LaunchServices (`open`) so the app is its OWN responsible
+                # process, and hand it the one-shot `run-source imessage
+                # --self-test` FDA-continuity probe. That subcommand opens
+                # ~/Library/Messages/chat.db read-only, reads a few bytes, prints
+                # OK/DENIED and EXITS -- it early-returns before any config load,
+                # logging init or daemon/agent bootstrap, touches ONLY chat.db
+                # (never ~/Documents), and has no KeepAlive. Pre-grant it simply
+                # gets denied -- and that denied read is exactly what makes macOS
+                # register ai.ostler.assistant in the FDA pane as a toggleable
+                # row. The customer then just flips the switch; the Finder-drag
+                # (below) stays as the fallback for any macOS where the row still
+                # doesn't auto-appear.
+                #
+                # Why this does NOT reintroduce the #428 pre-FDA crash-loop: #428
+                # was the *persistent* RunAtLoad+KeepAlive daemon starting
+                # pre-FDA, touching ~/Documents and looping on the Documents TCC
+                # prompt. This is a distinct, short-lived one-shot that self-exits
+                # in milliseconds, never bootstraps the LaunchAgent, and never
+                # touches ~/Documents -- so there is no KeepAlive to loop and no
+                # Documents prompt to raise. The deferred persistent-daemon start
+                # (_ostler_start_assistant_daemon) remains gated behind
+                # FDA-confirmed exactly as BW3-1 left it -- untouched here.
+                #
+                # Flags: -n forces a FRESH instance (so -W waits only on our
+                # one-shot, never on a pre-existing long-running daemon), -g/-j
+                # launch it in the background hidden (no focus-steal, matching the
+                # BW3-2 focus posture), -W blocks until the probe exits so the row
+                # is registered before we open the pane. Best-effort throughout:
+                # any failure (older binary without the subcommand, launch error)
+                # is swallowed and the Finder-drag fallback below still runs.
+                if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
+                    info "$MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE"
+                    open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
+                        --args run-source imessage --self-test \
+                        >/dev/null 2>&1 || true
+                fi
+
                 # FDA_PANE_REFRESH (daemon parity for #572): force a fresh
                 # System Settings load before pointing the customer at the FDA
                 # pane. #572 added this to the INSTALLER FDA grant only; the
