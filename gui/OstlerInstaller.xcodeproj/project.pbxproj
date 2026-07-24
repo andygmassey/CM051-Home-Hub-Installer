@@ -41,6 +41,7 @@
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
 		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
+		7C2FD24BFBC3AAB36EDE9263 /* OfflineGraceBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFBC7113D093B3D11E09202A /* OfflineGraceBoundTests.swift */; };
 		7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */; };
 		825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */; };
 		83288FDC0ACD0A451D7984C8 /* JetBrainsMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A7BB29D9449120BC392EE586 /* JetBrainsMono-Medium.ttf */; };
@@ -174,6 +175,7 @@
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		DCE2A31F120A9538AB52609C /* StringsCatalogueYNSuffixTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringsCatalogueYNSuffixTest.swift; sourceTree = "<group>"; };
 		DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingQuestionView.swift; sourceTree = "<group>"; };
+		DFBC7113D093B3D11E09202A /* OfflineGraceBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineGraceBoundTests.swift; sourceTree = "<group>"; };
 		E184CCE1D3B1AD5BA23B1321 /* OstlerLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OstlerLog.swift; sourceTree = "<group>"; };
 		E26BE783EE21FCA4A614C436 /* FullDiskAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessSheet.swift; sourceTree = "<group>"; };
 		E4C1249B5BB363F304334F02 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -275,6 +277,7 @@
 				9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */,
 				411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */,
 				B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */,
+				DFBC7113D093B3D11E09202A /* OfflineGraceBoundTests.swift */,
 				091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */,
 				EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */,
 				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
@@ -398,7 +401,6 @@
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
-				EA1D04EC1973FC9597B469BA /* Bundle cm059_editor Front Page producer into Resources */,
 				F54BDEF84C009CE505BC7F56 /* Bundle whatsapp_source conversation feed into Resources */,
 				1F163102D8C7D318C87083D0 /* Bundle email_source conversation feed into Resources */,
 				CBD6E8B35AD4F80C403FFB45 /* Bundle spoken_source conversation feed into Resources */,
@@ -408,6 +410,8 @@
 				C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */,
 				ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */,
 				9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */,
+				219BF2EFFB7F82227F9A1272 /* Bundle CM059 editor Front Page emitter into Resources */,
+				86E796809F12AEF4621D6B41 /* Bundle CM052 AI-conversation producer into Resources */,
 				219B529EE4BEFA823868130C /* Bundle CM019 preferences ingest pipeline into Resources */,
 				67A22DB55E8A84F7D0AF3AAE /* Bundle CM041 PWG People Graph (contact_syncer + meeting_syncer + identity_resolver + assistant_api) into Resources */,
 				37B8BE758ABBDFBE418744B9 /* Bundle email-ingest LaunchAgent + scripts into Resources */,
@@ -578,6 +582,26 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# install.sh's hydrate_preferences phase probes\n# ${SCRIPT_DIR}/cm019_preferences/ to discover the vendored ingest\n# package, sets up a dedicated venv, and runs\n# `python -m services.ingest.src.cli ingest-dir|ingest-email`\n# against QDRANT_COLLECTION=preferences so the Food / Music / Media /\n# Reading / Apps / Places / Topics wiki pages have data to render.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources at install\n# time, so the package must land at Contents/Resources/cm019_preferences/.\n# Without this bundling the hydrate_preferences probe finds nothing and\n# those wiki sections stay empty on the customer Mac.\n#\n# Same vendoring discipline as cm048_pipeline above; different upstream\n# (CM019 source-of-truth lives at ../CM019\\ -\\ Personal\\ World\\ Graph/).\n# NOTE: the vendored vectorizer is swapped to the local Ollama embedder\n# (nomic-embed-text, 768-dim) -- it ships NO torch/sentence-transformers.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/cm019_preferences\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling cm019_preferences from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/cm019_preferences\"\n  # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).\n  cp -R \"${SRC}/\" \"${DEST}/cm019_preferences/\"\n  /usr/bin/xattr -cr \"${DEST}/cm019_preferences\" || true\nelse\n  echo \"ERROR: vendor/cm019_preferences not found at ${SRC}\" >&2\n  echo \"       Sync manually from CM019 -- see vendor/README.md.\" >&2\n  exit 1\nfi\n";
 		};
+		219BF2EFFB7F82227F9A1272 /* Bundle CM059 editor Front Page emitter into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm059_editor",
+			);
+			name = "Bundle CM059 editor Front Page emitter into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm059_editor",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh's 3.13-editor phase probes\n# ${SCRIPT_DIR}/cm059_editor/ to discover the vendored Editor\n# sources, stages them into ${OSTLER_DIR}/editor/, and registers\n# the com.ostler.editor.frontpage LaunchAgent which runs\n# `python -m compiler.emit_frontpage` from there hourly.\n#\n# For the .app code path, SCRIPT_DIR is Contents/Resources at\n# install time, so the package must land at\n# Contents/Resources/cm059_editor/. Without this bundling the\n# editor sources never reach the customer Mac, the install probe\n# finds nothing, and the Front Page never refreshes.\n#\n# Same vendoring discipline as cm048_pipeline above; different\n# upstream (CM059 source-of-truth lives at ../CM059\\ -\\ Ostler\\\n# Editor/, feat/frontpage-live-wiring). The emitter is stdlib-only\n# (no pip install at install time). Non-fatal if absent: a cut\n# that predates the Editor still builds, and install.sh's 3.13\n# editor hook no-ops cleanly when the sources are not staged.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/cm059_editor\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling cm059_editor from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/cm059_editor\"\n  # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).\n  cp -R \"${SRC}/\" \"${DEST}/cm059_editor/\"\n  /usr/bin/xattr -cr \"${DEST}/cm059_editor\" || true\nelse\n  echo \"note: vendor/cm059_editor not found at ${SRC}; skipping Editor bundling (cut predates CM059).\" >&2\nfi\n";
+		};
 		2662C5C53104DBE527D98B0F /* Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -716,6 +740,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# install.sh:1913 probes ${SCRIPT_DIR}/legal/pyproject.toml\n# to pip-install the legal package into the customer venv.\n# The package contains the consent-string constants that\n# ostler_security.consent and the Rust gates import at\n# runtime when the customer triggers an Article 9 sensitive-\n# data flow, the WhatsApp channel arm, or voice transcription.\n# Without this bundle, the GUI install silently skips the\n# pip install (no warn, no error - the [[ -d ]] gate is\n# false), and the customer hits ModuleNotFoundError at the\n# first consent gate, hours after install.\n#\n# Source-of-truth: HR015 repo /legal/, vendored into CM051\n# at vendor/legal/. See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F3.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/legal\"\nif [ ! -d \"${SRC}\" ] || [ ! -f \"${SRC}/pyproject.toml\" ]; then\n  echo \"ERROR: vendor/legal not found at ${SRC} (need pyproject.toml)\" >&2\n  echo \"       Re-sync from HR015 /legal/ (see vendor/README.md).\" >&2\n  exit 1\nfi\necho \"Bundling legal from ${SRC} into Resources/legal/\"\nmkdir -p \"${DEST}/legal\"\ncp -R \"${SRC}/\"* \"${DEST}/legal/\"\n# Strip __pycache__ that may have leaked from a developer\n# checkout - pip-install does not need them and they bloat\n# the codesigned bundle.\nfind \"${DEST}/legal\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\nfind \"${DEST}/legal\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n/usr/bin/xattr -cr \"${DEST}/legal\" || true\n";
+		};
+		86E796809F12AEF4621D6B41 /* Bundle CM052 AI-conversation producer into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../vendor/cm052_ai_conversations",
+			);
+			name = "Bundle CM052 AI-conversation producer into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm052_ai_conversations",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh's AI-Conversations leg (task #553 / #613) probes\n# ${SCRIPT_DIR}/cm052_ai_conversations/ to discover the vendored\n# CM052 package, pip-installs it NON-editable into a dedicated\n# venv under ${OSTLER_DIR}/services/cm052/, and runs the\n# pwg-ai-convo producer to drain external-LLM chat history into\n# ~/Documents/Ostler/AI Conversations/ (the CM044 AI Chats wing).\n#\n# The whole leg is gated behind OSTLER_AI_CONVERSATIONS_ENABLED\n# (OFF for v1.0.x -- the section ships dark), but the package is\n# bundled unconditionally so flipping the flag on needs no\n# rebuild -- mirror of the cm024_knowledge \"CLI installed, flag\n# only controls visibility\" posture.\n#\n# Same vendoring discipline as cm048_pipeline above; upstream is\n# CM052 - PWG AI Conversation Ingest @ the manifest-pinned SHA.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/cm052_ai_conversations\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling cm052_ai_conversations from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/cm052_ai_conversations\"\n  # Copy WITHOUT -p so xattrs do not propagate (codesign rejects them).\n  cp -R \"${SRC}/\" \"${DEST}/cm052_ai_conversations/\"\n  # Strip developer-checkout artefacts before codesign.\n  find \"${DEST}/cm052_ai_conversations\" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true\n  find \"${DEST}/cm052_ai_conversations\" -type f -name \"*.pyc\" -delete 2>/dev/null || true\n  /usr/bin/xattr -cr \"${DEST}/cm052_ai_conversations\" || true\nelse\n  echo \"note: vendor/cm052_ai_conversations not found at ${SRC}; skipping AI-Conversations bundling (cut predates CM052 leg).\" >&2\nfi\n";
 		};
 		9B8F90A2E521E6DF95215A4B /* Bundle CM048 conversation pipeline into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -941,27 +985,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on plain `` at *generation* time (replacing it\n# with the empty string when unset in the generator's env), which\n# silently broke hub bundling after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
-		};
-		EA1D04EC1973FC9597B469BA /* Bundle cm059_editor Front Page producer into Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/../vendor/cm059_editor",
-			);
-			name = "Bundle cm059_editor Front Page producer into Resources";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm059_editor",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n# install.sh's Front Page phase (3.14d-editor) probes\n# ${SCRIPT_DIR}/cm059_editor/INSTALL_SNIPPET.sh to install the\n# hourly LaunchAgent that writes ~/.ostler/editor/front_page.json\n# (the file the Hub Dashboard's <FrontPageCards> reads). Without\n# this bundle step the Front Page silently never refreshes on a\n# productised install.\nVENDOR_SRC=\"${SRCROOT}/../vendor/cm059_editor\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/cm059_editor/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/cm059_editor\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/cm059_editor/\"\n/usr/bin/xattr -cr \"${DEST}/cm059_editor\"\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/lib\"\n# Copy WITHOUT -p so we don't preserve source xattrs\n# (com.apple.provenance / com.apple.macl on Sonoma+ break codesign).\n#\n# progress_emitter.sh MUST land at ${DEST}/lib/progress_emitter.sh\n# (NOT ${DEST}/progress_emitter.sh). install.sh's source\n# resolution looks at \"${SCRIPT_DIR}/lib/progress_emitter.sh\"\n# first -- when install.sh runs from inside the .app,\n# SCRIPT_DIR is Contents/Resources so the lib/ subfolder is\n# mandatory. Pre-2026-05-13 this was bundled flat at\n# ${DEST}/progress_emitter.sh which caused the chicken-and-egg\n# fallback hang Andy hit on Mac Studio. Fix tracked in\n# HR015/launch/TNM_BRIEF_INSTALL_SH_PROGRESS_EMITTER_BOOTSTRAP_2026-05-13.md.\n#\n# install.sh.strings.en-GB.sh is the Rule 0.9 i18n catalogue.\n# install.sh sources it via ${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh\n# with en-GB fallback (install.sh:510-523), and hard-exits if missing.\n# Must be bundled flat alongside install.sh in Resources.\ncp \"${SRCROOT}/../install.sh\"                          \"${DEST}/install.sh\"\ncp \"${SRCROOT}/../lib/progress_emitter.sh\"             \"${DEST}/lib/progress_emitter.sh\"\n# CX-34 (2026-05-24, Studio retest #21): write_pipeline_signals.py is\n# invoked by install.sh:6220 (Mail content probe) to write\n# ~/.ostler/state/pipeline_signals.json. Pre-CX-34 it was missing from\n# the bundle, so install.sh fell through to the warn-only \"could not\n# write pipeline_signals.json\" branch -- which means Doctor's empty-\n# Mail diagnostic loses its sidecar and the install path silently\n# degrades. Bundle it alongside progress_emitter.sh.\ncp \"${SRCROOT}/../lib/write_pipeline_signals.py\"       \"${DEST}/lib/write_pipeline_signals.py\"\n# ostler-model-fit.sh (REUSE-4): install.sh sources it from\n# ${SCRIPT_DIR}/lib/ostler-model-fit.sh to pick an Ollama model the\n# box can actually run at num_ctx 32768. Missing = legacy RAM-ladder\n# fallback, but bundle it so customers get the fit assessment.\ncp \"${SRCROOT}/../lib/ostler-model-fit.sh\"             \"${DEST}/lib/ostler-model-fit.sh\"\ncp \"${SRCROOT}/../install.sh.strings.en-GB.sh\"         \"${DEST}/install.sh.strings.en-GB.sh\"\nchmod 755 \"${DEST}/install.sh\" \"${DEST}/lib/progress_emitter.sh\" \"${DEST}/lib/ostler-model-fit.sh\"\nchmod 644 \"${DEST}/install.sh.strings.en-GB.sh\" \"${DEST}/lib/write_pipeline_signals.py\"\n# Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app\n# so the customer DMG ships a clean single-app layout (just the\n# installer + drag-to-Applications) yet install.sh's source-\n# preference path 2 (${SCRIPT_DIR}/Ostler.app) finds the bundle\n# at runtime when install.sh runs from inside Contents/Resources.\n# OSTLER_APP_PATH is passed as an xcodebuild build setting by\n# gui/Makefile's release target; if absent or missing the build\n# logs a warning and the customer install will skip the Hub-app\n# step (install.sh's existing source-not-found warning).\n#\n# IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`\n# default form FIRST. xcodegen performs its own ${VAR} substitution\n# on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it\n# with the empty string when unset in the generator's env), which\n# silently broke hub bundling after a `make regen`. The `:-` form\n# is passed through literally to the shell, so we read the build\n# setting through it once and use a plain shell var thereafter.\nOSTLER_APP_SRC=\"${OSTLER_APP_PATH:-}\"\nif [ -n \"$OSTLER_APP_SRC\" ] && [ -d \"$OSTLER_APP_SRC\" ]; then\n  echo \"Bundling Ostler.app from $OSTLER_APP_SRC into Resources/\"\n  cp -R \"$OSTLER_APP_SRC\" \"${DEST}/Ostler.app\"\n  /usr/bin/xattr -cr \"${DEST}/Ostler.app\" || true\nelse\n  echo \"WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app.\" >&2\nfi\n";
 		};
 		ED9B7924786866EDDAFDA889 /* Bundle cm024_knowledge Python package into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1108,6 +1132,7 @@
 				C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */,
 				D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */,
 				F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */,
+				7C2FD24BFBC3AAB36EDE9263 /* OfflineGraceBoundTests.swift in Sources */,
 				8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */,
 				673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */,
 				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
