@@ -65,6 +65,14 @@ blind whole-directory `rm -rf` + copy (the generic recipe below) would
 have regressed #302; future syncs must graft, preserving the local
 `split` work until it lands upstream.
 
+Surgical graft (BW4 Part A, v1.0.10 security lockdown): `proxy.py` carries
+the Doctor -> ical-server auth-boundary fix -- validate the client bearer
+against the ZeroClaw gateway `[gateway].paired_tokens` store, then
+substitute `PWG_SERVICE_TOKEN` on the `/api/v1/*` forwards (fixes the
+ical-server 401 storm). Landed upstream in HR015 `doctor/agent/proxy.py`
+first; this vendored `proxy.py` matches that source byte-for-byte, so the
+next HR015 sync is a no-op for this file. Do NOT revert it in a re-sync.
+
 A vendor-freshness guard, `vendor/doctor/test_vendor_pairing.sh`, fails
 the build if a future re-sync drops the `/pair-ios` route, `pair_status.py`,
 or leaves a `web_ui.py` import without its vendored module.
