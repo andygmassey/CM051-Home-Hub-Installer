@@ -176,11 +176,11 @@ name             = "legal"
 vendor_path      = "vendor/legal"
 source_repo      = "$HR015/legal"
 source_path      = "."
-pinned_sha       = "3c5f8f4b9b0cc3227a641bcab105f70146888372"
+pinned_sha       = "949d2c13cd98c7d01b3b892d067979a870dcd93f"
   divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
-note             = "2026-07-20 re-pin (1bb0a0db -> 3c5f8f4b, current HR015 main HEAD). CORRECTION of a stale prior note: the vendored consent_strings.py ALREADY ships the v1.1-2026-07-15 Article-9 + v1.1-2026-06-21 EU-voice iPhone-Companion wording (verified by inspection: version strings + iPhone Companion text present), and the v1.1 WhatsApp wording -- i.e. the tree matches 12a1452, NOT 1bb0a0db. The old note wrongly claimed the tree did not ship the v1.1 rewording and held the pin on that false premise. The SPOKEN-capture consent PR has now MERGED to HR015 main at 3c5f8f4b (the sole 12a1452..HEAD delta for this path: +39 in consent_strings.py, +2 in __init__.py), so SPOKEN_CAPTURE_RECORDING_CONSENT + its __init__ export are now NATIVE and the graft hunks are dropped. Re-pinning to 3c5f8f4b does NOT change any shipped wording (the tree already carried it) -- it only makes the pin honest. divergence_patch regenerated via sync_vendor --regen-patch. Freshness: pin == live main HEAD -> FRESH."
+note             = "2026-07-24 re-pin (3c5f8f4b -> 949d2c1) for the BW3-9 sibling-surface sweep: consent copy reframes the PRODUCT verb record->transcribe/capture in three places in consent_strings.py -- Article-9 special-category screen (health example 'recorded conversations' -> 'transcribed conversations'; iPhone-Companion data-flow line 'voice recordings' -> 'voice captures') and the EU-voice speaker-ID screen ('a recording you make' -> 'a call you capture'). STATUTORY text (StGB s201 / French Penal Code Art. 226-1 legal notes, Article-9/Article-4(7) citations) is untouched. 949d2c1 is the HR015 branch head of bw3-9/consent-transcribe-language (PR andygmassey/HR015-Gaming-PC#256), branched off 3c5f8f4b (== old pin, so the OTHER vendored legal files are byte-identical; only consent_strings.py changed). divergence_patch stays \"\" (byte-identical to source@949d2c1, verified). RECONCILE AT CUT: when HR015 #256 merges to main, re-pin to the main merge-SHA (949d2c1 is a not-yet-merged branch head, so the live-HEAD freshness gate will flag it off-main until then). tests/consent_wording_hashes.json regenerated upstream in the same HR015 commit (tests/ excluded from this tree)."
 
 [[tree]]
 name             = "doctor"
