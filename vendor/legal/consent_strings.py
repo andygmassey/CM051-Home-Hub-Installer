@@ -76,11 +76,11 @@ Where the data lives. Everything Ostler reads stays on this Mac, in encrypted fo
 
 What's in scope. Depending on which connectors you turn on, Ostler may process the following kinds of information that the law treats as "special category" data:
 
-- Health information that you mention in emails, messages, calendar entries or recorded conversations
+- Health information that you mention in emails, messages, calendar entries or transcribed conversations
 - Religious or philosophical beliefs mentioned in any of the above
 - Sexual orientation mentioned in any of the above
 - Trade union membership
-- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iPhone Companion app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice recordings or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)
+- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iPhone Companion app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice captures or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)
 - Mentions of criminal offences – your own or other people's – in any of the above
 
 We do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.
@@ -195,7 +195,7 @@ EU_VOICE_SPEAKER_ID_CONSENT = ConsentString(
 
 The Ostler iPhone Companion app can label transcripts with who is speaking - for example, "Sam", "Alex" - by storing a numeric fingerprint of each voice in an encrypted store on your iPhone. The fingerprints never leave your phone and are never sent to this Mac or to us; the Mac only ever receives the text label (the name), never the fingerprint. Under UK and EU privacy law a voice fingerprint is biometric data, so we ask before the Companion enrols any voices.
 
-What we do. Identify *who* is speaking on a recording you make.
+What we do. Identify *who* is speaking on a call you capture.
 What we do not do. Detect mood, emotion, sentiment, stress or any other inferred psychological state from voice.
 
 The fingerprints stay on your iPhone. We never receive them, and neither does this Mac. You can turn this off any time in the iPhone app under Settings -> Voice recognition; turning it off deletes any fingerprints already stored on the phone. If you never install the iPhone Companion, no voice fingerprint is ever created.
