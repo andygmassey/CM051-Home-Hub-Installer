@@ -13270,24 +13270,59 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
     # is_self_handle (crates/zeroclaw-channels/src/imessage.rs) reads
     # OSTLER_IMESSAGE_SELF_HANDLES and drops inbound from the user's own
     # handles, so the assistant cannot reply to its own output echoing
-    # back (shared Apple ID / cross-account routing). Source = the me-card
-    # identity (USER_PHONE + USER_EMAIL captured at Q3), NOT
-    # CHANNEL_IMESSAGE_ALLOWED, which may include OTHER people the
-    # assistant is allowed to talk to -- self-handles must be only the
-    # user's own addresses. Empty when iMessage is off or no handle was
-    # captured: the snippet then renders an empty value and the guard
-    # stays inactive (the daemon's content-based backstop still applies).
+    # back (shared Apple ID / cross-account routing). Empty when iMessage
+    # is off or no handle was captured: the snippet then renders an empty
+    # value and the guard stays inactive (the daemon's content-based
+    # backstop still applies).
+    #
+    # #646 part 2 (v1.0.10 box-walk regression, 2026-07-24): the PRIMARY
+    # source is the me-card identity (USER_PHONE + USER_EMAIL captured at
+    # Q3). But on the v1.0.10 install box the operator's Contacts "my card"
+    # resolved a NAME + country yet carried NO phone and NO email entry
+    # (a sparse card, or Contacts still cold when the phone/email sub-reads
+    # ran at line ~2485). Both USER_PHONE and USER_EMAIL landed empty, so
+    # the me-card-only builder produced an EMPTY value -- and the gateway
+    # logged "no self-handle (OSTLER_IMESSAGE_SELF_HANDLES empty); skipping
+    # intro", so the warm-intro iMessage never fired.
+    #
+    # FALLBACK: when the me-card yields nothing, fall back to the handle(s)
+    # the operator explicitly confirmed at the iMessage "who can message me"
+    # prompt (CHANNEL_IMESSAGE_ALLOWED). In the empty-me-card case that
+    # prompt's default (IMESSAGE_ALLOWED_DEFAULT) was ALSO empty, so the
+    # allowed list is entirely operator-entered and, for a personal
+    # assistant, is the operator's own address(es) -- the best self-handle
+    # signal available at install time and strictly better than shipping an
+    # empty guard. When the me-card DID resolve, the fallback never runs, so
+    # the "self only, never OTHER allowed contacts" invariant is preserved
+    # on the common path (an allowed list that also names other people is
+    # only ever used for self-handles when the me-card gave us literally
+    # nothing else to go on).
+    #
+    # Factored into a function so tests/test_imessage_self_handles_fallback.sh
+    # can carve + exercise it against the me-card-empty regression directly.
+    _compute_imessage_self_handles() {
+        local out="" _h
+        # Primary: me-card phone + email.
+        for _h in "${USER_PHONE:-}" "${USER_EMAIL:-}"; do
+            _h="${_h# }"; _h="${_h% }"
+            [[ -n "$_h" ]] || continue
+            if [[ -z "$out" ]]; then out="$_h"; else out="${out},${_h}"; fi
+        done
+        # Fallback: operator-confirmed allowed list when the me-card was empty.
+        if [[ -z "$out" && -n "${CHANNEL_IMESSAGE_ALLOWED:-}" ]]; then
+            local _arr=()
+            IFS=',' read -ra _arr <<< "$CHANNEL_IMESSAGE_ALLOWED"
+            for _h in "${_arr[@]}"; do
+                _h="${_h# }"; _h="${_h% }"
+                [[ -n "$_h" ]] || continue
+                if [[ -z "$out" ]]; then out="$_h"; else out="${out},${_h}"; fi
+            done
+        fi
+        printf '%s' "$out"
+    }
     ASSISTANT_SELF_HANDLES=""
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
-        for _self_h in "${USER_PHONE:-}" "${USER_EMAIL:-}"; do
-            _self_h="${_self_h# }"; _self_h="${_self_h% }"
-            [[ -n "$_self_h" ]] || continue
-            if [[ -z "$ASSISTANT_SELF_HANDLES" ]]; then
-                ASSISTANT_SELF_HANDLES="$_self_h"
-            else
-                ASSISTANT_SELF_HANDLES="${ASSISTANT_SELF_HANDLES},${_self_h}"
-            fi
-        done
+        ASSISTANT_SELF_HANDLES="$(_compute_imessage_self_handles)"
     fi
 
     # CX-77 (DMG #44, 2026-05-25): wrap the snippet invocation in a
