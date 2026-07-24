@@ -185,7 +185,7 @@ STEP          := @printf '\n[STEP] %s\n'
         check-tools check-identity check-create-dmg check-ostler-app \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
         sign-python-bundle download-daemon stage-daemon check-provenance \
-        check-freshness
+        check-freshness check-provenance-content
 
 all: debug
 
@@ -666,7 +666,27 @@ check-freshness:
 	    exit 1; \
 	}
 
-package: check-tools check-identity check-create-dmg check-freshness check-provenance
+# ---------------------------------------------------------------------------
+# Content-provenance preflight -- UNBYPASSABLE gate on the DMG.
+# Sibling to check-provenance, but proves each launch-required fix is ACTUALLY
+# baked into the shipped ARTIFACT (greps inside the pinned wiki image), not just
+# that a ledger row CLAIMS a good source sha. This closes the "false ledger
+# binding" hole a merge-base / freshness check can never see: install.sh's digest
+# is bound to a source sha by a hand-recorded ledger row, and the image carries
+# no CM044 revision label to confirm it. Ledger: ../scripts/required_fixes.tsv.
+# ---------------------------------------------------------------------------
+check-provenance-content:
+	$(STEP) "Content-provenance preflight (fix baked into artifact)"
+	@CM044_DIR="$${CM044_DIR:-$(CURDIR)/../../CM044 - PWG Personal Wiki}" \
+	    OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
+	    ../scripts/provenance_gate.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: content-provenance preflight FAILED -- a required fix is NOT baked into a shipped artifact." >&2; \
+	    echo "Rebuild + re-pin the RED artifact(s), fix the ledger row, then re-cut. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
+package: check-tools check-identity check-create-dmg check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
