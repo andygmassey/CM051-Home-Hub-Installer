@@ -129,6 +129,8 @@ struct OnboardingQuestionView: View {
                 consentThirdPartyBody()
             } else if q.prompt.id == "consent_article_9" {
                 consentArticle9Body()
+            } else if q.prompt.id == "consent_spoken_capture" {
+                consentSpokenCaptureBody()
             } else if q.prompt.id == "passkey_ack" {
                 passkeyAckBody()
             } else if q.prompt.id == "recovery_passphrase" {
@@ -339,6 +341,71 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInkMuted)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
+            Text(linkifiedHelp(legal))
+                .font(.ostlerCaption.italic())
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// consent_spoken_capture (spoken-audio recording consent) body.
+    /// BW3-8 (box-walk-v4, 2026-07-24): this screen had NO dedicated
+    /// renderer, so the entire MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP
+    /// blob -- intro + a "What we ask of you" list + the "Legal note:"
+    /// fine-print -- fell through to the generic single-Text() help
+    /// path at ostlerBodyLg. The bullet lines and the legal note were
+    /// mashed into one paragraph run with no block separation and no
+    /// subordinated legal styling ("mashed together / wrong size /
+    /// legal not a distinct block").
+    ///
+    /// Sister to consentThirdPartyBody() / consentArticle9Body(), but
+    /// richer: the middle "What we ask of you" section renders as a
+    /// real bulleted list (the DeviceLimitReachedView bullet recipe:
+    /// a "•" + text HStack per item) rather than inline prose. Three
+    /// blocks, all fed from ViewCopy keys (Rule 0.9 catalogue):
+    ///   - intro_body                (primary body copy)
+    ///   - ask_heading + bullet_1..3 (a scannable ask list)
+    ///   - legal_note                (smaller italic .secondary fine
+    ///                                print)
+    ///
+    /// Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so
+    /// the TTY install path still renders the full text inline.
+    private func consentSpokenCaptureBody() -> some View {
+        let intro = ViewCopy.shared.string(for: "consent_spoken_capture.intro_body")
+        let askHeading = ViewCopy.shared.string(for: "consent_spoken_capture.ask_heading")
+        let bullets = [
+            ViewCopy.shared.string(for: "consent_spoken_capture.bullet_1"),
+            ViewCopy.shared.string(for: "consent_spoken_capture.bullet_2"),
+            ViewCopy.shared.string(for: "consent_spoken_capture.bullet_3")
+        ]
+        let legal = ViewCopy.shared.string(for: "consent_spoken_capture.legal_note")
+        return VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            Text(linkifiedHelp(intro))
+                .font(.ostlerBodyLg)
+                .foregroundStyle(Color.ostlerInkMuted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: .ostlerSpace2) {
+                Text(askHeading)
+                    .font(.ostlerBodyLg)
+                    .foregroundStyle(Color.ostlerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(Array(bullets.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .firstTextBaseline, spacing: .ostlerSpace2) {
+                        Text("•")
+                            .font(.ostlerBodyLg)
+                            .foregroundStyle(Color.ostlerInkMuted)
+                        Text(linkifiedHelp(line))
+                            .font(.ostlerBodyLg)
+                            .foregroundStyle(Color.ostlerInkMuted)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
             Text(linkifiedHelp(legal))
                 .font(.ostlerCaption.italic())
                 .foregroundStyle(.secondary)

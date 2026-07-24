@@ -257,6 +257,16 @@
     "legal_note": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
   },
 
+  "consent_spoken_capture": {
+    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline.",
+    "intro_body": "In short: when you record spoken audio, getting any consent the law requires is your responsibility. Typing and messaging are not affected.\n\nOstler can turn spoken conversations you record – calls and meetings – into searchable text. This is only about audio you choose to record.",
+    "ask_heading": "What we ask of you:",
+    "bullet_1": "Get whatever consent your local law requires before you record.",
+    "bullet_2": "Make it clear recording is happening – say so at the start, or keep a visible recording indicator on.",
+    "bullet_3": "If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.",
+    "legal_note": "Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+  },
+
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
     "help_touch_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",

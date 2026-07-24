@@ -176,4 +176,34 @@ final class OnboardingQuestionViewSnapshotTests: XCTestCase {
         )
         XCTAssertNotNil(image, "consent_article_9 render should not crash.")
     }
+
+    // 7. consent_spoken_capture (spoken-audio recording consent) body.
+    //
+    // BW3-8 regression net (box-walk-v4, 2026-07-24): the spoken-consent
+    // screen had NO dedicated branch, so the whole HELP blob (intro +
+    // "What we ask of you" bullet list + "Legal note:") fell through to
+    // the default single-Text() render -- mashed together, wrong size,
+    // legal note not styled as a distinct block. The branch now routes
+    // through `consentSpokenCaptureBody()`, which reads intro_body +
+    // ask_heading + bullet_1..3 + legal_note from ViewCopy.json and
+    // renders a real bulleted list + a subordinated italic legal block.
+    // The bash-emitted help below is deliberately IGNORED by that branch
+    // (mirroring passkey_ack / consent_article_9). This asserts the
+    // ForEach-bulleted tree renders without crashing.
+    func testRendersConsentSpokenCapturePromptWithoutCrashing() {
+        let coord = makeCoordinator()
+        emitPrompt(
+            coord,
+            id: "consent_spoken_capture",
+            kind: "yesno",
+            title: "Record spoken conversations into text?",
+            // Deliberately IGNORED by the consent_spoken_capture branch;
+            // the view reads the split copy from ViewCopy.json.
+            help: "Spoken-audio recording consent. Getting any consent the law requires is your responsibility."
+        )
+        let image = render(
+            OnboardingQuestionView().environmentObject(coord)
+        )
+        XCTAssertNotNil(image, "consent_spoken_capture render should not crash.")
+    }
 }
