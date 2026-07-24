@@ -128,6 +128,7 @@ MSG_INFO_TAILSCALE_SKIPPED="Tailscale skipped – iOS Companion will only work o
 MSG_INFO_TAILSCALE_STILL_WAITING="Still waiting for Tailscale sign-in (%ss elapsed) – please complete sign-in in the Tailscale window."
 MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
 MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="Opening System Settings + Finder to walk you through granting Full Disk Access to the assistant..."
+MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="Registering the Ostler assistant with macOS so it appears as a toggle in Full Disk Access..."
 MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
 MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant can read your Messages history..."
@@ -826,8 +827,8 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, 
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" and turn it on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Click Done when finished."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and switch it on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then switch it on. Click Done when finished."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
 
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Allow Ostler to read your Mac data"
