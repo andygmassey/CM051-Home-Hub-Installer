@@ -31,11 +31,34 @@ The proxy does NOT mint, mutate, or strip the bearer token. iOS
 mints it via ``/api/v1/auth/chat-token`` (Doctor) and CM019
 verifies it via the shared ``auth.require_auth`` (CM019 PR 1).
 The Doctor is plumbing between those two trust boundaries.
+
+BW4 Item 1/2 (v1.0.10 security lockdown) -- ical-server auth
+boundary:
+
+When the upstream is the loopback ical-server (the customer
+install sets ``DOCTOR_GATEWAY_URL=http://127.0.0.1:8090`` and
+proxies the ``/api/v1/*`` data surfaces through it), that server's
+auth boundary requires the per-install ``PWG_SERVICE_TOKEN``
+(``install.sh`` seeds it into the Doctor's launchd env), NOT the
+client's ``zeroclaw_token`` bearer. The Doctor is the single
+client-facing auth boundary: when a service token is configured it
+VALIDATES the incoming client bearer against the ZeroClaw gateway's
+paired-token store and only THEN substitutes the service token on
+the forwarded request. The two halves ship together -- substituting
+the service token without validating the client bearer would let any
+loopback process that reaches ``:8089`` inherit ical-server access.
+
+When no service token is configured the Doctor stays a transparent
+pass-through (the original CM019 Safari-ingest posture, whose
+upstream verifies the bearer itself).
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import tomllib
+from pathlib import Path
 from typing import Iterable, Optional
 
 import httpx
@@ -107,6 +130,146 @@ def _filter_response_headers(headers) -> dict[str, str]:
     }
 
 
+# ---------------------------------------------------------------------------
+# BW4 Item 1/2: client-bearer validation + service-token substitution
+# ---------------------------------------------------------------------------
+#
+# Validation mirrors the ZeroClaw gateway's own
+# ``PairingGuard::is_authenticated`` / ``hash_token``
+# (``crates/zeroclaw-config/src/pairing.rs``): SHA-256 the bearer
+# (unsalted, lowercase hex) and test membership of the
+# ``[gateway].paired_tokens`` set in the assistant ``config.toml``. Config
+# entries are accepted in both forms -- plaintext (hashed on read) or an
+# already-hashed 64-char hex string -- matching ``PairingGuard::new``. If
+# ``[gateway].require_pairing`` is false the gateway authenticates
+# everyone, so the Doctor mirrors that and passes. Keep this byte-for-byte
+# aligned with the gateway hashing or validation silently diverges.
+
+# Env var names install.sh may seed the ical-server service token under.
+# OSTLER_SERVICE_TOKEN takes precedence over the legacy PWG_SERVICE_TOKEN.
+_SERVICE_TOKEN_ENV_VARS = ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN")
+
+# Default assistant config.toml location on a customer install
+# (``${OSTLER_DIR}/assistant-config/config.toml``).
+_DEFAULT_ASSISTANT_CONFIG = (
+    Path.home() / ".ostler" / "assistant-config" / "config.toml"
+)
+
+
+def _resolve_service_token() -> Optional[str]:
+    """Return the ical-server service token from the environment, or
+    ``None`` if unset. Presence of a token is also the signal that the
+    upstream is the ical-server and the validate-then-substitute path
+    applies; absence keeps the proxy a transparent pass-through."""
+    for name in _SERVICE_TOKEN_ENV_VARS:
+        raw = os.environ.get(name, "").strip()
+        if raw:
+            return raw
+    return None
+
+
+def _assistant_config_path() -> Path:
+    """Resolve the ZeroClaw assistant ``config.toml`` the same way the
+    gateway does: an explicit ``OSTLER_ASSISTANT_CONFIG`` override first
+    (used by tests), then the gateway's own ``ZEROCLAW_WORKSPACE`` /
+    ``ZEROCLAW_CONFIG_DIR`` env vars, then the default install
+    location."""
+    override = os.environ.get("OSTLER_ASSISTANT_CONFIG", "").strip()
+    if override:
+        return Path(override)
+    workspace = os.environ.get("ZEROCLAW_WORKSPACE", "").strip()
+    if workspace:
+        return Path(workspace) / "config.toml"
+    config_dir = os.environ.get("ZEROCLAW_CONFIG_DIR", "").strip()
+    if config_dir:
+        return Path(config_dir) / "config.toml"
+    return _DEFAULT_ASSISTANT_CONFIG
+
+
+def _hash_token(token: str) -> str:
+    """Unsalted lowercase-hex SHA-256. Mirror of the gateway's
+    ``hash_token`` -- must stay byte-for-byte identical."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _looks_like_token_hash(value: str) -> bool:
+    """True when ``value`` is already a stored hash (64 lowercase-hex
+    chars), mirroring the gateway's ``is_token_hash``. Anything else is
+    treated as plaintext and hashed on read."""
+    if len(value) != 64:
+        return False
+    return all(c in "0123456789abcdef" for c in value)
+
+
+def _load_gateway_pairing(
+    config_path: Optional[Path] = None,
+) -> tuple[bool, frozenset[str]]:
+    """Read ``[gateway].require_pairing`` and the normalised
+    ``[gateway].paired_tokens`` hash set from the assistant
+    ``config.toml``.
+
+    Returns ``(require_pairing, token_hashes)``. On any read/parse
+    failure returns ``(True, frozenset())`` -- fail CLOSED: pairing
+    required, no tokens accepted, so validation rejects. A broken or
+    unreadable config must never silently grant ical-server access.
+    """
+    path = config_path or _assistant_config_path()
+    try:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+    except FileNotFoundError:
+        logger.warning(
+            "Doctor proxy: assistant config not found at %s; "
+            "failing client-bearer validation closed",
+            path,
+        )
+        return True, frozenset()
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        logger.warning(
+            "Doctor proxy: could not read assistant config at %s: %s; "
+            "failing client-bearer validation closed",
+            path,
+            exc,
+        )
+        return True, frozenset()
+
+    gateway = data.get("gateway") or {}
+    require_pairing = bool(gateway.get("require_pairing", True))
+    raw_tokens = gateway.get("paired_tokens") or []
+    hashes: set[str] = set()
+    for entry in raw_tokens:
+        if not isinstance(entry, str) or not entry:
+            continue
+        hashes.add(
+            entry if _looks_like_token_hash(entry) else _hash_token(entry)
+        )
+    return require_pairing, frozenset(hashes)
+
+
+def _extract_bearer_token(headers) -> str:
+    """Return the bearer credential from the Authorization header, or
+    ``''`` if absent/malformed. Mirror of the gateway's extractor."""
+    raw = headers.get("authorization") or headers.get("Authorization") or ""
+    prefix = "Bearer "
+    if raw.startswith(prefix):
+        return raw[len(prefix):].strip()
+    return ""
+
+
+def _is_paired_bearer(
+    token: str, config_path: Optional[Path] = None
+) -> bool:
+    """Mirror ``PairingGuard::is_authenticated``: ``True`` iff pairing is
+    not required, or the bearer's SHA-256 hash is in the gateway's paired
+    token set."""
+    require_pairing, hashes = _load_gateway_pairing(config_path)
+    if not require_pairing:
+        return True
+    if not token:
+        return False
+    return _hash_token(token) in hashes
+
+
 async def proxy_request(
     request: Request,
     path: str,
@@ -141,6 +304,33 @@ async def proxy_request(
         upstream_url = f"{upstream_url}?{query}"
 
     headers = _filter_request_headers(request.headers)
+
+    # BW4 Item 1/2 (v1.0.10 security lockdown): when a service token is
+    # configured the upstream is the loopback ical-server, whose auth
+    # boundary requires PWG_SERVICE_TOKEN rather than the client's
+    # zeroclaw_token bearer. VALIDATE the client bearer against the
+    # gateway's paired-token store FIRST, then substitute the service
+    # token. Validation + substitution ship together: substituting
+    # without validating would let any loopback caller that reaches
+    # :8089 inherit ical-server access. With no service token set the
+    # Doctor stays a transparent pass-through (e.g. the CM019
+    # Safari-ingest surface, whose upstream verifies the bearer itself).
+    service_token = _resolve_service_token()
+    if service_token:
+        client_bearer = _extract_bearer_token(request.headers)
+        if not _is_paired_bearer(client_bearer):
+            logger.warning(
+                "Doctor proxy: rejecting unpaired client bearer for %s %s",
+                request.method,
+                path,
+            )
+            return Response(
+                content="unauthorized: client bearer is not a paired token",
+                status_code=401,
+                media_type="text/plain",
+            )
+        headers["authorization"] = f"Bearer {service_token}"
+
     body = await request.body()
 
     async def _do_request(http_client: httpx.AsyncClient) -> httpx.Response:
