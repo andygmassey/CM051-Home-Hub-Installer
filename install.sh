@@ -13573,9 +13573,26 @@ else
                 # is swallowed and the Finder-drag fallback below still runs.
                 if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE"
-                    open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
+                    # HANG GUARD (Archie): `-W` blocks until the launched app
+                    # EXITS. If the shipped daemon binary does NOT recognise the
+                    # `run-source imessage --self-test` one-shot, it falls through
+                    # to normal (persistent, KeepAlive) daemon startup and never
+                    # exits -- so a bare `open -W` would block install.sh
+                    # INDEFINITELY. `|| true` catches a non-zero exit but NOT a
+                    # hang. Wrap the probe with a hard 15s timeout: run it in the
+                    # background, arm a killer that TERMs it after 15s, then wait.
+                    # 15s is ample -- TCC registers the daemon identity on the
+                    # denied chat.db read within the first ms of launch. On a
+                    # binary that DOES self-exit the probe finishes in well under
+                    # a second and the killer is reaped immediately.
+                    ( open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
                         --args run-source imessage --self-test \
-                        >/dev/null 2>&1 || true
+                        >/dev/null 2>&1 ) &
+                    _fda_probe_pid=$!
+                    ( sleep 15; kill -TERM "$_fda_probe_pid" 2>/dev/null ) &
+                    _fda_probe_killer=$!
+                    wait "$_fda_probe_pid" 2>/dev/null || true
+                    kill -TERM "$_fda_probe_killer" 2>/dev/null || true
                 fi
 
                 # FDA_PANE_REFRESH (daemon parity for #572): force a fresh
