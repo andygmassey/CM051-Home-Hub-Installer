@@ -127,6 +127,21 @@ enum StepStatus: String, Equatable {
 struct ProgressDecoder {
     private static let marker = "#OSTLER"
 
+    /// Reverse of the value encoding gui_emit applies (BW2-2, 2026-07-25).
+    /// install.sh percent-encodes "%" -> "%25" then newline -> "%0A" so
+    /// multi-paragraph question bodies survive the newline-anchored,
+    /// tab-separated marker wire. Decode "%0A" back to a real newline
+    /// first, then "%25" back to "%" -- order matters so a literal "%0A"
+    /// typed in copy (encoded as "%250A") round-trips unharmed. Values
+    /// without the sentinel pass through unchanged, so this is safe for
+    /// every marker field, not just help=.
+    private static func decodeValue(_ v: String) -> String {
+        guard v.contains("%") else { return v }
+        return v
+            .replacingOccurrences(of: "%0A", with: "\n")
+            .replacingOccurrences(of: "%25", with: "%")
+    }
+
     static func decode(line raw: String) -> InstallerEvent {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard line.hasPrefix(marker) else {
@@ -147,7 +162,7 @@ struct ProgressDecoder {
         for pair in parts.dropFirst(2) {
             if let eq = pair.firstIndex(of: "=") {
                 let k = String(pair[..<eq])
-                let v = String(pair[pair.index(after: eq)...])
+                let v = decodeValue(String(pair[pair.index(after: eq)...]))
                 kv[k] = v
             }
         }

@@ -67,4 +67,44 @@ final class ProgressDecoderTests: XCTestCase {
             return XCTFail("expected .unknown, got \(event)")
         }
     }
+
+    // MARK: - BW2-2: multi-paragraph value decoding
+
+    func testHelpValueNewlinesSurviveTheWire() {
+        // gui_emit percent-encodes newlines ("%0A") and literal percent
+        // ("%25") so a multi-paragraph question body survives the
+        // tab-separated, newline-anchored marker wire. Pre-BW2-2 the
+        // emitter stripped newlines to spaces, flattening every consent /
+        // explainer screen into one dense wall of text. This pins the
+        // decode half: paragraph breaks, bullets and a literal "%" must
+        // all come back intact.
+        let wire = "#OSTLER\tPROMPT\tid=consent_spoken\tkind=yesno" +
+            "\ttitle=Spoken capture" +
+            "\thelp=Turn spoken conversations into text?%0A%0A" +
+            "Ostler can transcribe audio you capture.%0A%0A" +
+            "• Runs on your Mac%0A• 100%25 private"
+        let event = ProgressDecoder.decode(line: wire)
+        guard case .prompt(_, _, _, _, let help, _, _) = event else {
+            return XCTFail("expected .prompt, got \(event)")
+        }
+        let body = help ?? ""
+        XCTAssertTrue(body.contains("\n\n"), "paragraph break lost")
+        XCTAssertTrue(body.contains("• Runs on your Mac"), "bullet lost")
+        XCTAssertTrue(body.contains("100% private"),
+                      "literal percent did not round-trip")
+        XCTAssertFalse(body.contains("%0A"), "sentinel leaked into rendered copy")
+        XCTAssertFalse(body.contains("%25"), "sentinel leaked into rendered copy")
+    }
+
+    func testValueWithoutSentinelIsUnchanged() {
+        // Fast-path guard: values with no "%" must pass through
+        // byte-identical (no accidental mangling of ordinary copy).
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_BEGIN\tid=docker\ttitle=Installing Docker"
+        )
+        guard case .stepBegin(_, let title, _, _, _) = event else {
+            return XCTFail("expected .stepBegin, got \(event)")
+        }
+        XCTAssertEqual(title, "Installing Docker")
+    }
 }

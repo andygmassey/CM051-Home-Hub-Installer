@@ -348,6 +348,51 @@ step()  {
     gui_phase "$id" "$title"
 }
 
+# BW2-4 (2026-07-25): surface `ollama pull` progress to the GUI.
+#
+# The "Downloading AI models" step is the longest single step of the
+# install (a 7.2 GB model over a slow link is ~30-50 min). `ollama pull`
+# streams "NN% X.X/Y.Y GB rate ETA" to its own progress bar, but that
+# never reached the GUI, which showed only a spinner -- indistinguishable
+# from a hang. Andy hit exactly this on the .185 box-walk (thought it had
+# stalled; it was pulling at 42%).
+#
+# This wrapper parses the pull stream and emits `PCT step=ai_models` +
+# a cleaned LOG line on every percentage change, driving the GUI bar.
+# It is a no-op passthrough when OSTLER_GUI != 1, so the curl|bash TTY
+# path keeps ollama's native progress bar byte-for-byte. ollama's exit
+# status is preserved through the pipe via a temp file (PIPESTATUS is not
+# reliable across the process-substitution boundary).
+_gui_ollama_pull() {
+    local model="$1"
+    local step="${2:-ai_models}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        ollama pull "$model"
+        return
+    fi
+    local rc_file line pct last=-1 clean
+    rc_file="$(mktemp -t ostler-ollama-pull)"
+    # `tr \r \n` splits ollama's carriage-return redraws into lines so a
+    # plain `read` sees each progress update whether ollama writes CR
+    # (tty-style) or LF (pipe-style) frames.
+    while IFS= read -r line; do
+        [[ "$line" == *%* ]] || continue
+        [[ "$line" =~ ([0-9]{1,3})% ]] || continue
+        pct="${BASH_REMATCH[1]}"
+        (( pct > 100 )) && pct=100
+        (( pct == last )) && continue
+        last="$pct"
+        gui_emit PCT "step=$step" "pct=$pct"
+        # Strip ANSI escapes + non-printables so the log line is clean.
+        clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
+        [[ -n "$clean" ]] && gui_log info "$clean"
+    done < <( { ollama pull "$model"; echo $? > "$rc_file"; } 2>&1 | tr '\r' '\n' )
+    local rc
+    rc="$(cat "$rc_file" 2>/dev/null)"
+    rm -f "$rc_file"
+    return "${rc:-1}"
+}
+
 # Retry a model pull up to 3 times with exponential backoff. A 6.6 GB
 # pull over hotel WiFi is fragile; a single network blip should not
 # abort the entire install at 80% progress.
@@ -356,7 +401,7 @@ ollama_pull_with_retry() {
     local attempt=1
     local backoff=10
     while (( attempt <= 3 )); do
-        if ollama pull "$model"; then
+        if _gui_ollama_pull "$model"; then
             return 0
         fi
         if (( attempt < 3 )); then
