@@ -11293,6 +11293,17 @@ DOCEOF
     # token cannot be read by another local user.
     chmod 0600 "$DOCTOR_PLIST"
 
+    # v1.0.10 P0-α (Archie #446 nit): make the Doctor reload SELF-CONTAINED so
+    # the new DOCTOR_VALIDATOR_URL env is guaranteed to apply. The global
+    # "Stopping services" block (~L10943) already boots out the Doctor + removes
+    # its plist on the normal upgrade path, so this is belt-and-braces -- but it
+    # guarantees the label is not still loaded here on any path that reaches the
+    # reload without the global stop (e.g. a partial/--repair re-run). Without
+    # it, a bootstrap onto an already-loaded label errors and `|| true` swallows
+    # it, leaving the OLD env live until reboot. Mirrors the daemon reload
+    # (~L13611); idempotent (`|| true`).
+    launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || true
+
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
         launchctl load "$DOCTOR_PLIST" 2>/dev/null || true
