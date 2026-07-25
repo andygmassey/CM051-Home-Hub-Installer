@@ -11173,9 +11173,28 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              CM041 health branch ships, so the write lands but nothing
              can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert</string>
+        <!-- P0-γ (2026-07-26): /api/v1/subscription/receipt was MISSING from the
+             proxy list. iOS SubscriptionReceiptSync POSTs it to the Doctor on
+             every purchase/restore/foreground; without the path the Doctor 404s
+             it, subscription_gate.is_active_or_grace() goes stale, and on day 31
+             email ingest / brief composition / iMessage + Reminders push all
+             silently degrade. Handler exists on the ical-server (:8090). P1: the
+             three /api/v1/memory* paths future-proof the Memory tab (hidden in
+             v1.0 via showMemoryTab, flips on in v1.0.1) so it isn't dead on
+             arrival. -->
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
+        <!-- P0-α (2026-07-26): the Doctor's paired-bearer oracle
+             (/internal/validate-bearer) lives on the GATEWAY (:8000), NOT the
+             ical-server (:8090) that DOCTOR_GATEWAY_URL points at for the
+             /api/v1/* substitution forward. Without a SEPARATE validator URL the
+             Doctor POSTs validation to :8090, the ical-server 401s it, and every
+             paired iOS client is rejected -> the "Reconnection paused" loop
+             returns (P0-α, the loop the BW2-5 fix was meant to close). Keep
+             :8000 in lockstep with the [gateway] port. -->
+        <key>DOCTOR_VALIDATOR_URL</key>
+        <string>http://127.0.0.1:8000</string>
         <!-- #652 (THE FIX): point the Doctor's chat-token mint at the SAME
              port the daemon's [gateway] is pinned to (8000, see CX-59 at
              ~L5840). chat_token.py's _zeroclaw_port() defaults to zeroclaw's
