@@ -7089,6 +7089,56 @@ unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
+
+# P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
+# across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES
+# the config from scratch, and its [gateway] line historically wrote
+#     paired_tokens = ["${CHAT_ADMIN_TOKEN}"]
+# UNCONDITIONALLY -- so every upgrade-over-install clobbered the tokens the
+# gateway had persisted for each paired iOS device / browser, silently
+# unpairing them (the box then reports every previously-paired client as
+# "unpaired" until it re-pairs). Fix: read the existing paired_tokens out of
+# the current config BEFORE the block truncates it, and union them with the
+# admin token. Existing entries are carried VERBATIM -- once the gateway has
+# booted they are hashed / enc2:-encrypted at rest (that opacity is exactly why
+# the Doctor validates bearers via the gateway oracle, not by reading this
+# file; see doctor/agent/proxy.py DOCTOR_VALIDATOR_URL). We neither decrypt nor
+# interpret them; the gateway re-canonicalises the freshly-added plaintext admin
+# token on next boot, and a duplicate of the already-persisted admin entry is
+# harmless because membership is a set test.
+_merged_paired_tokens=()
+_paired_tokens_add() {
+    local _new="$1" _e
+    for _e in "${_merged_paired_tokens[@]:-}"; do
+        [[ "$_e" == "$_new" ]] && return 0
+    done
+    _merged_paired_tokens+=("$_new")
+}
+if [[ -f "$ASSISTANT_CONFIG" ]]; then
+    while IFS= read -r _existing_tok; do
+        [[ -n "$_existing_tok" ]] && _paired_tokens_add "$_existing_tok"
+    done < <(
+        awk '
+            !cap && $0 ~ /^[ \t]*paired_tokens[ \t]*=/ { cap = 1 }
+            cap { buf = buf $0 "\n"; if (index($0, "]") > 0) cap = 0 }
+            END { printf "%s", buf }
+        ' "$ASSISTANT_CONFIG" | grep -oE '"[^"]*"' | sed 's/^"//; s/"$//'
+    )
+fi
+# Always ensure the admin token is present (fresh install => this is the only
+# entry; upgrade => appended to the preserved device tokens).
+_paired_tokens_add "$CHAT_ADMIN_TOKEN"
+_paired_tokens_toml=""
+for _pt in "${_merged_paired_tokens[@]}"; do
+    _pt_esc=${_pt//\"/\\\"}
+    if [[ -z "$_paired_tokens_toml" ]]; then
+        _paired_tokens_toml="\"${_pt_esc}\""
+    else
+        _paired_tokens_toml="${_paired_tokens_toml}, \"${_pt_esc}\""
+    fi
+done
+unset _existing_tok _pt _pt_esc
+
 umask_orig=$(umask)
 umask 0077
 {
@@ -7401,7 +7451,10 @@ TOMLPREAMBLE
     # after the CX-58 assistant-agent bundling fix surfaced the
     # daemon successfully but on the wrong port.
     echo "port = 8000"
-    echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
+    # P0-β: emit the MERGED set (preserved device tokens + admin), computed
+    # above BEFORE this block truncated the file. Never write the admin token
+    # unconditionally here -- that unpairs every device on upgrade.
+    echo "paired_tokens = [${_paired_tokens_toml}]"
 
     # v1.0.10 phone pairing DEFERRED (operator decision): companion
     # pairing depends on a coordinated CM031 change that isn't ready for
@@ -7550,6 +7603,9 @@ unset CHANNEL_EMAIL_PASSWORD
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.
 unset CHAT_ADMIN_TOKEN
+# P0-β scratch: drop the preserved-pairings working state now it is emitted.
+unset _merged_paired_tokens _paired_tokens_toml
+unset -f _paired_tokens_add 2>/dev/null || true
 
 ok "$(printf "$MSG_OK_ASSISTANT_CONFIG_SAVED_MODE_0600" "${ASSISTANT_CONFIG}")"
 
