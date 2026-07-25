@@ -16824,6 +16824,63 @@ else
     HEALTHY=false
 fi
 
+# ── v1.0.10 P1: loopback control-plane liveness ─────────────────
+#
+# The pairing + data-tab experience depends on three loopback services
+# the probes above do NOT cover, and a box that looks "installed" but
+# has any of them down silently fails chat / pairing / the data tab --
+# exactly the box-walk class this recut closes (P0-α validate-bearer,
+# P0-β pairing preservation). Surface each one here:
+#   - Pairing service (127.0.0.1:8000) -- mints + validates the paired
+#       bearers; the oracle the Doctor consults (DOCTOR_VALIDATOR_URL).
+#   - Doctor          (127.0.0.1:8089) -- the proxy the iOS app + browser
+#       talk to; validates the client bearer, substitutes the service
+#       token, forwards /api/v1/* to the Assistant API.
+#   - Assistant API   (127.0.0.1:8090) -- People / Meetings / Timeline.
+# All three are launchd services loaded far earlier in this run (Doctor
+# ~L11297, Assistant API ~L11468, pairing service ~L13611) and the
+# hydrate phase already exercised :8089 -> :8090, so by now they should
+# be up; a few-second retry only absorbs a still-settling daemon. A
+# LIVENESS probe (ANY HTTP response, including 401/404) is the right test
+# -- we are asking "is it listening", not "does it authorise us" -- so we
+# deliberately do NOT use curl -f. No bearer is sent.
+_probe_http_live() {
+    # $1 url  $2 attempts (default 5). Returns 0 if the port answers HTTP.
+    local _url="$1" _attempts="${2:-5}" _code _i=0
+    while [[ $_i -lt $_attempts ]]; do
+        # curl -w prints "000" (and exits non-zero) on connection refused /
+        # timeout, so only a genuine HTTP status (1xx-5xx, includes 401/404)
+        # counts as "listening". Do NOT `|| echo 000` here -- curl already
+        # emits 000, and appending a second would read as a live 6-digit code.
+        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null)
+        [[ "$_code" =~ ^[1-5][0-9][0-9]$ ]] && return 0
+        _i=$((_i + 1))
+        [[ $_i -lt $_attempts ]] && sleep 1
+    done
+    return 1
+}
+
+if _probe_http_live "http://127.0.0.1:8000/" 5; then
+    ok "$MSG_OK_GATEWAY_HEALTHY"
+else
+    warn "$MSG_WARN_GATEWAY_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+if _probe_http_live "http://127.0.0.1:8089/" 5; then
+    ok "$MSG_OK_DOCTOR_HEALTHY"
+else
+    warn "$MSG_WARN_DOCTOR_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+if _probe_http_live "http://127.0.0.1:8090/" 5; then
+    ok "$MSG_OK_ICAL_SERVER_HEALTHY"
+else
+    warn "$MSG_WARN_ICAL_SERVER_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
 # Vane (local web search) is optional. Surface it in the health
 # check so the customer can see whether it is running, but do NOT
 # flip the install-wide HEALTHY flag if it is missing -- the
