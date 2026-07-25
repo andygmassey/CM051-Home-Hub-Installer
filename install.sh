@@ -12638,9 +12638,9 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.37})" "ostler_assistant"
+progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.38})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.37}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.38}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an
@@ -12709,7 +12709,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="REPLACE_AT_RELEASE_TIME"
+DEFAULT_ASSISTANT_TARBALL_SHA256="1fa4a1e21979bd093b8d35967da8b21fc96064b837881baa61570fe11abc6d46"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
@@ -13905,7 +13905,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.2}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 REMOTECAPTURE_APP_PATH="/Applications/Ostler RemoteCapture.app"
 REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
