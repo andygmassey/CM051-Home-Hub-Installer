@@ -325,6 +325,15 @@ targets:
             echo "Bundling ostler_security from ${SRC} into Resources/"
             mkdir -p "${DEST}/ostler_security"
             cp -R "${SRC}/" "${DEST}/ostler_security/"
+            # F1 hygiene (2026-07-26): strip any leftover `build/` (a stale
+            # `python -m build` output can carry a PRE-F1 consent_cli.py that
+            # lacks spoken_capture_recording_consent), plus __pycache__ /
+            # *.egg-info. Runtime resolves consent_cli from the venv, never
+            # from this tree, but a stray stale copy in the bundle is exactly
+            # the class of drift that caused F1 -- keep it out.
+            rm -rf "${DEST}/ostler_security/build"
+            find "${DEST}/ostler_security" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
+            find "${DEST}/ostler_security" -type d -name "*.egg-info" -prune -exec rm -rf {} + 2>/dev/null || true
             /usr/bin/xattr -cr "${DEST}/ostler_security" || true
           else
             echo "ERROR: vendor/ostler_security not found at ${SRC}" >&2

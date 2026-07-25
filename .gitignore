@@ -101,3 +101,7 @@ assistant-agent/bin/
 # at xcodebuild time. NOT tracked in source -- the tarball is recreated
 # on every `make ship` run.
 assistant-agent/OstlerAssistant.app/
+
+# F1 hygiene: never bundle stale python-build output (pre-F1 consent_cli)
+vendor/ostler_security/build/
+**/*.egg-info/

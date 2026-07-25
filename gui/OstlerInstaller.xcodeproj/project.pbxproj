@@ -1090,7 +1090,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/ostler_security\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling ostler_security from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/ostler_security\"\n  cp -R \"${SRC}/\" \"${DEST}/ostler_security/\"\n  /usr/bin/xattr -cr \"${DEST}/ostler_security\" || true\nelse\n  echo \"ERROR: vendor/ostler_security not found at ${SRC}\" >&2\n  exit 1\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/ostler_security\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling ostler_security from ${SRC} into Resources/\"\n  mkdir -p \"${DEST}/ostler_security\"\n  cp -R \"${SRC}/\" \"${DEST}/ostler_security/\"\n  # F1 hygiene (2026-07-26): strip any leftover `build/` (a stale\n  # `python -m build` output can carry a PRE-F1 consent_cli.py that\n  # lacks spoken_capture_recording_consent), plus __pycache__ /\n  # *.egg-info. Runtime resolves consent_cli from the venv, never\n  # from this tree, but a stray stale copy in the bundle is exactly\n  # the class of drift that caused F1 -- keep it out.\n  rm -rf \"${DEST}/ostler_security/build\"\n  find \"${DEST}/ostler_security\" -type d -name \"__pycache__\" -prune -exec rm -rf {} + 2>/dev/null || true\n  find \"${DEST}/ostler_security\" -type d -name \"*.egg-info\" -prune -exec rm -rf {} + 2>/dev/null || true\n  /usr/bin/xattr -cr \"${DEST}/ostler_security\" || true\nelse\n  echo \"ERROR: vendor/ostler_security not found at ${SRC}\" >&2\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
