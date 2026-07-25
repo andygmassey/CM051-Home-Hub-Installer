@@ -399,6 +399,7 @@
 				B05A6772681A0E319F17F3D6 /* Organise brand fonts into Fonts/ subdir for ATSApplicationFontsPath */,
 				4E98769DBA62B4C9868A0711 /* Bundle python-build-standalone Python 3.11 into Resources */,
 				E8055234B2510AED4647E6D1 /* Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources */,
+				40897EECA8735C710F8CED09 /* Compile + bundle ostler-mecard helper into Resources */,
 				FE78DA1D8EB63C964F15FE8B /* Bundle ostler_security Python package into Resources */,
 				078B7A5A7C496CE2D7733D64 /* Bundle ostler_fda Python package into Resources */,
 				F54BDEF84C009CE505BC7F56 /* Bundle whatsapp_source conversation feed into Resources */,
@@ -682,6 +683,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../vendor/email_ingest\"\nif [ -d \"${SRC}\" ]; then\n  echo \"Bundling email_ingest from ${SRC} into Resources/email-ingest/\"\n  mkdir -p \"${DEST}/email-ingest\"\n  # install.sh:5088 looks for ${SCRIPT_DIR}/email-ingest/INSTALL_SNIPPET.sh\n  # so the bundled directory MUST be named email-ingest (hyphen),\n  # matching the source directory name in HR015.\n  cp -R \"${SRC}/\"* \"${DEST}/email-ingest/\"\n  /usr/bin/xattr -cr \"${DEST}/email-ingest\" || true\n  chmod 755 \"${DEST}/email-ingest/INSTALL_SNIPPET.sh\"\n  chmod 755 \"${DEST}/email-ingest/bin/\"*.sh \"${DEST}/email-ingest/bin/\"*.py \"${DEST}/email-ingest/bin/ostler-rescan-mail\" 2>/dev/null || true\nelse\n  echo \"ERROR: vendor/email_ingest not found at ${SRC}\" >&2\n  exit 1\nfi\n";
+		};
+		40897EECA8735C710F8CED09 /* Compile + bundle ostler-mecard helper into Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/ostler-mecard/main.swift",
+				"$(SRCROOT)/ostler-mecard/Info.plist",
+			);
+			name = "Compile + bundle ostler-mecard helper into Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-mecard",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/ostler-mecard/main.swift\"\nPLIST=\"${SRCROOT}/ostler-mecard/Info.plist\"\nif [ ! -f \"${SRC}\" ] || [ ! -f \"${PLIST}\" ]; then\n  echo \"ERROR: ostler-mecard source or Info.plist missing under ${SRCROOT}/ostler-mecard\" >&2\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nDEPLOY=\"${MACOSX_DEPLOYMENT_TARGET:-14.0}\"\nSLICES=()\nfor arch in ${ARCHS}; do\n  slice=\"${DERIVED_FILE_DIR}/ostler-mecard-${arch}\"\n  echo \"Compiling ostler-mecard slice: ${arch} (macos ${DEPLOY})\"\n  xcrun swiftc -O \\\n    -target \"${arch}-apple-macos${DEPLOY}\" \\\n    -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker \"${PLIST}\" \\\n    \"${SRC}\" -o \"${slice}\"\n  SLICES+=(\"${slice}\")\ndone\nxcrun lipo -create \"${SLICES[@]}\" -output \"${DEST}/ostler-mecard\"\nchmod 755 \"${DEST}/ostler-mecard\"\n/usr/bin/xattr -cr \"${DEST}/ostler-mecard\" || true\necho \"Bundled ostler-mecard: $(xcrun lipo -archs \"${DEST}/ostler-mecard\")\"\n";
 		};
 		4E98769DBA62B4C9868A0711 /* Bundle python-build-standalone Python 3.11 into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

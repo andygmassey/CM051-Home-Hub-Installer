@@ -2491,15 +2491,38 @@ DETECTED_PHONE=""
 # after this Phase-2 question block.)
 info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
 
-# `my card` only resolves when Contacts.app is actually RUNNING. On a Mac
-# right after first setup -- or any login where the user has not opened
-# Contacts -- the app is cold, the AppleEvent fails with -600 "Application
-# isn't running", and the read returns empty with NO consent prompt. The
-# pre-fill then silently produces nothing: blank name/country defaults, an
-# empty wiki title, and empty self-handles (#646). This was the v1.0.0 .145
-# box-walk regression. Launch Contacts hidden in the background first (-g
-# keeps the installer in focus, -j launches it hidden) so the event lands
-# against a live app and the normal automation-consent prompt can appear.
+CARD_DATA=""
+
+# BW2-1 (box-walk recut #2, 2026-07-25): prefer the bundled native reader.
+# `ostler-mecard` reads the "My Card" via AddressBook (-[ABAddressBook me]),
+# which is stable across macOS versions -- unlike the osascript `my card`
+# read below, which broke on macOS 26.5 (-1728) and left the pre-fill blank
+# on the .185 box-walk (blank name/country, empty wiki title, empty self-
+# handles). The helper is signed as part of the installer app and inherits
+# its already-granted Contacts access, so it neither prompts nor needs
+# Contacts.app to be running. It prints `name|first|country|email|phone` on
+# success (exit 0) and nothing on failure (exit 1: no card / no access /
+# helper absent), in which case we fall through to the osascript path below
+# unchanged (covers older bundles + older macOS).
+_read_my_card_native() {
+    local bin="${SCRIPT_DIR:-}/ostler-mecard"
+    [[ -n "${SCRIPT_DIR:-}" && -x "$bin" ]] || return 1
+    "$bin" 2>/dev/null
+}
+if CARD_DATA_NATIVE=$(_read_my_card_native); then
+    CARD_DATA="$CARD_DATA_NATIVE"
+fi
+
+# osascript fallback: only when the native reader gave us nothing. `my card`
+# only resolves when Contacts.app is actually RUNNING. On a Mac right after
+# first setup -- or any login where the user has not opened Contacts -- the
+# app is cold, the AppleEvent fails with -600 "Application isn't running",
+# and the read returns empty with NO consent prompt. The pre-fill then
+# silently produces nothing (#646, the v1.0.0 .145 box-walk regression).
+# Launch Contacts hidden in the background first (-g keeps the installer in
+# focus, -j launches it hidden) so the event lands against a live app and
+# the normal automation-consent prompt can appear.
+if [[ -z "$CARD_DATA" ]]; then
 open -gja Contacts >/dev/null 2>&1 || true
 
 # Capture stderr separately so a Contacts permission denial (-1743) or a
@@ -2551,6 +2574,7 @@ elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
 rm -f "$CARD_STDERR"
+fi
 
 if [[ -n "$CARD_DATA" ]]; then
     DETECTED_NAME=$(echo "$CARD_DATA" | cut -d'|' -f1)

@@ -268,6 +268,54 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+      - name: Compile + bundle ostler-mecard helper into Resources
+        # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that
+        # reads the macOS "My Card" via AddressBook (-[ABAddressBook me]) and
+        # prints `name|first|country|email|phone`. install.sh invokes it in
+        # preference to the old osascript `my card` read, which broke on macOS
+        # 26.5 (-1728) and produced a blank pre-fill on the .185 box-walk.
+        #
+        # The tool lands flat in Contents/Resources alongside install.sh, so
+        # install.sh finds it at ${SCRIPT_DIR}/ostler-mecard (== the value the
+        # GUI passes as OSTLER_BOOTSTRAP_SCRIPT_DIR). It is compiled here as a
+        # universal binary from $ARCHS with the module's NSContactsUsageDescription
+        # embedded via -sectcreate. It is left UNSIGNED at this stage: the
+        # Makefile's `--force --deep --options runtime --timestamp` re-sign of
+        # the whole .app (sign-python-bundle target) signs it with the app's
+        # Developer ID + hardened runtime, exactly as it does the bundled
+        # python3.11 binary. As a same-team, hardened descendant of the app, its
+        # Contacts read is attributed to the installer (the TCC responsible
+        # process) and inherits the pre-warmed grant — no second consent prompt.
+        script: |
+          set -euo pipefail
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/ostler-mecard/main.swift"
+          PLIST="${SRCROOT}/ostler-mecard/Info.plist"
+          if [ ! -f "${SRC}" ] || [ ! -f "${PLIST}" ]; then
+            echo "ERROR: ostler-mecard source or Info.plist missing under ${SRCROOT}/ostler-mecard" >&2
+            exit 1
+          fi
+          mkdir -p "${DEST}"
+          DEPLOY="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+          SLICES=()
+          for arch in ${ARCHS}; do
+            slice="${DERIVED_FILE_DIR}/ostler-mecard-${arch}"
+            echo "Compiling ostler-mecard slice: ${arch} (macos ${DEPLOY})"
+            xcrun swiftc -O \
+              -target "${arch}-apple-macos${DEPLOY}" \
+              -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "${PLIST}" \
+              "${SRC}" -o "${slice}"
+            SLICES+=("${slice}")
+          done
+          xcrun lipo -create "${SLICES[@]}" -output "${DEST}/ostler-mecard"
+          chmod 755 "${DEST}/ostler-mecard"
+          /usr/bin/xattr -cr "${DEST}/ostler-mecard" || true
+          echo "Bundled ostler-mecard: $(xcrun lipo -archs "${DEST}/ostler-mecard")"
+        inputFiles:
+          - $(SRCROOT)/ostler-mecard/main.swift
+          - $(SRCROOT)/ostler-mecard/Info.plist
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-mecard
       - name: Bundle ostler_security Python package into Resources
         script: |
           set -euo pipefail
