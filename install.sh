@@ -2507,7 +2507,9 @@ CARD_DATA=""
 _read_my_card_native() {
     local bin="${SCRIPT_DIR:-}/ostler-mecard"
     [[ -n "${SCRIPT_DIR:-}" && -x "$bin" ]] || return 1
-    "$bin" 2>/dev/null
+    # stderr → the install log (not /dev/null) for debuggability; stdout is the
+    # captured `name|first|country|email|phone` line.
+    "$bin" 2>>"${INSTALL_LOG:-/dev/null}"
 }
 if CARD_DATA_NATIVE=$(_read_my_card_native); then
     CARD_DATA="$CARD_DATA_NATIVE"

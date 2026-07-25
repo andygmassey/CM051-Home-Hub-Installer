@@ -536,6 +536,24 @@ sign-python-bundle:
 	else \
 	    echo "  no bundled daemon at $$DAEMON_APP -- skipping (standalone sign run)"; \
 	fi
+	$(STEP) "Signing bundled ostler-mecard helper with hardened runtime"
+	# BW2-1 (2026-07-25): ostler-mecard is a Mach-O at Contents/Resources/ostler-mecard,
+	# compiled by the xcodegen postBuildScript and left UNSIGNED. Per CX-124 above, the
+	# outer --force --deep reseal does NOT add hardened runtime to nested Mach-Os, so
+	# without an explicit sign here notarytool rejects the DMG ("executable does not have
+	# the hardened runtime enabled") -- a burnt cut cycle. Same identity + entitlements as
+	# the daemon/python/outer .app for uniform runtime+entitlements state, before the outer
+	# reseal seals it. (Its Contacts read inherits the installer's TCC grant as a same-team
+	# hardened descendant; the embedded NSContactsUsageDescription is belt-and-braces.)
+	@MECARD_BIN="$(APP_PATH)/Contents/Resources/ostler-mecard"; \
+	if [ -f "$$MECARD_BIN" ]; then \
+	    codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp \
+	        --entitlements "OstlerInstaller/OstlerInstaller.entitlements" \
+	        "$$MECARD_BIN"; \
+	    echo "  signed ostler-mecard with hardened runtime: $$MECARD_BIN"; \
+	else \
+	    echo "  no ostler-mecard at $$MECARD_BIN -- skipping (standalone sign run)"; \
+	fi
 	$(STEP) "Re-signing outer .app to seal inner Python signatures"
 	# CX-33 (2026-05-24): --entitlements MUST be passed here, otherwise the
 	# --force --deep re-sign STRIPS the disable-library-validation entitlement
@@ -556,6 +574,13 @@ sign-python-bundle:
 	    codesign -dvvv "$$DAEMON_BIN" 2>&1 | grep -Eq "flags=.*runtime" \
 	        && echo "  ✓ hardened runtime present on bundled daemon" \
 	        || (echo "  ✗ hardened runtime MISSING from bundled daemon -- DMG will fail notarisation"; exit 1); \
+	fi
+	@echo "Post-sign verify: ostler-mecard hardened runtime (must be enabled)"
+	@MECARD_BIN="$(APP_PATH)/Contents/Resources/ostler-mecard"; \
+	if [ -f "$$MECARD_BIN" ]; then \
+	    codesign -dvvv "$$MECARD_BIN" 2>&1 | grep -Eq "flags=.*runtime" \
+	        && echo "  ✓ hardened runtime present on ostler-mecard" \
+	        || (echo "  ✗ hardened runtime MISSING from ostler-mecard -- DMG will fail notarisation"; exit 1); \
 	fi
 
 # ---------------------------------------------------------------------------
@@ -817,7 +842,7 @@ verify-dmg-contents:
 	fi; \
 	RES="$$MOUNT/$(APP_NAME).app/Contents/Resources"; \
 	MISSING=""; \
-	for p in Ostler.app install.sh ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline cm019_preferences cm021 contact_syncer meeting_syncer identity_resolver email-ingest imessage-bridge whatsapp_source email_source spoken_source imessage_source assistant-agent; do \
+	for p in Ostler.app install.sh ostler-mecard ostler_security ostler_fda doctor hub-power assistant_api cm024_knowledge cm048_pipeline cm019_preferences cm021 contact_syncer meeting_syncer identity_resolver email-ingest imessage-bridge whatsapp_source email_source spoken_source imessage_source assistant-agent; do \
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \
@@ -857,6 +882,15 @@ verify-dmg-contents:
 	    codesign -dvvv "$$DAEMON_SIGN_TGT" 2>&1 | grep -E "^CodeDirectory" | grep -q "runtime" || DAEMON_SIGN_OK=0; \
 	else \
 	    DAEMON_SIGN_OK=0; \
+	fi; \
+	MECARD_SIGN_OK=1; \
+	MECARD_BIN_M="$$RES/ostler-mecard"; \
+	if [ -e "$$MECARD_BIN_M" ]; then \
+	    codesign -dvv "$$MECARD_BIN_M" 2>&1 | grep -q "Authority=Developer ID Application: Creative Machines Limited" || MECARD_SIGN_OK=0; \
+	    codesign -dvv "$$MECARD_BIN_M" 2>&1 | grep -q "TeamIdentifier=$(TEAM_ID)" || MECARD_SIGN_OK=0; \
+	    codesign -dvvv "$$MECARD_BIN_M" 2>&1 | grep -E "^CodeDirectory" | grep -q "runtime" || MECARD_SIGN_OK=0; \
+	else \
+	    MECARD_SIGN_OK=0; \
 	fi; \
 	hdiutil detach "$$MOUNT" >/dev/null 2>&1 || true; \
 	if [ -n "$$MISSING" ]; then \
@@ -915,7 +949,15 @@ verify-dmg-contents:
 	    echo "       An adhoc daemon fails Apple notarisation AND Gatekeeper on the customer Mac." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon present (Hub build-SHA $$HUB_SHA)"
+	if [ "$$MECARD_SIGN_OK" = "0" ]; then \
+	    echo "ERROR: bundled ostler-mecard is NOT Developer-ID signed + hardened-runtime (Team $(TEAM_ID))." >&2; \
+	    echo "       BW2-1: the me-card helper is a nested Mach-O at Contents/Resources/ostler-mecard;" >&2; \
+	    echo "       the outer --force --deep reseal does NOT add hardened runtime (CX-124). sign-python-bundle" >&2; \
+	    echo "       must re-sign it Developer-ID --options runtime before packaging, else notarytool rejects" >&2; \
+	    echo "       the DMG -- a burnt cut cycle." >&2; \
+	    exit 1; \
+	fi; \
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon + ostler-mecard present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive
