@@ -168,6 +168,13 @@ class PipelineSignalsInfo:
     # #260 first-ingest sentinel, set by email-ingest-tick.sh on the
     # first non-empty ingest. Used by the 48h "extend history" timer.
     first_ingest_complete_ts: int | None = None
+    # CX-60 install-time iMessage chat.db FDA probe. ``True`` means the
+    # installer's probe found the ostler-assistant daemon could not open
+    # ~/Library/Messages/chat.db once the LaunchAgent loaded, so Doctor
+    # must surface the Full Disk Access reminder card (see
+    # ``diagnostic_rules.check_imessage_fda``). ``None`` = legacy install
+    # / no probe yet; ``False`` = probe found the daemon already healthy.
+    imessage_chat_db_fda_needed: bool | None = None
 
 
 @dataclass
@@ -550,6 +557,9 @@ def collect_pipeline_signals() -> PipelineSignalsInfo | None:
         install_completed_ts=_safe_int(data.get("install_completed_ts")),
         first_ingest_complete_ts=_safe_int(
             data.get("first_ingest_complete_ts"),
+        ),
+        imessage_chat_db_fda_needed=_safe_bool(
+            data.get("imessage_chat_db_fda_needed"),
         ),
     )
 
