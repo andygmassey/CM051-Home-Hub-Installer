@@ -13995,8 +13995,9 @@ else
                 # opening Finder here only adds a redundant window that
                 # stacks with the Tailscale sign-in. Keeps the drag flow as
                 # the fallback for any macOS where the row did not register.
+                _fda_finder_revealed=false
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
-                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null && _fda_finder_revealed=true || true
                 else
                     info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
                 fi
@@ -14154,31 +14155,53 @@ else
                 fi
                 unset _imessage_fda_reprobe_ok
 
-                # BW5 (2026-07-26): the FDA interaction is now RESOLVED -- the
-                # customer clicked Done on the modal and the ~40s grant poll has
-                # elapsed (granted, or the Doctor card will persist the
-                # reminder). Close the System Settings FDA pane we opened so it
-                # does NOT linger on screen and stack under the Tailscale
-                # sign-in browser that opens a couple of steps later -- that
-                # overlap is the "crash of windows" the .98 box-walk hit. This
-                # serializes the two interactions: FDA fully done before
-                # anything else needs the customer. Best-effort; covers both the
-                # modern "System Settings" and legacy "System Preferences"
-                # process names.
-                killall "System Settings" >/dev/null 2>&1 || true
-                killall "System Preferences" >/dev/null 2>&1 || true
-                # BW5 nit (Archie 2026-07-26): a fixed `sleep 1` is too tight on a
-                # heavily-loaded install-time Mac -- if the FDA pane is still on
-                # screen when the Tailscale sign-in opens a couple of steps later,
-                # we recreate the exact window overlap this block exists to
-                # prevent. Poll until the pane process is actually gone, with a
-                # generous ceiling, before proceeding. Never blocks forever.
+                # BW6 (2026-07-26, window-glut): close EVERY window this assist
+                # block opened -- BULLETPROOF, under extreme load -- before we
+                # proceed, so nothing from this block can survive to STACK with
+                # the end-of-install daemon start's Documents/Automation prompt.
+                #
+                # Root cause of Andy's stacked glut (recut3 = current main, so
+                # NOT an earlier cut): his install ran at load avg ~91%. The old
+                # close fired a SINGLE `killall "System Settings"` then merely
+                # WATCHED for exit with a 10s ceiling. Under that load System
+                # Settings took >10s to come down, the watch-only poll gave up,
+                # the FDA pane LINGERED, and the end-of-install daemon start then
+                # raised its Documents + Automation prompts ON TOP of the still-
+                # open System Settings + Finder -> the four-window stack. Each
+                # piece was individually clean; load defeated the timing.
+                #
+                # Fix: FORCEFUL + REPEATED close with a GENEROUS ceiling. Re-issue
+                # killall on EVERY poll iteration (not once), and also close the
+                # Finder reveal window we opened on the drag-in fallback, until
+                # both are provably gone or ~60s has elapsed. On a fast box this
+                # returns in ~1s (breaks as soon as the pane is gone); the ceiling
+                # only ever matters on a box so loaded the pane crawls down.
+                # Best-effort throughout; never blocks forever. Covers both the
+                # modern "System Settings" and legacy "System Preferences" names.
                 _ss_close_wait=0
-                while { pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; } && [[ "$_ss_close_wait" -lt 10 ]]; do
+                while :; do
+                    killall "System Settings" >/dev/null 2>&1 || true
+                    killall "System Preferences" >/dev/null 2>&1 || true
+                    # Close the Finder reveal window we opened on the drag-in
+                    # fallback. Gated on _fda_finder_revealed so we never touch
+                    # Finder on the normal (registered/listed) path where the
+                    # reveal was suppressed and no Finder window exists.
+                    if [[ "${_fda_finder_revealed:-false}" == true ]]; then
+                        osascript -e 'tell application "Finder" to close windows' >/dev/null 2>&1 || true
+                    fi
+                    # Break the instant neither pane process is alive.
+                    if ! pgrep -x "System Settings" >/dev/null 2>&1 \
+                       && ! pgrep -x "System Preferences" >/dev/null 2>&1; then
+                        break
+                    fi
+                    [[ "$_ss_close_wait" -ge 60 ]] && break
                     sleep 1
                     _ss_close_wait=$((_ss_close_wait + 1))
                 done
-                unset _fda_listed _ss_close_wait _fda_nudge_registered
+                if pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; then
+                    gui_log info "Daemon FDA assist: System Settings still up after ${_ss_close_wait}s of forced close (very heavily loaded box); proceeding anyway to avoid blocking the install."
+                fi
+                unset _fda_listed _ss_close_wait _fda_nudge_registered _fda_finder_revealed
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
@@ -17107,6 +17130,21 @@ _probe_http_live() {
 # and give it a GENEROUS window (up to ~30s, returns early on bind) before we
 # probe. The end-of-install _ostler_start_assistant_daemon call stays as the
 # final TCC-refresh kickstart.
+#
+# BW6 (2026-07-26, window-glut): this is the FIRST (bootstrap) daemon start, so
+# on a no-FDA install (customer declined / the assist poll timed out) it is the
+# call that raises the daemon's own Documents-folder + "control Messages"
+# Automation prompts. That single honest prompt is acceptable -- Andy's
+# complaint was the STACK, not one prompt -- but it must land ALONE. The assist
+# block already force-closed System Settings + Finder minutes ago, and the
+# Tailscale/Safari sign-in resolved many hydration phases earlier; this cheap
+# close is defense-in-depth so a reopened FDA pane can never be on screen when
+# the prompt fires. (The way to remove even this one prompt is to PRIME the
+# Documents + Automation grants early in the front batch -- scoped in the PR as
+# a follow-up; the daemon legitimately needs ~/Documents for the workspace/wiki,
+# so deferring that access forever is NOT the fix.)
+killall "System Settings" >/dev/null 2>&1 || true
+killall "System Preferences" >/dev/null 2>&1 || true
 _ostler_start_assistant_daemon
 if _probe_http_live "http://127.0.0.1:8000/" 30; then
     ok "$MSG_OK_GATEWAY_HEALTHY"

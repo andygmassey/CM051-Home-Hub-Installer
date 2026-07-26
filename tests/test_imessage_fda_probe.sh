@@ -409,5 +409,54 @@ if ! grep -q "^MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE=" "$STRINGS_FILE"; then
 fi
 echo "PASS [case-10]: BW6 register nudge present, capability-gated, hard-kills by argv, ordered before the pane, crash-loop-safe, no timing killer"
 
+# ── Case 11 (BW6): assist-window close is bulletproof under load ──
+# Root cause of Andy's stacked glut: at load ~91% the old close fired a
+# SINGLE killall then watched with a 10s ceiling; System Settings lingered
+# past 10s and the end-of-install daemon prompt stacked on it. Lock the
+# hardened close: killall RE-ISSUED inside the wait loop (not once), a
+# generous ceiling (>= 60, not 10), and the Finder reveal window closed.
+# Extract the close loop from the assist block (reuse ASSIST_BLOCK).
+# 1. The close must be a loop that re-issues killall on every iteration:
+#    assert a `while` precedes a `killall "System Settings"` that is itself
+#    followed by the loop's `sleep`/ceiling -- i.e. killall is inside the loop.
+CLOSE_BLOCK=$(awk '
+    /BW6 .2026-07-26, window-glut.: close EVERY window/ { in_block=1 }
+    in_block { print }
+    in_block && /unset _fda_listed _ss_close_wait/ { exit }
+' "$INSTALL_SH")
+if [[ -z "$CLOSE_BLOCK" ]]; then
+    echo "FAIL [case-11]: could not extract BW6 assist-window close block" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q 'while :; do'; then
+    echo "FAIL [case-11]: close must be a repeated loop (while), not a one-shot killall + watch" >&2
+    exit 1
+fi
+# killall must be INSIDE the loop (after `while`, before the `done`).
+_while_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*while :; do' | head -1 | cut -d: -f1)
+# Anchor on the actual command (line-start), not a comment mentioning killall.
+_killall_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*killall "System Settings"' | head -1 | cut -d: -f1)
+_done_ln=$(printf '%s\n' "$CLOSE_BLOCK" | grep -n '^[[:space:]]*done$' | head -1 | cut -d: -f1)
+if [[ -z "$_while_ln" || -z "$_killall_ln" || -z "$_done_ln" ]] \
+   || (( _killall_ln <= _while_ln )) || (( _killall_ln >= _done_ln )); then
+    echo "FAIL [case-11]: killall must be re-issued INSIDE the close loop (while < killall < done)" >&2
+    exit 1
+fi
+# 2. Ceiling must be generous (>= 60), never the old 10s.
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -Eq '_ss_close_wait" -ge (6[0-9]|[7-9][0-9]|[1-9][0-9]{2,})'; then
+    echo "FAIL [case-11]: close-poll ceiling must be >= 60s (was 10s -- too tight under load)" >&2
+    exit 1
+fi
+# 3. The Finder reveal window must be closed, gated on _fda_finder_revealed.
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q '_fda_finder_revealed'; then
+    echo "FAIL [case-11]: close block must close the Finder reveal window (gated on _fda_finder_revealed)" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$CLOSE_BLOCK" | grep -q 'Finder" to close windows'; then
+    echo "FAIL [case-11]: close block missing the Finder close (osascript close windows)" >&2
+    exit 1
+fi
+echo "PASS [case-11]: BW6 assist-window close is loop-repeated killall + >=60s ceiling + Finder close"
+
 echo ""
-echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A IMESSAGE FDA PROBE TESTS PASSED"
+echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A + BW6 IMESSAGE FDA PROBE TESTS PASSED"
