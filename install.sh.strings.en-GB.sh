@@ -836,10 +836,10 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, 
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Allow Ostler to read your Messages"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"Ostler\" in the list and switch it on."
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then switch it on. Click Done when finished."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Turn ON the Full Disk Access switch for \"Ostler\"."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"Ostler\" from the Finder window into the list, then turn its switch on. Order does not matter -- click Done before or after; the installer waits until the switch is actually on."
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="Click Done when finished."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch -- the installer waits until it is actually on."
 
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Allow Ostler to read your Mac data"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
