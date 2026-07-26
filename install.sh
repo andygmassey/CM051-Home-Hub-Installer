@@ -13588,7 +13588,7 @@ _imessage_daemon_fda_granted() {
         _auth="$(
             sudo -n sqlite3 \
                 "/Library/Application Support/com.apple.TCC/TCC.db" \
-                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
+                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
                 2>/dev/null || true
         )"
     fi
@@ -13619,7 +13619,7 @@ _imessage_daemon_fda_listed() {
         _row="$(
             sudo -n sqlite3 \
                 "/Library/Application Support/com.apple.TCC/TCC.db" \
-                "SELECT 1 FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
+                "SELECT 1 FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
                 2>/dev/null || true
         )"
     fi
@@ -13833,6 +13833,19 @@ else
                 # already exists. Assigned unconditionally here so it is always
                 # defined before use under `set -u`.
                 _fda_listed="$(_imessage_daemon_fda_listed)"
+                # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
+                # row is genuinely absent OR sudo -n could not read TCC.db. Both
+                # take the drag-in fallback, so record which one fired for
+                # post-hoc box-walk forensics. Logged here (not inside the
+                # stdout-captured helper) so it can never corrupt _fda_listed.
+                # The sudo keepalive loop keeps creds warm, so -n does not prompt.
+                if [[ "${_fda_listed:-}" != "listed" ]]; then
+                    if command -v sudo >/dev/null 2>&1 && ! sudo -n true 2>/dev/null; then
+                        gui_log info "Daemon FDA-listed probe: sudo -n unavailable, could not read TCC.db; using the drag-in fallback (not a confirmed row-absent)."
+                    else
+                        gui_log info "Daemon FDA-listed probe: OstlerAssistant not yet in the Full Disk Access list; showing the drag-in flow."
+                    fi
+                fi
 
                 # FDA_PANE_REFRESH (daemon parity for #572): force a fresh
                 # System Settings load before pointing the customer at the FDA
@@ -14042,11 +14055,21 @@ else
                 # serializes the two interactions: FDA fully done before
                 # anything else needs the customer. Best-effort; covers both the
                 # modern "System Settings" and legacy "System Preferences"
-                # process names. A brief settle lets the window finish closing.
+                # process names.
                 killall "System Settings" >/dev/null 2>&1 || true
                 killall "System Preferences" >/dev/null 2>&1 || true
-                sleep 1
-                unset _fda_listed
+                # BW5 nit (Archie 2026-07-26): a fixed `sleep 1` is too tight on a
+                # heavily-loaded install-time Mac -- if the FDA pane is still on
+                # screen when the Tailscale sign-in opens a couple of steps later,
+                # we recreate the exact window overlap this block exists to
+                # prevent. Poll until the pane process is actually gone, with a
+                # generous ceiling, before proceeding. Never blocks forever.
+                _ss_close_wait=0
+                while { pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; } && [[ "$_ss_close_wait" -lt 10 ]]; do
+                    sleep 1
+                    _ss_close_wait=$((_ss_close_wait + 1))
+                done
+                unset _fda_listed _ss_close_wait
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
