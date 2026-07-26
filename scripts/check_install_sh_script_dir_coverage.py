@@ -104,6 +104,18 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "cm024_knowledge": ["vendor/cm024_knowledge"],
     "cm048_pipeline": ["vendor/cm048_pipeline"],
     "cm059_editor": ["vendor/cm059_editor"],
+    # CM052 AI-Conversations leg (task #553 / #613): install.sh probes
+    # ${SCRIPT_DIR}/cm052_ai_conversations (the .app Resources layout)
+    # first and ${SCRIPT_DIR}/vendor/cm052_ai_conversations (dev-tree
+    # layout) second -- both resolve to the SAME asset (see canonical_leaf,
+    # which collapses the vendor/ dev-tree prefix). The tree is bundled
+    # UNCONDITIONALLY by the "Bundle CM052 AI-conversation producer into
+    # Resources" postBuildScript (gui/project.yml) so flipping
+    # OSTLER_AI_CONVERSATIONS_ENABLED needs no rebuild. This needle was
+    # never added when the leg landed, so the gate false-flagged an asset
+    # that ships (same shape as lib/ostler-model-fit.sh below). Assert the
+    # bundling reference so a future removal of the cp line goes red.
+    "cm052_ai_conversations": ["vendor/cm052_ai_conversations"],
     "cm019_preferences": ["vendor/cm019_preferences"],
     "contact_syncer": ["vendor/cm041"],
     "assistant_api": ["vendor/cm041"],
@@ -179,6 +191,16 @@ def canonical_leaf(raw_path: str) -> str:
         return raw_path
     if raw_path in EXCEPTIONS:
         return raw_path
+
+    # Dev-tree layout fallback: some probes look up an asset first in the
+    # .app Resources layout (${SCRIPT_DIR}/<name>) and then in the dev-tree
+    # layout (${SCRIPT_DIR}/vendor/<name>) -- e.g. the CM052 AI-Conversations
+    # discovery loop. Both candidates resolve to the SAME bundled asset, so
+    # strip the vendor/ dev-tree prefix and canonicalise the remainder to the
+    # flat leaf the .app ships. This keeps the gate from treating the dev-tree
+    # fallback as a distinct, uncovered "vendor" leaf.
+    if head == "vendor" and rest:
+        return canonical_leaf(rest)
 
     # lib/* / scripts/* / extensions/* keep their first two segments so
     # they map cleanly to the bundled subdir.
