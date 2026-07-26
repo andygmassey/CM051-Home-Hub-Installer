@@ -15069,18 +15069,29 @@ remove_self() {
 LOCK_DIR="${STATE_DIR}/dedupe-catchup.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     _lock_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || echo '')"
-    if [[ -n "$_lock_pid" ]] && kill -0 "$_lock_pid" 2>/dev/null; then
-        log "another dedupe catch-up (pid ${_lock_pid}) is still running; skipping this tick"
+    # NIT-1 (v1.0.11): an EMPTY pid means a holder just won the mkdir but
+    # hasn't recorded its pid yet (the mkdir -> atomic pid-write window
+    # below); a LIVE pid means it is genuinely still converging. In both
+    # cases another instance owns the lock, so skip -- never reclaim on an
+    # empty pid, or two ticks each conclude the other is "stale" and
+    # converge in parallel (the exact pileup this lock prevents). `-z`
+    # short-circuits so we never call `kill -0` with an empty argument.
+    if [[ -z "$_lock_pid" ]] || kill -0 "$_lock_pid" 2>/dev/null; then
+        log "another dedupe catch-up (pid ${_lock_pid:-starting}) holds the lock; skipping this tick"
         exit 0
     fi
-    log "reclaiming stale dedupe catch-up lock (holder pid ${_lock_pid:-unknown} gone)"
+    log "reclaiming stale dedupe catch-up lock (holder pid ${_lock_pid} gone)"
     rm -rf "$LOCK_DIR"
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         log "could not acquire dedupe catch-up lock after reclaim; skipping this tick"
         exit 0
     fi
 fi
-printf '%s' "$$" >"${LOCK_DIR}/pid"
+# NIT-1 (v1.0.11): record our pid ATOMICALLY -- write to pid.tmp then
+# mv into place -- so a racing tick never reads a half-written / empty
+# pid file and mis-reclaims a live lock. `mv` within the same dir is
+# atomic; the pid file, once present, is always a complete pid.
+printf '%s' "$$" >"${LOCK_DIR}/pid.tmp" && mv -f "${LOCK_DIR}/pid.tmp" "${LOCK_DIR}/pid"
 trap 'rm -rf "$LOCK_DIR"' EXIT
 
 # Already converged (install finished it, or a previous tick did): nothing
