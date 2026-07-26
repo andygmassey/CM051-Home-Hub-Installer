@@ -185,7 +185,7 @@ STEP          := @printf '\n[STEP] %s\n'
         check-tools check-identity check-create-dmg check-ostler-app \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
         sign-python-bundle download-daemon stage-daemon check-provenance \
-        check-freshness check-provenance-content
+        check-freshness check-provenance-content check-manifest
 
 all: debug
 
@@ -711,6 +711,34 @@ check-provenance-content:
 	    exit 1; \
 	}
 
+# ---------------------------------------------------------------------------
+# Cut-manifest gate -- UNBYPASSABLE gate on the built .app.
+# Verifies every entry in cut-manifests/permanent.yaml + cut-manifests/<ver>.yaml
+# against the built OstlerInstaller.app AND the pinned source SHAs. Uses 5
+# primitives (grep_in_installer, grep_in_artefact, grep_in_source_at_sha,
+# file_exists_in_artefact, plist_key_equals). Fail-closed on any RED.
+#
+# See cut-manifests/README.md for schema + when to add entries.
+# ---------------------------------------------------------------------------
+check-manifest:
+	$(STEP) "Cut-manifest preflight (built .app + pinned sources)"
+	@if [ ! -d "$(APP_PATH)" ]; then \
+	    echo "ERROR: $(APP_PATH) not found. Manifest gate needs a built .app; run 'make release' first." >&2; \
+	    exit 1; \
+	fi
+	@APP_PATH="$(APP_PATH)" \
+	    CM044_DIR="$${CM044_DIR:-$(CURDIR)/../../CM044 - PWG Personal Wiki}" \
+	    OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
+	    HR015_DIR="$${HR015_DIR:-$(CURDIR)/../../HR015 - Gaming PC}" \
+	    ../scripts/verify_cut_manifest.sh --app-path "$(APP_PATH)" || { \
+	    echo "" >&2; \
+	    echo "ERROR: cut-manifest preflight FAILED -- a required fix is missing from the built .app." >&2; \
+	    echo "Read the RED rows above. For each: either the fix isn't in the merged source, or the daemon/vendored artefact needs re-pinning + rebuild. Then re-cut. DO NOT SHIP." >&2; \
+	    echo "" >&2; \
+	    echo "Docs: cut-manifests/README.md" >&2; \
+	    exit 1; \
+	}
+
 package: check-tools check-identity check-create-dmg check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
@@ -968,7 +996,7 @@ verify-dmg-contents:
 # regression downstream of check-ostler-app fails before we archive a bad
 # DMG into ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python stage-daemon sparkle-embed release sign-python-bundle package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python stage-daemon sparkle-embed release sign-python-bundle check-manifest package notarise verify-dmg-contents archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
