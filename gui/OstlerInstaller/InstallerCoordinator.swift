@@ -377,6 +377,18 @@ final class InstallerCoordinator: ObservableObject {
         /// this via gui_read's $7 error_text arg. Nil on the happy
         /// path / first display.
         let error: String?
+
+        /// v1.0.11 (blank-prompt-title fix): the heading actually
+        /// rendered in the onboarding modal. A PROMPT is a blocking
+        /// modal; install.sh occasionally emits one without a
+        /// `title=` (secret-mismatch retry loops, custom questions),
+        /// which the decoder now surfaces as an empty string rather
+        /// than a literal "?". Fall back to the prompt `id` so the
+        /// modal never renders "?" as its heading.
+        var displayTitle: String {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed.isEmpty || trimmed == "?") ? id : trimmed
+        }
     }
 
     /// One committed answer in the onboarding flow. Captured when

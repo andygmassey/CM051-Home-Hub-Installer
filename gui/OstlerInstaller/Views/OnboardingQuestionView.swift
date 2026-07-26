@@ -104,7 +104,7 @@ struct OnboardingQuestionView: View {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             header(q)
 
-            Text(q.prompt.title)
+            Text(q.prompt.displayTitle)
                 .font(.ostlerH1)
                 .tracking(-0.4)
                 .foregroundStyle(Color.ostlerInk)

@@ -210,7 +210,14 @@ struct ProgressDecoder {
             return .prompt(
                 id: kv["id"] ?? "prompt",
                 kind: kind,
-                title: kv["title"] ?? "?",
+                // v1.0.11 (blank-prompt-title fix): a title-less PROMPT
+                // decodes to an empty title (not "?"). A PROMPT is a
+                // BLOCKING MODAL (secret-mismatch retry, custom
+                // questions, license entry) -- a literal "?" as the
+                // modal heading is worse than the settling-panel bug.
+                // The renderer (PendingPrompt.displayTitle) falls back
+                // to the prompt id when the title is empty.
+                title: kv["title"] ?? "",
                 defaultValue: kv["default"],
                 help: kv["help"],
                 choices: choices,

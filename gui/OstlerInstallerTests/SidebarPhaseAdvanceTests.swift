@@ -159,4 +159,41 @@ final class SidebarPhaseAdvanceTests: XCTestCase {
         }
         XCTAssertEqual(title, "")
     }
+
+    // MARK: - v1.0.11: blank-PROMPT-title fallback (Archie 🔴 #1)
+
+    /// A PROMPT is a BLOCKING MODAL (secret-mismatch retry, custom
+    /// questions, license entry). Pre-fix the decoder fabricated a
+    /// "?" title for a title-less PROMPT, landing a modal whose H1
+    /// read literally "?". The decoder now yields "" and the modal's
+    /// heading (`PendingPrompt.displayTitle`) falls back to the prompt
+    /// `id`, so the customer never sees "?".
+    func testTitlelessPromptDecodesToEmptyTitle() {
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tPROMPT\tid=recovery_passphrase\tkind=secret"
+        )
+        guard case .prompt(let id, _, let title, _, _, _, _) = event else {
+            return XCTFail("expected .prompt, got \(event)")
+        }
+        XCTAssertEqual(id, "recovery_passphrase")
+        XCTAssertEqual(title, "", "title-less PROMPT must decode to \"\", not \"?\"")
+    }
+
+    /// End-to-end: a title-less PROMPT driven through the coordinator
+    /// must expose a non-"?" heading. displayTitle falls back to the
+    /// prompt id so the blocking modal always has a real heading.
+    func testTitlelessPromptDisplayTitleFallsBackToId() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tPROMPT\tid=recovery_passphrase\tkind=secret"
+        )
+        XCTAssertEqual(coord.pendingPrompt?.displayTitle, "recovery_passphrase")
+        XCTAssertNotEqual(coord.pendingPrompt?.displayTitle, "?")
+
+        // A genuinely-titled PROMPT still renders its own title.
+        coord.simulateLineForTests(
+            "#OSTLER\tPROMPT\tid=assistant_name\tkind=text\ttitle=Name your assistant"
+        )
+        XCTAssertEqual(coord.pendingPrompt?.displayTitle, "Name your assistant")
+    }
 }
