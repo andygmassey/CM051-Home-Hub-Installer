@@ -15184,10 +15184,10 @@ except Exception:
             q_email='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
             phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
-                | tail -n 1 | tr -dc '0-9')"
+                | tail -n 1 | tr -dc '0-9' || true)"
             emails="$(curl -s --max-time 15 --data-urlencode "query=${q_email}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
-                | tail -n 1 | tr -dc '0-9')"
+                | tail -n 1 | tr -dc '0-9' || true)"
             phones="${phones:-0}"
             emails="${emails:-0}"
             # Only meaningful when there is a real phone population to compare
@@ -16151,7 +16151,7 @@ try:
     d=json.load(open('$_json'))
     print(len(d) if isinstance(d,list) else int(d.get('conversations',d.get('count',0)) or 0))
 except Exception:
-    print(0)" 2>/dev/null)"
+    print(0)" 2>/dev/null || true)"
     _n="${_n:-0}"
     [[ "$_n" -gt 0 ]] || return 0
     # How many chat-identifier facts landed in Oxigraph for this channel?
@@ -16166,7 +16166,7 @@ try:
     d=json.load(sys.stdin)
     print(d['results']['bindings'][0]['c']['value'])
 except Exception:
-    print(0)" 2>/dev/null)"
+    print(0)" 2>/dev/null || true)"
     _landed="${_landed:-0}"
     if [[ "$_landed" -eq 0 ]]; then
         warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See /tmp/ostler-hydrate-${_label}.log."
@@ -16863,7 +16863,10 @@ _probe_http_live() {
         # timeout, so only a genuine HTTP status (1xx-5xx, includes 401/404)
         # counts as "listening". Do NOT `|| echo 000` here -- curl already
         # emits 000, and appending a second would read as a live 6-digit code.
-        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null)
+        # BUT the `|| true` IS required: curl's non-zero exit on a down port
+        # would otherwise trip the ERR trap and abort the whole install at the
+        # first not-yet-listening service. A health probe must never abort.
+        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null || true)
         [[ "$_code" =~ ^[1-5][0-9][0-9]$ ]] && return 0
         _i=$((_i + 1))
         [[ $_i -lt $_attempts ]] && sleep 1
