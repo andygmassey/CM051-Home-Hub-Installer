@@ -13588,12 +13588,43 @@ _imessage_daemon_fda_granted() {
         _auth="$(
             sudo -n sqlite3 \
                 "/Library/Application Support/com.apple.TCC/TCC.db" \
-                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY}') LIMIT 1;" \
+                "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
                 2>/dev/null || true
         )"
     fi
     if [[ "$_auth" == "2" ]]; then
         echo "granted"
+    fi
+}
+
+# ── BW5 (2026-07-26): daemon FDA "listed" (row exists) vs "granted" ──
+#
+# macOS shows an app in the Full Disk Access pane as a toggleable row
+# once ANY TCC row exists for its client id -- switched on (auth_value
+# 2) OR off (0). The BW4-A register-nudge below performs a denied FDA
+# read as ai.ostler.assistant precisely to register that row, so by the
+# time the assisted-grant flow runs the daemon is normally LISTED but
+# OFF. When it is already listed, the Finder drag-in reveal (`open -R`)
+# is redundant noise -- the customer only needs to flip the existing
+# switch -- and that lingering Finder window is one of the windows that
+# "crashed" together with the Tailscale sign-in on the .98 box-walk.
+# This helper reports "listed" when a row exists regardless of
+# auth_value, so the flow can suppress the Finder window (and the
+# "drag from Finder" modal line) when it is not needed. Empty output
+# (no row, or sudo unavailable) falls back to the existing drag flow --
+# i.e. it fails toward MORE guidance, never toward a broken grant.
+_imessage_daemon_fda_listed() {
+    local _row=""
+    if command -v sudo >/dev/null 2>&1; then
+        _row="$(
+            sudo -n sqlite3 \
+                "/Library/Application Support/com.apple.TCC/TCC.db" \
+                "SELECT 1 FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client IN ('ai.ostler.assistant', '${ASSISTANT_BINARY_LEGACY:-none}') LIMIT 1;" \
+                2>/dev/null || true
+        )"
+    fi
+    if [[ "$_row" == "1" ]]; then
+        echo "listed"
     fi
 }
 
@@ -13714,6 +13745,14 @@ else
                 # dialog all need a windowed environment).
                 if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING"
+                    # BW5 (2026-07-26): announce this as ONE deliberate "we
+                    # need you" gate BEFORE any window opens, naming both the
+                    # Full Disk Access grant now AND the Tailscale sign-in that
+                    # follows, so the customer is not ambushed 5/6 through by an
+                    # unannounced crash of windows after being told to walk
+                    # away. This is a log line, not another modal -- it sets
+                    # expectation without adding a window.
+                    info "$MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE"
 
                 # BW4-A (2026-07-24): TCC auto-register nudge for the daemon.
                 #
@@ -13787,6 +13826,27 @@ else
                     kill -TERM "$_fda_probe_killer" 2>/dev/null || true
                 fi
 
+                # BW5 (2026-07-26): probe listed-state ONCE, after the nudge
+                # above has had its chance to register the daemon's FDA row.
+                # Used below to (a) skip the redundant Finder reveal and (b)
+                # drop the "drag from Finder" line from the modal when the row
+                # already exists. Assigned unconditionally here so it is always
+                # defined before use under `set -u`.
+                _fda_listed="$(_imessage_daemon_fda_listed)"
+                # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
+                # row is genuinely absent OR sudo -n could not read TCC.db. Both
+                # take the drag-in fallback, so record which one fired for
+                # post-hoc box-walk forensics. Logged here (not inside the
+                # stdout-captured helper) so it can never corrupt _fda_listed.
+                # The sudo keepalive loop keeps creds warm, so -n does not prompt.
+                if [[ "${_fda_listed:-}" != "listed" ]]; then
+                    if command -v sudo >/dev/null 2>&1 && ! sudo -n true 2>/dev/null; then
+                        gui_log info "Daemon FDA-listed probe: sudo -n unavailable, could not read TCC.db; using the drag-in fallback (not a confirmed row-absent)."
+                    else
+                        gui_log info "Daemon FDA-listed probe: OstlerAssistant not yet in the Full Disk Access list; showing the drag-in flow."
+                    fi
+                fi
+
                 # FDA_PANE_REFRESH (daemon parity for #572): force a fresh
                 # System Settings load before pointing the customer at the FDA
                 # pane. #572 added this to the INSTALLER FDA grant only; the
@@ -13818,7 +13878,19 @@ else
                 # OstlerAssistant.app/Contents/Resources/icon.icns)
                 # so the customer sees the product mark from the
                 # moment Finder opens.
-                open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                #
+                # BW5 (2026-07-26): ONLY open Finder when the daemon is NOT
+                # already listed in the FDA pane. When it is listed (the
+                # normal case after the BW4-A nudge), the drag-in is
+                # unnecessary -- the customer just flips the switch -- so
+                # opening Finder here only adds a redundant window that
+                # stacks with the Tailscale sign-in. Keeps the drag flow as
+                # the fallback for any macOS where the row did not register.
+                if [[ "${_fda_listed:-}" != "listed" ]]; then
+                    open -R "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+                else
+                    info "$MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED"
+                fi
 
                 # Modal that blocks install.sh until the customer
                 # dismisses it. The osascript dialog is reliable
@@ -13834,10 +13906,23 @@ else
                 # (LINE4 retired). Title swaps binary name for product
                 # name; LINE2 quotes the binary name so the customer
                 # can pattern-match it in the System Settings list.
-                _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
-                    "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                # BW5 (2026-07-26): when the daemon is already listed we did
+                # NOT open a Finder window, so the "Not listed? Drag from the
+                # Finder window..." LINE3 would be a lie. Use LINE1 + LINE2 +
+                # a short Done hint instead. Not-listed keeps the original
+                # three-line copy (LINE3 already ends with the Done
+                # instruction).
+                if [[ "${_fda_listed:-}" == "listed" ]]; then
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT")"
+                else
+                    _imessage_fda_dialog_msg="$(printf '%s\n\n%s\n%s' \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2" \
+                        "$MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3")"
+                fi
                 # Escape any embedded double-quotes for the
                 # AppleScript string literal. Then pass through
                 # osascript -e. Failures (user clicks the close
@@ -13959,6 +14044,32 @@ else
                     info "$MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED"
                 fi
                 unset _imessage_fda_reprobe_ok
+
+                # BW5 (2026-07-26): the FDA interaction is now RESOLVED -- the
+                # customer clicked Done on the modal and the ~40s grant poll has
+                # elapsed (granted, or the Doctor card will persist the
+                # reminder). Close the System Settings FDA pane we opened so it
+                # does NOT linger on screen and stack under the Tailscale
+                # sign-in browser that opens a couple of steps later -- that
+                # overlap is the "crash of windows" the .98 box-walk hit. This
+                # serializes the two interactions: FDA fully done before
+                # anything else needs the customer. Best-effort; covers both the
+                # modern "System Settings" and legacy "System Preferences"
+                # process names.
+                killall "System Settings" >/dev/null 2>&1 || true
+                killall "System Preferences" >/dev/null 2>&1 || true
+                # BW5 nit (Archie 2026-07-26): a fixed `sleep 1` is too tight on a
+                # heavily-loaded install-time Mac -- if the FDA pane is still on
+                # screen when the Tailscale sign-in opens a couple of steps later,
+                # we recreate the exact window overlap this block exists to
+                # prevent. Poll until the pane process is actually gone, with a
+                # generous ceiling, before proceeding. Never blocks forever.
+                _ss_close_wait=0
+                while { pgrep -x "System Settings" >/dev/null 2>&1 || pgrep -x "System Preferences" >/dev/null 2>&1; } && [[ "$_ss_close_wait" -lt 10 ]]; do
+                    sleep 1
+                    _ss_close_wait=$((_ss_close_wait + 1))
+                done
+                unset _fda_listed _ss_close_wait
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
