@@ -264,7 +264,7 @@
     "bullet_1": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
     "bullet_2": "Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on.",
     "bullet_3": "If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.",
-    "legal_note": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it."
+    "legal_note": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
   },
 
   "recovery_passphrase": {
