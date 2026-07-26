@@ -95,4 +95,105 @@ final class SidebarPhaseAdvanceTests: XCTestCase {
         XCTAssertTrue(ids.contains("prereq_check"))
         XCTAssertTrue(ids.contains("license_entry"))
     }
+
+    // MARK: - v1.0.11: blank-step-title retain fix
+
+    /// Regression for the "weird new '?' titled page" seen on the late
+    /// settling/enrichment screens. A STEP_BEGIN that arrives WITHOUT a
+    /// `title=` field must NOT blank the H1 to "?" -- the coordinator
+    /// retains the last known step title instead.
+    func testTitlelessStepBeginRetainsPreviousTitle() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tSTEP_BEGIN\tid=settling_enrich\ttitle=Enriching your graph\tidx=35\ttotal=38"
+        )
+        XCTAssertEqual(coord.currentStepTitle, "Enriching your graph")
+
+        // A subsequent title-less STEP_BEGIN (e.g. a phase-ish progress
+        // marker on the live stream) must retain the heading, never "?".
+        coord.simulateLineForTests("#OSTLER\tSTEP_BEGIN\tid=settling_enrich")
+        XCTAssertEqual(coord.currentStepTitle, "Enriching your graph")
+        XCTAssertNotEqual(coord.currentStepTitle, "?")
+    }
+
+    /// An explicitly empty `title=` value is treated the same as absent:
+    /// the previous title is retained, not overwritten with a blank/"?".
+    func testEmptyTitleStepBeginRetainsPreviousTitle() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tSTEP_BEGIN\tid=settling_a\ttitle=Settling in"
+        )
+        coord.simulateLineForTests("#OSTLER\tSTEP_BEGIN\tid=settling_b\ttitle=")
+        XCTAssertEqual(coord.currentStepTitle, "Settling in")
+    }
+
+    /// A real titled STEP_BEGIN still takes over the heading.
+    func testTitledStepBeginStillUpdatesTitle() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tSTEP_BEGIN\tid=one\ttitle=First"
+        )
+        coord.simulateLineForTests(
+            "#OSTLER\tSTEP_BEGIN\tid=two\ttitle=Second"
+        )
+        XCTAssertEqual(coord.currentStepTitle, "Second")
+    }
+
+    /// A title-less PHASE retains the current strap rather than "?".
+    func testTitlelessPhaseRetainsStrap() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests("#OSTLER\tPHASE\tid=install\ttitle=Installing")
+        XCTAssertEqual(coord.phase, "Installing")
+        coord.simulateLineForTests("#OSTLER\tPHASE\tid=install")
+        XCTAssertEqual(coord.phase, "Installing")
+        XCTAssertNotEqual(coord.phase, "?")
+    }
+
+    /// The decoder no longer fabricates a "?" glyph for an absent title;
+    /// it yields "" so the coordinator can distinguish "no title" from a
+    /// genuine one.
+    func testDecoderTitlelessStepBeginYieldsEmptyTitle() {
+        let event = ProgressDecoder.decode(line: "#OSTLER\tSTEP_BEGIN\tid=x")
+        guard case .stepBegin(_, let title, _, _, _) = event else {
+            return XCTFail("expected .stepBegin, got \(event)")
+        }
+        XCTAssertEqual(title, "")
+    }
+
+    // MARK: - v1.0.11: blank-PROMPT-title fallback (Archie 🔴 #1)
+
+    /// A PROMPT is a BLOCKING MODAL (secret-mismatch retry, custom
+    /// questions, license entry). Pre-fix the decoder fabricated a
+    /// "?" title for a title-less PROMPT, landing a modal whose H1
+    /// read literally "?". The decoder now yields "" and the modal's
+    /// heading (`PendingPrompt.displayTitle`) falls back to the prompt
+    /// `id`, so the customer never sees "?".
+    func testTitlelessPromptDecodesToEmptyTitle() {
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tPROMPT\tid=recovery_passphrase\tkind=secret"
+        )
+        guard case .prompt(let id, _, let title, _, _, _, _) = event else {
+            return XCTFail("expected .prompt, got \(event)")
+        }
+        XCTAssertEqual(id, "recovery_passphrase")
+        XCTAssertEqual(title, "", "title-less PROMPT must decode to \"\", not \"?\"")
+    }
+
+    /// End-to-end: a title-less PROMPT driven through the coordinator
+    /// must expose a non-"?" heading. displayTitle falls back to the
+    /// prompt id so the blocking modal always has a real heading.
+    func testTitlelessPromptDisplayTitleFallsBackToId() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests(
+            "#OSTLER\tPROMPT\tid=recovery_passphrase\tkind=secret"
+        )
+        XCTAssertEqual(coord.pendingPrompt?.displayTitle, "recovery_passphrase")
+        XCTAssertNotEqual(coord.pendingPrompt?.displayTitle, "?")
+
+        // A genuinely-titled PROMPT still renders its own title.
+        coord.simulateLineForTests(
+            "#OSTLER\tPROMPT\tid=assistant_name\tkind=text\ttitle=Name your assistant"
+        )
+        XCTAssertEqual(coord.pendingPrompt?.displayTitle, "Name your assistant")
+    }
 }
