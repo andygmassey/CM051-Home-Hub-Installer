@@ -15184,10 +15184,10 @@ except Exception:
             q_email='PREFIX pwg: <https://pwg.dev/ontology#> SELECT (COUNT(DISTINCT ?id) AS ?n) WHERE { ?id pwg:identifierType "email" }'
             phones="$(curl -s --max-time 15 --data-urlencode "query=${q_phone}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
-                | tail -n 1 | tr -dc '0-9')"
+                | tail -n 1 | tr -dc '0-9' || true)"
             emails="$(curl -s --max-time 15 --data-urlencode "query=${q_email}" \
                 -H "Accept: text/csv" "${_HYDRATE_OXIGRAPH}/query" 2>/dev/null \
-                | tail -n 1 | tr -dc '0-9')"
+                | tail -n 1 | tr -dc '0-9' || true)"
             phones="${phones:-0}"
             emails="${emails:-0}"
             # Only meaningful when there is a real phone population to compare
@@ -16151,7 +16151,7 @@ try:
     d=json.load(open('$_json'))
     print(len(d) if isinstance(d,list) else int(d.get('conversations',d.get('count',0)) or 0))
 except Exception:
-    print(0)" 2>/dev/null)"
+    print(0)" 2>/dev/null || true)"
     _n="${_n:-0}"
     [[ "$_n" -gt 0 ]] || return 0
     # How many chat-identifier facts landed in Oxigraph for this channel?
@@ -16166,7 +16166,7 @@ try:
     d=json.load(sys.stdin)
     print(d['results']['bindings'][0]['c']['value'])
 except Exception:
-    print(0)" 2>/dev/null)"
+    print(0)" 2>/dev/null || true)"
     _landed="${_landed:-0}"
     if [[ "$_landed" -eq 0 ]]; then
         warn "Conversation-ingest guard: ${_label} extraction emitted ${_n} conversation(s) but ZERO ${_label} chat-identity facts reached the graph. The ${_label} leg landed nothing -- this is a structural break, not 'no data'. See /tmp/ostler-hydrate-${_label}.log."
@@ -16863,7 +16863,10 @@ _probe_http_live() {
         # timeout, so only a genuine HTTP status (1xx-5xx, includes 401/404)
         # counts as "listening". Do NOT `|| echo 000` here -- curl already
         # emits 000, and appending a second would read as a live 6-digit code.
-        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null)
+        # BUT the `|| true` IS required: curl's non-zero exit on a down port
+        # would otherwise trip the ERR trap and abort the whole install at the
+        # first not-yet-listening service. A health probe must never abort.
+        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null || true)
         [[ "$_code" =~ ^[1-5][0-9][0-9]$ ]] && return 0
         _i=$((_i + 1))
         [[ $_i -lt $_attempts ]] && sleep 1
@@ -16871,7 +16874,21 @@ _probe_http_live() {
     return 1
 }
 
-if _probe_http_live "http://127.0.0.1:8000/" 5; then
+# BW5-reorder (2026-07-26): the deferred assistant daemon binds the :8000
+# gateway, but it previously started UNCONDITIONALLY only at the very end of
+# install -- AFTER this health-check. So on every fresh install :8000 was
+# guaranteed unbound here (false MSG_WARN_GATEWAY_NOT_RESPONDING + HEALTHY=false
+# at the finish line), and iOS pairing (Doctor /internal/validate-bearer ->
+# :8000) raced the late bind. Worse: before #449's abort fix the health-check
+# aborted here, so the end-of-install start (below) was never reached and the
+# daemon never came up at all. Start it NOW -- idempotent and self-guarded
+# (needs ASSISTANT_BINARY_INSTALLED + plist, both satisfied by this point;
+# kickstart -k if a daemon-FDA start already fired, else first bootstrap) --
+# and give it a GENEROUS window (up to ~30s, returns early on bind) before we
+# probe. The end-of-install _ostler_start_assistant_daemon call stays as the
+# final TCC-refresh kickstart.
+_ostler_start_assistant_daemon
+if _probe_http_live "http://127.0.0.1:8000/" 30; then
     ok "$MSG_OK_GATEWAY_HEALTHY"
 else
     warn "$MSG_WARN_GATEWAY_NOT_RESPONDING"
@@ -17773,6 +17790,14 @@ fi
 # may raise the Documents prompt once -- but ALONE, after the FDA windows
 # are gone, never stacked on them.
 _ostler_start_assistant_daemon
+
+# BW5-reorder (2026-07-26): the kickstart -k above restarts the daemon in place
+# to pick up the freshly granted TCC posture, which briefly drops and rebinds
+# the :8000 gateway. Give it a generous settle so :8000 is confirmed back up
+# BEFORE the "done" screen -- otherwise a customer who pairs iOS the instant
+# install completes can race the rebind. After a long install a few extra
+# seconds is cheap insurance. Best-effort; returns early on bind, never aborts.
+_probe_http_live "http://127.0.0.1:8000/" 30 || true
 
 # ── Summary ────────────────────────────────────────────────────────
 
