@@ -217,9 +217,18 @@ struct ProgressDecoder {
 
         switch event {
         case "STEP_BEGIN":
+            // v1.0.11 (blank-step-title fix): an absent `title=` field
+            // decodes to "" -- NOT the "?" glyph it used to. Emitting a
+            // literal "?" here fabricated a visible title that the
+            // coordinator then displayed as the H1 on the late
+            // settling/enrichment screens ("weird new '?' titled page").
+            // An empty title is the signal for "no usable title on this
+            // marker"; the coordinator retains the last known step title
+            // instead of blanking the heading. `id` keeps its "?"
+            // diagnostic sentinel -- ids are not rendered as a heading.
             return .stepBegin(
                 id: kv["id"] ?? "?",
-                title: kv["title"] ?? "?",
+                title: kv["title"] ?? "",
                 phase: kv["phase"].flatMap(Int.init),
                 idx: kv["idx"].flatMap(Int.init),
                 total: kv["total"].flatMap(Int.init)
@@ -274,7 +283,10 @@ struct ProgressDecoder {
                 elapsedSeconds: Int(kv["elapsed_s"] ?? "0") ?? 0
             )
         case "PHASE":
-            return .phase(id: kv["id"] ?? "?", title: kv["title"] ?? "?")
+            // v1.0.11 (blank-step-title fix): a title-less PHASE decodes
+            // to an empty title (not "?") so the coordinator retains the
+            // previous phase strap rather than flashing "?" above the H1.
+            return .phase(id: kv["id"] ?? "?", title: kv["title"] ?? "")
         case "NEEDS_FDA":
             return .needsFDA(probe: kv["probe"] ?? "", reason: kv["reason"] ?? "")
         case "NEEDS_SUDO":
