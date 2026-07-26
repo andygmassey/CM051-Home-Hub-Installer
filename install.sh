@@ -16874,7 +16874,21 @@ _probe_http_live() {
     return 1
 }
 
-if _probe_http_live "http://127.0.0.1:8000/" 5; then
+# BW5-reorder (2026-07-26): the deferred assistant daemon binds the :8000
+# gateway, but it previously started UNCONDITIONALLY only at the very end of
+# install -- AFTER this health-check. So on every fresh install :8000 was
+# guaranteed unbound here (false MSG_WARN_GATEWAY_NOT_RESPONDING + HEALTHY=false
+# at the finish line), and iOS pairing (Doctor /internal/validate-bearer ->
+# :8000) raced the late bind. Worse: before #449's abort fix the health-check
+# aborted here, so the end-of-install start (below) was never reached and the
+# daemon never came up at all. Start it NOW -- idempotent and self-guarded
+# (needs ASSISTANT_BINARY_INSTALLED + plist, both satisfied by this point;
+# kickstart -k if a daemon-FDA start already fired, else first bootstrap) --
+# and give it a GENEROUS window (up to ~30s, returns early on bind) before we
+# probe. The end-of-install _ostler_start_assistant_daemon call stays as the
+# final TCC-refresh kickstart.
+_ostler_start_assistant_daemon
+if _probe_http_live "http://127.0.0.1:8000/" 30; then
     ok "$MSG_OK_GATEWAY_HEALTHY"
 else
     warn "$MSG_WARN_GATEWAY_NOT_RESPONDING"
@@ -17776,6 +17790,14 @@ fi
 # may raise the Documents prompt once -- but ALONE, after the FDA windows
 # are gone, never stacked on them.
 _ostler_start_assistant_daemon
+
+# BW5-reorder (2026-07-26): the kickstart -k above restarts the daemon in place
+# to pick up the freshly granted TCC posture, which briefly drops and rebinds
+# the :8000 gateway. Give it a generous settle so :8000 is confirmed back up
+# BEFORE the "done" screen -- otherwise a customer who pairs iOS the instant
+# install completes can race the rebind. After a long install a few extra
+# seconds is cheap insurance. Best-effort; returns early on bind, never aborts.
+_probe_http_live "http://127.0.0.1:8000/" 30 || true
 
 # ── Summary ────────────────────────────────────────────────────────
 
