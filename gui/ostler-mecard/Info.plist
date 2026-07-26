@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Embedded into the ostler-mecard Mach-O via
+	  `swiftc -sectcreate __TEXT __info_plist Info.plist` at build time.
+	  A command-line tool that touches Contacts must carry its own
+	  NSContactsUsageDescription or a hardened-runtime process crashes on
+	  first access rather than prompting. In practice the helper inherits
+	  the installer app's Contacts grant (same team, hardened, spawned as
+	  a descendant of the app), so this string is belt-and-braces — it is
+	  only ever shown if the helper somehow runs before the app has a
+	  grant. Keep the copy consistent with the app's own usage string.
+	-->
+	<key>CFBundleIdentifier</key>
+	<string>ai.ostler.installer.mecard</string>
+	<key>CFBundleName</key>
+	<string>ostler-mecard</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac.</string>
+</dict>
+</plist>

@@ -348,6 +348,51 @@ step()  {
     gui_phase "$id" "$title"
 }
 
+# BW2-4 (2026-07-25): surface `ollama pull` progress to the GUI.
+#
+# The "Downloading AI models" step is the longest single step of the
+# install (a 7.2 GB model over a slow link is ~30-50 min). `ollama pull`
+# streams "NN% X.X/Y.Y GB rate ETA" to its own progress bar, but that
+# never reached the GUI, which showed only a spinner -- indistinguishable
+# from a hang. Andy hit exactly this on the .185 box-walk (thought it had
+# stalled; it was pulling at 42%).
+#
+# This wrapper parses the pull stream and emits `PCT step=ai_models` +
+# a cleaned LOG line on every percentage change, driving the GUI bar.
+# It is a no-op passthrough when OSTLER_GUI != 1, so the curl|bash TTY
+# path keeps ollama's native progress bar byte-for-byte. ollama's exit
+# status is preserved through the pipe via a temp file (PIPESTATUS is not
+# reliable across the process-substitution boundary).
+_gui_ollama_pull() {
+    local model="$1"
+    local step="${2:-ai_models}"
+    if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
+        ollama pull "$model"
+        return
+    fi
+    local rc_file line pct last=-1 clean
+    rc_file="$(mktemp -t ostler-ollama-pull)"
+    # `tr \r \n` splits ollama's carriage-return redraws into lines so a
+    # plain `read` sees each progress update whether ollama writes CR
+    # (tty-style) or LF (pipe-style) frames.
+    while IFS= read -r line; do
+        [[ "$line" == *%* ]] || continue
+        [[ "$line" =~ ([0-9]{1,3})% ]] || continue
+        pct="${BASH_REMATCH[1]}"
+        (( pct > 100 )) && pct=100
+        (( pct == last )) && continue
+        last="$pct"
+        gui_emit PCT "step=$step" "pct=$pct"
+        # Strip ANSI escapes + non-printables so the log line is clean.
+        clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
+        [[ -n "$clean" ]] && gui_log info "$clean"
+    done < <( { ollama pull "$model"; echo $? > "$rc_file"; } 2>&1 | tr '\r' '\n' )
+    local rc
+    rc="$(cat "$rc_file" 2>/dev/null)"
+    rm -f "$rc_file"
+    return "${rc:-1}"
+}
+
 # Retry a model pull up to 3 times with exponential backoff. A 6.6 GB
 # pull over hotel WiFi is fragile; a single network blip should not
 # abort the entire install at 80% progress.
@@ -356,7 +401,7 @@ ollama_pull_with_retry() {
     local attempt=1
     local backoff=10
     while (( attempt <= 3 )); do
-        if ollama pull "$model"; then
+        if _gui_ollama_pull "$model"; then
             return 0
         fi
         if (( attempt < 3 )); then
@@ -2446,15 +2491,40 @@ DETECTED_PHONE=""
 # after this Phase-2 question block.)
 info "$MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL"
 
-# `my card` only resolves when Contacts.app is actually RUNNING. On a Mac
-# right after first setup -- or any login where the user has not opened
-# Contacts -- the app is cold, the AppleEvent fails with -600 "Application
-# isn't running", and the read returns empty with NO consent prompt. The
-# pre-fill then silently produces nothing: blank name/country defaults, an
-# empty wiki title, and empty self-handles (#646). This was the v1.0.0 .145
-# box-walk regression. Launch Contacts hidden in the background first (-g
-# keeps the installer in focus, -j launches it hidden) so the event lands
-# against a live app and the normal automation-consent prompt can appear.
+CARD_DATA=""
+
+# BW2-1 (box-walk recut #2, 2026-07-25): prefer the bundled native reader.
+# `ostler-mecard` reads the "My Card" via AddressBook (-[ABAddressBook me]),
+# which is stable across macOS versions -- unlike the osascript `my card`
+# read below, which broke on macOS 26.5 (-1728) and left the pre-fill blank
+# on the .185 box-walk (blank name/country, empty wiki title, empty self-
+# handles). The helper is signed as part of the installer app and inherits
+# its already-granted Contacts access, so it neither prompts nor needs
+# Contacts.app to be running. It prints `name|first|country|email|phone` on
+# success (exit 0) and nothing on failure (exit 1: no card / no access /
+# helper absent), in which case we fall through to the osascript path below
+# unchanged (covers older bundles + older macOS).
+_read_my_card_native() {
+    local bin="${SCRIPT_DIR:-}/ostler-mecard"
+    [[ -n "${SCRIPT_DIR:-}" && -x "$bin" ]] || return 1
+    # stderr → the install log (not /dev/null) for debuggability; stdout is the
+    # captured `name|first|country|email|phone` line.
+    "$bin" 2>>"${INSTALL_LOG:-/dev/null}"
+}
+if CARD_DATA_NATIVE=$(_read_my_card_native); then
+    CARD_DATA="$CARD_DATA_NATIVE"
+fi
+
+# osascript fallback: only when the native reader gave us nothing. `my card`
+# only resolves when Contacts.app is actually RUNNING. On a Mac right after
+# first setup -- or any login where the user has not opened Contacts -- the
+# app is cold, the AppleEvent fails with -600 "Application isn't running",
+# and the read returns empty with NO consent prompt. The pre-fill then
+# silently produces nothing (#646, the v1.0.0 .145 box-walk regression).
+# Launch Contacts hidden in the background first (-g keeps the installer in
+# focus, -j launches it hidden) so the event lands against a live app and
+# the normal automation-consent prompt can appear.
+if [[ -z "$CARD_DATA" ]]; then
 open -gja Contacts >/dev/null 2>&1 || true
 
 # Capture stderr separately so a Contacts permission denial (-1743) or a
@@ -2506,6 +2576,7 @@ elif [[ -z "$CARD_DATA" ]] && grep -q -- '-600' "$CARD_STDERR" 2>/dev/null; then
     warn "$MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL"
 fi
 rm -f "$CARD_STDERR"
+fi
 
 if [[ -n "$CARD_DATA" ]]; then
     DETECTED_NAME=$(echo "$CARD_DATA" | cut -d'|' -f1)
@@ -7018,6 +7089,56 @@ unset _existing_jwt_secret _need_new_jwt _jwt_secret_min_length
 ASSISTANT_CONFIG_DIR="${OSTLER_DIR}/assistant-config"
 mkdir -p "$ASSISTANT_CONFIG_DIR"
 ASSISTANT_CONFIG="${ASSISTANT_CONFIG_DIR}/config.toml"
+
+# P0-β (box-walk recut #2, 2026-07-26): PRESERVE existing gateway pairings
+# across upgrades. The `{ ... } > "$ASSISTANT_CONFIG"` block below REGENERATES
+# the config from scratch, and its [gateway] line historically wrote
+#     paired_tokens = ["${CHAT_ADMIN_TOKEN}"]
+# UNCONDITIONALLY -- so every upgrade-over-install clobbered the tokens the
+# gateway had persisted for each paired iOS device / browser, silently
+# unpairing them (the box then reports every previously-paired client as
+# "unpaired" until it re-pairs). Fix: read the existing paired_tokens out of
+# the current config BEFORE the block truncates it, and union them with the
+# admin token. Existing entries are carried VERBATIM -- once the gateway has
+# booted they are hashed / enc2:-encrypted at rest (that opacity is exactly why
+# the Doctor validates bearers via the gateway oracle, not by reading this
+# file; see doctor/agent/proxy.py DOCTOR_VALIDATOR_URL). We neither decrypt nor
+# interpret them; the gateway re-canonicalises the freshly-added plaintext admin
+# token on next boot, and a duplicate of the already-persisted admin entry is
+# harmless because membership is a set test.
+_merged_paired_tokens=()
+_paired_tokens_add() {
+    local _new="$1" _e
+    for _e in "${_merged_paired_tokens[@]:-}"; do
+        [[ "$_e" == "$_new" ]] && return 0
+    done
+    _merged_paired_tokens+=("$_new")
+}
+if [[ -f "$ASSISTANT_CONFIG" ]]; then
+    while IFS= read -r _existing_tok; do
+        [[ -n "$_existing_tok" ]] && _paired_tokens_add "$_existing_tok"
+    done < <(
+        awk '
+            !cap && $0 ~ /^[ \t]*paired_tokens[ \t]*=/ { cap = 1 }
+            cap { buf = buf $0 "\n"; if (index($0, "]") > 0) cap = 0 }
+            END { printf "%s", buf }
+        ' "$ASSISTANT_CONFIG" | grep -oE '"[^"]*"' | sed 's/^"//; s/"$//'
+    )
+fi
+# Always ensure the admin token is present (fresh install => this is the only
+# entry; upgrade => appended to the preserved device tokens).
+_paired_tokens_add "$CHAT_ADMIN_TOKEN"
+_paired_tokens_toml=""
+for _pt in "${_merged_paired_tokens[@]}"; do
+    _pt_esc=${_pt//\"/\\\"}
+    if [[ -z "$_paired_tokens_toml" ]]; then
+        _paired_tokens_toml="\"${_pt_esc}\""
+    else
+        _paired_tokens_toml="${_paired_tokens_toml}, \"${_pt_esc}\""
+    fi
+done
+unset _existing_tok _pt _pt_esc
+
 umask_orig=$(umask)
 umask 0077
 {
@@ -7330,7 +7451,10 @@ TOMLPREAMBLE
     # after the CX-58 assistant-agent bundling fix surfaced the
     # daemon successfully but on the wrong port.
     echo "port = 8000"
-    echo "paired_tokens = [\"${CHAT_ADMIN_TOKEN}\"]"
+    # P0-β: emit the MERGED set (preserved device tokens + admin), computed
+    # above BEFORE this block truncated the file. Never write the admin token
+    # unconditionally here -- that unpairs every device on upgrade.
+    echo "paired_tokens = [${_paired_tokens_toml}]"
 
     # v1.0.10 phone pairing DEFERRED (operator decision): companion
     # pairing depends on a coordinated CM031 change that isn't ready for
@@ -7479,6 +7603,9 @@ unset CHANNEL_EMAIL_PASSWORD
 # Same treatment for the chat admin token. Both copies (TOML +
 # secrets file) are written and locked down by now.
 unset CHAT_ADMIN_TOKEN
+# P0-β scratch: drop the preserved-pairings working state now it is emitted.
+unset _merged_paired_tokens _paired_tokens_toml
+unset -f _paired_tokens_add 2>/dev/null || true
 
 ok "$(printf "$MSG_OK_ASSISTANT_CONFIG_SAVED_MODE_0600" "${ASSISTANT_CONFIG}")"
 
@@ -11102,9 +11229,28 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              CM041 health branch ships, so the write lands but nothing
              can query it across the auth boundary. -->
         <key>DOCTOR_PROXY_PATHS</key>
-        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status</string>
+        <string>/api/safari/ingest,/api/v1/hub/health,/api/v1/timeline,/api/v1/people,/api/v1/people/search,/api/v1/people/context,/api/v1/people/stale,/api/v1/people/recent,/api/v1/people/birthdays,/api/v1/suggestions,/api/v1/calendar,/api/v1/calendar/today,/api/v1/conversation/process,/api/v1/conversation/status/{id},/api/v1/email/recent,/api/v1/ingest/ios,/api/v1/health/day,/api/v1/recording/active,/api/v1/coach/recent,/api/v1/people/{slug}/forget,/api/v1/hydration/status,/api/v1/subscription/receipt,/api/v1/memory,/api/v1/memory/correct/{id},/api/v1/memory/assert</string>
+        <!-- P0-γ (2026-07-26): /api/v1/subscription/receipt was MISSING from the
+             proxy list. iOS SubscriptionReceiptSync POSTs it to the Doctor on
+             every purchase/restore/foreground; without the path the Doctor 404s
+             it, subscription_gate.is_active_or_grace() goes stale, and on day 31
+             email ingest / brief composition / iMessage + Reminders push all
+             silently degrade. Handler exists on the ical-server (:8090). P1: the
+             three /api/v1/memory* paths future-proof the Memory tab (hidden in
+             v1.0 via showMemoryTab, flips on in v1.0.1) so it isn't dead on
+             arrival. -->
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
+        <!-- P0-α (2026-07-26): the Doctor's paired-bearer oracle
+             (/internal/validate-bearer) lives on the GATEWAY (:8000), NOT the
+             ical-server (:8090) that DOCTOR_GATEWAY_URL points at for the
+             /api/v1/* substitution forward. Without a SEPARATE validator URL the
+             Doctor POSTs validation to :8090, the ical-server 401s it, and every
+             paired iOS client is rejected -> the "Reconnection paused" loop
+             returns (P0-α, the loop the BW2-5 fix was meant to close). Keep
+             :8000 in lockstep with the [gateway] port. -->
+        <key>DOCTOR_VALIDATOR_URL</key>
+        <string>http://127.0.0.1:8000</string>
         <!-- #652 (THE FIX): point the Doctor's chat-token mint at the SAME
              port the daemon's [gateway] is pinned to (8000, see CX-59 at
              ~L5840). chat_token.py's _zeroclaw_port() defaults to zeroclaw's
@@ -11146,6 +11292,17 @@ DOCEOF
     # it 0644 (world-readable); tighten to 0600 so the #200 service
     # token cannot be read by another local user.
     chmod 0600 "$DOCTOR_PLIST"
+
+    # v1.0.10 P0-α (Archie #446 nit): make the Doctor reload SELF-CONTAINED so
+    # the new DOCTOR_VALIDATOR_URL env is guaranteed to apply. The global
+    # "Stopping services" block (~L10943) already boots out the Doctor + removes
+    # its plist on the normal upgrade path, so this is belt-and-braces -- but it
+    # guarantees the label is not still loaded here on any path that reaches the
+    # reload without the global stop (e.g. a partial/--repair re-run). Without
+    # it, a bootstrap onto an already-loaded label errors and `|| true` swallows
+    # it, leaving the OLD env live until reboot. Mirrors the daemon reload
+    # (~L13611); idempotent (`|| true`).
+    launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || true
 
     # Use bootstrap on Sequoia+ (load is deprecated), fall back to load
     launchctl bootstrap "gui/$(id -u)" "$DOCTOR_PLIST" 2>/dev/null || \
@@ -16675,6 +16832,63 @@ if curl -sf http://localhost:11434/api/tags &>/dev/null; then
     ok "$MSG_OK_OLLAMA_HEALTHY"
 else
     warn "$MSG_WARN_OLLAMA_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+# ── v1.0.10 P1: loopback control-plane liveness ─────────────────
+#
+# The pairing + data-tab experience depends on three loopback services
+# the probes above do NOT cover, and a box that looks "installed" but
+# has any of them down silently fails chat / pairing / the data tab --
+# exactly the box-walk class this recut closes (P0-α validate-bearer,
+# P0-β pairing preservation). Surface each one here:
+#   - Pairing service (127.0.0.1:8000) -- mints + validates the paired
+#       bearers; the oracle the Doctor consults (DOCTOR_VALIDATOR_URL).
+#   - Doctor          (127.0.0.1:8089) -- the proxy the iOS app + browser
+#       talk to; validates the client bearer, substitutes the service
+#       token, forwards /api/v1/* to the Assistant API.
+#   - Assistant API   (127.0.0.1:8090) -- People / Meetings / Timeline.
+# All three are launchd services loaded far earlier in this run (Doctor
+# ~L11297, Assistant API ~L11468, pairing service ~L13611) and the
+# hydrate phase already exercised :8089 -> :8090, so by now they should
+# be up; a few-second retry only absorbs a still-settling daemon. A
+# LIVENESS probe (ANY HTTP response, including 401/404) is the right test
+# -- we are asking "is it listening", not "does it authorise us" -- so we
+# deliberately do NOT use curl -f. No bearer is sent.
+_probe_http_live() {
+    # $1 url  $2 attempts (default 5). Returns 0 if the port answers HTTP.
+    local _url="$1" _attempts="${2:-5}" _code _i=0
+    while [[ $_i -lt $_attempts ]]; do
+        # curl -w prints "000" (and exits non-zero) on connection refused /
+        # timeout, so only a genuine HTTP status (1xx-5xx, includes 401/404)
+        # counts as "listening". Do NOT `|| echo 000` here -- curl already
+        # emits 000, and appending a second would read as a live 6-digit code.
+        _code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$_url" 2>/dev/null)
+        [[ "$_code" =~ ^[1-5][0-9][0-9]$ ]] && return 0
+        _i=$((_i + 1))
+        [[ $_i -lt $_attempts ]] && sleep 1
+    done
+    return 1
+}
+
+if _probe_http_live "http://127.0.0.1:8000/" 5; then
+    ok "$MSG_OK_GATEWAY_HEALTHY"
+else
+    warn "$MSG_WARN_GATEWAY_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+if _probe_http_live "http://127.0.0.1:8089/" 5; then
+    ok "$MSG_OK_DOCTOR_HEALTHY"
+else
+    warn "$MSG_WARN_DOCTOR_NOT_RESPONDING"
+    HEALTHY=false
+fi
+
+if _probe_http_live "http://127.0.0.1:8090/" 5; then
+    ok "$MSG_OK_ICAL_SERVER_HEALTHY"
+else
+    warn "$MSG_WARN_ICAL_SERVER_NOT_RESPONDING"
     HEALTHY=false
 fi
 

@@ -213,5 +213,73 @@ if ! grep -q 'alice@example.com' "$FIXTURE"; then
 fi
 echo "PASS [case-7]: fixture pinned to synthetic NANP + example.com data"
 
+# ── Case 8: BW2-1 -- the native me-card reader is preferred ─────────
+# The osascript `my card` read broke on macOS 26.5 (-1728) and left the
+# pre-fill blank on the .185 box-walk. install.sh now prefers a bundled
+# native helper (ostler-mecard, an AddressBook -[ABAddressBook me] reader)
+# and only falls through to the osascript path when the helper returns
+# nothing. This case walks the exact shape so a future edit cannot drop
+# the native reader, un-gate the osascript fallback, or stop bundling the
+# helper into the app.
+MECARD_SRC="${REPO_ROOT}/gui/ostler-mecard/main.swift"
+MECARD_PLIST="${REPO_ROOT}/gui/ostler-mecard/Info.plist"
+PROJECT_YML="${REPO_ROOT}/gui/project.yml"
+for path in "$MECARD_SRC" "$MECARD_PLIST" "$PROJECT_YML"; do
+    if [[ ! -f "$path" ]]; then
+        echo "FAIL [case-8]: required file not found: $path" >&2
+        exit 1
+    fi
+done
+# install.sh: the native reader function exists and targets the bundled binary.
+if ! grep -q '_read_my_card_native()' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: install.sh missing _read_my_card_native() (native me-card reader dropped)" >&2
+    exit 1
+fi
+if ! grep -q 'SCRIPT_DIR:-}/ostler-mecard' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: native reader no longer invokes \${SCRIPT_DIR}/ostler-mecard" >&2
+    exit 1
+fi
+# install.sh: the native result seeds CARD_DATA, and the osascript read is
+# gated behind an empty-CARD_DATA fallback (so it only runs when native gave
+# nothing -- no double read, no Contacts.app launch when native succeeded).
+if ! grep -q 'CARD_DATA="\$CARD_DATA_NATIVE"' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: native reader result not assigned into CARD_DATA" >&2
+    exit 1
+fi
+# The `open -gja Contacts` cold-start launch must sit inside the
+# fallback guard, not run unconditionally.
+if ! awk '
+    /if \[\[ -z "\$CARD_DATA" \]\]; then/ { guard=1 }
+    guard && /open -gja Contacts/ { found=1 }
+    END { exit(found?0:1) }
+' "$INSTALL_SH"; then
+    echo "FAIL [case-8]: osascript Contacts launch is not gated behind the empty-CARD_DATA fallback" >&2
+    exit 1
+fi
+# project.yml: the helper is compiled + bundled into Resources.
+if ! grep -q 'Compile + bundle ostler-mecard helper into Resources' "$PROJECT_YML"; then
+    echo "FAIL [case-8]: gui/project.yml no longer bundles the ostler-mecard helper" >&2
+    exit 1
+fi
+if ! grep -q 'UNLOCALIZED_RESOURCES_FOLDER_PATH)/ostler-mecard' "$PROJECT_YML"; then
+    echo "FAIL [case-8]: ostler-mecard not declared as a bundled Resources output" >&2
+    exit 1
+fi
+# helper source: reads the me-card via AddressBook, emits the 5-field line.
+if ! grep -q 'ABAddressBook' "$MECARD_SRC" || ! grep -q '\.me()' "$MECARD_SRC"; then
+    echo "FAIL [case-8]: helper no longer reads the me-card via ABAddressBook.me()" >&2
+    exit 1
+fi
+if ! grep -qE 'clean\(name\)\).*clean\(first\)\).*clean\(country\)\).*clean\(email\)\).*clean\(phone\)\)' "$MECARD_SRC"; then
+    echo "FAIL [case-8]: helper no longer emits the name|first|country|email|phone contract" >&2
+    exit 1
+fi
+# helper carries its own Contacts usage string (belt-and-braces for TCC).
+if ! grep -q 'NSContactsUsageDescription' "$MECARD_PLIST"; then
+    echo "FAIL [case-8]: helper Info.plist missing NSContactsUsageDescription" >&2
+    exit 1
+fi
+echo "PASS [case-8]: BW2-1 -- native me-card helper preferred, osascript gated as fallback, helper bundled"
+
 echo ""
 echo "ALL CONTACT_CARD_PREFILL TESTS PASSED"

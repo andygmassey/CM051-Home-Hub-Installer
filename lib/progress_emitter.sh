@@ -81,11 +81,25 @@ gui_emit() {
         printf '\n#OSTLER\t%s' "$event"
         local kv
         for kv in "$@"; do
-            # Strip tabs and CR/LF from values, replace with single space.
-            # The GUI parser will reject malformed lines, so be tolerant.
+            # ── Value encoding (BW2-2, 2026-07-25) ──
+            # The marker line is tab-separated and newline-anchored, so a
+            # value MUST NOT contain a literal TAB, CR or LF -- those are
+            # structural delimiters. Historically we stripped newlines to a
+            # single space, which flattened every multi-paragraph question
+            # body (help=) into one dense wall of text on the GUI: the
+            # strings already carry "\n\n" paragraph breaks and "•" bullets,
+            # but they never survived the wire.
+            #
+            # Fix: percent-encode newlines instead of destroying them, so
+            # the GUI can restore paragraph/bullet structure. Encode "%"
+            # first (so the scheme is reversible), then "\n" -> "%0A". TAB
+            # and CR stay stripped -- they are never meaningful in copy and
+            # TAB is the field delimiter. ProgressDecoder decodes the
+            # reverse (%0A -> newline, %25 -> %) at the single parse site.
+            kv="${kv//'%'/%25}"
             kv="${kv//$'\t'/ }"
-            kv="${kv//$'\n'/ }"
             kv="${kv//$'\r'/ }"
+            kv="${kv//$'\n'/%0A}"
             printf '\t%s' "$kv"
         done
         printf '\n'

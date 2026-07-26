@@ -410,6 +410,13 @@ MSG_OK_PYTHON="Python %s"
 MSG_OK_PYTHON_BUNDLED="Using bundled Python %s (no system install needed)"
 MSG_OK_PYTHON_INSTALLED="Python %s installed"
 MSG_OK_QDRANT_HEALTHY="Qdrant healthy"
+# v1.0.10 P1: loopback control-plane liveness (pairing + data tab).
+MSG_OK_GATEWAY_HEALTHY="Pairing service healthy"
+MSG_WARN_GATEWAY_NOT_RESPONDING="Pairing service not responding (127.0.0.1:8000) - phone/browser pairing and the chat assistant may not work yet"
+MSG_OK_DOCTOR_HEALTHY="Doctor healthy"
+MSG_WARN_DOCTOR_NOT_RESPONDING="Doctor not responding (127.0.0.1:8089) - the app and browser reach Ostler through it, so data and pairing may be unavailable"
+MSG_OK_ICAL_SERVER_HEALTHY="Assistant API healthy"
+MSG_WARN_ICAL_SERVER_NOT_RESPONDING="Assistant API not responding (127.0.0.1:8090) - People, Meetings and Timeline may be empty until it starts"
 MSG_OK_READY="%s ready"
 MSG_OK_RECOMMENDED_SOURCES_SELECTED="Recommended sources selected"
 MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="Recovery key saved to Keychain (search 'Ostler' in Passwords app)"
@@ -972,27 +979,27 @@ Read more at docs.ostler.ai/privacy/third-party-data."
 # Spoken-capture recording-consent acknowledgement (every region). Shown
 # in the Phase-2 consent batch. The HELP string is the substantive text
 # GUI installer users read on the decision sheet, so it is self-contained.
-MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Recording spoken conversations"
-MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you record spoken audio, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you record – calls and meetings – into searchable text; this is only about audio you choose to record. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping recordings on your own Mac does not remove this duty – Ostler never sends them anywhere, but you still need consent where your local law requires it."
+MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you record a spoken conversation."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that recording is happening – for example, say so at the start, or keep a visible recording indicator on."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Your text conversations work either way."
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Record spoken conversations into text?"
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you record spoken audio, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
 
-Ostler can turn spoken conversations you record – calls and meetings – into searchable text. This is only about audio you choose to record.
+Ostler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.
 
 What we ask of you:
-• Get whatever consent your local law requires before you record.
-• Make it clear recording is happening – say so, or keep a visible recording indicator on.
+• Get whatever consent your local law requires before you capture audio.
+• Make it clear audio is being captured – say so, or keep a visible indicator on.
 • If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
 
 Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
