@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Embedded Info.plist for the ostler-contacts CLI binary.
+	     A command-line tool has no .app bundle, so the usage-description
+	     string must be linked INTO the executable via a __TEXT,__info_plist
+	     section. At sign time:
+
+	       swiftc ... -Xlinker -sectcreate -Xlinker __TEXT \
+	              -Xlinker __info_plist -Xlinker <path-to-this-file>
+
+	     (or the equivalent OTHER_LDFLAGS in the xcodegen target that
+	     wraps the binary at ship time). Without this string present in
+	     the signed binary, CNContactStore.requestAccess returns "denied"
+	     WITHOUT rendering the macOS Contacts TCC prompt — the same failure
+	     class as the CX-46 entitlement gap on the installer .app. -->
+	<key>CFBundleIdentifier</key>
+	<string>ai.ostler.contacts-helper</string>
+	<key>CFBundleName</key>
+	<string>ostler-contacts</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Ostler reads your contacts to back them up before tidying duplicates, and never sends them off this Mac.</string>
+</dict>
+</plist>
