@@ -104,7 +104,12 @@ entries:
     source_pr: andygmassey/CM051-Home-Hub-Installer#453
     proof:
       kind: grep_in_installer
-      pattern: "glut.*ceiling|ceiling.*glut|GLUT_CEILING"
+      # ORM 2026-07-27: original pattern "glut.*ceiling|ceiling.*glut|GLUT_CEILING"
+      # matched 0 lines even in #453's OWN branch tip (glut + ceiling never
+      # co-occur on one line; no literal GLUT_CEILING). Recalibrated to #453's
+      # real markers -- the repeated-killall glut fix + the generous ceiling
+      # (install.sh ~L14174-14175). FLAG for Archie post-cut review of #457.
+      pattern: "killall on EVERY poll iteration|GENEROUS ceiling"
       must_match: true
 
   # --------------------------------------------------------------------------
