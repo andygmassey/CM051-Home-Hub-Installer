@@ -13845,6 +13845,19 @@ else
                 #      registers the row on the first denied read within ms, so a
                 #      ~2s settle is ample. No `open -W`, so there is no waiter to
                 #      mis-target and no indefinite hang to guard.
+                # Box-verified (andy@192.168.1.98, macOS 26.5.2): `open -gjn -a
+                # <bundle> --args run-source imessage --self-test` DOES deliver
+                # the args -- a tight-poll caught the launched process argv as
+                # `...ostler-assistant run-source imessage --self-test` on 3/3
+                # launches, and each self-exited (no lingering instance). So the
+                # argv-anchored kill below matches the launched instance, and
+                # `open -a` can NEVER produce the persistent daemon here: it does
+                # not inject the LaunchAgent's `daemon` arg, and if a future macOS
+                # ever DROPPED --args the app would launch with no subcommand and
+                # print help then exit (main.rs: args_os().len() <= 1). The
+                # persistent daemon is separately DEFERRED at INSTALL_SNIPPET time
+                # (OSTLER_ASSISTANT_DEFER_START=true; verified honoured), so it is
+                # not loaded anywhere in this assist window.
                 _fda_nudge_registered=false
                 _fda_selftest_argv="run-source imessage --self-test"
                 if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
@@ -13854,6 +13867,11 @@ else
                     # literal, no globs). Marker on stdout (Rust println!).
                     # shellcheck disable=SC2086
                     if "$ASSISTANT_BINARY" $_fda_selftest_argv 2>&1 | grep -q 'SELF-TEST:'; then
+                        # Snapshot every ostler-assistant PID BEFORE the nudge so
+                        # the by-identity sweep below can distinguish the instance
+                        # WE spawn from any pre-existing legit process, and never
+                        # touch the latter.
+                        _fda_pre_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
                         # (2) app-identity nudge: -n fresh instance, -g/-j launch
                         # background + hidden (no focus-steal, no visible window),
                         # NO -W (the read+exit is sub-second; -W is what tempted
@@ -13862,12 +13880,34 @@ else
                         open -gjn -a "$ASSISTANT_APP_BUNDLE" --args $_fda_selftest_argv >/dev/null 2>&1 || true
                         # Completion settle: denied read fires within ms.
                         sleep 2
-                        # Hard-kill by the launched instance's own argv. Belt-and
-                        # -braces: a proven-capable binary has already self-exited,
-                        # so this is normally a no-op; it exists so a binary that
-                        # behaves differently under `open` than under a direct exec
-                        # still cannot survive this step as a running daemon.
+                        # HARD-KILL, fast path: match the launched instance by its
+                        # own argv. Normally a no-op (a proven-capable binary has
+                        # already self-exited); it catches a binary that hangs
+                        # under `open` despite honouring --self-test under a direct
+                        # exec. Never matches a legit process: the persistent
+                        # daemon runs `... daemon`, ingest ticks run `run-source
+                        # <src>` WITHOUT `--self-test`.
                         pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant ${_fda_selftest_argv}" 2>/dev/null || true
+                        # HARD-KILL, by-identity belt-and-braces (regardless of
+                        # args): if some macOS/binary combination ever launched the
+                        # app with a DIFFERENT argv than we passed, the argv match
+                        # above would miss it. TERM any ostler-assistant instance
+                        # that appeared AFTER our snapshot and is NOT one of the
+                        # legit long-lived roles (persistent `daemon`, or a
+                        # `run-source <src>` ingest tick that happened to fire in
+                        # the settle window). Compared against _fda_pre_pids so a
+                        # pre-existing process is never signalled.
+                        _fda_post_pids="$(pgrep -f 'OstlerAssistant\.app/Contents/MacOS/ostler-assistant' 2>/dev/null | sort -u)"
+                        while IFS= read -r _fda_np; do
+                            [[ -n "$_fda_np" ]] || continue
+                            _fda_np_cmd="$(ps -p "$_fda_np" -o command= 2>/dev/null)"
+                            case "$_fda_np_cmd" in
+                                *" run-source imessage --self-test") kill -TERM "$_fda_np" 2>/dev/null || true ;;  # our nudge instance
+                                *" daemon"|*" run-source "*) : ;;  # legit persistent daemon / ingest tick; leave it
+                                *) kill -TERM "$_fda_np" 2>/dev/null || true ;;  # unexpected instance from our nudge (mangled/dropped args)
+                            esac
+                        done < <(comm -13 <(printf '%s\n' "$_fda_pre_pids") <(printf '%s\n' "$_fda_post_pids"))
+                        unset _fda_pre_pids _fda_post_pids _fda_np _fda_np_cmd
                         _fda_nudge_registered=true
                     else
                         gui_log info "Daemon FDA register-nudge: binary did not acknowledge the self-test one-shot; skipping the app-launch nudge and using the Finder drag-in flow (never launches the daemon pre-FDA)."
