@@ -1,0 +1,119 @@
+name: cut-manifest
+
+# Guards the cut-manifest gate (scripts/verify_cut_manifest.py + .sh).
+# Runs the hermetic smoke suite (10 tests against synthetic manifests +
+# fake artefact tree) and validates that both cut-manifests/permanent.yaml
+# and every cut-manifests/v*.yaml parse cleanly with the expected schema.
+#
+# CI cannot exercise the real gate end-to-end (that needs a built .app +
+# sibling ostler-assistant / CM044 checkouts + cross-org GH access, which
+# live only on the cut host). CI's job is: prove the verifier's logic
+# still works, and prove the manifests are well-formed. The real gate
+# runs on the cut host, wired fail-closed into gui/Makefile `ship` via
+# the `check-manifest` target.
+#
+# Registering these here means: any change to the verifier, the manifests,
+# or the wrapper is CI-guarded — the gate cannot silently rot.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_cut_manifest.py'
+      - 'scripts/verify_cut_manifest.sh'
+      - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'cut-manifests/**'
+      - 'gui/Makefile'
+      - '.github/workflows/cut-manifest.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  manifest-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pytest
+
+      - name: Run verify_cut_manifest smoke tests
+        run: |
+          python -m pytest scripts/tests/test_verify_cut_manifest.py -v
+
+  manifest-parse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Validate all manifests parse + have required fields
+        run: |
+          python3 <<'PY'
+          import sys, yaml
+          from pathlib import Path
+          errors = []
+          root = Path("cut-manifests")
+          if not root.is_dir():
+              print("ERROR: cut-manifests/ dir missing", file=sys.stderr)
+              sys.exit(1)
+          KINDS = {"grep_in_installer", "grep_in_artefact",
+                   "grep_in_source_at_sha", "file_exists_in_artefact",
+                   "plist_key_equals"}
+          for path in sorted(root.glob("*.yaml")):
+              try:
+                  doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+              except Exception as e:
+                  errors.append(f"{path}: YAML parse error: {e}")
+                  continue
+              if not isinstance(doc, dict):
+                  errors.append(f"{path}: root must be a mapping")
+                  continue
+              if "entries" not in doc:
+                  errors.append(f"{path}: missing 'entries' key")
+                  continue
+              for i, entry in enumerate(doc.get("entries") or []):
+                  where = f"{path.name}#entries[{i}]"
+                  for req in ("id", "title", "proof"):
+                      if req not in entry:
+                          errors.append(f"{where}: missing '{req}'")
+                  proof = entry.get("proof", {})
+                  kind = proof.get("kind")
+                  if kind not in KINDS:
+                      errors.append(f"{where}: unknown proof.kind {kind!r}; must be one of {sorted(KINDS)}")
+                  if kind in ("grep_in_installer", "grep_in_artefact", "grep_in_source_at_sha") and "pattern" not in proof:
+                      errors.append(f"{where}: {kind} requires 'pattern'")
+                  if kind == "plist_key_equals":
+                      for req in ("path", "key", "value"):
+                          if req not in proof:
+                              errors.append(f"{where}: plist_key_equals requires '{req}'")
+                  if kind == "file_exists_in_artefact" and "path" not in proof:
+                      errors.append(f"{where}: file_exists_in_artefact requires 'path'")
+              print(f"OK   {path.name} ({len(doc.get('entries') or [])} entries)")
+          if errors:
+              print()
+              print("FAIL — manifest schema errors:", file=sys.stderr)
+              for e in errors:
+                  print("  " + e, file=sys.stderr)
+              sys.exit(1)
+          print()
+          print("All manifests parse + validate.")
+          PY
