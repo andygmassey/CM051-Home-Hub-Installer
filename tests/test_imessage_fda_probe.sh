@@ -316,18 +316,28 @@ if ! file "$DIALOG_ICNS" 2>/dev/null | grep -q "Mac OS X icon"; then
 fi
 echo "PASS [case-9]: DialogIcon.icns asset bundled + parses as valid .icns"
 
-# ── Case 10 (BW4-A): TCC auto-register nudge before the FDA pane ──
+# ── Case 10 (BW6, supersedes BW4-A): bulletproof register-nudge ──
 # Box-walk (.184): OstlerAssistant did not auto-list in the FDA pane
 # because no read had ever been attributed to ai.ostler.assistant. The
-# fix launches the daemon .app via LaunchServices with the one-shot
+# nudge launches the daemon .app via LaunchServices with the one-shot
 # `run-source imessage --self-test` probe BEFORE opening the pane, so
-# macOS registers the daemon as a toggleable row. Lock its shape.
+# macOS registers the daemon as a toggleable row.
+#
+# BW6 (window-glut fix): the nudge is now COMPLETION-DETECTION based, not
+# timing based. The old code armed `sleep 15; kill -TERM "$_fda_probe_pid"`
+# on the `( open ... ) &` *waiter* subshell, NOT the launched app -- so a
+# vendored binary that failed to self-exit ran as the full daemon pre-FDA
+# and raised the Documents + Automation prompts (the glut). BW6 replaces
+# that with (1) a capability gate that proves the binary honours the
+# one-shot before ever launching the app, and (2) a hard-kill by the app's
+# own argv. Lock the new shape and forbid regression to the timing killer.
 #
 # The nudge lives inside the CX-66 assist block; reuse ASSIST_BLOCK
 # extracted in case-6.
 # Must launch the assistant .app bundle via LaunchServices (`open`),
 # NOT a bare fork/exec (which TCC attributes to the installer ancestor).
-if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -gjnW -a "\$ASSISTANT_APP_BUNDLE"'; then
+# `-W` is deliberately gone (no waiter to mis-target); accept -gjn.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"'; then
     echo "FAIL [case-10]: register nudge missing LaunchServices open of the assistant .app" >&2
     exit 1
 fi
@@ -337,10 +347,34 @@ if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'run-source imessage --self-test'; 
     echo "FAIL [case-10]: register nudge missing 'run-source imessage --self-test' probe" >&2
     exit 1
 fi
+# BW6 (1): CAPABILITY GATE. The nudge must first run the binary DIRECTLY
+# and gate the app-launch on a `SELF-TEST:` marker, so a binary that does
+# not honour the one-shot can never be `open`ed into the full daemon.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q '"\$ASSISTANT_BINARY" \$_fda_selftest_argv'; then
+    echo "FAIL [case-10]: register nudge missing the direct-exec capability probe" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q "grep -q 'SELF-TEST:'"; then
+    echo "FAIL [case-10]: register nudge must gate on the SELF-TEST marker" >&2
+    exit 1
+fi
+# BW6 (2): HARD-KILL BY PROCESS IDENTITY. The launched instance must be
+# killed by its own argv (pkill -f anchored on the self-test command line),
+# NOT by TERMing the `open` waiter.
+if ! printf '%s\n' "$ASSIST_BLOCK" | grep -q 'pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant'; then
+    echo "FAIL [case-10]: register nudge missing hard-kill by the launched app's argv" >&2
+    exit 1
+fi
+# BW6 anti-regression: the timing killer that TERMed the open-waiter (the
+# root cause of the glut, fixed ~two dozen times before) must be GONE.
+if printf '%s\n' "$ASSIST_BLOCK" | grep -Eq 'kill -TERM "\$_fda_probe_(pid|killer)"'; then
+    echo "FAIL [case-10]: timing-based open-waiter killer reintroduced (must be completion-detection, not a timer)" >&2
+    exit 1
+fi
 # The nudge must run BEFORE the System Settings pane is opened, so the
 # row is already registered when the customer looks. Assert ordering:
 # the open-assistant line precedes the x-apple deep-link line.
-NUDGE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'run-source imessage --self-test' | head -1 | cut -d: -f1)
+NUDGE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'open -gjn -a "\$ASSISTANT_APP_BUNDLE"' | head -1 | cut -d: -f1)
 PANE_LINE=$(printf '%s\n' "$ASSIST_BLOCK" | grep -n 'x-apple.systempreferences.*Privacy_AllFiles' | head -1 | cut -d: -f1)
 if [[ -z "$NUDGE_LINE" || -z "$PANE_LINE" ]]; then
     echo "FAIL [case-10]: could not measure nudge vs pane ordering" >&2
@@ -356,12 +390,12 @@ fi
 # which is gated behind FDA-confirmed -- assert the nudge block itself
 # carries no launchctl bootstrap/load of the assistant label.
 NUDGE_BLOCK=$(awk '
-    /BW4-A .2026-07-24.: TCC auto-register nudge/ { in_block=1 }
+    /BW6 .2026-07-26, G-1\/window-glut.: register-nudge/ { in_block=1 }
     in_block && /FDA_PANE_REFRESH/ { exit }
     in_block { print }
 ' "$INSTALL_SH")
 if [[ -z "$NUDGE_BLOCK" ]]; then
-    echo "FAIL [case-10]: could not extract BW4-A nudge block" >&2
+    echo "FAIL [case-10]: could not extract BW6 nudge block" >&2
     exit 1
 fi
 if printf '%s\n' "$NUDGE_BLOCK" | grep -Eq 'launchctl (bootstrap|load|kickstart)'; then
@@ -373,7 +407,7 @@ if ! grep -q "^MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE=" "$STRINGS_FILE"; then
     echo "FAIL [case-10]: catalogue missing MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE" >&2
     exit 1
 fi
-echo "PASS [case-10]: BW4-A register nudge present, ordered before the pane, crash-loop-safe"
+echo "PASS [case-10]: BW6 register nudge present, capability-gated, hard-kills by argv, ordered before the pane, crash-loop-safe, no timing killer"
 
 echo ""
 echo "ALL CX-60 + CX-66 + CX-81 B8 + B8b + BW4-A IMESSAGE FDA PROBE TESTS PASSED"

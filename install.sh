@@ -13802,29 +13802,78 @@ else
                 # is registered before we open the pane. Best-effort throughout:
                 # any failure (older binary without the subcommand, launch error)
                 # is swallowed and the Finder-drag fallback below still runs.
+                # BW6 (2026-07-26, G-1/window-glut): register-nudge made
+                # bulletproof by COMPLETION DETECTION, not timing. Every prior
+                # fix here was timer-based (the `sleep 15; kill -TERM
+                # $_fda_probe_pid` below) and failed: that killer TERMed the
+                # `( open ... ) &` *waiter* subshell, NOT the launched app. If
+                # the vendored binary ever fails to self-exit from
+                # `run-source imessage --self-test` (falls through to the
+                # persistent KeepAlive daemon, or touches ~/Documents before its
+                # early-return), the FULL daemon runs pre-FDA and raises the
+                # Documents-folder TCC prompt AND -- once its iMessage channel
+                # issues its AppleEvent -- the "OstlerAssistant wants to control
+                # Messages" Automation prompt, on top of System Settings + Finder:
+                # the four-window glut Andy recorded. The old killer could never
+                # stop it because it never targeted the app. Two guarantees now
+                # make this independent of the vendored binary's behaviour:
+                #
+                #  (1) CAPABILITY GATE. Prove THIS binary honours the one-shot
+                #      and early-returns from it BEFORE launching the app-identity
+                #      nudge. We run the binary DIRECTLY first -- attributed by
+                #      TCC to the installer, so it never registers the daemon
+                #      identity and (being a plain exec, not `open -a`) can never
+                #      start the LaunchServices app. A binary that honours the
+                #      flag prints a `SELF-TEST:` marker (OK or DENIED) and exits
+                #      in ms having touched ONLY chat.db; a binary that does not
+                #      recognise it exits via a clap parse error with no marker.
+                #      No marker => SKIP the app-launch nudge entirely and fall
+                #      through to the Finder drag-in flow (which never launches
+                #      the daemon). A mystery binary therefore cannot raise the
+                #      Documents prompt from this step. Mirrors the run-source
+                #      preflight gate at ~L12996.
+                #
+                #  (2) HARD-KILL BY PROCESS IDENTITY. Even a proven-capable binary
+                #      is launched via `open` as its own responsible process (so
+                #      the denied chat.db read registers ai.ostler.assistant in
+                #      the FDA pane). After a short settle we hard-kill by the
+                #      app's own argv -- `pkill -f` anchored on the exact
+                #      `run-source imessage --self-test` command line -- so it
+                #      matches ONLY the instance we launched and NEVER a legit
+                #      process (the persistent daemon runs `... daemon`; ingest
+                #      ticks run `run-source <src>` WITHOUT `--self-test`). TCC
+                #      registers the row on the first denied read within ms, so a
+                #      ~2s settle is ample. No `open -W`, so there is no waiter to
+                #      mis-target and no indefinite hang to guard.
+                _fda_nudge_registered=false
+                _fda_selftest_argv="run-source imessage --self-test"
                 if [[ -d "$ASSISTANT_APP_BUNDLE" ]]; then
                     info "$MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE"
-                    # HANG GUARD (Archie): `-W` blocks until the launched app
-                    # EXITS. If the shipped daemon binary does NOT recognise the
-                    # `run-source imessage --self-test` one-shot, it falls through
-                    # to normal (persistent, KeepAlive) daemon startup and never
-                    # exits -- so a bare `open -W` would block install.sh
-                    # INDEFINITELY. `|| true` catches a non-zero exit but NOT a
-                    # hang. Wrap the probe with a hard 15s timeout: run it in the
-                    # background, arm a killer that TERMs it after 15s, then wait.
-                    # 15s is ample -- TCC registers the daemon identity on the
-                    # denied chat.db read within the first ms of launch. On a
-                    # binary that DOES self-exit the probe finishes in well under
-                    # a second and the killer is reaped immediately.
-                    ( open -gjnW -a "$ASSISTANT_APP_BUNDLE" \
-                        --args run-source imessage --self-test \
-                        >/dev/null 2>&1 ) &
-                    _fda_probe_pid=$!
-                    ( sleep 15; kill -TERM "$_fda_probe_pid" 2>/dev/null ) &
-                    _fda_probe_killer=$!
-                    wait "$_fda_probe_pid" 2>/dev/null || true
-                    kill -TERM "$_fda_probe_killer" 2>/dev/null || true
+                    # (1) capability probe: direct exec, self-exiting, no app
+                    # launch. word-split $_fda_selftest_argv into args (fixed
+                    # literal, no globs). Marker on stdout (Rust println!).
+                    # shellcheck disable=SC2086
+                    if "$ASSISTANT_BINARY" $_fda_selftest_argv 2>&1 | grep -q 'SELF-TEST:'; then
+                        # (2) app-identity nudge: -n fresh instance, -g/-j launch
+                        # background + hidden (no focus-steal, no visible window),
+                        # NO -W (the read+exit is sub-second; -W is what tempted
+                        # the old mis-targeted killer).
+                        # shellcheck disable=SC2086
+                        open -gjn -a "$ASSISTANT_APP_BUNDLE" --args $_fda_selftest_argv >/dev/null 2>&1 || true
+                        # Completion settle: denied read fires within ms.
+                        sleep 2
+                        # Hard-kill by the launched instance's own argv. Belt-and
+                        # -braces: a proven-capable binary has already self-exited,
+                        # so this is normally a no-op; it exists so a binary that
+                        # behaves differently under `open` than under a direct exec
+                        # still cannot survive this step as a running daemon.
+                        pkill -f "OstlerAssistant.app/Contents/MacOS/ostler-assistant ${_fda_selftest_argv}" 2>/dev/null || true
+                        _fda_nudge_registered=true
+                    else
+                        gui_log info "Daemon FDA register-nudge: binary did not acknowledge the self-test one-shot; skipping the app-launch nudge and using the Finder drag-in flow (never launches the daemon pre-FDA)."
+                    fi
                 fi
+                unset _fda_selftest_argv
 
                 # BW5 (2026-07-26): probe listed-state ONCE, after the nudge
                 # above has had its chance to register the daemon's FDA row.
@@ -13833,12 +13882,32 @@ else
                 # already exists. Assigned unconditionally here so it is always
                 # defined before use under `set -u`.
                 _fda_listed="$(_imessage_daemon_fda_listed)"
+                # BW6 (2026-07-26): the sudo-based TCC.db probe above only works
+                # when a warm sudo cred is present. On a real fresh install
+                # `sudo -n` is NOT available (box-walk .98: "sudo: a password is
+                # required"), so _imessage_daemon_fda_listed returns empty even
+                # though the register-nudge just registered ai.ostler.assistant's
+                # FDA row via its denied chat.db read. That meant the BW5 Finder
+                # suppression (below) NEVER fired on real installs -- the
+                # redundant Finder window kept stacking. Trust the nudge's own
+                # success as an independent "listed" signal: a denied FDA read as
+                # the app identity is exactly what registers the greyed toggle, so
+                # if the nudge ran the row exists and the drag-in is unnecessary.
+                # NB `sudo -n` never shows a GUI password prompt (that is the -n
+                # contract), so it is NOT the "auth window" from the glut -- that
+                # was the daemon's own Automation prompt, now prevented by the
+                # capability-gate + hard-kill above keeping the daemon from
+                # running pre-FDA.
+                if [[ "$_fda_listed" != "listed" && "${_fda_nudge_registered:-false}" == true ]]; then
+                    _fda_listed="listed"
+                    gui_log info "Daemon FDA register-nudge succeeded; treating OstlerAssistant as listed (suppressing the redundant Finder drag-in window)."
+                fi
                 # BW5 nit (Archie 2026-07-26): a "not listed" result can mean the
-                # row is genuinely absent OR sudo -n could not read TCC.db. Both
-                # take the drag-in fallback, so record which one fired for
-                # post-hoc box-walk forensics. Logged here (not inside the
-                # stdout-captured helper) so it can never corrupt _fda_listed.
-                # The sudo keepalive loop keeps creds warm, so -n does not prompt.
+                # row is genuinely absent OR the nudge was skipped (mystery
+                # binary) OR sudo -n could not read TCC.db. All take the drag-in
+                # fallback, so record which one fired for post-hoc box-walk
+                # forensics. Logged here (not inside the stdout-captured helper)
+                # so it can never corrupt _fda_listed.
                 if [[ "${_fda_listed:-}" != "listed" ]]; then
                     if command -v sudo >/dev/null 2>&1 && ! sudo -n true 2>/dev/null; then
                         gui_log info "Daemon FDA-listed probe: sudo -n unavailable, could not read TCC.db; using the drag-in fallback (not a confirmed row-absent)."
@@ -14069,7 +14138,7 @@ else
                     sleep 1
                     _ss_close_wait=$((_ss_close_wait + 1))
                 done
-                unset _fda_listed _ss_close_wait
+                unset _fda_listed _ss_close_wait _fda_nudge_registered
                 fi  # closes inner `if OSTLER_GUI` (CX-78c nesting)
             fi  # closes `if true` assist wrapper (CX-90 reorder)
         fi
