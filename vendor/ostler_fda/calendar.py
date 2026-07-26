@@ -143,7 +143,14 @@ def extract_events(
 
     Returns:
         List of CalendarEvent objects, chronological order. Returns []
-        on any failure (graceful degradation, errors logged).
+        on graceful failures (db not found, unrecognised schema, etc.),
+        errors logged.
+
+    Raises:
+        PermissionError: If Full Disk Access is not granted (sqlite
+            "authorization denied"). Raised -- never swallowed -- so the
+            orchestrator surfaces a no_fda status and a Doctor card rather
+            than shipping an empty-but-healthy-looking calendar.
     """
     try:
         resolved = _resolve_db_path(db_path)
@@ -163,12 +170,17 @@ def extract_events(
         conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
         if "authorization denied" in str(e).lower():
-            logger.error(
-                "Cannot read Calendar data at %s. Grant Full Disk Access.",
-                resolved,
-            )
-        else:
-            logger.error("Failed to open Calendar db %s: %s", resolved, e)
+            # RAISE (do not return []) so the extract_all orchestrator's
+            # PermissionError -> no_fda branch fires and the customer gets a
+            # Doctor "grant Full Disk Access" card. Returning [] here made a
+            # revoked-FDA Calendar look like an empty-but-healthy calendar
+            # ("Calendar: 0 events", green summary, no card) forever. Matches
+            # the exact idiom every other FDA extractor uses (imessage,
+            # apple_notes, reminders, apple_mail, photos_metadata).
+            raise PermissionError(
+                "Cannot read Calendar. Grant Full Disk Access."
+            ) from e
+        logger.error("Failed to open Calendar db %s: %s", resolved, e)
         return []
     except Exception as e:
         logger.error("Unexpected error opening Calendar db %s: %s", resolved, e)

@@ -357,15 +357,32 @@ def run_all(
                 stats = _fb_stats(threads)
 
                 ingestible = [t for t in threads if t.tier != _FB_T3]
+                payloads = [_fb_payload(t) for t in ingestible]
                 (output_dir / "facebook_messenger_conversations.json").write_text(
-                    json.dumps(
-                        [_fb_payload(t) for t in ingestible], indent=2,
-                    )
+                    json.dumps(payloads, indent=2)
+                )
+
+                # Persist to the real conversations store via the CM048
+                # pipeline. The staging JSON above stays as the durable,
+                # re-runnable artefact; this additionally routes each
+                # ingestible thread through pwg-convo so the install-time
+                # export actually lands in the store the product reads --
+                # mirroring the user-driven ostler-import leg exactly
+                # (universal_import._dispatch_facebook). Without this the
+                # install-time env branch (OSTLER_FACEBOOK_EXPORT_PATH) wrote
+                # a JSON nobody consumed and shipped dark. Honest
+                # skip-if-absent: when pwg-convo is not installed the threads
+                # remain staged and persist_status reports "no_pipeline"
+                # (visible in the summary, no crash, no abort).
+                from .universal_import import _persist_conversations
+                persist = _persist_conversations(
+                    payloads, source="facebook_messenger"
                 )
 
                 summary["sources"]["facebook_messenger"] = {
                     "status": "ok",
                     **stats,
+                    **persist,
                 }
                 logger.info(
                     "[ok] Facebook Messenger: t1_dm=%d, t2_group=%d, "

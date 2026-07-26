@@ -281,9 +281,18 @@ class SpotifyParser(BaseParser):
             logger.error(f"Failed to parse library JSON: {e}")
             return
 
+        # A malformed export can hand us a bare list or null instead of the
+        # expected {tracks: [...], albums: [...]} object; calling .get() on it
+        # would raise and drop the whole file. Skip gracefully instead.
+        if not isinstance(data, dict):
+            logger.warning(f"Spotify library JSON is not an object, skipping: {file_path}")
+            return
+
         # Saved tracks - high signal, explicit save action
         tracks = data.get('tracks', [])
         for track in tracks:
+            if not isinstance(track, dict):
+                continue
             artist = track.get('artist', '').strip()
             track_name = track.get('track', '').strip()
             album = track.get('album', '').strip()
@@ -311,6 +320,8 @@ class SpotifyParser(BaseParser):
         # Saved albums
         albums = data.get('albums', [])
         for album in albums:
+            if not isinstance(album, dict):
+                continue
             artist = album.get('artist', '').strip()
             album_name = album.get('album', '').strip()
             uri = album.get('uri', '')
@@ -336,6 +347,8 @@ class SpotifyParser(BaseParser):
         # Followed artists
         artists = data.get('artists', [])
         for artist in artists:
+            if not isinstance(artist, dict):
+                continue
             artist_name = artist.get('name', '').strip()
             uri = artist.get('uri', '')
 
@@ -359,6 +372,8 @@ class SpotifyParser(BaseParser):
         # Followed shows (podcasts)
         shows = data.get('shows', [])
         for show in shows:
+            if not isinstance(show, dict):
+                continue
             show_name = show.get('name', '').strip()
             publisher = show.get('publisher', '').strip()
             uri = show.get('uri', '')
@@ -404,10 +419,16 @@ class SpotifyParser(BaseParser):
             logger.error(f"Failed to parse playlist JSON: {e}")
             return
 
+        if not isinstance(data, dict):
+            logger.warning(f"Spotify playlist JSON is not an object, skipping: {file_path}")
+            return
+
         playlists = data.get('playlists', [])
         total_tracks = 0
 
         for playlist in playlists:
+            if not isinstance(playlist, dict):
+                continue
             playlist_name = playlist.get('name', '').strip()
             items = playlist.get('items', [])
 
@@ -416,7 +437,13 @@ class SpotifyParser(BaseParser):
 
             # Yield each track in the playlist
             for item in items:
+                if not isinstance(item, dict):
+                    continue
                 track_info = item.get('track', {})
+                # `track` may be present-but-null or a non-dict in odd exports;
+                # .get()'s default only applies to a missing key, not a null value.
+                if not isinstance(track_info, dict):
+                    continue
                 artist = track_info.get('artistName', '').strip()
                 track_name = track_info.get('trackName', '').strip()
                 album = track_info.get('albumName', '').strip()
@@ -519,9 +546,15 @@ class SpotifyParser(BaseParser):
             logger.error(f"Failed to parse podcast ratings JSON: {e}")
             return
 
+        if not isinstance(data, dict):
+            logger.warning(f"Spotify podcast ratings JSON is not an object, skipping: {file_path}")
+            return
+
         rated_shows = data.get('ratedShows', [])
 
         for show in rated_shows:
+            if not isinstance(show, dict):
+                continue
             show_name = show.get('showName', '').strip()
             rating = show.get('rating', 0)
             rated_at = show.get('ratedAt', '')

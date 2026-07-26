@@ -54,11 +54,8 @@ upstream verifies the bearer itself).
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
-import tomllib
-from pathlib import Path
 from typing import Iterable, Optional
 
 import httpx
@@ -69,6 +66,15 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8000"
+
+# P0-α (2026-07-26): the paired-bearer oracle (/internal/validate-bearer) lives
+# on the GATEWAY (:8000). Production install.sh overrides DOCTOR_GATEWAY_URL to
+# the ical-server (:8090) for the /api/v1/* substitution FORWARD -- so
+# validation must NOT reuse DOCTOR_GATEWAY_URL, or every validate POST lands on
+# the ical-server, which 401s it -> every paired client rejected -> the
+# "Reconnection paused" loop this fix was meant to close. Distinct knob, so the
+# forward target and the validation target can never collide again.
+DEFAULT_VALIDATOR_URL = "http://127.0.0.1:8000"
 DEFAULT_PROXY_PATHS = ("/api/safari/ingest",)
 
 # Hop-by-hop headers (RFC 7230 section 6.1) plus a few that httpx
@@ -96,6 +102,11 @@ _HOP_BY_HOP_HEADERS = frozenset(
 # pipeline synchronously.
 _UPSTREAM_TIMEOUT_SECONDS = 30.0
 
+# Bearer-validation call timeout (BW2-5). A loopback round-trip to the
+# gateway's /internal/validate-bearer oracle; a few seconds is generous, and
+# a slow/wedged gateway must fail closed fast rather than hang every request.
+_PAIR_VALIDATE_TIMEOUT_SECONDS = 3.0
+
 
 def _load_proxy_paths() -> list[str]:
     """Return the list of paths to proxy from the env var, falling
@@ -109,6 +120,21 @@ def _load_proxy_paths() -> list[str]:
 def _gateway_base_url() -> str:
     return os.environ.get(
         "DOCTOR_GATEWAY_URL", DEFAULT_GATEWAY_URL
+    ).rstrip("/")
+
+
+def _validator_base_url() -> str:
+    """Base URL of the gateway that answers ``/internal/validate-bearer``.
+
+    P0-α: distinct from :func:`_gateway_base_url`. Production install.sh points
+    ``DOCTOR_GATEWAY_URL`` at the ical-server (:8090) for the substitution
+    forward, but the paired-bearer oracle lives on the gateway (:8000). Reading
+    ``DOCTOR_GATEWAY_URL`` here (as the pre-fix code did) sent every validation
+    POST to the ical-server, whose ``_guard`` returned 401, so the Doctor treated
+    every paired client as unpaired and the Hub looped "Reconnection paused".
+    """
+    return os.environ.get(
+        "DOCTOR_VALIDATOR_URL", DEFAULT_VALIDATOR_URL
     ).rstrip("/")
 
 
@@ -134,26 +160,24 @@ def _filter_response_headers(headers) -> dict[str, str]:
 # BW4 Item 1/2: client-bearer validation + service-token substitution
 # ---------------------------------------------------------------------------
 #
-# Validation mirrors the ZeroClaw gateway's own
-# ``PairingGuard::is_authenticated`` / ``hash_token``
-# (``crates/zeroclaw-config/src/pairing.rs``): SHA-256 the bearer
-# (unsalted, lowercase hex) and test membership of the
-# ``[gateway].paired_tokens`` set in the assistant ``config.toml``. Config
-# entries are accepted in both forms -- plaintext (hashed on read) or an
-# already-hashed 64-char hex string -- matching ``PairingGuard::new``. If
-# ``[gateway].require_pairing`` is false the gateway authenticates
-# everyone, so the Doctor mirrors that and passes. Keep this byte-for-byte
-# aligned with the gateway hashing or validation silently diverges.
+# When a service token is configured the upstream is the ical-server, so the
+# Doctor VALIDATES the caller's paired bearer before substituting the service
+# token (substituting without validating would let any loopback caller inherit
+# ical-server access).
+#
+# BW2-5 (2026-07-25): validation is DELEGATED to the gateway, not re-implemented
+# here. The Doctor used to re-read ``[gateway].paired_tokens`` from
+# ``config.toml`` and hash them itself -- but the v1.0.10 security lockdown made
+# those tokens ``enc2:`` encrypted at rest, which the Doctor cannot decode, so
+# it rejected every real client and the Hub looped "Reconnection paused". Two
+# implementations of one auth predicate drifted. Now ``_is_paired_bearer`` calls
+# the gateway's loopback-only ``POST /internal/validate-bearer`` oracle, which
+# validates against the live ``PairingGuard`` (the single source of truth, which
+# already decrypts ``enc2:`` on config load). One implementation, no drift.
 
 # Env var names install.sh may seed the ical-server service token under.
 # OSTLER_SERVICE_TOKEN takes precedence over the legacy PWG_SERVICE_TOKEN.
 _SERVICE_TOKEN_ENV_VARS = ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN")
-
-# Default assistant config.toml location on a customer install
-# (``${OSTLER_DIR}/assistant-config/config.toml``).
-_DEFAULT_ASSISTANT_CONFIG = (
-    Path.home() / ".ostler" / "assistant-config" / "config.toml"
-)
 
 
 def _resolve_service_token() -> Optional[str]:
@@ -168,84 +192,6 @@ def _resolve_service_token() -> Optional[str]:
     return None
 
 
-def _assistant_config_path() -> Path:
-    """Resolve the ZeroClaw assistant ``config.toml`` the same way the
-    gateway does: an explicit ``OSTLER_ASSISTANT_CONFIG`` override first
-    (used by tests), then the gateway's own ``ZEROCLAW_WORKSPACE`` /
-    ``ZEROCLAW_CONFIG_DIR`` env vars, then the default install
-    location."""
-    override = os.environ.get("OSTLER_ASSISTANT_CONFIG", "").strip()
-    if override:
-        return Path(override)
-    workspace = os.environ.get("ZEROCLAW_WORKSPACE", "").strip()
-    if workspace:
-        return Path(workspace) / "config.toml"
-    config_dir = os.environ.get("ZEROCLAW_CONFIG_DIR", "").strip()
-    if config_dir:
-        return Path(config_dir) / "config.toml"
-    return _DEFAULT_ASSISTANT_CONFIG
-
-
-def _hash_token(token: str) -> str:
-    """Unsalted lowercase-hex SHA-256. Mirror of the gateway's
-    ``hash_token`` -- must stay byte-for-byte identical."""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _looks_like_token_hash(value: str) -> bool:
-    """True when ``value`` is already a stored hash (64 lowercase-hex
-    chars), mirroring the gateway's ``is_token_hash``. Anything else is
-    treated as plaintext and hashed on read."""
-    if len(value) != 64:
-        return False
-    return all(c in "0123456789abcdef" for c in value)
-
-
-def _load_gateway_pairing(
-    config_path: Optional[Path] = None,
-) -> tuple[bool, frozenset[str]]:
-    """Read ``[gateway].require_pairing`` and the normalised
-    ``[gateway].paired_tokens`` hash set from the assistant
-    ``config.toml``.
-
-    Returns ``(require_pairing, token_hashes)``. On any read/parse
-    failure returns ``(True, frozenset())`` -- fail CLOSED: pairing
-    required, no tokens accepted, so validation rejects. A broken or
-    unreadable config must never silently grant ical-server access.
-    """
-    path = config_path or _assistant_config_path()
-    try:
-        with open(path, "rb") as fh:
-            data = tomllib.load(fh)
-    except FileNotFoundError:
-        logger.warning(
-            "Doctor proxy: assistant config not found at %s; "
-            "failing client-bearer validation closed",
-            path,
-        )
-        return True, frozenset()
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        logger.warning(
-            "Doctor proxy: could not read assistant config at %s: %s; "
-            "failing client-bearer validation closed",
-            path,
-            exc,
-        )
-        return True, frozenset()
-
-    gateway = data.get("gateway") or {}
-    require_pairing = bool(gateway.get("require_pairing", True))
-    raw_tokens = gateway.get("paired_tokens") or []
-    hashes: set[str] = set()
-    for entry in raw_tokens:
-        if not isinstance(entry, str) or not entry:
-            continue
-        hashes.add(
-            entry if _looks_like_token_hash(entry) else _hash_token(entry)
-        )
-    return require_pairing, frozenset(hashes)
-
-
 def _extract_bearer_token(headers) -> str:
     """Return the bearer credential from the Authorization header, or
     ``''`` if absent/malformed. Mirror of the gateway's extractor."""
@@ -256,24 +202,64 @@ def _extract_bearer_token(headers) -> str:
     return ""
 
 
-def _is_paired_bearer(
-    token: str, config_path: Optional[Path] = None
+async def _is_paired_bearer(
+    token: str,
+    validator_url: Optional[str] = None,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> bool:
-    """Mirror ``PairingGuard::is_authenticated``: ``True`` iff pairing is
-    not required, or the bearer's SHA-256 hash is in the gateway's paired
-    token set."""
-    require_pairing, hashes = _load_gateway_pairing(config_path)
-    if not require_pairing:
-        return True
-    if not token:
+    """Return ``True`` iff the gateway considers ``token`` a currently-paired
+    bearer.
+
+    The gateway is the single source of pairing truth. It decrypts the
+    ``enc2:``-encrypted ``[gateway].paired_tokens`` on config load and holds
+    them in its live ``PairingGuard``. The Doctor used to re-read
+    ``config.toml`` and hash the tokens itself, but it cannot decode the
+    ``enc2:`` at-rest format the v1.0.10 security lockdown introduced, so it
+    rejected every real client and the Hub looped "Reconnection paused /
+    Getting things ready" (BW2-5). We now defer to the gateway's loopback-only
+    ``POST /internal/validate-bearer`` oracle, whose ``204`` / ``401`` answer
+    *is* the gateway's own auth decision -- one implementation, no drift.
+
+    Fails CLOSED: any error (gateway unreachable, timeout, unexpected status)
+    returns ``False`` so an unvalidated client bearer never inherits the
+    ical-server service token.
+    """
+    base = (validator_url or _validator_base_url()).rstrip("/")
+    url = f"{base}/internal/validate-bearer"
+    payload = {"bearer": token or ""}
+    try:
+        if client is not None:
+            resp = await client.post(
+                url, json=payload, timeout=_PAIR_VALIDATE_TIMEOUT_SECONDS
+            )
+        else:
+            async with httpx.AsyncClient() as ephemeral:
+                resp = await ephemeral.post(
+                    url, json=payload, timeout=_PAIR_VALIDATE_TIMEOUT_SECONDS
+                )
+    except (httpx.HTTPError, OSError) as exc:
+        logger.warning(
+            "Doctor proxy: bearer-validation call to the gateway failed "
+            "(%s); failing closed",
+            exc,
+        )
         return False
-    return _hash_token(token) in hashes
+    if resp.status_code == 204:
+        return True
+    if resp.status_code != 401:
+        logger.warning(
+            "Doctor proxy: unexpected /internal/validate-bearer status %s; "
+            "failing closed",
+            resp.status_code,
+        )
+    return False
 
 
 async def proxy_request(
     request: Request,
     path: str,
     gateway_url: Optional[str] = None,
+    validator_url: Optional[str] = None,
     client: Optional[httpx.AsyncClient] = None,
 ) -> Response:
     """Forward ``request`` to the gateway at the request's
@@ -318,7 +304,11 @@ async def proxy_request(
     service_token = _resolve_service_token()
     if service_token:
         client_bearer = _extract_bearer_token(request.headers)
-        if not _is_paired_bearer(client_bearer):
+        # BW2-5: ask the gateway (single source of pairing truth, which decrypts
+        # the enc2: paired_tokens) rather than re-reading config.toml ourselves.
+        if not await _is_paired_bearer(
+            client_bearer, validator_url=validator_url, client=client
+        ):
             logger.warning(
                 "Doctor proxy: rejecting unpaired client bearer for %s %s",
                 request.method,
@@ -379,6 +369,7 @@ def register_proxy_routes(
     app: FastAPI,
     paths: Optional[Iterable[str]] = None,
     gateway_url: Optional[str] = None,
+    validator_url: Optional[str] = None,
 ) -> list[str]:
     """Register a reverse-proxy handler on ``app`` for each path
     in ``paths`` (or the env-configured default if not given).
@@ -403,9 +394,13 @@ def register_proxy_routes(
             request: Request,
             _path: str = path,
             _gateway_url: Optional[str] = gateway_url,
+            _validator_url: Optional[str] = validator_url,
         ) -> Response:
             return await proxy_request(
-                request, _path, gateway_url=_gateway_url
+                request,
+                _path,
+                gateway_url=_gateway_url,
+                validator_url=_validator_url,
             )
 
         # Name the route from the path so FastAPI's url_for /

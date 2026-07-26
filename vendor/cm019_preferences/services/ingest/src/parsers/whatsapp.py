@@ -511,7 +511,13 @@ class WhatsAppParser(BaseParser):
             # Track attachments
             if msg_type == 'attachment' or 'attachment' in msg:
                 att = msg.get('attachment', {})
-                ext = att.get('extention', att.get('extension', att.get('type', 'file')))
+                # `attachment` may be present-but-null or a non-dict; only call
+                # .get() when it is actually a dict so one bad message does not
+                # abort the whole file.
+                if isinstance(att, dict):
+                    ext = att.get('extention', att.get('extension', att.get('type', 'file')))
+                else:
+                    ext = 'file'
                 attachment_types[ext] += 1
 
             # Extract keywords from messages
@@ -798,13 +804,18 @@ class WhatsAppParser(BaseParser):
             logger.error(f"Failed to parse groups.json: {e}")
             return
 
+        if not isinstance(data, dict):
+            logger.warning(f"WhatsApp groups.json is not an object, skipping: {file_path}")
+            return
+
         groups = data.get('wa_groups', [])
         if not groups:
             logger.warning(f"No wa_groups found in {file_path}")
             return
 
-        # Filter out empty groups
-        groups = [g for g in groups if g and g.strip()]
+        # Filter out empty groups. Entries are expected to be strings; a non-str
+        # element (dict/int/null) would raise on .strip() and drop the whole file.
+        groups = [g for g in groups if isinstance(g, str) and g.strip()]
         total_groups = len(groups)
 
         logger.info(f"Processing {total_groups} WhatsApp groups from {file_path}")

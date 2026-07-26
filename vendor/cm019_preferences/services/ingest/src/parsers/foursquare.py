@@ -208,6 +208,10 @@ class FoursquareParser(BaseParser):
             logger.error(f"Failed to parse checkins JSON: {e}")
             return
 
+        if not isinstance(data, dict):
+            logger.warning("FourSquare checkins JSON is not an object, skipping")
+            return
+
         items = data.get('items', [])
         logger.info(f"Processing {len(items)} FourSquare check-ins")
 
@@ -379,9 +383,15 @@ class FoursquareParser(BaseParser):
             logger.error(f"Failed to parse venue ratings JSON: {e}")
             return
 
+        if not isinstance(data, dict):
+            logger.warning("FourSquare venue ratings JSON is not an object, skipping")
+            return
+
         # Likes - strong positive signal
         likes = data.get('venueLikes', [])
         for venue in likes:
+            if not isinstance(venue, dict):
+                continue
             venue_name = venue.get('name', '').strip()
             venue_id = venue.get('id', '')
 
@@ -405,6 +415,8 @@ class FoursquareParser(BaseParser):
         # Okays - neutral-positive signal
         okays = data.get('venueOkays', [])
         for venue in okays:
+            if not isinstance(venue, dict):
+                continue
             venue_name = venue.get('name', '').strip()
             venue_id = venue.get('id', '')
 
@@ -428,6 +440,8 @@ class FoursquareParser(BaseParser):
         # Dislikes - negative signal
         dislikes = data.get('venueDislikes', [])
         for venue in dislikes:
+            if not isinstance(venue, dict):
+                continue
             venue_name = venue.get('name', '').strip()
             venue_id = venue.get('id', '')
 
@@ -460,6 +474,10 @@ class FoursquareParser(BaseParser):
             data = json.loads(content)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse tips JSON: {e}")
+            return
+
+        if not isinstance(data, dict):
+            logger.warning("FourSquare tips JSON is not an object, skipping")
             return
 
         items = data.get('items', [])
@@ -522,6 +540,10 @@ class FoursquareParser(BaseParser):
             logger.error(f"Failed to parse expertise JSON: {e}")
             return
 
+        if not isinstance(data, dict):
+            logger.warning("FourSquare expertise JSON is not an object, skipping")
+            return
+
         items = data.get('items', [])
         logger.info(f"Processing {len(items)} expertise entries")
 
@@ -573,6 +595,10 @@ class FoursquareParser(BaseParser):
             data = json.loads(content)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse lists JSON: {e}")
+            return
+
+        if not isinstance(data, dict):
+            logger.warning("FourSquare lists JSON is not an object, skipping")
             return
 
         items = data.get('items', [])

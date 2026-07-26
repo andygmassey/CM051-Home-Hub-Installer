@@ -402,11 +402,18 @@ class GoogleTakeoutParser(BaseParser):
         default_compartment: int
     ) -> AsyncIterator[ParsedPreference]:
         """Parse Google Maps saved places (GeoJSON FeatureCollection format)."""
-        features = data.get("features", [])
+        # Mirror _parse_maps_reviews: a malformed export may not be a dict, and
+        # individual features / their properties are not always dicts. Guard
+        # before .get() so one bad feature does not drop the whole file.
+        features = data.get("features", []) if isinstance(data, dict) else data
         count = 0
 
         for feature in features:
+            if not isinstance(feature, dict):
+                continue
             props = feature.get("properties", {})
+            if not isinstance(props, dict):
+                props = {}
 
             # GeoJSON format: location info is nested under properties.location
             location = props.get("location", {})
@@ -574,7 +581,14 @@ class GoogleTakeoutParser(BaseParser):
     ) -> AsyncIterator[ParsedPreference]:
         """Parse Google Play app installs."""
         for app in data:
-            name = app.get("install", {}).get("doc", {}).get("title", "")
+            # Records are not always dicts, and the install/doc intermediates can
+            # be null in odd exports; walk the chain defensively so one bad record
+            # does not abort the whole file.
+            if not isinstance(app, dict):
+                continue
+            install = app.get("install", {})
+            doc = install.get("doc", {}) if isinstance(install, dict) else {}
+            name = doc.get("title", "") if isinstance(doc, dict) else ""
             if not name:
                 continue
 

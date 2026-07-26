@@ -17,9 +17,13 @@ Requires:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
+import sys
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +41,54 @@ OLLAMA_URL = os.getenv("EMBED_OLLAMA_URL", "http://localhost:11434")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
 DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
+
+
+# ── Wiki slug (CM041 reader-contract parity) ──────────────────────
+#
+# Non-decomposable Latin letters NFKD leaves intact (atomic code points, not
+# base+combining-mark). Mapped to an ASCII transliteration so accented
+# international names yield clean, stable slugs. Mirrors CM041
+# ical-server.py::_SLUG_TRANSLIT verbatim -- the wiki slug is the iOS
+# Identifiable key and the People-page URL, so the two derivations MUST agree.
+_SLUG_TRANSLIT = {
+    "ø": "o", "Ø": "o",
+    "ß": "ss",
+    "æ": "ae", "Æ": "ae",
+    "œ": "oe", "Œ": "oe",
+    "ð": "d", "Ð": "d",
+    "þ": "th", "Þ": "th",
+    "ł": "l", "Ł": "l",
+    "đ": "d", "Đ": "d",
+    "ı": "i",
+    "ŋ": "n",
+}
+
+
+def _wiki_slug(name: str) -> str:
+    """Compute a person's wiki slug from a display name.
+
+    Byte-for-byte port of CM041 ``ical-server.py::_wiki_slug`` (the people
+    reader's ``slug`` derivation). The CM041 read paths -- people_search,
+    people_list, person_enrichment -- all RECOMPUTE the slug from the stored
+    ``display_name`` via this exact transform and use it as the iOS
+    ``Identifiable`` id + the ``/People/<slug>/`` URL. The writer must stamp
+    the SAME value into the payload so a consumer that trusts the stored slug
+    can never diverge from a consumer that recomputes it.
+    """
+    if not name:
+        return "unknown"
+    pre = "".join(_SLUG_TRANSLIT.get(c, c) for c in name)
+    folded = unicodedata.normalize("NFKD", pre)
+    folded = "".join(c for c in folded if not unicodedata.combining(c))
+    s = folded.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    if s:
+        return s[:80]
+    # Non-Latin name: stable per-name hex suffix so distinct names don't all
+    # collide on "unknown" (matches CM041's fallback).
+    digest = hashlib.sha1(name.strip().encode("utf-8")).hexdigest()[:10]
+    return f"person-{digest}"
 
 
 # ── Shared utilities (same patterns as contact_syncer) ────────────
@@ -851,9 +903,6 @@ BROWSING_QDRANT_COLLECTION = os.getenv(
 # thousands of visits; 200 is Qdrant's tested upsert chunk.
 _BROWSING_EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
 _BROWSING_QDRANT_BATCH_SIZE = int(os.getenv("QDRANT_UPSERT_BATCH_SIZE", "200"))
-# nomic-embed-text emits 768-dim vectors; fallback used only when no
-# live embedding length is available to size a fresh collection.
-BROWSING_EMBED_DIM = int(os.getenv("BROWSING_EMBED_DIM", "768"))
 
 # Sensitive-domain blocklist. Substring match on the lowercased domain
 # so subdomains (e.g. secure.bank.example.com) are caught too.
@@ -1130,24 +1179,18 @@ def ingest_browser_history(fda_dir: Path) -> dict:
     sent = 0
     try:
         vectors = _ollama_embed_batch([item["doc"] for item in queue])
-
-        # Self-create the target collection before upserting. On a fresh
-        # single-Mac install nothing pre-creates Qdrant collections, and a
-        # bare PUT of points into a missing collection lands 0 rows (Qdrant
-        # does NOT auto-create). Without this the writer embedded all
-        # 11k+ visits and reported sent=0 / status=error, leaving the CM044
-        # Browsing wing permanently empty -- the exact silent-fail the
-        # bookmarks + people ingestors below already guard against with the
-        # same _qdrant_ensure_collection call. Size from the first real
-        # embedding; fall back to the nomic-embed-text default if nothing
-        # embedded (an all-empty vectors run is handled as 0-landed below).
-        vector_size = BROWSING_EMBED_DIM
+        # Self-create the collection before the first upsert. On a fresh
+        # single-Mac install nothing else creates `safari_history`, and a PUT
+        # of points into a missing collection lands 0 rows (Qdrant does not
+        # auto-create) -- so the Browsing page ships EMPTY by design. Mirror
+        # the people-sweep sizing: take the dim from the first real embedding,
+        # falling back to the module's embed dim if nothing embedded.
+        vector_size = PREFERENCES_EMBED_DIM
         for vec in vectors:
             if vec:
                 vector_size = len(vec)
                 break
         _qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION, vector_size)
-
         points = [
             {"id": item["point_id"], "vector": vec, "payload": item["payload"]}
             for item, vec in zip(queue, vectors)
@@ -1917,8 +1960,12 @@ def _person_embed_doc(person: dict) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
-def ingest_people_to_qdrant() -> dict:
+def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph (#600).
+
+    Accepts (and ignores) ``fda_dir`` so it can run through the unified
+    ``_INGEST_DISPATCH`` loop, which calls every writer as ``func(fda_dir)``.
+    This sweep reads Oxigraph, not the FDA JSON, so the argument is unused.
 
     On a fresh single-Mac install the per-source hydrate steps write
     pwg:Person nodes into Oxigraph (the wiki People page reads those
@@ -1997,7 +2044,17 @@ def ingest_people_to_qdrant() -> dict:
             "family_name": person["family_name"],
             "phones": person["phones"],
             "emails": person["emails"],
+            # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
+            # documented default -- ical-server.py ~L1019 "Default person tag
+            # today is L2"). The reader (ical-server.py ~L1020) drops a person
+            # from People/search ONLY on an EXACT "L3" tag, so an L2 person is
+            # searchable; an unstamped person would predate the default and is
+            # still searchable, but stamping keeps the writer/reader explicit.
             "privacy_level": DEFAULT_PRIVACY,
+            # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
+            # the same derivation so a consumer trusting the stored slug never
+            # diverges from one that recomputes it (iOS Identifiable id + URL).
+            "slug": _wiki_slug(person["display_name"]),
             "source": "fda_people_index",
             "last_contact": "",
         }
@@ -2062,6 +2119,42 @@ def ingest_people_to_qdrant() -> dict:
 
 # ── Master runner ─────────────────────────────────────────────────
 
+# The install-path dispatch table: (result_key, function_name). ingest_all
+# loops this in order, resolving each name off the module at call time. Every
+# public ``ingest_*`` writer MUST appear here (or in ``_DISPATCH_EXEMPT``) or
+# the dispatch-completeness gate (tests/test_ingest_dispatch_complete.py)
+# fails -- the anti-recurrence guard for a "ships-dark" writer that is defined
+# but never wired, so its collection lands EMPTY on every fresh install (has
+# burned us three times: imessage-only people, browsing, the people-sweep).
+#
+# The people search-index sweep runs LAST so every per-source step above has
+# finished writing pwg:Person nodes into Oxigraph before we index them into
+# the Qdrant `people` collection. It reads Oxigraph, not the FDA JSON, so it
+# ignores the fda_dir the loop passes it.
+_INGEST_DISPATCH = (
+    ("imessage", "ingest_imessage"),
+    ("whatsapp", "ingest_whatsapp"),
+    ("calendar", "ingest_calendar"),
+    ("photos", "ingest_photos_people"),
+    ("apple_mail", "ingest_mail_contacts"),
+    ("browser_history", "ingest_browser_history"),
+    ("bookmarks", "ingest_bookmarks"),
+    ("social", "ingest_social"),
+    ("people_index", "ingest_people_to_qdrant"),
+)
+
+# Public ``ingest_*`` functions that are deliberately NOT dispatch entries.
+# The dispatch-completeness gate requires every other public ``ingest_*``
+# module function to appear in ``_INGEST_DISPATCH``; anything genuinely not a
+# dispatched writer must be listed here with a one-line reason so the omission
+# is explicit, never silent.
+_DISPATCH_EXEMPT = frozenset({
+    # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
+    # not itself a writer the loop should call.
+    "ingest_all",
+})
+
+
 def ingest_all(fda_dir: Optional[Path] = None) -> dict:
     """Run all FDA -> PWG ingestion steps.
 
@@ -2082,31 +2175,16 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
     logger.info("Ingesting FDA data into PWG knowledge graph...")
     logger.info("")
 
-    for name, func in [
-        ("imessage", ingest_imessage),
-        ("whatsapp", ingest_whatsapp),
-        ("calendar", ingest_calendar),
-        ("photos", ingest_photos_people),
-        ("apple_mail", ingest_mail_contacts),
-        ("browser_history", ingest_browser_history),
-        ("bookmarks", ingest_bookmarks),
-        ("social", ingest_social),
-    ]:
+    this_module = sys.modules[__name__]
+    for name, func_name in _INGEST_DISPATCH:
+        # Resolve by name at call time so mock.patch on the module attr is
+        # honoured (and so the dispatch can't drift from the real function).
+        func = getattr(this_module, func_name)
         try:
             results[name] = func(fda_dir)
         except Exception as e:
             logger.warning("[warn] %s ingestion failed: %s", name, e)
             results[name] = {"status": "error", "error": str(e)}
-
-    # People search index (#600): runs LAST so every per-source step
-    # above has finished writing pwg:Person nodes into Oxigraph before
-    # we sweep them into the Qdrant `people` collection. Takes no
-    # fda_dir -- it reads Oxigraph, not the FDA JSON.
-    try:
-        results["people_index"] = ingest_people_to_qdrant()
-    except Exception as e:
-        logger.warning("[warn] people_index ingestion failed: %s", e)
-        results["people_index"] = {"status": "error", "error": str(e)}
 
     logger.info("")
     logger.info("FDA -> PWG ingestion complete.")
