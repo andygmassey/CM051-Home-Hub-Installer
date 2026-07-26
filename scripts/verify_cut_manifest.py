@@ -47,19 +47,27 @@ DEFAULT_APP_PATH = Path(f"/tmp/ostler-installer-dist-{os.environ.get('USER', 'no
 
 def resolve_target(target: str, app_path: Path, cm051_dir: Path, extra_paths: dict[str, Path]) -> Path:
     """Resolve a semantic target name to a filesystem path."""
-    daemon_app = app_path / "Contents" / "Resources" / "Ostler.app"
+    # ORM 2026-07-27 FIX (FLAG Archie): the DAEMON is the assistant-agent
+    # OstlerAssistant.app (a plain Rust binary named `ostler-assistant`), NOT
+    # the Tauri Hub (Ostler.app / `zeroclaw-desktop`). The prior resolution
+    # pointed daemon-* at the Hub, so daemon-binary greps found 0 iMessage/
+    # WhatsApp literals (they live in the Rust daemon) -> false FAIL on #234,
+    # and daemon-web-bundle only trivially passed because the Hub has no loose
+    # web/dist. The daemon ships its web/dist as LOOSE files (greppable) and
+    # its channel-label literals verbatim in the stripped binary.
+    daemon_app = app_path / "Contents" / "Resources" / "assistant-agent" / "OstlerAssistant.app"
     m = {
         "installer": cm051_dir / "install.sh",           # file (grep target)
         "installer-tree": cm051_dir,                     # dir (plist/file-exists target)
         "installer-app": app_path,
         "daemon-app": daemon_app,
         "daemon-web-bundle": daemon_app / "Contents" / "Resources",
-        # Tauri packs web/dist compressed inside the main binary; strings(1)
-        # cannot grep those. For UI-string fixes, prefer grep_in_source_at_sha
-        # on the ostler-assistant repo. `daemon-binary` still works for Rust-
-        # literal strings the compiler emits verbatim (log messages, panic
-        # strings, format literals).
-        "daemon-binary": daemon_app / "Contents" / "MacOS" / "zeroclaw-desktop",
+        # The daemon is a plain Rust binary; Rust-literal strings the compiler
+        # emits verbatim (channel labels, log/panic/format literals) survive
+        # strip(1) and are grep-able via strings(1). (Contrast the Tauri Hub,
+        # whose web/dist is brotli-packed inside zeroclaw-desktop and NOT
+        # grep-able -- for Hub UI strings prefer grep_in_source_at_sha.)
+        "daemon-binary": daemon_app / "Contents" / "MacOS" / "ostler-assistant",
         "vendored-context-refresh": app_path / "Contents" / "Resources" / "context-refresh",
         "vendored-wiki-recompile": app_path / "Contents" / "Resources" / "wiki-recompile",
     }
