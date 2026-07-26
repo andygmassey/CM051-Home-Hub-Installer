@@ -69,6 +69,46 @@ MAX_CHARS = int(os.environ.get("OSTLER_CONTEXT_MAX_CHARS", "6000"))
 # to stop a wedged server from hanging the LaunchAgent.
 REQUEST_TIMEOUT_SECS = 8
 
+
+def _service_token() -> str:
+    """Resolve the ical-server service token so data requests authenticate.
+
+    The ical-server locks its non-public data plane behind a localhost service
+    token (#200 / v1.0.10 lockdown): every request for people/meetings/etc. must
+    carry it as ``Authorization: Bearer <token>`` (or ``X-Ostler-Service``), and
+    an absent/mismatched token yields 401. Without this the digest saw 401 on
+    every endpoint, treated every section as "no data", and never wrote
+    CONTEXT.md (the fresh-install symptom this fixes).
+
+    Resolution, first non-empty wins:
+      1. ``OSTLER_SERVICE_TOKEN`` / ``PWG_SERVICE_TOKEN`` env vars -- the same
+         names the ical-server reads for its expected token, so a launchd plist
+         that injects one for the server can inject the same for this writer.
+      2. A token file: ``$OSTLER_SERVICE_TOKEN_FILE`` else
+         ``~/.ostler/secrets/service_token`` (mode 0600, written by the
+         installer). This is the reliable path when the writer's LaunchAgent
+         does not export the token into its environment.
+    Returns "" when no token is available; requests then go out unauthenticated
+    (and will 401 against a locked server -- surfaced by the caller as "no data").
+    """
+    for name in ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN"):
+        val = (os.environ.get(name) or "").strip()
+        if val:
+            return val
+    path_override = (os.environ.get("OSTLER_SERVICE_TOKEN_FILE") or "").strip()
+    token_file = (
+        Path(path_override)
+        if path_override
+        else (Path.home() / ".ostler" / "secrets" / "service_token")
+    )
+    try:
+        return token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+SERVICE_TOKEN = _service_token()
+
 # How many of each section to surface. Kept small to respect MAX_CHARS.
 MAX_PEOPLE = 6
 MAX_MEETINGS = 5
@@ -108,7 +148,15 @@ def _get_json(path: str) -> dict | None:
     "this section is unavailable" and the digest degrades gracefully.
     """
     url = f"{BASE_URL}{path}"
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    # Authenticate against the ical-server's locked data plane (#200 lockdown).
+    # Send both accepted header forms so the writer works regardless of which
+    # one the server build honours; an empty token means "no auth available"
+    # and the request degrades to the prior unauthenticated behaviour.
+    if SERVICE_TOKEN:
+        headers["Authorization"] = f"Bearer {SERVICE_TOKEN}"
+        headers["X-Ostler-Service"] = SERVICE_TOKEN
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECS) as resp:
             if resp.status != 200:
