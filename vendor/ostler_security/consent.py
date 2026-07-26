@@ -230,8 +230,10 @@ def is_current(tickbox_id: str, expected_wording_hash: str) -> bool:
 
     - The Rust ``whatsapp-bridge`` startup gate – refuses to start
       when ``False``.
-    - The Rust ``cm041`` voice-processing gate – refuses to start
-      WhisperKit when ``False`` for ``voice_speaker_id_eu`` in EU.
+    - The iOS Companion (CM031) speaker-ID feature - does not enrol or
+      match voice fingerprints (stored only on the iPhone) when
+      ``voice_speaker_id_eu`` is ``False`` in EU. There is no Hub-side
+      gate: the Hub never holds a voiceprint, only text speaker labels.
     - Doctor's "Consent" tile – flags amber on mismatch
       (renewal needed).
 
