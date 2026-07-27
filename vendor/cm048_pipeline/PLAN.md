@@ -354,7 +354,7 @@ months." Surface these as User Coach meta-observations.
 3. **Relationship signal: per-conversation records with explicit
    `confidence` field.** Low-confidence filtered out of Person-page
    rollups.
-4. **LLM budget acceptable** (~7 calls / 2-4min on gamingrig per
+4. **LLM budget acceptable** (~7 calls / 2-4min on the dev hub per
    work-meeting). Watch backlog growth; participate in hub-wide
    priority scheduling from day one.
 5. **Bulletproof failure handling:** per-step state persistence,
