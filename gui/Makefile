@@ -223,6 +223,19 @@ APPCAST_CHANNEL       ?= stable
 HUB_VERSION           ?=
 HUB_BUILD             ?=
 HUB_MIN_OS            ?=
+# AU-1 appcast-version guard: the Hub app this release SUPERSEDES — i.e. the
+# version currently installed on the machine. Before publishing, the guard
+# refuses to proceed unless the version being published is STRICTLY GREATER
+# than this app's CFBundleShortVersionString / CFBundleVersion, using
+# Sparkle's own comparator (CM050 ostler-release --reference-app). This
+# prevents the SILENT Sparkle skip: Sparkle never offers an update whose
+# sparkle:version is <= the installed version, so a hand-typed lower version
+# (e.g. the daemon's 0.4.x line pasted in place of the Hub's 0.7.x) would
+# publish but never reach a single Hub, with no error anywhere. Default points
+# at the installed Hub; if the path is absent (fresh box / first release, with
+# nothing to supersede) the guard is skipped with a printed note. Override or
+# set empty to disable.
+HUB_REFERENCE_APP     ?= /Applications/Ostler.app
 # Release-notes HTML stem; published URL is $(RELEASE_NOTES_BASE)/<version>.html
 RELEASE_NOTES_BASE    ?= https://ostler.ai/releases
 
@@ -998,6 +1011,27 @@ publish-appcast:
 	rm -f "$$ZIP"; \
 	printf '[STEP] Zipping Sparkle-embedded Hub -> %s\n' "$$ZIP"; \
 	ditto -c -k --keepParent "$$APP" "$$ZIP"; \
+	REF="$(HUB_REFERENCE_APP)"; REF_ARGS=(); \
+	if [ -n "$$REF" ] && [ -d "$$REF" ]; then \
+	    REF_ARGS=(--reference-app "$$REF"); \
+	    printf '[STEP] AU-1 version guard: appcast v%s (build %s) must be strictly > installed %s\n' "$$VER" "$$BUILD" "$$REF"; \
+	    if ! OSTLER_APPCAST_DIR="$(OSTLER_APPCAST_DIR)" '$(OSTLER_RELEASE_BIN)' publish "$$ZIP" \
+	        --signature preflight --version "$$VER" --build "$$BUILD" \
+	        --channel "$(APPCAST_CHANNEL)" --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
+	        --min-os "$$MINOS" --dry-run --reference-app "$$REF" >/dev/null; then \
+	        echo "" >&2; \
+	        echo "ERROR: AU-1 appcast-version guard FAILED — refusing to sign or publish (see message above)." >&2; \
+	        echo "  The version being published is not strictly greater than the installed Hub" >&2; \
+	        echo "  ($$REF). Sparkle would SILENTLY skip it and no Hub would ever get the update." >&2; \
+	        echo "  Bump HUB_VERSION/HUB_BUILD above the installed version, or fix HUB_REFERENCE_APP." >&2; \
+	        exit 1; \
+	    fi; \
+	    printf '[OK] AU-1 version guard passed: v%s (build %s) is newer than the installed Hub.\n' "$$VER" "$$BUILD"; \
+	elif [ -n "$$REF" ]; then \
+	    printf '[NOTE] AU-1 version guard SKIPPED — HUB_REFERENCE_APP=%s not present (fresh box / first release: nothing to supersede).\n' "$$REF"; \
+	else \
+	    printf '[NOTE] AU-1 version guard SKIPPED — HUB_REFERENCE_APP is empty (guard disabled).\n'; \
+	fi; \
 	printf '[STEP] Signing %s (ostler-release sign)\n' "$$ZIP"; \
 	SIG="$$('$(OSTLER_RELEASE_BIN)' sign "$$ZIP")"; \
 	if [ -z "$$SIG" ]; then echo "ERROR: ostler-release sign produced an empty signature." >&2; exit 1; fi; \
@@ -1012,7 +1046,8 @@ publish-appcast:
 	    --build "$$BUILD" \
 	    --channel "$(APPCAST_CHANNEL)" \
 	    --notes-url "$(RELEASE_NOTES_BASE)/$$VER.html" \
-	    --min-os "$$MINOS"; \
+	    --min-os "$$MINOS" \
+	    "$${REF_ARGS[@]}"; \
 	printf '[OK] Appcast entry published for Hub v%s (%s)\n' "$$VER" "$(APPCAST_CHANNEL)"
 
 # ---------------------------------------------------------------------------
