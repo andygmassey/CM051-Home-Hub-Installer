@@ -108,7 +108,7 @@ MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools needed. macOS will ask for permission to install – look for a small grey dialog (if you don't see it, press Cmd+Tab or check your Dock). Click Install. The tools download in the background while you answer the questions below."
-MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still setting up Command Line Tools (%ss). If a small grey macOS dialog is asking to install developer tools, click Install on it -- this step is waiting for that. (Cmd+Tab or check the Dock if you can't see it.)"
+MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still setting up Command Line Tools (%ss). If a small grey macOS dialog is asking to install developer tools, click Install on it – this step is waiting for that. (Cmd+Tab or check the Dock if you can't see it.)"
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Waiting for Command Line Tools to finish installing (almost there)..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the last 5 years of mail."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
@@ -453,9 +453,9 @@ MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS="Vane running at http://localhost:
 MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp connector will be enabled (consent recorded)"
 MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="First-day wiki catch-up LaunchAgent loaded (rebuilds your wiki every 30 minutes for the first few hours, then stops)"
 # ── Deferred whole-graph dedupe converge (v1.0.2) ──
-MSG_INFO_DEDUPE_STILL_MERGING="Still merging duplicate contacts -- large address books can take several minutes (%ss elapsed)"
+MSG_INFO_DEDUPE_STILL_MERGING="Still merging duplicate contacts – large address books can take several minutes (%ss elapsed)"
 MSG_INFO_DEDUPE_MERGED="Duplicate contacts merged"
-MSG_INFO_DEDUPE_DEFERRED_BACKGROUND="Most duplicate contacts merged. The rest will finish in the background after install -- your wiki updates automatically when it does."
+MSG_INFO_DEDUPE_DEFERRED_BACKGROUND="Most duplicate contacts merged. The rest will finish in the background after install – your wiki updates automatically when it does."
 MSG_WARN_DEDUPE_INCOMPLETE="Whole-graph dedupe pass did not complete cleanly (see %s); continuing"
 MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP="Duplicate contacts fully merged during install; no background catch-up needed"
 MSG_OK_DEDUPE_CATCHUP_LOADED="Background contact-dedupe LaunchAgent loaded (finishes merging duplicates after install, then stops)"
@@ -927,11 +927,11 @@ Skip any you do not use; you can always import more later."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
-What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler encrypts its most sensitive databases with a passphrase regardless, but the rest of your data is only as protected as the disk itself.
+What this means if you continue: everything Ostler stores – your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler – is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler encrypts its most sensitive databases with a passphrase regardless, but the rest of your data is only as protected as the disk itself.
 
-FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
+FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault – it encrypts in the background without reinstalling.
 
-Choose Yes to continue now with the disk unencrypted at rest (this is a deliberate, informed choice -- it will be recorded).
+Choose Yes to continue now with the disk unencrypted at rest (this is a deliberate, informed choice – it will be recorded).
 Choose No to stop here so you can turn FileVault on first, then re-run the installer. Nothing has gone wrong either way."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
