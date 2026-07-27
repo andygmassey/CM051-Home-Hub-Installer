@@ -267,6 +267,95 @@ def test_plist_regex_fallback_on_template(fake_cm051, fake_app):
 
 
 # ---------------------------------------------------------------------------
+# grep_in_dmg_tree — whole-DMG operator-PII backstop
+# ---------------------------------------------------------------------------
+
+_PII_ABSENCE_ENTRY = {
+    "id": "no-operator-hostname",
+    "title": "shipped DMG must not contain operator hostname anywhere",
+    "proof": {
+        "kind": "grep_in_dmg_tree",
+        "pattern": "gamingrig",
+        "must_match": False,
+    },
+}
+
+
+def test_grep_in_dmg_tree_clean_passes(fake_cm051, fake_app):
+    """No operator-PII anywhere in the app tree or install.sh -> absence proof passes."""
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_grep_in_dmg_tree_catches_vendored_pii(fake_cm051, fake_app):
+    """The v1.0.11 hole: PII in a vendored .py (never in install.sh) must FAIL.
+
+    grep_in_installer passed 17/17 while this shipped; grep_in_dmg_tree must
+    catch it.
+    """
+    vendored = fake_app / "Contents" / "Resources" / "imessage_source"
+    vendored.mkdir(parents=True)
+    (vendored / "__init__.py").write_text(
+        "# publisher.py which is the legacy gamingrig personal instance\n"
+    )
+    # install.sh itself is clean — proving the scan reaches beyond install.sh.
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "__init__.py" in r.stdout  # detail names the offending file
+
+
+def test_grep_in_dmg_tree_excludes_gate_definition_files(fake_cm051, fake_app):
+    """A cut-manifests/ file inside the tree that DEFINES the banned pattern must
+    NOT self-flag the gate; only real leaks count."""
+    stray_manifest_dir = fake_app / "Contents" / "Resources" / "cut-manifests"
+    stray_manifest_dir.mkdir(parents=True)
+    (stray_manifest_dir / "permanent.yaml").write_text(
+        'proof:\n  pattern: "gamingrig"\n  must_match: false\n'
+    )
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout  # excluded -> clean -> passes
+
+
+def test_grep_in_dmg_tree_strings_pass_on_binary(fake_cm051, fake_app):
+    """A verbatim literal baked into a large (>=500KB) extensionless binary is
+    caught via strings(1)."""
+    macos = fake_app / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    payload = b"\x00" * 600_000 + b"hardcoded=192.168.1.37\x00"
+    (macos / "OstlerInstaller").write_bytes(payload)
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "no-operator-ip",
+        "title": "shipped DMG must not contain operator LAN IP anywhere",
+        "proof": {
+            "kind": "grep_in_dmg_tree",
+            "pattern": r"192\.168\.1\.37",
+            "must_match": False,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+
+
+def test_grep_in_dmg_tree_scans_source_install_sh_without_build(fake_cm051, tmp_path):
+    """Even with no built app, absence is proven against the source install.sh."""
+    (fake_cm051 / "install.sh").write_text(
+        "#!/bin/bash\n# leaked: connect to gamingrig\n"
+    )
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_PII_ABSENCE_ENTRY])
+    missing_app = tmp_path / "does-not-exist.app"
+    r = _run(fake_cm051, missing_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+
+
+# ---------------------------------------------------------------------------
 # Unknown primitive
 # ---------------------------------------------------------------------------
 

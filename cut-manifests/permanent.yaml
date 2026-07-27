@@ -73,39 +73,57 @@ entries:
   # Operator-PII backstop. Andy's personal instance details (his IP, hostname,
   # personal wiki name, email addresses) must NEVER appear in a shipped
   # customer artefact. The bin/operator-pii-scan.sh already catches this on
-  # commit; this entry proves the invariant at cut time as well — the layer
-  # between commit-time scan and shipped DMG is the one that has slipped
-  # before.
+  # commit; these entries prove the invariant at cut time as well — the layer
+  # between commit-time scan and shipped DMG is the one that has slipped before.
+  #
+  # WHOLE-DMG SCAN (2026-07-27). These four were `grep_in_installer`, which only
+  # ever saw install.sh. v1.0.11 SHIPPED 3 `gamingrig` occurrences in vendored
+  # trees (imessage_source/__init__.py, doctor/agent/status_collector.py,
+  # cm048_pipeline/PLAN.md) while the gate passed 17/17 — the PII rode in on the
+  # vendored .py/.md, never touching install.sh. Broadened to `grep_in_dmg_tree`
+  # so absence is proven across the ENTIRE shipped payload: install.sh + every
+  # vendored .py/.md/.sh + the daemon Ostler.app (and nested helper apps) + a
+  # strings(1) pass over the Mach-O binaries. Still scans source install.sh too,
+  # so absence holds even in a local no-build run.
+  #
+  # COVERAGE LIMIT (honest): Tauri packs the daemon web/dist COMPRESSED inside
+  # its main binary, so operator-PII living ONLY in the compiled+compressed web
+  # bundle is unreachable by both text-read and strings(1) (verified: the
+  # daemon binary yields 0 hits for a known web-bundle literal). That residual
+  # class must be guarded by grep_in_source_at_sha on ostler-assistant, the same
+  # way firstrun-popup-governor-source is. Everything text-extractable in the
+  # DMG — which is where every operator-PII slip to date has landed — is now
+  # covered.
   # ==========================================================================
   - id: no-operator-ip
-    title: install.sh must not contain Andy's personal LAN IP
+    title: shipped DMG must not contain Andy's personal LAN IP anywhere
     incident: standing operator-PII rule; commit hook + cut-time backstop
     proof:
-      kind: grep_in_installer
+      kind: grep_in_dmg_tree
       pattern: "192\\.168\\.1\\.37"
       must_match: false
 
   - id: no-operator-hostname
-    title: install.sh must not contain Andy's personal box hostname
-    incident: standing operator-PII rule
+    title: shipped DMG must not contain Andy's personal box hostname anywhere
+    incident: v1.0.11 shipped 3 `gamingrig` in vendored trees while install.sh-only gate passed 17/17
     proof:
-      kind: grep_in_installer
+      kind: grep_in_dmg_tree
       pattern: "gamingrig"
       must_match: false
 
   - id: no-operator-wiki-name
-    title: install.sh must not contain Andy's personal wiki instance name
+    title: shipped DMG must not contain Andy's personal wiki instance name anywhere
     incident: standing operator-PII rule
     proof:
-      kind: grep_in_installer
+      kind: grep_in_dmg_tree
       pattern: "Andypedia"
       must_match: false
 
   - id: no-operator-email
-    title: install.sh must not contain Andy's personal email addresses
+    title: shipped DMG must not contain Andy's personal email addresses anywhere
     incident: standing operator-PII rule; catches copy-paste leaks
     proof:
-      kind: grep_in_installer
+      kind: grep_in_dmg_tree
       pattern: "andy@andymassey\\.com|claude\\.ai@andymassey\\.com|marvin@andymassey\\.com"
       must_match: false
 

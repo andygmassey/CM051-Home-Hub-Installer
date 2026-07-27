@@ -46,11 +46,12 @@ Both files are consumed on every cut. A RED in either fails the cut.
     # ... primitive-specific fields
 ```
 
-## The 5 primitives
+## The 6 primitives
 
 Every proof has `kind` and (for greps) `must_match: true|false` (default true).
 `must_match: false` is an ABSENCE proof — the pattern MUST NOT appear. Absence
-proofs are how you enforce "no legacy FDA URL survived any code path."
+proofs are how you enforce "no legacy FDA URL survived any code path" or "no
+operator-PII rode into the DMG on any file."
 
 ### 1. `grep_in_installer`
 
@@ -92,7 +93,42 @@ proof:
   must_match: true
 ```
 
-### 3. `grep_in_source_at_sha`
+### 3. `grep_in_dmg_tree`
+
+Proves a pattern's presence/absence across the **ENTIRE shipped DMG payload**,
+not one named file or sub-target. The DMG's sole payload is
+`OstlerInstaller.app`, so this scans the whole built installer-app tree — the
+bundled `install.sh`, every vendored `.py`/`.md`/`.sh`, the daemon `Ostler.app`
+and any nested helper apps and their text resources — plus a `strings(1)` pass
+over the Mach-O binaries it finds. The source `install.sh` is scanned too, so an
+absence proof still holds in a local no-build run. On a violation the detail
+names the offending files.
+
+Built for the **operator-PII backstop**: `grep_in_installer` only ever saw
+`install.sh`, so v1.0.11 shipped 3 `gamingrig` occurrences in vendored trees
+while the gate passed. Use this kind (with `must_match: false`) to prove Andy's
+personal instance details never appear ANYWHERE in the cut.
+
+```yaml
+proof:
+  kind: grep_in_dmg_tree
+  pattern: "gamingrig"
+  must_match: false
+```
+
+No `target:`/`path:` fields — the point is that it scans everything. The gate's
+own pattern-definition files (`cut-manifests/`, `verify_cut_manifest*`) are
+excluded so the scan never flags the manifest that bans the pattern.
+
+**Coverage limit (honest):** Tauri packs the daemon's `web/dist` COMPRESSED
+inside its main binary, so operator-PII living ONLY in the compiled+compressed
+web bundle is unreachable by both a text read and `strings(1)`. That residual
+class must be guarded by `grep_in_source_at_sha` on `ostler-assistant` (see
+`firstrun-popup-governor-source` in `permanent.yaml`). Everything
+text-extractable in the DMG — where every operator-PII slip to date has landed —
+is covered.
+
+### 4. `grep_in_source_at_sha`
 
 Greps the source repo at a pinned SHA. Use this for logic fixes that
 compile away. Combines with a `test:` block that names the regression test
@@ -114,7 +150,7 @@ The `target` names a repo the verifier knows how to locate. `this-repo` is
 CM051 itself (the worktree the verifier runs in). Others resolve via env
 vars documented in `verify_cut_manifest.py`.
 
-### 4. `file_exists_in_artefact`
+### 5. `file_exists_in_artefact`
 
 Proves a specific file (asset, plist, script, chrome fragment) is present in
 the artefact tree. Same `target:` semantics as `grep_in_artefact`.
@@ -126,7 +162,7 @@ proof:
   path: "dup_decision.js"
 ```
 
-### 5. `plist_key_equals`
+### 6. `plist_key_equals`
 
 Reads a plist and asserts a key's value. Static proxy for launchd behaviour;
 box-walk verifies actual runtime.

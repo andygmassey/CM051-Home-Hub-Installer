@@ -12,7 +12,7 @@
 #   - verify_cut_freshness.sh   — vendored SHAs are fresh
 #   - verify_cut_provenance.sh  — cut markers manifest
 #   - provenance_gate.sh        — required_fixes.tsv content-provenance
-#   - verify_cut_manifest.py    — THIS SCRIPT (5-primitive YAML gate)
+#   - verify_cut_manifest.py    — THIS SCRIPT (6-primitive YAML gate)
 #
 # See cut-manifests/README.md for schema.
 # ============================================================================
@@ -207,6 +207,61 @@ def _grep_binary_strings(binary: Path, pattern: str) -> int:
     return _pattern_hits_bytes(result.stdout, pattern)
 
 
+def _is_gate_definition_file(p: Path) -> bool:
+    """True for the gate's OWN files (manifests + verifiers).
+
+    The operator-PII manifest entries literally contain the patterns they ban
+    (e.g. `gamingrig`). A whole-tree scan must never flag the manifest that
+    defines the pattern, so these are excluded. Belt-and-braces: the built
+    OstlerInstaller.app doesn't bundle cut-manifests/ or the verifier anyway,
+    but this keeps the scan safe if pointed at a repo checkout or a DMG root
+    that carries repo files.
+    """
+    if "cut-manifests" in p.parts:
+        return True
+    if p.name.startswith("verify_cut_manifest"):
+        return True
+    return False
+
+
+def _iter_dmg_tree_scan_files(root: Path):
+    """Yield (path, use_strings) for every file under `root` worth scanning for
+    operator-PII, faithful to "anywhere in the shipped DMG".
+
+    - Text-extension files and small (<500KB) extensionless files are read as
+      text (`use_strings=False`).
+    - Large (>=500KB) extensionless files are Mach-O-shaped binaries; they are
+      scanned via strings(1) (`use_strings=True`) so verbatim Rust/Swift-literal
+      PII compiled into a binary is still caught.
+    - The gate's own pattern-definition files are skipped.
+
+    NOTE (documented limitation): Tauri packs the daemon's web/dist COMPRESSED
+    inside its main binary, so neither a text read nor strings(1) can reach
+    operator-PII living in the compiled+compressed web bundle. That residual
+    class is covered by grep_in_source_at_sha on ostler-assistant, not here.
+    """
+    if root.is_file():
+        yield (root, False)
+        return
+    if not root.is_dir():
+        return
+    for p in root.rglob("*"):
+        if p.is_symlink() or not p.is_file():
+            continue
+        if _is_gate_definition_file(p):
+            continue
+        suffix = p.suffix.lower()
+        if suffix in _TEXT_EXTS:
+            yield (p, False)
+            continue
+        if suffix == "":
+            try:
+                size = p.stat().st_size
+            except OSError:
+                continue
+            yield (p, size >= 500_000)
+
+
 # ---------------------------------------------------------------------------
 # Primitive implementations
 # ---------------------------------------------------------------------------
@@ -250,6 +305,65 @@ def check_grep_in_artefact(entry: dict, ctx: dict) -> Result:
     status = "PASS" if ok else "FAIL"
     detail = f"target={target_name} pattern={pattern!r} must_match={must_match} hits={hits}"
     return Result(entry["id"], entry["title"], "grep_in_artefact", status, detail, entry.get("source_pr", ""))
+
+
+def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
+    """Prove a pattern's presence/absence across the ENTIRE shipped DMG payload.
+
+    The DMG's sole payload is OstlerInstaller.app, so scanning the built
+    installer-app tree == scanning what the DMG ships. Every extractable file is
+    covered: the bundled install.sh, every vendored .py/.md/.sh, the daemon
+    Ostler.app (and any nested helper apps) and their text resources, plus a
+    strings(1) pass over the Mach-O binaries. The source install.sh is also
+    scanned so absence is still proven in a local no-build run.
+
+    Built for the operator-PII backstop: `must_match: false` proves Andy's
+    personal instance details never appear ANYWHERE in the cut, closing the hole
+    where grep_in_installer only saw install.sh while PII rode in on a vendored
+    tree. On a violation the detail names the offending files.
+    """
+    proof = entry["proof"]
+    pattern = proof["pattern"]
+    must_match = proof.get("must_match", True)
+    app_path = ctx["app_path"]
+    cm051_dir = ctx["cm051_dir"]
+
+    roots: list[Path] = []
+    if app_path.exists():
+        roots.append(app_path)                    # whole built OstlerInstaller.app == DMG payload
+    src_install = cm051_dir / "install.sh"
+    if src_install.is_file():
+        roots.append(src_install)                 # source install.sh — proven even without a build
+
+    if not roots:
+        return Result(entry["id"], entry["title"], "grep_in_dmg_tree", "SKIP",
+                      f"neither built app ({app_path}) nor source install.sh present",
+                      entry.get("source_pr", ""))
+
+    total = 0
+    hit_paths: list[str] = []
+    seen: set[Path] = set()
+    for root in roots:
+        for path, use_strings in _iter_dmg_tree_scan_files(root):
+            rp = path.resolve()
+            if rp in seen:
+                continue
+            seen.add(rp)
+            n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
+            if n:
+                total += n
+                hit_paths.append(str(path))
+
+    ok = (total > 0) if must_match else (total == 0)
+    status = "PASS" if ok else "FAIL"
+    scanned = "app-tree+strings" if app_path.exists() else "source-install.sh-only (no build)"
+    detail = f"scanned={scanned} pattern={pattern!r} must_match={must_match} hits={total}"
+    if hit_paths:
+        shown = hit_paths[:8]
+        detail += " in: " + ", ".join(shown)
+        if len(hit_paths) > len(shown):
+            detail += f" (+{len(hit_paths) - len(shown)} more)"
+    return Result(entry["id"], entry["title"], "grep_in_dmg_tree", status, detail, entry.get("source_pr", ""))
 
 
 def check_grep_in_source_at_sha(entry: dict, ctx: dict) -> Result:
@@ -393,6 +507,7 @@ def check_plist_key_equals(entry: dict, ctx: dict) -> Result:
 DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "grep_in_installer": check_grep_in_installer,
     "grep_in_artefact": check_grep_in_artefact,
+    "grep_in_dmg_tree": check_grep_in_dmg_tree,
     "grep_in_source_at_sha": check_grep_in_source_at_sha,
     "file_exists_in_artefact": check_file_exists_in_artefact,
     "plist_key_equals": check_plist_key_equals,
