@@ -7166,6 +7166,77 @@ OLLAMAPLIST
     ok "$MSG_OK_OLLAMA_RUNNING"
 fi
 
+# ── 3.3b Ollama log rotation ──────────────────────────────────────
+#
+# v1.0.12 FIX B: bound the Ollama stderr log. The cask's bundled
+# llama.cpp server emits verbose, benign slot-timing chatter
+# ("slot print_timing", "all slots are idle") to STDERR on every
+# request; with KeepAlive=-1 the serve process runs for weeks, so
+# ollama.err grew ~32MB/20h (~1GB/month), unrotated, on the recut3 box.
+# There is no reliable cross-version Ollama env knob that silences just
+# that INFO-level slot spam without also dropping genuine errors, so we
+# BOUND the file rather than filter it: a tiny hourly LaunchAgent
+# truncates ollama.err / ollama.log IN PLACE (inode-preserving, so the
+# serve process's open O_APPEND fd keeps writing to the same file and
+# disk is reclaimed immediately) whenever either exceeds the cap. We
+# keep the most recent half-cap of bytes, so recent context -- INCLUDING
+# any real errors -- survives; we never inspect or drop content by kind.
+# The rotation agent is independent of the serve path: if it fails,
+# Ollama is unaffected (status quo, just an unrotated log).
+_ollama_rot_logs="${LOGS_DIR:-${HOME}/.ostler/logs}"
+mkdir -p "${OSTLER_DIR}/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
+cat > "${OSTLER_DIR}/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
+#!/usr/bin/env bash
+# Truncate the Ollama serve logs in place when they exceed the cap.
+# In-place overwrite (`cat tmp > file`) preserves the inode so ollama's
+# open append fd keeps writing to the same file; disk is reclaimed at
+# once. We retain the most recent half-cap so recent lines (incl. any
+# real errors) survive. Driven hourly by com.ostler.ollama-logrotate.
+set -euo pipefail
+LOG_DIR="${HOME}/.ostler/logs"
+OLLAMA_LOG_MAX_BYTES="${OLLAMA_LOG_MAX_BYTES:-10485760}"   # 10 MiB
+_keep=$(( OLLAMA_LOG_MAX_BYTES / 2 ))
+for _f in "${LOG_DIR}/ollama.err" "${LOG_DIR}/ollama.log"; do
+    [[ -f "$_f" ]] || continue
+    _sz=$(stat -f%z "$_f" 2>/dev/null || echo 0)
+    if [[ "$_sz" -gt "$OLLAMA_LOG_MAX_BYTES" ]]; then
+        # tail -> temp -> overwrite-in-place (same inode). A few lines
+        # racing in during the swap is acceptable for a log file.
+        if tail -c "$_keep" "$_f" > "${_f}.rot" 2>/dev/null; then
+            cat "${_f}.rot" > "$_f" 2>/dev/null || true
+            rm -f "${_f}.rot" 2>/dev/null || true
+        fi
+    fi
+done
+OLLAMAROTEOF
+chmod +x "${OSTLER_DIR}/bin/ostler-ollama-logrotate"
+
+OLLAMA_ROT_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
+cat > "$OLLAMA_ROT_PLIST" <<OLLAMAROTPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.ollama-logrotate</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${OSTLER_DIR}/bin/ostler-ollama-logrotate</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${_ollama_rot_logs}/ollama-logrotate.log</string>
+    <key>StandardErrorPath</key>
+    <string>${_ollama_rot_logs}/ollama-logrotate.err</string>
+</dict>
+</plist>
+OLLAMAROTPLIST
+launchctl bootstrap "gui/$(id -u)" "$OLLAMA_ROT_PLIST" 2>/dev/null || \
+    launchctl load "$OLLAMA_ROT_PLIST" 2>/dev/null || true
+
 # ── 3.4 Python check ──────────────────────────────────────────────
 #
 # The verified-3.10+ Python is established in Phase 2.99 before any
@@ -10676,7 +10747,19 @@ cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 set -euo pipefail
 OSTLER_DIR="${HOME}/.ostler"
 FDA_DIR="${OSTLER_DIR}/fda-module"
-OSTLER_PYTHON="${OSTLER_DIR}/.venv/bin/python3"
+# v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
+# the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the
+# installer shell's OSTLER_PYTHON / OSTLER_VENV / OSTLER_DIR vars. Resolve them
+# locally so `ostler-assistant run-source fda-rerun` never dies on an empty var
+# (was exit 127 every run -> Photos/Reminders backfill never happened). Prefer
+# an explicit override, then the venv, then system python3. Mirrors the sibling
+# tick scripts (vendor/email_ingest/bin/email-ingest-tick.sh,
+# vendor/imessage_bridge/INSTALL_SNIPPET.sh). The :- default form is also what
+# keeps this safe under `set -u` above.
+OSTLER_PYTHON="${OSTLER_PYTHON:-${OSTLER_DIR}/.venv/bin/python3}"
+if [[ ! -x "$OSTLER_PYTHON" ]]; then
+    OSTLER_PYTHON="$(command -v python3 || true)"
+fi
 
 if [[ ! -d "$FDA_DIR/ostler_fda" ]]; then
     echo "Error: FDA extraction module not installed."
@@ -10698,7 +10781,11 @@ echo ""
 if [[ -f "${HOME}/.ostler/config/.env" ]]; then
     set -a; source "${HOME}/.ostler/config/.env"; set +a
 fi
-"\$OSTLER_PYTHON" -c "
+# v1.0.12 FIX A: invoke the resolved interpreter directly. A stray backslash
+# here previously made bash run a literal command named '$OSTLER_PYTHON' ->
+# "command not found" exit 127 on every fda-rerun, so the Photos/Reminders
+# backfill never ran and no reminders.done / photos.done markers appeared.
+"$OSTLER_PYTHON" -c "
 import sys
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
