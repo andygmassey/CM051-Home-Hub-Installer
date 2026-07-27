@@ -101,6 +101,43 @@ struct OnboardingQuestionView: View {
 
     @ViewBuilder
     private func standardQuestionBody(_ q: DisplayedQuestion) -> some View {
+        // Box-walk clip fix (2026-07-27): the question pane is a fixed
+        // ~560pt region with no scroll. When a body is taller than the
+        // pane, the content column overflowed and SwiftUI pushed the
+        // TOP of the column -- the "QUESTION X" supertext rendered by
+        // header() -- above the top edge of the window, where it was
+        // clipped off-screen. consent_spoken_capture is the tallest
+        // yes/no consent screen (intro + "What we ask of you" list +
+        // long italic legal note), so it lost its supertext while the
+        // shorter sibling consent_third_party kept it -- the same code
+        // path rendering inconsistently screen to screen (2nd box-walk
+        // report). Wrapping the column in a ScrollView pins it to the
+        // top (scroll offset 0), so the supertext is always visible and
+        // long bodies scroll instead of clipping the header. The
+        // GeometryReader minHeight keeps short screens pixel-identical:
+        // the column still fills the viewport so the button row stays
+        // pinned to the bottom via its Spacer.
+        GeometryReader { geo in
+            ScrollView(.vertical) {
+                questionColumn(q, viewportHeight: geo.size.height)
+            }
+            .background(Color.ostlerChassis)
+        }
+        .onAppear { seed(from: q) }
+        .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
+        .onChange(of: q.isReview) { _, _ in seed(from: q) }
+    }
+
+    /// The question content column (header + title + body + input +
+    /// button row). Extracted from `standardQuestionBody` so the
+    /// ScrollView wrapper above stays legible -- the VStack layout,
+    /// spacing and element order are unchanged from the pre-scroll
+    /// version. `viewportHeight` lets the column fill the pane when its
+    /// content is short (so the button row stays bottom-pinned) while
+    /// still growing past the viewport (and scrolling) when the body is
+    /// tall.
+    @ViewBuilder
+    private func questionColumn(_ q: DisplayedQuestion, viewportHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             header(q)
 
@@ -203,17 +240,13 @@ struct OnboardingQuestionView: View {
                     .foregroundStyle(Color.ostlerOxblood)
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             buttonRow(q)
         }
         .padding(.horizontal, .ostlerSpace4)
         .padding(.vertical, .ostlerSpace3)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.ostlerChassis)
-        .onAppear { seed(from: q) }
-        .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
-        .onChange(of: q.isReview) { _, _ in seed(from: q) }
+        .frame(maxWidth: .infinity, minHeight: viewportHeight, alignment: .topLeading)
     }
 
     /// F6.8 consent_install body. CX-18 (Studio retest #13, 2026-05-23):
