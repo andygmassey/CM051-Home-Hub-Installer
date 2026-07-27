@@ -174,6 +174,14 @@ final class StepCatalog {
         // ingest_imessage to emit Person + lastContactIMessage
         // triples. Counts-only stdout, no participant identifiers.
         "hydrate_imessage",
+        // CM024 §7: hydrate_apple_notes fires after hydrate_imessage and
+        // before hydrate_people. Reads apple_notes.json (written by
+        // fda_extract) and runs the bundled ostler-knowledge convert+embed
+        // path (--source apple_notes) so Apple Notes land in the
+        // apple_notes_knowledge Qdrant collection. Ship-dark: the step is a
+        // no-op unless apple_notes.json exists and is non-empty. Counts-only
+        // stdout; no note titles or bodies cross the boundary.
+        "hydrate_apple_notes",
         // #600: hydrate_people fires after hydrate_imessage (so Oxigraph is
         // fully populated) and before initial_hydrate. Sweeps pwg:Person from
         // Oxigraph into the Qdrant `people` collection so the iOS People tab +

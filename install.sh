@@ -6002,10 +6002,10 @@ TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/nul
 # Better to overshoot 100% by a step or two than divide by zero.
 if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # Fallback base = the non-GDPR progress-call count. Must track the real
-    # count (currently 38 calls; 37 non-GDPR + the EXPORTS_DIR-gated GDPR step).
+    # count (currently 39 calls; 38 non-GDPR + the EXPORTS_DIR-gated GDPR step).
     # tests/test_total_steps_dynamic.sh exercises this path (BASH_SOURCE is
     # unresolvable under `bash -c`) and fails if this constant drifts.
-    TOTAL_STEPS=37
+    TOTAL_STEPS=38
     [[ -n "$EXPORTS_DIR" ]] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
 CURRENT_STEP=0
@@ -16404,6 +16404,169 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
     unset _DEDUPE_LOG _DEDUPE_PID _DEDUPE_WAITED _DEDUPE_BUDGET_S
     unset _DEDUPE_TIMED_OUT _DEDUPE_DONE_MARKER
 fi
+
+# Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
+#
+# Reads apple_notes.json (written by the Phase 3 fda_extract step when
+# "apple_notes" is in OSTLER_FDA_SOURCES) and runs it through the bundled
+# ostler-knowledge binary using the SAME two-phase convert+embed path the
+# Doctor knowledge runner (doctor.agent.import_evernote) drives for every
+# other knowledge source (Evernote / Notion / Obsidian):
+#   1. convert --source apple_notes <apple_notes.json> --output <staging>
+#      -> CM024's AppleNotesAdapter parses the note-list JSON into
+#         privacy-tagged markdown in ~/.ostler/data/knowledge-staging.
+#   2. embed <staging> --collection apple_notes_knowledge ...
+#      -> indexes the compartment-level<=2 markdown into Qdrant so the wiki
+#         Knowledge section + MCP can read it. embed runs ONLY if convert
+#         exits 0 (mirror of import_evernote.py). The embedder self-creates
+#         the apple_notes_knowledge collection at 768 dims on first use, so
+#         it is intentionally NOT in the graph_db_start pre-create list --
+#         nothing is created until there are notes to embed.
+#
+# SHIP-DARK / silent-on-empty: the whole block is a no-op unless
+# apple_notes.json exists AND is non-empty (the `-s` gate below). This is
+# the guardrail for the adapter's discover(), which RAISES ValueError when
+# pointed at a missing file -- we never invoke it without the file. On a
+# build whose vendored CM024 predates the apple_notes adapter,
+# `convert --source apple_notes` exits non-zero (unknown --source choice),
+# the block degrades to a clean "skipped", embed is never reached, and the
+# install continues. Correct note identity requires a CM024 SHA that
+# INCLUDES PR #17 (the evernote_guid vs note_id id-contract fix).
+#
+# Deferred toggle (Andy's call, NOT decided here): an explicit feature flag
+# could gate this leg instead of the silent-on-empty default. The
+# OSTLER_APPLE_NOTES_KNOWLEDGE env below is the one-line hook where such a
+# flag would land; today it defaults ON so the only gate is data presence.
+progress "Reading your Apple Notes" "hydrate_apple_notes"
+
+_HYDRATE_APPLENOTES_FDA_DIR="${OSTLER_DIR}/imports/fda"
+_HYDRATE_APPLENOTES_JSON_FILE="${_HYDRATE_APPLENOTES_FDA_DIR}/apple_notes.json"
+_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
+_HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
+_HYDRATE_APPLENOTES_COLLECTION="apple_notes_knowledge"
+_HYDRATE_APPLENOTES_EMBED_MODEL="${OSTLER_KNOWLEDGE_EMBED_MODEL:-nomic-embed-text}"
+_HYDRATE_APPLENOTES_MAXLEVEL="${OSTLER_KNOWLEDGE_MAX_COMPARTMENT_LEVEL:-2}"
+_HYDRATE_APPLENOTES_QDRANT="${QDRANT_URL:-http://localhost:6333}"
+_HYDRATE_APPLENOTES_OLLAMA="${EMBED_OLLAMA_URL:-http://localhost:11434}"
+
+# Resolve the ostler-knowledge binary (absolute symlink or PATH name).
+_HYDRATE_APPLENOTES_BIN_OK=false
+if [[ -x "$_HYDRATE_APPLENOTES_BIN" ]] || command -v "$_HYDRATE_APPLENOTES_BIN" >/dev/null 2>&1; then
+    _HYDRATE_APPLENOTES_BIN_OK=true
+fi
+
+if _hydrate_sentinel_fresh "apple_notes"; then
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+elif [[ "${OSTLER_APPLE_NOTES_KNOWLEDGE:-1}" == "0" ]]; then
+    # Deferred explicit-flag hook: operator opted this leg out.
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
+    info "$MSG_HYDRATE_APPLE_NOTES_STARTED"
+
+    # Same timeout picker as the other hydrate phases (brew coreutils
+    # gtimeout preferred; system timeout fallback; unbounded if neither).
+    _HYDRATE_APPLENOTES_CAP="${OSTLER_HYDRATE_APPLE_NOTES_TIMEOUT:-1800}"
+    _HYDRATE_APPLENOTES_TIMEOUT_WRAP=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        _HYDRATE_APPLENOTES_TIMEOUT_WRAP="gtimeout $_HYDRATE_APPLENOTES_CAP"
+    elif command -v timeout >/dev/null 2>&1; then
+        _HYDRATE_APPLENOTES_TIMEOUT_WRAP="timeout $_HYDRATE_APPLENOTES_CAP"
+    fi
+
+    _HYDRATE_APPLENOTES_LOG=/tmp/ostler-hydrate-apple-notes.log
+    _HYDRATE_APPLENOTES_TIMED_OUT=false
+    mkdir -p "$_HYDRATE_APPLENOTES_STAGING" "$(dirname "$_HYDRATE_APPLENOTES_DBPATH")"
+
+    # Best-effort hydrate (#640-class guard, mirror of hydrate_imessage):
+    # suppress the errtrace ERR trap + errexit around the convert+embed run
+    # so an in-subprocess failure degrades to "skipped" instead of aborting
+    # the whole install. Preserve rc for the timeout check.
+    _saved_err_trap=$(trap -p ERR); trap - ERR; set +e
+    _hydrate_heartbeat_start "$MSG_HYDRATE_APPLE_NOTES_HEARTBEAT"
+
+    # Phase 1: convert the note-list JSON to privacy-tagged markdown.
+    OSTLER_QDRANT_URL="$_HYDRATE_APPLENOTES_QDRANT" \
+    OSTLER_OLLAMA_URL="$_HYDRATE_APPLENOTES_OLLAMA" \
+    $_HYDRATE_APPLENOTES_TIMEOUT_WRAP \
+        "$_HYDRATE_APPLENOTES_BIN" convert \
+            --source apple_notes \
+            "$_HYDRATE_APPLENOTES_JSON_FILE" \
+            --output "$_HYDRATE_APPLENOTES_STAGING" \
+        >>"$_HYDRATE_APPLENOTES_LOG" 2>&1
+    _HYDRATE_APPLENOTES_CONVERT_RC=$?
+
+    # Phase 2: embed the staged markdown into the searchable collection --
+    # ONLY if convert exited 0 (mirror of import_evernote.py). L3 ("private")
+    # notes are kept out of search by the max-compartment-level cap.
+    if [[ "$_HYDRATE_APPLENOTES_CONVERT_RC" -eq 0 ]]; then
+        OSTLER_QDRANT_URL="$_HYDRATE_APPLENOTES_QDRANT" \
+        OSTLER_OLLAMA_URL="$_HYDRATE_APPLENOTES_OLLAMA" \
+        $_HYDRATE_APPLENOTES_TIMEOUT_WRAP \
+            "$_HYDRATE_APPLENOTES_BIN" embed \
+                "$_HYDRATE_APPLENOTES_STAGING" \
+                --collection "$_HYDRATE_APPLENOTES_COLLECTION" \
+                --embedding-model "$_HYDRATE_APPLENOTES_EMBED_MODEL" \
+                --max-compartment-level "$_HYDRATE_APPLENOTES_MAXLEVEL" \
+                --db-path "$_HYDRATE_APPLENOTES_DBPATH" \
+            >>"$_HYDRATE_APPLENOTES_LOG" 2>&1
+        _HYDRATE_APPLENOTES_EMBED_RC=$?
+    else
+        _HYDRATE_APPLENOTES_EMBED_RC=1
+    fi
+
+    rc=$_HYDRATE_APPLENOTES_CONVERT_RC
+    _hydrate_heartbeat_stop
+    set -e; eval "${_saved_err_trap:-}"
+    if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
+        _HYDRATE_APPLENOTES_TIMED_OUT=true
+    fi
+
+    if [[ "$_HYDRATE_APPLENOTES_TIMED_OUT" == "true" ]]; then
+        info "$MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES"
+    elif [[ "$_HYDRATE_APPLENOTES_CONVERT_RC" -eq 0 ]]; then
+        # convert prints "Files written: <n>" to stderr (now in the log).
+        # grep exits 1 on no match (a NORMAL case when 0 notes converted),
+        # which under pipefail would abort this late step -- `|| printf '0'`
+        # keeps the substitution exit 0 so the ${VAR:-0} default applies.
+        _HYDRATE_APPLENOTES_COUNT="$(
+            grep -aE 'Files written:' "$_HYDRATE_APPLENOTES_LOG" 2>/dev/null \
+            | tail -n 1 \
+            | tr -dc '0-9' \
+            || printf '0'
+        )"
+        _HYDRATE_APPLENOTES_COUNT="${_HYDRATE_APPLENOTES_COUNT:-0}"
+        if [[ "$_HYDRATE_APPLENOTES_COUNT" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_APPLE_NOTES_DONE" "$_HYDRATE_APPLENOTES_COUNT")"
+        else
+            info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+        fi
+    else
+        # convert failed -- almost always an older vendored CM024 without
+        # the apple_notes adapter (unknown --source). Honest skip, no crash.
+        info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING"
+    fi
+
+    # Sentinel dedupes a re-run within the 7-day window.
+    _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+
+    unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
+    unset _HYDRATE_APPLENOTES_LOG _HYDRATE_APPLENOTES_TIMED_OUT
+    unset _HYDRATE_APPLENOTES_COUNT _HYDRATE_APPLENOTES_CONVERT_RC
+    unset _HYDRATE_APPLENOTES_EMBED_RC
+elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" != "true" ]]; then
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING"
+else
+    info "$MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA"
+    _hydrate_sentinel_record "apple_notes" "status=no_data"
+fi
+
+unset _HYDRATE_APPLENOTES_FDA_DIR _HYDRATE_APPLENOTES_JSON_FILE
+unset _HYDRATE_APPLENOTES_BIN _HYDRATE_APPLENOTES_BIN_OK
+unset _HYDRATE_APPLENOTES_STAGING _HYDRATE_APPLENOTES_DBPATH
+unset _HYDRATE_APPLENOTES_COLLECTION _HYDRATE_APPLENOTES_EMBED_MODEL
+unset _HYDRATE_APPLENOTES_MAXLEVEL _HYDRATE_APPLENOTES_QDRANT
+unset _HYDRATE_APPLENOTES_OLLAMA
 
 # People search index (#600) ---------------------------------------
 #
