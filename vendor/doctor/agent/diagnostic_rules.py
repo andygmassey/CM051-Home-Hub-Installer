@@ -95,6 +95,15 @@ from diagnostic_copy import (
     IMPORT_READY_DETAIL,
     IMPORT_READY_FIX_COMMAND,
     IMPORT_READY_TITLE,
+    LAST_UPGRADE_FAILED_DETAIL,
+    LAST_UPGRADE_FAILED_FIX,
+    LAST_UPGRADE_FAILED_TITLE,
+    LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
+    LAST_UPGRADE_ROLLED_BACK_FIX,
+    LAST_UPGRADE_ROLLED_BACK_TITLE,
+    LAST_UPGRADE_SUCCESS_DETAIL_FMT,
+    LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME,
+    LAST_UPGRADE_SUCCESS_TITLE_FMT,
     LOW_RAM_DETAIL,
     LOW_RAM_TITLE_FMT,
     MANY_MODELS_DETAIL,
@@ -948,6 +957,135 @@ def check_imessage_fda(snapshot: Any) -> list[dict]:
     return findings
 
 
+# ── (B-lite) upgrade audit-trail row ─────────────────────────────────
+
+
+def _ostler_preferences_path() -> str:
+    """Returns the canonical ~/.ostler/preferences.json path.
+
+    Pulled to its own helper so tests can monkeypatch HOME without
+    touching the rule body (mirrors :func:`_imessage_chat_db_path`).
+    """
+    import os
+
+    return os.path.join(
+        os.path.expanduser("~"),
+        ".ostler",
+        "preferences.json",
+    )
+
+
+def _format_upgrade_applied(timestamp: str | None) -> str | None:
+    """Format an ISO 8601 upgrade timestamp as ``%Y-%m-%d %H:%M``.
+
+    Returns ``None`` when the value is missing or unparseable, so the
+    rule omits the applied-time clause rather than surfacing a raw
+    string with a "T"/"Z" in it. Mirrors :func:`_format_backfill_month`.
+    """
+    if not timestamp:
+        return None
+    from datetime import datetime as _dt
+    raw = timestamp.strip()
+    # Tolerate the trailing 'Z' zulu shape the Hub writer emits;
+    # fromisoformat accepts it from 3.11 but the doctor image targets
+    # 3.10+ so we normalise defensively.
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = _dt.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+def check_last_upgrade(snapshot: Any) -> list[dict]:
+    """(B-lite) upgrade audit-trail Doctor row.
+
+    Reads the durable, reboot-surviving upgrade result the Hub records
+    at ``~/.ostler/preferences.json`` and surfaces exactly one row
+    describing how the last Ostler update went.
+
+    This rule is READ-ONLY: the Hub (Rust) owns writes to
+    preferences.json. Doctor never creates, modifies, or repairs the
+    file -- a malformed file is left byte-for-byte untouched.
+
+    Quiet-on-legacy posture (mirrors :func:`check_imessage_fda`): a
+    missing file, malformed JSON, or a missing / ``None`` /
+    non-object ``last_upgrade_result`` all mean "this install has no
+    upgrade audit trail yet" and return no findings rather than
+    firing a false row. An unknown ``status`` value is likewise not
+    guessed.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    """
+    import json
+
+    findings: list[dict] = []
+
+    path = _ostler_preferences_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            prefs = json.load(fh)
+    except OSError:
+        # Missing file (FileNotFoundError is an OSError) or unreadable:
+        # legacy install with no audit trail. Stay quiet.
+        return findings
+    except ValueError:
+        # Malformed JSON (JSONDecodeError / UnicodeDecodeError both
+        # subclass ValueError). Stay quiet, never crash, never rewrite.
+        return findings
+
+    if not isinstance(prefs, dict):
+        return findings
+
+    result = prefs.get("last_upgrade_result")
+    if not isinstance(result, dict):
+        # Missing key, explicit null, or a non-object value: no trail.
+        return findings
+
+    status = result.get("status")
+    version = result.get("version")
+    applied = _format_upgrade_applied(result.get("timestamp"))
+
+    if status == "success":
+        if applied:
+            detail = LAST_UPGRADE_SUCCESS_DETAIL_FMT.format(applied=applied)
+        else:
+            detail = LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME
+        findings.append({
+            "severity": "info",
+            "title": LAST_UPGRADE_SUCCESS_TITLE_FMT.format(version=version),
+            "detail": detail,
+            "fix": None,
+            "fix_command": None,
+            "risk": "low",
+            "category": "upgrade",
+        })
+    elif status == "failed":
+        findings.append({
+            "severity": "warning",
+            "title": LAST_UPGRADE_FAILED_TITLE,
+            "detail": LAST_UPGRADE_FAILED_DETAIL,
+            "fix": LAST_UPGRADE_FAILED_FIX,
+            "fix_command": None,
+            "risk": "low",
+            "category": "upgrade",
+        })
+    elif status == "rolled-back":
+        findings.append({
+            "severity": "warning",
+            "title": LAST_UPGRADE_ROLLED_BACK_TITLE,
+            "detail": LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT.format(version=version),
+            "fix": LAST_UPGRADE_ROLLED_BACK_FIX,
+            "fix_command": None,
+            "risk": "low",
+            "category": "upgrade",
+        })
+    # Unknown status value: do not guess. Return no findings.
+
+    return findings
+
+
 # ── Rule registry ────────────────────────────────────────────────────
 
 
@@ -969,6 +1107,7 @@ ALL_RULES = [
     check_mail_content,
     check_backfill_progress,
     check_imessage_fda,
+    check_last_upgrade,
 ]
 
 
