@@ -1,0 +1,136 @@
+# cut-manifests/permanent.yaml
+# ============================================================================
+# Regression-critical invariants that MUST prove in EVERY future cut.
+#
+# Every entry here was proven necessary by a specific incident where a fix
+# silently slipped or a customer-visible defect regressed. Adding an entry here
+# converts that incident into a permanent backstop: the next cut CANNOT ship
+# without proving the invariant still holds.
+#
+# The per-cut manifest (e.g. v1.0.11.yaml) INHERITS this file. Verifier walks
+# both. A FAIL in either fails the cut.
+#
+# Never remove an entry without a written cut-lead decision. Add entries; don't
+# take them away. The whole point is monotonic protection.
+#
+# Format: see cut-manifests/README.md. Same schema as per-cut files.
+# ============================================================================
+
+version: permanent
+description: |
+  Never-regress backstop. Every entry converts a past incident into a permanent
+  invariant proven at every cut. Do not remove entries; add.
+
+entries:
+
+  # ==========================================================================
+  # FDA legacy URL (macOS 26). Hit on recut3 by Andy: the "Open Settings"
+  # buttons on macOS 26 no-op because Apple retired com.apple.preference.security.
+  # Fixed in #451 by migrating all 7 line-touches to modern schemes. Encoded
+  # here as an absence proof: ZERO legacy refs may ever appear in install.sh.
+  # ==========================================================================
+  - id: no-legacy-fda-url
+    title: install.sh must not contain any macOS-26-broken com.apple.preference.security URL
+    incident: recut3 QA (2026-07-24); customer-visible; FDA button did nothing on macOS 26
+    proof:
+      kind: grep_in_installer
+      pattern: "com\\.apple\\.preference\\.security"
+      must_match: false
+
+  - id: fda-modern-scheme-present
+    title: install.sh must use modern PrivacySecurity URL scheme for FDA
+    incident: recut3 QA; sibling to no-legacy-fda-url — presence proof
+    proof:
+      kind: grep_in_installer
+      pattern: "com\\.apple\\.settings\\.PrivacySecurity\\.extension"
+      must_match: true
+
+  # ==========================================================================
+  # FirstRunPopup route. "Fixed" 3-4 times in prior cuts. Prior fixes changed
+  # copy without changing the route, or changed the route in source without
+  # rebuilding the daemon so the web bundle still shipped the old string. This
+  # entry proves the FINAL string is in the built artefact.
+  # ==========================================================================
+  # Note on primitive choice: Tauri packs web/dist COMPRESSED inside the main
+  # binary, so `strings zeroclaw-desktop | grep "Open Governor"` returns
+  # nothing (verified 2026-07-27). This is the exact class TNM warned about
+  # in the spec: literals in compiled artefacts that are unprovable by
+  # binary-grep. The correct proof is source-at-sha on ostler-assistant —
+  # the source string is present at the pinned SHA, and the daemon build
+  # pipeline compiles from that SHA into the shipped binary.
+  - id: firstrun-popup-governor-source
+    title: FirstRunPopup handler uses /governor route (source, at daemon-pinned SHA)
+    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
+    source_pr: ostler-ai/ostler-assistant#231
+    proof:
+      kind: grep_in_source_at_sha
+      target: ostler-assistant
+      path: "web/src/components/FirstRunPopup.tsx"
+      pattern: "navigate\\(['\"]\\/governor['\"]\\)"
+      must_match: true
+
+  # ==========================================================================
+  # Operator-PII backstop. Andy's personal instance details (his IP, hostname,
+  # personal wiki name, email addresses) must NEVER appear in a shipped
+  # customer artefact. The bin/operator-pii-scan.sh already catches this on
+  # commit; these entries prove the invariant at cut time as well — the layer
+  # between commit-time scan and shipped DMG is the one that has slipped before.
+  #
+  # WHOLE-DMG SCAN (2026-07-27). These four were `grep_in_installer`, which only
+  # ever saw install.sh. v1.0.11 SHIPPED 3 `gamingrig` occurrences in vendored
+  # trees (imessage_source/__init__.py, doctor/agent/status_collector.py,
+  # cm048_pipeline/PLAN.md) while the gate passed 17/17 — the PII rode in on the
+  # vendored .py/.md, never touching install.sh. Broadened to `grep_in_dmg_tree`
+  # so absence is proven across the ENTIRE shipped payload: install.sh + every
+  # vendored .py/.md/.sh + the daemon Ostler.app (and nested helper apps) + a
+  # strings(1) pass over the Mach-O binaries. Still scans source install.sh too,
+  # so absence holds even in a local no-build run.
+  #
+  # COVERAGE LIMIT (honest): Tauri packs the daemon web/dist COMPRESSED inside
+  # its main binary, so operator-PII living ONLY in the compiled+compressed web
+  # bundle is unreachable by both text-read and strings(1) (verified: the
+  # daemon binary yields 0 hits for a known web-bundle literal). That residual
+  # class must be guarded by grep_in_source_at_sha on ostler-assistant, the same
+  # way firstrun-popup-governor-source is. Everything text-extractable in the
+  # DMG — which is where every operator-PII slip to date has landed — is now
+  # covered.
+  # ==========================================================================
+  - id: no-operator-ip
+    title: shipped DMG must not contain Andy's personal LAN IP anywhere
+    incident: standing operator-PII rule; commit hook + cut-time backstop
+    proof:
+      kind: grep_in_dmg_tree
+      pattern: "192\\.168\\.1\\.37"
+      must_match: false
+
+  - id: no-operator-hostname
+    title: shipped DMG must not contain Andy's personal box hostname anywhere
+    incident: v1.0.11 shipped 3 `gamingrig` in vendored trees while install.sh-only gate passed 17/17
+    proof:
+      kind: grep_in_dmg_tree
+      pattern: "gamingrig"
+      must_match: false
+
+  - id: no-operator-wiki-name
+    title: shipped DMG must not contain Andy's personal wiki instance name anywhere
+    incident: standing operator-PII rule
+    proof:
+      kind: grep_in_dmg_tree
+      pattern: "Andypedia"
+      must_match: false
+
+  - id: no-operator-email
+    title: shipped DMG must not contain Andy's personal email addresses anywhere
+    incident: standing operator-PII rule; catches copy-paste leaks
+    proof:
+      kind: grep_in_dmg_tree
+      pattern: "andy@andymassey\\.com|claude\\.ai@andymassey\\.com|marvin@andymassey\\.com"
+      must_match: false
+
+  # Note on wiki-recompile artefacts:
+  # CM044's dedupe-decision chrome (dup_decision.js) is EMITTED at wiki
+  # compile-time on the box (post-install), not shipped in the DMG. The
+  # wiki-recompile/ dir in the .app only contains the compiler harness
+  # (INSTALL_SNIPPET.sh, launchd plist, bin/). Proof for CM044 chrome
+  # freshness belongs to the post-install box-walk gate, not this
+  # artefact-only manifest. Kept out of permanent.yaml deliberately.
