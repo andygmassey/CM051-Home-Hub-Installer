@@ -1004,7 +1004,10 @@ struct OnboardingQuestionView: View {
 
     /// F6.1: pull one suggestion at random from the ViewCopy
     /// `assistant_name_suggestions.comma_separated` catalogue value.
-    /// Falls back to `Marvin` if the catalogue is missing.
+    /// Falls back to `Friday` (a neutral in-pool name) if the
+    /// catalogue is missing. The compiled fallback must NOT carry the
+    /// legacy operator/assistant token — the full brand-warm pool
+    /// lives in the DATA file (ViewCopy.json), never in the Mach-O.
     private func randomAssistantSuggestion(fallback: String) -> String {
         let csv = ViewCopy.shared.string(
             for: "assistant_name_suggestions.comma_separated"
@@ -1016,7 +1019,7 @@ struct OnboardingQuestionView: View {
         if let pick = pool.randomElement() {
             return pick
         }
-        return fallback.isEmpty ? "Marvin" : fallback
+        return fallback.isEmpty ? "Friday" : fallback
     }
 
     private func yesLabel(_ q: DisplayedQuestion) -> String {
