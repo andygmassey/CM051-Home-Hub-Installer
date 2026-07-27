@@ -1576,7 +1576,7 @@ KNOWLEDGE_REPO="${PWG_KNOWLEDGE_REPO:-}"
 # bundles a copy under ${SCRIPT_DIR}/cm048_pipeline/; install.sh
 # pip-installs it into a dedicated venv at ~/.ostler/services/cm048/
 # and symlinks .venv/bin/pwg-convo into /usr/local/bin/pwg-convo so
-# Doctor + Marvin + the assistant can invoke it without venv juggling.
+# Doctor + the assistant can invoke it without venv juggling.
 # Without bundling AND without an override, the install hard-fails
 # (rather than the older silent-skip which only surfaced as confusing
 # downstream failures). Pass --allow-plaintext to skip warn-only for
@@ -9416,7 +9416,7 @@ fi
 # symlinked into /usr/local/bin/. CM048 turns raw human-to-human
 # conversation transcripts into three-tier output: conversation MD,
 # per-person relationship signals (Oxigraph), and user-coach
-# observations (SQLite). Doctor + Marvin + assistant invoke pwg-convo
+# observations (SQLite). Doctor + assistant invoke pwg-convo
 # via subprocess; CM048 has NO library coupling to other services on
 # disk (productisation Rule 0.5: each service self-contained).
 #
@@ -12449,7 +12449,7 @@ info "CX-35 checkpoint: exiting Mail content probe block cleanly"
 #      starts at last_rowid = 0 and dumps the ENTIRE chat.db history
 #      (LIMIT 500 per 30s tick) into inbox.jsonl. The listener then
 #      tries to reply to every historical inbound. Mass-send of old
-#      conversation lines, observed 2026-05-28 as the "Marvin talking
+#      conversation lines, observed 2026-05-28 as the "assistant talking
 #      to itself" symptom across two threads on Andy's number (one
 #      cleanly contact-matched, one labelled with Apple's "Maybe:"
 #      contact-disambiguation prefix).

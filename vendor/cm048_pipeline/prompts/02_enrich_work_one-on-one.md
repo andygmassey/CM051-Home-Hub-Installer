@@ -283,7 +283,7 @@ retention_score_inputs:
   centrality_refs:
     - person:alex_chen
     - topic:pwg
-    - topic:marvin-tool-calling
+    - topic:assistant-tool-calling
     - org:contactco-f
   fact_count: 0             # populated by fact-extraction pass
   is_pinned: false

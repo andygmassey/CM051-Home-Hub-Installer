@@ -63,7 +63,7 @@ This extractor enables two new schema properties downstream in
   Future non-DM sources should adopt the same property.
 - ``pwg:contactSourceTier`` (xsd:string). One of "whatsapp_dm",
   "whatsapp_group_intimate", "whatsapp_group_active". Used by CM044's
-  wiki renderer for per-source attribution + future Marvin retrieval
+  wiki renderer for per-source attribution + future assistant retrieval
   down-weighting.
 
 T3 chats are filtered out at extraction time -- they never make it
