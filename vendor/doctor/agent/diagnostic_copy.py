@@ -171,7 +171,7 @@ CRITICAL_DISK_DETAIL = (
     "Less than 10 GB free. Docker and Ollama both need disk space to function. "
     "Services will start failing if this drops further."
 )
-CRITICAL_DISK_FIX = "Free up space – remove unused Docker images and Ollama models"
+CRITICAL_DISK_FIX = "Free up space. Remove unused Docker images and Ollama models."
 CRITICAL_DISK_FIX_COMMAND = (
     "docker system prune -f && "
     "echo '--- Ollama models ---' && ollama list && "

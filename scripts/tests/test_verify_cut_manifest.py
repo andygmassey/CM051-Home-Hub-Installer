@@ -369,3 +369,455 @@ def test_unknown_kind_fails(fake_cm051, fake_app):
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1
     assert "unknown proof.kind" in r.stdout or "unknown proof.kind" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# grep_in_dmg_tree — exempt_paths filter
+# ---------------------------------------------------------------------------
+
+_MARVIN_ABSENCE_ENTRY_NO_EXEMPT = {
+    "id": "no-marvin",
+    "title": "shipped DMG must not contain Marvin",
+    "proof": {
+        "kind": "grep_in_dmg_tree",
+        "pattern": "Marvin",
+        "must_match": False,
+    },
+}
+
+_MARVIN_ABSENCE_ENTRY_WITH_EXEMPT = {
+    "id": "no-marvin-except-pool",
+    "title": "shipped DMG must not contain Marvin except in the F6.1 pool",
+    "proof": {
+        "kind": "grep_in_dmg_tree",
+        "pattern": "Marvin",
+        "must_match": False,
+        "exempt_paths": [
+            "**/ViewCopy.json",
+            "**/install.sh.strings.en-GB.sh",
+        ],
+    },
+}
+
+
+def _write_marvin_hit_in_pool_file(fake_app: Path) -> None:
+    """Legit F6.1 name-pool file with a Marvin reference the exempt list allows."""
+    view_copy = fake_app / "Contents" / "Resources" / "ViewCopy.json"
+    view_copy.write_text('{"pool": ["Friday", "Marvin", "Sage"]}\n')
+
+
+def _write_marvin_hit_in_stray_file(fake_app: Path) -> None:
+    """A stray Marvin leak the exempt list should NOT catch — a real regression."""
+    stray = fake_app / "Contents" / "Resources" / "assistant" / "banner.py"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_text("# leftover Marvin literal in the assistant banner\n")
+
+
+def test_grep_in_dmg_tree_exempt_paths_allow_pool_hit(fake_cm051, fake_app):
+    """Marvin lives only in the F6.1 pool file; exempt_paths keeps the gate green."""
+    _write_marvin_hit_in_pool_file(fake_app)
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_MARVIN_ABSENCE_ENTRY_WITH_EXEMPT])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_grep_in_dmg_tree_no_exempt_paths_flags_pool_hit(fake_cm051, fake_app):
+    """Same Marvin-in-pool hit WITHOUT exempt_paths fails — proves exempt is doing the work."""
+    _write_marvin_hit_in_pool_file(fake_app)
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_MARVIN_ABSENCE_ENTRY_NO_EXEMPT])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "ViewCopy.json" in r.stdout
+
+
+def test_grep_in_dmg_tree_exempt_paths_still_catches_stray_leak(fake_cm051, fake_app):
+    """Stray Marvin in a non-exempt file still fails the gate — exempt list is scoped."""
+    _write_marvin_hit_in_pool_file(fake_app)      # allowed
+    _write_marvin_hit_in_stray_file(fake_app)     # NOT allowed
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_MARVIN_ABSENCE_ENTRY_WITH_EXEMPT])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "banner.py" in r.stdout
+    # Exempted files should NOT appear in the offending-files list.
+    assert "ViewCopy.json" not in r.stdout
+
+
+def test_grep_in_dmg_tree_exempt_paths_reports_exempted_count(fake_cm051, fake_app):
+    """Detail line reports (M exempted) when exempt_paths made the difference."""
+    _write_marvin_hit_in_pool_file(fake_app)
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [_MARVIN_ABSENCE_ENTRY_WITH_EXEMPT])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "exempted" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# plist_env_key_present
+# ---------------------------------------------------------------------------
+
+
+def _write_env_plist(cm051: Path, name: str, env_dict: dict[str, str] | None) -> Path:
+    """Write a launchd-shaped plist with an optional EnvironmentVariables block."""
+    plist_dir = cm051 / "vendor" / "plists"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0">',
+        '<dict>',
+        '  <key>Label</key><string>com.example.sample</string>',
+    ]
+    if env_dict is not None:
+        lines.append('  <key>EnvironmentVariables</key>')
+        lines.append('  <dict>')
+        for k, v in env_dict.items():
+            lines.append(f'    <key>{k}</key><string>{v}</string>')
+        lines.append('  </dict>')
+    lines.append('</dict>')
+    lines.append('</plist>')
+    p = plist_dir / name
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def test_plist_env_key_present_true(fake_cm051, fake_app):
+    """PWG_SERVICE_TOKEN is in EnvironmentVariables: must_be_present:true -> PASS."""
+    _write_env_plist(fake_cm051, "assistant.plist",
+                     {"PWG_SERVICE_TOKEN": "s3cret", "OTHER": "x"})
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "assistant-plist-token-declared",
+        "title": "assistant plist declares PWG_SERVICE_TOKEN",
+        "proof": {
+            "kind": "plist_env_key_present",
+            "target": "installer-tree",
+            "path": "vendor/plists/assistant.plist",
+            "key": "PWG_SERVICE_TOKEN",
+            "must_be_present": True,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_plist_env_key_present_absence_ok(fake_cm051, fake_app):
+    """must_be_present:false + key genuinely absent -> PASS."""
+    _write_env_plist(fake_cm051, "assistant.plist", {"OTHER": "x"})
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "assistant-plist-no-legacy-var",
+        "title": "assistant plist does not declare a legacy env var",
+        "proof": {
+            "kind": "plist_env_key_present",
+            "target": "installer-tree",
+            "path": "vendor/plists/assistant.plist",
+            "key": "LEGACY_TOKEN",
+            "must_be_present": False,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_plist_env_key_present_key_missing_fails(fake_cm051, fake_app):
+    """Expected key not in EnvironmentVariables -> FAIL."""
+    _write_env_plist(fake_cm051, "assistant.plist", {"OTHER": "x"})
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "assistant-plist-missing-token",
+        "title": "assistant plist is missing the token env key",
+        "proof": {
+            "kind": "plist_env_key_present",
+            "target": "installer-tree",
+            "path": "vendor/plists/assistant.plist",
+            "key": "PWG_SERVICE_TOKEN",
+            "must_be_present": True,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+
+
+def test_plist_env_key_present_no_env_block_fails(fake_cm051, fake_app):
+    """Plist has no EnvironmentVariables dict at all -> FAIL (not SKIP)."""
+    _write_env_plist(fake_cm051, "no_env.plist", None)
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "plist-no-env-block",
+        "title": "plist has no EnvironmentVariables dict",
+        "proof": {
+            "kind": "plist_env_key_present",
+            "target": "installer-tree",
+            "path": "vendor/plists/no_env.plist",
+            "key": "PWG_SERVICE_TOKEN",
+            "must_be_present": True,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+
+
+def test_plist_env_key_present_missing_file_skips(fake_cm051, fake_app):
+    """Plist file doesn't exist -> SKIP (not FAIL)."""
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "plist-missing",
+        "title": "plist file missing",
+        "proof": {
+            "kind": "plist_env_key_present",
+            "target": "installer-tree",
+            "path": "vendor/plists/does_not_exist.plist",
+            "key": "PWG_SERVICE_TOKEN",
+            "must_be_present": True,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    # SKIP results do not turn overall exit non-zero — only FAILs do.
+    assert r.returncode == 0, r.stdout
+    assert '"skip": 1' in r.stdout
+
+
+def test_plist_env_key_present_regex_fallback_on_template(fake_cm051, fake_app):
+    """Templated plist (unresolved {{ USER }}) fails plistlib but the regex
+    fallback still finds the env key."""
+    plist_dir = fake_cm051 / "vendor" / "plists"
+    plist_dir.mkdir(parents=True, exist_ok=True)
+    (plist_dir / "templated.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<plist version="1.0">\n'
+        '<dict>\n'
+        '  <key>Label</key><string>com.example.{{ USER }}</string>\n'
+        '  <key>EnvironmentVariables</key>\n'
+        '  <dict>\n'
+        '    <key>PWG_SERVICE_TOKEN</key><string>{{ TOKEN }}</string>\n'
+        '  </dict>\n'
+        '</dict>\n'
+        '</plist>\n'
+    )
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "templated-token-declared",
+        "title": "regex fallback finds token in templated plist",
+        "proof": {
+            "kind": "plist_env_key_present",
+            "target": "installer-tree",
+            "path": "vendor/plists/templated.plist",
+            "key": "PWG_SERVICE_TOKEN",
+            "must_be_present": True,
+        },
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# box_walk_probe
+# ---------------------------------------------------------------------------
+
+
+def _write_probe(cm051: Path, name: str, body: str) -> Path:
+    """Register a probe script under scripts/box_walk_probes/."""
+    probes = cm051 / "scripts" / "box_walk_probes"
+    probes.mkdir(parents=True, exist_ok=True)
+    p = probes / f"{name}.sh"
+    p.write_text("#!/usr/bin/env bash\n" + body + "\n")
+    p.chmod(0o755)
+    return p
+
+
+def test_box_walk_probe_skips_without_box_host(fake_cm051, fake_app, monkeypatch):
+    """OSTLER_BOX_HOST not set -> SKIP (runtime probe can't run without a box)."""
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-smoke",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert '"skip": 1' in r.stdout
+
+
+def test_box_walk_probe_pass_on_exit_0(fake_cm051, fake_app, monkeypatch):
+    """Box available and probe exits 0 -> PASS."""
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "green", "echo 'seeded + retrieved'\nexit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-green",
+        "title": "runtime probe passes",
+        "proof": {"kind": "box_walk_probe", "probe": "green"},
+    }])
+    # The subprocess we spawn inherits our env; make sure OSTLER_BOX_HOST
+    # propagates via the current environment.
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_box_walk_probe_fail_on_nonzero(fake_cm051, fake_app, monkeypatch):
+    """Box available and probe exits non-zero -> FAIL, exit code in detail."""
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "red", "echo 'confabulated'\nexit 7")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-red",
+        "title": "runtime probe fails",
+        "proof": {"kind": "box_walk_probe", "probe": "red"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "exit=7" in r.stdout or "exit\\\": 7" in r.stdout
+
+
+def test_box_walk_probe_missing_probe_fails(fake_cm051, fake_app, monkeypatch):
+    """Box available but probe script missing -> FAIL (registry gap)."""
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-missing",
+        "title": "missing probe",
+        "proof": {"kind": "box_walk_probe", "probe": "never_registered"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "not registered" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# payload_version_matches_daemon_version
+# ---------------------------------------------------------------------------
+
+
+def _make_payload(fake_app: Path, version_text: str, daemon_stdout: str) -> None:
+    """Build the (B-lite) payload layout inside the fake app.
+
+    - Contents/Resources/ostler-payload/VERSION carries `version_text` verbatim.
+    - The daemon binary is a shell script that echoes `daemon_stdout` on
+      --version and exits 0. Placed at
+      Contents/Resources/ostler-payload/assistant-agent/bin/ostler-assistant.
+    """
+    payload = fake_app / "Contents" / "Resources" / "ostler-payload"
+    bin_dir = payload / "assistant-agent" / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    (payload / "VERSION").write_text(version_text)
+    daemon = bin_dir / "ostler-assistant"
+    # Bash shim: any --version arg -> echo the desired stdout and exit 0.
+    daemon.write_text(
+        "#!/usr/bin/env bash\n"
+        f"echo {daemon_stdout!r}\n"
+        "exit 0\n"
+    )
+    daemon.chmod(0o755)
+
+
+def test_payload_version_matches_hub_v_and_zeroclaw_prefix(fake_cm051, fake_app):
+    """`hub-vX.Y.Z` VERSION + `zeroclaw X.Y.Z` daemon output normalise equal -> PASS."""
+    _make_payload(fake_app, "hub-v1.0.12", "zeroclaw 1.0.12")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-match",
+        "title": "payload VERSION matches daemon --version",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_payload_version_matches_bare_semver(fake_cm051, fake_app):
+    """Bare `X.Y.Z` on both sides normalises equal -> PASS."""
+    _make_payload(fake_app, "1.0.12", "1.0.12")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-match-bare",
+        "title": "bare semver on both sides matches",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+
+
+def test_payload_version_mismatch_fails(fake_cm051, fake_app):
+    """Normalised versions differ -> FAIL with both raw + normalised in detail."""
+    _make_payload(fake_app, "hub-v1.0.12", "zeroclaw 1.0.11")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-drift",
+        "title": "payload VERSION drifted from daemon --version",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    # Detail must include both normalised values so a human can see the drift.
+    assert "1.0.12" in r.stdout and "1.0.11" in r.stdout
+
+
+def test_payload_version_unparseable_fails(fake_cm051, fake_app):
+    """Non-semver VERSION text -> FAIL (parse error)."""
+    _make_payload(fake_app, "not-a-version", "zeroclaw 1.0.12")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-unparseable",
+        "title": "payload VERSION is unparseable",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "unparseable" in r.stdout
+
+
+def test_payload_version_missing_files_fail(fake_cm051, fake_app):
+    """App exists but payload missing entirely -> FAIL (not SKIP; the app IS
+    built, but the assembly step was skipped)."""
+    # fake_app fixture creates a bare Contents/Resources but no ostler-payload
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-missing",
+        "title": "payload missing entirely",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+
+
+def test_payload_version_skips_when_app_absent(fake_cm051, tmp_path):
+    """No built app at all -> SKIP (local dev / pre-build CI)."""
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-app-absent",
+        "title": "no built app yet",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    missing_app = tmp_path / "does-not-exist.app"
+    r = _run(fake_cm051, missing_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert '"skip": 1' in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Version normalisation — unit-level coverage of the three accepted shapes.
+# ---------------------------------------------------------------------------
+
+
+def test_normalise_version_all_three_shapes():
+    """The parser accepts hub-vX.Y.Z, zeroclaw X.Y.Z, and bare X.Y.Z."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("vcm", str(SCRIPT))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._normalise_version("hub-v1.2.3") == "1.2.3"
+    assert mod._normalise_version("zeroclaw 4.5.6") == "4.5.6"
+    assert mod._normalise_version("7.8.9") == "7.8.9"
+    # Trailing content past the semver core is tolerated (matches the daemon's
+    # own `X.Y.Z@sha` tag format).
+    assert mod._normalise_version("hub-v1.2.3@abcdef") == "1.2.3"
+    with pytest.raises(ValueError):
+        mod._normalise_version("not-a-version")
+    with pytest.raises(ValueError):
+        mod._normalise_version("")

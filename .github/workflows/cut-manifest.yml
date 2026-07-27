@@ -75,9 +75,19 @@ jobs:
           if not root.is_dir():
               print("ERROR: cut-manifests/ dir missing", file=sys.stderr)
               sys.exit(1)
+          # Keep in lock-step with DISPATCH in scripts/verify_cut_manifest.py.
+          # grep_in_dmg_tree landed with #457 (permanent.yaml + verifier +
+          # README) but the schema check here was not updated in the same PR,
+          # so a shipped 6th primitive would be rejected as "unknown" against
+          # permanent.yaml. Sync'd here.
+          # (B-lite) v1.0.12: adds plist_env_key_present + box_walk_probe +
+          # payload_version_matches_daemon_version. exempt_paths is an
+          # optional field on grep_in_dmg_tree, not a separate kind.
           KINDS = {"grep_in_installer", "grep_in_artefact",
-                   "grep_in_source_at_sha", "file_exists_in_artefact",
-                   "plist_key_equals"}
+                   "grep_in_dmg_tree", "grep_in_source_at_sha",
+                   "file_exists_in_artefact", "plist_key_equals",
+                   "plist_env_key_present", "box_walk_probe",
+                   "payload_version_matches_daemon_version"}
           for path in sorted(root.glob("*.yaml")):
               try:
                   doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -99,12 +109,22 @@ jobs:
                   kind = proof.get("kind")
                   if kind not in KINDS:
                       errors.append(f"{where}: unknown proof.kind {kind!r}; must be one of {sorted(KINDS)}")
-                  if kind in ("grep_in_installer", "grep_in_artefact", "grep_in_source_at_sha") and "pattern" not in proof:
+                  if kind in ("grep_in_installer", "grep_in_artefact", "grep_in_dmg_tree", "grep_in_source_at_sha") and "pattern" not in proof:
                       errors.append(f"{where}: {kind} requires 'pattern'")
+                  if kind == "grep_in_dmg_tree" and "exempt_paths" in proof:
+                      ep = proof.get("exempt_paths")
+                      if not isinstance(ep, list) or not all(isinstance(x, str) for x in ep):
+                          errors.append(f"{where}: grep_in_dmg_tree.exempt_paths must be a list of strings")
                   if kind == "plist_key_equals":
                       for req in ("path", "key", "value"):
                           if req not in proof:
                               errors.append(f"{where}: plist_key_equals requires '{req}'")
+                  if kind == "plist_env_key_present":
+                      for req in ("path", "key"):
+                          if req not in proof:
+                              errors.append(f"{where}: plist_env_key_present requires '{req}'")
+                  if kind == "box_walk_probe" and "probe" not in proof:
+                      errors.append(f"{where}: box_walk_probe requires 'probe'")
                   if kind == "file_exists_in_artefact" and "path" not in proof:
                       errors.append(f"{where}: file_exists_in_artefact requires 'path'")
               print(f"OK   {path.name} ({len(doc.get('entries') or [])} entries)")

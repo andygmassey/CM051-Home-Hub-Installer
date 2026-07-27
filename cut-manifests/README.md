@@ -42,11 +42,11 @@ Both files are consumed on every cut. A RED in either fails the cut.
   source_pr: owner/repo#N        # optional; useful cross-reference
   source_sha: <sha>              # required for grep_in_source_at_sha
   proof:
-    kind: <one of the 5 below>
+    kind: <one of the 9 below>
     # ... primitive-specific fields
 ```
 
-## The 6 primitives
+## The 9 primitives
 
 Every proof has `kind` and (for greps) `must_match: true|false` (default true).
 `must_match: false` is an ABSENCE proof — the pattern MUST NOT appear. Absence
@@ -120,6 +120,25 @@ No `target:`/`path:` fields — the point is that it scans everything. The gate'
 own pattern-definition files (`cut-manifests/`, `verify_cut_manifest*`) are
 excluded so the scan never flags the manifest that bans the pattern.
 
+Optional `exempt_paths:` accepts a list of glob patterns; hits whose file path
+matches any glob are removed from the count BEFORE the presence/absence
+decision. Mirrors the `[allow_paths].skip` pattern in `bin/operator-pii-scan.sh`
+so a `must_match: false` entry can allowlist known-good references (for example
+the F6.1 "Marvin" name-suggestion pool that lives in `ViewCopy.json` +
+`install.sh.strings.en-GB.sh`). Detail line shows `hits=N (M exempted)` when
+exemptions apply.
+
+```yaml
+proof:
+  kind: grep_in_dmg_tree
+  pattern: "Marvin"
+  must_match: false
+  exempt_paths:
+    - "**/ViewCopy.json"
+    - "**/install.sh.strings.en-GB.sh"
+    - "**/permanent.yaml"
+```
+
 **Coverage limit (honest):** Tauri packs the daemon's `web/dist` COMPRESSED
 inside its main binary, so operator-PII living ONLY in the compiled+compressed
 web bundle is unreachable by both a text read and `strings(1)`. That residual
@@ -175,6 +194,83 @@ proof:
   key: "RunAtLoad"
   value: "false"                   # string; "true"/"false" for booleans
 ```
+
+### 7. `plist_env_key_present`
+
+Asserts a named env-var KEY is declared inside a plist's `EnvironmentVariables`
+dict. Existence check only; the value is NEVER read or validated so the
+per-install secret never lands in the manifest. Used to prove fresh v1.0.12+
+installs ship an assistant plist that declares `PWG_SERVICE_TOKEN` (per CM051
+#464). `must_be_present: false` inverts to an absence proof.
+
+Follows the same template-fallback pattern as `plist_key_equals`: when
+plistlib cannot parse the file (unresolved template placeholders leave the
+XML ill-formed) the primitive falls back to a regex probe on the
+`EnvironmentVariables` block.
+
+```yaml
+proof:
+  kind: plist_env_key_present
+  target: installer-tree
+  path: "assistant-agent/launchd/com.creativemachines.ostler.assistant.plist"
+  key: "PWG_SERVICE_TOKEN"
+  must_be_present: true
+```
+
+### 8. `box_walk_probe`
+
+A **runtime** gate. Invokes a named shell probe against a real box; captures
+the class of bug that static gates cannot see (seed-and-query round-trip
+proof). The registry maps `probe: <name>` to `scripts/box_walk_probes/<name>.sh`.
+See `scripts/box_walk_probes/README.md` for the per-probe contract.
+
+The primitive SKIPs when `OSTLER_BOX_HOST` is not set — runtime probes require
+a reachable box, and CI + offline dev pass cleanly without one. When
+`OSTLER_BOX_HOST` IS set the probe MUST exit `0` to PASS; any non-zero exit is
+FAIL, with the last stdout / stderr line captured in the Result detail.
+Timeout is 180 seconds.
+
+```yaml
+proof:
+  kind: box_walk_probe
+  probe: "people_seed_and_retrieval"
+```
+
+Registered probes live in `scripts/box_walk_probes/`. The
+`people_seed_and_retrieval` probe seeds a Person "Sofia Testperson" into the
+graph on the box, asks the daemon via the iMessage tool-call path, and asserts
+the reply contains the name and does NOT contain the confabulation-tell "I
+don't have any information". The full body ships with the Studio matrix
+runbook; the stub in this PR exits `0` so the primitive wiring can land first.
+
+### 9. `payload_version_matches_daemon_version`
+
+Cut-time integrity check that the (B-lite) embedded payload's `VERSION` file
+matches the bundled daemon binary's `--version` output. Catches "VERSION file
+right, wrong binary bundled" and the reverse.
+
+Reads `<APP_PATH>/Contents/Resources/ostler-payload/VERSION`, then invokes
+`<APP_PATH>/Contents/Resources/ostler-payload/assistant-agent/bin/ostler-assistant --version`.
+Both values are normalised to a semver core before comparison. Three input
+shapes are accepted (matching TNM's `upgrade_reconcile::SemVer::parse` from
+oa #238):
+
+- `hub-vX.Y.Z` (typical payload VERSION file)
+- `zeroclaw X.Y.Z` (typical daemon --version output)
+- bare `X.Y.Z`
+
+Anything else is a parse error and FAILs the gate. SKIPs when the built app is
+not present. FAILs on any read error, invocation error, or non-zero exit from
+the daemon `--version` call. Result detail includes both raw values and both
+normalised values.
+
+```yaml
+proof:
+  kind: payload_version_matches_daemon_version
+```
+
+No `target:`/`path:` fields — the payload location is fixed by the (B-lite)
+spec.
 
 ## Wiring
 
