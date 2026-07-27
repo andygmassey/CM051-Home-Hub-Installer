@@ -60,7 +60,7 @@ fi
 
 # Resolve the assistant tag the pin maps to (try v<pin>, <pin>, hub-v<pin>).
 DAEMON_TAG=""
-if [[ -n "${DAEMON_PIN}" && -d "${ASSISTANT_DIR}/.git" ]]; then
+if [[ -n "${DAEMON_PIN}" ]] && git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then  # ORM 2026-07-27: was `-d .git` (fails for git WORKTREES). FLAG Archie.
   git -C "${ASSISTANT_DIR}" fetch origin --tags -q 2>/dev/null
   for cand in "v${DAEMON_PIN}" "${DAEMON_PIN}" "hub-v${DAEMON_PIN}"; do
     if git -C "${ASSISTANT_DIR}" rev-parse -q --verify "refs/tags/${cand}" >/dev/null 2>&1; then
@@ -79,7 +79,7 @@ while IFS='|' read -r kind target pattern desc; do
       if [[ -z "${DAEMON_PIN}" ]]; then
         red "daemon_tag ${sha} :: could not read daemon pin -- cannot verify"; continue
       fi
-      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+      if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then  # ORM 2026-07-27: was `-d .git` which fails for git WORKTREES (.git is a file) -- cuts run from a worktree. FLAG Archie.
         red "daemon_tag ${sha} :: ostler-assistant not found at ${ASSISTANT_DIR} (set OSTLER_ASSISTANT_DIR)"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
@@ -120,7 +120,7 @@ while IFS='|' read -r kind target pattern desc; do
       # that have no vendored footprint -- e.g. the Hub web bundle, rebuilt
       # from source at cut time. `target` = path inside ostler-assistant;
       # `pattern` = regex that must appear in that file at the pinned tag.
-      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+      if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then  # ORM 2026-07-27: was `-d .git` which fails for git WORKTREES (.git is a file) -- cuts run from a worktree. FLAG Archie.
         red "assistant_tag_grep ${target} :: ostler-assistant not at ${ASSISTANT_DIR} (${desc})"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
