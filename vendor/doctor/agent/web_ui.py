@@ -2102,6 +2102,19 @@ async def api_history():
 
 @app.get("/doctor/api/health")
 async def health():
+    # Test-only gate (env var OSTLER_TEST_DISABLE_HEALTH). When set to "1" the
+    # route returns 503 so the (B-lite) upgrade brain's 60s health poll times
+    # out and Row 6 of the upgrade matrix can deterministically force a
+    # rollback. Any other value (or unset) is a no-op. Unset in production.
+    if os.environ.get("OSTLER_TEST_DISABLE_HEALTH") == "1":
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "service": "ostler-doctor",
+                "test_gate": "OSTLER_TEST_DISABLE_HEALTH",
+            },
+        )
     return {"status": "healthy", "service": "ostler-doctor"}
 
 

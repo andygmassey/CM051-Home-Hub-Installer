@@ -82,6 +82,16 @@ or leaves a `web_ui.py` import without its vendored module.
 - `test_*.py` (10 files, CI-only) - never installed on a customer Mac.
 - `__pycache__/`, `.pytest_cache/` - build artefacts.
 
+## Test-only environment flags
+
+`OSTLER_TEST_DISABLE_HEALTH=1` forces `GET /doctor/api/health` to return
+503 instead of its normal 200 healthy body. It exists only for the
+(B-lite) upgrade-matrix Row 6 rollback test (install.sh exits 0 but the
+health route will not answer, so the Hub's 60s health poll times out and
+C1 rolls back). Any other value (or the variable being unset) is a
+complete no-op, so the route behaves exactly as before. Never set it in
+production.
+
 ## How to sync
 
 Until `make vendor-sync` lands (post-launch chore), syncing is manual:
