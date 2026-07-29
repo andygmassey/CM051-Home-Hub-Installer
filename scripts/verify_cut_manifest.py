@@ -759,22 +759,31 @@ def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Resu
     except (PermissionError, OSError) as e:
         return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
                       "FAIL", f"reading VERSION failed: {e}", entry.get("source_pr", ""))
-    try:
-        result = subprocess.run(
-            [str(daemon_bin), "--version"],
-            capture_output=True, check=False, timeout=30,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+    # The daemon binary's `--version` reports the FROZEN Cargo workspace version
+    # (0.4.1; releases go by git tag +1, Cargo is intentionally NOT bumped -- see
+    # reference_ostler_assistant_version_field_frozen), so it structurally cannot
+    # equal the release version and this gate could never pass for any release
+    # != 0.4.1. Compare the payload VERSION against the cut's DAEMON_VERSION pin
+    # (the authoritative release version) instead: env DAEMON_VERSION (exported
+    # through `make ship`), falling back to the gui/Makefile `DAEMON_VERSION ?=`
+    # default. A proper binary-IDENTITY gate (bundled-binary SHA vs DAEMON_SHA256)
+    # is the real "did we ship the right daemon" check and is a separate follow-up
+    # that --version structurally cannot provide.
+    expected_raw = os.environ.get("DAEMON_VERSION", "").strip()
+    if not expected_raw:
+        mk = ctx["cm051_dir"] / "gui" / "Makefile"
+        try:
+            for line in mk.read_text(encoding="utf-8", errors="replace").splitlines():
+                s = line.strip()
+                if s.startswith("DAEMON_VERSION") and "?=" in s:
+                    expected_raw = s.split("?=", 1)[1].strip()
+                    break
+        except OSError:
+            pass
+    if not expected_raw:
         return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
-                      "FAIL", f"daemon --version invocation failed: {e}",
+                      "FAIL", "could not resolve DAEMON_VERSION (env or gui/Makefile pin)",
                       entry.get("source_pr", ""))
-    if result.returncode != 0:
-        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
-                      "FAIL",
-                      f"daemon --version exited {result.returncode}: "
-                      f"{result.stderr.decode('utf-8', 'replace').strip()[:200]}",
-                      entry.get("source_pr", ""))
-    daemon_raw = result.stdout.decode("utf-8", "replace").strip().splitlines()[0] if result.stdout else ""
 
     try:
         payload_norm = _normalise_version(payload_raw)
@@ -783,16 +792,17 @@ def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Resu
                       "FAIL", f"payload VERSION unparseable: {e}",
                       entry.get("source_pr", ""))
     try:
-        daemon_norm = _normalise_version(daemon_raw)
+        expected_norm = _normalise_version(expected_raw)
     except ValueError as e:
         return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
-                      "FAIL", f"daemon --version unparseable: {e}",
+                      "FAIL", f"DAEMON_VERSION pin unparseable: {e}",
                       entry.get("source_pr", ""))
 
-    ok = payload_norm == daemon_norm
+    ok = payload_norm == expected_norm
     status = "PASS" if ok else "FAIL"
-    detail = (f"payload_raw={payload_raw!r} daemon_raw={daemon_raw!r} "
-              f"payload_norm={payload_norm} daemon_norm={daemon_norm}")
+    detail = (f"payload_raw={payload_raw!r} pinned_DAEMON_VERSION={expected_raw!r} "
+              f"payload_norm={payload_norm} pin_norm={expected_norm} "
+              f"(binary --version is the frozen Cargo version by design; compared vs release pin)")
     return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
                   status, detail, entry.get("source_pr", ""))
 
