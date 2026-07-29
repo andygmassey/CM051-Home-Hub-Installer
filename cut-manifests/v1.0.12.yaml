@@ -117,6 +117,7 @@ entries:
   # shared-client factory function name; that string cannot appear anywhere
   # but the fix.
   - id: v1012-service-token-shared-client
+    source_sha: "6844cb547b6a199a6735941e3cff4fe5968dedaa"
     title: shared attach_service_token client is on the daemon line (oa #236)
     source_pr: ostler-ai/ostler-assistant#236
     proof:
@@ -153,6 +154,7 @@ entries:
   # Frontend TS marker: `LOCALE-HARDPIN-v1012` is the sentinel string carried
   # in web/src/lib/i18n.ts; unique to the fix, cannot ride along by accident.
   - id: v1012-locale-hardpin
+    source_sha: "6844cb547b6a199a6735941e3cff4fe5968dedaa"
     title: web/src/lib/i18n.ts locale hard-pin marker present (oa #237)
     source_pr: ostler-ai/ostler-assistant#237
     proof:
@@ -274,6 +276,7 @@ entries:
   # Marker: `upgrade_reconcile` appears as the module name and the public
   # reconcile fn - either hits.
   - id: v1012-upgrade-reconcile-module-present
+    source_sha: "6844cb547b6a199a6735941e3cff4fe5968dedaa"
     title: apps/tauri upgrade_reconcile module is present on the daemon line (oa #238)
     source_pr: ostler-ai/ostler-assistant#238
     proof:
@@ -289,6 +292,7 @@ entries:
   # `amber_icon` is the tray-icon repaint fn added by D. Proves the
   # tray-amber addition landed at the pinned SHA.
   - id: v1012-tray-amber-icon-present
+    source_sha: "6844cb547b6a199a6735941e3cff4fe5968dedaa"
     title: apps/tauri tray amber_icon is present on the daemon line (oa #239)
     source_pr: ostler-ai/ostler-assistant#239
     proof:

@@ -2839,7 +2839,7 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
         killall "System Settings" >/dev/null 2>&1 || true
         killall "System Preferences" >/dev/null 2>&1 || true
         sleep 1
-        open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+        open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
 
         _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
             "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
@@ -8745,7 +8745,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
 
             _installer_fda_msg="$(printf '%s\n\n%s\n%s' \
                 "$MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1" \
@@ -8879,7 +8879,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
             killall "System Settings" >/dev/null 2>&1 || true
             killall "System Preferences" >/dev/null 2>&1 || true
             sleep 1
-            open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+            open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
 
             _fda_recover_msg="$(printf '%s\n\n%s' \
                 "$MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1" \
@@ -14429,7 +14429,7 @@ else
                 # falls back to Privacy & Security top-level which
                 # is acceptable. The 2>/dev/null swallows the rare
                 # "scheme not registered" warning on stripped builds.
-                open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+                open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles" 2>/dev/null || true
 
                 # Reveal the daemon .app bundle in Finder so the
                 # customer can drag it directly into System
@@ -17972,7 +17972,7 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" ]]; then
             # stop short of an extra modal so we don't risk regressing
             # the install completion flow this close to launch.
             if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-                open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation" \
+                open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Automation" \
                     >/dev/null 2>&1 || true
                 gui_emit IMESSAGE_TCC_DENIED "status=denied" "remediation=automation_pane"
                 info "$MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED"
