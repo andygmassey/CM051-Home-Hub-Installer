@@ -1,0 +1,342 @@
+# cut-manifests/v1.0.12.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.12 DMG cut MUST contain.
+#
+# Every entry is a fix that has slipped, or would silently slip, without an
+# artefact-level proof. The verifier walks this file + permanent.yaml before
+# codesign. Any FAIL fails the cut BEFORE signing (fail-closed).
+#
+# Once v1.0.12 ships, the entries that are truly permanent (never-regress)
+# should be promoted into permanent.yaml so v1.0.13 and beyond keep proving
+# them. The FDA python self-default + escaped-dollar absence (v1012-fda-*) and
+# the auto-login presence (v1012-autologin-present) are promotion candidates:
+# each guards a defect that silently broke a customer-visible surface.
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.12
+description: |
+  v1.0.12 cut contract. Consumes permanent.yaml + these entries. Fails cut on
+  any RED before codesign. Covers the three pre-wipe recut3 diagnostics (FDA
+  python interpreter, Ollama log rotation, reboot self-heal auto-login) and
+  the (B-lite) delivery mechanism payload wiring (assistant token, plist
+  declaration, payload embed + version integrity, install.sh upgrade-mode,
+  Hub-side upgrade_reconcile, tray amber, Doctor audit row, Marvin scrub).
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # FIX A — $OSTLER_PYTHON in the emitted ~/.ostler/bin/ostler-fda
+  # --------------------------------------------------------------------------
+  # The com.ostler.fda-rerun LaunchAgent runs `run-source fda-rerun` -> the
+  # emitted ostler-fda script. Two defects made it exit 127 every run, so the
+  # Photos/Reminders re-extraction backfill never ran and no reminders.done /
+  # photos.done markers appeared:
+  #   1. The interpreter invocation was written as "\$OSTLER_PYTHON" inside a
+  #      QUOTED heredoc (<<'FDAEOF'), where the backslash is literal -> the
+  #      emitted script ran a literal command named $OSTLER_PYTHON -> "command
+  #      not found" exit 127 (note the $ in the box error). THIS was the
+  #      proximate failure.
+  #   2. OSTLER_PYTHON was set unconditionally to the venv path with no
+  #      env-override / fallback, unlike the sibling tick scripts.
+  # The fix removes the stray backslash AND self-defaults OSTLER_PYTHON with a
+  # venv-then-system-python3 fallback that does not depend on the (absent)
+  # installer-shell env at LaunchAgent runtime.
+
+  # A1 (presence): the self-default must be present in the emitted ostler-fda.
+  # This exact substring appears nowhere else in install.sh, so a hit proves
+  # the fix landed and cannot be an incidental match.
+  - id: v1012-fda-python-self-default
+    title: emitted ostler-fda must self-default OSTLER_PYTHON (env/venv/python3)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#458
+    proof:
+      kind: grep_in_installer
+      pattern: "OSTLER_PYTHON:-"
+      must_match: true
+
+  # A2 (absence): the escaped-dollar form must NOT reappear anywhere in
+  # install.sh. This is the strong regression guard for the actual runtime
+  # failure -- if anyone reintroduces "\$OSTLER_PYTHON" the cut fails.
+  # Pattern (single-quoted YAML, backslashes literal): regex \\\$OSTLER_PYTHON
+  # = one literal backslash + literal dollar + OSTLER_PYTHON.
+  - id: v1012-fda-no-escaped-python
+    title: install.sh must NOT contain the escaped "\$OSTLER_PYTHON" (exit-127 bug)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#458
+    proof:
+      kind: grep_in_installer
+      pattern: '\\\$OSTLER_PYTHON'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # FIX B — Ollama stderr log rotation
+  # --------------------------------------------------------------------------
+  # The cask's bundled llama.cpp server emits benign verbose slot-timing
+  # ("slot print_timing", "all slots are idle") to STDERR every request; with
+  # KeepAlive=-1 the serve process runs for weeks, so ollama.err grew ~32MB/20h
+  # (~1GB/month) unrotated on the recut3 box. No reliable cross-version Ollama
+  # env silences just that spam without dropping genuine errors, so we BOUND
+  # the file: a tiny hourly com.ostler.ollama-logrotate LaunchAgent truncates
+  # ollama.err / ollama.log in place (inode-preserving) above a 10 MiB cap.
+  #
+  # Presence proof of the rotation agent label (appears 3x: agent label, plist
+  # filename, bin-script name). NOTE for pattern-review: the rotation lives in
+  # a SIBLING agent, not inside com.ostler.ollama.plist itself -- a plist
+  # cannot rotate a long-running process's own log, so the mechanism is a
+  # periodic agent. This grep proves that mechanism ships.
+  - id: v1012-ollama-logrotate
+    title: install.sh must install the com.ostler.ollama-logrotate agent (bound ollama.err)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#458
+    proof:
+      kind: grep_in_installer
+      pattern: "com\\.ostler\\.ollama-logrotate"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # FIX C — #452 reboot self-heal / boot auto-login MUST be in the cut
+  # --------------------------------------------------------------------------
+  # #452 (fix/v1011-reboot-self-heal) writes autoLoginUser +
+  # /etc/kcpassword so the Hub Mac auto-logs-in after a reboot and its
+  # LaunchAgents resume (self-heal). It is COMPLETE + MERGEABLE but was omitted
+  # from v1.0.11. This presence proof is RED until #452 is merged into the cut
+  # base -- that is the intended forcing function: v1.0.12 CANNOT be signed
+  # unless install.sh carries the auto-login config.
+  - id: v1012-autologin-present
+    title: install.sh must carry the #452 boot auto-login config (autoLoginUser)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#452
+    proof:
+      kind: grep_in_installer
+      pattern: "autoLoginUser"
+      must_match: true
+
+  # ==========================================================================
+  # (B-lite) delivery mechanism — v1.0.12 payload gates
+  # ==========================================================================
+  # Ratified spec: launch/BLITE_DELIVERY_DESIGN_v1.0.12.md (approved 2026-07-27).
+  # Every entry below proves one component of the (B-lite) payload wiring made
+  # it into the shipped artefact.
+
+  # --------------------------------------------------------------------------
+  # 1. Assistant retrieval token gap (release-blocker) - three-primitive gate
+  # --------------------------------------------------------------------------
+  # oa #236 (token shared-client). Rust logic that compiles away, so pinned via
+  # grep_in_source_at_sha at the integration/cut-v1.0.11 head - the daemon
+  # line the cut rebuilds from. Marker `attach_service_token` is the
+  # shared-client factory function name; that string cannot appear anywhere
+  # but the fix.
+  - id: v1012-service-token-shared-client
+    title: shared attach_service_token client is on the daemon line (oa #236)
+    source_pr: ostler-ai/ostler-assistant#236
+    proof:
+      kind: grep_in_source_at_sha
+      target: ostler-assistant
+      path: "crates/zeroclaw-tools/src/service_client.rs"
+      pattern: "attach_service_token"
+      must_match: true
+
+  # CM051 #464 assistant plist wiring - existence check only, per plist_env_key_present.
+  # Never reads the secret value; proves the fresh v1.0.12+ install path is wired.
+  - id: v1012-assistant-plist-pwg-token-declared
+    title: assistant plist must declare PWG_SERVICE_TOKEN env key (CM051 #464)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#464
+    proof:
+      kind: plist_env_key_present
+      path: "assistant-agent/launchd/com.creativemachines.ostler.assistant.plist"
+      key: "PWG_SERVICE_TOKEN"
+      must_be_present: true
+
+  # Runtime seed-and-retrieval round-trip. SKIPs when OSTLER_BOX_HOST is not
+  # set so CI + local dev pass; on the Studio box the probe MUST PASS. Full
+  # probe body ships with the Studio matrix runbook; the stub currently exits 0.
+  - id: v1012-box-walk-people-retrieval
+    title: seed Sofia Testperson + iMessage retrieval must return the name (not the confabulation)
+    source_pr: ostler-ai/ostler-assistant#236
+    proof:
+      kind: box_walk_probe
+      probe: "people_seed_and_retrieval"
+
+  # --------------------------------------------------------------------------
+  # 2. Doctor honesty + locale hard-pin (oa #237)
+  # --------------------------------------------------------------------------
+  # Frontend TS marker: `LOCALE-HARDPIN-v1012` is the sentinel string carried
+  # in web/src/lib/i18n.ts; unique to the fix, cannot ride along by accident.
+  - id: v1012-locale-hardpin
+    title: web/src/lib/i18n.ts locale hard-pin marker present (oa #237)
+    source_pr: ostler-ai/ostler-assistant#237
+    proof:
+      kind: grep_in_source_at_sha
+      target: ostler-assistant
+      path: "web/src/lib/i18n.ts"
+      pattern: "LOCALE-HARDPIN-v1012"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # 3. Apple Notes ingest wiring (CM051 #466)
+  # --------------------------------------------------------------------------
+  # Four markers per the #466 PR body: the tests shim exists, install.sh
+  # invokes the progress step, install.sh uses `--source apple_notes`, and
+  # the OSTLER_APPLE_NOTES_KNOWLEDGE deferred-flag hook rides in.
+  - id: v1012-apple-notes-hydrate-test-shim
+    title: hydrate_apple_notes wiring test shim ships (CM051 #466)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#466
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-tree
+      path: "tests/test_hydrate_apple_notes_wired.sh"
+
+  - id: v1012-apple-notes-hydrate-step-invoked
+    title: install.sh invokes hydrate_apple_notes progress step (CM051 #466)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#466
+    proof:
+      kind: grep_in_artefact
+      target: installer-tree
+      path: "install.sh"
+      pattern: 'progress "Reading your Apple Notes" "hydrate_apple_notes"'
+      must_match: true
+
+  - id: v1012-apple-notes-source-flag
+    title: install.sh uses ostler-knowledge --source apple_notes (CM051 #466)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#466
+    proof:
+      kind: grep_in_artefact
+      target: installer-tree
+      path: "install.sh"
+      pattern: "--source apple_notes"
+      must_match: true
+
+  - id: v1012-apple-notes-knowledge-flag
+    title: install.sh carries the apple_notes_knowledge deferred-flag hook (CM051 #466)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#466
+    proof:
+      kind: grep_in_artefact
+      target: installer-tree
+      path: "install.sh"
+      pattern: "apple_notes_knowledge"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # 4. Payload-embed (CM051 #467) + version integrity
+  # --------------------------------------------------------------------------
+  # The embedded payload is what turns the Hub Sparkle update into a real
+  # multi-piece delivery mechanism. These four prove the payload arrived at
+  # cut-time inside the signed Hub, plus a cut-time integrity check that the
+  # VERSION file matches the bundled daemon --version output.
+  - id: v1012-payload-version-file-present
+    title: ostler-payload VERSION file is embedded in the Hub (CM051 #467)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#467
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/ostler-payload/VERSION"
+
+  - id: v1012-payload-install-sh-present
+    title: ostler-payload install.sh is embedded in the Hub (CM051 #467)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#467
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/ostler-payload/install.sh"
+
+  - id: v1012-payload-daemon-binary-present
+    title: ostler-payload daemon binary is embedded in the Hub (CM051 #467)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#467
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/ostler-payload/assistant-agent/bin/ostler-assistant"
+
+  # Cut-time integrity check - the payload VERSION and the bundled daemon
+  # --version output must normalise to the same semver core. Catches the
+  # "VERSION file right, wrong binary bundled" class of assembly error.
+  - id: v1012-payload-version-matches-daemon
+    title: ostler-payload VERSION must match bundled daemon --version (both normalised)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#467
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  # --------------------------------------------------------------------------
+  # 5. install.sh upgrade-mode contract (CM051 #468)
+  # --------------------------------------------------------------------------
+  # OSTLER_UPGRADE_MODE is the load-bearing env var; OSTLER_UPGRADE_PAYLOAD_DIR
+  # is the payload-source path the Hub hands install.sh at reconcile time.
+  # Both greps confirm the contract wiring landed in install.sh.
+  - id: v1012-install-sh-upgrade-mode
+    title: install.sh honours OSTLER_UPGRADE_MODE (CM051 #468)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#468
+    proof:
+      kind: grep_in_installer
+      pattern: "OSTLER_UPGRADE_MODE"
+      must_match: true
+
+  - id: v1012-install-sh-upgrade-payload-dir
+    title: install.sh honours OSTLER_UPGRADE_PAYLOAD_DIR (CM051 #468)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#468
+    proof:
+      kind: grep_in_installer
+      pattern: "OSTLER_UPGRADE_PAYLOAD_DIR"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # 6. Hub-side upgrade_reconcile (oa #238)
+  # --------------------------------------------------------------------------
+  # Marker: `upgrade_reconcile` appears as the module name and the public
+  # reconcile fn - either hits.
+  - id: v1012-upgrade-reconcile-module-present
+    title: apps/tauri upgrade_reconcile module is present on the daemon line (oa #238)
+    source_pr: ostler-ai/ostler-assistant#238
+    proof:
+      kind: grep_in_source_at_sha
+      target: ostler-assistant
+      path: "apps/tauri/src/upgrade_reconcile.rs"
+      pattern: "upgrade_reconcile"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # 7. Modal + tray-amber UX (oa #239)
+  # --------------------------------------------------------------------------
+  # `amber_icon` is the tray-icon repaint fn added by D. Proves the
+  # tray-amber addition landed at the pinned SHA.
+  - id: v1012-tray-amber-icon-present
+    title: apps/tauri tray amber_icon is present on the daemon line (oa #239)
+    source_pr: ostler-ai/ostler-assistant#239
+    proof:
+      kind: grep_in_source_at_sha
+      target: ostler-assistant
+      path: "apps/tauri/src/tray/upgrade.rs"
+      pattern: "amber_icon"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # 8. Doctor audit-row reader (CM051 #469)
+  # --------------------------------------------------------------------------
+  # The check_last_upgrade rule reads preferences.json.last_upgrade_result
+  # and renders the durable audit-trail row. Marker is unique to the fix and
+  # rides in the shipped vendored diagnostic_rules.py.
+  - id: v1012-doctor-check-last-upgrade
+    title: Doctor rule check_last_upgrade reads the audit-trail row (CM051 #469)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#469
+    proof:
+      kind: grep_in_artefact
+      target: installer-tree
+      path: "vendor/doctor/agent/diagnostic_rules.py"
+      pattern: "check_last_upgrade"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # 9. Marvin scrub (CM051 #459) + F6.1 exempt pool
+  # --------------------------------------------------------------------------
+  # Broad Marvin-name scrub across the shipped DMG, with the legit F6.1
+  # name-suggestion pool exempted so `must_match: false` does not false-fail
+  # on the intentional data-file allowlist. permanent.yaml is exempted so a
+  # future ban-list entry naming Marvin cannot self-trip this gate.
+  - id: v1012-scrub-marvin
+    title: shipped DMG must not contain "Marvin" except in the legit F6.1 suggestion pool (CM051 #459)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#459
+    proof:
+      kind: grep_in_dmg_tree
+      pattern: "Marvin"
+      must_match: false
+      exempt_paths:
+        - "**/ViewCopy.json"
+        - "**/install.sh.strings.en-GB.sh"
+        - "**/permanent.yaml"

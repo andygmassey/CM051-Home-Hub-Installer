@@ -12,12 +12,13 @@
 #   - verify_cut_freshness.sh   — vendored SHAs are fresh
 #   - verify_cut_provenance.sh  — cut markers manifest
 #   - provenance_gate.sh        — required_fixes.tsv content-provenance
-#   - verify_cut_manifest.py    — THIS SCRIPT (6-primitive YAML gate)
+#   - verify_cut_manifest.py    — THIS SCRIPT (9-primitive YAML gate)
 #
 # See cut-manifests/README.md for schema.
 # ============================================================================
 
 import argparse
+import fnmatch
 import json
 import os
 import plistlib
@@ -307,6 +308,27 @@ def check_grep_in_artefact(entry: dict, ctx: dict) -> Result:
     return Result(entry["id"], entry["title"], "grep_in_artefact", status, detail, entry.get("source_pr", ""))
 
 
+def _matches_any_glob(path: Path, patterns: list[str]) -> bool:
+    """True if path matches any glob in patterns.
+
+    Mirrors the `[allow_paths].skip` semantics from `bin/operator-pii-scan.sh`:
+    the pattern is matched against both the resolved absolute path and the
+    plain string form, so callers can write either full-path globs or the
+    conventional `**/basename` shorthand.
+    """
+    s_abs = str(path)
+    s_res = str(path.resolve()) if path.exists() else s_abs
+    for pat in patterns:
+        if fnmatch.fnmatch(s_abs, pat) or fnmatch.fnmatch(s_res, pat):
+            return True
+        # `**` in fnmatch does not span directory separators the way a shell
+        # glob does; add a name-only fallback so `**/basename` shorthand also
+        # matches on the file's basename.
+        if pat.startswith("**/") and fnmatch.fnmatch(path.name, pat[3:]):
+            return True
+    return False
+
+
 def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
     """Prove a pattern's presence/absence across the ENTIRE shipped DMG payload.
 
@@ -321,10 +343,18 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
     personal instance details never appear ANYWHERE in the cut, closing the hole
     where grep_in_installer only saw install.sh while PII rode in on a vendored
     tree. On a violation the detail names the offending files.
+
+    Optional `exempt_paths: list[str]` filters legitimate references out of the
+    hit set BEFORE the presence/absence decision. Mirrors the `[allow_paths].skip`
+    pattern in `bin/operator-pii-scan.sh` so a `must_match: false` entry can
+    ignore known-good references (for example the F6.1 "Marvin" name-suggestion
+    pool that lives in `ViewCopy.json` + `install.sh.strings.en-GB.sh`, or the
+    gate's own definition files inside `permanent.yaml`).
     """
     proof = entry["proof"]
     pattern = proof["pattern"]
     must_match = proof.get("must_match", True)
+    exempt_paths = proof.get("exempt_paths") or []
     app_path = ctx["app_path"]
     cm051_dir = ctx["cm051_dir"]
 
@@ -341,6 +371,7 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
 
     total = 0
+    exempted = 0
     hit_paths: list[str] = []
     seen: set[Path] = set()
     for root in roots:
@@ -350,14 +381,20 @@ def check_grep_in_dmg_tree(entry: dict, ctx: dict) -> Result:
                 continue
             seen.add(rp)
             n = _grep_binary_strings(path, pattern) if use_strings else _grep_file(path, pattern)
-            if n:
-                total += n
-                hit_paths.append(str(path))
+            if not n:
+                continue
+            if exempt_paths and _matches_any_glob(path, exempt_paths):
+                exempted += n
+                continue
+            total += n
+            hit_paths.append(str(path))
 
     ok = (total > 0) if must_match else (total == 0)
     status = "PASS" if ok else "FAIL"
     scanned = "app-tree+strings" if app_path.exists() else "source-install.sh-only (no build)"
     detail = f"scanned={scanned} pattern={pattern!r} must_match={must_match} hits={total}"
+    if exempted:
+        detail += f" ({exempted} exempted)"
     if hit_paths:
         shown = hit_paths[:8]
         detail += " in: " + ", ".join(shown)
@@ -504,6 +541,253 @@ def check_plist_key_equals(entry: dict, ctx: dict) -> Result:
     return Result(entry["id"], entry["title"], "plist_key_equals", status, detail, entry.get("source_pr", ""))
 
 
+def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
+    """Assert a named env-var KEY is declared inside a plist's EnvironmentVariables
+    dict, WITHOUT reading or validating the value.
+
+    Used to prove that a fresh v1.0.12+ install ships an assistant plist that
+    declares PWG_SERVICE_TOKEN as a launchd env key (per CM051 #464), without
+    ever shipping the per-install secret value in the cut manifest. Existing
+    v1.0.11 customers are covered by the file-fallback path in the daemon; this
+    gate is the belt-and-braces backstop for the fresh-install path.
+
+    `must_be_present: false` inverts to an absence proof.
+
+    Follows the same template-fallback pattern as `check_plist_key_equals`: when
+    plistlib cannot parse the file (unresolved template placeholders leave the
+    XML ill-formed), a regex probe locates the EnvironmentVariables dict block
+    and searches for `<key>KEY</key>` inside it.
+    """
+    proof = entry["proof"]
+    target_name = proof.get("target", "installer-tree")
+    path_hint = proof["path"]
+    key = proof["key"]
+    must_be_present = proof.get("must_be_present", True)
+    try:
+        target = resolve_target(target_name, ctx["app_path"], ctx["cm051_dir"], ctx.get("extra_paths", {}))
+    except ValueError as e:
+        return Result(entry["id"], entry["title"], "plist_env_key_present", "FAIL",
+                      f"target-resolution: {e}", entry.get("source_pr", ""))
+    plist_path = target / path_hint if target.is_dir() else target
+    if not plist_path.is_file():
+        return Result(entry["id"], entry["title"], "plist_env_key_present", "SKIP",
+                      f"plist not found at {plist_path}", entry.get("source_pr", ""))
+    parse_note = ""
+    key_present: bool | None = None
+    try:
+        with plist_path.open("rb") as f:
+            data = plistlib.load(f)
+        env_vars = data.get("EnvironmentVariables")
+        if env_vars is None:
+            return Result(entry["id"], entry["title"], "plist_env_key_present", "FAIL",
+                          f"plist has no EnvironmentVariables dict at {plist_path}",
+                          entry.get("source_pr", ""))
+        if not isinstance(env_vars, dict):
+            return Result(entry["id"], entry["title"], "plist_env_key_present", "FAIL",
+                          f"EnvironmentVariables is not a dict in {plist_path}",
+                          entry.get("source_pr", ""))
+        key_present = key in env_vars
+    except Exception as e:
+        parse_note = f" (plistlib fallback: {type(e).__name__})"
+        try:
+            raw = plist_path.read_text(encoding="utf-8", errors="replace")
+            block = re.search(
+                r"<key>EnvironmentVariables</key>\s*<dict>(.*?)</dict>",
+                raw, re.DOTALL,
+            )
+            if block is None:
+                return Result(entry["id"], entry["title"], "plist_env_key_present", "FAIL",
+                              f"no EnvironmentVariables dict block found in {plist_path}{parse_note}",
+                              entry.get("source_pr", ""))
+            key_present = bool(re.search(rf"<key>{re.escape(key)}</key>", block.group(1)))
+        except Exception as e2:
+            return Result(entry["id"], entry["title"], "plist_env_key_present", "FAIL",
+                          f"plist parse + regex fallback both failed: {e2}",
+                          entry.get("source_pr", ""))
+    ok = key_present == must_be_present
+    status = "PASS" if ok else "FAIL"
+    detail = f"key={key} must_be_present={must_be_present} present={key_present}{parse_note}"
+    return Result(entry["id"], entry["title"], "plist_env_key_present", status, detail, entry.get("source_pr", ""))
+
+
+# ---------------------------------------------------------------------------
+# box_walk_probe — runtime gate. Invokes a named shell probe against a real
+# box; captures the class of bug that static gates cannot see (the whole point
+# of the token-gap tackling: seed-and-query round-trip proof).
+#
+# The registry maps `probe: <name>` to `scripts/box_walk_probes/<name>.sh`.
+# Each probe is a self-contained shell script; the primitive invokes it,
+# captures exit code + stdout, and PASSes on exit 0. FAILs on any non-zero.
+# SKIPs when OSTLER_BOX_HOST env var is not set (the box isn't reachable in
+# the current environment — CI + local dev — and a runtime probe cannot run
+# without a target).
+#
+# The actual probe bodies live with the Studio matrix runbook work; this
+# primitive is what wires them into the cut gate.
+# ---------------------------------------------------------------------------
+
+BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
+
+
+def _box_walk_probe_registry_dir(cm051_dir: Path) -> Path:
+    """Location of the box-walk probe registry.
+
+    All probe scripts live under `scripts/box_walk_probes/<probe_name>.sh`.
+    Keeping them together (rather than scattering) makes the registry easy to
+    audit and lets `chmod +x` propagate via a single directory.
+    """
+    return cm051_dir / "scripts" / "box_walk_probes"
+
+
+def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
+    """Invoke a named box-walk probe shell script and return its result.
+
+    Runtime probes require the box to be reachable; when OSTLER_BOX_HOST is
+    not set the primitive returns SKIP so CI + local dev pass cleanly. When
+    the env var IS set the probe MUST exit 0 to PASS.
+    """
+    proof = entry["proof"]
+    probe = proof["probe"]
+    cm051_dir = ctx["cm051_dir"]
+
+    if not os.environ.get("OSTLER_BOX_HOST"):
+        return Result(entry["id"], entry["title"], "box_walk_probe", "SKIP",
+                      "OSTLER_BOX_HOST not set (runtime probe requires a reachable box)",
+                      entry.get("source_pr", ""))
+
+    registry_dir = _box_walk_probe_registry_dir(cm051_dir)
+    script = registry_dir / f"{probe}.sh"
+    if not script.is_file():
+        return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
+                      f"probe {probe!r} not registered at {script}",
+                      entry.get("source_pr", ""))
+    try:
+        result = subprocess.run(
+            ["/bin/bash", str(script)],
+            capture_output=True, check=False,
+            timeout=BOX_WALK_PROBE_TIMEOUT_SECONDS,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
+                      f"probe invocation failed: {e}", entry.get("source_pr", ""))
+    exit_code = result.returncode
+    stdout_snippet = result.stdout.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    stderr_snippet = result.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+    ok = (exit_code == 0)
+    status = "PASS" if ok else "FAIL"
+    detail = f"probe={probe} exit={exit_code} stdout={stdout_snippet[0][:200]!r}"
+    if not ok and stderr_snippet[0]:
+        detail += f" stderr={stderr_snippet[0][:200]!r}"
+    return Result(entry["id"], entry["title"], "box_walk_probe", status, detail, entry.get("source_pr", ""))
+
+
+# ---------------------------------------------------------------------------
+# payload_version_matches_daemon_version — cut-time integrity check that the
+# (B-lite) embedded payload version matches the actual bundled daemon binary's
+# --version output. Catches "VERSION file right, wrong binary bundled" and the
+# reverse. Normalises three formats to a common semver core:
+#   `hub-vX.Y.Z`    -> `X.Y.Z`
+#   `zeroclaw X.Y.Z` -> `X.Y.Z`
+#   `X.Y.Z`         -> `X.Y.Z`
+# Anything else is a parse error and FAILs the gate.
+# ---------------------------------------------------------------------------
+
+_SEMVER_CORE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+
+
+def _normalise_version(raw: str) -> str:
+    """Normalise a version string to its semver core, or raise ValueError.
+
+    Accepts `hub-vX.Y.Z`, `zeroclaw X.Y.Z`, and bare `X.Y.Z`. Anything else is
+    a parse error. Matches the parser TNM uses in `upgrade_reconcile::SemVer::parse`
+    (oa #238) so cut-time and runtime speak the same version dialect.
+    """
+    s = raw.strip()
+    # Strip known prefixes.
+    if s.startswith("hub-v"):
+        s = s[len("hub-v"):]
+    elif s.startswith("zeroclaw "):
+        s = s[len("zeroclaw "):]
+    # If there is trailing content past the semver core (e.g. `X.Y.Z@sha`),
+    # trim to the leading semver segment only.
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", s)
+    if m is None:
+        raise ValueError(f"unparseable version: {raw!r}")
+    core = f"{m.group(1)}.{m.group(2)}.{m.group(3)}"
+    if not _SEMVER_CORE.match(core):
+        raise ValueError(f"unparseable version core: {raw!r}")
+    return core
+
+
+def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Result:
+    """Assert `ostler-payload/VERSION` matches the bundled daemon `--version`.
+
+    Both values are normalised to the semver core via `_normalise_version`
+    before comparison. SKIPs when the built app is not present (local dev,
+    pre-build CI). FAILs on any read error, invocation error, or unparseable
+    version.
+    """
+    app_path = ctx["app_path"]
+    if not app_path.exists():
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "SKIP", f"built app not present at {app_path} (has DMG been built?)",
+                      entry.get("source_pr", ""))
+    payload_root = app_path / "Contents" / "Resources" / "ostler-payload"
+    version_file = payload_root / "VERSION"
+    daemon_bin = payload_root / "assistant-agent" / "bin" / "ostler-assistant"
+
+    if not version_file.is_file():
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL", f"payload VERSION file missing at {version_file}",
+                      entry.get("source_pr", ""))
+    if not daemon_bin.is_file():
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL", f"payload daemon binary missing at {daemon_bin}",
+                      entry.get("source_pr", ""))
+
+    try:
+        payload_raw = version_file.read_text(encoding="utf-8", errors="replace").strip()
+    except (PermissionError, OSError) as e:
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL", f"reading VERSION failed: {e}", entry.get("source_pr", ""))
+    try:
+        result = subprocess.run(
+            [str(daemon_bin), "--version"],
+            capture_output=True, check=False, timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL", f"daemon --version invocation failed: {e}",
+                      entry.get("source_pr", ""))
+    if result.returncode != 0:
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL",
+                      f"daemon --version exited {result.returncode}: "
+                      f"{result.stderr.decode('utf-8', 'replace').strip()[:200]}",
+                      entry.get("source_pr", ""))
+    daemon_raw = result.stdout.decode("utf-8", "replace").strip().splitlines()[0] if result.stdout else ""
+
+    try:
+        payload_norm = _normalise_version(payload_raw)
+    except ValueError as e:
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL", f"payload VERSION unparseable: {e}",
+                      entry.get("source_pr", ""))
+    try:
+        daemon_norm = _normalise_version(daemon_raw)
+    except ValueError as e:
+        return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                      "FAIL", f"daemon --version unparseable: {e}",
+                      entry.get("source_pr", ""))
+
+    ok = payload_norm == daemon_norm
+    status = "PASS" if ok else "FAIL"
+    detail = (f"payload_raw={payload_raw!r} daemon_raw={daemon_raw!r} "
+              f"payload_norm={payload_norm} daemon_norm={daemon_norm}")
+    return Result(entry["id"], entry["title"], "payload_version_matches_daemon_version",
+                  status, detail, entry.get("source_pr", ""))
+
+
 DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "grep_in_installer": check_grep_in_installer,
     "grep_in_artefact": check_grep_in_artefact,
@@ -511,6 +795,9 @@ DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "grep_in_source_at_sha": check_grep_in_source_at_sha,
     "file_exists_in_artefact": check_file_exists_in_artefact,
     "plist_key_equals": check_plist_key_equals,
+    "plist_env_key_present": check_plist_env_key_present,
+    "box_walk_probe": check_box_walk_probe,
+    "payload_version_matches_daemon_version": check_payload_version_matches_daemon_version,
 }
 
 
