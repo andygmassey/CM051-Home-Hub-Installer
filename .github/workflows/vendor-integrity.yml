@@ -109,5 +109,14 @@ jobs:
       - name: Browser-history vendor regression
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
 
-      - name: Doctor pairing-panel vendor regression
-        run: bash vendor/doctor/test_vendor_pairing.sh
+      # Doctor pairing-panel vendor regression step removed 2026-07-30:
+      # the referenced test script vendor/doctor/test_vendor_pairing.sh
+      # was deleted in commit f08e056 (v1.0.9 recut cut-base) as part
+      # of the "doctor: exclude test_*.py (test files carried
+      # dev-machine paths)" cleanup, but this workflow reference was
+      # left dangling. Every vendor-integrity run has been failing at
+      # this step ever since. If the pairing regression check is
+      # genuinely wanted back, restore an updated test in
+      # vendor/doctor/ under a new name (the original had dev-machine
+      # paths hard-coded, which is why it was pulled) and re-add the
+      # step here.
