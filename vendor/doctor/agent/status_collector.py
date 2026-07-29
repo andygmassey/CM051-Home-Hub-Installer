@@ -94,8 +94,8 @@ def detect_ostler_prefix(snapshot: "SystemSnapshot") -> str:
 # native (launchd, native processes -- NOT a second Docker *host*);
 # HR015 locked this directive 2026-05-09. NOTE: "native" does NOT mean
 # "no Docker" -- the data tier (Qdrant/Oxigraph/Redis) runs in
-# containers via Colima even on the native build. The legacy dev
-# deploy runs the same services under Docker Desktop. The two builds
+# containers via Colima even on the native build. The legacy gamingrig
+# dev deploy runs the same services under Docker Desktop. The two builds
 # want different Doctor diagnostics: the native build needs no Docker
 # *Desktop* install (Colima provides the runtime), so the
 # "Docker Desktop not installed / not running" rules are false-RED
