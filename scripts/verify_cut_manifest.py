@@ -733,6 +733,15 @@ def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Resu
                       "SKIP", f"built app not present at {app_path} (has DMG been built?)",
                       entry.get("source_pr", ""))
     payload_root = app_path / "Contents" / "Resources" / "ostler-payload"
+    if not payload_root.is_dir():
+        # The (B-lite) payload is embedded inside the Hub Ostler.app, which the
+        # OstlerInstaller.app bundles under Contents/Resources/. When app_path is
+        # the outer OstlerInstaller (the DMG-cut case), the payload lives one
+        # bundle deeper -- descend into the nested Hub. (Sibling checks
+        # file_exists_in_artefact resolve this via resolve_target; mirror it here.)
+        _nested = sorted(app_path.glob("Contents/Resources/*.app/Contents/Resources/ostler-payload"))
+        if _nested:
+            payload_root = _nested[0]
     version_file = payload_root / "VERSION"
     daemon_bin = payload_root / "assistant-agent" / "bin" / "ostler-assistant"
 
