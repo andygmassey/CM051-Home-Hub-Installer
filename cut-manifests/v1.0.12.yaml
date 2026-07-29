@@ -93,21 +93,13 @@ entries:
       must_match: true
 
   # --------------------------------------------------------------------------
-  # FIX C — #452 reboot self-heal / boot auto-login MUST be in the cut
+  # FIX C - #452 boot auto-login: DEFERRED to v1.0.13 (Andy call, 2026-07-29)
   # --------------------------------------------------------------------------
-  # #452 (fix/v1011-reboot-self-heal) writes autoLoginUser +
-  # /etc/kcpassword so the Hub Mac auto-logs-in after a reboot and its
-  # LaunchAgents resume (self-heal). It is COMPLETE + MERGEABLE but was omitted
-  # from v1.0.11. This presence proof is RED until #452 is merged into the cut
-  # base -- that is the intended forcing function: v1.0.12 CANNOT be signed
-  # unless install.sh carries the auto-login config.
-  - id: v1012-autologin-present
-    title: install.sh must carry the #452 boot auto-login config (autoLoginUser)
-    source_pr: andygmassey/CM051-Home-Hub-Installer#452
-    proof:
-      kind: grep_in_installer
-      pattern: "autoLoginUser"
-      must_match: true
+  # #452 (autoLoginUser + /etc/kcpassword reboot self-heal) is COMPLETE +
+  # MERGEABLE but slides to v1.0.13: F&F customers enter their password once
+  # per reboot (not a headline miss), and we are not adding a second dependent
+  # PR to the v1.0.12 wave. The v1012-autologin-present presence gate was
+  # removed here so #458 (FDA python + Ollama log rotation) lands green.
 
   # ==========================================================================
   # (B-lite) delivery mechanism — v1.0.12 payload gates
