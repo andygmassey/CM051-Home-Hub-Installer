@@ -9,6 +9,7 @@
 #      (or `pytest` from repo root)
 # ============================================================================
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -69,14 +70,20 @@ def fake_app(tmp_path):
     return app
 
 
-def _run(cm051: Path, app: Path, *extra) -> subprocess.CompletedProcess:
+def _run(cm051: Path, app: Path, *extra, env: dict | None = None) -> subprocess.CompletedProcess:
+    # Strip any ambient DAEMON_VERSION so the payload-version gate's pin
+    # resolution is driven only by what a test explicitly provides (env kwarg
+    # or a gui/Makefile pin), never by the developer's/CI's shell environment.
+    run_env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
+    if env:
+        run_env.update(env)
     return subprocess.run(
         [sys.executable, str(SCRIPT),
          "--cm051-dir", str(cm051),
          "--app-path", str(app),
          "--json",
          *extra],
-        capture_output=True, check=False, text=True,
+        capture_output=True, check=False, text=True, env=run_env,
     )
 
 
@@ -695,72 +702,105 @@ def test_box_walk_probe_missing_probe_fails(fake_cm051, fake_app, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _make_payload(fake_app: Path, version_text: str, daemon_stdout: str) -> None:
+def _make_payload(fake_app: Path, version_text: str) -> None:
     """Build the (B-lite) payload layout inside the fake app.
 
     - Contents/Resources/ostler-payload/VERSION carries `version_text` verbatim.
-    - The daemon binary is a shell script that echoes `daemon_stdout` on
-      --version and exits 0. Placed at
-      Contents/Resources/ostler-payload/assistant-agent/bin/ostler-assistant.
+    - A stub daemon binary is placed at
+      Contents/Resources/ostler-payload/assistant-agent/bin/ostler-assistant so
+      the gate's presence check passes. The gate no longer invokes `--version`
+      (the daemon binary reports the FROZEN Cargo workspace version by design --
+      see reference_ostler_assistant_version_field_frozen); it compares VERSION
+      against the DAEMON_VERSION release pin. So the binary's contents are
+      irrelevant here -- only its presence matters.
     """
     payload = fake_app / "Contents" / "Resources" / "ostler-payload"
     bin_dir = payload / "assistant-agent" / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     (payload / "VERSION").write_text(version_text)
     daemon = bin_dir / "ostler-assistant"
-    # Bash shim: any --version arg -> echo the desired stdout and exit 0.
-    daemon.write_text(
-        "#!/usr/bin/env bash\n"
-        f"echo {daemon_stdout!r}\n"
-        "exit 0\n"
-    )
+    daemon.write_text("#!/usr/bin/env bash\nexit 0\n")
     daemon.chmod(0o755)
 
 
-def test_payload_version_matches_hub_v_and_zeroclaw_prefix(fake_cm051, fake_app):
-    """`hub-vX.Y.Z` VERSION + `zeroclaw X.Y.Z` daemon output normalise equal -> PASS."""
-    _make_payload(fake_app, "hub-v1.0.12", "zeroclaw 1.0.12")
+def _write_daemon_pin(fake_cm051: Path, version: str) -> None:
+    """Write a gui/Makefile carrying `DAEMON_VERSION ?= <version>` so the
+    payload-version gate can resolve the release pin via its Makefile fallback.
+    Mirrors the real cut, where `make ship` exports DAEMON_VERSION into env AND
+    the gui/Makefile carries the same pin as the fallback."""
+    gui = fake_cm051 / "gui"
+    gui.mkdir(parents=True, exist_ok=True)
+    (gui / "Makefile").write_text(f"DAEMON_VERSION ?= {version}\n")
+
+
+def test_payload_version_matches_via_makefile_pin(fake_cm051, fake_app):
+    """`hub-vX.Y.Z` payload VERSION vs a matching gui/Makefile DAEMON_VERSION
+    pin (the env-unset fallback path) normalise equal -> PASS."""
+    _make_payload(fake_app, "hub-v0.4.42")
+    _write_daemon_pin(fake_cm051, "0.4.42")
     _write_manifest(fake_cm051, "permanent.yaml", [])
     _write_manifest(fake_cm051, "v1.0.0.yaml", [{
         "id": "payload-versions-match",
-        "title": "payload VERSION matches daemon --version",
+        "title": "payload VERSION matches DAEMON_VERSION Makefile pin",
         "proof": {"kind": "payload_version_matches_daemon_version"},
     }])
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
 
 
-def test_payload_version_matches_bare_semver(fake_cm051, fake_app):
-    """Bare `X.Y.Z` on both sides normalises equal -> PASS."""
-    _make_payload(fake_app, "1.0.12", "1.0.12")
+def test_payload_version_matches_via_env_pin(fake_cm051, fake_app):
+    """Bare `X.Y.Z` payload VERSION vs a matching DAEMON_VERSION env var (the
+    primary path, exported by `make ship`) -> PASS. Env wins over any Makefile."""
+    _make_payload(fake_app, "0.4.42")
+    _write_daemon_pin(fake_cm051, "9.9.9")  # deliberately wrong; env must win
     _write_manifest(fake_cm051, "permanent.yaml", [])
     _write_manifest(fake_cm051, "v1.0.0.yaml", [{
-        "id": "payload-versions-match-bare",
-        "title": "bare semver on both sides matches",
+        "id": "payload-versions-match-env",
+        "title": "payload VERSION matches DAEMON_VERSION env pin",
         "proof": {"kind": "payload_version_matches_daemon_version"},
     }])
-    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", env={"DAEMON_VERSION": "0.4.42"})
     assert r.returncode == 0, r.stdout
 
 
 def test_payload_version_mismatch_fails(fake_cm051, fake_app):
-    """Normalised versions differ -> FAIL with both raw + normalised in detail."""
-    _make_payload(fake_app, "hub-v1.0.12", "zeroclaw 1.0.11")
+    """Payload VERSION differs from the DAEMON_VERSION pin -> FAIL, with both
+    normalised values in the detail so a human can see the drift."""
+    _make_payload(fake_app, "hub-v0.4.42")
+    _write_daemon_pin(fake_cm051, "0.4.41")
     _write_manifest(fake_cm051, "permanent.yaml", [])
     _write_manifest(fake_cm051, "v1.0.0.yaml", [{
         "id": "payload-versions-drift",
-        "title": "payload VERSION drifted from daemon --version",
+        "title": "payload VERSION drifted from DAEMON_VERSION pin",
         "proof": {"kind": "payload_version_matches_daemon_version"},
     }])
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 1, r.stdout
     # Detail must include both normalised values so a human can see the drift.
-    assert "1.0.12" in r.stdout and "1.0.11" in r.stdout
+    assert "0.4.42" in r.stdout and "0.4.41" in r.stdout
+
+
+def test_payload_version_no_pin_resolvable_fails(fake_cm051, fake_app):
+    """Valid payload + daemon present but NO DAEMON_VERSION (env or Makefile)
+    -> FAIL: the gate refuses to pass without an authoritative release pin."""
+    _make_payload(fake_app, "hub-v0.4.42")
+    # No _write_daemon_pin and no env DAEMON_VERSION (stripped by _run).
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "payload-versions-no-pin",
+        "title": "no DAEMON_VERSION pin resolvable",
+        "proof": {"kind": "payload_version_matches_daemon_version"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout
+    assert "could not resolve DAEMON_VERSION" in r.stdout
 
 
 def test_payload_version_unparseable_fails(fake_cm051, fake_app):
-    """Non-semver VERSION text -> FAIL (parse error)."""
-    _make_payload(fake_app, "not-a-version", "zeroclaw 1.0.12")
+    """Non-semver payload VERSION text -> FAIL (parse error), even with a valid
+    pin present (the payload is what's broken, not the pin)."""
+    _make_payload(fake_app, "not-a-version")
+    _write_daemon_pin(fake_cm051, "0.4.42")
     _write_manifest(fake_cm051, "permanent.yaml", [])
     _write_manifest(fake_cm051, "v1.0.0.yaml", [{
         "id": "payload-versions-unparseable",

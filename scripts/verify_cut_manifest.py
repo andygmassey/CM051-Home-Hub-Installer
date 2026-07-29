@@ -720,12 +720,19 @@ def _normalise_version(raw: str) -> str:
 
 
 def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Result:
-    """Assert `ostler-payload/VERSION` matches the bundled daemon `--version`.
+    """Assert `ostler-payload/VERSION` matches the cut's DAEMON_VERSION release pin.
 
-    Both values are normalised to the semver core via `_normalise_version`
-    before comparison. SKIPs when the built app is not present (local dev,
-    pre-build CI). FAILs on any read error, invocation error, or unparseable
-    version.
+    The bundled daemon binary reports the FROZEN Cargo workspace version
+    (0.4.1) by design (releases go by git tag +1; see
+    reference_ostler_assistant_version_field_frozen), so `--version` structurally
+    cannot equal the release version. Instead this compares the payload VERSION
+    against the authoritative release pin: env `DAEMON_VERSION` (exported by
+    `make ship`), falling back to the gui/Makefile `DAEMON_VERSION ?=` default.
+    Both values are normalised to the semver core via `_normalise_version` before
+    comparison. The daemon binary is still checked for *presence*. SKIPs when the
+    built app is not present (local dev, pre-build CI). FAILs on any read error,
+    a missing/unresolvable pin, or an unparseable version. A binary-IDENTITY
+    check (bundled SHA vs DAEMON_SHA256) is a separate follow-up.
     """
     app_path = ctx["app_path"]
     if not app_path.exists():
