@@ -105,6 +105,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "cm048_pipeline": ["vendor/cm048_pipeline"],
     "cm059_editor": ["vendor/cm059_editor"],
     "cm019_preferences": ["vendor/cm019_preferences"],
+    # CM052 AI-conversation producer. install.sh probes BOTH
+    # ${SCRIPT_DIR}/cm052_ai_conversations (the .app Resources layout) AND
+    # ${SCRIPT_DIR}/vendor/cm052_ai_conversations (the dev-tree layout), so
+    # both canonical leaves need a needle. Bundled by the "Bundle CM052
+    # AI-conversation producer into Resources" postBuildScript (gui/project.yml).
+    "cm052_ai_conversations": ["vendor/cm052_ai_conversations"],
+    "vendor/cm052_ai_conversations": ["vendor/cm052_ai_conversations"],
     "contact_syncer": ["vendor/cm041"],
     "assistant_api": ["vendor/cm041"],
     "email-ingest": ["vendor/email_ingest"],
@@ -166,6 +173,7 @@ def canonical_leaf(raw_path: str) -> str:
       assistant-agent/INSTALL_SNIPPET.sh -> assistant-agent
       legal/pyproject.toml               -> legal
       lib/progress_emitter.sh            -> lib/progress_emitter.sh
+      vendor/cm052_ai_conversations      -> vendor/cm052_ai_conversations
       LICENSES                            -> LICENSES
       scripts/deferred-register-device.sh -> scripts/deferred-register-device.sh
     """
@@ -180,9 +188,12 @@ def canonical_leaf(raw_path: str) -> str:
     if raw_path in EXCEPTIONS:
         return raw_path
 
-    # lib/* / scripts/* / extensions/* keep their first two segments so
-    # they map cleanly to the bundled subdir.
-    if head in {"lib", "scripts", "extensions"} and rest:
+    # lib/* / scripts/* / extensions/* / vendor/* keep their full path so
+    # they map cleanly to the bundled subdir. Without "vendor" here a probe
+    # like ${SCRIPT_DIR}/vendor/cm052_ai_conversations collapses to the bare
+    # leaf "vendor", which has no needle and false-flags a shipped asset as a
+    # GAP (and would false-COVER a future vendor probe under one bare mapping).
+    if head in {"lib", "scripts", "extensions", "vendor"} and rest:
         return raw_path
 
     # install.sh.strings.en-GB.sh has multiple dots; strip the lang
