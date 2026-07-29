@@ -4,7 +4,7 @@ Before the fix bridge.py initialised ``last_rowid = 0`` when
 state.json was missing, then emitted every inbound message in
 chat.db into inbox.jsonl (LIMIT 500 per 30s tick). The consumer
 side (ostler-assistant) then asked the LLM to reply to every
-historical message, producing the Marvin self-talk loop observed
+historical message, producing the assistant self-talk loop observed
 across two threads on Andy's own number.
 
 This test refuses the regression shape: on first run, with a

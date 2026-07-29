@@ -3126,7 +3126,7 @@ def person_context(name):
 
     if len(results) == 1:
         # CM031 PWG Companion's PersonContextResponse decodes a flat shape
-        # ({name, slug, organisation, title, last_contact, ...}). Marvin /
+        # ({name, slug, organisation, title, last_contact, ...}). The assistant /
         # ZeroClaw and the existing test suite expect the nested shape
         # ({found, person: {...}}). Return both: nested for backwards
         # compatibility, flat fields at top-level for the iOS client.
@@ -4742,7 +4742,7 @@ def api_suggestions():
     except Exception as exc:
         out["recent_error"] = str(exc)
     # CM031 PWG Companion's SuggestionsResponse keys on `reconnect` and
-    # `follow_up`. Marvin / wiki tooling uses the legacy `stale_contacts`
+    # `follow_up`. The assistant / wiki tooling uses the legacy `stale_contacts`
     # and `recent_meetings` keys. Surface both so neither client has to
     # change. Aliases share the same list reference – cheap, no copy.
     out["reconnect"] = out["stale_contacts"]
@@ -5723,7 +5723,7 @@ def _hub_power_state():
 
 
 def _hub_queue_depth():
-    """Read pending Marvin actions from the catch-up replay marker file.
+    """Read pending assistant actions from the catch-up replay marker file.
 
     ZeroClaw does not currently expose a queryable endpoint for this, so
     v1 reads from an on-disk marker written by the catch-up path. Missing
@@ -6408,7 +6408,7 @@ class Handler(BaseHTTPRequestHandler):
             # CM031 PWG Companion's CalendarEvent decodes `title` and ISO
             # timestamps. Add the iOS-friendly aliases without removing
             # the legacy `summary` / iCal-style `start` / `end` fields
-            # used by Marvin and the wiki tools. attendee_names is the
+            # used by the assistant and the wiki tools. attendee_names is the
             # CM031 `attendees: [String]` shape; legacy `attendees` (list
             # of {name, email, role} dicts) is left alone.
             for e in deduped:

@@ -384,7 +384,7 @@ _SOURCE_PREDICATE = {
     "imessage": "pwg:lastContactIMessage",
     # WhatsApp T1 (DM) + T2 (group) both write to the same predicate.
     # The pwg:contactSourceTier triple on the identifier carries the
-    # tier-context tag so the wiki renderer + future Marvin retrieval
+    # tier-context tag so the wiki renderer + future assistant retrieval
     # can distinguish DM-level signals from group-membership signals
     # without splitting the freshness signal across two predicates.
     "whatsapp": "pwg:lastContactWhatsApp",
