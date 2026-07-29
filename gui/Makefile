@@ -423,6 +423,123 @@ stage-daemon: download-daemon
 	printf '[OK] Staged daemon v%s at %s\n' "$(DAEMON_VERSION)" "$$DAEMON_PAYLOAD_DEST"
 
 # ---------------------------------------------------------------------------
+# (B-lite) delivery mechanism -- Component 3: payload embedding (cut-time).
+# Spec: HR015/launch/BLITE_DELIVERY_DESIGN_v1.0.12.md section 1 "Payload
+# embedding".
+#
+# Embeds a self-contained payload inside the pre-built Hub Ostler.app at
+# $(OSTLER_APP_PATH)/Contents/Resources/ostler-payload/ so a later
+# OSTLER_UPGRADE_MODE=1 run of install.sh can reconcile EVERY piece of Ostler
+# on a customer Mac from the embedded copy (daemon binary, launchd plists,
+# doctor / knowledge / cm048 service trees) rather than just
+# /Applications/Ostler.app, and without any network fetch. Embedding, not
+# downloading, means "if the Hub is on disk, the payload is too" (spec
+# rationale) -- no second HTTP dependency at trigger time.
+#
+# ORDERING IS LOAD-BEARING: this target runs in the ship chain AFTER
+# stage-daemon (so the freshly-staged daemon binary exists under
+# ../assistant-agent/) and BEFORE sparkle-embed. sparkle-embed's
+# embed-sparkle.sh runs `codesign --force --deep` over the whole Ostler.app,
+# which SEALS this payload inside the Hub's codesignature. Inject the payload
+# after that seal and it would be un-sealed detritus that breaks
+# `codesign --verify`; the whole point is that the payload rides inside the
+# Hub signature envelope.
+#
+# Fails loudly if ANY source input is missing -- a partial payload must never
+# ship (a customer upgrade would then reconcile from an incomplete set and
+# half-swap the product). Size guard: hard-fails above 500 MB (Andy's cap,
+# 2026-07-27 sign-off decision #1); expected 50-150 MB, dominated by the
+# ~30-50 MB daemon binary.
+#
+# Note payload service names != vendor source names:
+#   services/doctor/    <- vendor/doctor/agent/
+#   services/knowledge/ <- vendor/cm024_knowledge/
+#   services/cm048/     <- vendor/cm048_pipeline/
+# ---------------------------------------------------------------------------
+stage-payload:
+	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: OSTLER_APP_PATH is not a directory: $(OSTLER_APP_PATH)" >&2; \
+	    echo "  stage-payload embeds the (B-lite) upgrade payload INSIDE the pre-built" >&2; \
+	    echo "  Ostler.app. Build the Tauri Hub or point OSTLER_APP_PATH at a bundle first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Embedding (B-lite) upgrade payload into Ostler.app (before sparkle-embed seal)"
+	@SRC_ROOT="$(CURDIR)/.."; \
+	AGENT_SRC="$$SRC_ROOT/assistant-agent"; \
+	DAEMON_APP_BIN="$$AGENT_SRC/OstlerAssistant.app/Contents/MacOS/ostler-assistant"; \
+	DAEMON_BARE_BIN="$$AGENT_SRC/bin/ostler-assistant"; \
+	if [ -x "$$DAEMON_APP_BIN" ]; then \
+	    DAEMON_BIN="$$DAEMON_APP_BIN"; \
+	elif [ -x "$$DAEMON_BARE_BIN" ]; then \
+	    DAEMON_BIN="$$DAEMON_BARE_BIN"; \
+	else \
+	    echo "" >&2; \
+	    echo "ERROR: staged daemon binary not found. Expected one of:" >&2; \
+	    echo "  $$DAEMON_APP_BIN" >&2; \
+	    echo "  $$DAEMON_BARE_BIN" >&2; \
+	    echo "  Run 'make stage-daemon' before stage-payload -- it extracts the" >&2; \
+	    echo "  v$(DAEMON_VERSION) daemon tarball into ../assistant-agent/. In the ship" >&2; \
+	    echo "  chain stage-daemon runs first, so this only bites a standalone run." >&2; \
+	    exit 1; \
+	fi; \
+	INSTALL_SH="$$SRC_ROOT/install.sh"; \
+	SNIPPET="$$AGENT_SRC/INSTALL_SNIPPET.sh"; \
+	LAUNCHD_DIR="$$AGENT_SRC/launchd"; \
+	DOCTOR_SRC="$$SRC_ROOT/vendor/doctor/agent"; \
+	KNOWLEDGE_SRC="$$SRC_ROOT/vendor/cm024_knowledge"; \
+	CM048_SRC="$$SRC_ROOT/vendor/cm048_pipeline"; \
+	PLISTS="$$(ls "$$LAUNCHD_DIR"/*.plist 2>/dev/null || true)"; \
+	MISSING=""; \
+	[ -f "$$INSTALL_SH" ] || MISSING="$$MISSING install.sh"; \
+	[ -f "$$SNIPPET" ] || MISSING="$$MISSING assistant-agent/INSTALL_SNIPPET.sh"; \
+	[ -d "$$LAUNCHD_DIR" ] || MISSING="$$MISSING assistant-agent/launchd/"; \
+	[ -n "$$PLISTS" ] || MISSING="$$MISSING assistant-agent/launchd/*.plist"; \
+	[ -d "$$DOCTOR_SRC" ] || MISSING="$$MISSING vendor/doctor/agent"; \
+	[ -d "$$KNOWLEDGE_SRC" ] || MISSING="$$MISSING vendor/cm024_knowledge"; \
+	[ -d "$$CM048_SRC" ] || MISSING="$$MISSING vendor/cm048_pipeline"; \
+	if [ -n "$$MISSING" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: stage-payload source input(s) missing:$$MISSING" >&2; \
+	    echo "  Refusing to embed a partial payload -- a customer upgrade would then" >&2; \
+	    echo "  reconcile from an incomplete set and half-swap the product. Fix the" >&2; \
+	    echo "  inputs above and re-run." >&2; \
+	    exit 1; \
+	fi; \
+	PAYLOAD="$(OSTLER_APP_PATH)/Contents/Resources/ostler-payload"; \
+	printf '[STEP] Assembling payload at %s\n' "$$PAYLOAD"; \
+	rm -rf "$$PAYLOAD"; \
+	mkdir -p "$$PAYLOAD/assistant-agent/bin" "$$PAYLOAD/assistant-agent/launchd" "$$PAYLOAD/services"; \
+	printf 'hub-v%s\n' "$(DAEMON_VERSION)" > "$$PAYLOAD/VERSION"; \
+	cp "$$INSTALL_SH" "$$PAYLOAD/install.sh"; \
+	cp "$$SNIPPET" "$$PAYLOAD/assistant-agent/INSTALL_SNIPPET.sh"; \
+	cp "$$LAUNCHD_DIR"/*.plist "$$PAYLOAD/assistant-agent/launchd/"; \
+	cp "$$DAEMON_BIN" "$$PAYLOAD/assistant-agent/bin/ostler-assistant"; \
+	chmod +x "$$PAYLOAD/assistant-agent/bin/ostler-assistant"; \
+	cp -R "$$DOCTOR_SRC" "$$PAYLOAD/services/doctor"; \
+	cp -R "$$KNOWLEDGE_SRC" "$$PAYLOAD/services/knowledge"; \
+	cp -R "$$CM048_SRC" "$$PAYLOAD/services/cm048"; \
+	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
+	for req in VERSION install.sh assistant-agent/INSTALL_SNIPPET.sh assistant-agent/bin/ostler-assistant services/doctor services/knowledge services/cm048; do \
+	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
+	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
+	        exit 1; \
+	    fi; \
+	done; \
+	FILE_COUNT="$$(find "$$PAYLOAD" -type f | wc -l | tr -d ' ')"; \
+	PAYLOAD_MB="$$(du -sm "$$PAYLOAD" | awk '{print $$1}')"; \
+	printf '[OK] payload assembled: %s files, %s MB, VERSION=hub-v%s\n' "$$FILE_COUNT" "$$PAYLOAD_MB" "$(DAEMON_VERSION)"; \
+	if [ "$$PAYLOAD_MB" -gt 500 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: embedded payload is $${PAYLOAD_MB} MB, over the 500 MB cap." >&2; \
+	    echo "  (Andy's 2026-07-27 sign-off decision #1.) Something bloated the payload;" >&2; \
+	    echo "  investigate before shipping -- do NOT raise the cap silently." >&2; \
+	    rm -rf "$$PAYLOAD"; \
+	    exit 1; \
+	fi; \
+	printf '[OK] Embedded (B-lite) payload sealed-pending-sparkle at %s\n' "$$PAYLOAD"
+
+# ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
 release: check-tools check-identity download-python
@@ -877,6 +994,10 @@ verify-dmg-contents:
 	if [ ! -x "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" ]; then \
 	    OSTLER_APP_OK=0; \
 	fi; \
+	PAYLOAD_OK=1; \
+	if [ ! -f "$$RES/Ostler.app/Contents/Resources/ostler-payload/VERSION" ]; then \
+	    PAYLOAD_OK=0; \
+	fi; \
 	HUB_SHA="$$(strings "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" 2>/dev/null | grep -oE 'OSTLER_HUB_BUILD_SHA=[0-9a-f]{40}' | head -1 | cut -d= -f2)"; \
 	INSTALL_SH_OK=1; \
 	if ! grep -q "OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases" "$$RES/install.sh" 2>/dev/null; then \
@@ -934,6 +1055,15 @@ verify-dmg-contents:
 	    echo "       executable at Contents/MacOS/zeroclaw-desktop." >&2; \
 	    exit 1; \
 	fi; \
+	if [ "$$PAYLOAD_OK" = "0" ]; then \
+	    echo "ERROR: (B-lite) upgrade payload missing from the bundled Ostler.app." >&2; \
+	    echo "       Expected Ostler.app/Contents/Resources/ostler-payload/VERSION." >&2; \
+	    echo "       stage-payload must run in the ship chain AFTER stage-daemon and" >&2; \
+	    echo "       BEFORE sparkle-embed so the payload is sealed in the Hub signature." >&2; \
+	    echo "       Without it, a v1.0.12 Sparkle update reaches only /Applications/Ostler.app" >&2; \
+	    echo "       and cannot reconcile the daemon + services on the customer Mac." >&2; \
+	    exit 1; \
+	fi; \
 	if [ -z "$$HUB_SHA" ]; then \
 	    echo "ERROR: bundled Hub binary carries no OSTLER_HUB_BUILD_SHA marker." >&2; \
 	    echo "       This is a STALE / pre-marker Ostler.app (the 2026-06-03 P0:" >&2; \
@@ -985,7 +1115,7 @@ verify-dmg-contents:
 	    echo "       the DMG -- a burnt cut cycle." >&2; \
 	    exit 1; \
 	fi; \
-	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon + ostler-mecard present (Hub build-SHA $$HUB_SHA)"
+	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon + ostler-mecard + embedded (B-lite) ostler-payload present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → DMG → notarise → staple → verify → archive
@@ -996,7 +1126,7 @@ verify-dmg-contents:
 # regression downstream of check-ostler-app fails before we archive a bad
 # DMG into ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python stage-daemon sparkle-embed release sign-python-bundle check-manifest package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest package notarise verify-dmg-contents archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
