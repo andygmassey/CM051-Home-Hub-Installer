@@ -1205,6 +1205,17 @@ MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can
 MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background – your wiki will fill in over the next hour."
 MSG_HYDRATE_IMESSAGE_HEARTBEAT="  Still reading your iMessage history (%ss so far). A large message history can take several minutes."
 
+# Apple Notes knowledge hydration (CM024 apple_notes adapter). Notes are
+# converted to markdown + embedded locally; only note-count totals are
+# shown to the customer -- no note titles or bodies leave the process.
+# Copy is dash-clean (plain hyphens only) per the hydrate-phase convention.
+MSG_HYDRATE_APPLE_NOTES_STARTED="Reading your Apple Notes - they stay on this Mac"
+MSG_HYDRATE_APPLE_NOTES_DONE="Added %s notes to your knowledge base"
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to read. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background - your knowledge base will fill in shortly."
+MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
+
 # People search index (#600)
 MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
 MSG_HYDRATE_PEOPLE_DONE="Indexed %s people for search"
