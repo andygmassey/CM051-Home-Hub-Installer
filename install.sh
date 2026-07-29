@@ -44,6 +44,480 @@ for arg in "$@"; do
     esac
 done
 
+# ── Upgrade / rollback mode (B-lite delivery mechanism, v1.0.12) ────
+#
+# Two NON-INTERACTIVE modes the Hub invokes to reconcile the pieces of
+# Ostler that Sparkle cannot update on its own (the Rust daemon, its
+# launchd plists, and the vendored Python service trees). Design and
+# invariants: HR015/launch/BLITE_DELIVERY_DESIGN_v1.0.12.md, section 4
+# "install.sh upgrade-mode contract" and "Failure modes + rollback".
+#
+#   OSTLER_UPGRADE_MODE=1      forward upgrade from the embedded payload
+#   OSTLER_UPGRADE_ROLLBACK=1  restore the previous daemon from .old
+#
+# Both read OSTLER_UPGRADE_PAYLOAD_DIR (payload root) and append to
+# OSTLER_UPGRADE_LOG_PATH. This block sits BEFORE the /dev/tty redirect
+# and every interactive phase on purpose: an upgrade must be FULLY
+# non-interactive (never read stdin, never prompt, never re-request
+# Full Disk Access / licence / consent / the first-run wizard, never
+# touch colima). It runs self-contained against ~/.ostler and exits
+# without falling through into the normal installer. (Recon anchored
+# this near the SKIP_PHASE2 re-run gate; it is hoisted to here instead
+# so the tty redirect at the next block and every Phase 1 check are
+# skipped too, which is what "fully non-interactive" requires.)
+#
+# Exit-code semantics (also written to the log):
+#   0   success
+#   10  bad invocation (both modes set, missing payload dir / VERSION,
+#       or no prior install to upgrade)
+#   20  payload daemon .app missing (or only a bare binary shipped;
+#       upgrade-mode requires a signed .app to honour codesign verify)
+#   21  codesign --verify --deep --strict FAILED on the staged .new
+#       daemon; nothing swapped, running daemon left untouched
+#   22  staging copy (ditto) of the payload daemon failed
+#   23  atomic swap (mv) failed
+#   30  plist re-render (INSTALL_SNIPPET.sh) failed
+#   31  plist bootstrap (launchctl) failed
+#   40  VERSION write failed
+#   50  rollback: no OstlerAssistant.app.old to restore from
+#   51  rollback: daemon swap failed
+#   52  rollback: plist re-render / bootstrap failed
+# Vendored service-tree refreshes are best-effort (logged, never
+# fatal): per Invariant 4 a service may lag the daemon and that is an
+# acceptable transient state.
+if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
+
+    # Own the error handling from here: manage exit codes explicitly so
+    # a transient non-zero can never abort mid-swap under `set -e`.
+    set +e
+
+    _UPG_HOME="${HOME}"
+    _UPG_OSTLER_DIR="${_UPG_HOME}/.ostler"
+    _UPG_APP="${_UPG_OSTLER_DIR}/OstlerAssistant.app"
+    _UPG_APP_NEW="${_UPG_APP}.new"
+    _UPG_APP_OLD="${_UPG_APP}.old"
+    _UPG_APP_FAILED="${_UPG_APP}.failed"
+    _UPG_VERSION_FILE="${_UPG_OSTLER_DIR}/VERSION"
+    _UPG_SECRETS_TOKEN="${_UPG_OSTLER_DIR}/secrets/service_token"
+    _UPG_LOGS_DIR="${_UPG_OSTLER_DIR}/logs"
+    _UPG_ASSISTANT_CONFIG_DIR="${_UPG_OSTLER_DIR}/assistant-config"
+    _UPG_LA_DIR="${_UPG_HOME}/Library/LaunchAgents"
+    _UPG_ASSISTANT_LABEL="com.creativemachines.ostler.assistant"
+    _UPG_KEEPALIVE_LABEL="com.creativemachines.ostler.whatsapp-keepalive"
+    _UPG_ASSISTANT_PLIST="${_UPG_LA_DIR}/${_UPG_ASSISTANT_LABEL}.plist"
+    _UPG_KEEPALIVE_PLIST="${_UPG_LA_DIR}/${_UPG_KEEPALIVE_LABEL}.plist"
+    _UPG_DOMAIN="gui/$(id -u)"
+    _UPG_PB="/usr/libexec/PlistBuddy"
+    # Same Developer-ID Team pin the fresh-install daemon gate uses
+    # (_verify_daemon_signature, ~L12937): a foreign-but-notarised
+    # bundle is rejected here too, not just any notarised app.
+    _UPG_CODESIGN_REQ='=anchor apple generic and certificate leaf[subject.OU] = "V95N2B8X7A"'
+
+    _UPG_PAYLOAD="${OSTLER_UPGRADE_PAYLOAD_DIR:-}"
+    _UPG_PAYLOAD_AGENT="${_UPG_PAYLOAD}/assistant-agent"
+    _UPG_PAYLOAD_APP="${_UPG_PAYLOAD_AGENT}/OstlerAssistant.app"
+    _UPG_PAYLOAD_BIN="${_UPG_PAYLOAD_AGENT}/bin/ostler-assistant"
+    _UPG_PAYLOAD_SNIPPET="${_UPG_PAYLOAD_AGENT}/INSTALL_SNIPPET.sh"
+    _UPG_PAYLOAD_VERSION_FILE="${_UPG_PAYLOAD}/VERSION"
+
+    if [[ -n "${OSTLER_UPGRADE_LOG_PATH:-}" ]]; then
+        mkdir -p "$(dirname "$OSTLER_UPGRADE_LOG_PATH")" 2>/dev/null || true
+    fi
+    _upg_log() {
+        local _ts _m
+        _ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '?')"
+        _m="[ostler-upgrade ${_ts}] $*"
+        printf '%s\n' "$_m"
+        if [[ -n "${OSTLER_UPGRADE_LOG_PATH:-}" ]]; then
+            printf '%s\n' "$_m" >> "$OSTLER_UPGRADE_LOG_PATH" 2>/dev/null || true
+        fi
+    }
+    _upg_die() {
+        local _code="$1"; shift
+        _upg_log "FATAL(exit ${_code}): $*"
+        exit "$_code"
+    }
+
+    # Resolve a base python3 for venv rebuilds. Prefer the same
+    # homebrew interpreters install.sh uses; fall back to PATH. On any
+    # machine that already has Ostler installed, python3 is present
+    # (the original install built the venvs with it).
+    _upg_resolve_python3() {
+        local _p
+        for _p in /opt/homebrew/opt/python@3.11/bin/python3.11 \
+                  /usr/local/opt/python@3.11/bin/python3.11 \
+                  /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+            if [[ -x "$_p" ]]; then printf '%s' "$_p"; return 0; fi
+        done
+        _p="$(command -v python3 2>/dev/null)"
+        if [[ -n "$_p" ]]; then printf '%s' "$_p"; return 0; fi
+        return 1
+    }
+
+    # Overlay EVERY EnvironmentVariables key from an EXISTING plist onto a
+    # freshly-rendered one, so customer-specific / daemon-added keys
+    # survive an upgrade generically. This decouples the upgrade from any
+    # specific key name (#236 PWG_SERVICE_TOKEN, #464, or a future addition
+    # the daemon build introduces): whatever the customer's live plist
+    # carries is re-applied verbatim. Old value wins on a key collision, so
+    # the customer's real self-handles / token are not clobbered by the new
+    # template's empty / placeholder render.
+    _upg_preserve_plist_env() {
+        local _old="$1" _new="$2"
+        [[ -f "$_old" && -f "$_new" ]] || return 0
+        [[ -x "$_UPG_PB" ]] || { _upg_log "WARN: PlistBuddy unavailable; cannot preserve plist env for $(basename "$_new")"; return 0; }
+        "$_UPG_PB" -c "Print :EnvironmentVariables" "$_new" >/dev/null 2>&1 \
+            || "$_UPG_PB" -c "Add :EnvironmentVariables dict" "$_new" >/dev/null 2>&1 || true
+        local _keys _k _v
+        _keys="$("$_UPG_PB" -c "Print :EnvironmentVariables" "$_old" 2>/dev/null \
+            | sed -n 's/^ *\([A-Za-z_][A-Za-z0-9_]*\) = .*/\1/p')"
+        while IFS= read -r _k; do
+            [[ -n "$_k" ]] || continue
+            _v="$("$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_old" 2>/dev/null)" || continue
+            if "$_UPG_PB" -c "Print :EnvironmentVariables:${_k}" "$_new" >/dev/null 2>&1; then
+                "$_UPG_PB" -c "Set :EnvironmentVariables:${_k} ${_v}" "$_new" >/dev/null 2>&1
+            else
+                "$_UPG_PB" -c "Add :EnvironmentVariables:${_k} string ${_v}" "$_new" >/dev/null 2>&1
+            fi
+        done <<< "$_keys"
+        _upg_log "preserved EnvironmentVariables from previous $(basename "$_new")"
+        return 0
+    }
+
+    # Stable service-token fallback. If, after the generic overlay, the
+    # plist still lacks a non-empty PWG_SERVICE_TOKEN (e.g. a pre-#236
+    # v1.0.11 customer whose old plist never carried it) seed it from
+    # ~/.ostler/secrets/service_token. This is the one explicitly-named
+    # fallback the spec calls for; it closes the token gap that the
+    # daemon retrieval blocker was rooted in.
+    _upg_ensure_token() {
+        local _plist="$1"
+        [[ -f "$_plist" && -x "$_UPG_PB" ]] || return 0
+        [[ -f "$_UPG_SECRETS_TOKEN" ]] || return 0
+        local _tok _cur
+        _tok="$(cat "$_UPG_SECRETS_TOKEN" 2>/dev/null)"
+        [[ -n "$_tok" ]] || return 0
+        _cur="$("$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" 2>/dev/null)"
+        if [[ -n "$_cur" ]]; then return 0; fi
+        "$_UPG_PB" -c "Print :EnvironmentVariables" "$_plist" >/dev/null 2>&1 \
+            || "$_UPG_PB" -c "Add :EnvironmentVariables dict" "$_plist" >/dev/null 2>&1 || true
+        if "$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" >/dev/null 2>&1; then
+            "$_UPG_PB" -c "Set :EnvironmentVariables:PWG_SERVICE_TOKEN ${_tok}" "$_plist" >/dev/null 2>&1
+        else
+            "$_UPG_PB" -c "Add :EnvironmentVariables:PWG_SERVICE_TOKEN string ${_tok}" "$_plist" >/dev/null 2>&1
+        fi
+        _upg_log "token fallback: seeded PWG_SERVICE_TOKEN from $(basename "$_UPG_SECRETS_TOKEN") into $(basename "$_plist")"
+        return 0
+    }
+
+    # Stage the payload daemon at ~/.ostler/OstlerAssistant.app.new and
+    # gate it on codesign --verify --deep --strict (Team pinned). The
+    # running daemon and the live .app are NOT touched here: on a verify
+    # failure we return non-zero with nothing moved, so the old daemon is
+    # never even booted out. Returns 0 (verified, .new staged), 20 (no
+    # verifiable payload daemon), 21 (verify failed), 22 (copy failed).
+    _upg_stage_daemon() {
+        rm -rf "$_UPG_APP_NEW" 2>/dev/null || true
+        if [[ -d "$_UPG_PAYLOAD_APP" ]]; then
+            _upg_log "staging daemon: ditto ${_UPG_PAYLOAD_APP} -> ${_UPG_APP_NEW}"
+            mkdir -p "$(dirname "$_UPG_APP_NEW")" 2>/dev/null || true
+            if ! ditto "$_UPG_PAYLOAD_APP" "$_UPG_APP_NEW"; then
+                _upg_log "ERROR: ditto of payload daemon failed"
+                rm -rf "$_UPG_APP_NEW" 2>/dev/null || true
+                return 22
+            fi
+        elif [[ -e "$_UPG_PAYLOAD_BIN" ]]; then
+            _upg_log "ERROR: payload ships a bare binary at ${_UPG_PAYLOAD_BIN} but no signed OstlerAssistant.app."
+            _upg_log "       upgrade-mode requires a signed .app to honour the codesign verify invariant; refusing."
+            return 20
+        else
+            _upg_log "ERROR: no payload daemon found at ${_UPG_PAYLOAD_APP}"
+            return 20
+        fi
+        chmod 0755 "${_UPG_APP_NEW}/Contents/MacOS/ostler-assistant" 2>/dev/null || true
+        _upg_log "verifying staged daemon (codesign --verify --deep --strict, Team V95N2B8X7A)"
+        if ! codesign --verify --deep --strict -R "$_UPG_CODESIGN_REQ" "$_UPG_APP_NEW" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; then
+            _upg_log "ERROR: codesign verify FAILED on ${_UPG_APP_NEW}; refusing swap (old daemon untouched)."
+            rm -rf "$_UPG_APP_NEW" 2>/dev/null || true
+            return 21
+        fi
+        _upg_log "staged daemon verified OK"
+        return 0
+    }
+
+    # Re-render both launchd plists from the PAYLOAD's INSTALL_SNIPPET.sh
+    # (new templates), preserving each plist's existing EnvironmentVariables
+    # generically, then bootstrap. Returns 0, 30 (render error) or 31
+    # (bootstrap error). Used by both the upgrade and rollback paths.
+    _upg_rerender_plists() {
+        if [[ ! -f "$_UPG_PAYLOAD_SNIPPET" ]]; then
+            _upg_log "ERROR: payload INSTALL_SNIPPET.sh missing at ${_UPG_PAYLOAD_SNIPPET}"
+            return 30
+        fi
+        local _tmp
+        _tmp="$(mktemp -d -t ostler-upgrade-plist.XXXXXX)" || return 30
+        local _old_assistant="" _old_keepalive="" _keepalive_flag="false"
+        # Snapshot the live plists BEFORE the snippet overwrites them.
+        if [[ -f "$_UPG_ASSISTANT_PLIST" ]]; then
+            cp "$_UPG_ASSISTANT_PLIST" "${_tmp}/old-assistant.plist" && _old_assistant="${_tmp}/old-assistant.plist"
+        fi
+        if [[ -f "$_UPG_KEEPALIVE_PLIST" ]]; then
+            cp "$_UPG_KEEPALIVE_PLIST" "${_tmp}/old-keepalive.plist" && _old_keepalive="${_tmp}/old-keepalive.plist"
+            _keepalive_flag="true"   # preserve the customer's WhatsApp keepalive choice
+        fi
+        # Render via the payload snippet. DEFER_START=true so it renders +
+        # boots-out but does NOT bootstrap the assistant; we bootstrap
+        # ourselves after re-applying the preserved env. Self-handles are
+        # passed empty on purpose: the real value is restored from the old
+        # plist by the overlay below (the me-card is not re-captured).
+        _upg_log "re-rendering launchd plists via payload INSTALL_SNIPPET.sh (keepalive=${_keepalive_flag})"
+        (
+            cd "$_UPG_PAYLOAD_AGENT" || exit 1
+            OSTLER_INSTALL_ROOT="$_UPG_PAYLOAD_AGENT" \
+            OSTLER_DIR="$_UPG_OSTLER_DIR" \
+            LOGS_DIR="$_UPG_LOGS_DIR" \
+            ASSISTANT_CONFIG_DIR="$_UPG_ASSISTANT_CONFIG_DIR" \
+            INSTALL_WHATSAPP_KEEPALIVE="$_keepalive_flag" \
+            OSTLER_IMESSAGE_SELF_HANDLES="" \
+            OSTLER_ASSISTANT_DEFER_START="true" \
+            bash "$_UPG_PAYLOAD_SNIPPET"
+        ) >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1
+        local _rc=$?
+        if [[ $_rc -ne 0 ]]; then
+            _upg_log "ERROR: INSTALL_SNIPPET.sh returned ${_rc}"
+            rm -rf "$_tmp" 2>/dev/null || true
+            return 30
+        fi
+        # Assistant: preserve env generically, seed token fallback, lint, bootstrap.
+        [[ -n "$_old_assistant" ]] && _upg_preserve_plist_env "$_old_assistant" "$_UPG_ASSISTANT_PLIST"
+        _upg_ensure_token "$_UPG_ASSISTANT_PLIST"
+        if ! plutil -lint "$_UPG_ASSISTANT_PLIST" >/dev/null 2>&1; then
+            _upg_log "ERROR: rendered assistant plist failed plutil lint"
+            rm -rf "$_tmp" 2>/dev/null || true
+            return 30
+        fi
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" 2>/dev/null || true
+        if ! launchctl bootstrap "$_UPG_DOMAIN" "$_UPG_ASSISTANT_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; then
+            if ! launchctl load "$_UPG_ASSISTANT_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; then
+                _upg_log "ERROR: launchctl bootstrap/load of assistant failed"
+                rm -rf "$_tmp" 2>/dev/null || true
+                return 31
+            fi
+        fi
+        _upg_log "assistant LaunchAgent bootstrapped"
+        # Keepalive (only if the customer had it): same preserve + bootstrap.
+        if [[ "$_keepalive_flag" == "true" && -f "$_UPG_KEEPALIVE_PLIST" ]]; then
+            [[ -n "$_old_keepalive" ]] && _upg_preserve_plist_env "$_old_keepalive" "$_UPG_KEEPALIVE_PLIST"
+            _upg_ensure_token "$_UPG_KEEPALIVE_PLIST"
+            if plutil -lint "$_UPG_KEEPALIVE_PLIST" >/dev/null 2>&1; then
+                launchctl bootout "${_UPG_DOMAIN}/${_UPG_KEEPALIVE_LABEL}" 2>/dev/null || true
+                launchctl bootstrap "$_UPG_DOMAIN" "$_UPG_KEEPALIVE_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" \
+                    || launchctl load "$_UPG_KEEPALIVE_PLIST" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || true
+                _upg_log "whatsapp-keepalive LaunchAgent re-bootstrapped"
+            else
+                _upg_log "WARN: rendered keepalive plist failed plutil lint; leaving previous keepalive"
+            fi
+        fi
+        rm -rf "$_tmp" 2>/dev/null || true
+        return 0
+    }
+
+    # ── Vendored service refreshes (best-effort; never fatal) ──────────
+    # Each mirrors the fresh-install logic in install.sh but wholesale-
+    # replaces only the CODE directory. Service STATE lives OUTSIDE these
+    # dirs (~/.ostler/data, processing, coach, posture, config,
+    # assistant-config) and is never touched here.
+    _upg_refresh_doctor() {
+        local _src="" _c
+        for _c in "${_UPG_PAYLOAD}/doctor/agent" "${_UPG_PAYLOAD}/services/doctor" "${_UPG_PAYLOAD}/doctor"; do
+            if [[ -d "$_c" ]]; then _src="$_c"; break; fi
+        done
+        if [[ -z "$_src" ]]; then
+            _upg_log "WARN: doctor code not in payload; leaving ~/.ostler/doctor unchanged"
+            return 0
+        fi
+        local _dir="${_UPG_OSTLER_DIR}/doctor"
+        mkdir -p "$_dir" 2>/dev/null || true
+        _upg_log "refreshing doctor code from ${_src} -> ${_dir}"
+        cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: doctor cp failed"; return 0; }
+        if [[ -f "${_dir}/requirements.txt" ]]; then
+            local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for doctor venv"; return 0; }
+            if [[ ! -d "${_dir}/.venv" ]]; then
+                "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: doctor venv create failed"; return 0; }
+            fi
+            "${_dir}/.venv/bin/pip" install --quiet -r "${_dir}/requirements.txt" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+                && _upg_log "doctor deps installed" || _upg_log "WARN: doctor pip failed (non-fatal)"
+        fi
+        return 0
+    }
+    _upg_refresh_knowledge() {
+        local _src="" _c
+        for _c in "${_UPG_PAYLOAD}/cm024_knowledge" "${_UPG_PAYLOAD}/services/knowledge" "${_UPG_PAYLOAD}/knowledge"; do
+            if [[ -d "$_c" && -f "${_c}/pyproject.toml" ]]; then _src="$_c"; break; fi
+        done
+        if [[ -z "$_src" ]]; then
+            _upg_log "WARN: knowledge code not in payload; leaving ~/.ostler/services/knowledge unchanged"
+            return 0
+        fi
+        local _dir="${_UPG_OSTLER_DIR}/services/knowledge"
+        local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for knowledge venv"; return 0; }
+        mkdir -p "$(dirname "$_dir")" 2>/dev/null || true
+        _upg_log "refreshing knowledge code (wholesale replace) from ${_src} -> ${_dir}"
+        rm -rf "$_dir" 2>/dev/null || true
+        mkdir -p "$_dir"
+        cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: knowledge cp failed"; return 0; }
+        "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: knowledge venv create failed"; return 0; }
+        "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+        "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+            && _upg_log "knowledge installed into venv" || _upg_log "WARN: knowledge pip failed (non-fatal)"
+        return 0
+    }
+    _upg_refresh_cm048() {
+        local _src="" _c
+        for _c in "${_UPG_PAYLOAD}/cm048_pipeline" "${_UPG_PAYLOAD}/services/cm048" "${_UPG_PAYLOAD}/cm048"; do
+            if [[ -d "$_c" && -f "${_c}/pyproject.toml" ]]; then _src="$_c"; break; fi
+        done
+        if [[ -z "$_src" ]]; then
+            _upg_log "WARN: cm048 code not in payload; leaving ~/.ostler/services/cm048 unchanged"
+            return 0
+        fi
+        # cm048's pipeline imports ostler_security at load but does NOT
+        # declare it (repos decoupled, Rule 0.5). A wholesale venv rebuild
+        # without it would leave cm048 broken, so refuse unless the dep is
+        # also in the payload and keep the working install (Invariant 4).
+        local _sec=""
+        for _c in "${_UPG_PAYLOAD}/ostler_security" "${_UPG_PAYLOAD}/services/ostler_security"; do
+            if [[ -d "$_c" && -f "${_c}/pyproject.toml" ]]; then _sec="$_c"; break; fi
+        done
+        if [[ -z "$_sec" ]]; then
+            _upg_log "WARN: cm048 in payload but ostler_security dep is not; skipping cm048 refresh to avoid breaking it"
+            return 0
+        fi
+        local _dir="${_UPG_OSTLER_DIR}/services/cm048"
+        local _py; _py="$(_upg_resolve_python3)" || { _upg_log "WARN: no python3 for cm048 venv"; return 0; }
+        mkdir -p "$(dirname "$_dir")" 2>/dev/null || true
+        _upg_log "refreshing cm048 code (wholesale replace) from ${_src} -> ${_dir}"
+        rm -rf "$_dir" 2>/dev/null || true
+        mkdir -p "$_dir"
+        cp -R "${_src}/." "$_dir/" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" || { _upg_log "WARN: cm048 cp failed"; return 0; }
+        "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: cm048 venv create failed"; return 0; }
+        "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+        "${_dir}/.venv/bin/pip" install --quiet "$_sec" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+            || _upg_log "WARN: ostler_security install into cm048 venv failed"
+        "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
+            && _upg_log "cm048 installed into venv" || _upg_log "WARN: cm048 pip failed (non-fatal)"
+        return 0
+    }
+
+    _upg_do_upgrade() {
+        _upg_log "=== OSTLER_UPGRADE_MODE start ==="
+        [[ -n "$_UPG_PAYLOAD" ]] || _upg_die 10 "OSTLER_UPGRADE_PAYLOAD_DIR not set"
+        [[ -d "$_UPG_PAYLOAD" ]] || _upg_die 10 "payload dir does not exist: ${_UPG_PAYLOAD}"
+        [[ -f "$_UPG_PAYLOAD_VERSION_FILE" ]] || _upg_die 10 "payload VERSION missing: ${_UPG_PAYLOAD_VERSION_FILE}"
+        [[ -d "$_UPG_OSTLER_DIR" ]] || _upg_die 10 "no prior ~/.ostler install to upgrade"
+        [[ -d "$_UPG_APP" ]] || _upg_die 10 "no installed OstlerAssistant.app to upgrade"
+
+        local _new_version
+        _new_version="$(head -n1 "$_UPG_PAYLOAD_VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+        [[ -n "$_new_version" ]] || _upg_die 10 "payload VERSION is empty"
+        _upg_log "target version: ${_new_version}"
+
+        # (2) Deferred .old cleanup FIRST (the n+1 sweep). Only when the
+        # current app is present AND ~/.ostler/VERSION is set: then the
+        # .old is a stale anchor from a PRIOR successful upgrade. This
+        # never touches the .old THIS run creates (it does not exist yet).
+        if [[ -d "$_UPG_APP_OLD" && -d "$_UPG_APP" && -f "$_UPG_VERSION_FILE" ]]; then
+            _upg_log "n+1 cleanup: removing stale ${_UPG_APP_OLD} from a prior successful upgrade"
+            rm -rf "$_UPG_APP_OLD" 2>/dev/null || true
+        fi
+
+        # (4a) Stage + verify the new daemon. No swap yet; running daemon
+        # stays up, so a verify failure leaves it entirely untouched.
+        _upg_stage_daemon
+        local _src=$?
+        if [[ $_src -ne 0 ]]; then
+            exit "$_src"   # 20/21/22 already logged; old daemon untouched
+        fi
+
+        # (3) Bootout the running daemon BEFORE touching the live .app.
+        _upg_log "booting out running daemon before swap"
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" 2>/dev/null || true
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_KEEPALIVE_LABEL}" 2>/dev/null || true
+
+        # (4b) Atomic swap. Keep .old as the rollback anchor (Invariant 1).
+        # Clear any stray pre-existing .old the gated n+1 sweep did not
+        # remove (never this run's .old, which does not exist yet), else
+        # `mv` would nest the app inside it.
+        [[ -e "$_UPG_APP_OLD" ]] && rm -rf "$_UPG_APP_OLD" 2>/dev/null
+        if ! mv "$_UPG_APP" "$_UPG_APP_OLD"; then
+            _upg_die 23 "failed to move current daemon to .old"
+        fi
+        if ! mv "$_UPG_APP_NEW" "$_UPG_APP"; then
+            _upg_log "ERROR: failed to move .new into place; restoring .old so the customer is not left daemon-less"
+            mv "$_UPG_APP_OLD" "$_UPG_APP" 2>/dev/null || true
+            _upg_die 23 "failed to move .new daemon into place"
+        fi
+        _upg_log "daemon swapped; previous kept at ${_UPG_APP_OLD} (rollback anchor)"
+
+        # (5) Re-render plists (generic env preserve + token fallback) + bootstrap.
+        _upg_rerender_plists
+        local _prc=$?
+        if [[ $_prc -ne 0 ]]; then
+            exit "$_prc"   # 30/31 logged; the Hub health-check will roll back
+        fi
+
+        # (6) Refresh vendored service code trees (best-effort; Invariant 4).
+        _upg_refresh_doctor
+        _upg_refresh_knowledge
+        _upg_refresh_cm048
+        launchctl kickstart -k "${_UPG_DOMAIN}/com.ostler.doctor" 2>/dev/null || true
+
+        # (7) Write VERSION last, as the success marker the Hub reads.
+        if ! printf '%s\n' "$_new_version" > "$_UPG_VERSION_FILE" 2>/dev/null; then
+            _upg_die 40 "failed to write ${_UPG_VERSION_FILE}"
+        fi
+        _upg_log "wrote ${_UPG_VERSION_FILE} = ${_new_version}"
+        _upg_log "=== OSTLER_UPGRADE_MODE success (exit 0) ==="
+        exit 0
+    }
+
+    _upg_do_rollback() {
+        _upg_log "=== OSTLER_UPGRADE_ROLLBACK start ==="
+        [[ -d "$_UPG_APP_OLD" ]] || _upg_die 50 "no ${_UPG_APP_OLD} to restore from"
+        _upg_log "booting out current daemon for rollback"
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" 2>/dev/null || true
+        launchctl bootout "${_UPG_DOMAIN}/${_UPG_KEEPALIVE_LABEL}" 2>/dev/null || true
+        if [[ -d "$_UPG_APP" ]]; then
+            rm -rf "$_UPG_APP_FAILED" 2>/dev/null || true
+            if ! mv "$_UPG_APP" "$_UPG_APP_FAILED"; then
+                _upg_die 51 "failed to move current daemon to .failed"
+            fi
+        fi
+        if ! mv "$_UPG_APP_OLD" "$_UPG_APP"; then
+            _upg_die 51 "failed to restore .old daemon"
+        fi
+        _upg_log "restored previous daemon from .old; broken build parked at ${_UPG_APP_FAILED}"
+        _upg_rerender_plists
+        local _prc=$?
+        if [[ $_prc -ne 0 ]]; then
+            exit 52
+        fi
+        _upg_log "=== OSTLER_UPGRADE_ROLLBACK success (exit 0) ==="
+        exit 0
+    }
+
+    if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" && "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
+        _upg_die 10 "both OSTLER_UPGRADE_MODE and OSTLER_UPGRADE_ROLLBACK set; ambiguous"
+    fi
+    if [[ "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
+        _upg_do_rollback
+    else
+        _upg_do_upgrade
+    fi
+    # Neither returns; both exit explicitly.
+    exit 0
+fi
+
 # ── stdin check ────────────────────────────────────────────────────
 # When piped via `curl | bash`, stdin is the script not the terminal.
 # We need terminal input for confirmations etc, so redirect from /dev/tty.
