@@ -58,6 +58,19 @@ Files re-vendored from upstream in this sync:
 `apple_style.css`, `first_run.py`, and the new `config_panel.py`
 (a lazy import target of the updated `web_ui.py`).
 
+Surgical re-sync (HR015 #170, 2026-07-30): `pair_status.py` @ HR015
+origin/main `b0b3831` (carries #185 `a088b26`, "unblock native Doctor
+dashboard + pairing on single-machine install"). The prior vendored copy
+predated #185, so `gateway_port()` read only `ZEROCLAW_GATEWAY_PORT` then
+`PORT` and fell through to the dead default `42617` -- the Doctor
+`/pair-ios` panel then reported the LIVE `:8000` gateway as `gateway_down`
+and blocked iOS pairing on every fresh install. The upstream fix (already
+committed, just never re-vendored) reads `OSTLER_CHAT_GATEWAY_PORT` first
+-- the single canonical lever install.sh writes into the Doctor plist
+(`OSTLER_CHAT_GATEWAY_PORT=8000`, in lockstep with the pinned `[gateway]
+port = 8000`) and the same var `chat_token._zeroclaw_port()` reads. Now
+byte-identical to source; no other file touched.
+
 Files deliberately NOT overwritten -- these are **ahead of HR015**
 (CM051-local, not yet upstreamed): `duplicate_decision.py` +
 `test_duplicate_decision_split.py` (CM051 PR #302's `split` action). A
