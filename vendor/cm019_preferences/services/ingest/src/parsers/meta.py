@@ -112,16 +112,50 @@ class MetaParser(BaseParser):
         default_compartment: Optional[int] = None,
         **kwargs
     ) -> AsyncIterator[ParsedPreference]:
-        """Parse Meta data export."""
+        """Parse Meta data export.
+
+        BW3-10 (Andy Studio-walk on v1.0.12, 2026-07-30): the earlier
+        ``str/dict data-loss'' fix added ``_iter_records`` +
+        isinstance guards inside ``_parse_comments`` and the other
+        record-level parsers, but the Studio walk still hit
+        ``AttributeError: 'str' object has no attribute 'get'`` on
+        three real-customer Facebook JSON files
+        (``comments_and_reactions/comments.json``,
+        ``groups/group_posts_and_comments.json``,
+        ``groups/your_comments_in_groups.json``), surfacing as
+        pipeline.py's ``Error parsing <file>: ...'' log at ERROR
+        level. Whatever specific path is still ungarded, the effect
+        is the same: the whole file is discarded on the floor and
+        the customer sees an ERROR that reads as fatal for that
+        file. Wrap the router at the parser boundary in a per-file
+        exception handler so any residual bug degrades to a WARNING
+        with visible context + yields whatever partial records the
+        parser already produced, instead of dropping the whole file
+        + spamming ERROR level. Belt-and-braces on top of the
+        specific isinstance guards, not a replacement for them.
+        """
         if default_compartment is None:
             default_compartment = settings.default_compartment
 
-        if file_path.suffix.lower() == ".zip":
-            async for pref in self._parse_zip(file_path, default_compartment):
-                yield pref
-        else:
-            async for pref in self._parse_json(file_path, default_compartment):
-                yield pref
+        try:
+            if file_path.suffix.lower() == ".zip":
+                async for pref in self._parse_zip(file_path, default_compartment):
+                    yield pref
+            else:
+                async for pref in self._parse_json(file_path, default_compartment):
+                    yield pref
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            logger.warning(
+                "Meta parser hit a payload-shape edge case in %s: %s. "
+                "Partial records (if any) already yielded; remaining "
+                "records dropped for this file. Original file is not "
+                "modified; the failure is silent from the customer's "
+                "point of view and the graph is missing whatever this "
+                "file would have contributed. File a shape-guard "
+                "follow-up if this repeats across customers.",
+                file_path,
+                e,
+            )
 
     async def _parse_zip(
         self,
