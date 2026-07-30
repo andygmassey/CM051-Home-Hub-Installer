@@ -79,6 +79,10 @@ from diagnostic_copy import (
     HIGH_MEM_CONTAINER_FIX,
     HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
     HIGH_MEM_CONTAINER_TITLE_FMT,
+    IMESSAGE_CAPTURE_STALLED_DETAIL,
+    IMESSAGE_CAPTURE_STALLED_FIX,
+    IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
+    IMESSAGE_CAPTURE_STALLED_TITLE,
     IMESSAGE_FDA_DETAIL,
     IMESSAGE_FDA_FIX,
     IMESSAGE_FDA_FIX_COMMAND,
@@ -1086,6 +1090,112 @@ def check_last_upgrade(snapshot: Any) -> list[dict]:
     return findings
 
 
+# Runtime signature the iMessage capture bundle logs on every tick while it
+# cannot open ~/Library/Messages/chat.db (Full Disk Access not yet granted).
+# Matched as two tokens rather than one literal so incidental whitespace /
+# path suffix variations in the traceback line still match.
+_IMESSAGE_SQLITE_CRASH_TOKENS = (
+    "sqlite3.OperationalError",
+    "unable to open database file",
+)
+# Cap how much of the (potentially long-lived, appended-to) error log we read.
+_IMESSAGE_ERR_TAIL_BYTES = 65536
+
+
+def _imessage_bundle_err_path() -> "Any":
+    """Path to the iMessage capture bundle's stderr log.
+
+    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
+    ``OSTLER_DIR=~/.ostler`` and points launchd logs at ``${OSTLER_DIR}/logs``),
+    falling back to ``~/.ostler/logs/imessage-bundle.err``. Mirrors
+    ``web_ui._ostler_logs_dir`` so the resolution stays in lockstep, and lets
+    tests point it at a fixture via ``OSTLER_LOGS_DIR`` without touching HOME.
+    """
+    import os
+    from pathlib import Path
+
+    override = os.environ.get("OSTLER_LOGS_DIR")
+    if override:
+        base = Path(override)
+    else:
+        ostler_dir = os.environ.get("OSTLER_DIR")
+        base = Path(ostler_dir) / "logs" if ostler_dir else (
+            Path.home() / ".ostler" / "logs"
+        )
+    return base / "imessage-bundle.err"
+
+
+def _imessage_capture_crash_logged() -> bool:
+    """True if the iMessage capture stderr log shows the pre-FDA SQLite crash.
+
+    Reads only the tail of the file (the log is appended to on every tick, so
+    it can grow) and looks for the ``sqlite3.OperationalError: unable to open
+    database file`` signature. Any read failure (missing file on a fresh box,
+    permission error) is treated as "no crash observed" so the rule stays
+    quiet rather than firing a false positive.
+    """
+    path = _imessage_bundle_err_path()
+    try:
+        if not path.is_file():
+            return False
+        with open(path, "rb") as fh:
+            try:
+                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
+            except OSError:
+                # File shorter than the tail window: read from the start.
+                fh.seek(0)
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    return all(token in tail for token in _IMESSAGE_SQLITE_CRASH_TOKENS)
+
+
+def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
+    """#172 Doctor card: the iMessage capture bundle is crash-looping on
+    SQLite because Full Disk Access has not been granted yet.
+
+    Distinct from :func:`check_imessage_fda` (which fires on the install-time
+    probe signal): this rule reads the RUNTIME evidence. Before FDA is granted
+    every capture tick logs
+    ``sqlite3.OperationalError: unable to open database file`` to
+    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
+    no messages are being read -- so we surface an actionable card.
+
+    Fires when BOTH:
+
+    1. The crash signature is present in the log tail, AND
+    2. A live re-probe from this Doctor process *also* cannot open chat.db.
+
+    The live re-probe is the auto-dismiss path (shared with
+    :func:`check_imessage_fda`): the crash lines linger in the appended log
+    after FDA is finally granted, so without the re-probe the card would never
+    clear. Once FDA is granted and Messages is readable, the card disappears.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9. The fix-command
+    opens System Settings -> Privacy & Security -> Full Disk Access.
+    """
+    findings: list[dict] = []
+
+    if not _imessage_capture_crash_logged():
+        return findings
+
+    # Live auto-dismiss: if this Doctor process can now open chat.db, FDA has
+    # been granted on this Mac and the logged crashes are stale history.
+    if _imessage_chat_db_readable():
+        return findings
+
+    findings.append({
+        "severity": "warning",
+        "title": IMESSAGE_CAPTURE_STALLED_TITLE,
+        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
+        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
+        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
+        "risk": "low",
+        "category": "installation",
+    })
+    return findings
+
+
 # ── Rule registry ────────────────────────────────────────────────────
 
 
@@ -1108,6 +1218,7 @@ ALL_RULES = [
     check_backfill_progress,
     check_imessage_fda,
     check_last_upgrade,
+    check_imessage_capture_stalled,
 ]
 
 

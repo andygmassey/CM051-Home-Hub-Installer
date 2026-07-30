@@ -59,11 +59,29 @@ Files re-vendored from upstream in this sync:
 (a lazy import target of the updated `web_ui.py`).
 
 Files deliberately NOT overwritten -- these are **ahead of HR015**
-(CM051-local, not yet upstreamed): `duplicate_decision.py` +
-`test_duplicate_decision_split.py` (CM051 PR #302's `split` action). A
-blind whole-directory `rm -rf` + copy (the generic recipe below) would
-have regressed #302; future syncs must graft, preserving the local
-`split` work until it lands upstream.
+(CM051-local, not yet upstreamed); future syncs must **graft**, never
+blind-copy, preserving the local work until it lands upstream:
+
+- `duplicate_decision.py` + `test_duplicate_decision_split.py`
+  (CM051 PR #302's `split` action). A blind whole-directory `rm -rf` +
+  copy (the generic recipe below) would have regressed #302.
+- `web_ui.py` carries CM051 PR #401's governor **settings button**
+  (`<a id="settingsBtn" href="/config">` + its `DASHBOARD_BTN_SETTINGS`
+  copy imports + `.refresh-btn` `text-decoration`). HR015's Doctor has
+  no governor, so this button exists **only** in the vendored copy. A
+  straight copy of HR015 `web_ui.py` deletes it.
+- `diagnostic_rules.py` + `diagnostic_copy.py` carry CM051 PR #469's
+  **`check_last_upgrade`** (B-lite) upgrade audit-trail row (reads
+  `preferences.json.last_upgrade_result`) and its `LAST_UPGRADE_*` copy
+  catalogue. HR015 has no upgrade matrix, so this rule exists **only**
+  in the vendored copy (pickaxe `--all` across HR015 finds it nowhere).
+  A straight copy of HR015 deletes the rule + copy.
+
+  **Both #401 and #469 were hand-added directly to the vendored copy
+  (they skipped the upstream-first rule).** They should be upstreamed to
+  HR015 `doctor/agent/` so a future sync is a clean copy; until then,
+  graft. The three files above are therefore now "graft, don't copy",
+  same as `duplicate_decision.py`.
 
 Surgical graft (BW4 Part A, v1.0.10 security lockdown): `proxy.py` carries
 the Doctor -> ical-server auth-boundary fix -- validate the client bearer
@@ -72,6 +90,34 @@ substitute `PWG_SERVICE_TOKEN` on the `/api/v1/*` forwards (fixes the
 ical-server 401 storm). Landed upstream in HR015 `doctor/agent/proxy.py`
 first; this vendored `proxy.py` matches that source byte-for-byte, so the
 next HR015 sync is a no-op for this file. Do NOT revert it in a re-sync.
+
+### 2026-07-30 sync (v1.0.13) -- `web_ui.py`, `diagnostic_rules.py`, `diagnostic_copy.py` @ `eb5c8a9`
+
+A **partial, grafted** re-sync of three files to HR015 origin/main
+`eb5c8a9` (PR #273), catching up ~6 weeks of drift since the last full
+directory sync (`1bb0a0d`). It carries two upstream changes:
+
+- **#178** (`web_ui.py`): a new unauthenticated `GET
+  /api/v1/hydration/status` passthrough so the wiki's first-run
+  "still settling" panel can poll hydration status without a paired
+  bearer (the proxy would otherwise 401 it). Non-PII payload; honest 502
+  on upstream failure so the panel stays up rather than false-clearing.
+- **#172** (`diagnostic_rules.py` + `diagnostic_copy.py`): a new
+  `check_imessage_capture_stalled` Doctor card that fires when the
+  iMessage capture bundle is crash-looping on SQLite pre-FDA (reads the
+  tail of `~/.ostler/logs/imessage-bundle.err`; degrades to quiet on a
+  fresh box with no log). Plus a one-line `CRITICAL_DISK_FIX` copy
+  cosmetic.
+
+This was a **graft, not a straight copy**: a blind copy would have
+regressed CM051-local `#401` (`web_ui.py` settings button) and `#469`
+(`check_last_upgrade` in both diagnostic files) -- see the
+do-not-overwrite list above. The graft added only #178/#172/cosmetic and
+left #401/#469 byte-for-byte. Verified: graft-vs-`eb5c8a9` diff is
+exactly the #401/#469 hunks (nothing upstream missed); 18/18 vendored
+doctor tests pass under python3.11; both `check_last_upgrade` and
+`check_imessage_capture_stalled` are wired in `ALL_RULES` and quiet on a
+fresh box.
 
 A vendor-freshness guard, `vendor/doctor/test_vendor_pairing.sh`, fails
 the build if a future re-sync drops the `/pair-ios` route, `pair_status.py`,
