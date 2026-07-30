@@ -1,0 +1,49 @@
+name: installer-version-consistency
+
+# CM051 #171 guard. The DMG's OstlerInstaller.app stamped a STALE
+# CFBundleShortVersionString: the value was hardcoded "1.0.10" and never bumped
+# for v1.0.11 / v1.0.12, because gui/Makefile DERIVES the app version + DMG name
+# by READING gui/OstlerInstaller/Info.plist rather than from the cut tag. A
+# half-bump -- project.yml edited but `xcodegen generate` not re-run so the
+# tracked pbxproj lags, or Info.plist forgotten -- ships a version-stale
+# installer while every signing/notarise chain goes green.
+#
+# This gate fails the PR if the installer version disagrees across the three
+# tracked sources of truth (Info.plist, project.yml, project.pbxproj) on either
+# the marketing/short version or the build number. Same bash test the Makefile
+# runs as `check-version` (a fail-closed prereq of `release` + `package`), so
+# the local cut and CI enforce the identical invariant.
+#
+# Companion files:
+#   tests/test_installer_version_consistency.sh   (the gate)
+#   gui/Makefile                                  (check-version target)
+#   VERSIONING.md                                 (bump checklist + proposals)
+
+on:
+  pull_request:
+    paths:
+      - 'gui/project.yml'
+      - 'gui/OstlerInstaller/Info.plist'
+      - 'gui/OstlerInstaller.xcodeproj/project.pbxproj'
+      - 'tests/test_installer_version_consistency.sh'
+      - '.github/workflows/installer-version-consistency.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer version-consistency gate (#171)
+        run: bash tests/test_installer_version_consistency.sh

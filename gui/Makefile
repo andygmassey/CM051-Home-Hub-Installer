@@ -182,7 +182,7 @@ DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: all debug release package notarise staple archive ship clean regen \
-        check-tools check-identity check-create-dmg check-ostler-app \
+        check-tools check-identity check-create-dmg check-ostler-app check-version \
         print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
         sign-python-bundle download-daemon stage-daemon check-provenance \
         check-freshness check-provenance-content check-manifest
@@ -217,6 +217,29 @@ check-create-dmg:
 
 print-version:
 	@echo "version: $(VERSION)"
+
+# ---------------------------------------------------------------------------
+# Version-consistency preflight (CM051 #171). Fail-closed guard that the
+# installer's version agrees across the three tracked sources of truth:
+#   gui/OstlerInstaller/Info.plist   (what the built .app stamps)
+#   gui/project.yml                  (the xcodegen source)
+#   gui/OstlerInstaller.xcodeproj/project.pbxproj  (the generated project)
+# on BOTH the marketing/short version and the build number. This refuses the
+# half-bump shape -- e.g. project.yml edited but `xcodegen generate` not
+# re-run so the tracked pbxproj lags, or Info.plist forgotten -- that let the
+# v1.0.11/v1.0.12 DMGs ship OstlerInstaller.app stamped a stale "1.0.10".
+# Pure text/plist parse, no build deps; runs the repo's bash gate.
+#
+# NOTE: this proves the three SOURCE files agree. It does NOT derive the
+# version from the cut tag, so it does not by itself catch a "nobody bumped
+# anything" cut (all three consistently stale vs the release version -- the
+# literal #171 shape). See ../VERSIONING.md for the bump checklist and the
+# cut-derivation + cut-manifest `plist_key_equals` proposals that close that
+# remaining gap at the built-artefact boundary.
+# ---------------------------------------------------------------------------
+check-version:
+	$(STEP) "Installer version-consistency preflight (#171)"
+	@bash "$(CURDIR)/../tests/test_installer_version_consistency.sh"
 
 # ---------------------------------------------------------------------------
 # Debug build – fast, ad-hoc signed, opens the .app
@@ -542,7 +565,7 @@ stage-payload:
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
-release: check-tools check-identity download-python
+release: check-tools check-identity check-version download-python
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"
@@ -856,7 +879,7 @@ check-manifest:
 	    exit 1; \
 	}
 
-package: check-tools check-identity check-create-dmg check-freshness check-provenance check-provenance-content
+package: check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
