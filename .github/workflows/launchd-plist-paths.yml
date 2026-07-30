@@ -1,0 +1,37 @@
+name: launchd-plist-paths
+
+# Regression gate for #177 (v1.0.13 launch-blocker, live-confirmed on the
+# Mini). The Ollama + ollama-logrotate LaunchAgents shipped with dead
+# /tmp/ostler-prelaunch-<pid>/... paths baked into ProgramArguments /
+# StandardOutPath / StandardErrorPath: the ollama section of install.sh
+# runs PRE-FDA, while _ostler_set_paths still has LOGS_DIR/OSTLER_DIR bound
+# to the /tmp staging tree (rebound to ~/.ostler only at the post-FDA
+# promotion). /tmp is wiped on reboot + macOS periodic cleanup, so both
+# agents failed after every reboot.
+#
+# This gate renders the two ollama plist heredocs under a POISONED prelaunch
+# environment and fails if any shipped com.*ostler*.plist path resolves
+# under /tmp -- catching the next re-introduction at CI, not at a customer
+# reboot. Companion test: tests/test_launchd_plist_no_tmp.sh.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_launchd_plist_no_tmp.sh'
+      - '.github/workflows/launchd-plist-paths.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  launchd-plist-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert no shipped LaunchAgent plist path resolves under /tmp
+        run: bash tests/test_launchd_plist_no_tmp.sh
