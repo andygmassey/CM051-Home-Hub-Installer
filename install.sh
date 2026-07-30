@@ -7054,7 +7054,14 @@ else
     # Serve headless via our own LaunchAgent running the cask's inner
     # binary (NOT `open -a Ollama`, NOT brew services). This persists
     # across reboots and avoids the GUI app-launch quarantine dialog.
-    OLLAMA_LOG_DIR="${LOGS_DIR:-${HOME}/.ostler/logs}"
+    # #177: pin to the FINAL canonical path, NOT ${LOGS_DIR}. This
+    # block runs pre-FDA, while _ostler_set_paths still has LOGS_DIR
+    # bound to the /tmp/ostler-prelaunch-<pid> staging tree (it is not
+    # rebound to ~/.ostler until the post-FDA promotion at ~line 8960).
+    # Interpolating ${LOGS_DIR} into the LaunchAgent plist below baked a
+    # dead /tmp StandardOut/Err path that the /tmp reboot-wipe + macOS
+    # periodic cleanup broke, so the Ollama agent failed after reboot.
+    OLLAMA_LOG_DIR="${HOME}/.ostler/logs"
     mkdir -p "$OLLAMA_LOG_DIR" "${HOME}/Library/LaunchAgents"
     OLLAMA_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
 
@@ -7183,9 +7190,20 @@ fi
 # any real errors -- survives; we never inspect or drop content by kind.
 # The rotation agent is independent of the serve path: if it fails,
 # Ollama is unaffected (status quo, just an unrotated log).
-_ollama_rot_logs="${LOGS_DIR:-${HOME}/.ostler/logs}"
-mkdir -p "${OSTLER_DIR}/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
-cat > "${OSTLER_DIR}/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
+# #177: pin the rotate-agent log dir AND the rotate-script bin dir to
+# the FINAL ${HOME}/.ostler path. Both ${LOGS_DIR} and ${OSTLER_DIR}
+# are still the /tmp/ostler-prelaunch-<pid> staging tree at this pre-FDA
+# point (rebound to ~/.ostler only at the post-FDA promotion ~line 8960).
+# Interpolating either into the plist below (StandardOut/Err via
+# _ollama_rot_logs, ProgramArguments via the script path) baked dead
+# /tmp paths that broke the logrotate agent after reboot. The rotate
+# SCRIPT is written straight to the final bin dir so the plist's
+# ProgramArguments reference is always valid, independent of the later
+# staging-tree promotion (nothing else writes ${OSTLER_DIR}/bin pre-FDA,
+# so this direct write cannot be clobbered by the promotion rm+mv).
+_ollama_rot_logs="${HOME}/.ostler/logs"
+mkdir -p "${HOME}/.ostler/bin" "$_ollama_rot_logs" "${HOME}/Library/LaunchAgents"
+cat > "${HOME}/.ostler/bin/ostler-ollama-logrotate" <<'OLLAMAROTEOF'
 #!/usr/bin/env bash
 # Truncate the Ollama serve logs in place when they exceed the cap.
 # In-place overwrite (`cat tmp > file`) preserves the inode so ollama's
@@ -7209,7 +7227,7 @@ for _f in "${LOG_DIR}/ollama.err" "${LOG_DIR}/ollama.log"; do
     fi
 done
 OLLAMAROTEOF
-chmod +x "${OSTLER_DIR}/bin/ostler-ollama-logrotate"
+chmod +x "${HOME}/.ostler/bin/ostler-ollama-logrotate"
 
 OLLAMA_ROT_PLIST="${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
 cat > "$OLLAMA_ROT_PLIST" <<OLLAMAROTPLIST
@@ -7221,7 +7239,7 @@ cat > "$OLLAMA_ROT_PLIST" <<OLLAMAROTPLIST
     <string>com.ostler.ollama-logrotate</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${OSTLER_DIR}/bin/ostler-ollama-logrotate</string>
+        <string>${HOME}/.ostler/bin/ostler-ollama-logrotate</string>
     </array>
     <key>StartInterval</key>
     <integer>3600</integer>
