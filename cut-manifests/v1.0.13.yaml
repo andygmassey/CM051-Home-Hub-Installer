@@ -23,6 +23,7 @@ description: |
     - #178 wiki SETTING-UP card auth wall unblocked (HR015 #273)
     - #171 installer version consistency gate + bump to 1.0.13 (CM051 #481)
     - CM051 #478 fresh-install regression stack (spoken-consent + FDA copy + Facebook parser)
+    - #196 Colima auto-start LaunchAgent + wiki-recompile docker wait gate (CM051 #482)
 
 entries:
 
@@ -58,3 +59,41 @@ entries:
       path: "Contents/Info.plist"
       key: "CFBundleShortVersionString"
       value: "1.0.13"
+
+  # --------------------------------------------------------------------------
+  # #196 Colima auto-start LaunchAgent + wiki-recompile docker wait gate
+  # --------------------------------------------------------------------------
+  # Andy's Mini reboot 2026-07-30 landed the wiki-recompile daily tick
+  # firing before ~/.colima/default/docker.sock existed, so the wiki
+  # baseline exited 1 and the SETTING-UP card stayed stuck on every
+  # customer reboot. Two-part fix; both parts need artefact-level proof
+  # so a silent revert cannot slip into a future cut.
+  - id: v1013-colima-launchagent-emitted
+    title: install.sh emits com.creativemachines.ostler.colima LaunchAgent
+    incident: |
+      v1.0.12 shipped with Colima auto-start owned solely by the daemon
+      (OstlerAssistant.app). On Andy's Mini reboot 2026-07-30 the wiki
+      tick fired before the daemon had started Colima; docker.sock was
+      absent; the tick exited 1 and the SETTING-UP card stayed stuck.
+    source_pr: andygmassey/CM051-Home-Hub-Installer#482
+    proof:
+      kind: grep_in_installer
+      pattern: "<string>com\\.creativemachines\\.ostler\\.colima</string>"
+      must_match: true
+
+  - id: v1013-wiki-recompile-docker-wait-gate
+    title: wiki-recompile-tick.sh waits for docker daemon before compose
+    incident: |
+      launchd gives no ordering guarantee between the new Colima
+      LaunchAgent and the wiki-recompile agent; without a wait gate
+      the tick fails on a cold reboot even when Colima will come up
+      seconds later. Andy's Mini 2026-07-30 log:
+
+          failed to connect to the docker API at
+          unix:///Users/andy/.colima/default/docker.sock;
+          ... connect: no such file or directory
+    source_pr: andygmassey/CM051-Home-Hub-Installer#482
+    proof:
+      kind: grep_in_dmg_tree
+      pattern: "WIKI_DOCKER_WAIT_MAX"
+      must_match: true
