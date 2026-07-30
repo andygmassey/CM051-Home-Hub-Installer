@@ -83,11 +83,16 @@ jobs:
           # (B-lite) v1.0.12: adds plist_env_key_present + box_walk_probe +
           # payload_version_matches_daemon_version. exempt_paths is an
           # optional field on grep_in_dmg_tree, not a separate kind.
+          # v1.0.13: adds pinned_artefact_freshness (HR015 #191) — closes
+          # the "merged but not shipped" hole surfaced by oa #242 on
+          # 2026-07-30 when the subscription grace-period hardening merged
+          # AFTER the daemon tarball TNM was cutting from was tagged.
           KINDS = {"grep_in_installer", "grep_in_artefact",
                    "grep_in_dmg_tree", "grep_in_source_at_sha",
                    "file_exists_in_artefact", "plist_key_equals",
                    "plist_env_key_present", "box_walk_probe",
-                   "payload_version_matches_daemon_version"}
+                   "payload_version_matches_daemon_version",
+                   "pinned_artefact_freshness"}
           for path in sorted(root.glob("*.yaml")):
               try:
                   doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -127,6 +132,22 @@ jobs:
                       errors.append(f"{where}: box_walk_probe requires 'probe'")
                   if kind == "file_exists_in_artefact" and "path" not in proof:
                       errors.append(f"{where}: file_exists_in_artefact requires 'path'")
+                  if kind == "pinned_artefact_freshness":
+                      for req in ("repo", "pin", "must_contain_prs"):
+                          if req not in proof:
+                              errors.append(f"{where}: pinned_artefact_freshness requires '{req}'")
+                      prs = proof.get("must_contain_prs")
+                      if prs is not None and (not isinstance(prs, list) or not all(isinstance(n, int) for n in prs)):
+                          errors.append(f"{where}: pinned_artefact_freshness.must_contain_prs must be list[int]")
+                      repo = proof.get("repo")
+                      if isinstance(repo, str) and "/" not in repo:
+                          errors.append(f"{where}: pinned_artefact_freshness.repo must be 'owner/name', got {repo!r}")
+                      mbt = proof.get("min_build_time_after_pr")
+                      if mbt is not None and not isinstance(mbt, int):
+                          errors.append(f"{where}: pinned_artefact_freshness.min_build_time_after_pr must be int")
+                      fmh = proof.get("freshness_max_hours")
+                      if fmh is not None and (not isinstance(fmh, (int, float)) or fmh <= 0):
+                          errors.append(f"{where}: pinned_artefact_freshness.freshness_max_hours must be positive number")
               print(f"OK   {path.name} ({len(doc.get('entries') or [])} entries)")
           if errors:
               print()

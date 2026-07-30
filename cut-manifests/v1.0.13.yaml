@@ -58,3 +58,40 @@ entries:
       path: "Contents/Info.plist"
       key: "CFBundleShortVersionString"
       value: "1.0.13"
+
+  # --------------------------------------------------------------------------
+  # HR015 #191 canary — pinned_artefact_freshness against the daemon tarball
+  # --------------------------------------------------------------------------
+  # This entry is the FIRST use of the pinned_artefact_freshness primitive
+  # (added in the same PR that added the primitive itself). It proves the
+  # v1.0.13 daemon pin (`hub-v0.4.41`, per HR015 baee2d7 in gui/Makefile)
+  # actually contains the two subscription/pairing PRs merged into
+  # ostler-ai/ostler-assistant's main hours before this cut assembly:
+  #
+  #   * oa #242 (2026-07-30T03:01Z) has_ever_paid sticky bit gates the
+  #     14-day post-lapse soft-landing. Locked launch-blocker.
+  #   * oa #257 (2026-07-30T14:33Z) companion TLS listener for iOS pairing.
+  #     v1.0.13 launch-blocker.
+  #
+  # The class of bug this catches: on 2026-07-30 VG surfaced that the
+  # subscription-grace-period hardening (oa #242) had merged to
+  # ostler-assistant/main BUT was NOT contained in the cut-bound daemon
+  # binary — because the cut's pin predated the merge. `feedback_pinned_artefact_must_have_freshness_gate`
+  # captures the incident + rule. This entry is the enforcement.
+  #
+  # NOTE: If this entry RED-fails the v1.0.13 cut, that is by design. The gate
+  # is telling ORM one of two things has slipped:
+  #   (a) the pinned daemon tarball needs to be re-tagged / re-released off
+  #       a commit that includes both merges; OR
+  #   (b) the daemon pin in gui/Makefile is stale and needs bumping to a
+  #       tag that DOES include the merges.
+  # Do NOT bypass this gate. Fixing it forward is the whole point.
+  - id: v1013-hub-daemon-contains-critical-fixes
+    title: daemon pin must contain oa#242 has_ever_paid + oa#257 companion-TLS
+    source_pr: andygmassey/HR015-Gaming-PC#191
+    proof:
+      kind: pinned_artefact_freshness
+      repo: ostler-ai/ostler-assistant
+      pin: hub-v0.4.41
+      must_contain_prs: [242, 257]
+      min_build_time_after_pr: 257

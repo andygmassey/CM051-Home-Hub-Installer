@@ -9,6 +9,7 @@
 #      (or `pytest` from repo root)
 # ============================================================================
 
+import json
 import os
 import subprocess
 import sys
@@ -861,3 +862,358 @@ def test_normalise_version_all_three_shapes():
         mod._normalise_version("not-a-version")
     with pytest.raises(ValueError):
         mod._normalise_version("")
+
+
+# ---------------------------------------------------------------------------
+# pinned_artefact_freshness — fixture-driven tests, no network.
+# ---------------------------------------------------------------------------
+#
+# The primitive shells out to `gh api`; tests divert every call to canned
+# JSON on disk via PINNED_FRESHNESS_API_FIXTURE_DIR. Filename convention:
+# the endpoint path with `/` replaced by `_` plus `.json`, matching
+# _endpoint_to_fixture_name() in the verifier. This keeps the smoke suite
+# hermetic and CI-safe.
+#
+# The fixture builder helpers below mirror the actual GitHub API response
+# shapes for:
+#   - GET repos/{repo}/git/refs/tags/{tag}       (lightweight tag response)
+#   - GET repos/{repo}/git/refs/heads/{branch}
+#   - GET repos/{repo}/commits/{sha}             (commit metadata + committer.date)
+#   - GET repos/{repo}/pulls/{n}                 (merged / merge_commit_sha / merged_at)
+#   - GET repos/{repo}/compare/{base}...{head}   (status: identical/ahead/behind/diverged)
+# ---------------------------------------------------------------------------
+
+
+def _pf_fixture_name(endpoint: str) -> str:
+    """Mirror _endpoint_to_fixture_name in the verifier so test fixture files
+    line up with what the primitive requests."""
+    safe = endpoint.replace("/", "_").replace("?", "_").replace("&", "_").replace("=", "_")
+    return f"{safe}.json"
+
+
+def _write_pf_fixture(fixture_dir: Path, endpoint: str, payload: dict) -> None:
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    (fixture_dir / _pf_fixture_name(endpoint)).write_text(json.dumps(payload))
+
+
+def _pf_pin_fixtures(fixture_dir: Path, repo: str, tag: str, sha: str,
+                     committed_at: str) -> None:
+    """Write the tag-ref + commit fixtures for a resolvable pin (lightweight tag)."""
+    _write_pf_fixture(fixture_dir, f"repos/{repo}/git/refs/tags/{tag}",
+                      {"ref": f"refs/tags/{tag}", "object": {"type": "commit", "sha": sha}})
+    _write_pf_fixture(fixture_dir, f"repos/{repo}/commits/{sha}",
+                      {"sha": sha, "commit": {"committer": {"date": committed_at}}})
+
+
+def _pf_pr_merged_fixture(fixture_dir: Path, repo: str, n: int,
+                          merge_sha: str, merged_at: str) -> None:
+    _write_pf_fixture(fixture_dir, f"repos/{repo}/pulls/{n}",
+                      {"number": n, "state": "closed", "merged": True,
+                       "merge_commit_sha": merge_sha, "merged_at": merged_at})
+
+
+def _pf_pr_open_fixture(fixture_dir: Path, repo: str, n: int) -> None:
+    _write_pf_fixture(fixture_dir, f"repos/{repo}/pulls/{n}",
+                      {"number": n, "state": "open", "merged": False,
+                       "merge_commit_sha": None, "merged_at": None})
+
+
+def _pf_compare_fixture(fixture_dir: Path, repo: str, base_sha: str, head_sha: str,
+                        status: str) -> None:
+    _write_pf_fixture(fixture_dir, f"repos/{repo}/compare/{base_sha}...{head_sha}",
+                      {"status": status, "base_commit": {"sha": base_sha},
+                       "head_commit": {"sha": head_sha}})
+
+
+def _run_pinned(cm051: Path, app: Path, fixture_dir: Path,
+                *extra) -> subprocess.CompletedProcess:
+    """Runner that injects the fixture-dir env so the primitive never touches
+    the network. Also strips GH_TOKEN/GITHUB_TOKEN so no real-auth path is
+    accidentally exercised during a test."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("DAEMON_VERSION", "GH_TOKEN", "GITHUB_TOKEN")}
+    env["PINNED_FRESHNESS_API_FIXTURE_DIR"] = str(fixture_dir)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT),
+         "--cm051-dir", str(cm051),
+         "--app-path", str(app),
+         "--json",
+         *extra],
+        capture_output=True, check=False, text=True, env=env,
+    )
+
+
+PIN_SHA = "aaaaaaaa" + "b" * 32
+PR242_MERGE = "cccccccc" + "d" * 32
+PR257_MERGE = "eeeeeeee" + "f" * 32
+REPO = "ostler-ai/ostler-assistant"
+
+
+def test_pinned_freshness_green_case(fake_cm051, fake_app, tmp_path):
+    """Pin exists, both PRs merged + in ancestry -> PASS."""
+    fixture_dir = tmp_path / "fixtures"
+    _pf_pin_fixtures(fixture_dir, REPO, "hub-v0.4.42", PIN_SHA,
+                     committed_at="2026-07-30T15:00:00Z")
+    _pf_pr_merged_fixture(fixture_dir, REPO, 242, PR242_MERGE,
+                          merged_at="2026-07-30T03:01:23Z")
+    _pf_pr_merged_fixture(fixture_dir, REPO, 257, PR257_MERGE,
+                          merged_at="2026-07-30T14:33:45Z")
+    _pf_compare_fixture(fixture_dir, REPO, PR242_MERGE, PIN_SHA, "ahead")
+    _pf_compare_fixture(fixture_dir, REPO, PR257_MERGE, PIN_SHA, "ahead")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "pin-contains-fixes-green",
+        "title": "pin includes both must-contain PRs",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.42",
+            "must_contain_prs": [242, 257],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert '"pass": 1' in r.stdout
+
+
+def test_pinned_freshness_pin_predates_merge_fails(fake_cm051, fake_app, tmp_path):
+    """Pin was tagged BEFORE a must-contain PR merged -> FAIL naming the missing PR.
+
+    Mirrors the 2026-07-30 oa#242 bug shape: pin tagged 2026-07-29 (hub-v0.4.42),
+    PR#242 merged 2026-07-30 03:01. Compare status 'behind' == pin ancestry
+    does not contain the merge sha.
+    """
+    fixture_dir = tmp_path / "fixtures"
+    _pf_pin_fixtures(fixture_dir, REPO, "hub-v0.4.42-stale", PIN_SHA,
+                     committed_at="2026-07-29T13:21:46Z")
+    _pf_pr_merged_fixture(fixture_dir, REPO, 242, PR242_MERGE,
+                          merged_at="2026-07-30T03:01:23Z")
+    # The compare returns 'behind' because the pin predates the merge.
+    _pf_compare_fixture(fixture_dir, REPO, PR242_MERGE, PIN_SHA, "behind")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "pin-behind-critical-fix",
+        "title": "pin was tagged before the critical merge",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.42-stale",
+            "must_contain_prs": [242],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    # The FAIL detail must name the specific PR that is missing so ORM can
+    # tell WHICH artefact needs re-cutting.
+    assert "#242" in r.stdout
+    assert "behind" in r.stdout
+
+
+def test_pinned_freshness_unmerged_pr_fails(fake_cm051, fake_app, tmp_path):
+    """must_contain_prs includes an OPEN PR -> FAIL naming the unmerged PR."""
+    fixture_dir = tmp_path / "fixtures"
+    _pf_pin_fixtures(fixture_dir, REPO, "hub-v0.4.42", PIN_SHA,
+                     committed_at="2026-07-30T15:00:00Z")
+    _pf_pr_open_fixture(fixture_dir, REPO, 248)
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "unmerged-pr-in-must-contain",
+        "title": "PR #248 is still open",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.42",
+            "must_contain_prs": [248],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "248" in r.stdout
+    assert "NOT merged" in r.stdout
+
+
+def test_pinned_freshness_missing_tag_fails(fake_cm051, fake_app, tmp_path):
+    """Pin (tag) does not exist on the remote -> FAIL 'pin resolution failed'.
+
+    No tag/branch/sha fixture is written, so every resolution attempt 404s.
+    Mirrors what happens when a manifest names hub-v0.4.41 but only 0.4.40
+    and 0.4.42 exist (the exact shape of the 2026-07-30 v1.0.13 cut).
+    """
+    fixture_dir = tmp_path / "fixtures"
+    # No pin fixture; the resolver will fail every lookup.
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "pin-does-not-exist",
+        "title": "manifest names a nonexistent tag",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.41",
+            "must_contain_prs": [242],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "pin resolution failed" in r.stdout
+    assert "hub-v0.4.41" in r.stdout
+
+
+def test_pinned_freshness_min_build_time_after_pr_fails(fake_cm051, fake_app, tmp_path):
+    """Pin ancestry contains the merge sha (compare 'ahead') BUT pin was
+    committed BEFORE the PR merged -> min_build_time_after_pr catches the
+    stale-checkout build.
+
+    This exercises the defensive check: a merge-commit-in-history could still
+    appear ancestrally even if the artefact binary was actually built from a
+    branch that predates the merge (e.g. a re-tagged historical commit).
+    """
+    fixture_dir = tmp_path / "fixtures"
+    _pf_pin_fixtures(fixture_dir, REPO, "hub-v0.4.42", PIN_SHA,
+                     committed_at="2026-07-29T13:00:00Z")     # BEFORE the merge
+    _pf_pr_merged_fixture(fixture_dir, REPO, 242, PR242_MERGE,
+                          merged_at="2026-07-30T03:01:23Z")   # AFTER the pin's date
+    _pf_compare_fixture(fixture_dir, REPO, PR242_MERGE, PIN_SHA, "ahead")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "pin-stale-checkout",
+        "title": "pin ancestry passes but build time is stale",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.42",
+            "must_contain_prs": [242],
+            "min_build_time_after_pr": 242,
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "BEFORE" in r.stdout
+    assert "#242" in r.stdout
+
+
+def test_pinned_freshness_freshness_max_hours_fails(fake_cm051, fake_app, tmp_path):
+    """Pin committed well over freshness_max_hours ago -> FAIL wall-clock stale."""
+    fixture_dir = tmp_path / "fixtures"
+    # Pin committed in 2020; freshness_max_hours=1 will always fail.
+    _pf_pin_fixtures(fixture_dir, REPO, "hub-v0.1.0", PIN_SHA,
+                     committed_at="2020-01-01T00:00:00Z")
+    _pf_pr_merged_fixture(fixture_dir, REPO, 42, PR242_MERGE,
+                          merged_at="2019-12-01T00:00:00Z")
+    _pf_compare_fixture(fixture_dir, REPO, PR242_MERGE, PIN_SHA, "ahead")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "pin-wall-clock-stale",
+        "title": "pin ancestry passes but pin is ancient",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.1.0",
+            "must_contain_prs": [42],
+            "freshness_max_hours": 1,
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "freshness_max_hours" in r.stdout
+
+
+def test_pinned_freshness_skips_without_auth(monkeypatch):
+    """No gh auth AND no fixture dir -> SKIP (CI + local dev clean-run path).
+
+    In-process rather than subprocess so we can monkeypatch _gh_auth_available
+    without having to trick the child process into a fake PATH (which perturbs
+    Python's own module resolution on a homebrew install).
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("vcm_skip_test", str(SCRIPT))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    monkeypatch.setattr(mod, "_gh_auth_available", lambda: False)
+
+    entry = {
+        "id": "no-auth-clean-skip",
+        "title": "primitive must SKIP when no auth is available",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.42",
+            "must_contain_prs": [242],
+        },
+    }
+    result = mod.check_pinned_artefact_freshness(entry, {})
+    assert result.status == "SKIP", f"expected SKIP, got {result.status}: {result.detail}"
+    assert "no gh auth" in result.detail
+
+
+def test_pinned_freshness_spec_error_bad_repo(fake_cm051, fake_app, tmp_path):
+    """Malformed spec (repo missing '/') -> FAIL with 'spec error'.
+
+    Fails fast at spec-validation before firing any network call — proven by
+    the empty fixture dir (no fixture files would exist for the API calls).
+    """
+    fixture_dir = tmp_path / "fixtures"
+    fixture_dir.mkdir()
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "bad-repo-shape",
+        "title": "repo missing owner/name slash",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": "not-a-valid-repo-slug", "pin": "v1",
+            "must_contain_prs": [1],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "spec error" in r.stdout
+    assert "owner/name" in r.stdout
+
+
+def test_pinned_freshness_spec_error_empty_prs(fake_cm051, fake_app, tmp_path):
+    """Empty must_contain_prs list -> FAIL spec error, never touches network."""
+    fixture_dir = tmp_path / "fixtures"
+    fixture_dir.mkdir()
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "empty-prs-list",
+        "title": "must_contain_prs empty",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v0.4.42",
+            "must_contain_prs": [],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "spec error" in r.stdout
+
+
+def test_pinned_freshness_annotated_tag_dereference(fake_cm051, fake_app, tmp_path):
+    """Annotated tag -> tag ref object.type='tag' -> follow to /git/tags/{sha}.
+
+    Proves the resolver handles both lightweight and annotated tags. An
+    annotated tag ref's `object.sha` is the tag OBJECT, not the commit; the
+    primitive must dereference one hop further.
+    """
+    fixture_dir = tmp_path / "fixtures"
+    tag_object_sha = "1" * 40
+    commit_sha = "2" * 40
+    # Annotated tag ref points at a tag object, not directly at a commit.
+    _write_pf_fixture(fixture_dir, f"repos/{REPO}/git/refs/tags/hub-v9.9.9",
+                      {"ref": "refs/tags/hub-v9.9.9",
+                       "object": {"type": "tag", "sha": tag_object_sha}})
+    # The tag object dereferences to the commit sha.
+    _write_pf_fixture(fixture_dir, f"repos/{REPO}/git/tags/{tag_object_sha}",
+                      {"object": {"type": "commit", "sha": commit_sha}})
+    _write_pf_fixture(fixture_dir, f"repos/{REPO}/commits/{commit_sha}",
+                      {"sha": commit_sha,
+                       "commit": {"committer": {"date": "2026-07-30T15:00:00Z"}}})
+    _pf_pr_merged_fixture(fixture_dir, REPO, 42, PR242_MERGE,
+                          merged_at="2026-07-30T14:00:00Z")
+    _pf_compare_fixture(fixture_dir, REPO, PR242_MERGE, commit_sha, "ahead")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "annotated-tag-dereference",
+        "title": "resolver dereferences annotated tags",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "repo": REPO, "pin": "hub-v9.9.9",
+            "must_contain_prs": [42],
+        },
+    }])
+    r = _run_pinned(fake_cm051, fake_app, fixture_dir, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout + r.stderr

@@ -46,7 +46,7 @@ Both files are consumed on every cut. A RED in either fails the cut.
     # ... primitive-specific fields
 ```
 
-## The 9 primitives
+## The 10 primitives
 
 Every proof has `kind` and (for greps) `must_match: true|false` (default true).
 `must_match: false` is an ABSENCE proof — the pattern MUST NOT appear. Absence
@@ -271,6 +271,79 @@ proof:
 
 No `target:`/`path:` fields — the payload location is fixed by the (B-lite)
 spec.
+
+### 10. `pinned_artefact_freshness`
+
+Proves a version-pinned downloadable artefact (daemon tarball, wiki container
+image, RemoteCapture binary, extension .app.zip) actually contains every
+merged PR the cut manifest claims it does. Talks to the GitHub API via
+`gh api` to resolve the pin, walk the ancestry, and cross-check merge
+timestamps.
+
+The class of bug this closes: a PR is merged to the source repo's `main`, the
+cut manifest is edited to declare "this cut ships #242", but the pinned
+artefact was tagged BEFORE that merge, so the DMG bundles a stale binary and
+the fix silently misses the cut. On 2026-07-30 the subscription grace-period
+hardening (ostler-assistant #242) surfaced exactly this shape: merged hours
+before ORM cut v1.0.13, but the pinned daemon tarball predated the merge, so
+the DMG shipped without it. VG surfaced. `feedback_pinned_artefact_must_have_freshness_gate`
+locked the rule; this primitive is the mechanical enforcement.
+
+```yaml
+proof:
+  kind: pinned_artefact_freshness
+  repo: ostler-ai/ostler-assistant        # owner/name on GitHub
+  pin: hub-v0.4.42                        # tag name, branch name, or full sha
+  must_contain_prs: [242, 257]            # list[int] of PR numbers
+  min_build_time_after_pr: 257            # optional; PR number from must_contain_prs
+  freshness_max_hours: 168                # optional; positive number of hours
+```
+
+Fields:
+
+- `repo` (required) — GitHub `owner/name`, e.g. `ostler-ai/ostler-assistant`.
+- `pin` (required) — tag, branch, or full/short commit SHA on that repo.
+  Lookup order: tag → branch head → raw SHA. Annotated tags are dereferenced.
+- `must_contain_prs` (required, non-empty) — list of PR numbers that MUST be
+  merged into `repo`'s `main` AND reachable from `pin`'s ancestry.
+- `min_build_time_after_pr` (optional) — PR number (must appear in
+  `must_contain_prs`). Fails if the pin's commit-date is BEFORE that PR's
+  merge-date. Defends against pins whose ancestry passes (via a merge-commit
+  in history) but which were TAGGED from a stale checkout.
+- `freshness_max_hours` (optional, positive number) — fails if the pin's
+  commit-date is more than N hours older than now. Wall-clock staleness sanity
+  check for "the pin was correct when set but a month has passed."
+
+Failure modes (each yields a distinct RED with the specific error text):
+
+- **pin does not resolve on the remote** — tag/branch/sha not found. Guards
+  against pins that only exist locally, or against a typo in the manifest.
+- **PR not merged** — a `must_contain_prs` entry is `state: open` or has no
+  `merge_commit_sha`. Guards against the manifest declaring a PR "in the cut"
+  before that PR is actually merged.
+- **PR missing from ancestry** — the pin's history does NOT include the PR's
+  merge commit (`compare` status is `behind` or `diverged`). This is the
+  primary defect the primitive catches: a PR merged AFTER the pin was tagged.
+- **pin predates a must-contain merge** — `min_build_time_after_pr` set + pin
+  commit-date < PR merge-date. Catches stale-checkout builds even when the
+  ancestry check passes.
+- **pin older than freshness_max_hours** — wall-clock staleness.
+
+Runtime dependencies:
+
+- The primitive shells out to `gh api`. It SKIPs cleanly (never FAILs) when
+  no auth is available — no `GH_TOKEN`/`GITHUB_TOKEN` env var, no `gh auth
+  status` success. This mirrors `box_walk_probe` (no reachable box → SKIP)
+  and `grep_in_source_at_sha` (no sibling checkout → SKIP), so CI + local
+  dev pass cleanly while the real gate binds fail-closed on the cut host
+  where `gh` is authenticated.
+- Cross-org auth: point `gh` at the account with read access to the repo
+  under test. For the canonical use (verifying `ostler-ai/ostler-assistant`
+  from a cut on the `andygmassey/CM051-Home-Hub-Installer` box), export
+  `GH_TOKEN=$(gh auth token --user ostler-ai)` before running the gate.
+- Tests use the `PINNED_FRESHNESS_API_FIXTURE_DIR` env var to divert every
+  `gh api` call to canned JSON on disk, so the smoke suite is hermetic and
+  never touches the network. Not documented as a manifest field.
 
 ## Wiring
 
