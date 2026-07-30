@@ -32,7 +32,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
@@ -2296,6 +2297,104 @@ async def api_observability_posture():
     breaking-change must roll a /api/v2 instead of mutating this.
     """
     return all_observability_postures()
+
+
+# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
+#
+# The wiki homepage's first-run "still settling" panel (CM044
+# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
+# poller then auto-hides it once hydration completes) fetches
+# ``GET /api/v1/hydration/status``. That panel renders inside the wiki
+# iframe on :8044 and carries NO paired-iOS bearer. When this path is
+# served through the ``DOCTOR_PROXY_PATHS`` reverse proxy (below) it hits
+# ``proxy._is_paired_bearer`` and 401s ("client bearer is not a paired
+# token"), so BOTH the compile-time bake-check and the runtime auto-hide
+# poller silently fail and the panel bakes into the page forever (#178,
+# live-probed as a 401 on the Mini).
+#
+# The hydration payload is non-PII by construction -- per-phase counts,
+# states and an ETA only, no names, no content. The upstream ical-server
+# already marks it a PUBLIC route that never requires the service token
+# (``_PUBLIC_GET_PATHS`` in assistant_api/ical-server.py). So the Doctor
+# serves it UNAUTHENTICATED too, the same posture as ``/doctor/api/status``:
+# a dedicated explicit route that fetches the composite from the upstream
+# server-side (no Authorization forwarded) and returns the body verbatim,
+# 200 regardless of any inbound Authorization header.
+#
+# This route is registered BEFORE ``register_proxy_routes(app)`` so it wins
+# over the proxy catch-all: Starlette matches routes in registration order,
+# so an explicit ``/api/v1/hydration/status`` registered first takes
+# precedence over the same path the proxy would otherwise register from
+# ``DOCTOR_PROXY_PATHS``.
+
+_HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
+# Loopback round-trip to the upstream composite; a few seconds is generous
+# and a wedged upstream must fail fast rather than hang the panel poll.
+_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
+
+
+async def _fetch_hydration_status(
+    gateway_url: "str | None" = None,
+    client: "httpx.AsyncClient | None" = None,
+) -> httpx.Response:
+    """Fetch the composite hydration status from the upstream ical-server.
+
+    The per-phase hydration feed is owned by the upstream (it combines the
+    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
+    counts), so the Doctor cannot synthesise it from a local file -- it
+    fetches server-side. NO Authorization header is sent: the upstream marks
+    this a public route and the whole point of #178 is to serve it without a
+    paired bearer. Reuses ``proxy._gateway_base_url`` so the upstream base is
+    read from one place (``DOCTOR_GATEWAY_URL``; the customer install points
+    it at the loopback ical-server on :8090).
+
+    ``gateway_url`` / ``client`` exist for tests that inject a destination or
+    a mocked transport; production callers pass neither.
+    """
+    from proxy import _gateway_base_url  # single source of the upstream base
+
+    base = (gateway_url or _gateway_base_url()).rstrip("/")
+    url = base + _HYDRATION_STATUS_PATH
+    if client is not None:
+        return await client.get(
+            url, timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
+        )
+    async with httpx.AsyncClient(
+        timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
+    ) as new_client:
+        return await new_client.get(url)
+
+
+@app.get(_HYDRATION_STATUS_PATH)
+async def api_hydration_status() -> Response:
+    """Unauthenticated passthrough for the first-run wiki hydration panel.
+
+    Returns the upstream hydration JSON with a 200 whenever the upstream is
+    reachable, regardless of any inbound Authorization header -- there is no
+    bearer gate on this route (that is the #178 fix). On an upstream network
+    failure we mirror the proxy's honest 502 posture rather than fabricating
+    a "complete" payload that would wrongly hide the panel; the poller keeps
+    the panel visible and retries. Never 401s for auth reasons.
+    """
+    try:
+        upstream = await _fetch_hydration_status()
+    except (httpx.HTTPError, OSError) as exc:
+        # Upstream ical-server unreachable / timed out. Honest "cannot tell"
+        # so the wiki poller keeps the settling panel up and retries, instead
+        # of a 401 (the bug) or a fabricated done-state.
+        return Response(
+            content=json.dumps(
+                {"error": "upstream hydration status unreachable",
+                 "detail": exc.__class__.__name__}
+            ),
+            status_code=502,
+            media_type="application/json",
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "application/json"),
+    )
 
 
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────

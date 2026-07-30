@@ -171,7 +171,7 @@ CRITICAL_DISK_DETAIL = (
     "Less than 10 GB free. Docker and Ollama both need disk space to function. "
     "Services will start failing if this drops further."
 )
-CRITICAL_DISK_FIX = "Free up space. Remove unused Docker images and Ollama models."
+CRITICAL_DISK_FIX = "Free up space – remove unused Docker images and Ollama models"
 CRITICAL_DISK_FIX_COMMAND = (
     "docker system prune -f && "
     "echo '--- Ollama models ---' && ollama list && "
@@ -384,6 +384,33 @@ IMESSAGE_FDA_RESTART_HINT = (
     "launchctl kickstart -k gui/$(id -u)/"
     "com.creativemachines.ostler.assistant"
 )
+
+
+# ── check_imessage_capture_stalled ───────────────────────────────────
+#
+# Distinct from check_imessage_fda: that rule fires on the install-time
+# probe signal; this one fires on the RUNTIME evidence that the iMessage
+# capture bundle is actually crash-looping. Before Full Disk Access is
+# granted, every capture tick logs
+# ``sqlite3.OperationalError: unable to open database file`` to
+# ``~/.ostler/logs/imessage-bundle.err`` -- the capture is silently stalled
+# and no messages are being read. This surfaces that as an actionable card.
+
+
+IMESSAGE_CAPTURE_STALLED_TITLE = (
+    "iMessage capture stalled: waiting for Full Disk Access"
+)
+IMESSAGE_CAPTURE_STALLED_DETAIL = (
+    "Ostler's iMessage capture is retrying but cannot open your Messages "
+    "database yet, so no messages are being read. macOS blocks access until "
+    "you grant Full Disk Access to the assistant. Grant it and the capture "
+    "resumes on its own; this card clears once Messages can be read."
+)
+IMESSAGE_CAPTURE_STALLED_FIX = "Open System Settings to Full Disk Access"
+# Same remedial action as the install-time card: the FDA deep-link. Kept as
+# its own catalogue entry so the two call sites stay decoupled, but pointed
+# at the shared command so there is one deep-link string to maintain.
+IMESSAGE_CAPTURE_STALLED_FIX_COMMAND = IMESSAGE_FDA_FIX_COMMAND
 
 
 # ── check_last_upgrade ───────────────────────────────────────────────
