@@ -115,3 +115,49 @@ Make the cut tag the single source of truth so the manual bump disappears:
 This is a build + cross-repo (HR015) change and was deliberately **not** made as
 part of #171 to avoid a blind build/cut refactor; it is the eventual fix that
 makes the manual bump checklist above obsolete.
+
+## Recovering from a `pinned_artefact_freshness` fail
+
+CM051 downloads pre-built artefacts at cut time (the daemon tarball via
+`DAEMON_VERSION`, the RemoteCapture app via `OSTLER_REMOTECAPTURE_VERSION`).
+If a source-repo fix merged after the pinned tag was cut, that fix cannot ride
+in the DMG. The v1.0.13 near-miss (2026-07-30): `DAEMON_VERSION = 0.4.39`
+resolved to `hub-v0.4.39` tagged at oa/main `16687ed6`; five subsequent
+`crates/*` commits including task #148 (`has_ever_paid` sticky bit, launch
+blocker) never reached the pinned tarball. The cut manifest's
+`pinned_artefact_freshness` primitive (see `cut-manifests/README.md` #10) now
+catches this class of failure before signing. When it fails you'll see:
+
+```
+FAIL  permanent-daemon-freshness  pinned daemon tarball must contain all merged crates/* changes on oa/main
+        pinned daemon (ostler-assistant) v0.4.39 (@16687ed6) is stale vs main HEAD (a2d2d23f); N diverging commit(s) touch ['crates/**']:
+            9528520a feat(subscription): has_ever_paid sticky bit  [crates/**]
+            a2d2d23f build(release): hub-vX.Y.Z tag push wiring    [crates/**]
+        Recovery: cut a new release from source HEAD; bump the pin in gui/Makefile; rebuild.
+```
+
+The runbook:
+
+1. Confirm the source repo (from the entry's `source_repo`) is at the SHA the
+   gate reports. If `oa/main` genuinely has landing-ready work you want in the
+   cut, proceed. Otherwise, revert or park the commits before re-running.
+2. Cut a new source-repo release from the current default-branch HEAD. For
+   `ostler-ai/ostler-assistant`, that is `bash scripts/tag_release.sh
+   hub-v<new-version>` in the daemon repo (or the workflow equivalent),
+   which publishes the tarball + `.sha256` sidecar.
+3. Wait for the release workflow to finish and the tarball URL to become
+   fetchable (curl-probe the `.tar.gz` URL returning 200).
+4. In CM051, bump the pin file:
+   - Daemon: edit `gui/Makefile`, set `DAEMON_VERSION` to the new version and
+     `DAEMON_SHA256` to the value from the new `.sha256` sidecar. Then run
+     `make -C gui download-daemon` to prove the cached tarball SHA matches.
+   - RemoteCapture: edit `install.sh`, set the `OSTLER_REMOTECAPTURE_VERSION`
+     default to the new version.
+5. Commit the pin bump on the cut branch and re-run
+   `./scripts/verify_cut_manifest.sh` to confirm the gate goes green.
+6. Resume the cut (`make -C gui ship`).
+
+The gate needs `gh` API access to the source repo, resolved via
+`GH_TOKEN=$(gh auth token --user <owner>)` where `<owner>` is the slug before
+the `/` in `source_repo`. If it reports "could not resolve gh token for owner
+'ostler-ai'", run `gh auth login --user ostler-ai` and retry.

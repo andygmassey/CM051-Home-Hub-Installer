@@ -127,6 +127,68 @@ entries:
       pattern: "andy@andymassey\\.com|claude\\.ai@andymassey\\.com|marvin@andymassey\\.com"
       must_match: false
 
+  # ==========================================================================
+  # Pinned-artefact freshness. The v1.0.13 near-miss (2026-07-30): CM051's
+  # DAEMON_VERSION pin at 0.4.39 resolved to hub-v0.4.39, tagged from oa/main at
+  # 16687ed6. By cut time oa/main had advanced 5 commits including task #148
+  # (has_ever_paid sticky bit -- launch blocker) and #149 (hub-vX.Y.Z tag-push
+  # wiring), both compiling into the daemon via crates/*. The pinned tarball
+  # structurally could not contain them. TNM caught it by inspection; without
+  # this gate the DMG would have shipped with the fixes silently missing.
+  #
+  # Andy's directive after we caught it: "Make sure this doesn't ever happen
+  # again." These entries encode that directive: any future cut where the
+  # pinned artefact tag is behind source HEAD on the compile sub-tree FAILS
+  # the gate and tells the maintainer the exact commits to include.
+  #
+  # See cut-manifests/README.md primitive #10 and VERSIONING.md "Recovering
+  # from a pinned_artefact_freshness fail" for the runbook.
+  # ==========================================================================
+  - id: permanent-daemon-freshness
+    title: pinned daemon tarball must contain all merged crates/* changes on oa/main
+    incident: v1.0.13 near-miss (2026-07-30); 5 unshipped oa/main commits including task #148 launch blocker
+    source_pr: post-hoc-2026-07-30 near-miss recovery (Andy directive)
+    proof:
+      kind: pinned_artefact_freshness
+      artefact: "daemon (ostler-assistant)"
+      pinned_version_source:
+        file: "gui/Makefile"
+        pattern: 'DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)'
+      tag_format: "hub-v{version}"
+      source_repo: "ostler-ai/ostler-assistant"
+      source_paths:
+        - "crates/**"
+      ignore_commits_matching:
+        - "^chore\\(fmt\\)"
+        - "^docs:"
+        - "^chore\\(docs\\)"
+
+  - id: permanent-remotecapture-freshness
+    title: pinned RemoteCapture app must contain all merged source changes on its default branch
+    incident: same class as daemon near-miss; RemoteCapture pinned via install.sh, same failure mode
+    source_pr: post-hoc-2026-07-30 near-miss recovery (Andy directive)
+    proof:
+      kind: pinned_artefact_freshness
+      artefact: "RemoteCapture (ostler-remote-capture)"
+      pinned_version_source:
+        file: "install.sh"
+        pattern: 'OSTLER_REMOTECAPTURE_VERSION="\$\{OSTLER_REMOTECAPTURE_VERSION:-(\d+\.\d+\.\d+)\}"'
+      tag_format: "remote-capture-v{version}"
+      source_repo: "ostler-ai/ostler-remote-capture"
+      # The RemoteCapture repo compiles the whole app from Sources/ + supporting
+      # Swift/Xcode + package files; freshness matters for any of them.
+      source_paths:
+        - "Sources/**"
+        - "Package.swift"
+        - "Package.resolved"
+        - "*.xcodeproj/**"
+        - "RemoteCapture/**"
+      ignore_commits_matching:
+        - "^chore\\(fmt\\)"
+        - "^docs:"
+        - "^chore\\(docs\\)"
+        - "^chore\\(release\\)"
+
   # Note on wiki-recompile artefacts:
   # CM044's dedupe-decision chrome (dup_decision.js) is EMITTED at wiki
   # compile-time on the box (post-install), not shipped in the DMG. The
@@ -134,3 +196,13 @@ entries:
   # (INSTALL_SNIPPET.sh, launchd plist, bin/). Proof for CM044 chrome
   # freshness belongs to the post-install box-walk gate, not this
   # artefact-only manifest. Kept out of permanent.yaml deliberately.
+  #
+  # Note on wiki container image freshness:
+  # install.sh pins ghcr.io/ostler-ai/ostler-wiki-site@sha256:<digest>. That
+  # is a container digest, not a git tag, so pinned_artefact_freshness (which
+  # resolves a version -> git tag -> commit) does not apply. Bridging a
+  # container digest back to a source commit needs an OCI-labels lookup that
+  # is out of scope for the freshness primitive as designed. A separate
+  # `pinned_container_freshness` primitive can be added later if the same
+  # class of drift bites us on the wiki image; the risk profile is lower
+  # because the wiki image is rebuilt on every CM044 release cycle already.
