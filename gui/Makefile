@@ -181,11 +181,12 @@ DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
 
 STEP          := @printf '\n[STEP] %s\n'
 
-.PHONY: all debug release package notarise staple archive ship clean regen \
+.PHONY: all debug release package notarise notarise-app notarise-dmg \
+        staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
-        print-version dmg-bg sparkle-embed verify-dmg-contents download-python \
-        sign-python-bundle download-daemon stage-daemon check-provenance \
-        check-freshness check-provenance-content check-manifest
+        print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
+        download-python sign-python-bundle download-daemon stage-daemon \
+        check-provenance check-freshness check-provenance-content check-manifest
 
 all: debug
 
@@ -937,9 +938,148 @@ dmg-bg:
 	python3 scripts/generate_dmg_background.py
 
 # ---------------------------------------------------------------------------
-# Notarisation – submits, waits, then staples
+# Notarisation + stapling
+#
+# HR015 task #221 (offline first-launch blocker):
+#   Historically this pipeline submitted the DMG for notarisation and then
+#   stapled the DMG wrapper only. Every .app bundle INSIDE the DMG
+#   (OstlerInstaller.app, and nested Ostler.app + OstlerAssistant.app in
+#   Contents/Resources/) received a valid Apple ticket at Apple's ticket
+#   server -- but that ticket was never embedded ("stapled") into the
+#   bundle itself. Result: when install.sh moves those .apps to
+#   /Applications on the customer Mac, Gatekeeper cannot find a stapled
+#   ticket and falls back to an online lookup. A customer on a plane, in
+#   a cafe with a captive portal, or behind a corporate firewall that
+#   blocks Apple's ticket servers cannot launch Ostler.app.
+#
+# Fix: notarise the OstlerInstaller.app BEFORE packaging into a DMG (so
+# Apple sees + registers every nested CDHash), then staple deepest-first
+# in the build tree (nested .apps first, then the outer OstlerInstaller.app).
+# Only then package into a DMG, sign, submit the DMG for its own
+# notarisation (fast -- CDHashes already registered), staple the DMG.
+#
+# Ship-chain order (see `ship` target below):
+#   ... check-manifest -> notarise-app -> staple-apps -> package
+#                     -> notarise-dmg -> verify-dmg-contents -> verify-stapling -> archive
+#
+# The `notarise` + `staple` targets are kept as backwards-compat aliases
+# for the DMG-only pattern (still useful for a one-off recut of an
+# already-built DMG).
 # ---------------------------------------------------------------------------
-notarise: check-tools
+
+# ---------------------------------------------------------------------------
+# notarise-app: zip $(APP_PATH), submit to notarytool, wait for accepted.
+#
+# Submitting the outer OstlerInstaller.app once registers tickets for
+# EVERY CDHash inside it (Ostler.app, OstlerAssistant.app, python3.11,
+# ostler-mecard, every framework Mach-O, ...) so `xcrun stapler staple`
+# can then embed each ticket individually.
+#
+# We zip with `ditto -c -k --sequesterRsrc --keepParent` -- the
+# Apple-blessed form for notary submissions. `zip -r` risks losing
+# resource forks / extended attributes and has been the cause of
+# "unable to build submission" notary errors in the past.
+# ---------------------------------------------------------------------------
+notarise-app: check-tools
+	@if [ ! -d "$(APP_PATH)" ]; then \
+	    echo "ERROR: $(APP_PATH) not found. Run 'make release' + 'make sign-python-bundle' first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Zipping $(APP_NAME).app for notary submission"
+	@APP_ZIP="$(BUILD_DIR)/$(APP_NAME)-notary.zip"; \
+	    rm -f "$$APP_ZIP"; \
+	    ditto -c -k --sequesterRsrc --keepParent "$(APP_PATH)" "$$APP_ZIP"; \
+	    printf '[OK] wrote %s (%s bytes)\n' "$$APP_ZIP" "$$(stat -f %z "$$APP_ZIP" 2>/dev/null || stat -c %s "$$APP_ZIP")"
+	$(STEP) "Submitting $(APP_NAME).app zip to notarytool (profile: $(NOTARY_PROFILE))"
+	@APP_ZIP="$(BUILD_DIR)/$(APP_NAME)-notary.zip"; \
+	if ! xcrun notarytool submit "$$APP_ZIP" \
+	        --keychain-profile "$(NOTARY_PROFILE)" \
+	        --wait; then \
+	    echo "" >&2; \
+	    echo "App-bundle notarisation failed. Find the submission ID above and run:" >&2; \
+	    echo "  xcrun notarytool log <submission-id> --keychain-profile $(NOTARY_PROFILE)" >&2; \
+	    exit 1; \
+	fi
+	@rm -f "$(BUILD_DIR)/$(APP_NAME)-notary.zip"
+	@echo "[OK] $(APP_NAME).app + every nested CDHash notarised. Ready to staple."
+
+# ---------------------------------------------------------------------------
+# staple-apps: staple the tickets INTO the .app bundles in the build tree.
+#
+# Order matters: DEEPEST FIRST. Apple's stapler writes the ticket to a
+# well-known bundle path that codesign treats as an alternate resource;
+# stapling a nested .app after the outer's --deep --strict verify is
+# safe, but we still walk deepest-first so any surprise codesign
+# consequence surfaces on the innermost item (easier to diagnose).
+#
+# find is used to enumerate every .app under $(APP_PATH)/Contents/, so
+# a future new nested .app (e.g. an in-DMG Safari Extension) gets
+# stapled automatically without a Makefile edit. The outer $(APP_PATH)
+# is stapled LAST as its own step.
+#
+# HR015 task #221: without this step the DMG payload ships with
+# unstapled inner .apps.
+# ---------------------------------------------------------------------------
+staple-apps: check-tools
+	@if [ ! -d "$(APP_PATH)" ]; then \
+	    echo "ERROR: $(APP_PATH) not found. Run 'make notarise-app' first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Stapling every nested .app inside $(APP_PATH) (deepest-first)"
+	@COUNT=0; FAIL=0; \
+	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
+	for app in $$NESTED_APPS; do \
+	    printf '  staple: %s\n' "$${app#$(APP_PATH)/}"; \
+	    if xcrun stapler staple "$$app"; then \
+	        COUNT=$$((COUNT+1)); \
+	    else \
+	        echo "  ERROR: stapler failed on $$app" >&2; \
+	        FAIL=$$((FAIL+1)); \
+	    fi; \
+	done; \
+	printf '[STEP] Stapling outer %s\n' "$(APP_NAME).app"; \
+	if xcrun stapler staple "$(APP_PATH)"; then \
+	    COUNT=$$((COUNT+1)); \
+	else \
+	    echo "  ERROR: stapler failed on outer $(APP_PATH)" >&2; \
+	    FAIL=$$((FAIL+1)); \
+	fi; \
+	if [ "$$FAIL" -gt 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: staple-apps failed on $$FAIL bundle(s). Most likely cause:" >&2; \
+	    echo "  notarise-app has not run yet, so Apple's ticket server has no" >&2; \
+	    echo "  ticket for these CDHashes. Run 'make notarise-app' then retry." >&2; \
+	    exit 1; \
+	fi; \
+	printf '[OK] stapled %d bundles (outer + %d nested)\n' "$$COUNT" "$$((COUNT-1))"
+	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
+	@FAIL=0; \
+	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
+	for app in "$(APP_PATH)" $$NESTED_APPS; do \
+	    if xcrun stapler validate "$$app" >/dev/null 2>&1; then \
+	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
+	    else \
+	        printf '  [FAIL] %s -- ticket missing after staple\n' "$${app#$(APP_PATH)/}" >&2; \
+	        FAIL=$$((FAIL+1)); \
+	    fi; \
+	done; \
+	[ "$$FAIL" -eq 0 ] || { echo "ERROR: post-staple validate failed on $$FAIL bundle(s)" >&2; exit 1; }
+	$(STEP) "Re-verifying outer codesign after staple (--deep --strict)"
+	@codesign --verify --deep --strict --verbose=2 "$(APP_PATH)" || { \
+	    echo "" >&2; \
+	    echo "ERROR: outer $(APP_NAME).app failed codesign --deep --strict after nested staple." >&2; \
+	    echo "  Stapling nested .apps should not invalidate the outer signature. This is a" >&2; \
+	    echo "  new failure mode -- investigate before shipping." >&2; \
+	    exit 1; \
+	}
+
+# ---------------------------------------------------------------------------
+# notarise-dmg: submit the packaged DMG for its own notarisation + staple.
+# CDHashes for every inner bundle were already registered by notarise-app,
+# so this submission returns fast. The DMG wrapper still needs its own
+# ticket for Gatekeeper to accept the DMG mount on a first-launch offline.
+# ---------------------------------------------------------------------------
+notarise-dmg: check-tools
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: $(DMG_PATH) not found. Run 'make package' first." >&2; \
 	    exit 1; \
@@ -949,11 +1089,18 @@ notarise: check-tools
 	        --keychain-profile "$(NOTARY_PROFILE)" \
 	        --wait; then \
 	    echo "" >&2; \
-	    echo "Notarisation failed. Find the submission ID above and run:" >&2; \
+	    echo "DMG notarisation failed. Find the submission ID above and run:" >&2; \
 	    echo "  xcrun notarytool log <submission-id> --keychain-profile $(NOTARY_PROFILE)" >&2; \
 	    exit 1; \
 	fi
 	@$(MAKE) --no-print-directory staple
+
+# ---------------------------------------------------------------------------
+# Backwards-compat alias: `make notarise` still submits the DMG + staples
+# the DMG wrapper (pre-#221 behaviour). New ship chain uses notarise-app
+# + staple-apps + notarise-dmg explicitly. Prefer those in new code.
+# ---------------------------------------------------------------------------
+notarise: notarise-dmg
 
 staple: check-tools
 	@if [ ! -f "$(DMG_PATH)" ]; then \
@@ -1141,15 +1288,53 @@ verify-dmg-contents:
 	echo "[OK] DMG payload verified -- Ostler.app + install.sh + all vendor packages + Developer-ID hardened-runtime daemon + ostler-mecard + embedded (B-lite) ostler-payload present (Hub build-SHA $$HUB_SHA)"
 
 # ---------------------------------------------------------------------------
-# One-shot: validate → build → DMG → notarise → staple → verify → archive
+# verify-stapling: post-cut integrity gate for notarisation ticket staples.
+#
+# HR015 task #221 (offline first-launch blocker): the v1.0.8 DMG shipped
+# with every nested .app UNSTAPLED. `xcrun stapler validate` on the DMG
+# wrapper returned "The validate action worked!" but the same command on
+# Ostler.app + OstlerAssistant.app + OstlerInstaller.app inside the mount
+# returned "does not have a ticket stapled" (or exit 65 on Sonoma+ quiet
+# mode). Customers without internet on first launch hit Gatekeeper.
+#
+# Sibling to task #226 (commit-parity gate + other post-cut integrity
+# gates). Both classes share the same shape: mount the shipped artefact
+# and prove one thing that a green make-ship alone does NOT prove.
+#
+# Delegates to scripts/verify_stapling.sh so the gate can be unit-tested
+# against fixture .apps with a shim stapler (see
+# scripts/tests/test_verify_stapling_gate.sh). Per
+# feedback_gate_must_prove_it_fires_not_just_compile, silent no-op gates
+# are worse than no gate.
+# ---------------------------------------------------------------------------
+verify-stapling:
+	@if [ ! -f "$(DMG_PATH)" ]; then \
+	    echo "ERROR: $(DMG_PATH) not found. Run 'make ship' first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Post-cut stapling gate -- every .app + DMG wrapper must carry a ticket (#221)"
+	@bash "$(CURDIR)/../scripts/verify_stapling.sh" "$(DMG_PATH)"
+
+# ---------------------------------------------------------------------------
+# One-shot: validate → build → notarise-app → staple-apps → package
+#          → notarise-dmg → verify-dmg-contents → verify-stapling → archive
 #
 # check-ostler-app runs first so we fail fast on the empty/missing
 # OSTLER_APP_PATH case (caught 2026-05-21 — would have saved one DMG cut).
-# verify-dmg-contents runs between notarise and archive so any silent-skip
-# regression downstream of check-ostler-app fails before we archive a bad
-# DMG into ~/.ostler-release-artefacts/.
+#
+# Notarisation is now split into TWO passes to fix HR015 #221 (offline
+# first-launch blocker). Old chain: package -> notarise-DMG -> staple-DMG,
+# which left every nested .app unstapled inside the DMG payload.
+# New chain: notarise the outer OstlerInstaller.app (registers every
+# nested CDHash at Apple), staple deepest-first in the build tree, THEN
+# package into the DMG, then notarise + staple the DMG wrapper for its
+# own Gatekeeper mount ticket.
+#
+# verify-dmg-contents catches silent-skip payload regressions.
+# verify-stapling catches per-.app stapling regressions -- both must be
+# GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest package notarise verify-dmg-contents archive
+ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
