@@ -1,14 +1,48 @@
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -21,7 +21,10 @@
- 
+
  [tool.setuptools.packages.find]
  where = ["."]
 -include = ["src*"]
 +include = ["src*", "prompts*"]
- 
+
 +[tool.setuptools.package-data]
 +prompts = ["*.md"]
 +
  [tool.pytest.ini_options]
  testpaths = ["tests"]
+--- a/src/ostler_paths.py
++++ b/src/ostler_paths.py
+@@ -370,11 +370,27 @@ def migrate_pwg_dotdir_if_needed(
+         return MigrationOutcome(status="locked")
+
+     try:
+-        # Fresh install: nothing to migrate, but drop the
+-        # sentinel so subsequent launches short-circuit and
+-        # don't keep re-statting the legacy path.
++        # Fresh install: nothing to migrate. Do NOT drop the
++        # sentinel here -- the sentinel body is
++        # ``Migrated from ~/.pwg/ on <ts>``, which would be a
++        # LIE on a machine that never had a PWG install
++        # (HR015 #233 -- Andy's freshly-wiped 16GB Mini on
++        # 2026-07-31 showed the false marker). Beyond the
++        # cosmetic lie, a false sentinel actively prevents a
++        # legitimate future migration: if the customer later
++        # restores a ~/.pwg/ from another machine, the
++        # already_migrated short-circuit above would ignore
++        # it forever. Cost of skipping: one extra stat +
++        # lockfile create/unlink per CLI launch on fresh
++        # installs (negligible). See HR015 #231 for the
++        # separate follow-up that deletes any stale sentinel
++        # after the first successful daemon boot.
+         if not legacy_root.exists():
+-            _write_sentinel(sentinel)
++            log.debug(
++                "migrate_pwg_dotdir: no %s detected; skipping "
++                "migration (no sentinel written on fresh install)",
++                legacy_root,
++            )
+             return MigrationOutcome(status="fresh_install")
+
+         # Backup BEFORE touching anything. shutil.copytree
