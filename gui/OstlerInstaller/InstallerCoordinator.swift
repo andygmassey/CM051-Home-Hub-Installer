@@ -1477,6 +1477,7 @@ final class InstallerCoordinator: ObservableObject {
         let key: String
         switch event {
         case .stepBegin:   key = "stepBegin"
+        case .step:        key = "step"
         case .pct:         key = "pct"
         case .log:         key = "log"
         case .warn:        key = "warn"
@@ -1509,6 +1510,34 @@ final class InstallerCoordinator: ObservableObject {
             totalSteps = total ?? totalSteps
             appendLog(level: "info", msg: "→ \(title) [\(id)]")
             OstlerLog.subprocess.info("event STEP_BEGIN id=\(id, privacy: .public) idx=\(idx ?? -1, privacy: .public)/\(total ?? -1, privacy: .public) title=\(title, privacy: .public)")
+        case .step(let id, let metadata):
+            // #201 (v1.0.13.1 box-walk, 2026-08-01): bare STEP marker.
+            // install.sh emits `#OSTLER STEP name=<id> [k=v ...]` for
+            // out-of-band screens that don't fit the stepBegin/stepEnd
+            // cadence (the original callsite is permissions_briefing --
+            // the "10 macOS popups coming up" walk-through slotted
+            // between the setup_questions PHASE and the first install
+            // stepBegin). Route through the same backfill +
+            // currentStepId path stepBegin uses so the sidebar advances
+            // rather than stranding "A few questions" as active for the
+            // duration of the briefing. Title falls back to the
+            // StepCatalog entry when one exists, otherwise a formatted
+            // version of the id -- matches the fallback pattern in
+            // markStepCompletedIfMissing so out-of-band ids get a
+            // readable label without needing a HintCopy.json entry.
+            backfillCanonicalEntriesBefore(id: id)
+            currentStepId = id
+            currentStepTitle = StepCatalog.shared.meta(for: id)?.title
+                ?? id.replacingOccurrences(of: "_", with: " ").capitalized
+            currentStepPercent = 0
+            appendLog(level: "info", msg: "→ \(currentStepTitle) [\(id)]")
+            // Sort metadata by key so the os_log line is stable across
+            // runs (dict ordering is unspecified; a stable line makes
+            // log-diffing across box-walks tractable).
+            let metaSuffix = metadata.isEmpty
+                ? ""
+                : " " + metadata.keys.sorted().map { "\($0)=\(metadata[$0] ?? "")" }.joined(separator: " ")
+            OstlerLog.subprocess.info("event STEP id=\(id, privacy: .public)\(metaSuffix, privacy: .public)")
         case .pct(_, let pct):
             currentStepPercent = pct
         case .log(let level, let msg):
