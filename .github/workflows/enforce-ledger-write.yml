@@ -1,0 +1,30 @@
+name: enforce-ledger-write
+
+# Adopts the cross-repo reusable workflow defined in HR015:
+#   andygmassey/HR015-Gaming-PC/.github/workflows/reusable-enforce-ledger-write.yml
+#
+# On every PR: if the PR touches shipping-adjacent files (cut-manifests/,
+# release/build-binary.sh, gui/Makefile DAEMON_VERSION|DAEMON_SHA256
+# lines, install.sh OSTLER_ASSISTANT_VERSION|DEFAULT_ASSISTANT_TARBALL_SHA256
+# lines, or **/vendor/) the PR body MUST contain one of:
+#
+#   [ledger-entry: <URL to HR015 SHIPPING_LEDGER.yaml PR or commit>]
+#   [skip-ledger-enforce: <reason>]
+#
+# Source: memory/feedback_shipping_ledger_after_every_write.md
+#
+# ---
+# DRAFT NOTE for TNM (2026-07-31): same-org resolution (both repos under
+# andygmassey) so cross-repo reusable-workflow access should Just Work
+# once HR015 PR #277 merges. If the workflow_call resolution fails,
+# fall back to vendoring `.githooks/enforce-ledger-write.sh` into this
+# repo and calling it from an inline workflow.
+
+on:
+  pull_request:
+
+jobs:
+  ledger-pr:
+    uses: andygmassey/HR015-Gaming-PC/.github/workflows/reusable-enforce-ledger-write.yml@main
+    with:
+      mode: pr
