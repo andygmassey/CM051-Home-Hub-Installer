@@ -13384,7 +13384,7 @@ fi
 
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION:-0.4.43})" "ostler_assistant"
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.43}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.44}"
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
 # non-200, so a missing tag never strands the customer on an
