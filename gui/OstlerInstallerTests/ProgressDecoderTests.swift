@@ -46,6 +46,60 @@ final class ProgressDecoderTests: XCTestCase {
         )
     }
 
+    // MARK: - #201: bare STEP marker
+
+    func testBareStepMarkerYieldsStepEventWithNameAsId() {
+        // #201 (v1.0.13.1 box-walk, 2026-08-01): install.sh emits
+        //   #OSTLER<TAB>STEP<TAB>name=permissions_briefing<TAB>total_permissions=10
+        // for the "10 macOS popups coming up" walk-through between the
+        // setup_questions PHASE and the first install stepBegin. Pre-#201
+        // this fell through to `.unknown` and the sidebar stayed stuck on
+        // "A few questions" while install.sh had already moved on. The
+        // decoder must:
+        //   - route the marker to `.step` (not `.unknown`)
+        //   - lift `name=` out as the step id
+        //   - keep the remaining k=v pairs in `metadata` so the coordinator
+        //     can render them as an optional sidebar subtitle
+        //   - NOT leave a residual `name` key in `metadata` (that would
+        //     round-trip as a bogus subtitle line "name=...")
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP\tname=permissions_briefing\ttotal_permissions=10"
+        )
+        guard case .step(let id, let metadata) = event else {
+            return XCTFail("expected .step, got \(event)")
+        }
+        XCTAssertEqual(id, "permissions_briefing")
+        XCTAssertEqual(metadata, ["total_permissions": "10"])
+        XCTAssertNil(metadata["name"], "name= key must not leak into metadata dict")
+    }
+
+    func testBareStepMarkerWithoutMetadataYieldsEmptyDict() {
+        // Minimal shape: just `name=`, no auxiliary pairs. `metadata`
+        // is present-but-empty; the coordinator uses `isEmpty` to decide
+        // whether to render a subtitle so the empty-dict path must be
+        // honest.
+        let event = ProgressDecoder.decode(line: "#OSTLER\tSTEP\tname=foo")
+        guard case .step(let id, let metadata) = event else {
+            return XCTFail("expected .step, got \(event)")
+        }
+        XCTAssertEqual(id, "foo")
+        XCTAssertTrue(metadata.isEmpty)
+    }
+
+    func testBareStepMarkerWithoutNameFallsBackToQuestionMark() {
+        // Defensive: a malformed STEP marker with no `name=` field must
+        // still return `.step`, not `.unknown`, so the coordinator's
+        // event-count telemetry treats it as a STEP that arrived in a
+        // bad shape (surfaces "?" as the id in the log). Matches the
+        // `id=kv["id"] ?? "?"` fallback stepBegin uses.
+        let event = ProgressDecoder.decode(line: "#OSTLER\tSTEP\tfoo=bar")
+        guard case .step(let id, let metadata) = event else {
+            return XCTFail("expected .step, got \(event)")
+        }
+        XCTAssertEqual(id, "?")
+        XCTAssertEqual(metadata, ["foo": "bar"])
+    }
+
     func testUnknownMarkerStillYieldsUnknownEvent() {
         // `.unknown` is a different concern from `.rawLine` -- it
         // means "the line LOOKED like a marker but the event name

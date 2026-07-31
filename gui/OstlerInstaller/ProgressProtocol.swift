@@ -9,6 +9,7 @@
 //
 // Events:
 //   STEP_BEGIN  id title phase idx total
+//   STEP        name [k=v ...]     bare step announcement, no _BEGIN/_END framing
 //   PCT         step pct
 //   LOG         level msg
 //   WARN        step msg
@@ -26,6 +27,22 @@ import Foundation
 /// line in the log drawer.
 enum InstallerEvent: Equatable {
     case stepBegin(id: String, title: String, phase: Int?, idx: Int?, total: Int?)
+    /// #201 (v1.0.13.1 box-walk, 2026-08-01): bare STEP marker without
+    /// _BEGIN/_END framing. install.sh emits these for out-of-band
+    /// screens that don't fit the stepBegin/stepEnd cadence -- the
+    /// original callsite is the permissions_briefing walk-through slotted
+    /// between the setup_questions PHASE and the actual install work, so
+    /// the customer sees the "10 macOS popups coming up" preamble
+    /// announced in the sidebar rather than the sidebar sitting stuck on
+    /// "A few questions" while install.sh has moved on. `name=` is the
+    /// step id; any remaining k=v pairs (e.g. `total_permissions=10`) are
+    /// carried in `metadata` so the coordinator can render them as an
+    /// optional subtitle without needing to teach the parser about every
+    /// STEP variant's specific fields. Pre-#201 the parser fell through
+    /// to `.unknown`, which the coordinator surfaced as an
+    /// "Unrecognised marker" warning and, more visibly, left the sidebar
+    /// unable to advance past the last stepBegin-handled row.
+    case step(id: String, metadata: [String: String])
     case pct(step: String, pct: Int)
     case log(level: String, msg: String)
     case warn(step: String, msg: String)
@@ -176,6 +193,18 @@ struct ProgressDecoder {
                 idx: kv["idx"].flatMap(Int.init),
                 total: kv["total"].flatMap(Int.init)
             )
+        case "STEP":
+            // #201: bare step announcement. `name=` is the step id;
+            // strip it out of the metadata dict so the coordinator gets
+            // just the auxiliary k=v pairs (e.g. `total_permissions=10`)
+            // and can render them as an optional sidebar subtitle. The
+            // coordinator routes the id through the same
+            // backfill + currentStepId path as stepBegin so the sidebar
+            // advances to the announced step instead of sitting stuck
+            // on the previous one.
+            var metadata = kv
+            let id = metadata.removeValue(forKey: "name") ?? "?"
+            return .step(id: id, metadata: metadata)
         case "PCT":
             return .pct(
                 step: kv["step"] ?? "?",
@@ -251,6 +280,7 @@ enum ProgressDecoderSelfTest {
     static func runOnce() {
         let cases: [(String, String)] = [
             ("#OSTLER\tSTEP_BEGIN\tid=foo\ttitle=Hello", "stepBegin"),
+            ("#OSTLER\tSTEP\tname=permissions_briefing\ttotal_permissions=10", "step"),
             ("#OSTLER\tPCT\tstep=foo\tpct=50",           "pct"),
             ("#OSTLER\tLOG\tlevel=info\tmsg=hi",          "log"),
             ("#OSTLER\tDONE\tstatus=ok",                  "done"),
@@ -260,7 +290,7 @@ enum ProgressDecoderSelfTest {
         for (raw, want) in cases {
             let got = ProgressDecoder.decode(line: raw)
             switch (got, want) {
-            case (.stepBegin, "stepBegin"), (.pct, "pct"),
+            case (.stepBegin, "stepBegin"), (.step, "step"), (.pct, "pct"),
                  (.log, "log"), (.done, "done"),
                  (.rawLine, "rawLine"), (.unknown, "unknown"):
                 continue
