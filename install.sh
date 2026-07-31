@@ -8019,26 +8019,21 @@ TOMLPREAMBLE
     # unconditionally here -- that unpairs every device on upgrade.
     echo "paired_tokens = [${_paired_tokens_toml}]"
 
-    # v1.0.10 phone pairing DEFERRED (operator decision): companion
-    # pairing depends on a coordinated CM031 change that isn't ready for
-    # this cut, so the generated config defaults the gateway's
-    # device-companion pairing OFF. The value is env-gated -- set
-    # OSTLER_COMPANION_ENABLED=true at re-cut to flip it on with no code
-    # change once the gateway-side listener + CM031 flow land. Two hard
-    # rules the pairing UX must honour when this is flipped on,
-    # documented here because this flag switches it on:
-    #   1. NEVER advertise a loopback pairing QR. 127.0.0.1:8000 is
-    #      unreachable from a phone, so a QR encoding it is dead on
-    #      arrival. The phone must reach the companion over the ROUTABLE
-    #      path -- the Tailscale IP the installer persists to
-    #      ${CONFIG_DIR}/.env as OSTLER_TAILSCALE_IP (served with TLS;
-    #      see the `tailscale serve` block ~L14370) -- so the address the
-    #      QR encodes resolves off-device.
-    #   2. The companion listener must be TLS + routable. Until the
-    #      gateway-side listener lands, the companion has no reachable
-    #      surface; this flag makes the intent explicit and lets the
-    #      pairing UI light up the moment that listener ships.
-    echo "companion_enabled = ${OSTLER_COMPANION_ENABLED:-false}"
+    # v1.0.13: phone pairing ENABLED by default. Prior comment
+    # (v1.0.10 DEFERRED) is superseded -- the two preconditions have
+    # landed:
+    #   1. Gateway-side companion listener binds 0.0.0.0:8443 with a
+    #      TLS certificate (self-signed CN=ostler-hub for LAN, or the
+    #      Tailscale-served cert if OSTLER_TAILSCALE_IP is set).
+    #   2. The gateway advertises the routable LAN or Tailscale address
+    #      in the pair-envelope, never 127.0.0.1.
+    # Both were verified end-to-end 2026-07-30 (LAN + TLS + WebAuthn
+    # Step-C from a real iPhone). Setting companion_enabled = false on
+    # a fresh customer install would leave every pair attempt dead on
+    # arrival, so the default flips to true. Override with
+    # OSTLER_COMPANION_ENABLED=false at re-cut only for internal builds
+    # that specifically need the listener disabled.
+    echo "companion_enabled = ${OSTLER_COMPANION_ENABLED:-true}"
 
     # Wire the assistant's web_search tool to the bundled Vane
     # container (Phase 3.8b). Without this block the customer has

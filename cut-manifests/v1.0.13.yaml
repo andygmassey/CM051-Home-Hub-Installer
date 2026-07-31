@@ -58,3 +58,29 @@ entries:
       path: "Contents/Info.plist"
       key: "CFBundleShortVersionString"
       value: "1.0.13"
+
+  # --------------------------------------------------------------------------
+  # #193 install.sh companion_enabled default MUST be true (v1.0.13)
+  # --------------------------------------------------------------------------
+  # The v1.0.10 comment on this echo line correctly deferred phone pairing
+  # because neither precondition was yet met: (a) gateway had no companion
+  # listener on 8443, (b) the pair-envelope emitter still advertised loopback.
+  # Both landed pre-v1.0.13 and were verified end-to-end on 2026-07-30 with
+  # a real iPhone completing WebAuthn Step-C 5 times over LAN + TLS. But the
+  # default was never flipped, so every fresh customer install would ship
+  # `companion_enabled = false` and every first-attempt pair would die
+  # silently ("Something went wrong pairing with the Hub").
+  #
+  # This entry proves the source-side default is `true`. A regression to
+  # `false` (accidental revert, "quick disable for testing" left in place)
+  # fails the cut BEFORE codesign. `OSTLER_COMPANION_ENABLED=false` env
+  # override remains available for internal builds that need the listener
+  # disabled — it does not defeat this gate because the DEFAULT literal in
+  # install.sh is what changes here.
+  - id: v1013-companion-enabled-default-true
+    title: install.sh must default companion_enabled to true (env-override preserved)
+    source_pr: andygmassey/CM051-Home-Hub-Installer#485
+    proof:
+      kind: grep_in_installer
+      pattern: 'OSTLER_COMPANION_ENABLED:-true'
+      must_match: true
