@@ -1334,6 +1334,15 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
     sidecar (see BUILD_INFO_SIDECAR_SPEC_v1.0.14.md + oa #259 Stream 1). Adds
     `sidecar.commit_sha == pin_sha`, `dirty_worktree != true`, and optional
     tarball SHA-256 tamper detection. Backward-compat preserved when omitted.
+
+    Optional hotfix exemption (`hold_ack`, #238): a cut may intentionally pin an
+    artefact behind source HEAD (a hotfix graft-forward, or a deliberate hold).
+    `hold_ack: {shas: [...], reason: "..."}` lets the pin sit behind HEAD ONLY
+    when every diverging commit's SHA is listed AND a written reason is given;
+    any un-acknowledged diverging commit is still fail-closed. Mirrors
+    verify_cut_freshness.sh's hold_ack so the manifest gate and the freshness
+    shell gate speak the same exemption dialect. Omit for the default
+    fail-on-any-drift behaviour.
     """
     proof = entry["proof"]
     artefact = proof.get("artefact", "?")
@@ -1461,6 +1470,44 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
                       detail, entry.get("source_pr", ""))
 
+    # Hotfix / intentional-hold exemption (#238). A cut may DELIBERATELY pin an
+    # artefact behind source HEAD -- e.g. a hotfix whose daemon is a graft-forward
+    # that does not track main, or a hold while a risky main commit is triaged.
+    # Without an escape hatch the manifest gate would block a legitimate hotfix
+    # (exactly what forced ORM to bypass the gate on the v1.0.13.1 cut). Mirrors
+    # verify_cut_freshness.sh's hold_ack contract: the pin may sit behind HEAD
+    # ONLY if EVERY diverging commit is explicitly acknowledged by SHA and a
+    # written reason is given. Any un-acknowledged diverging commit stays
+    # fail-closed -- a hold_ack that does not cover the full delta does NOT pass,
+    # it just narrows the failure to the commits nobody vouched for.
+    hold = proof.get("hold_ack") or {}
+    ack_shas_raw = hold.get("shas") or []
+    ack_reason = (hold.get("reason") or "").strip()
+    if ack_shas_raw:
+        if not ack_reason:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                          "hold_ack.shas present but hold_ack.reason is empty -- an intentional "
+                          "hold MUST carry a written reason (why is the pin allowed behind HEAD?)",
+                          entry.get("source_pr", ""))
+        # Accept full or abbreviated SHAs on either side: a diverging short sha
+        # matches an ack entry when one is a prefix of the other (case-folded).
+        ack_norm = [s.strip().lower() for s in ack_shas_raw if s and s.strip()]
+        def _is_acked(short_sha: str) -> bool:
+            s = short_sha.lower()
+            return any(a.startswith(s) or s.startswith(a) for a in ack_norm)
+        unacked = [(short, subj, pat) for (short, subj, pat) in diverging if not _is_acked(short)]
+        if not unacked:
+            held = ", ".join(short for short, _, _ in diverging)
+            detail = (f"pinned {artefact} v{version} (@{pin_sha[:8]}) is behind {default_branch} "
+                      f"HEAD ({head_sha[:8]}) but all {len(diverging)} diverging commit(s) "
+                      f"[{held}] are hold_ack'd -- reason: {ack_reason}")
+            if sidecar_note:
+                detail += f"; {sidecar_note}"
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
+                          detail, entry.get("source_pr", ""))
+        # Partial ack: report only the commits nobody acknowledged.
+        diverging = unacked
+
     lines = [f"pinned {artefact} v{version} (@{pin_sha[:8]}) is stale vs {default_branch} HEAD "
              f"({head_sha[:8]}); {len(diverging)} diverging commit(s) touch {source_paths}:"]
     for short, subj, pat in diverging[:10]:
@@ -1468,7 +1515,9 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
     if len(diverging) > 10:
         lines.append(f"    ... (+{len(diverging) - 10} more)")
     lines.append("Recovery: cut a new release from source HEAD; bump the pin in "
-                 f"{pin_source.get('file')}; rebuild.")
+                 f"{pin_source.get('file')}; rebuild. OR, for an intentional hold "
+                 "(hotfix graft-forward), add a hold_ack {shas:[...], reason:'...'} "
+                 "block to this entry covering exactly the commit(s) above.")
     return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
                   " ".join(lines) if len(lines) == 1 else "\n        ".join(lines),
                   entry.get("source_pr", ""))

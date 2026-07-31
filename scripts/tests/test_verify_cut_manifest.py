@@ -1067,6 +1067,92 @@ def test_freshness_fail_when_source_paths_diverge(tmp_path):
     assert "Recovery" in result.detail
 
 
+def test_freshness_hold_ack_passes_when_all_diverging_acked(tmp_path):
+    """#238: a hotfix graft-forward may pin BEHIND HEAD when every diverging
+    commit is acknowledged by SHA with a written reason -> PASS (HELD)."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "9528520a" + "0" * 32,
+         "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}},
+        {"sha": "a2d2d23f" + "0" * 32,
+         "commit": {"message": "build(release): hub-vX.Y.Z tag push wiring"}},
+    ]
+    per_commit = {
+        "9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}],
+        "a2d2d23f" + "0" * 32: [{"filename": "crates/release/src/tag.rs"}],
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    entry = _daemon_entry()
+    entry["proof"]["hold_ack"] = {
+        # Full 40-char SHAs; the checker prefix-matches against 8-char diverging shas.
+        "shas": ["9528520a" + "0" * 32, "a2d2d23f" + "0" * 32],
+        "reason": "v1.0.13.1 hotfix pins graft-forward daemon; these oa/main commits are intentionally held",
+    }
+    result = mod.check_pinned_artefact_freshness(
+        entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "hold_ack'd" in result.detail
+    assert "intentionally held" in result.detail
+
+
+def test_freshness_hold_ack_fails_when_reason_missing(tmp_path):
+    """#238: hold_ack.shas without a written reason FAILs closed -- an intentional
+    hold must be justified, not just silently waved through."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [{"sha": "9528520a" + "0" * 32,
+                "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}}]
+    per_commit = {"9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}]}
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    entry = _daemon_entry()
+    entry["proof"]["hold_ack"] = {"shas": ["9528520a" + "0" * 32], "reason": "   "}
+    result = mod.check_pinned_artefact_freshness(
+        entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", result.detail
+    assert "reason" in result.detail.lower()
+
+
+def test_freshness_hold_ack_partial_fails_naming_only_unacked(tmp_path):
+    """#238: a hold_ack that does NOT cover the full delta narrows the failure to
+    the un-acknowledged commit(s) -- it never passes on a partial ack."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "9528520a" + "0" * 32,
+         "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}},
+        {"sha": "deadbeef" + "0" * 32,
+         "commit": {"message": "feat(hub): sneaky unreviewed change"}},
+    ]
+    per_commit = {
+        "9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}],
+        "deadbeef" + "0" * 32: [{"filename": "crates/hub/src/lib.rs"}],
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    entry = _daemon_entry()
+    entry["proof"]["hold_ack"] = {
+        "shas": ["9528520a" + "0" * 32],  # only the first commit is acknowledged
+        "reason": "acknowledging only the subscription commit; the hub one is not vouched for",
+    }
+    result = mod.check_pinned_artefact_freshness(
+        entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", result.detail
+    assert "sneaky" in result.detail            # the un-acknowledged commit IS named
+    assert "has_ever_paid" not in result.detail  # the acknowledged commit is filtered out
+
+
 def test_freshness_fail_when_tag_does_not_exist(tmp_path):
     cm051 = tmp_path / "cm051"
     cm051.mkdir()
