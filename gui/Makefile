@@ -157,13 +157,19 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.43
+DAEMON_VERSION       ?= 0.4.44
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
 # so an unverified / wrong-version daemon can never reach the DMG. Bump in
 # lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
-DAEMON_SHA256        ?= 8ef223f79bd61c8c00b4db3f54f8973131ce401e569404dc957d568b9d3ba17a
+# v1.0.13.1 recut (2026-07-31 ORM): hub-v0.4.44 = 6ff1bb2dcb30 = graft/hub-v0.4.43
+# + 4 daemon box-walk fixes (#208 Doctor-paired, #229 dead path, #220 first-ingest,
+# #222 brand rename) + /api/v1/frontpage/cards + #226 commit-parity sentinels +
+# 9 SPA reconciliations (GovernorWelcomeModal supersedes FirstRunPopup, Front Page
+# unified, #209 6-digit pairing block provably absent). Signed + notarised +
+# stapled at build time (submission a7db175d-8e26).
+DAEMON_SHA256        ?= 5bc2eb00aad2d8a3cba76b6ca5c04b344880cc6d1f7d03d94f59e86232e96699
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
