@@ -126,6 +126,50 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 127
 fi
 
+# ---------------------------------------------------------------------------
+# Container-runtime readiness gate (#196)
+# ---------------------------------------------------------------------------
+#
+# `command -v docker` above proves the CLI is installed, NOT that the daemon
+# is reachable. On a reboot this LaunchAgent (RunAtLoad) can fire before
+# Colima's own LaunchAgent has finished booting its VM: the CLI resolves but
+# `docker compose run` then fails with "cannot connect to the Docker daemon",
+# the baseline compile returns non-zero, and the tick would exit non-zero --
+# launchd records a hard failure in OSTLER_LOGS/wiki-recompile.err even though
+# nothing is wrong and the very next tick succeeds once the VM is up.
+#
+# This is DEFENCE-IN-DEPTH, not a correctness fix: the recompile already
+# self-heals (10-min StartInterval + RunAtLoad + the first-day catch-up
+# runner), so a missed reboot tick is recovered automatically. The gate just
+# stops that transient from being logged as a failure.
+#
+# Wait, bounded, for the daemon to answer `docker info`. `docker info` is
+# runtime-agnostic (it succeeds for BOTH Colima and Docker Desktop), so we do
+# NOT shell out to `colima status` -- that binary is absent on a Docker
+# Desktop box. If the runtime never comes up within the window, log a clear
+# line and exit 0 (NOT 1): this tick is a no-op and the next one retries.
+WIKI_RUNTIME_WAIT_TRIES="${WIKI_RUNTIME_WAIT_TRIES:-12}"
+WIKI_RUNTIME_WAIT_INTERVAL="${WIKI_RUNTIME_WAIT_INTERVAL:-10}"
+_runtime_ready=false
+_try=1
+while [ "$_try" -le "$WIKI_RUNTIME_WAIT_TRIES" ]; do
+    if docker info >/dev/null 2>&1; then
+        _runtime_ready=true
+        break
+    fi
+    log "container runtime not ready yet (attempt ${_try}/${WIKI_RUNTIME_WAIT_TRIES}); waiting ${WIKI_RUNTIME_WAIT_INTERVAL}s (Colima/Docker Desktop still starting?)"
+    sleep "$WIKI_RUNTIME_WAIT_INTERVAL"
+    _try=$((_try + 1))
+done
+if [ "$_runtime_ready" != true ]; then
+    _waited=$((WIKI_RUNTIME_WAIT_TRIES * WIKI_RUNTIME_WAIT_INTERVAL))
+    log "container runtime (Colima/Docker) not ready after ${_waited}s; will retry next tick."
+    log "       This is expected shortly after a reboot while the container"
+    log "       runtime's VM starts; the next scheduled tick (or the catch-up"
+    log "       runner) recompiles once it is up. Exiting 0 (no launchd failure)."
+    exit 0
+fi
+
 cd "$OSTLER_DIR"
 
 # ---------------------------------------------------------------------------
