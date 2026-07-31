@@ -11057,8 +11057,21 @@ cat > "$SCAN_PLIST" <<SPEOF
 </dict>
 </plist>
 SPEOF
-launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
-    launchctl load "$SCAN_PLIST" 2>/dev/null || true
+# HR015 #217: gate the initial launchd bootstrap on the daemon binary
+# being on-disk. The plist has RunAtLoad=true and its ProgramArguments[0]
+# is inside OstlerAssistant.app, which install.sh does not stage until
+# the app-bundle finaliser several thousand lines later. Bootstrapping
+# now against a missing binary makes launchd fire the RunAtLoad tick,
+# fail to exec the binary, and record last-exit-code=78 EX_CONFIG with
+# zero-byte log files -- the exact fault reported on the box. The
+# post-app-bundle sweep at _ostler_ensure_export_scan_bootstrap below
+# (called from _finalise_daemon_staging on success) picks up the
+# deferred case; upgrade installs where the binary is already staged
+# keep the immediate bootstrap so the first scan still happens now.
+if [[ -x "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" ]]; then
+    launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
+        launchctl load "$SCAN_PLIST" 2>/dev/null || true
+fi
 ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
 # ── Pre-meeting brief sender ───────────────────────────────────────
@@ -13523,6 +13536,43 @@ _verify_daemon_signature() {
         && spctl --assess --type execute "$_bundle" 2>"$_sp_log"
 }
 
+# ── Deferred export-scan LaunchAgent bootstrap (HR015 #217) ───────
+# The com.ostler.export-scan plist is written earlier in install.sh
+# ("Set up launchd plist to scan every 4 hours"), long before the
+# signed OstlerAssistant.app is staged. Its ProgramArguments[0] is
+# ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant
+# and RunAtLoad=true, so a bare launchctl bootstrap at plist-write
+# time makes launchd fire the tick against a missing binary and
+# record last-exit-code=78 (EX_CONFIG) with zero-byte log files.
+#
+# This helper is called from _finalise_daemon_staging once the daemon
+# is on-disk. It:
+#   * skips silently if the plist was not written (export-scan block
+#     didn't run, or was toggled off);
+#   * skips silently if the daemon binary still isn't there (defensive
+#     -- the finaliser only reaches here on success, but the guard
+#     keeps a future call-site refactor from re-introducing the race);
+#   * bootstraps the plist if not yet loaded (the fresh-install path
+#     that the earlier gated bootstrap deferred);
+#   * kickstart -k's it if already loaded (an upgrade install where
+#     the bootstrap succeeded earlier, or a re-run install where a
+#     previous EX_CONFIG(78) result is still parked on the job --
+#     kickstart -k forcibly restarts and clears the stale exit code).
+# Non-fatal in every branch; export-scan is enrichment, not gating.
+_ostler_ensure_export_scan_bootstrap() {
+    local _plist="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
+    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+    local _label="com.ostler.export-scan"
+    [[ -f "$_plist" ]] || return 0
+    [[ -x "$_bin" ]] || return 0
+    if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
+        launchctl kickstart -k "gui/$(id -u)/${_label}" 2>/dev/null || true
+    else
+        launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null || \
+            launchctl load "$_plist" 2>/dev/null || true
+    fi
+}
+
 # ── Shared daemon-staging finaliser (v1.0.10 security lockdown) ───
 # EVERY path that stages a daemon into ${ASSISTANT_APP_BUNDLE}
 # (DMG-bundled .app, DMG-bundled bare binary wrapped locally, or the
@@ -13577,6 +13627,16 @@ _finalise_daemon_staging() {
                     "$(printf "$MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
             fi
             ASSISTANT_BINARY_INSTALLED=true
+            # HR015 #217: the export-scan LaunchAgent (com.ostler.export-scan)
+            # is written far earlier than the daemon .app is staged, and its
+            # ProgramArguments[0] is inside the .app bundle. On a fresh
+            # install its RunAtLoad tick therefore fires before the binary
+            # exists on disk, launchd fails to exec, and the job's
+            # last-exit-code is EX_CONFIG(78) with zero-byte log files.
+            # Now that _finalise_daemon_staging has put a signed daemon in
+            # place, bootstrap (or re-kick) the agent so the first scan
+            # runs against a real binary. Idempotent, non-fatal.
+            _ostler_ensure_export_scan_bootstrap
         else
             warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
             warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
