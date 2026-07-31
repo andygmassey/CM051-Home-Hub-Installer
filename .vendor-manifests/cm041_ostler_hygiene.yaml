@@ -1,0 +1,9 @@
+name: cm041/ostler_hygiene
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: ostler_hygiene
+notes: |
+  CM041 (PWG People Graph) source is a private local checkout ($CM041). See
+  cm041_contact_syncer.yaml for lineage note.

@@ -1,0 +1,9 @@
+name: hub_power
+github:
+  owner: andygmassey
+  repo: HR015-Gaming-PC
+  branch: main
+  path: hub-power
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="hub_power".

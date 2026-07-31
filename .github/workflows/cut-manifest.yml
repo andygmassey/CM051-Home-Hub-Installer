@@ -21,9 +21,13 @@ on:
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
       - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'scripts/check_vendor_drift.py'
+      - 'scripts/tests/test_check_vendor_drift.py'
       - 'cut-manifests/**'
+      - '.vendor-manifests/**'
       - 'gui/Makefile'
       - '.github/workflows/cut-manifest.yml'
+      - '.github/workflows/vendor-drift-check.yml'
   push:
     branches: [main]
 
@@ -50,6 +54,10 @@ jobs:
       - name: Run verify_cut_manifest smoke tests
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py -v
+
+      - name: Run check_vendor_drift smoke tests
+        run: |
+          python -m pytest scripts/tests/test_check_vendor_drift.py -v
 
   manifest-parse:
     runs-on: ubuntu-latest
@@ -126,6 +134,16 @@ jobs:
                       errors.append(f"{where}: box_walk_probe requires 'probe'")
                   if kind == "file_exists_in_artefact" and "path" not in proof:
                       errors.append(f"{where}: file_exists_in_artefact requires 'path'")
+                  if kind == "pinned_artefact_freshness":
+                      for req in ("pinned_version_source", "tag_format", "source_repo", "source_paths"):
+                          if req not in proof:
+                              errors.append(f"{where}: pinned_artefact_freshness requires '{req}'")
+                  if kind == "pin_matches_latest_release_tag":
+                      for req in ("release_repo", "pin_file", "pin_var_pattern"):
+                          if req not in proof:
+                              errors.append(f"{where}: pin_matches_latest_release_tag requires '{req}'")
+                  # pr_branch_not_stale_vs_main has no required proof fields
+                  # (max_commits_behind + ignore_commits_matching are optional).
               print(f"OK   {path.name} ({len(doc.get('entries') or [])} entries)")
           if errors:
               print()

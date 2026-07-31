@@ -1,0 +1,11 @@
+name: cm048_pipeline
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: "."
+notes: |
+  CM048 (Conversation Processing) source is a private local checkout ($CM048);
+  not mirrored to any known GitHub owner as of 2026-07-31. The local checkout's
+  object store is sick per VENDOR_MANIFEST.toml note; source_path + pinned_sha
+  are kept for auto-verify once healthy.

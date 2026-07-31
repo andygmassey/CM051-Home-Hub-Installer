@@ -1,0 +1,11 @@
+name: cm052_ai_conversations
+github:
+  owner: andygmassey
+  repo: CM052
+  branch: main
+  path: "."
+notes: |
+  Content gate + full vendor-set documentation live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="cm052_ai_conversations". Vendors exactly the set pinned in
+  CM052 docs/VENDOR_CM051.md. PRIVACY-ADJACENT vendor (AI chat transcripts) --
+  Archie review required before any drift PR is auto-merged.

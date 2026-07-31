@@ -1,0 +1,9 @@
+name: ostler_security
+github:
+  owner: andygmassey
+  repo: HR015-Gaming-PC
+  branch: main
+  path: ostler_security
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="ostler_security".

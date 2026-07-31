@@ -335,6 +335,83 @@ the diverging commits to a release branch), wait for the build to publish,
 bump the pin in the file named by `pinned_version_source.file`, re-run the
 gate. See `VERSIONING.md` for the runbook.
 
+### 11. `pin_matches_latest_release_tag`
+
+Cross-repo tag consistency. Sibling to `pinned_artefact_freshness` with a
+DIFFERENT failure mode:
+
+- `pinned_artefact_freshness`  -- did source HEAD advance past the pinned tag?
+- `pin_matches_latest_release` -- did a NEW release tag land that the pin
+                                  does not yet reflect?
+
+A pin can be fresh vs source (nothing merged since the tag) yet still lag
+behind a subsequent release rebuild triggered off the same source SHA (for
+example a packaging fix rebuilt as `hub-vX.Y.Z+1` with identical source).
+Both gates protect against distinct real-world drift shapes; both fail closed.
+
+The primitive:
+
+1. Reads the pinned version from a source file via a capture-group regex
+   (same shape as `pinned_artefact_freshness`).
+2. Fetches the release listing on `release_repo`, filtering to non-draft,
+   non-prerelease tags starting with `tag_prefix`.
+3. Picks the newest by `published_at`.
+4. Strips `tag_prefix` and asserts the resulting version equals the pin.
+
+```yaml
+proof:
+  kind: pin_matches_latest_release_tag
+  release_repo: "ostler-ai/ostler-releases"
+  pin_file: "gui/Makefile"
+  pin_var_pattern: 'DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)'
+  tag_prefix: "hub-v"
+  # Optional: allow prerelease tags to count as `latest` (default false).
+  allow_prerelease: false
+```
+
+Auth follows the same `gh auth token --user <owner>` convention as
+`pinned_artefact_freshness`. Fail-closed on network / auth / empty-list.
+
+### 12. `pr_branch_not_stale_vs_main`
+
+Encodes `feedback_mergeable_api_state_isnt_semantic_safety` (filed
+2026-07-31): `mergeable: MERGEABLE` from the GH API does NOT prove a branch
+is semantically safe to merge -- a branch that predates a critical recent
+commit would silently REVERT it. TNM caught this on PR #484 before merging;
+this primitive turns "rebase-before-merge" into a mechanical gate.
+
+The primitive:
+
+1. Reads `PR_NUMBER` + `GITHUB_REPOSITORY` from env (populated by GitHub
+   Actions in PR context). SKIPS cleanly when unset (local dev / non-PR CI).
+2. Fetches the PR to resolve `base.sha` + `base.ref`.
+3. Fetches the current HEAD of `base.ref`.
+4. Compares `base.sha...head.sha`, counts non-ignored commits behind.
+5. FAILs when the behind-by count exceeds `max_commits_behind` (default 10).
+
+```yaml
+proof:
+  kind: pr_branch_not_stale_vs_main
+  max_commits_behind: 10
+  ignore_commits_matching:
+    - "^chore\\(fmt\\)"
+    - "^docs:"
+    - "^chore\\(docs\\)"
+```
+
+Recovery: rebase onto the target branch and push.
+
+## Vendor drift check (sibling workflow, not a manifest primitive)
+
+`scripts/check_vendor_drift.py` + `.github/workflows/vendor-drift-check.yml`
+implement scheduled vendor drift detection. Runs daily; reads
+`.vendor-manifests/*.yaml` (per-tree GitHub source resolvers) + the
+pinned SHAs from `vendor/VENDOR_MANIFEST.toml`; opens a draft PR when
+drift is detected on any tree with a KNOWN GitHub source. Trees with
+`<UNKNOWN -- retrofit needed>` in their manifest are surfaced in the
+report but do not auto-open PRs. See `.vendor-manifests/README.md` for
+the resolver schema.
+
 ## Wiring
 
 `gui/Makefile` gains a `check-manifest` target added to the `ship:` prereq

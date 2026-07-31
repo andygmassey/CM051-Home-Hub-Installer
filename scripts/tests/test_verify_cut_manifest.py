@@ -1179,3 +1179,423 @@ def test_freshness_remotecapture_pin_extraction(tmp_path):
     })
     assert err == "", err
     assert v == "0.1.3"
+
+
+# ---------------------------------------------------------------------------
+# pin_matches_latest_release_tag -- cross-repo tag consistency gate
+#
+# Sibling of pinned_artefact_freshness; distinct failure mode:
+# "did a NEW release tag land that the pin does not yet reflect?"
+# ---------------------------------------------------------------------------
+
+def _write_makefile_pin(cm051: Path, version: str) -> None:
+    (cm051 / "gui").mkdir(parents=True, exist_ok=True)
+    (cm051 / "gui" / "Makefile").write_text(
+        f"# fake\nDAEMON_VERSION       ?= {version}\n"
+    )
+
+
+def _tag_consistency_entry():
+    return {
+        "id": "tag-consistency",
+        "title": "daemon pin matches latest hub-v* release",
+        "proof": {
+            "kind": "pin_matches_latest_release_tag",
+            "release_repo": "ostler-ai/ostler-releases",
+            "pin_file": "gui/Makefile",
+            "pin_var_pattern": r"DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)",
+            "tag_prefix": "hub-v",
+        },
+    }
+
+
+class _FakeReleaseListing:
+    """Stub for _list_releases_paginated + _gh_token_for on the loaded module."""
+
+    def __init__(self, releases: list[dict] | None, error: str = "",
+                 token: str | None = "fake-token"):
+        self.releases = releases
+        self.error = error
+        self.token = token
+        self.calls: list[str] = []
+
+    def install(self, mod):
+        mod._gh_token_for = lambda owner: self.token
+        def _fake(source_repo, token, max_pages=5):
+            self.calls.append(source_repo)
+            if self.error:
+                return None, self.error
+            return self.releases, ""
+        mod._list_releases_paginated = _fake
+
+
+def test_tag_consistency_pass_when_pin_matches_latest(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    releases = [
+        {"tag_name": "hub-v0.4.43", "published_at": "2026-07-31T04:40:23Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "hub-v0.4.42", "published_at": "2026-07-30T00:00:00Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "remote-capture-v0.1.3", "published_at": "2026-07-25T00:00:00Z",
+         "draft": False, "prerelease": False},
+    ]
+    _FakeReleaseListing(releases).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "hub-v0.4.43" in result.detail
+
+
+def test_tag_consistency_fail_when_new_release_landed(tmp_path):
+    """Pin lags behind a newer release -- exact hardening scenario."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.41")
+    mod = _load_module()
+    releases = [
+        {"tag_name": "hub-v0.4.43", "published_at": "2026-07-31T04:40:23Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "hub-v0.4.42", "published_at": "2026-07-30T00:00:00Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "hub-v0.4.41", "published_at": "2026-07-29T00:00:00Z",
+         "draft": False, "prerelease": False},
+    ]
+    _FakeReleaseListing(releases).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", result.detail
+    assert "DRIFT" in result.detail
+    assert "0.4.41" in result.detail  # the stale pin
+    assert "0.4.43" in result.detail  # the latest release
+    assert "Recovery" in result.detail
+
+
+def test_tag_consistency_filters_by_tag_prefix(tmp_path):
+    """When the release repo hosts multiple product tags (hub-v* + remote-capture-v*),
+    the check MUST filter by the configured tag_prefix and not confuse them.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    releases = [
+        # A remote-capture release published LATER than the latest hub-v --
+        # the wrong filter would pick this and falsely fail.
+        {"tag_name": "remote-capture-v0.1.5", "published_at": "2026-08-15T00:00:00Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "hub-v0.4.43", "published_at": "2026-07-31T04:40:23Z",
+         "draft": False, "prerelease": False},
+    ]
+    _FakeReleaseListing(releases).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "hub-v0.4.43" in result.detail
+
+
+def test_tag_consistency_ignores_drafts_and_prereleases(tmp_path):
+    """A draft or prerelease with a HIGHER tag must not count as `latest`."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    releases = [
+        {"tag_name": "hub-v0.4.44", "published_at": "2026-08-01T00:00:00Z",
+         "draft": True, "prerelease": False},
+        {"tag_name": "hub-v0.4.44-rc1", "published_at": "2026-08-01T00:00:00Z",
+         "draft": False, "prerelease": True},
+        {"tag_name": "hub-v0.4.43", "published_at": "2026-07-31T04:40:23Z",
+         "draft": False, "prerelease": False},
+    ]
+    _FakeReleaseListing(releases).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+
+
+def test_tag_consistency_fail_when_no_matching_releases(tmp_path):
+    """Empty release listing for the tag_prefix -- fail-closed."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    _FakeReleaseListing([
+        {"tag_name": "some-other-v1.0.0", "published_at": "2026-08-01T00:00:00Z",
+         "draft": False, "prerelease": False},
+    ]).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "no releases matching prefix" in result.detail
+
+
+def test_tag_consistency_fail_when_missing_token(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    _FakeReleaseListing([], token=None).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "gh auth login --user ostler-ai" in result.detail
+
+
+def test_tag_consistency_fail_on_transient_api_error(tmp_path):
+    """Network flake MUST fail the gate, not silently pass."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    _FakeReleaseListing(None, error="gh api releases exit=1: connection reset").install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "connection reset" in result.detail
+
+
+def test_tag_consistency_fail_on_missing_pin_source(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    # deliberately no gui/Makefile
+    mod = _load_module()
+    _FakeReleaseListing([]).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "pin source file not found" in result.detail
+
+
+def test_tag_consistency_fail_on_malformed_release_repo(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.43")
+    mod = _load_module()
+    bad_entry = _tag_consistency_entry()
+    bad_entry["proof"]["release_repo"] = "not-a-slug"
+    result = mod.check_pin_matches_latest_release_tag(
+        bad_entry, {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "release_repo missing or malformed" in result.detail
+
+
+def test_tag_consistency_picks_newest_by_published_at(tmp_path):
+    """Two matching releases with different published_at times -- must pick the newest."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_makefile_pin(cm051, "0.4.50")
+    mod = _load_module()
+    # Deliberately mis-ordered input.
+    releases = [
+        {"tag_name": "hub-v0.4.43", "published_at": "2026-07-31T04:40:23Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "hub-v0.4.50", "published_at": "2026-08-05T00:00:00Z",
+         "draft": False, "prerelease": False},
+        {"tag_name": "hub-v0.4.49", "published_at": "2026-08-04T00:00:00Z",
+         "draft": False, "prerelease": False},
+    ]
+    _FakeReleaseListing(releases).install(mod)
+    result = mod.check_pin_matches_latest_release_tag(
+        _tag_consistency_entry(),
+        {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "hub-v0.4.50" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# pr_branch_not_stale_vs_main -- catches PR #484 near-miss shape
+#
+# Encodes `feedback_mergeable_api_state_isnt_semantic_safety`: mergeable ==
+# MERGEABLE does NOT prove semantic safety when the branch predates a critical
+# recent commit. Turns rebase-before-merge into a mechanical gate.
+# ---------------------------------------------------------------------------
+
+def _stale_branch_entry(max_behind: int = 10, ignore=None):
+    proof = {
+        "kind": "pr_branch_not_stale_vs_main",
+        "max_commits_behind": max_behind,
+    }
+    if ignore is not None:
+        proof["ignore_commits_matching"] = ignore
+    return {
+        "id": "pr-branch-stale",
+        "title": "PR branch not stale vs main",
+        "proof": proof,
+    }
+
+
+class _FakePR:
+    """Stub _gh_token_for + _gh_api_json for pr_branch_not_stale_vs_main."""
+
+    def __init__(self, base_sha, head_sha, base_ref="main", pr_number="123",
+                 repo="andygmassey/CM051-Home-Hub-Installer",
+                 compare_status="ahead", ahead_by=0, commits=None,
+                 token="fake-token",
+                 branches_error="", compare_error="", pr_error=""):
+        self.base_sha = base_sha
+        self.head_sha = head_sha
+        self.base_ref = base_ref
+        self.pr_number = pr_number
+        self.repo = repo
+        self.compare_status = compare_status
+        self.ahead_by = ahead_by
+        self.commits = commits or []
+        self.token = token
+        self.branches_error = branches_error
+        self.compare_error = compare_error
+        self.pr_error = pr_error
+        self.calls: list[str] = []
+
+    def install(self, mod):
+        mod._gh_token_for = lambda owner: self.token
+        def _api(path, token):
+            self.calls.append(path)
+            if path == f"repos/{self.repo}/pulls/{self.pr_number}":
+                if self.pr_error:
+                    return None, self.pr_error
+                return {"base": {"sha": self.base_sha, "ref": self.base_ref}}, ""
+            if path == f"repos/{self.repo}/branches/{self.base_ref}":
+                if self.branches_error:
+                    return None, self.branches_error
+                return {"commit": {"sha": self.head_sha}}, ""
+            if path == f"repos/{self.repo}/compare/{self.base_sha}...{self.head_sha}":
+                if self.compare_error:
+                    return None, self.compare_error
+                return {"status": self.compare_status, "ahead_by": self.ahead_by,
+                        "commits": self.commits}, ""
+            return None, f"unrouted path: {path}"
+        mod._gh_api_json = _api
+
+
+def test_stale_branch_skip_when_env_missing(tmp_path, monkeypatch):
+    """Local dev / non-PR context: SKIP so the manifest gate can still be run."""
+    monkeypatch.delenv("PR_NUMBER", raising=False)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    mod = _load_module()
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(), {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "SKIP"
+    assert "PR_NUMBER" in result.detail
+
+
+def test_stale_branch_pass_when_up_to_date(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    _FakePR(base_sha="a" * 40, head_sha="a" * 40, pr_number="484").install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(), {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "PASS", result.detail
+    assert "up to date" in result.detail
+
+
+def test_stale_branch_pass_when_behind_below_threshold(tmp_path, monkeypatch):
+    """5 commits behind, threshold=10 -- PASS."""
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    commits = [{"sha": f"c{i:03d}" * 8,
+                "commit": {"message": f"feat: real work {i}"}} for i in range(5)]
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="484",
+            ahead_by=5, commits=commits).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "PASS", result.detail
+    assert "5 non-ignored" in result.detail or "5 commits behind" in result.detail
+
+
+def test_stale_branch_fail_when_behind_exceeds_threshold(tmp_path, monkeypatch):
+    """PR #484 near-miss shape: branch predates a critical recent daemon-pin bump.
+
+    Simulates the actual 2026-07-31 scenario: mergeable=MERGEABLE but branch is
+    stale relative to a critical recent merge; recommending merge would revert.
+    """
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    commits = [
+        {"sha": "d1" * 20, "commit": {"message": "fix(cut): pin daemon to hub-v0.4.43 (0.4.41->0.4.43) (#492)"}},
+        {"sha": "d2" * 20, "commit": {"message": "chore(vendor): re-sync apple_mail_mbox.py #197 (#489)"}},
+        {"sha": "d3" * 20, "commit": {"message": "chore(daemon): bump hub 0.4.40 -> 0.4.41 (#488)"}},
+    ] + [{"sha": f"e{i:03d}" * 8, "commit": {"message": f"chore: unrelated {i}"}}
+         for i in range(9)]  # 12 total > 10
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="484",
+            ahead_by=len(commits), commits=commits).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "FAIL", result.detail
+    assert "0.4.43" in result.detail  # the critical merge that would be reverted
+    assert "Recovery" in result.detail
+    assert "rebase" in result.detail
+
+
+def test_stale_branch_ignore_patterns_reduce_count(tmp_path, monkeypatch):
+    """docs:/chore(fmt) commits filtered from the behind-by count."""
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    commits = [{"sha": f"c{i:03d}" * 8,
+                "commit": {"message": f"chore(fmt): rustfmt sweep {i}"}} for i in range(15)]
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="484",
+            ahead_by=15, commits=commits).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10, ignore=[r"^chore\(fmt\)"]),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    # All 15 ignored -> 0 non-ignored, well within threshold.
+    assert result.status == "PASS", result.detail
+
+
+def test_stale_branch_fail_on_api_error(tmp_path, monkeypatch):
+    """Fail-closed: transient API error MUST fail, not silently pass."""
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="484",
+            pr_error="gh api pulls/484 exit=1: HTTP 502").install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(), {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "FAIL"
+    assert "502" in result.detail
+
+
+def test_stale_branch_fail_on_missing_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    mod = _load_module()
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, token=None).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(), {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "FAIL"
+    assert "gh token" in result.detail
+
+
+def test_stale_branch_pass_via_ignore_and_below_threshold(tmp_path, monkeypatch):
+    """Mix of ignored + real commits; real commits under threshold -> PASS."""
+    monkeypatch.setenv("PR_NUMBER", "484")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andygmassey/CM051-Home-Hub-Installer")
+    mod = _load_module()
+    commits = (
+        [{"sha": f"i{i:03d}" * 8, "commit": {"message": "docs: readme"}} for i in range(20)]
+        + [{"sha": f"r{i:03d}" * 8, "commit": {"message": "feat: real"}} for i in range(3)]
+    )
+    _FakePR(base_sha="a" * 40, head_sha="b" * 40, pr_number="484",
+            ahead_by=23, commits=commits).install(mod)
+    result = mod.check_pr_branch_not_stale_vs_main(
+        _stale_branch_entry(max_behind=10, ignore=[r"^docs:"]),
+        {"cm051_dir": tmp_path, "app_path": tmp_path})
+    assert result.status == "PASS", result.detail
