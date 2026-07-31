@@ -9,6 +9,8 @@
 #      (or `pytest` from repo root)
 # ============================================================================
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -1179,3 +1181,418 @@ def test_freshness_remotecapture_pin_extraction(tmp_path):
     })
     assert err == "", err
     assert v == "0.1.3"
+
+
+# ---------------------------------------------------------------------------
+# verify_build_info_sidecar_present + sidecar-aware pinned_artefact_freshness
+# (v1.0.14, pairs with oa #259 Stream 1)
+#
+# Hermetic: monkey-patched _gh_api_json / _gh_token_for / _fetch_asset_content
+# so no network + no gh auth needed. Local-file fallback is exercised against
+# tmp_path directories that mirror the Stream 3 backfill layout.
+# ---------------------------------------------------------------------------
+
+_TAG = "hub-v0.4.43"
+_TAG_SHA = "2ae9ca8574dd69dee27cf1fa6a05d2adfbaaaf7c"
+_HEAD_SHA = _TAG_SHA  # same-as-HEAD keeps freshness happy; tests focus on sidecar
+_TARBALL_SHA = "8ef223f79bd61c8c00b4db3f54f8973131ce401e569404dc957d568b9d3ba17a"
+_SIDECAR_NAME = "ostler-assistant-aarch64-apple-darwin-v0.4.43.build-info.json"
+_TARBALL_NAME = "ostler-assistant-aarch64-apple-darwin-v0.4.43.tar.gz"
+
+
+def _write_daemon_pin_makefile_043(fake_cm051: Path) -> None:
+    (fake_cm051 / "gui").mkdir(parents=True, exist_ok=True)
+    (fake_cm051 / "gui" / "Makefile").write_text(
+        "# fake\nDAEMON_VERSION       ?= 0.4.43\n"
+    )
+
+
+def _sidecar_entry(*, allow_reconstructed: bool = False,
+                   local_sidecar_dir: str | None = None) -> dict:
+    proof = {
+        "kind": "verify_build_info_sidecar_present",
+        "pinned_version_source": {
+            "file": "gui/Makefile",
+            "pattern": r"DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)",
+        },
+        "tag_format": "hub-v{version}",
+        "source_repo": "ostler-ai/ostler-assistant",
+        "allow_reconstructed": allow_reconstructed,
+    }
+    if local_sidecar_dir is not None:
+        proof["local_sidecar_dir"] = local_sidecar_dir
+    return {"id": "sidecar-present", "title": "build-info sidecar for pinned daemon",
+            "proof": proof}
+
+
+def _freshness_entry_with_sidecar(*, allow_reconstructed: bool = False,
+                                  local_sidecar_dir: str | None = None,
+                                  verify_tarball_sha: bool = False) -> dict:
+    entry = _daemon_entry()
+    entry["proof"]["consume_build_info_sidecar"] = True
+    entry["proof"]["allow_reconstructed"] = allow_reconstructed
+    entry["proof"]["verify_tarball_sha"] = verify_tarball_sha
+    if local_sidecar_dir is not None:
+        entry["proof"]["local_sidecar_dir"] = local_sidecar_dir
+    return entry
+
+
+def _real_sidecar_json(*, commit_sha: str = _TAG_SHA,
+                       dirty_worktree: bool = False,
+                       reconstructed: bool = False,
+                       tarball_sha256: str = _TARBALL_SHA,
+                       tag_name: str = _TAG) -> dict:
+    return {
+        "schema_version": 1,
+        "artefact": "ostler-assistant",
+        "version": "0.4.43",
+        "commit_sha": commit_sha,
+        "commit_date": "2026-07-31T04:20:11Z",
+        "tag_name": tag_name,
+        "build_timestamp": "2026-07-31T05:10:00Z",
+        "build_machine": "andy-mbp-14",
+        "build_tool_versions": {"cargo": "1.93.0", "rustc": "1.93.0"},
+        "dirty_worktree": dirty_worktree,
+        "crate_versions": {"zeroclaw": "0.4.43"},
+        "signed_by": {
+            "tarball_filename": _TARBALL_NAME,
+            "tarball_sha256": tarball_sha256,
+        },
+        "reconstructed": reconstructed,
+    }
+
+
+def _backfill_sidecar_json(*, tarball_sha256: str = _TARBALL_SHA) -> dict:
+    """Shape of a Stream 3 backfill sidecar (reconstructed:true, some UNKNOWNs)."""
+    return {
+        "schema_version": 1,
+        "artefact": "ostler-assistant",
+        "version": "0.4.43",
+        "commit_sha": _TAG_SHA,
+        "commit_date": "2026-07-31T04:20:11Z",
+        "tag_name": _TAG,
+        "tag_pushed": True,
+        "build_timestamp": "<UNKNOWN - not captured at build time>",
+        "build_machine": "andy-mbp-14",
+        "build_tool_versions": "<UNKNOWN - not captured at build time>",
+        "dirty_worktree": False,
+        "crate_versions": "<UNKNOWN - not captured at build time>",
+        "signed_by": {
+            "tarball_filename": _TARBALL_NAME,
+            "tarball_sha256": tarball_sha256,
+        },
+        "reconstructed": True,
+        "reconstruction_notes": {
+            "authored_by": "test-fixture",
+            "sources": ["synthetic"],
+        },
+    }
+
+
+class _SidecarGh(_FakeGh):
+    """_FakeGh extended with release+asset routing for sidecar fetches.
+
+    Routes:
+      - repos/{repo}/releases/tags/{tag} -> {assets: [...]}
+      - repos/{repo}/releases/assets/{id} (via _fetch_asset_content) -> bytes
+    """
+
+    def __init__(self, *, sidecar_content: bytes | None = None,
+                 sidecar_asset_name: str = _SIDECAR_NAME,
+                 tarball_content: bytes = b"pretend-tarball-bytes",
+                 include_sidecar_asset: bool = True,
+                 include_tarball_asset: bool = True,
+                 sidecar_asset_id: int = 5551,
+                 tarball_asset_id: int = 5552,
+                 release_error: str = "",
+                 **kwargs):
+        super().__init__(tag_sha=_TAG_SHA, head_sha=_HEAD_SHA, tag=_TAG, **kwargs)
+        self.sidecar_content = sidecar_content
+        self.sidecar_asset_name = sidecar_asset_name
+        self.tarball_content = tarball_content
+        self.include_sidecar_asset = include_sidecar_asset
+        self.include_tarball_asset = include_tarball_asset
+        self.sidecar_asset_id = sidecar_asset_id
+        self.tarball_asset_id = tarball_asset_id
+        self.release_error = release_error
+        self.asset_fetches: list[int] = []
+
+    def gh_api_json(self, path, token):
+        # Delegate everything the base class knows about first.
+        if path == f"repos/{self.source_repo}/releases/tags/{self.tag}":
+            if self.release_error:
+                return None, self.release_error
+            assets = []
+            if self.include_sidecar_asset:
+                assets.append({"id": self.sidecar_asset_id,
+                               "name": self.sidecar_asset_name})
+            if self.include_tarball_asset:
+                assets.append({"id": self.tarball_asset_id,
+                               "name": _TARBALL_NAME})
+            return {"assets": assets}, ""
+        return super().gh_api_json(path, token)
+
+    def fetch_asset_content(self, source_repo, asset_id, token, timeout=None):
+        self.asset_fetches.append(asset_id)
+        if asset_id == self.sidecar_asset_id:
+            if self.sidecar_content is None:
+                return b"", f"asset {asset_id} not routed"
+            return self.sidecar_content, ""
+        if asset_id == self.tarball_asset_id:
+            return self.tarball_content, ""
+        return b"", f"unrouted asset id: {asset_id}"
+
+    def install(self, mod):
+        super().install(mod)
+        mod._fetch_asset_content = self.fetch_asset_content
+
+
+def _ctx(cm051, tmp_path):
+    return {"cm051_dir": cm051, "app_path": tmp_path / "no-app"}
+
+
+# --- verify_build_info_sidecar_present ---
+
+
+def test_sidecar_present_green_real_emit(tmp_path):
+    """Real (non-reconstructed) sidecar present -> PASS "fully-verified"."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_real_sidecar_json()).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(_sidecar_entry(), _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+    assert "fully-verified" in r.detail
+    assert _TAG in r.detail
+
+
+def test_sidecar_present_green_with_caveat_reconstructed(tmp_path):
+    """Reconstructed sidecar + allow_reconstructed:true -> PASS with caveat."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_backfill_sidecar_json()).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=True), _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+    assert "verified-with-caveat" in r.detail
+    assert "reconstructed" in r.detail
+
+
+def test_sidecar_present_fails_when_reconstructed_but_not_allowed(tmp_path):
+    """Reconstructed sidecar without allow_reconstructed -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_backfill_sidecar_json()).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=False), _ctx(cm051, tmp_path))
+    assert r.status == "FAIL", r.detail
+    assert "reconstructed:true" in r.detail
+    assert "allow_reconstructed" in r.detail
+
+
+def test_sidecar_present_fails_when_asset_missing_entirely(tmp_path):
+    """No .build-info.json asset in the release -> FAIL closed."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False)
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(_sidecar_entry(), _ctx(cm051, tmp_path))
+    assert r.status == "FAIL", r.detail
+    assert "no .build-info.json asset" in r.detail
+
+
+def test_sidecar_present_uses_local_dir_first(tmp_path):
+    """local_sidecar_dir hit skips GH; validates the Stream 3 backfill flow."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    backfill_dir = tmp_path / "backfill"
+    backfill_dir.mkdir()
+    (backfill_dir / f"{_TAG}.build-info.json").write_text(
+        json.dumps(_backfill_sidecar_json()))
+    mod = _load_module()
+    # Deliberately break the GH release fetch to prove local won.
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False,
+                      release_error="should not be called")
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=True,
+                       local_sidecar_dir=str(backfill_dir)),
+        _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+    assert "local:" in r.detail
+    assert fake.asset_fetches == []  # never went to GH
+
+
+def test_sidecar_present_local_env_var_expansion(tmp_path, monkeypatch):
+    """`${VAR}` in local_sidecar_dir is expanded before resolution."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    backfill_dir = tmp_path / "hr015" / "launch" / "backfill-sidecars"
+    backfill_dir.mkdir(parents=True)
+    (backfill_dir / f"{_TAG}.build-info.json").write_text(
+        json.dumps(_backfill_sidecar_json()))
+    monkeypatch.setenv("HR015_DIR", str(tmp_path / "hr015"))
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False)
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(
+        _sidecar_entry(allow_reconstructed=True,
+                       local_sidecar_dir="${HR015_DIR}/launch/backfill-sidecars"),
+        _ctx(cm051, tmp_path))
+    assert r.status == "PASS", r.detail
+
+
+def test_sidecar_present_tag_mismatch_fails(tmp_path):
+    """Sidecar carries a different tag_name than the pin -> FAIL (misfile guard)."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(
+        _real_sidecar_json(tag_name="hub-v0.4.99")).encode())
+    fake.install(mod)
+    r = mod.check_verify_build_info_sidecar_present(_sidecar_entry(), _ctx(cm051, tmp_path))
+    assert r.status == "FAIL", r.detail
+    assert "hub-v0.4.99" in r.detail and _TAG in r.detail
+
+
+# --- sidecar-aware pinned_artefact_freshness (opt-in via consume_build_info_sidecar) ---
+
+
+def test_freshness_backward_compat_when_sidecar_field_omitted(tmp_path):
+    """Existing pinned_artefact_freshness entries (no sidecar fields) still PASS
+    with no change in behaviour. Backward-compat guard."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh()  # no sidecar_content set — never fetched
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    assert fake.asset_fetches == []  # sidecar path never touched
+
+
+def test_freshness_with_sidecar_green(tmp_path):
+    """consume_build_info_sidecar:true + real sidecar matching pin -> PASS with note."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_real_sidecar_json()).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    assert "sidecar verified" in result.detail
+
+
+def test_freshness_with_reconstructed_sidecar_passes_when_allowed(tmp_path):
+    """Reconstructed backfill sidecar + allow_reconstructed:true -> PASS with caveat."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=json.dumps(_backfill_sidecar_json()).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(allow_reconstructed=True), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    assert "verified-with-caveat" in result.detail
+
+
+def test_freshness_sidecar_commit_sha_mismatch_fails(tmp_path):
+    """Sidecar declares a different commit_sha than tag resolves to -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    wrong = _real_sidecar_json(commit_sha="deadbeef" + "0" * 32)
+    fake = _SidecarGh(sidecar_content=json.dumps(wrong).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "commit_sha" in result.detail
+    assert _TAG_SHA[:12] in result.detail
+    assert "deadbeef" in result.detail
+
+
+def test_freshness_sidecar_dirty_worktree_fails(tmp_path):
+    """Sidecar declares dirty_worktree:true -> FAIL (releases must be clean)."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    dirty = _real_sidecar_json(dirty_worktree=True)
+    fake = _SidecarGh(sidecar_content=json.dumps(dirty).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "dirty_worktree:true" in result.detail
+
+
+def test_freshness_sidecar_tarball_sha_mismatch_is_tamper(tmp_path):
+    """verify_tarball_sha:true + downloaded tarball SHA-256 mismatches sidecar -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    # Sidecar declares one SHA; the tarball we serve hashes to a DIFFERENT one.
+    sidecar = _real_sidecar_json(tarball_sha256="a" * 64)
+    fake = _SidecarGh(sidecar_content=json.dumps(sidecar).encode(),
+                      tarball_content=b"whatever-does-not-match")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(verify_tarball_sha=True), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "TAMPER" in result.detail
+
+
+def test_freshness_sidecar_tarball_sha_matches_passes(tmp_path):
+    """Tarball SHA-256 matches what the sidecar declares -> PASS."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    tarball_bytes = b"the-real-tarball-bytes"
+    expected_sha = hashlib.sha256(tarball_bytes).hexdigest()
+    sidecar = _real_sidecar_json(tarball_sha256=expected_sha)
+    fake = _SidecarGh(sidecar_content=json.dumps(sidecar).encode(),
+                      tarball_content=tarball_bytes)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(verify_tarball_sha=True), _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+
+
+def test_freshness_sidecar_missing_fails_closed(tmp_path):
+    """consume_build_info_sidecar:true + release has no sidecar -> FAIL."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    fake = _SidecarGh(sidecar_content=None, include_sidecar_asset=False)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(), _ctx(cm051, tmp_path))
+    assert result.status == "FAIL", result.detail
+    assert "no .build-info.json asset" in result.detail
+
+
+def test_freshness_backfill_tarball_sha_unknown_is_skipped(tmp_path):
+    """A reconstructed backfill whose tarball_sha256 is `<UNKNOWN...>` still
+    passes verify_tarball_sha (skipped, not failed) so older backfills grade
+    green when allow_reconstructed:true."""
+    cm051 = tmp_path / "cm051"; cm051.mkdir()
+    _write_daemon_pin_makefile_043(cm051)
+    mod = _load_module()
+    unknown_sidecar = _backfill_sidecar_json(
+        tarball_sha256="<UNKNOWN - not captured at build time>")
+    fake = _SidecarGh(sidecar_content=json.dumps(unknown_sidecar).encode())
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _freshness_entry_with_sidecar(allow_reconstructed=True,
+                                      verify_tarball_sha=True),
+        _ctx(cm051, tmp_path))
+    assert result.status == "PASS", result.detail
+    # We never had to fetch the tarball because the expected SHA was unknown.
+    assert 5552 not in fake.asset_fetches  # tarball asset id

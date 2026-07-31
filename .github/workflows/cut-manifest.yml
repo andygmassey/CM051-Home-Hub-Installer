@@ -126,6 +126,15 @@ jobs:
                       errors.append(f"{where}: box_walk_probe requires 'probe'")
                   if kind == "file_exists_in_artefact" and "path" not in proof:
                       errors.append(f"{where}: file_exists_in_artefact requires 'path'")
+                  if kind in ("pinned_artefact_freshness", "verify_build_info_sidecar_present"):
+                      for req in ("pinned_version_source", "tag_format", "source_repo"):
+                          if req not in proof:
+                              errors.append(f"{where}: {kind} requires '{req}'")
+                      pvs = proof.get("pinned_version_source") or {}
+                      if not isinstance(pvs, dict) or not pvs.get("file") or not pvs.get("pattern"):
+                          errors.append(f"{where}: {kind}.pinned_version_source needs both 'file' and 'pattern'")
+                  if kind == "pinned_artefact_freshness" and "source_paths" not in proof:
+                      errors.append(f"{where}: pinned_artefact_freshness requires 'source_paths'")
               print(f"OK   {path.name} ({len(doc.get('entries') or [])} entries)")
           if errors:
               print()
