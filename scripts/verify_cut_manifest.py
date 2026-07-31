@@ -12,13 +12,14 @@
 #   - verify_cut_freshness.sh   — vendored SHAs are fresh
 #   - verify_cut_provenance.sh  — cut markers manifest
 #   - provenance_gate.sh        — required_fixes.tsv content-provenance
-#   - verify_cut_manifest.py    — THIS SCRIPT (9-primitive YAML gate)
+#   - verify_cut_manifest.py    — THIS SCRIPT (11-primitive YAML gate)
 #
 # See cut-manifests/README.md for schema.
 # ============================================================================
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import plistlib
@@ -977,11 +978,362 @@ def _resolve_pin_commit(source_repo: str, tag: str, token: str | None) -> tuple[
     return None, f"unexpected tag object type: {obj_type!r}"
 
 
+# ---------------------------------------------------------------------------
+# Build-info sidecar plumbing (v1.0.14, pairs with oa #259 Stream 1)
+#
+# Per BUILD_INFO_SIDECAR_SPEC_v1.0.14.md, every daemon release from hub-v0.4.44
+# forward ships a `.build-info.json` sidecar sibling to the .tar.gz. The sidecar
+# carries a schema-versioned record of the build: commit_sha + commit_date +
+# tag_name + dirty_worktree + signed_by.tarball_sha256 (see spec §2).
+#
+# Two consumers here (see spec §5):
+#   A. `verify_build_info_sidecar_present`  — defensive backstop primitive
+#      that FAILs closed if a pinned artefact has no sidecar at all.
+#   B. `pinned_artefact_freshness`          — the freshness gate can opt in
+#      via `consume_build_info_sidecar: true` to cross-check the sidecar's
+#      commit_sha / dirty_worktree / signed_by.tarball_sha256 against the pin.
+#
+# Both consumers fetch the sidecar through a common helper `_fetch_build_info_
+# sidecar` which tries local disk first (for the four hub-v0.4.40-43 backfill
+# sidecars authored by hand, per Stream 3), then falls back to the GitHub
+# release asset. Reconstructed sidecars (`reconstructed: true` in the JSON) are
+# accepted only when the entry opts in via `allow_reconstructed: true`, and
+# they pass as "verified-with-caveat" rather than "verified".
+# ---------------------------------------------------------------------------
+
+# Downloading a full tarball for SHA verification can take longer than a plain
+# JSON API call; keep the API timeout for the sidecar itself, use a wider one
+# for the tarball.
+GH_ASSET_DOWNLOAD_TIMEOUT_SECONDS = 300
+UNKNOWN_MARKER_PREFIX = "<UNKNOWN"
+
+
+def _fetch_asset_content(source_repo: str, asset_id: int, token: str | None,
+                         timeout: int = GH_API_TIMEOUT_SECONDS) -> tuple[bytes, str]:
+    """Fetch a release asset's raw bytes via `gh api` with the octet-stream Accept
+    header. Returns (bytes, error_string). On any failure returns (b"", "why")."""
+    env = dict(os.environ)
+    if token:
+        env["GH_TOKEN"] = token
+    try:
+        r = subprocess.run(
+            ["gh", "api",
+             f"repos/{source_repo}/releases/assets/{asset_id}",
+             "-H", "Accept: application/octet-stream"],
+            capture_output=True, check=False, timeout=timeout, env=env,
+        )
+    except FileNotFoundError:
+        return b"", "gh CLI not installed"
+    except subprocess.TimeoutExpired:
+        return b"", f"asset {asset_id} download timed out after {timeout}s"
+    if r.returncode != 0:
+        stderr = r.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+        return b"", f"gh api asset {asset_id} exit={r.returncode}: {stderr[0][:200]}"
+    return r.stdout, ""
+
+
+def _resolve_local_sidecar_dir(cm051_dir: Path, raw: str) -> Path:
+    """Expand env vars then resolve a raw path spec to an absolute Path.
+
+    Accepts absolute paths, CM051-relative paths, and paths with `${VAR}` env
+    substitution. The env-substitution form lets a cut manifest name an
+    out-of-tree sidecar directory (e.g. `${HR015_DIR}/launch/backfill-sidecars`)
+    without hardcoding a per-operator absolute path.
+    """
+    expanded = os.path.expandvars(raw)
+    p = Path(expanded).expanduser()
+    if p.is_absolute():
+        return p
+    return cm051_dir / expanded
+
+
+def _fetch_build_info_sidecar(source_repo: str, tag: str, ctx: dict,
+                              local_sidecar_dir: str | None,
+                              token: str | None,
+                              ) -> tuple[dict | None, str, str]:
+    """Locate + parse a build-info sidecar for `tag`.
+
+    Search order:
+      1. Local disk under `local_sidecar_dir/<tag>.build-info.json` (when
+         `local_sidecar_dir` is configured; for the four hub-v0.4.40-43
+         backfill sidecars in HR015 launch/backfill-sidecars/).
+      2. GitHub release asset ending in `.build-info.json` on the tag's
+         release.
+
+    Returns (parsed_json | None, source_description, error_string). Fail-closed:
+    a missing sidecar returns an error, never a silent pass.
+    """
+    # 1. Local fallback (backfill sidecars).
+    if local_sidecar_dir:
+        try:
+            local_dir = _resolve_local_sidecar_dir(ctx["cm051_dir"], local_sidecar_dir)
+        except Exception as e:
+            return None, "", f"resolving local_sidecar_dir {local_sidecar_dir!r}: {e}"
+        local_file = local_dir / f"{tag}.build-info.json"
+        if local_file.is_file():
+            try:
+                data = json.loads(local_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as e:
+                return None, "", f"local sidecar {local_file} malformed: {e}"
+            if not isinstance(data, dict):
+                return None, "", f"local sidecar {local_file} is not a JSON object"
+            return data, f"local:{local_file}", ""
+
+    # 2. GitHub release asset.
+    release, err = _gh_api_json(f"repos/{source_repo}/releases/tags/{tag}", token)
+    if err:
+        return None, "", f"fetching release {tag}: {err}"
+    if not isinstance(release, dict):
+        return None, "", f"unexpected release response shape: {type(release).__name__}"
+    assets = release.get("assets") or []
+    sidecar_asset = None
+    for a in assets:
+        name = a.get("name", "") if isinstance(a, dict) else ""
+        if name.endswith(".build-info.json"):
+            sidecar_asset = a
+            break
+    if not sidecar_asset:
+        available = [a.get("name", "?") for a in assets if isinstance(a, dict)]
+        return None, "", (f"no .build-info.json asset in release {tag}; "
+                          f"assets present: {available}")
+    asset_id = sidecar_asset.get("id")
+    if asset_id is None:
+        return None, "", f"sidecar asset in release {tag} has no id: {sidecar_asset}"
+    content, err = _fetch_asset_content(source_repo, asset_id, token)
+    if err:
+        return None, "", f"downloading sidecar asset {asset_id}: {err}"
+    try:
+        data = json.loads(content.decode("utf-8", "replace"))
+    except json.JSONDecodeError as e:
+        return None, "", f"sidecar asset {asset_id} malformed JSON: {e}"
+    if not isinstance(data, dict):
+        return None, "", f"sidecar asset {asset_id} is not a JSON object"
+    return data, f"release:{sidecar_asset.get('name')}", ""
+
+
+def _find_tarball_asset(source_repo: str, tag: str, token: str | None,
+                        ) -> tuple[dict | None, str]:
+    """Locate the `.tar.gz` release asset for `tag` (excluding sidecars)."""
+    release, err = _gh_api_json(f"repos/{source_repo}/releases/tags/{tag}", token)
+    if err:
+        return None, err
+    if not isinstance(release, dict):
+        return None, f"unexpected release response shape: {type(release).__name__}"
+    for a in (release.get("assets") or []):
+        if not isinstance(a, dict):
+            continue
+        name = a.get("name", "")
+        if name.endswith(".tar.gz") and not name.endswith(".build-info.json"):
+            return a, ""
+    return None, f"no .tar.gz asset in release {tag}"
+
+
+def _compute_release_tarball_sha256(source_repo: str, tag: str,
+                                    token: str | None) -> tuple[str | None, str]:
+    """Download the tarball asset for `tag` and return its SHA-256 hex digest."""
+    tarball, err = _find_tarball_asset(source_repo, tag, token)
+    if err:
+        return None, err
+    asset_id = tarball.get("id")
+    if asset_id is None:
+        return None, f"tarball asset in release {tag} has no id"
+    content, err = _fetch_asset_content(source_repo, asset_id, token,
+                                        timeout=GH_ASSET_DOWNLOAD_TIMEOUT_SECONDS)
+    if err:
+        return None, err
+    return hashlib.sha256(content).hexdigest(), ""
+
+
+@dataclass
+class _SidecarCheck:
+    """Outcome of a sidecar cross-check applied inside pinned_artefact_freshness."""
+    ok: bool
+    note: str          # human-readable note appended to freshness result on PASS
+    err: str = ""      # populated on FAIL; caller returns FAIL with this
+
+
+def _verify_sidecar_matches_pin(source_repo: str, tag: str, pin_sha: str,
+                                proof: dict, ctx: dict, token: str | None,
+                                ) -> _SidecarCheck:
+    """Perform the sidecar cross-check inside a `pinned_artefact_freshness` entry.
+
+    Runs when the entry sets `consume_build_info_sidecar: true`. Cross-checks:
+      - sidecar.commit_sha == pin_sha (tag resolution + sidecar independently agree)
+      - sidecar.dirty_worktree is not True (backfills may have "<UNKNOWN...>" which
+        is tolerated when reconstructed:true)
+      - sidecar.signed_by.tarball_sha256 == actual tarball SHA-256 (only when
+        `verify_tarball_sha: true` is set on the entry; downloads the tarball asset)
+
+    `reconstructed: true` sidecars are tolerated only if `allow_reconstructed: true`;
+    the note reads "verified-with-caveat" in that case, "verified" otherwise.
+    """
+    allow_reconstructed = bool(proof.get("allow_reconstructed", False))
+    local_sidecar_dir = proof.get("local_sidecar_dir")
+    verify_tarball_sha = bool(proof.get("verify_tarball_sha", False))
+
+    sidecar, src, err = _fetch_build_info_sidecar(
+        source_repo, tag, ctx, local_sidecar_dir, token,
+    )
+    if err:
+        return _SidecarCheck(ok=False, note="",
+                             err=f"sidecar cross-check for {tag}: {err}")
+
+    reconstructed = bool(sidecar.get("reconstructed", False))
+    if reconstructed and not allow_reconstructed:
+        return _SidecarCheck(ok=False, note="", err=(
+            f"sidecar for {tag} is reconstructed:true but "
+            f"allow_reconstructed:true is not set on this entry "
+            f"(source={src})"))
+
+    # commit_sha cross-check: cheap, catches wrong-tag-pointing-at-wrong-commit.
+    sidecar_sha = str(sidecar.get("commit_sha") or "")
+    if sidecar_sha != pin_sha:
+        return _SidecarCheck(ok=False, note="", err=(
+            f"sidecar.commit_sha {sidecar_sha[:12] or '<empty>'} != tag {tag} "
+            f"commit {pin_sha[:12]} (source={src})"))
+
+    # dirty_worktree cross-check. Real emits: false; reconstructed backfills may
+    # carry a literal "<UNKNOWN - ...>" string when the fact was not captured at
+    # build time. Only a hard True fails; anything else (False or unknown-marker)
+    # is tolerated. This is deliberately conservative: a released binary is never
+    # dirty, so a strict-False rule catches a tampered sidecar without penalising
+    # honest reconstructions.
+    dirty = sidecar.get("dirty_worktree")
+    if dirty is True:
+        return _SidecarCheck(ok=False, note="", err=(
+            f"sidecar for {tag} declares dirty_worktree:true; released binaries "
+            f"must be built from a clean tree (source={src})"))
+
+    # Optional tarball SHA-256 cross-check (tamper detection). Skipped when the
+    # sidecar's expected value is a backfill unknown-marker string.
+    if verify_tarball_sha:
+        signed_by = sidecar.get("signed_by") or {}
+        expected = str(signed_by.get("tarball_sha256") or "")
+        if not expected:
+            return _SidecarCheck(ok=False, note="", err=(
+                f"sidecar for {tag} has no signed_by.tarball_sha256 "
+                f"(source={src})"))
+        if expected.startswith(UNKNOWN_MARKER_PREFIX):
+            if not reconstructed:
+                return _SidecarCheck(ok=False, note="", err=(
+                    f"sidecar for {tag} has unknown-marker tarball_sha256 "
+                    f"but is not marked reconstructed:true (source={src})"))
+            # Reconstructed backfill with no known tarball SHA -- skip verify.
+        else:
+            actual, terr = _compute_release_tarball_sha256(source_repo, tag, token)
+            if terr:
+                return _SidecarCheck(ok=False, note="", err=(
+                    f"downloading tarball for SHA verify of {tag}: {terr}"))
+            if actual != expected:
+                return _SidecarCheck(ok=False, note="", err=(
+                    f"TAMPER DETECTED: tarball SHA-256 for {tag} is {actual[:12]} "
+                    f"but sidecar declares {expected[:12]} (source={src})"))
+
+    caveat = "verified-with-caveat: reconstructed backfill" if reconstructed else "verified"
+    return _SidecarCheck(ok=True,
+                         note=f"sidecar {caveat} (source={src})")
+
+
+def check_verify_build_info_sidecar_present(entry: dict, ctx: dict) -> Result:
+    """Defensive backstop primitive: FAIL if a pinned binary artefact has no
+    matching `.build-info.json` sidecar. Catches the case where a pre-v1.0.14
+    binary (no sidecar) is pinned by mistake, or where a rogue release was
+    published without the sidecar being emitted.
+
+    Sidecar is located via `_fetch_build_info_sidecar` (local fallback then
+    GitHub release asset). Sidecars marked `reconstructed: true` (the four
+    hub-v0.4.40-43 backfills) pass only when the entry sets
+    `allow_reconstructed: true`; those hits report "verified-with-caveat"
+    while still returning a PASS.
+
+    Contract mirrors `pinned_artefact_freshness`: same `pinned_version_source` +
+    `tag_format` + `source_repo` shape, plus:
+      - `allow_reconstructed: bool` (default false)
+      - `local_sidecar_dir: str` (optional; env-var expansion supported)
+    """
+    proof = entry["proof"]
+    pin_source = proof.get("pinned_version_source") or {}
+    tag_format = proof.get("tag_format")
+    source_repo = proof.get("source_repo")
+    allow_reconstructed = bool(proof.get("allow_reconstructed", False))
+    local_sidecar_dir = proof.get("local_sidecar_dir")
+
+    if not source_repo or "/" not in source_repo:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "FAIL", f"source_repo missing or malformed: {source_repo!r}",
+                      entry.get("source_pr", ""))
+    if not tag_format or "{version}" not in tag_format:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "FAIL", f"tag_format must contain '{{version}}': {tag_format!r}",
+                      entry.get("source_pr", ""))
+
+    version, verr = _extract_pinned_version(ctx["cm051_dir"], pin_source)
+    if verr:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "FAIL", f"resolving pinned version: {verr}",
+                      entry.get("source_pr", ""))
+    tag = tag_format.replace("{version}", version)
+    owner = _repo_owner(source_repo)
+    token = _gh_token_for(owner)
+    if token is None:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "FAIL",
+                      f"could not resolve gh token for owner {owner!r} "
+                      f"(need `gh auth login --user {owner}`)",
+                      entry.get("source_pr", ""))
+
+    sidecar, src, err = _fetch_build_info_sidecar(
+        source_repo, tag, ctx, local_sidecar_dir, token,
+    )
+    if err:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "FAIL", f"sidecar absent for {tag}: {err}",
+                      entry.get("source_pr", ""))
+
+    reconstructed = bool(sidecar.get("reconstructed", False))
+    if reconstructed and not allow_reconstructed:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "FAIL",
+                      f"sidecar for {tag} is reconstructed:true; set "
+                      f"allow_reconstructed:true on this entry if the backfill "
+                      f"is intentional (source={src})",
+                      entry.get("source_pr", ""))
+
+    # Belt-and-braces: sidecar's own tag_name (when populated + not marker) must
+    # match the tag we resolved to. Missing tag_name is tolerated (older
+    # backfills may set it, real emits do).
+    sidecar_tag = sidecar.get("tag_name")
+    if isinstance(sidecar_tag, str) and sidecar_tag and not sidecar_tag.startswith(UNKNOWN_MARKER_PREFIX):
+        if sidecar_tag != tag:
+            return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                          "FAIL",
+                          f"sidecar declares tag_name {sidecar_tag!r} but pin resolves "
+                          f"to {tag!r} (source={src})",
+                          entry.get("source_pr", ""))
+
+    if reconstructed:
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                      "PASS",
+                      f"sidecar present for {tag} (verified-with-caveat: "
+                      f"reconstructed backfill; source={src})",
+                      entry.get("source_pr", ""))
+    return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
+                  "PASS",
+                  f"sidecar present + fully-verified for {tag} (source={src})",
+                  entry.get("source_pr", ""))
+
+
 def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
     """Prove that the pinned pre-built artefact (daemon tarball, RemoteCapture,
     ...) contains every merged-to-source change in the artefact's compilation
     sub-tree. Fails closed when the source repo has moved past the pin on any
     non-ignored commit that touches `source_paths`.
+
+    Optional v1.0.14 extension (`consume_build_info_sidecar: true`): after
+    resolving the pin commit, cross-check the release's `.build-info.json`
+    sidecar (see BUILD_INFO_SIDECAR_SPEC_v1.0.14.md + oa #259 Stream 1). Adds
+    `sidecar.commit_sha == pin_sha`, `dirty_worktree != true`, and optional
+    tarball SHA-256 tamper detection. Backward-compat preserved when omitted.
     """
     proof = entry["proof"]
     artefact = proof.get("artefact", "?")
@@ -1023,6 +1375,17 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                       f"resolving tag {tag!r} in {source_repo}: {err}",
                       entry.get("source_pr", ""))
 
+    # v1.0.14 opt-in: sidecar cross-check runs immediately after pin_sha is
+    # resolved so a mismatch is reported before the (potentially heavy)
+    # compare-commit walk. When omitted, freshness behaves exactly as before.
+    sidecar_note = ""
+    if proof.get("consume_build_info_sidecar"):
+        check = _verify_sidecar_matches_pin(source_repo, tag, pin_sha, proof, ctx, token)
+        if not check.ok:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness",
+                          "FAIL", check.err, entry.get("source_pr", ""))
+        sidecar_note = check.note
+
     repo, err = _gh_api_json(f"repos/{source_repo}", token)
     if err or not isinstance(repo, dict):
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
@@ -1041,9 +1404,12 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
 
     if pin_sha == head_sha:
+        detail = (f"pinned {artefact} v{version} (@{pin_sha[:8]}) == {default_branch} HEAD "
+                  f"({head_sha[:8]})")
+        if sidecar_note:
+            detail += f"; {sidecar_note}"
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
-                      f"pinned {artefact} v{version} (@{pin_sha[:8]}) == {default_branch} HEAD "
-                      f"({head_sha[:8]})", entry.get("source_pr", ""))
+                      detail, entry.get("source_pr", ""))
 
     compare, err = _gh_api_json(f"repos/{source_repo}/compare/{pin_sha}...{head_sha}", token)
     if err or not isinstance(compare, dict):
@@ -1054,10 +1420,12 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
     # `behind` means the pin is AHEAD of default (a customer-hosted branch cut)
     # -- treat as pass, defer to the maintainer.
     if status == "behind" or status == "identical":
+        detail = (f"pinned {artefact} v{version} (@{pin_sha[:8]}) is at or ahead of "
+                  f"{default_branch} HEAD ({head_sha[:8]}) on {source_paths}")
+        if sidecar_note:
+            detail += f"; {sidecar_note}"
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
-                      f"pinned {artefact} v{version} (@{pin_sha[:8]}) is at or ahead of "
-                      f"{default_branch} HEAD ({head_sha[:8]}) on {source_paths}",
-                      entry.get("source_pr", ""))
+                      detail, entry.get("source_pr", ""))
 
     commits = compare.get("commits") or []
     # Per-commit divergence check: files come out of the compare response's
@@ -1085,11 +1453,13 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                 break
 
     if not diverging:
+        detail = (f"pinned {artefact} v{version} (@{pin_sha[:8]}) is at or ahead of "
+                  f"{default_branch} HEAD ({head_sha[:8]}) on {source_paths} "
+                  f"(all {len(commits)} intervening commits are ignored or off-tree)")
+        if sidecar_note:
+            detail += f"; {sidecar_note}"
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
-                      f"pinned {artefact} v{version} (@{pin_sha[:8]}) is at or ahead of "
-                      f"{default_branch} HEAD ({head_sha[:8]}) on {source_paths} "
-                      f"(all {len(commits)} intervening commits are ignored or off-tree)",
-                      entry.get("source_pr", ""))
+                      detail, entry.get("source_pr", ""))
 
     lines = [f"pinned {artefact} v{version} (@{pin_sha[:8]}) is stale vs {default_branch} HEAD "
              f"({head_sha[:8]}); {len(diverging)} diverging commit(s) touch {source_paths}:"]
@@ -1115,6 +1485,7 @@ DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "box_walk_probe": check_box_walk_probe,
     "payload_version_matches_daemon_version": check_payload_version_matches_daemon_version,
     "pinned_artefact_freshness": check_pinned_artefact_freshness,
+    "verify_build_info_sidecar_present": check_verify_build_info_sidecar_present,
 }
 
 

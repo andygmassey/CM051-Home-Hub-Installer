@@ -46,7 +46,7 @@ Both files are consumed on every cut. A RED in either fails the cut.
     # ... primitive-specific fields
 ```
 
-## The 10 primitives
+## The 11 primitives
 
 Every proof has `kind` and (for greps) `must_match: true|false` (default true).
 `must_match: false` is an ABSENCE proof — the pattern MUST NOT appear. Absence
@@ -334,6 +334,66 @@ Recovery when the gate fails: tag a new release from source HEAD (or cherry-pick
 the diverging commits to a release branch), wait for the build to publish,
 bump the pin in the file named by `pinned_version_source.file`, re-run the
 gate. See `VERSIONING.md` for the runbook.
+
+**Sidecar cross-check (v1.0.14, opt-in).** When the entry sets
+`consume_build_info_sidecar: true`, the gate additionally cross-checks the
+release's `.build-info.json` sidecar against the pin (see spec
+`launch/BUILD_INFO_SIDECAR_SPEC_v1.0.14.md` and paired oa #259 Stream 1
+emitter). Cross-checks: `sidecar.commit_sha == pin_sha`,
+`sidecar.dirty_worktree != true`, and optionally
+`sidecar.signed_by.tarball_sha256` (tamper detection, downloads the tarball;
+only enabled when `verify_tarball_sha: true`). Sidecars marked
+`reconstructed: true` (the four hub-v0.4.40-43 backfills at HR015
+`launch/backfill-sidecars/`) are tolerated only when `allow_reconstructed: true`,
+and they PASS with a "verified-with-caveat" note. Missing sidecar with
+`consume_build_info_sidecar: true` -> FAIL closed. Backward-compat is
+preserved: entries without the field behave exactly as before.
+
+```yaml
+proof:
+  kind: pinned_artefact_freshness
+  # ... existing fields ...
+  consume_build_info_sidecar: true
+  allow_reconstructed: true                                  # accept backfill
+  local_sidecar_dir: "${HR015_DIR}/launch/backfill-sidecars" # local fallback
+  verify_tarball_sha: false                                  # opt-in tamper check
+```
+
+### 11. `verify_build_info_sidecar_present`
+
+Defensive backstop introduced in v1.0.14 (Stream 2 of the build-info sidecar
+rollout, pairs with oa #259 Stream 1). Fires for every pinned binary artefact
+that should ship with a `.build-info.json` sidecar. Fails closed if no sidecar
+is present in either the local fallback directory (for Stream 3 backfills) or
+as a `.build-info.json` release asset on the artefact's tag.
+
+Sidecars marked `reconstructed: true` (the four hub-v0.4.40-43 backfills) pass
+only when the entry sets `allow_reconstructed: true`, reporting
+"verified-with-caveat". Non-reconstructed sidecars from a real Stream 1
+daemon build pass as "sidecar present + fully-verified".
+
+Belt-and-braces: if the sidecar declares its own `tag_name`, it must match the
+tag the pin resolves to (misfile guard).
+
+```yaml
+proof:
+  kind: verify_build_info_sidecar_present
+  # Same pin-source shape as pinned_artefact_freshness.
+  pinned_version_source:
+    file: "gui/Makefile"
+    pattern: 'DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)'
+  tag_format: "hub-v{version}"
+  source_repo: "ostler-ai/ostler-assistant"
+  # Optional: accept Stream 3 backfill sidecars (reconstructed:true).
+  allow_reconstructed: true
+  # Optional: local fallback dir for backfill sidecars. Env-var expansion is
+  # supported so a cut manifest need not carry a per-operator absolute path.
+  local_sidecar_dir: "${HR015_DIR}/launch/backfill-sidecars"
+```
+
+Same `gh auth` rules apply as `pinned_artefact_freshness`. See
+`launch/BUILD_INFO_SIDECAR_SPEC_v1.0.14.md` for the full spec including field
+semantics and the Stream 1 emitter contract.
 
 ## Wiring
 
