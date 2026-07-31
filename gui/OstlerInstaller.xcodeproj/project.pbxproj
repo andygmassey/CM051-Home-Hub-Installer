@@ -52,6 +52,7 @@
 		8E811455DED8C1926109DA01 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93788700DA6F1729EFEB460 /* SidebarView.swift */; };
 		92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
+		951D59E081F0672FA2A7D22C /* OnboardingScrollDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B62765246D9A6EAA6DE21F5 /* OnboardingScrollDecisionTests.swift */; };
 		95D9BCFA662C1E7244D50C83 /* FullDiskAccessGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */; };
 		98C877552A588390D0F9D15B /* ViewCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 143B97F50F4AF5CC13BFCECB /* ViewCopy.json */; };
 		9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */; };
@@ -133,6 +134,7 @@
 		58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPhaseAdvanceTests.swift; sourceTree = "<group>"; };
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
 		597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmer.swift; sourceTree = "<group>"; };
+		5B62765246D9A6EAA6DE21F5 /* OnboardingScrollDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingScrollDecisionTests.swift; sourceTree = "<group>"; };
 		5BD159481AED14E0F2873891 /* OstlerInstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OstlerInstaller.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OstlerInstaller.entitlements; sourceTree = "<group>"; };
 		61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-SemiBold.ttf"; sourceTree = "<group>"; };
@@ -280,6 +282,7 @@
 				DFBC7113D093B3D11E09202A /* OfflineGraceBoundTests.swift */,
 				091F620E783EA78D7DCFED68 /* OnboardingQuestionViewSnapshotTests.swift */,
 				EEC700A7069CEE4F60264318 /* OnboardingQuestionXOfYTests.swift */,
+				5B62765246D9A6EAA6DE21F5 /* OnboardingScrollDecisionTests.swift */,
 				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
 				9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */,
 				0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */,
@@ -1157,6 +1160,7 @@
 				7C2FD24BFBC3AAB36EDE9263 /* OfflineGraceBoundTests.swift in Sources */,
 				8BDA08160BDF8F7A4F3B006D /* OnboardingQuestionViewSnapshotTests.swift in Sources */,
 				673333837843D135C3E79E65 /* OnboardingQuestionXOfYTests.swift in Sources */,
+				951D59E081F0672FA2A7D22C /* OnboardingScrollDecisionTests.swift in Sources */,
 				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
 				42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */,
 				7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */,
