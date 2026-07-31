@@ -112,6 +112,16 @@ mkdir -p "$FRAMEWORKS_DIR"
 note "Installing Sparkle.framework into ${FRAMEWORKS_DIR}/"
 rm -rf "${FRAMEWORKS_DIR}/Sparkle.framework"
 cp -R "$SPARKLE_FRAMEWORK_SRC" "${FRAMEWORKS_DIR}/Sparkle.framework"
+# Strip macOS extended attributes (com.apple.FinderInfo,
+# com.apple.fileprovider.fpfs#P, com.apple.quarantine, etc.) that
+# hitchhike either from the Sparkle tarball's .nib resource forks or
+# from an iCloud-synced staging dir. codesign --deep refuses to sign a
+# bundle carrying any "resource fork, Finder information, or similar
+# detritus" -- 2026-07-31 v1.0.13.1 recut hit this on the .nib carriers
+# even after moving the .app to /tmp. Belt-and-braces: strip xattrs on
+# the framework AND on the outer .app after all inner staging is done.
+xattr -cr "${FRAMEWORKS_DIR}/Sparkle.framework" 2>/dev/null || true
+xattr -cr "$APP_PATH" 2>/dev/null || true
 
 # ── Patch Info.plist ──────────────────────────────────────────
 plist_set() {
