@@ -377,6 +377,18 @@ final class InstallerCoordinator: ObservableObject {
         /// this via gui_read's $7 error_text arg. Nil on the happy
         /// path / first display.
         let error: String?
+
+        /// v1.0.11 (blank-prompt-title fix): the heading actually
+        /// rendered in the onboarding modal. A PROMPT is a blocking
+        /// modal; install.sh occasionally emits one without a
+        /// `title=` (secret-mismatch retry loops, custom questions),
+        /// which the decoder now surfaces as an empty string rather
+        /// than a literal "?". Fall back to the prompt `id` so the
+        /// modal never renders "?" as its heading.
+        var displayTitle: String {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed.isEmpty || trimmed == "?") ? id : trimmed
+        }
     }
 
     /// One committed answer in the onboarding flow. Captured when
@@ -1503,12 +1515,24 @@ final class InstallerCoordinator: ObservableObject {
             // the phase row complete.
             backfillCanonicalEntriesBefore(id: id)
             currentStepId = id
-            currentStepTitle = title
+            // v1.0.11 (blank-step-title fix): RETAIN the last known step
+            // title when a STEP_BEGIN arrives without a usable one. On
+            // the late settling/enrichment stream a title-less STEP_BEGIN
+            // decoded to the "?" sentinel (now ""), which this used to
+            // slam straight into the H1 -- Andy's "weird new '?' titled
+            // page". Only overwrite the displayed title when the incoming
+            // marker actually carries a non-empty title; never blank it.
+            // (Belt-and-braces on "?" too, in case an older emitter or a
+            // pre-fix decoder is ever in the loop.)
+            let incomingTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !incomingTitle.isEmpty && incomingTitle != "?" {
+                currentStepTitle = incomingTitle
+            }
             currentStepPercent = 0
             currentStepIdx = idx ?? currentStepIdx
             totalSteps = total ?? totalSteps
-            appendLog(level: "info", msg: "→ \(title) [\(id)]")
-            OstlerLog.subprocess.info("event STEP_BEGIN id=\(id, privacy: .public) idx=\(idx ?? -1, privacy: .public)/\(total ?? -1, privacy: .public) title=\(title, privacy: .public)")
+            appendLog(level: "info", msg: "→ \(currentStepTitle) [\(id)]")
+            OstlerLog.subprocess.info("event STEP_BEGIN id=\(id, privacy: .public) idx=\(idx ?? -1, privacy: .public)/\(total ?? -1, privacy: .public) title=\(self.currentStepTitle, privacy: .public) rawTitle=\(title, privacy: .public)")
         case .pct(_, let pct):
             currentStepPercent = pct
         case .log(let level, let msg):
@@ -1580,10 +1604,17 @@ final class InstallerCoordinator: ObservableObject {
                       msg: "← \(id) (\(status.rawValue), \(elapsed)s)")
             OstlerLog.subprocess.info("event STEP_END id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)s")
         case .phase(let id, let title):
-            phase = title
+            // v1.0.11 (blank-step-title fix): retain the current phase
+            // strap when a PHASE arrives without a usable title so the
+            // strap above the H1 never flashes "?"/blank. The sidebar
+            // advance keys off `id`, so it still fires regardless.
+            let incomingPhase = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !incomingPhase.isEmpty && incomingPhase != "?" {
+                phase = incomingPhase
+            }
             phaseId = id
-            appendLog(level: "info", msg: "Phase: \(title)")
-            OstlerLog.subprocess.info("event PHASE id=\(id, privacy: .public) title=\(title, privacy: .public)")
+            appendLog(level: "info", msg: "Phase: \(phase)")
+            OstlerLog.subprocess.info("event PHASE id=\(id, privacy: .public) title=\(self.phase, privacy: .public) rawTitle=\(title, privacy: .public)")
             advanceSidebarFromPhase(id: id)
         case .needsFDA(let probe, let reason):
             needsFDA = NeedsFDA(probe: probe, reason: reason)
