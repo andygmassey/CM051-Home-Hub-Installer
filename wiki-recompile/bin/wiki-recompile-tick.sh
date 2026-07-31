@@ -126,6 +126,46 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 127
 fi
 
+# ---------------------------------------------------------------------------
+# #196 v1.0.13 -- docker daemon wait gate (Colima race defence)
+# ---------------------------------------------------------------------------
+#
+# Part 2 of the #196 fix. Part 1 ships a dedicated
+# com.creativemachines.ostler.colima LaunchAgent that fires
+# `colima start` at user login. launchd gives no ordering guarantee
+# between that agent and this wiki-recompile agent, so on a cold
+# reboot the tick can and does fire while Colima is still bringing
+# the VM up (measured on Andy's Mini 2026-07-30: docker socket
+# absent when the tick first ran). Without this gate the whole
+# tick exits 1, launchd records the failure, and the SETTING-UP
+# card stays stuck until the next daily interval.
+#
+# Wait up to WIKI_DOCKER_WAIT_MAX seconds (default 60) for
+# `docker info` to succeed. Uses `docker info` (not just socket
+# existence) because we care about a REACHABLE daemon, not a
+# half-created socket file. Exits with the same 127-style failure
+# the pre-fix path used if the wait elapses; on macOS a full
+# Colima cold boot fits inside 60 s comfortably, so a real
+# unreachable daemon (Colima uninstalled, Docker Desktop refusing
+# to launch) still fails fast enough for launchd to notice.
+WIKI_DOCKER_WAIT_MAX="${WIKI_DOCKER_WAIT_MAX:-60}"
+_wiki_docker_wait_elapsed=0
+until docker info >/dev/null 2>&1; do
+    if [ "$_wiki_docker_wait_elapsed" -ge "$WIKI_DOCKER_WAIT_MAX" ]; then
+        log "ERROR: docker daemon unreachable after ${WIKI_DOCKER_WAIT_MAX}s; skipping wiki refresh."
+        log "       Colima may have failed to auto-start (com.creativemachines.ostler.colima)."
+        log "       Manual retry: colima start; then re-run this tick."
+        exit 1
+    fi
+    log "waiting for docker daemon (${_wiki_docker_wait_elapsed}s/${WIKI_DOCKER_WAIT_MAX}s)..."
+    sleep 2
+    _wiki_docker_wait_elapsed=$((_wiki_docker_wait_elapsed + 2))
+done
+if [ "$_wiki_docker_wait_elapsed" -gt 0 ]; then
+    log "docker daemon reachable after ${_wiki_docker_wait_elapsed}s wait"
+fi
+unset _wiki_docker_wait_elapsed
+
 cd "$OSTLER_DIR"
 
 # ---------------------------------------------------------------------------

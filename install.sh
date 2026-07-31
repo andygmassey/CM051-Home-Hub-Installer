@@ -6969,18 +6969,99 @@ else
     echo ""
     ok "$(printf "$MSG_OK_DOCKER_RUNNING_TOOK_S" "${DOCKER_WAIT}")"
 
-    # Colima auto-start on boot is now OWNED BY THE DAEMON (v1.0.10, Group C).
+    # ── #196 v1.0.13 Colima auto-start LaunchAgent ──────────────────
     #
-    # The old bare `com.ostler.colima` LaunchAgent started Colima at login with
-    # NO Full Disk Access, so Colima could not mount ~/Documents and the wiki
-    # died on every reboot. The signed daemon (OstlerAssistant.app) holds FDA,
-    # and a child it fork-execs inherits that FDA (Gate A). So the daemon now
-    # runs `colima start` itself on launch (see ostler-assistant
-    # ensure_colima_running()), and the bare LaunchAgent is intentionally NOT
-    # created here. The install-time `colima start` above still runs under the
-    # installer's own FDA, which is correct for the first install; steady-state
-    # reboot start is the daemon's job. Upgrade cleanup of any pre-existing
-    # com.ostler.colima agent lives in the LaunchAgent teardown section below.
+    # The daemon (OstlerAssistant.app) was previously the sole
+    # steady-state starter of Colima at login (v1.0.10, Group C: it
+    # holds FDA, so it can mount ~/Documents into the VM). Empirically
+    # that path is not reliable on every reboot: Andy's Mini reboot
+    # 2026-07-30 landed the wiki-recompile LaunchAgent firing while
+    # ~/.colima/default/docker.sock did not exist, so the daily wiki
+    # baseline exited 1 and the SETTING-UP card stayed stuck. Log:
+    #
+    #     failed to connect to the docker API at
+    #     unix:///Users/andy/.colima/default/docker.sock;
+    #     ... connect: no such file or directory
+    #
+    # Two-part fix (defence in depth):
+    #
+    #   Part 1 (here): a dedicated `com.creativemachines.ostler.colima`
+    #     LaunchAgent that fires `colima start` at user login. This is
+    #     independent of the daemon path, so a daemon-launch hiccup can
+    #     no longer leave the box docker-less on reboot.
+    #
+    #   Part 2 (wiki-recompile-tick.sh): a docker-info wait gate up to
+    #     60 s that handles the race between Colima booting and the
+    #     wiki tick firing.
+    #
+    # Full Disk Access nuance: the old `com.ostler.colima` label was
+    # dropped because it started BEFORE the customer granted FDA, so
+    # Colima could not mount ~/Documents into the VM. That was a
+    # first-install-only concern; steady-state customer reboots happen
+    # AFTER FDA is already granted, which is exactly the regression
+    # surface we are patching here. Fresh install still starts Colima
+    # in-line above (installer's own FDA); the new LaunchAgent only
+    # takes over from the next login onwards. If FDA has been revoked,
+    # containers degrade the same way they do today; starting the
+    # daemon itself does not need FDA. We use a NEW label
+    # (com.creativemachines.ostler.colima), not the retired
+    # com.ostler.colima one, so upgrade never conflicts with the old
+    # boot-out entry below.
+    if command -v colima >/dev/null 2>&1; then
+        # Resolve the absolute path of colima at install time so the
+        # emitted plist never depends on a login-time PATH that
+        # launchd does not honour.
+        _colima_bin_path="$(command -v colima 2>/dev/null || true)"
+        if [[ -n "$_colima_bin_path" && -x "$_colima_bin_path" ]]; then
+            _colima_plist="${HOME}/Library/LaunchAgents/com.creativemachines.ostler.colima.plist"
+            _colima_log_dir="${HOME}/.ostler/logs"
+            mkdir -p "$_colima_log_dir" "${HOME}/Library/LaunchAgents"
+            cat > "$_colima_plist" <<COLIMAPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.creativemachines.ostler.colima</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${_colima_bin_path}</string>
+        <string>start</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>${HOME}</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${_colima_log_dir}/colima-startup.log</string>
+    <key>StandardErrorPath</key>
+    <string>${_colima_log_dir}/colima-startup.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
+COLIMAPLIST
+            chmod 0644 "$_colima_plist"
+            launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.colima" 2>/dev/null || true
+            if launchctl bootstrap "gui/$(id -u)" "$_colima_plist" 2>/dev/null \
+               || launchctl load "$_colima_plist" 2>/dev/null; then
+                ok "Colima auto-start LaunchAgent installed (com.creativemachines.ostler.colima)."
+            else
+                warn "Colima auto-start LaunchAgent could not be loaded; the daemon-owned start path remains the fallback on next login."
+            fi
+            unset _colima_plist _colima_log_dir
+        fi
+        unset _colima_bin_path
+    else
+        warn "Colima not found on PATH after Homebrew install; skipping auto-start LaunchAgent. The wiki-recompile docker-wait gate will still degrade gracefully, but Docker will not come up automatically at login."
+    fi
 fi
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
@@ -11535,6 +11616,8 @@ launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.colima" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.colima.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
@@ -11571,6 +11654,7 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.colima.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"
