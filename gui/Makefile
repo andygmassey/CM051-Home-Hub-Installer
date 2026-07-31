@@ -185,6 +185,7 @@ STEP          := @printf '\n[STEP] %s\n'
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
+        verify-commit-parity \
         download-python sign-python-bundle download-daemon stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
 
@@ -1316,8 +1317,47 @@ verify-stapling:
 	@bash "$(CURDIR)/../scripts/verify_stapling.sh" "$(DMG_PATH)"
 
 # ---------------------------------------------------------------------------
+# verify-commit-parity: post-cut integrity gate asserting the Tauri wrapper
+# and the ostler-assistant daemon were built from the same source commit
+# for the web/dist frontend they each embed.
+#
+# HR015 task #226 (permanent commit-parity gate). Sibling to task #221.
+#
+# Class-of-bug (HR015 #225, v1.0.13 cut 2026-07-30): make ship built a
+# fresh daemon (hub-v0.4.43, new web/dist/index-DCT9-lP0.js, 6-digit code
+# removed) BUT copied the Ostler.app Tauri wrapper stale from
+# ~/Documents/Projects/ostler-assistant/target/release/bundle/macos/Ostler.app.
+# The stale wrapper embedded pre-2026-06-29 web/dist/index-BlCfKuJD.js
+# still rendering the 6-digit code. Both binaries: signed, notarised,
+# stapled; verify-dmg-contents + verify-stapling both GREEN; customer
+# first-launch UI BROKEN.
+#
+# The sibling PR in ostler-ai/ostler-assistant stamps:
+#   * WRAPPER_FRONTEND_COMMIT=<40-hex> into the Tauri wrapper binary
+#   * DAEMON_FRONTEND_COMMIT=<40-hex>  into the ostler-assistant daemon
+# via `env!()` at build time (fully codesigning-invariant, discoverable
+# via `strings | grep`). This gate mounts the DMG, extracts BOTH markers
+# via strings|grep, and fails the cut CLOSED if they differ or are
+# absent.
+#
+# Delegates to scripts/verify_commit_parity.sh so the assertion can be
+# unit-tested against fixture binaries with a shim `strings` (see
+# scripts/tests/test_verify_commit_parity_gate.sh). Per
+# feedback_gate_must_prove_it_fires_not_just_compile, silent no-op gates
+# are worse than no gate.
+# ---------------------------------------------------------------------------
+verify-commit-parity:
+	@if [ ! -f "$(DMG_PATH)" ]; then \
+	    echo "ERROR: $(DMG_PATH) not found. Run 'make ship' first." >&2; \
+	    exit 1; \
+	fi
+	$(STEP) "Post-cut commit-parity gate -- daemon + wrapper must embed the same web/dist (HR015 #225 / #226)"
+	@bash "$(CURDIR)/../scripts/verify_commit_parity.sh" "$(DMG_PATH)"
+
+# ---------------------------------------------------------------------------
 # One-shot: validate → build → notarise-app → staple-apps → package
-#          → notarise-dmg → verify-dmg-contents → verify-stapling → archive
+#          → notarise-dmg → verify-dmg-contents → verify-stapling
+#          → verify-commit-parity → archive
 #
 # check-ostler-app runs first so we fail fast on the empty/missing
 # OSTLER_APP_PATH case (caught 2026-05-21 — would have saved one DMG cut).
@@ -1330,11 +1370,12 @@ verify-stapling:
 # package into the DMG, then notarise + staple the DMG wrapper for its
 # own Gatekeeper mount ticket.
 #
-# verify-dmg-contents catches silent-skip payload regressions.
-# verify-stapling catches per-.app stapling regressions -- both must be
-# GREEN before archive writes to ~/.ostler-release-artefacts/.
+# verify-dmg-contents  catches silent-skip payload regressions.
+# verify-stapling      catches per-.app stapling regressions (#221).
+# verify-commit-parity catches daemon+wrapper frontend drift (#226 / #225).
+# All three must be GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling archive
+ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
