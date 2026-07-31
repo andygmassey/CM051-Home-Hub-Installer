@@ -85,6 +85,15 @@ ARCHIVE_PATH  := $(BUILD_DIR)/$(APP_NAME).xcarchive
 DIST_DIR      ?= /tmp/ostler-installer-dist-$(USER)
 
 VERSION       := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $(INFO_PLIST) 2>/dev/null || echo unknown)
+# Cut-manifest to verify against (#238). verify_cut_manifest.py auto-selects the
+# lexicographically-newest cut-manifests/v*.yaml when no --version is passed --
+# which mis-fires on a hotfix: cutting v1.0.13.1 with a staged v1.0.14.yaml
+# present, the gate silently verified against v1.0.14 (the next cut's forward
+# manifest) instead of the v1.0.13 line. Derive the BASE major.minor.patch from
+# the installer version (1.0.13.1 -> v1.0.13) and pass it explicitly so a hotfix
+# always selects its own line's manifest. Operator override wins; set empty to
+# fall back to the auto-select behaviour.
+CUT_MANIFEST_VERSION ?= v$(shell printf '%s' "$(VERSION)" | cut -d. -f1-3)
 DMG_NAME      := $(APP_NAME)-$(VERSION).dmg
 DMG_PATH      := $(DIST_DIR)/$(DMG_NAME)
 APP_PATH      := $(DIST_DIR)/$(APP_NAME).app
@@ -878,7 +887,7 @@ check-manifest:
 	    CM044_DIR="$${CM044_DIR:-$(CURDIR)/../../CM044 - PWG Personal Wiki}" \
 	    OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
 	    HR015_DIR="$${HR015_DIR:-$(CURDIR)/../../HR015 - Gaming PC}" \
-	    ../scripts/verify_cut_manifest.sh --app-path "$(APP_PATH)" || { \
+	    ../scripts/verify_cut_manifest.sh --app-path "$(APP_PATH)" $(if $(CUT_MANIFEST_VERSION),--version "$(CUT_MANIFEST_VERSION)") || { \
 	    echo "" >&2; \
 	    echo "ERROR: cut-manifest preflight FAILED -- a required fix is missing from the built .app." >&2; \
 	    echo "Read the RED rows above. For each: either the fix isn't in the merged source, or the daemon/vendored artefact needs re-pinning + rebuild. Then re-cut. DO NOT SHIP." >&2; \
