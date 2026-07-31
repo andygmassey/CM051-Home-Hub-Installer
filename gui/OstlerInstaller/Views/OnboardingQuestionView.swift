@@ -111,19 +111,41 @@ struct OnboardingQuestionView: View {
         // window height is fixed-ish; taller content just fell off
         // both ends because nothing scrolled.
         //
-        // Fix: wrap ONLY the middle body-copy region in a ScrollView
-        // that fills remaining vertical space between the sticky top
-        // (header + title) and the sticky bottom (inputField +
-        // buttonRow). Behaviour by content length:
-        //   - Short body (most questions): ScrollView content sits at
-        //     top of the scroll region, empty scroll-space fills the
-        //     gap. Visually identical to the pre-fix Spacer(). No
-        //     regression on any short-help prompt.
+        // BW7 (box-walk retest #7 on v1.0.13.1, 2026-08-01, Archie
+        // internal task #202): BW3-9 wrapped the middle body region
+        // in `ScrollView { ... }.frame(maxHeight: .infinity)` which
+        // always claims the remaining vertical space between the
+        // sticky top (header + title) and the sticky bottom
+        // (inputField + buttonRow). That was correct for the tall
+        // legal prompts BW3-9 was fixing, but on every SHORT-body
+        // prompt (e.g. Q1 "Ready to continue?" -- two-sentence body)
+        // the ScrollView still stretched to fill the viewport,
+        // pushing the yes/no toggle + Back/Continue buttons ~400px
+        // below the body copy with a wall of dead whitespace in
+        // between. Andy caught this on the shipped v1.0.13.1 DMG
+        // and it applies to ALL short-body questions, not just Q1.
+        //
+        // Fix: use `ViewThatFits(in: .vertical)`. It picks the first
+        // child that fits in the proposed vertical space:
+        //   - Short body: the plain VStack branch fits, so the middle
+        //     region sizes to its natural content height. The outer
+        //     VStack's top-alignment then holds header + title + body
+        //     + input + buttons together at the top of the viewport,
+        //     with a natural gap sitting BELOW the buttons rather
+        //     than between the body and the input. Toggle sits
+        //     immediately below the body copy as expected.
         //   - Tall body (spoken-consent, article-9, third-party,
-        //     passkey-ack, recovery-passphrase): content scrolls
-        //     inside the middle region. Header + title stay at top;
-        //     inputField + buttonRow stay at bottom. Legal fine-print
-        //     no longer pushes the toggle off-screen.
+        //     passkey-ack, recovery-passphrase, or any future prompt
+        //     whose copy overflows): the plain VStack does not fit,
+        //     so `ViewThatFits` falls through to the ScrollView
+        //     branch. Header + title stay at top; inputField +
+        //     buttonRow stay at bottom (because the ScrollView then
+        //     takes the remaining vertical space between them);
+        //     content scrolls inside the middle region. Same
+        //     behaviour BW3-9 delivered for these prompts, no
+        //     regression.
+        //
+        // Requires macOS 13+ (project target is 14.0, see gui/project.yml).
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             // Sticky top: super-title header + question title.
             header(q)
@@ -134,100 +156,15 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Scrolling middle: body copy + prompt-error banner.
-            // Takes remaining vertical space; content scrolls if
-            // taller than the region. Short bodies leave empty
-            // scroll space below (visually equivalent to the
-            // pre-fix Spacer). Help / body copy branching order:
-            //   - consent_install: special hyperlinked terms body
-            //   - passkey_ack (Q12): modality-branched copy because
-            //     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
-            //     which is wrong on every desktop Mac without a Magic
-            //     Keyboard with Touch ID (Mac Studio / Mac Mini /
-            //     Mac Pro / standard iMac). BiometricProbe.cachedResult
-            //     drives a modality-appropriate ViewCopy string.
-            //   - assistant_name (Q6): ViewCopy-owned brand-warm helper
-            //     (the suggestion-pool intro). install.sh deliberately
-            //     sends empty help for this prompt id so we don't render
-            //     the same copy twice.
-            //   - everything else: install.sh's `help` field.
-            ScrollView {
-                VStack(alignment: .leading, spacing: .ostlerSpace4) {
-                    if q.prompt.id == "consent_install" {
-                        consentInstallBody()
-                    } else if q.prompt.id == "consent_third_party" {
-                        consentThirdPartyBody()
-                    } else if q.prompt.id == "consent_article_9" {
-                        consentArticle9Body()
-                    } else if q.prompt.id == "consent_spoken_capture" {
-                        consentSpokenCaptureBody()
-                    } else if q.prompt.id == "passkey_ack" {
-                        passkeyAckBody()
-                    } else if q.prompt.id == "recovery_passphrase" {
-                        recoveryPassphraseBody()
-                    } else if q.prompt.id == "assistant_name" && !q.isReview {
-                        Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
-                            .font(.ostlerBody)
-                            .foregroundStyle(Color.ostlerInkMuted)
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if let help = q.prompt.help, !help.isEmpty {
-                        // B2 (CX-14): customers couldn't click docs.ostler.ai/...
-                        // links in body copy because SwiftUI Text(String) does not
-                        // auto-linkify. Wrap the help text in an AttributedString
-                        // post-processor that detects bare `docs.ostler.ai/...`
-                        // and `https://...` substrings and turns them into
-                        // `.link` runs. Underscores in catalogue keys (e.g. the
-                        // `download_my_data` segment inside the EXPORTS_ACK help)
-                        // would have broken a Markdown-parsing alternative; the
-                        // regex is deliberately narrow to avoid false positives.
-                        Text(linkifiedHelp(help))
-                            .font(.ostlerBodyLg)
-                            .foregroundStyle(Color.ostlerInkMuted)
-                            .lineSpacing(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    // CX-97 (DMG #48g+1, 2026-05-29): install.sh's secret-
-                    // confirm loops (recovery_passphrase, email_password) pass
-                    // a mismatch message via gui_read's $7 error_text arg,
-                    // which surfaces here as a clear oxblood banner ABOVE the
-                    // input field on the re-emitted prompt. Pre-fix the only
-                    // signal was a warn() into the LogDrawer (hidden by
-                    // default) so the customer saw the same prompt apparently
-                    // re-appear with no explanation. We render it in the
-                    // primary banner slot rather than the (smaller, caption-
-                    // sized) validation-error slot below the field so it
-                    // gets the visual weight a mismatch deserves.
-                    if let promptError = q.prompt.error, !promptError.isEmpty, !q.isReview {
-                        HStack(alignment: .top, spacing: .ostlerSpace2) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundStyle(Color.ostlerOxblood)
-                                .padding(.top, 2)
-                            Text(promptError)
-                                .font(.ostlerBody)
-                                .foregroundStyle(Color.ostlerOxblood)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer()
-                        }
-                        .padding(.horizontal, .ostlerSpace3)
-                        .padding(.vertical, .ostlerSpace2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.ostlerOxbloodSoft)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.ostlerOxblood.opacity(0.55), lineWidth: 1)
-                        )
-                        .accessibilityLabel(Text(promptError))
-                    }
+            // Middle body region -- see the BW7 comment above.
+            // Content is factored into `bodyRegionContent(q)` so both
+            // ViewThatFits branches render the exact same view tree.
+            ViewThatFits(in: .vertical) {
+                bodyRegionContent(q)
+                ScrollView {
+                    bodyRegionContent(q)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxHeight: .infinity)
 
             // Sticky bottom: input field + validation error + buttons.
             inputField(q)
@@ -247,6 +184,102 @@ struct OnboardingQuestionView: View {
         .onAppear { seed(from: q) }
         .onChange(of: q.prompt.id) { _, _ in seed(from: q) }
         .onChange(of: q.isReview) { _, _ in seed(from: q) }
+    }
+
+    /// Body copy + optional prompt-error banner for the middle region
+    /// of the standard onboarding-question layout. Factored out of
+    /// `standardQuestionBody` so both branches of the BW7
+    /// `ViewThatFits` (natural top-flow and ScrollView fallback) can
+    /// render the identical view tree from a single source. Help /
+    /// body copy branching order:
+    ///   - consent_install: special hyperlinked terms body
+    ///   - passkey_ack (Q12): modality-branched copy because
+    ///     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
+    ///     which is wrong on every desktop Mac without a Magic
+    ///     Keyboard with Touch ID (Mac Studio / Mac Mini /
+    ///     Mac Pro / standard iMac). BiometricProbe.cachedResult
+    ///     drives a modality-appropriate ViewCopy string.
+    ///   - assistant_name (Q6): ViewCopy-owned brand-warm helper
+    ///     (the suggestion-pool intro). install.sh deliberately
+    ///     sends empty help for this prompt id so we don't render
+    ///     the same copy twice.
+    ///   - everything else: install.sh's `help` field.
+    @ViewBuilder
+    private func bodyRegionContent(_ q: DisplayedQuestion) -> some View {
+        VStack(alignment: .leading, spacing: .ostlerSpace4) {
+            if q.prompt.id == "consent_install" {
+                consentInstallBody()
+            } else if q.prompt.id == "consent_third_party" {
+                consentThirdPartyBody()
+            } else if q.prompt.id == "consent_article_9" {
+                consentArticle9Body()
+            } else if q.prompt.id == "consent_spoken_capture" {
+                consentSpokenCaptureBody()
+            } else if q.prompt.id == "passkey_ack" {
+                passkeyAckBody()
+            } else if q.prompt.id == "recovery_passphrase" {
+                recoveryPassphraseBody()
+            } else if q.prompt.id == "assistant_name" && !q.isReview {
+                Text(ViewCopy.shared.string(for: "onboarding_question.assistant_name_helper"))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let help = q.prompt.help, !help.isEmpty {
+                // B2 (CX-14): customers couldn't click docs.ostler.ai/...
+                // links in body copy because SwiftUI Text(String) does not
+                // auto-linkify. Wrap the help text in an AttributedString
+                // post-processor that detects bare `docs.ostler.ai/...`
+                // and `https://...` substrings and turns them into
+                // `.link` runs. Underscores in catalogue keys (e.g. the
+                // `download_my_data` segment inside the EXPORTS_ACK help)
+                // would have broken a Markdown-parsing alternative; the
+                // regex is deliberately narrow to avoid false positives.
+                Text(linkifiedHelp(help))
+                    .font(.ostlerBodyLg)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // CX-97 (DMG #48g+1, 2026-05-29): install.sh's secret-
+            // confirm loops (recovery_passphrase, email_password) pass
+            // a mismatch message via gui_read's $7 error_text arg,
+            // which surfaces here as a clear oxblood banner ABOVE the
+            // input field on the re-emitted prompt. Pre-fix the only
+            // signal was a warn() into the LogDrawer (hidden by
+            // default) so the customer saw the same prompt apparently
+            // re-appear with no explanation. We render it in the
+            // primary banner slot rather than the (smaller, caption-
+            // sized) validation-error slot below the field so it
+            // gets the visual weight a mismatch deserves.
+            if let promptError = q.prompt.error, !promptError.isEmpty, !q.isReview {
+                HStack(alignment: .top, spacing: .ostlerSpace2) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color.ostlerOxblood)
+                        .padding(.top, 2)
+                    Text(promptError)
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerOxblood)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                }
+                .padding(.horizontal, .ostlerSpace3)
+                .padding(.vertical, .ostlerSpace2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.ostlerOxbloodSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.ostlerOxblood.opacity(0.55), lineWidth: 1)
+                )
+                .accessibilityLabel(Text(promptError))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     /// F6.8 consent_install body. CX-18 (Studio retest #13, 2026-05-23):
