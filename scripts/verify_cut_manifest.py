@@ -814,6 +814,296 @@ def check_payload_version_matches_daemon_version(entry: dict, ctx: dict) -> Resu
                   status, detail, entry.get("source_pr", ""))
 
 
+# ---------------------------------------------------------------------------
+# pinned_artefact_freshness -- close the class of failure where CM051 downloads
+# a pre-built tarball at cut time and merged-to-main fixes in the source repo
+# silently miss the DMG because the tarball was tagged BEFORE the fix merged.
+#
+# The v1.0.13 near-miss (2026-07-30): DAEMON_VERSION pin was hub-v0.4.39, tagged
+# from oa/main at 16687ed6. By cut time oa/main had advanced 5 commits including
+# task #148 (has_ever_paid sticky bit) + #149 (hub-vX.Y.Z tag-push wiring), both
+# in crates/*. The pinned tarball structurally could not contain them. TNM
+# caught it by inspection. This primitive catches it by mechanism.
+#
+# Contract:
+#   1. Read pinned version from `pinned_version_source.file` using its regex
+#      (capture group 1 is the version).
+#   2. Format to a source-repo tag via `tag_format` (e.g. `hub-v{version}`).
+#   3. `gh api repos/{source_repo}/git/refs/tags/{tag}` -> tag SHA. For
+#      annotated tags (`object.type == "tag"`), follow one hop through
+#      `git/tags/{sha}` to reach the commit. For lightweight tags
+#      (`object.type == "commit"`), the SHA is already the commit.
+#   4. `gh api repos/{source_repo}` -> `default_branch`.
+#      `gh api repos/{source_repo}/branches/{default_branch}` -> HEAD SHA.
+#   5. `gh api repos/{source_repo}/compare/{pin_sha}...{head_sha}` -> commits +
+#      files touched between the pin and HEAD.
+#   6. Ignore commits whose first-line message matches any `ignore_commits_matching`
+#      regex (docs/chore-only cleanups don't affect the shipped artefact).
+#   7. For every non-ignored commit, check the commit's files against
+#      `source_paths` fnmatch globs. Any hit -> FAIL, with the diverging
+#      commits enumerated in the detail.
+#
+# Fail-closed philosophy: network errors, missing tokens, missing tags, and
+# malformed responses all FAIL. A transient outage that hides real divergence
+# is a worse outcome than a build that has to be re-run.
+# ---------------------------------------------------------------------------
+
+GH_API_TIMEOUT_SECONDS = 30
+
+
+def _repo_owner(source_repo: str) -> str:
+    """Return the owner slug from `owner/repo`."""
+    return source_repo.split("/", 1)[0]
+
+
+def _gh_token_for(owner: str) -> str | None:
+    """Resolve a gh token for `owner` via `gh auth token --user <owner>`.
+
+    Returns None on failure. Caller decides whether the missing token is fatal
+    (typical: FAIL) or advisory (rare).
+    """
+    try:
+        r = subprocess.run(
+            ["gh", "auth", "token", "--user", owner],
+            capture_output=True, check=False, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    tok = r.stdout.decode("utf-8", "replace").strip()
+    return tok or None
+
+
+def _gh_api_json(path: str, token: str | None) -> tuple[dict | list | None, str]:
+    """Invoke `gh api {path}` and return (parsed_json, error_string).
+
+    On any failure returns (None, "why"). Fail-closed by design.
+    """
+    env = dict(os.environ)
+    if token:
+        env["GH_TOKEN"] = token
+    try:
+        r = subprocess.run(
+            ["gh", "api", path],
+            capture_output=True, check=False,
+            timeout=GH_API_TIMEOUT_SECONDS, env=env,
+        )
+    except FileNotFoundError:
+        return None, "gh CLI not installed"
+    except subprocess.TimeoutExpired:
+        return None, f"gh api {path} timed out after {GH_API_TIMEOUT_SECONDS}s"
+    if r.returncode != 0:
+        stderr = r.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+        return None, f"gh api {path} exit={r.returncode}: {stderr[0][:200]}"
+    try:
+        return json.loads(r.stdout.decode("utf-8", "replace")), ""
+    except json.JSONDecodeError as e:
+        return None, f"gh api {path} returned invalid JSON: {e}"
+
+
+def _matches_source_path(filename: str, patterns: list[str]) -> str | None:
+    """Return the first glob in `patterns` that matches `filename`, else None.
+
+    Uses fnmatch semantics extended so `**` spans directory separators (which
+    plain fnmatch does not do). Callers write `crates/**` and expect
+    `crates/subscription/src/lib.rs` to match, matching the intuitive shell
+    glob.
+    """
+    for pat in patterns:
+        if "**" in pat:
+            regex = "^" + re.escape(pat).replace(r"\*\*", ".*").replace(r"\*", "[^/]*") + "$"
+            if re.match(regex, filename):
+                return pat
+        elif fnmatch.fnmatch(filename, pat):
+            return pat
+    return None
+
+
+def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[str | None, str]:
+    """Extract the pinned version from `pinned_version_source`.
+
+    Returns (version_or_None, error). Supports one shape today:
+      { file: str, pattern: str-with-one-capture-group }
+    """
+    file_rel = source.get("file")
+    pattern = source.get("pattern")
+    if not file_rel or not pattern:
+        return None, "pinned_version_source needs file + pattern"
+    p = cm051_dir / file_rel
+    if not p.is_file():
+        return None, f"pin source file not found: {p}"
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except (PermissionError, OSError) as e:
+        return None, f"reading {p}: {e}"
+    m = re.search(pattern, text)
+    if m is None:
+        return None, f"pattern {pattern!r} did not match in {p}"
+    if not m.groups():
+        return None, f"pattern {pattern!r} has no capture group"
+    return m.group(1), ""
+
+
+def _resolve_pin_commit(source_repo: str, tag: str, token: str | None) -> tuple[str | None, str]:
+    """Resolve a tag to a commit SHA in `source_repo`.
+
+    Handles both annotated tags (object.type == "tag" -> one hop through
+    git/tags/{sha} to reach the commit) and lightweight tags
+    (object.type == "commit" -> already there).
+    """
+    ref, err = _gh_api_json(f"repos/{source_repo}/git/refs/tags/{tag}", token)
+    if err:
+        return None, err
+    if not isinstance(ref, dict):
+        return None, f"unexpected ref response shape: {type(ref).__name__}"
+    obj = ref.get("object") or {}
+    obj_sha = obj.get("sha")
+    obj_type = obj.get("type")
+    if not obj_sha:
+        return None, f"ref response missing object.sha: {ref}"
+    if obj_type == "commit":
+        return obj_sha, ""
+    if obj_type == "tag":
+        tag_obj, err = _gh_api_json(f"repos/{source_repo}/git/tags/{obj_sha}", token)
+        if err:
+            return None, err
+        if not isinstance(tag_obj, dict):
+            return None, f"unexpected tag-object response shape: {type(tag_obj).__name__}"
+        target = (tag_obj.get("object") or {}).get("sha")
+        if not target:
+            return None, f"tag object missing target sha: {tag_obj}"
+        return target, ""
+    return None, f"unexpected tag object type: {obj_type!r}"
+
+
+def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
+    """Prove that the pinned pre-built artefact (daemon tarball, RemoteCapture,
+    ...) contains every merged-to-source change in the artefact's compilation
+    sub-tree. Fails closed when the source repo has moved past the pin on any
+    non-ignored commit that touches `source_paths`.
+    """
+    proof = entry["proof"]
+    artefact = proof.get("artefact", "?")
+    pin_source = proof.get("pinned_version_source") or {}
+    tag_format = proof.get("tag_format")
+    source_repo = proof.get("source_repo")
+    source_paths = proof.get("source_paths") or []
+    ignore_patterns = proof.get("ignore_commits_matching") or []
+
+    if not source_repo or "/" not in source_repo:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"source_repo missing or malformed: {source_repo!r}",
+                      entry.get("source_pr", ""))
+    if not tag_format or "{version}" not in tag_format:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"tag_format must contain '{{version}}': {tag_format!r}",
+                      entry.get("source_pr", ""))
+    if not source_paths:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      "source_paths must not be empty (which files compile into this artefact?)",
+                      entry.get("source_pr", ""))
+
+    version, verr = _extract_pinned_version(ctx["cm051_dir"], pin_source)
+    if verr:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"resolving pinned version: {verr}", entry.get("source_pr", ""))
+    tag = tag_format.replace("{version}", version)
+    owner = _repo_owner(source_repo)
+    token = _gh_token_for(owner)
+    if token is None:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"could not resolve gh token for owner {owner!r} "
+                      f"(need `gh auth login --user {owner}`)",
+                      entry.get("source_pr", ""))
+
+    pin_sha, err = _resolve_pin_commit(source_repo, tag, token)
+    if err:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"resolving tag {tag!r} in {source_repo}: {err}",
+                      entry.get("source_pr", ""))
+
+    repo, err = _gh_api_json(f"repos/{source_repo}", token)
+    if err or not isinstance(repo, dict):
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"fetching repo metadata for {source_repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+    default_branch = repo.get("default_branch") or "main"
+    branch, err = _gh_api_json(f"repos/{source_repo}/branches/{default_branch}", token)
+    if err or not isinstance(branch, dict):
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"fetching {default_branch} HEAD for {source_repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+    head_sha = (branch.get("commit") or {}).get("sha")
+    if not head_sha:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"branch response missing commit.sha: {branch}",
+                      entry.get("source_pr", ""))
+
+    if pin_sha == head_sha:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
+                      f"pinned {artefact} v{version} (@{pin_sha[:8]}) == {default_branch} HEAD "
+                      f"({head_sha[:8]})", entry.get("source_pr", ""))
+
+    compare, err = _gh_api_json(f"repos/{source_repo}/compare/{pin_sha}...{head_sha}", token)
+    if err or not isinstance(compare, dict):
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                      f"comparing {pin_sha[:8]}...{head_sha[:8]}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+    status = compare.get("status")
+    # `behind` means the pin is AHEAD of default (a customer-hosted branch cut)
+    # -- treat as pass, defer to the maintainer.
+    if status == "behind" or status == "identical":
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
+                      f"pinned {artefact} v{version} (@{pin_sha[:8]}) is at or ahead of "
+                      f"{default_branch} HEAD ({head_sha[:8]}) on {source_paths}",
+                      entry.get("source_pr", ""))
+
+    commits = compare.get("commits") or []
+    # Per-commit divergence check: files come out of the compare response's
+    # top-level `files` list (aggregated across the whole range), but to
+    # attribute a hit to a specific commit + apply ignore_commits_matching, we
+    # need per-commit file lists. Fetch per-commit files for any commit not
+    # explicitly ignored.
+    diverging: list[tuple[str, str, str]] = []  # (short_sha, first_line, matched_pattern)
+    for c in commits:
+        sha = c.get("sha", "")
+        msg = ((c.get("commit") or {}).get("message") or "").strip()
+        first_line = msg.splitlines()[0] if msg else ""
+        if any(re.search(pat, first_line) for pat in ignore_patterns):
+            continue
+        commit_detail, cerr = _gh_api_json(f"repos/{source_repo}/commits/{sha}", token)
+        if cerr or not isinstance(commit_detail, dict):
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                          f"fetching per-commit files for {sha[:8]}: {cerr or 'unexpected shape'}",
+                          entry.get("source_pr", ""))
+        for f in (commit_detail.get("files") or []):
+            fname = f.get("filename") or ""
+            matched = _matches_source_path(fname, source_paths)
+            if matched:
+                diverging.append((sha[:8], first_line[:120], matched))
+                break
+
+    if not diverging:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
+                      f"pinned {artefact} v{version} (@{pin_sha[:8]}) is at or ahead of "
+                      f"{default_branch} HEAD ({head_sha[:8]}) on {source_paths} "
+                      f"(all {len(commits)} intervening commits are ignored or off-tree)",
+                      entry.get("source_pr", ""))
+
+    lines = [f"pinned {artefact} v{version} (@{pin_sha[:8]}) is stale vs {default_branch} HEAD "
+             f"({head_sha[:8]}); {len(diverging)} diverging commit(s) touch {source_paths}:"]
+    for short, subj, pat in diverging[:10]:
+        lines.append(f"    {short} {subj}  [{pat}]")
+    if len(diverging) > 10:
+        lines.append(f"    ... (+{len(diverging) - 10} more)")
+    lines.append("Recovery: cut a new release from source HEAD; bump the pin in "
+                 f"{pin_source.get('file')}; rebuild.")
+    return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                  " ".join(lines) if len(lines) == 1 else "\n        ".join(lines),
+                  entry.get("source_pr", ""))
+
+
 DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "grep_in_installer": check_grep_in_installer,
     "grep_in_artefact": check_grep_in_artefact,
@@ -824,6 +1114,7 @@ DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "plist_env_key_present": check_plist_env_key_present,
     "box_walk_probe": check_box_walk_probe,
     "payload_version_matches_daemon_version": check_payload_version_matches_daemon_version,
+    "pinned_artefact_freshness": check_pinned_artefact_freshness,
 }
 
 

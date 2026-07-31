@@ -861,3 +861,321 @@ def test_normalise_version_all_three_shapes():
         mod._normalise_version("not-a-version")
     with pytest.raises(ValueError):
         mod._normalise_version("")
+
+
+# ---------------------------------------------------------------------------
+# pinned_artefact_freshness -- v1.0.13 near-miss recovery
+#
+# Covers the primitive that stops CM051 from cutting a DMG whose pinned
+# pre-built artefact (daemon tarball, RemoteCapture) is behind its source
+# repo on the compile sub-tree. Uses monkey-patched gh-API + version-source
+# reads so the tests are hermetic (no network, no gh auth).
+# ---------------------------------------------------------------------------
+
+def _load_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("vcm", str(SCRIPT))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _write_daemon_pin_makefile(fake_cm051: Path, version: str) -> None:
+    (fake_cm051 / "gui").mkdir(parents=True, exist_ok=True)
+    (fake_cm051 / "gui" / "Makefile").write_text(
+        f"# fake\nDAEMON_VERSION       ?= {version}\n"
+    )
+
+
+def _daemon_entry():
+    return {
+        "id": "daemon-freshness",
+        "title": "daemon pin is fresh vs oa/main crates/",
+        "proof": {
+            "kind": "pinned_artefact_freshness",
+            "artefact": "daemon (ostler-assistant)",
+            "pinned_version_source": {
+                "file": "gui/Makefile",
+                "pattern": r"DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)",
+            },
+            "tag_format": "hub-v{version}",
+            "source_repo": "ostler-ai/ostler-assistant",
+            "source_paths": ["crates/**"],
+            "ignore_commits_matching": [r"^chore\(fmt\)", r"^docs:"],
+        },
+    }
+
+
+class _FakeGh:
+    """Route (path -> json | error) for _gh_api_json and stub _gh_token_for.
+
+    Applied to the LIVE module (not a subprocess) so the test calls the
+    checker directly and does not need to spawn a subprocess or set up gh
+    auth. That keeps the tests hermetic + fast.
+    """
+
+    def __init__(self, tag_sha: str, head_sha: str, default_branch: str = "main",
+                 compare_status: str = "ahead", commits: list[dict] | None = None,
+                 per_commit_files: dict[str, list[dict]] | None = None,
+                 tag_object_type: str = "commit",
+                 tag_target_sha: str | None = None,
+                 token: str | None = "fake-token",
+                 tag_error: str = "",
+                 source_repo: str = "ostler-ai/ostler-assistant",
+                 tag: str = "hub-v0.4.39"):
+        self.tag_sha = tag_sha
+        self.head_sha = head_sha
+        self.default_branch = default_branch
+        self.compare_status = compare_status
+        self.commits = commits or []
+        self.per_commit_files = per_commit_files or {}
+        self.tag_object_type = tag_object_type
+        self.tag_target_sha = tag_target_sha or tag_sha
+        self.token = token
+        self.tag_error = tag_error
+        self.source_repo = source_repo
+        self.tag = tag
+        self.calls: list[str] = []
+
+    def gh_token_for(self, owner):
+        return self.token
+
+    def gh_api_json(self, path, token):
+        self.calls.append(path)
+        if path == f"repos/{self.source_repo}/git/refs/tags/{self.tag}":
+            if self.tag_error:
+                return None, self.tag_error
+            return {"object": {"sha": self.tag_sha, "type": self.tag_object_type}}, ""
+        if path == f"repos/{self.source_repo}/git/tags/{self.tag_sha}":
+            return {"object": {"sha": self.tag_target_sha, "type": "commit"}}, ""
+        if path == f"repos/{self.source_repo}":
+            return {"default_branch": self.default_branch}, ""
+        if path == f"repos/{self.source_repo}/branches/{self.default_branch}":
+            return {"commit": {"sha": self.head_sha}}, ""
+        if path == f"repos/{self.source_repo}/compare/{self.tag_target_sha}...{self.head_sha}":
+            return {"status": self.compare_status, "commits": self.commits}, ""
+        # Per-commit files fetch
+        prefix = f"repos/{self.source_repo}/commits/"
+        if path.startswith(prefix):
+            sha = path[len(prefix):]
+            return {"files": self.per_commit_files.get(sha, [])}, ""
+        return None, f"unrouted path: {path}"
+
+    def install(self, mod):
+        mod._gh_token_for = self.gh_token_for
+        mod._gh_api_json = self.gh_api_json
+
+
+def _run_check(cm051: Path, entry: dict):
+    """Run the freshness checker against a fake_cm051 dir via the loaded module."""
+    mod = _load_module()
+    return mod, entry, cm051
+
+
+def test_freshness_pass_when_pin_equals_head(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="abc12300" + "0" * 32, head_sha="abc12300" + "0" * 32)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "==" in result.detail
+
+
+def test_freshness_pass_when_head_moved_but_nothing_touches_source_paths(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "c1" * 20, "commit": {"message": "feat(website): landing page tweak"}},
+        {"sha": "c2" * 20, "commit": {"message": "chore(ci): retry flaky action"}},
+    ]
+    per_commit = {
+        "c1" * 20: [{"filename": "website/index.html"}],
+        "c2" * 20: [{"filename": ".github/workflows/ci.yml"}],
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    assert "all 2 intervening commits are ignored or off-tree" in result.detail
+
+
+def test_freshness_pass_when_all_diverging_commits_are_ignored(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "c1" * 20, "commit": {"message": "chore(fmt): rustfmt sweep"}},
+        {"sha": "c2" * 20, "commit": {"message": "docs: README typos"}},
+    ]
+    per_commit = {
+        "c1" * 20: [{"filename": "crates/subscription/src/lib.rs"}],
+        "c2" * 20: [{"filename": "crates/hub/src/lib.rs"}],
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+
+
+def test_freshness_fail_when_source_paths_diverge(tmp_path):
+    """The v1.0.13 near-miss shape: pin behind main, real commit touches crates/*.
+
+    9528520a "feat(subscription): has_ever_paid sticky bit" MUST fail this gate.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    commits = [
+        {"sha": "9528520a" + "0" * 32,
+         "commit": {"message": "feat(subscription): has_ever_paid sticky bit"}},
+        {"sha": "a2d2d23f" + "0" * 32,
+         "commit": {"message": "build(release): hub-vX.Y.Z tag push wiring"}},
+        {"sha": "cccc" * 10,
+         "commit": {"message": "chore(fmt): rustfmt sweep"}},
+    ]
+    per_commit = {
+        "9528520a" + "0" * 32: [{"filename": "crates/subscription/src/lib.rs"}],
+        "a2d2d23f" + "0" * 32: [{"filename": "crates/release/src/tag.rs"}],
+        "cccc" * 10: [{"filename": "crates/hub/src/lib.rs"}],  # ignored (chore(fmt))
+    }
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   commits=commits, per_commit_files=per_commit)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", result.detail
+    # Both non-ignored, tree-touching commits should be enumerated.
+    assert "has_ever_paid" in result.detail
+    assert "hub-vX.Y.Z" in result.detail
+    # The chore(fmt) commit must NOT be enumerated.
+    assert "rustfmt" not in result.detail
+    # Recovery guidance is present.
+    assert "Recovery" in result.detail
+
+
+def test_freshness_fail_when_tag_does_not_exist(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="", head_sha="",
+                   tag_error="gh api repos/ostler-ai/ostler-assistant/git/refs/tags/hub-v0.4.39 exit=1: HTTP 404: Not Found")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "resolving tag 'hub-v0.4.39'" in result.detail
+    assert "404" in result.detail
+
+
+def test_freshness_fail_when_source_repo_unreachable_is_not_silent_pass(tmp_path):
+    """Transient error MUST fail the gate, not sneak through as a pass."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    # Successfully resolve tag, then fail on the repo-metadata fetch.
+    class _NetDown(_FakeGh):
+        def gh_api_json(self, path, token):
+            if path.endswith("/git/refs/tags/hub-v0.4.39"):
+                return {"object": {"sha": "a" * 40, "type": "commit"}}, ""
+            return None, "gh api repos/ostler-ai/ostler-assistant exit=1: connection reset"
+    fake = _NetDown(tag_sha="a" * 40, head_sha="b" * 40)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "connection reset" in result.detail
+
+
+def test_freshness_fail_when_missing_token(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40, token=None)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "gh auth login --user ostler-ai" in result.detail
+
+
+def test_freshness_fail_when_pin_source_missing(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    # deliberately do not write gui/Makefile
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40)
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL"
+    assert "pin source file not found" in result.detail
+
+
+def test_freshness_annotated_tag_takes_extra_hop(tmp_path):
+    """Annotated tags (object.type == 'tag') require one extra `git/tags/{sha}` hop."""
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(
+        tag_sha="a" * 40,             # annotated-tag object SHA
+        tag_target_sha="c" * 40,      # the underlying commit
+        head_sha="c" * 40,            # HEAD equals the target commit -> PASS
+        tag_object_type="tag",
+    )
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(_daemon_entry(),
+                                                 {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "PASS", result.detail
+    # Extra hop happened.
+    assert any("git/tags/" in c for c in fake.calls)
+
+
+def test_freshness_source_paths_glob_matches_deep_paths(tmp_path):
+    """`crates/**` must match `crates/subscription/src/lib.rs` (deep), not just
+    top-level files. Regression: naive fnmatch fails on `**` across separators.
+    """
+    mod = _load_module()
+    assert mod._matches_source_path("crates/subscription/src/lib.rs", ["crates/**"]) == "crates/**"
+    assert mod._matches_source_path("crates/lib.rs", ["crates/**"]) == "crates/**"
+    assert mod._matches_source_path("website/index.html", ["crates/**"]) is None
+    # Sources/** for RemoteCapture
+    assert mod._matches_source_path("Sources/RemoteCapture/App.swift",
+                                    ["Sources/**"]) == "Sources/**"
+    # Multi-glob with a plain file
+    assert mod._matches_source_path("Package.swift",
+                                    ["Sources/**", "Package.swift"]) == "Package.swift"
+
+
+def test_freshness_remotecapture_pin_extraction(tmp_path):
+    """RemoteCapture pin sits inside a `${VAR:-default}` fragment in install.sh.
+    The permanent.yaml entry's pattern must extract the default correctly.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    (cm051 / "install.sh").write_text(
+        '#!/bin/bash\n'
+        'OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.3}"\n'
+    )
+    mod = _load_module()
+    v, err = mod._extract_pinned_version(cm051, {
+        "file": "install.sh",
+        "pattern": r'OSTLER_REMOTECAPTURE_VERSION="\$\{OSTLER_REMOTECAPTURE_VERSION:-(\d+\.\d+\.\d+)\}"',
+    })
+    assert err == "", err
+    assert v == "0.1.3"

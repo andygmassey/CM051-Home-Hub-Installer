@@ -75,19 +75,18 @@ jobs:
           if not root.is_dir():
               print("ERROR: cut-manifests/ dir missing", file=sys.stderr)
               sys.exit(1)
-          # Keep in lock-step with DISPATCH in scripts/verify_cut_manifest.py.
-          # grep_in_dmg_tree landed with #457 (permanent.yaml + verifier +
-          # README) but the schema check here was not updated in the same PR,
-          # so a shipped 6th primitive would be rejected as "unknown" against
-          # permanent.yaml. Sync'd here.
-          # (B-lite) v1.0.12: adds plist_env_key_present + box_walk_probe +
-          # payload_version_matches_daemon_version. exempt_paths is an
-          # optional field on grep_in_dmg_tree, not a separate kind.
-          KINDS = {"grep_in_installer", "grep_in_artefact",
-                   "grep_in_dmg_tree", "grep_in_source_at_sha",
-                   "file_exists_in_artefact", "plist_key_equals",
-                   "plist_env_key_present", "box_walk_probe",
-                   "payload_version_matches_daemon_version"}
+          # Single source of truth: derive the allowed proof kinds from the
+          # verifier's DISPATCH table so this schema check can never drift out
+          # of lock-step with the real handlers again. This exact drift bit
+          # twice with a hand-maintained copy here — grep_in_dmg_tree (#457)
+          # and pinned_artefact_freshness (#484) — each time a new kind was
+          # added to DISPATCH but not mirrored here. verify_cut_manifest imports
+          # only the stdlib at module scope, so importing it under this
+          # pyyaml-only job is safe; if it ever gains a heavy top-level import
+          # this fails loudly (correct) rather than silently going stale.
+          sys.path.insert(0, "scripts")
+          from verify_cut_manifest import DISPATCH
+          KINDS = set(DISPATCH)
           for path in sorted(root.glob("*.yaml")):
               try:
                   doc = yaml.safe_load(path.read_text(encoding="utf-8"))

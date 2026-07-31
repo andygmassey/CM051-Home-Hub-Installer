@@ -46,7 +46,7 @@ Both files are consumed on every cut. A RED in either fails the cut.
     # ... primitive-specific fields
 ```
 
-## The 9 primitives
+## The 10 primitives
 
 Every proof has `kind` and (for greps) `must_match: true|false` (default true).
 `must_match: false` is an ABSENCE proof — the pattern MUST NOT appear. Absence
@@ -271,6 +271,69 @@ proof:
 
 No `target:`/`path:` fields — the payload location is fixed by the (B-lite)
 spec.
+
+### 10. `pinned_artefact_freshness`
+
+Closes the class of failure where CM051 downloads a pre-built artefact (daemon
+tarball, RemoteCapture app) at cut time and merged-to-source fixes have already
+moved past the pinned tag, so those fixes structurally cannot ship in the DMG.
+The v1.0.13 near-miss (2026-07-30) was exactly this: `DAEMON_VERSION = 0.4.39`
+resolved to `hub-v0.4.39`, tagged from `oa/main` at commit `16687ed6`, but
+`oa/main` had since advanced by 5 commits including v1.0.13 launch-blockers in
+`crates/*`. TNM caught it by manual inspection; this primitive catches it by
+mechanism.
+
+The primitive:
+
+1. Reads the pinned version from a source file via a capture-group regex.
+2. Formats it to a source-repo git tag via `tag_format`.
+3. Resolves the tag to its target commit SHA on the source repo via GitHub API.
+4. Fetches the source repo's default-branch HEAD SHA.
+5. Compares `pin_sha...head_sha` and walks every intervening commit.
+6. Skips commits whose first-line message matches any `ignore_commits_matching`
+   regex (chore-only cleanups don't affect the shipped bytes).
+7. Fails when any surviving commit touches a file matching `source_paths`;
+   enumerates the diverging commits in the error detail.
+
+Fails closed on network errors, missing tokens, missing tags, or malformed
+responses. A transient outage that hides real divergence is a worse outcome
+than a build that needs a re-run.
+
+```yaml
+proof:
+  kind: pinned_artefact_freshness
+  # Human-readable name of the artefact (for error messages).
+  artefact: "daemon (ostler-assistant)"
+  # Where the pinned version comes from. `pattern` must capture the semver
+  # in group 1.
+  pinned_version_source:
+    file: "gui/Makefile"
+    pattern: 'DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)'
+  # How the version turns into a git tag on the source repo. `{version}` is
+  # substituted verbatim.
+  tag_format: "hub-v{version}"
+  # Source repo to check for divergence, owner/name.
+  source_repo: "ostler-ai/ostler-assistant"
+  # The sub-tree that compiles into this artefact. Divergence in files matching
+  # any of these globs is what fails the gate. `**` spans directory separators.
+  source_paths:
+    - "crates/**"
+  # Optional first-line-of-message regexes; matching commits are skipped
+  # (docs/formatting-only changes don't affect the shipped bytes).
+  ignore_commits_matching:
+    - "^chore\\(fmt\\)"
+    - "^docs:"
+    - "^chore\\(docs\\)"
+```
+
+Auth: `gh api` is invoked with `GH_TOKEN=$(gh auth token --user <owner>)`, where
+`<owner>` is the slug before the `/` in `source_repo`. The account must have
+`repo` scope on the source repo, so private repos work. Missing token -> FAIL.
+
+Recovery when the gate fails: tag a new release from source HEAD (or cherry-pick
+the diverging commits to a release branch), wait for the build to publish,
+bump the pin in the file named by `pinned_version_source.file`, re-run the
+gate. See `VERSIONING.md` for the runbook.
 
 ## Wiring
 
