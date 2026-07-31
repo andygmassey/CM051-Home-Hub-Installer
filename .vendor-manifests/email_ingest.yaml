@@ -1,0 +1,10 @@
+name: email_ingest
+github:
+  owner: andygmassey
+  repo: HR015-Gaming-PC
+  branch: main
+  path: email-ingest
+notes: |
+  Content gate + divergence patch details live in vendor/VENDOR_MANIFEST.toml
+  [[tree]] name="email_ingest". CM051-only grafts (silent-drop fix, absolute-path
+  wiring) are captured in email_ingest.patch; source path is unchanged since pin.

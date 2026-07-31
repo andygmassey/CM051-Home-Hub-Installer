@@ -1,0 +1,11 @@
+name: cm021
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: "."
+notes: |
+  CM021 (Email Intelligence) source is a private local checkout ($CM021); not
+  mirrored to any known GitHub owner as of 2026-07-31. Vendored as a DELIBERATE
+  MINIMAL SUBSET (cli.py + filters.py + parsers/ + pyproject); full-package
+  re-vendor blocked on operator-domain PII cleanup upstream.

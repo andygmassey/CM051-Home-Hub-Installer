@@ -1104,6 +1104,254 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                   entry.get("source_pr", ""))
 
 
+# ---------------------------------------------------------------------------
+# pin_matches_latest_release_tag -- close the class of failure where a source
+# repo has cut a NEW hub-vX.Y.Z release, but CM051's pin still points at the
+# previous release. Sibling to pinned_artefact_freshness (which compares the
+# pinned tag against source HEAD): this primitive compares the pinned VERSION
+# against the LATEST published RELEASE on the release-hosting repo. Fails
+# closed when they diverge.
+#
+# Distinct failure mode from pinned_artefact_freshness:
+#   pinned_artefact_freshness: "did source HEAD move past the pinned tag?"
+#   pin_matches_latest_release_tag: "did a new release tag land that the pin
+#                                    does not yet reflect?"
+# A pin can be fresh vs source (nothing merged since the tag) yet still lag
+# behind a subsequent release rebuild triggered off the same source SHA (e.g.
+# rebuilt tarball fixes a packaging bug). Both gates protect against distinct
+# real-world drift shapes.
+#
+# Contract:
+#   1. Read pinned version from `pin_file` using `pin_var_pattern` (single
+#      capture group is the version).
+#   2. `gh api repos/{release_repo}/releases?per_page=100&page=N` -- paginated
+#      to cover more than 100 releases if needed.
+#   3. Filter releases to those matching `tag_prefix` (e.g. "hub-v").
+#      Non-drafts + non-prereleases only.
+#   4. Pick the newest by `published_at`.
+#   5. Strip `tag_prefix` -> latest_version. Assert equal to pinned version.
+#
+# Fail-closed on network errors, missing tokens, empty release lists, and
+# malformed responses (matches pinned_artefact_freshness discipline).
+# ---------------------------------------------------------------------------
+
+def _list_releases_paginated(source_repo: str, token: str | None,
+                             max_pages: int = 5) -> tuple[list[dict] | None, str]:
+    """Fetch up to max_pages*100 releases. Fail-closed on any API error."""
+    out: list[dict] = []
+    for page in range(1, max_pages + 1):
+        data, err = _gh_api_json(
+            f"repos/{source_repo}/releases?per_page=100&page={page}", token)
+        if err:
+            return None, err
+        if not isinstance(data, list):
+            return None, f"unexpected releases response shape: {type(data).__name__}"
+        if not data:
+            break
+        out.extend(data)
+        if len(data) < 100:
+            break
+    return out, ""
+
+
+def check_pin_matches_latest_release_tag(entry: dict, ctx: dict) -> Result:
+    """Assert the pinned version matches the latest release tag on the release-hosting repo.
+
+    Cross-repo consistency gate. See module-level docstring above for rationale
+    + contract. Every failure mode fails CLOSED (no silent pass on transient
+    outages), matching pinned_artefact_freshness discipline.
+    """
+    proof = entry["proof"]
+    release_repo = proof.get("release_repo")
+    pin_file = proof.get("pin_file")
+    pin_var_pattern = proof.get("pin_var_pattern")
+    tag_prefix = proof.get("tag_prefix", "")
+    allow_prerelease = bool(proof.get("allow_prerelease", False))
+
+    if not release_repo or "/" not in release_repo:
+        return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag", "FAIL",
+                      f"release_repo missing or malformed: {release_repo!r}",
+                      entry.get("source_pr", ""))
+    if not pin_file or not pin_var_pattern:
+        return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag", "FAIL",
+                      "pin_file + pin_var_pattern required",
+                      entry.get("source_pr", ""))
+
+    version, verr = _extract_pinned_version(ctx["cm051_dir"], {
+        "file": pin_file, "pattern": pin_var_pattern})
+    if verr:
+        return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag", "FAIL",
+                      f"resolving pinned version: {verr}", entry.get("source_pr", ""))
+
+    owner = _repo_owner(release_repo)
+    token = _gh_token_for(owner)
+    if token is None:
+        return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag", "FAIL",
+                      f"could not resolve gh token for owner {owner!r} "
+                      f"(need `gh auth login --user {owner}`)",
+                      entry.get("source_pr", ""))
+
+    releases, rerr = _list_releases_paginated(release_repo, token)
+    if rerr:
+        return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag", "FAIL",
+                      f"listing releases on {release_repo}: {rerr}",
+                      entry.get("source_pr", ""))
+
+    # Filter to non-draft, non-prerelease (unless allow_prerelease), matching prefix.
+    candidates = []
+    for r in releases or []:
+        if not isinstance(r, dict):
+            continue
+        if r.get("draft"):
+            continue
+        if r.get("prerelease") and not allow_prerelease:
+            continue
+        tag = r.get("tag_name") or ""
+        if tag_prefix and not tag.startswith(tag_prefix):
+            continue
+        pub = r.get("published_at") or ""
+        candidates.append((pub, tag))
+
+    if not candidates:
+        return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag", "FAIL",
+                      f"no releases matching prefix {tag_prefix!r} on {release_repo} "
+                      f"(scanned {len(releases or [])})",
+                      entry.get("source_pr", ""))
+
+    # Sort newest-first by published_at (ISO 8601 sorts lexically).
+    candidates.sort(reverse=True)
+    latest_tag = candidates[0][1]
+    latest_version = latest_tag[len(tag_prefix):] if tag_prefix else latest_tag
+
+    ok = latest_version == version
+    status = "PASS" if ok else "FAIL"
+    if ok:
+        detail = (f"pin={version} matches latest {tag_prefix}* release "
+                  f"({latest_tag}) on {release_repo}")
+    else:
+        detail = (f"DRIFT: pin={version} in {pin_file} but latest {tag_prefix}* "
+                  f"release on {release_repo} is {latest_tag} (v{latest_version}). "
+                  f"Recovery: bump the pin in {pin_file} to {latest_version} (or "
+                  f"cut a new release matching v{version} if the pin is intentional).")
+    return Result(entry["id"], entry["title"], "pin_matches_latest_release_tag",
+                  status, detail, entry.get("source_pr", ""))
+
+
+# ---------------------------------------------------------------------------
+# pr_branch_not_stale_vs_main -- catch the class of failure where a PR is
+# labelled `mergeable: MERGEABLE` by the GitHub API but its base is many
+# commits behind main; merging as-is silently REVERTS a critical recent
+# commit. Filed as `feedback_mergeable_api_state_isnt_semantic_safety`
+# 2026-07-31, sibling to `feedback_pr_state_via_api_not_assertion`.
+#
+# The v1.0.13 near-miss shape (PR #484): branch predated the daemon pin bump
+# PR #492; merging it AS-IS would have reverted 0.4.43 -> 0.4.41. TNM caught
+# it before merging by manually rebasing; this primitive turns that into a
+# mechanical gate.
+#
+# Contract:
+#   1. Read the PR number from env `PR_NUMBER` (populated by GHA
+#      `github.event.pull_request.number`); skip cleanly if absent (local
+#      dev / non-PR CI).
+#   2. `gh api repos/{this_repo}/pulls/{n}` -> base.sha, head.sha, base.ref,
+#      merge_commit_sha.
+#   3. `gh api repos/{this_repo}/compare/{base.sha}...{base.ref}` where
+#      base.ref is HEAD of the target branch. Count commits main has that
+#      the PR branch does not.
+#   4. If count > max_commits_behind (default 10) -> FAIL, list the
+#      diverging commits + rebase-recovery instructions.
+#
+# Fail-closed on any API error. Skips when PR_NUMBER unset OR when
+# GITHUB_REPOSITORY unset -- both required for the primitive to apply.
+# ---------------------------------------------------------------------------
+
+def check_pr_branch_not_stale_vs_main(entry: dict, ctx: dict) -> Result:
+    """Assert the current PR branch's base is not stale vs the target branch."""
+    proof = entry["proof"]
+    max_behind = int(proof.get("max_commits_behind", 10))
+    ignore_patterns = proof.get("ignore_commits_matching") or []
+
+    pr_number = os.environ.get("PR_NUMBER", "").strip()
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not pr_number or not repo:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "SKIP",
+                      "PR_NUMBER + GITHUB_REPOSITORY env vars required "
+                      "(populated by GitHub Actions in PR context)",
+                      entry.get("source_pr", ""))
+
+    owner = _repo_owner(repo)
+    token = _gh_token_for(owner) or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"could not resolve gh token for owner {owner!r}",
+                      entry.get("source_pr", ""))
+
+    pr, err = _gh_api_json(f"repos/{repo}/pulls/{pr_number}", token)
+    if err or not isinstance(pr, dict):
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"fetching PR #{pr_number} on {repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+
+    base = pr.get("base") or {}
+    base_sha = base.get("sha", "")
+    base_ref = base.get("ref", "")
+    if not base_sha or not base_ref:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"PR #{pr_number} missing base.sha or base.ref",
+                      entry.get("source_pr", ""))
+
+    # Fetch current HEAD of the target branch.
+    branch, err = _gh_api_json(f"repos/{repo}/branches/{base_ref}", token)
+    if err or not isinstance(branch, dict):
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"fetching {base_ref} HEAD for {repo}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+    head_sha = (branch.get("commit") or {}).get("sha", "")
+    if not head_sha:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"branch response missing commit.sha: {branch}",
+                      entry.get("source_pr", ""))
+
+    if base_sha == head_sha:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "PASS",
+                      f"PR #{pr_number} branch is up to date with {base_ref} ({head_sha[:8]})",
+                      entry.get("source_pr", ""))
+
+    compare, err = _gh_api_json(f"repos/{repo}/compare/{base_sha}...{head_sha}", token)
+    if err or not isinstance(compare, dict):
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                      f"comparing {base_sha[:8]}...{head_sha[:8]}: {err or 'unexpected shape'}",
+                      entry.get("source_pr", ""))
+
+    ahead_by = int(compare.get("ahead_by") or 0)
+    commits = compare.get("commits") or []
+    # Filter out ignored commits (docs-only, etc.) from the "behind by" count.
+    surviving = []
+    for c in commits:
+        msg = ((c.get("commit") or {}).get("message") or "").strip()
+        first_line = msg.splitlines()[0] if msg else ""
+        if any(re.search(pat, first_line) for pat in ignore_patterns):
+            continue
+        surviving.append((c.get("sha", "")[:8], first_line[:120]))
+
+    if len(surviving) <= max_behind:
+        return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "PASS",
+                      f"PR #{pr_number} branch is {ahead_by} commits behind {base_ref} "
+                      f"({len(surviving)} non-ignored), within max_commits_behind={max_behind}",
+                      entry.get("source_pr", ""))
+
+    lines = [f"PR #{pr_number} branch is {len(surviving)} non-ignored commits behind "
+             f"{base_ref} HEAD ({head_sha[:8]}); max_commits_behind={max_behind} exceeded:"]
+    for short, subj in surviving[:10]:
+        lines.append(f"    {short} {subj}")
+    if len(surviving) > 10:
+        lines.append(f"    ... (+{len(surviving) - 10} more)")
+    lines.append(f"Recovery: rebase onto {base_ref} + push. See "
+                 "feedback_mergeable_api_state_isnt_semantic_safety.")
+    return Result(entry["id"], entry["title"], "pr_branch_not_stale_vs_main", "FAIL",
+                  "\n        ".join(lines), entry.get("source_pr", ""))
+
+
 DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "grep_in_installer": check_grep_in_installer,
     "grep_in_artefact": check_grep_in_artefact,
@@ -1115,6 +1363,8 @@ DISPATCH: dict[str, Callable[[dict, dict], Result]] = {
     "box_walk_probe": check_box_walk_probe,
     "payload_version_matches_daemon_version": check_payload_version_matches_daemon_version,
     "pinned_artefact_freshness": check_pinned_artefact_freshness,
+    "pin_matches_latest_release_tag": check_pin_matches_latest_release_tag,
+    "pr_branch_not_stale_vs_main": check_pr_branch_not_stale_vs_main,
 }
 
 

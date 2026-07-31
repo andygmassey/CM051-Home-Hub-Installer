@@ -1,0 +1,11 @@
+name: cm041/pwg_privacy
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: pwg_privacy.py
+notes: |
+  CM041 (PWG People Graph) source is a private local checkout ($CM041). See
+  cm041_contact_syncer.yaml for lineage note. SINGLE-FILE tree at the CM041 repo
+  root; NEVER run scripts/sync_vendor.sh FULL sync (per VENDOR_MANIFEST.toml
+  caveat).

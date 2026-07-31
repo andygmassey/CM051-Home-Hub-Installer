@@ -1,0 +1,10 @@
+name: cm041/assistant_api
+github:
+  owner: "<UNKNOWN -- retrofit needed>"
+  repo: "<UNKNOWN -- retrofit needed>"
+  branch: main
+  path: assistant_api
+notes: |
+  CM041 (PWG People Graph) source is a private local checkout ($CM041). See
+  cm041_contact_syncer.yaml for lineage note. Vendored ical-server.py carries
+  six CM051-deploy grafts (documented in VENDOR_MANIFEST.toml note).
