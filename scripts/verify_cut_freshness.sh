@@ -101,6 +101,7 @@ GUI_MAKEFILE="${GUI_MAKEFILE_OVERRIDE:-$REPO_ROOT/gui/Makefile}"
 DAEMON_INTEGRATION_BRANCH="${DAEMON_INTEGRATION_BRANCH:-integration/hub-v1.0.9}"
 CM044_BRANCH="${CM044_BRANCH:-main}"
 WIKI_PROVENANCE_FILE="${WIKI_PROVENANCE_FILE:-$SCRIPT_DIR/wiki_image_provenance.tsv}"
+WIKI_HOLD_ACK_FILE="${WIKI_HOLD_ACK_FILE:-$SCRIPT_DIR/wiki_hold_ack.tsv}"
 FRESHNESS_ONLY="${FRESHNESS_ONLY:-}"
 GH_API_TIMEOUT="${GH_API_TIMEOUT:-25}"
 GH_BIN="${FRESHNESS_GH_BIN:-gh}"
@@ -526,7 +527,12 @@ fi
 
 # ===========================================================================
 # 3. WIKI IMAGES  (install.sh digest -> provenance ledger -> vs CM044 main HEAD)
-#    Not a vendor tree: no hold_ack / exemption -- a stale wiki image is always RED.
+#    hold_ack (HR015 #238 sub-item 2, 2026-08-01 ORM): a wiki pin may sit
+#    behind live CM044 HEAD only if scripts/wiki_hold_ack.tsv carries a matching
+#    row (same key + same pinned_sha_prefix) whose hold_ack_shas covers EVERY
+#    delta commit AND whose reason is non-empty AND shipping_bugfixes_grafted
+#    is asserted true. Mirrors the vendor-tree hold_ack contract; any
+#    un-acknowledged delta commit stays fail-closed RED.
 # ===========================================================================
 check_wiki() {
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
@@ -553,7 +559,79 @@ for key in wiki-compiler wiki-site; do
         continue
     fi
     verdict="$(freshness_verdict andygmassey andygmassey/CM044-PWG-Personal-Wiki "$cm044_sha" "$cm044_head")"
-    classify_simple "wiki:$key" "$cm044_sha" "$cm044_head" "$verdict"
+    base="${verdict%%:*}"
+    # FRESH / UNREACH / unresolved: same behaviour as before.
+    if [ "$base" = FRESH ] || [ "$base" != STALE ] && [ "$base" != DIVERGED ]; then
+        classify_simple "wiki:$key" "$cm044_sha" "$cm044_head" "$verdict"
+        continue
+    fi
+    # STALE / DIVERGED: consult wiki_hold_ack.tsv. A row matches only if the
+    # key equals AND the pinned_sha_prefix is a prefix of the recorded CM044
+    # sha (defensive: a re-pin invalidates the ack, forcing re-decision).
+    hold_shas=""
+    hold_grafted=""
+    hold_reason=""
+    if [ -f "$WIKI_HOLD_ACK_FILE" ]; then
+        while IFS=$'\t' read -r rk rp rshas rgraft rreason; do
+            case "$rk" in ''|'#'*) continue ;; esac
+            [ "$rk" = "$key" ] || continue
+            case "$cm044_sha" in "$rp"*) ;; *) continue ;; esac
+            hold_shas="$rshas"
+            hold_grafted="$(printf '%s' "$rgraft" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+            hold_reason="$rreason"
+            break
+        done < "$WIKI_HOLD_ACK_FILE"
+    fi
+    if [ -z "$hold_shas" ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED ${verdict}"
+        add_detail "wiki:$key RED ${verdict} vs live CM044 HEAD, NO hold_ack in $WIKI_HOLD_ACK_FILE. Add a row (key<TAB>pinned_sha_prefix<TAB>delta_shas<TAB>true<TAB>reason) covering every delta commit, OR rebuild the wiki image + re-pin."
+        continue
+    fi
+    if [ -z "$hold_reason" ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED hold_ack no-reason"
+        add_detail "wiki:$key RED: $WIKI_HOLD_ACK_FILE row for $key ($rp) has hold_ack_shas but empty reason. Record WHY the pin is held."
+        continue
+    fi
+    if [ "$hold_grafted" != true ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED hold_ack no-grafted-assert"
+        add_detail "wiki:$key RED: $WIKI_HOLD_ACK_FILE row for $key ($rp) has hold_ack_shas + reason but shipping_bugfixes_grafted is not true. Graft the bugfixes among the held commits (or assert they are not launch-blocking), then set the column to true."
+        continue
+    fi
+    # Enumerate the live delta commits and require EVERY one is in hold_shas.
+    api andygmassey "repos/andygmassey/CM044-PWG-Personal-Wiki/compare/$cm044_sha...$cm044_head" \
+        --jq '.commits[].sha'
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        n_cannot=$((n_cannot+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "CANNOT-VERIFY hold_ack (compare unreachable)"
+        continue
+    fi
+    if [ "$rc" -eq 1 ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED compare-failed"
+        continue
+    fi
+    unacked=""
+    while IFS= read -r ln; do
+        s="$(printf '%s' "$ln" | tr -d '[:space:]')"
+        [ -z "$s" ] && continue
+        if ! sha_in_list "$s" "$hold_shas"; then
+            unacked="$unacked $s"
+        fi
+    done <<< "$API_OUT"
+    if [ -n "$unacked" ]; then
+        n_stale=$((n_stale+1))
+        add_row "wiki:$key" "$cm044_sha" "$cm044_head" "RED hold_ack partial"
+        add_detail "wiki:$key RED: delta commit(s) NOT in hold_ack_shas:$unacked"
+        add_detail "    classify each: graft-the-bugfix (then re-run), or add its SHA to hold_ack_shas with a reason."
+        continue
+    fi
+    n_held=$((n_held+1))
+    add_row "wiki:$key" "$cm044_sha" "$cm044_head" "HELD hold_ack"
+    add_detail "wiki:$key HELD: all delta commits acknowledged (reason: ${hold_reason})"
 done
 }
 [ -z "$FRESHNESS_ONLY" ] && check_wiki

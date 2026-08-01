@@ -50,14 +50,19 @@ entries:
   # both halves are load-bearing for the "100% clean cut" mandate Andy set
   # 2026-07-30 after the v1.0.12 DMG shipped with a stale 1.0.10 stamp.
   - id: v1013-installer-app-version-stamp
-    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.13
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.13.2
+    # v1.0.13.2 hotfix (2026-08-01 ORM): value bumped in lockstep with the
+    # cut's CFBundleShortVersionString. The purpose of this entry is to
+    # catch the "shipped with a stale earlier version stamp" bug (v1.0.12
+    # DMG shipped as 1.0.10), so it must equal the CURRENT cut version, not
+    # the initial v1.0.13 pin. Bumped as part of the CM051 pin PR.
     source_pr: andygmassey/CM051-Home-Hub-Installer#481
     proof:
       kind: plist_key_equals
       target: installer-app
       path: "Contents/Info.plist"
       key: "CFBundleShortVersionString"
-      value: "1.0.13"
+      value: "1.0.13.2"
 
   # --------------------------------------------------------------------------
   # #193 install.sh companion_enabled default MUST be true (v1.0.13)
