@@ -209,7 +209,8 @@ STEP          := @printf '\n[STEP] %s\n'
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         verify-commit-parity \
         download-python sign-python-bundle download-daemon stage-daemon \
-        check-provenance check-freshness check-provenance-content check-manifest
+        check-provenance check-freshness check-provenance-content check-manifest \
+        check-branch-truth check-clean-tree
 
 all: debug
 
@@ -826,6 +827,44 @@ STEP_INLINE := printf '\n[STEP] %s\n'
 # stale-vendored Doctor cannot ship again: package depends on this, so a RED
 # provenance check aborts the cut. Ledger: ../scripts/cut_markers.manifest.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Clean-tree preflight (DMG). Fast, network-free assertion that the CM051
+# checkout the cut runs from is CLEAN and on the EXPECTED branch -- so the DMG
+# is reproducible from origin/<branch> and cannot ship un-reviewed local edits,
+# a stale feature branch, or a detached-HEAD rebase artefact. Runs FIRST (before
+# the network gates) because a dirty tree invalidates everything after it.
+# Dirty tree + detached HEAD HARD-fail; branch identity is advisory (WARN) unless
+# EXPECTED_CUT_BRANCH is explicitly set (cuts run from a cut-pin branch, not main).
+# ALLOW_DIRTY_CUT=1 downgrades the dirty-tree check (dev only).
+# ---------------------------------------------------------------------------
+check-clean-tree:
+	$(STEP) "Clean-tree preflight (checkout is clean + on expected branch)"
+	@../scripts/verify_clean_tree.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: clean-tree gate FAILED -- the cut checkout is dirty and/or on the wrong branch." >&2; \
+	    echo "Commit/stash/discard changes + check out the expected branch, then re-cut. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
+# ---------------------------------------------------------------------------
+# Branch-truth preflight (DMG). Proves the daemon tag THIS cut pins CONTAINS
+# (is a descendant of, or identical to) the daemon tag the LAST cut shipped --
+# a cut may NEVER drop commits a previous ship already contained. This is the
+# v1.0.12-regression guard: it would have caught RED the cut that rebuilt the
+# daemon from a diverged main and dropped ~65 shipped pairing/security commits.
+# Reads the pin from DAEMON_VERSION + the last ship from HR015 SHIPPING_LEDGER;
+# exit 3 = CANNOT-VERIFY (GitHub unreachable) also fails closed.
+# ---------------------------------------------------------------------------
+check-branch-truth:
+	$(STEP) "Branch-truth preflight (pinned daemon contains the last ship)"
+	@HR015_DIR="$${HR015_DIR:-$(CURDIR)/../../HR015 - Gaming PC}" \
+	    ../scripts/verify_branch_truth.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: branch-truth gate FAILED -- this cut drops daemon commits the last ship contained (or a tag/ledger could not be read)." >&2; \
+	    echo "Re-pin DAEMON_VERSION to a tag that DESCENDS from the last-shipped daemon (graft-forward), then re-cut. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
 check-provenance:
 	$(STEP) "Cut-provenance preflight (DMG)"
 	@OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
@@ -903,7 +942,7 @@ check-manifest:
 	    exit 1; \
 	}
 
-package: check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
+package: check-tools check-identity check-version check-create-dmg check-clean-tree check-branch-truth check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \

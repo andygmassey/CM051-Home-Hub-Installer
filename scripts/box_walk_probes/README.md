@@ -33,3 +33,13 @@ identify the runtime shape being probed, not the fix.
 
 - `people_seed_and_retrieval` - stub only in this PR. Full probe body ships with
   the Studio matrix runbook. See the stub script for the intended behaviour.
+
+## Registered probes (v1.0.13)
+
+- `acceptance_gate_v1013` - runtime acceptance probe. Ports TNM's
+  ostler-acceptance-gate.sh A-series assertions (A1-A8) into this mechanism:
+  read-only ssh to `$OSTLER_BOX_HOST`, exit non-zero if any launch-critical
+  assertion (A1-A6, A8) fails. A7 (Home/Wiki phase coherence) prints for the
+  operator but does not hard-fail. SKIPs (exit 0) when `OSTLER_BOX_HOST` is
+  unset. Wired via `cut-manifests/v1.0.13.yaml` entry
+  `v1013-box-walk-acceptance-gate`.
