@@ -133,6 +133,18 @@ assert_contains "wiki-ollama-model-env" \
     "OLLAMA_MODEL=\${AI_MODEL:-qwen3.5:9b}"
 echo "PASS: OLLAMA_MODEL pinned to the installer-selected model on the wiki-compiler env"
 
+# ── #259 (the load-bearing half): the compose env reference above is a QUOTED
+#    heredoc literal, so docker compose interpolates ${AI_MODEL:-qwen3.5:9b}
+#    from the compose .env at run time -- NOT from an unexported install.sh
+#    shell var. Unless install.sh WRITES AI_MODEL to $OSTLER_ENV_FILE, the
+#    reference resolves to the qwen3.5:9b fallback and #259 silently regresses
+#    (empty narratives on gemma4 boxes). This assertion is what stops that. ──
+if ! grep -qF "printf 'AI_MODEL=%s\\n' \"\${AI_MODEL:-qwen3.5:9b}\" >> \"\$OSTLER_ENV_FILE\"" "$INSTALL_SCRIPT"; then
+    echo "FAIL [wiki-ai-model-envfile]: install.sh does not write AI_MODEL to the compose .env -- the OLLAMA_MODEL=\${AI_MODEL:-qwen3.5:9b} reference is INERT and #259 regresses to qwen3.5:9b" >&2
+    exit 1
+fi
+echo "PASS: install.sh writes AI_MODEL (the RAM-tier pick) to the compose .env so the compose reference resolves"
+
 # ── The two vars must be WRITTEN to the compose .env so docker compose
 #    interpolates them at `compose run` time (same mechanism as
 #    USER_FIRST_NAME -- the env block reference above is otherwise inert). ──

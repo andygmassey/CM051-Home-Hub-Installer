@@ -7490,6 +7490,24 @@ if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
 fi
 printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
 
+# #259 (the load-bearing half): the wiki-compiler compose block references
+# ${AI_MODEL:-qwen3.5:9b}. docker-compose.yml is a QUOTED heredoc, so that
+# literal is NOT baked at write time -- docker compose interpolates it at
+# `compose run` time from THIS compose .env (exactly like USER_FIRST_NAME
+# above), NOT from an unexported install.sh shell var. Without AI_MODEL here
+# the reference resolves to the qwen3.5:9b FALLBACK, which is not pulled on
+# <=23GB Macs (the RAM picker gives them gemma4:e2b) -> CM044's compiler hits
+# Ollama with a model that was never pulled -> ~2000x 404 in one compile ->
+# Person/Org/Year pages render empty. Write the installer's RAM-tier pick
+# (AI_MODEL, set ~install.sh:4685) so BOTH the install-time compile AND the
+# recompile LaunchAgent (both `docker compose` from $OSTLER_DIR, reading this
+# .env) resolve the real model. Idempotent: replace any prior line.
+if grep -q '^AI_MODEL=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^AI_MODEL=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'AI_MODEL=%s\n' "${AI_MODEL:-qwen3.5:9b}" >> "$OSTLER_ENV_FILE"
+
 # Operator self-identity for the wiki self/me-card exclusion (CM044 PR #92).
 # The wiki compiler drops the operator's OWN person node from Featured
 # Contact / top Frequent Collaborator / Upcoming Birthdays by matching:
