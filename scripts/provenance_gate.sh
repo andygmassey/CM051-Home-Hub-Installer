@@ -139,14 +139,14 @@ resolve_wiki() { # artifact-key (wiki-compiler|wiki-site)
   local key="$1" digest ledger_sha ref override
   # Test / demo override wins.
   override="$(printf '%s\n' "${PROV_IMAGE_OVERRIDE}" | awk -F= -v k="$key" '$1==k{print $2; exit}')"
-  digest="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${key}@sha256:" "${INSTALL_SH}" 2>/dev/null \
+  digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "${INSTALL_SH}" 2>/dev/null \
             | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
   if [[ -n "$override" ]]; then
     ref="$override"
     # Try to lift the digest out of the override ref for the ledger lookup.
     case "$override" in *@sha256:*) digest="sha256:${override##*@sha256:}" ;; esac
   else
-    ref="ghcr.io/ostler-ai/ostler-${key}@${digest}"
+    ref="ghcr.io/creativemachines-ai/ostler-${key}@${digest}"
   fi
   ledger_sha=""
   if [[ -n "$digest" && -f "${WIKI_PROVENANCE_FILE}" ]]; then

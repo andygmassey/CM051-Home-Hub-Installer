@@ -537,7 +537,7 @@ fi
 check_wiki() {
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
 for key in wiki-compiler wiki-site; do
-    digest="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
+    digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
               | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
     if [ -z "$digest" ]; then
         n_stale=$((n_stale+1))
