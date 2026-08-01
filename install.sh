@@ -9414,6 +9414,13 @@ services:
       - OXIGRAPH_URL=http://oxigraph:7878
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://host.docker.internal:11434
+      # #259: pin the compiler's Ollama model to the SAME model the installer
+      # pulled for this box's RAM tier (AI_MODEL, set ~install.sh:4685). Without
+      # this the compiler falls back to compiler/config.py's default qwen3.5:9b,
+      # which is NOT pulled on <=23GB Macs (they get gemma4:e2b) -> every wiki
+      # narrative LLM call 404s and Person/Org/Year pages render empty. Mirrors
+      # the daemon-config expression at :7779.
+      - OLLAMA_MODEL=${AI_MODEL:-qwen3.5:9b}
     extra_hosts:
       # macOS / Colima-friendly way to surface the host gateway so the
       # OLLAMA_URL above resolves to the host's Ollama.

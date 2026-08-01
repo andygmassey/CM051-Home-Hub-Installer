@@ -124,6 +124,15 @@ assert_contains "wiki-operator-emails-env" \
     "WIKI_OPERATOR_EMAILS=\${WIKI_OPERATOR_EMAILS:-}"
 echo "PASS: WIKI_OPERATOR_EMAILS passed to the wiki-compiler env"
 
+# ── #259: the compiler must be told WHICH Ollama model to use ─────────
+# CM044 compiler/config.py defaults OLLAMA_MODEL to qwen3.5:9b, which is NOT
+# pulled on <=23GB Macs (the installer's RAM picker gives them gemma4:e2b).
+# The compose env block must pin OLLAMA_MODEL to the installer-selected
+# AI_MODEL, or every wiki narrative LLM call 404s and pages render empty.
+assert_contains "wiki-ollama-model-env" \
+    "OLLAMA_MODEL=\${AI_MODEL:-qwen3.5:9b}"
+echo "PASS: OLLAMA_MODEL pinned to the installer-selected model on the wiki-compiler env"
+
 # ── The two vars must be WRITTEN to the compose .env so docker compose
 #    interpolates them at `compose run` time (same mechanism as
 #    USER_FIRST_NAME -- the env block reference above is otherwise inert). ──
