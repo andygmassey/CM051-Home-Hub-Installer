@@ -1,0 +1,38 @@
+# scripts/wiki_hold_ack.tsv
+# ============================================================================
+# Wiki image hold_ack ledger. Mirrors the vendor-tree hold_ack contract in
+# vendor/VENDOR_MANIFEST.toml (hold_ack_shas + hold_ack_reason +
+# shipping_bugfixes_grafted). Read by scripts/verify_cut_freshness.sh check_wiki
+# when a wiki image's pinned CM044 sha sits behind live main HEAD -- the pin is
+# treated as HELD (non-fatal) only if EVERY delta commit is listed here AND a
+# written reason is given AND shipping_bugfixes_grafted is asserted true.
+#
+# Any un-acknowledged delta commit stays fail-closed RED, exactly like the
+# vendor-tree gate.
+#
+# Format (tab-separated, one entry per key):
+#   key<tab>pinned_sha_prefix<tab>hold_ack_shas<tab>shipping_bugfixes_grafted<tab>reason
+#
+# Fields:
+#   key                        Wiki image key: "wiki-compiler" or "wiki-site".
+#   pinned_sha_prefix          8+ hex prefix of the CM044 source sha recorded
+#                              in wiki_image_provenance.tsv for the pinned
+#                              digest. Row matches only if the current pin
+#                              still starts with this prefix (defensive: a
+#                              re-pin invalidates the ack, forcing a re-decision).
+#   hold_ack_shas              Space-separated delta commits between the pin
+#                              and live CM044 main HEAD (short or full hex).
+#                              Prefix-tolerant match in both directions.
+#   shipping_bugfixes_grafted  Explicit human assertion: "true" if the
+#                              bugfixes among the held commits are grafted
+#                              into the shipped artefact by other means, or
+#                              are non-launch-blocking + carried forward on
+#                              the next re-baseline. Empty / false = RED.
+#   reason                     Written justification for the hold. REQUIRED --
+#                              an empty reason keeps the pin RED.
+#
+# Comment lines (# or blank) are ignored. Multi-line values NOT supported;
+# keep the reason to a single line (semicolons for structure).
+# ============================================================================
+wiki-compiler	648f7491	fa953f1a af160de3 d0eea981 cd79c502	true	v1.0.13.2 hotfix from tag hub-v0.4.45 (2026-08-01 ORM). Wiki images intentionally NOT rebuilt this cut per HR015 task #249 (R4 SETTING-UP typography deferred to v1.0.13.3 dedicated wiki cut, unresolved CM044 namespace mystery). Delta: fa953f1a vault-writer is a daemon-side feature not baked in wiki images; af160de3 wiki 127.0.0.1 + growth query is a customer-visible tweak (accept regression for hotfix); d0eea981 hide mkdocs chrome when iframed is SUPERSEDED by the R3 daemon-side SPA CSS crop in c638a6d7 (same customer-visible fix, different layer); cd79c502 wiki rollback anchor + rotation + skip-first-compile is operational hardening not launch-blocking. All rebuilt properly in v1.0.13.3.
+wiki-site	648f7491	fa953f1a af160de3 d0eea981 cd79c502	true	v1.0.13.2 hotfix from tag hub-v0.4.45 (2026-08-01 ORM). See wiki-compiler row above -- same delta + same rationale (site image is rebuilt in the same pass as compiler). d0eea981 chrome-hide fix is architecturally superseded by daemon-side R3 SPA CSS crop; other three delta commits carried forward to v1.0.13.3.

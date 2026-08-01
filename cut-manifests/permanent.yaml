@@ -59,14 +59,19 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: FirstRunPopup handler uses /governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
+    # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
+    # welcome modal navigates to '/settings#governor' (the modern Governor
+    # route location; the panel scrolls to that anchor). Updated file + regex
+    # to prove the same wire-through against the current source.
     incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
     source_pr: ostler-ai/ostler-assistant#231
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
-      path: "web/src/components/FirstRunPopup.tsx"
-      pattern: "navigate\\(['\"]\\/governor['\"]\\)"
+      path: "web/src/components/GovernorWelcomeModal.tsx"
+      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
       must_match: true
 
   # ==========================================================================
@@ -162,6 +167,39 @@ entries:
         - "^chore\\(fmt\\)"
         - "^docs:"
         - "^chore\\(docs\\)"
+      # v1.0.13.2 hotfix hold_ack (2026-08-01 ORM). The v1.0.13.2 cut is a
+      # controlled hotfix from tag hub-v0.4.45 (c638a6d7); it deliberately
+      # excludes 23 crates/** commits that landed on oa/main after the tag
+      # cut point. Each is either a fix/feature the hotfix explicitly does
+      # NOT ship (v1.1 candidate) or a CI/clippy commit that is a no-op for
+      # customer behaviour. v1.0.14 will cut from a fresh main so this
+      # hold_ack becomes harmless (diverging set empty).
+      hold_ack:
+        reason: "v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. Full list below. v1.0.14 will re-baseline off fresh main."
+        shas:
+          - cf82dab8ef  # fix(doctor): clippy field_reassign_with_default in probe-path tests (#173)
+          - ab20c46333  # style: cargo fmt (wrap long closure in doctor no-routes test)
+          - 6de15f6622  # fix(doctor+channels+config): v1.0.13 install-log noise cleanup (main variant of R6 in tag)
+          - 604f44590a  # fix(channels): strip leading assistant-name echo from LLM replies (#182)
+          - 882d851f76  # chore(gateway): inline single-element test loop to satisfy clippy 1.93
+          - 4c1395f3c4  # fix(doctor): count all hydrated sources not just live channels + iMessage case + pill truncation (#213)
+          - 2e0c3dbf0f  # fix(vault): envelope Deserialize + atomic signal write
+          - 293802f714  # feat(hub): vault-writer observer (LOCK-2/3/4 rework, supersedes #245)
+          - e1a4106e31  # fix(subscription): wire has_ever_paid backfill into Config::load_or_init
+          - a6784bdcba  # fix(config): add ..Default::default() to GatewayConfig test literals
+          - a1dc1a6ad2  # fix(gateway): guarantee companion TLS listener + TLS-port QR
+          - df104ba95b  # feat(gateway): dedicated companion TLS listener for iOS pairing
+          - 5ed6e2707d  # feat(gateway): self-signed cert helper + companion_* config fields
+          - 2cadbac5ff  # fix(security): #192 — Ostler-brand the WebAuthn RP name + user identity
+          - 9528520acc  # feat(subscription): has_ever_paid sticky bit gates 14-day post-lapse
+          - 16687ed6bb  # fix(broker): reconcile envelope shape stricter-wins
+          - 8dcc50800f  # feat(broker): ActionBroker v1 — action-authorization layer (CM061 spec)
+          - a12a085262  # fix(cron): preserve builtin jobs on config save, close fire-time race
+          - 6ba36274f6  # test(gateway): guard live cron reconcile in handle_api_config_put
+          - 120a2233ad  # fix(ci): drop needless struct update in headline test
+          - aa6f34890d  # fix(ci): correct doc list-item indentation
+          - 2943840b04  # fix(ci): apply cargo fmt to clear Quality Gate lint failures
+          - 66975b1472  # feat(settings): user-configurable daily-brief schedule (morning + evening)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch

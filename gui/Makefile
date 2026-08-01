@@ -166,7 +166,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.44
+DAEMON_VERSION       ?= 0.4.45
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -178,7 +178,14 @@ DAEMON_VERSION       ?= 0.4.44
 # 9 SPA reconciliations (GovernorWelcomeModal supersedes FirstRunPopup, Front Page
 # unified, #209 6-digit pairing block provably absent). Signed + notarised +
 # stapled at build time (submission a7db175d-8e26).
-DAEMON_SHA256        ?= 5bc2eb00aad2d8a3cba76b6ca5c04b344880cc6d1f7d03d94f59e86232e96699
+# v1.0.13.2 recut (2026-08-01 ORM): hub-v0.4.45 = c638a6d7ec88 = hub-v0.4.44
+# + 5 red-severity Path D fixes: R6 install-log noise cleanup (#173), R1 frontpage
+# cards serve pre-pair welcome cards not 401, R5 SETTLED phase requires
+# companion_paired (subsumes R2 Governor modal timing), R3 crop MkDocs Andypedia
+# black bar from wiki iframe. Signed + notarised + stapled at build time
+# (submission 4c8a2fdb-1049). R4 wiki SETTING-UP typography deferred to v1.0.13.3
+# per CM044 namespace mystery (HR015 task #249).
+DAEMON_SHA256        ?= 3c5247752e06c0680a90ca68a400f50ad080ff8ccd7620c9bbc573c8f10c4c31
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
