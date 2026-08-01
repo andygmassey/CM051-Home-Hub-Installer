@@ -39,3 +39,8 @@ wiki-site	sha256:303b3a1a164720cfbc39da5d9380c98ebde89b32600ce4653e4b02b800194a8
 # (folds #144 scaffolding strip + #145 dedup endpoint + #146 settling panel).
 wiki-compiler	sha256:2f7b0b7332f8e6e9e75206f9ea126702b46d9c4d3202d15fb040c1bd9710161a	648f7491ea2fa74aee3c669fd2be5503b4924a36
 wiki-site	sha256:563fbcecc46c2679b5aa5db47821712e51a0bfa6904a669dcfde57ab599aa5ea	648f7491ea2fa74aee3c669fd2be5503b4924a36
+# v1.0.13.3 (2026-08-01): both images rebuilt arm64 from CM044 v0.1.2 = main HEAD
+# cd79c50 (fresh; supersedes the stale 648f7491 pin that predated #219). Namespace
+# moved to creativemachines-ai per CM044 CI #31.
+wiki-compiler	sha256:2b7d494e2735693fc6d0d60d2ae28c515019fc37399442a7c015de7a8d191ddb	cd79c50234951ada51fb2fbe514ecb58220fb903
+wiki-site	sha256:f2acc0df18a800eed5230d46666f3ed98757a03f0b43b243d840d2a1dd28923c	cd79c50234951ada51fb2fbe514ecb58220fb903
