@@ -185,6 +185,13 @@ exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
 note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-9 record->transcribe/capture merge into main). Wording is the BW3-9 sweep landing: article_9 L79 recorded->transcribed conversations, L83 voice recordings->voice captures, voice L198 on a recording you make->on a call you capture. Statute-linked SPOKEN_CAPTURE_RECORDING_CONSENT (member-state law tracking) intentionally unchanged. Vendored consent_strings.py + hash JSON updated in the recut cluster (CM051 #434 lands manifest pin + strings). Freshness: pin == live main HEAD -> FRESH. --- Historical 2026-07-20 re-pin (1bb0a0db -> 3c5f8f4b, current HR015 main HEAD). CORRECTION of a stale prior note: the vendored consent_strings.py ALREADY ships the v1.1-2026-07-15 Article-9 + v1.1-2026-06-21 EU-voice iPhone-Companion wording (verified by inspection: version strings + iPhone Companion text present), and the v1.1 WhatsApp wording -- i.e. the tree matches 12a1452, NOT 1bb0a0db. The old note wrongly claimed the tree did not ship the v1.1 rewording and held the pin on that false premise. The SPOKEN-capture consent PR has now MERGED to HR015 main at 3c5f8f4b (the sole 12a1452..HEAD delta for this path: +39 in consent_strings.py, +2 in __init__.py), so SPOKEN_CAPTURE_RECORDING_CONSENT + its __init__ export are now NATIVE and the graft hunks are dropped. Re-pinning to 3c5f8f4b does NOT change any shipped wording (the tree already carried it) -- it only makes the pin honest. divergence_patch regenerated via sync_vendor --regen-patch."
 
+# GOVERNOR RE-VENDOR (HR015 #282): the doctor governor is a CM051-local graft
+# (config_panel governor.env writer + a VENDOR-ONLY daemon_cron.py launchctl pause
+# bridge). #282 upstreams it + adds a native pause_control.py. The re-vendor is NOT a
+# plain drop-in -- daemon_cron.py is stripped by `sync_vendor.sh doctor --regen-patch`
+# and config_panel.py:481 imports it (else the Pause toggle 500s while ticks look paused).
+# Recipe: vendor/divergences/GOVERNOR_REVENDOR_282.md
+# Guard (run AFTER the re-pin): scripts/verify_doctor_governor_revendor.sh
 [[tree]]
 name             = "doctor"
 vendor_path      = "vendor/doctor"
