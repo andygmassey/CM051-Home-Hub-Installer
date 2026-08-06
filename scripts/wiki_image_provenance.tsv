@@ -1,22 +1,38 @@
-# wiki_provenance.tsv -- binds each SHIPPED wiki image digest to the CM044 source
-# commit it was built from. verify_cut_freshness.sh reads this to answer "what
-# source produced the image this cut actually pins?". Without a row a pinned
-# digest is unverifiable and the gate is fail-closed RED.
+# wiki_image_provenance.tsv -- binds each SHIPPED wiki image digest to the CM044
+# source commit it was built from. verify_cut_freshness.sh reads this to answer
+# "what source produced the image this cut actually pins?". Without a row a
+# pinned digest is unverifiable and the gate is fail-closed RED.
 #
 # Format (TAB-delimited): <image-key>\t<sha256:digest>\t<cm044-source-sha>
 #
-# 2026-08-06 ORM (v1.0.15): both images built at 01:27 from CM044 36cc552
-# ("exclude the current year from 'On this day' + first test on it", branch
-# fix/on-this-day-current-year). CONTENT-VERIFIED, not inferred from timestamps:
-# `docker run <compiler-digest> grep -c this_year /app/compiler/pages/dashboard.py`
-# returns 5, i.e. the pinned image demonstrably carries that fix.
+# ---------------------------------------------------------------------------
+# THE SHIP PATH (do not re-derive this from a local checkout -- see below)
+# ---------------------------------------------------------------------------
+# Wiki images are built by CM044 `.github/workflows/release-images.yml` on a
+# `v*` TAG PUSH and published to ghcr.io/creativemachines-ai/ostler-wiki-{site,
+# compiler} using the CM_AI_GHCR_PAT classic PAT. That is the LIVE pipeline.
+# ghcr.io/ostler-ai/* is the DEPRECATED pre-#31 namespace -- images exist there
+# but nothing publishes to it any more, so a pin against it ships whatever was
+# last pushed by hand, with no source provenance.
 #
-# KNOWN GAP, flagged to Andy 2026-08-06: 36cc552 is NOT on any remote. Pushing
-# andygmassey/CM044-PWG-Personal-Wiki 404s under BOTH authed accounts
-# (ostler-ai, creativemachines-ai) -- a credentials gap, not a missing repo.
-# Until Andy pushes it, this image's source exists only on the cut machine and
-# is not independently rebuildable. Not a content risk for this DMG (the image
-# is content-verified above and lives in ghcr), but it MUST be resolved before
-# anyone else can reproduce the wiki images.
-wiki-site	sha256:1bc4dd3f5804019eddeb2367c28f7212243db1a022b6ddbf386576206cff3628	36cc552
-wiki-compiler	sha256:aab6c6fe3f30496566ced635afd09884d00edce934364d187fbf1d00a80a511a	36cc552
+# 2026-08-06 (v1.0.15): the pins below are byte-identical to CM051 origin/main.
+# They resolve to tag v0.1.2 = commit cd79c502 = origin/main tip -- i.e. the
+# images were built by CI from main, which is what "shipped truth" means.
+#
+# WHY THIS BANNER EXISTS. Earlier the same day I re-pinned both images to
+# ghcr.io/ostler-ai at digests built from CM044 36cc552 -- a commit on the
+# unmerged branch fix/on-this-day-current-year, four commits BEHIND main. That
+# image therefore lacked four merged main fixes, including d0eea98 "hide mkdocs
+# chrome when iframed in Ostler.app Wiki tab" (directly customer-visible in the
+# Wiki tab). I then widened three gates to accept the deprecated namespace,
+# which is what let the wrong pin through. This is the SECOND time this exact
+# inversion has been made (the first, 2026-08-02, was reverted the same way).
+# Both times the cause was reading release state off a local checkout instead of
+# CM051 origin/main. Read origin/main. See memory reference_wiki_image_hosting.
+#
+# To ship a NEWER wiki (e.g. the reskin): merge the work to CM044 main, push a
+# `v0.1.x` tag, let release-images.yml publish, then re-pin install.sh to the
+# new creativemachines-ai digests and update the rows below. Do not hand-build
+# and do not push to ostler-ai.
+wiki-site	sha256:f2acc0df18a800eed5230d46666f3ed98757a03f0b43b243d840d2a1dd28923c	cd79c502
+wiki-compiler	sha256:2b7d494e2735693fc6d0d60d2ae28c515019fc37399442a7c015de7a8d191ddb	cd79c502

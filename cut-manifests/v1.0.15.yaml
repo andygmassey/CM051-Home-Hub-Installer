@@ -30,9 +30,10 @@ description: |
       .app each carry their OWN stapled ticket now, so a customer whose first
       launch has no network is not Gatekeeper-blocked. Proved at the DMG by
       verify-stapling; the manifest half proves the mechanism is still wired.
-    - Wiki images pinned to the SHIPPED ghcr namespace (ostler-ai), not the CI
-      one (creativemachines-ai). Three gates hardcoded the CI namespace and
-      made the shipped pins unsatisfiable.
+    - Wiki images pinned to ghcr.io/creativemachines-ai, byte-identical to
+      CM051 origin/main. Those digests are CM044 tag v0.1.2 = cd79c502 =
+      origin/main tip, i.e. CI-built from main. ghcr.io/ostler-ai is the
+      deprecated pre-#31 namespace and must not appear.
 
 entries:
 
@@ -115,25 +116,31 @@ entries:
       must_match: false
 
   # --------------------------------------------------------------------------
-  # Wiki images must be pinned to the SHIPPED ghcr namespace.
+  # Wiki images must be pinned to the LIVE publish namespace.
   # --------------------------------------------------------------------------
-  # ghcr.io/ostler-ai/* is what a customer Mac can pull. ghcr.io/
-  # creativemachines-ai/* is the CI publish target and is NOT customer-
-  # reachable. Three separate gates hardcoded the CI namespace, which made the
-  # correct (shipped) pins look like violations and pushed the cut toward
-  # pinning the wrong one.
-  - id: v1015-wiki-images-shipped-namespace
-    title: install.sh wiki image pins must use the customer-pullable ostler-ai namespace
-    proof:
-      kind: grep_in_installer
-      pattern: "ghcr\\.io/ostler-ai/ostler-wiki"
-      must_match: true
-
-  - id: v1015-wiki-images-not-ci-namespace
-    title: install.sh must not pin wiki images to the CI-only namespace
+  # ghcr.io/creativemachines-ai/* is where CM044's release-images.yml publishes
+  # on a `v*` tag push (CM_AI_GHCR_PAT). ghcr.io/ostler-ai/* is the DEPRECATED
+  # pre-#31 namespace: images still resolve there, so a pin against it PULLS
+  # FINE while carrying whatever was last hand-pushed, with no CI provenance.
+  #
+  # 2026-08-06: I re-pinned to ostler-ai at digests built from an unmerged CM044
+  # branch four commits behind main, then widened three gates to accept it. That
+  # image lacked d0eea98 "hide mkdocs chrome when iframed in Ostler.app Wiki
+  # tab" -- customer-visible. Reverted; gates re-narrowed. These two entries are
+  # the artefact-level backstop so a third occurrence fails the cut.
+  - id: v1015-wiki-images-live-namespace
+    title: install.sh wiki image pins must use the CI-published creativemachines-ai namespace
+    incident: "2026-08-06 (2nd occurrence): pinned to deprecated ostler-ai, shipping a branch-built image"
     proof:
       kind: grep_in_installer
       pattern: "ghcr\\.io/creativemachines-ai/ostler-wiki"
+      must_match: true
+
+  - id: v1015-wiki-images-not-deprecated-namespace
+    title: install.sh must not pin wiki images to the deprecated ostler-ai namespace
+    proof:
+      kind: grep_in_installer
+      pattern: "ghcr\\.io/ostler-ai/ostler-wiki"
       must_match: false
 
   # --------------------------------------------------------------------------

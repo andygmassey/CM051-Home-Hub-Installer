@@ -140,13 +140,16 @@ resolve_wiki() { # artifact-key (wiki-compiler|wiki-site)
   # Test / demo override wins.
   override="$(printf '%s\n' "${PROV_IMAGE_OVERRIDE}" | awk -F= -v k="$key" '$1==k{print $2; exit}')"
   # 2026-08-06 ORM: take the WHOLE ref (namespace included) from install.sh
-  # rather than reading only the digest and re-composing against a hardcoded
-  # namespace. The old code grepped one namespace and then rebuilt the ref as
-  # ghcr.io/creativemachines-ai/... -- so once install.sh pinned the SHIPPED
-  # namespace (ghcr.io/ostler-ai, what customers actually pull) this gate
-  # looked up a digest under a registry path that does not host it and
-  # fail-closed with "not present locally and could not be pulled".
-  # install.sh is the single source of truth for what ships; read it verbatim.
+  # rather than reading only the digest and re-composing it against a namespace
+  # hardcoded here. Two copies of "which namespace ships" in two gates is how
+  # they drifted apart in the first place. install.sh is the single source of
+  # truth for what ships; read it verbatim and pull exactly that.
+  #
+  # This function deliberately does NOT police the namespace -- it verifies that
+  # whatever is pinned is pullable and matches the provenance ledger. The
+  # namespace policy (ghcr.io/creativemachines-ai only; ghcr.io/ostler-ai is the
+  # DEPRECATED pre-#31 path) is enforced in ONE place, verify_cut_freshness.sh's
+  # check_wiki. Keep it that way.
   local pinned_ref
   pinned_ref="$(grep -m1 -oE "ghcr\.io/[A-Za-z0-9._-]+/ostler-${key}@sha256:[0-9a-f]+" "${INSTALL_SH}" 2>/dev/null)"
   digest="${pinned_ref##*@}"

@@ -138,11 +138,14 @@ build_fixture() {
       printf '%s\n' "$T2_EXTRA"
     } > "$FIXROOT/vendor/VENDOR_MANIFEST.toml"
 
+    # Wiki namespace under test. Default is the LIVE publish target;
+    # ghcr.io/ostler-ai is deprecated and must be rejected (case m).
+    local WIKI_NS="${WIKI_NS:-creativemachines-ai}"
     cat > "$FIXROOT/install.sh" <<EOF
 #!/usr/bin/env bash
 OSTLER_ASSISTANT_VERSION="\${OSTLER_ASSISTANT_VERSION:-$DAEMON_PIN}"
-    image: ghcr.io/ostler-ai/ostler-wiki-site@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
-    image: ghcr.io/ostler-ai/ostler-wiki-compiler@$COMP_DIGEST
+    image: ghcr.io/$WIKI_NS/ostler-wiki-site@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    image: ghcr.io/$WIKI_NS/ostler-wiki-compiler@$COMP_DIGEST
 EOF
     cat > "$FIXROOT/gui/Makefile" <<EOF
 DAEMON_VERSION       ?= $DAEMON_PIN
@@ -365,6 +368,28 @@ if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "no-grafted-assert"; then
     ok "(l) hold_ack without shipping_bugfixes_grafted=true -> exit 1"
 else
     bad "(l) grafted-assert: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (m) wiki pinned to the DEPRECATED ghcr.io/ostler-ai namespace -> exit 1
+#
+# 2026-08-06 REGRESSION TEST. ghcr.io/creativemachines-ai is the LIVE publish
+# target (CM044 release-images.yml, on a `v*` tag). ghcr.io/ostler-ai is the
+# pre-#31 namespace: images still RESOLVE there, so a pin against it pulls
+# happily while carrying whatever was last hand-pushed, with no CI provenance.
+#
+# That is exactly how a wiki image built from an unmerged CM044 branch -- four
+# commits behind main, missing the customer-visible iframe-chrome fix d0eea98
+# -- reached a cut. The gate had been widened to accept both namespaces, which
+# made it structurally unable to catch it. Narrow again, and prove it fires.
+# ===========================================================================
+reset_defaults
+WIKI_NS="ostler-ai" build_fixture
+OUT="$(run_gate 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "DEPRECATED-ostler-ai-namespace"; then
+    ok "(m) wiki pinned to deprecated ostler-ai namespace -> exit 1, named"
+else
+    bad "(m) deprecated-namespace: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 echo

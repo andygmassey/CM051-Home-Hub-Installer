@@ -71,7 +71,8 @@
 # Usage:   scripts/verify_cut_freshness.sh
 # Env (all optional):
 #   DAEMON_INTEGRATION_BRANCH  ostler-assistant branch the daemon must track
-#                              (default: integration/hub-v1.0.9)
+#                              (default: main -- the trunk; see the block at
+#                              the DAEMON_INTEGRATION_BRANCH assignment)
 #   CM044_BRANCH               wiki source branch (default: main)
 #   WIKI_PROVENANCE_FILE       path to the digest->CM044-sha ledger
 #                              (default: scripts/wiki_image_provenance.tsv)
@@ -98,7 +99,31 @@ set +e
 # fixtures via the *_OVERRIDE env vars.
 INSTALL_SH="${INSTALL_SH_OVERRIDE:-$REPO_ROOT/install.sh}"
 GUI_MAKEFILE="${GUI_MAKEFILE_OVERRIDE:-$REPO_ROOT/gui/Makefile}"
-DAEMON_INTEGRATION_BRANCH="${DAEMON_INTEGRATION_BRANCH:-integration/hub-v1.0.9}"
+# Daemon comparison base. `main` is the trunk and the shipped truth.
+#
+# 2026-08-06 ORM: this defaulted to `integration/hub-v1.0.9`, which by now is a
+# DEAD BRANCH -- last touched 2026-08-01 and itself 36 commits BEHIND
+# ostler-ai/ostler-assistant main (while carrying 78 main does not have). A
+# daemon built from the trunk could therefore never satisfy this gate, and a
+# daemon built from that branch was 36 commits of trunk work behind. Neither
+# answer is the one the gate exists to give.
+#
+# Evidence for the switch, taken at v1.0.15 (all `git merge-base --is-ancestor`
+# / `rev-list --left-right`, not inference):
+#   * hub-v0.4.51, the LAST SHIPPED daemon, is an ANCESTOR of the v1.0.15 pin
+#     ff57be3f -- so the new daemon strictly contains what customers already
+#     had. No regression against the shipped line.
+#   * origin/main...ff57be3f = main-ahead 0 / pin-ahead 161 -- the pin contains
+#     every commit merged to trunk.
+#   * The only content on the dead branch that mattered for this cut (the CM059
+#     masonry Front Page) is present in the pin, verified file-by-file: two of
+#     the three Front Page files are byte-identical, and the third differs on
+#     exactly 17 lines, every one a `font-size:` px -> var(--fs-*) token swap.
+#
+# Tracking `main` asks the question that actually protects a cut: does the
+# pinned daemon contain everything merged to trunk? Override for a deliberate
+# off-trunk daemon, but record why in the cut doc.
+DAEMON_INTEGRATION_BRANCH="${DAEMON_INTEGRATION_BRANCH:-main}"
 CM044_BRANCH="${CM044_BRANCH:-main}"
 WIKI_PROVENANCE_FILE="${WIKI_PROVENANCE_FILE:-$SCRIPT_DIR/wiki_image_provenance.tsv}"
 WIKI_HOLD_ACK_FILE="${WIKI_HOLD_ACK_FILE:-$SCRIPT_DIR/wiki_hold_ack.tsv}"
@@ -535,21 +560,35 @@ fi
 #    un-acknowledged delta commit stays fail-closed RED.
 # ===========================================================================
 check_wiki() {
-# NAMESPACE (2026-08-06 ORM): accept BOTH ghcr namespaces. This gate hardcoded
-# ghcr.io/creativemachines-ai (the CI publish target) while verify_cut_provenance.sh
-# hardcoded ghcr.io/ostler-ai (the SHIPPED pull path customers use). No single
-# install.sh pin could satisfy both gates, so the wiki rows were unsatisfiable and
-# wiki pinning rotted. ostler-ai is what ships; creativemachines-ai stays accepted so
-# a CI-namespace pin is still verifiable rather than silently unchecked. A MISSING
-# digest is still RED -- this widens what counts as a pin, it does not weaken the check.
+# NAMESPACE -- ghcr.io/creativemachines-ai ONLY, deliberately narrow.
+#
+# That is the LIVE publish target: CM044 .github/workflows/release-images.yml
+# builds on a `v*` tag push and pushes there with the CM_AI_GHCR_PAT classic
+# PAT. ghcr.io/ostler-ai is the DEPRECATED pre-#31 namespace -- images still
+# exist there, so a pin against it PULLS SUCCESSFULLY while carrying whatever
+# was last hand-pushed, with no CI provenance behind it.
+#
+# 2026-08-06 ORM: this pattern was briefly widened to accept both namespaces to
+# make an ostler-ai pin verifiable. That was backwards and it is why a wiki
+# image built from an unmerged branch (four commits behind main, missing the
+# customer-visible iframe-chrome fix d0eea98) got through. A gate that accepts
+# the deprecated namespace cannot catch a pin against the deprecated namespace.
+# Narrow again, on purpose: an ostler-ai pin now falls through to
+# "no-digest-in-install.sh" and goes RED, which is the correct answer.
+# Second occurrence of this inversion -- see scripts/wiki_image_provenance.tsv
+# and memory reference_wiki_image_hosting before touching this again.
 
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
 for key in wiki-compiler wiki-site; do
-    digest="$(grep -m1 -E "image: ghcr.io/(ostler-ai|creativemachines-ai)/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
+    digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
               | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
     if [ -z "$digest" ]; then
         n_stale=$((n_stale+1))
-        add_row "wiki:$key" "-" "-" "RED no-digest-in-install.sh"
+        if grep -q "image: ghcr.io/ostler-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null; then
+            add_row "wiki:$key" "-" "-" "RED pinned-to-DEPRECATED-ostler-ai-namespace"
+        else
+            add_row "wiki:$key" "-" "-" "RED no-digest-in-install.sh"
+        fi
         continue
     fi
     # Look the digest up in the provenance ledger -> recorded CM044 source sha.
