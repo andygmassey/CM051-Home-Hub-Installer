@@ -207,6 +207,7 @@ STEP          := @printf '\n[STEP] %s\n'
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
+        check-orphans \
         verify-commit-parity \
         download-python sign-python-bundle download-daemon stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
@@ -845,6 +846,27 @@ check-provenance:
 # non-zero (RED stale, or exit 3 CANNOT-VERIFY when GitHub is unreachable)
 # aborts the cut fail-closed.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Orphaned-fix preflight -- UNBYPASSABLE. Fails the cut when a fix EXISTS on a
+# branch, a local-only branch, or an open/DRAFT PR but is not an ancestor of
+# what is being shipped.
+#
+# Every other gate asks "is what we pinned present?". None of them asked "does
+# a fix exist that we FORGOT to pin?" -- which is how the v1.0.15 walk hit SIX
+# defects that were already fixed and never merged, including a green DRAFT PR
+# four days old. Deliberate deferrals go in cut-deferrals.yaml with a reason.
+# ---------------------------------------------------------------------------
+check-orphans:
+	$(STEP) "Orphaned-fix preflight (is any written fix missing from this cut?)"
+	@../scripts/verify_no_orphaned_fixes.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: work exists that is NOT in what you are about to ship." >&2; \
+	    echo "       Merge it, or record a deliberate deferral with a reason in" >&2; \
+	    echo "       cut-deferrals.yaml. Do NOT bypass -- bypassing is the habit" >&2; \
+	    echo "       this gate exists to stop. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
 check-freshness:
 	$(STEP) "Cut-freshness preflight (live GitHub HEAD)"
 	@../scripts/verify_cut_freshness.sh || { \
@@ -1397,7 +1419,7 @@ verify-commit-parity:
 # verify-commit-parity catches daemon+wrapper frontend drift (#226 / #225).
 # All three must be GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: check-orphans check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"

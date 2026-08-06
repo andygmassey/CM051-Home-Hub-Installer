@@ -1,0 +1,34 @@
+# cut-deferrals.yaml -- the CONSCIOUS "not in this cut" list.
+# ============================================================================
+# scripts/verify_no_orphaned_fixes.sh fails the cut when a fix exists on a
+# branch, a local-only branch, or an open/draft PR but is not an ancestor of
+# what is being shipped.
+#
+# You are allowed to decide something is not for this cut. You are NOT allowed
+# to decide it silently. That distinction is the whole point of this file.
+#
+# The v1.0.15 walk (2026-08-06) found NINE defects. SIX were already fixed and
+# had never been merged:
+#
+#   CM044  7f1dc59  dup-decision buttons + settling ETA   unmerged branch
+#   CM044  1ef16a5  hydration % bar                        unmerged branch
+#   CM051  #632     Back/Continue footer                   local-only worktree
+#   CM051  browsing collection self-create                 unmerged branch
+#   CM031  #154     hardcoded $24.99 price                 OPEN DRAFT PR, green,
+#                                                          four days old
+#
+# Nobody chose to defer any of them. They were just forgotten, and Andy walked
+# a DMG and hit every one. A deferral recorded here would have been fine. The
+# silence was not.
+#
+# FORMAT
+#   deferrals:
+#     - ref: "<REPO>:<branch-or-#PR>"   # exactly as the gate prints it
+#       reason: "why this is not in this cut"
+#       until_cut: "v1.0.17"            # when you expect it to land
+#
+# `git log cut-deferrals.yaml` is then the history of every conscious "not yet".
+# Deferred entries are still PRINTED on every run, so nothing goes quiet.
+# ============================================================================
+
+deferrals: []
