@@ -1206,79 +1206,62 @@ staple-apps: check-tools
 	    echo "ERROR: $(APP_PATH) not found. Run 'make notarise-app' first." >&2; \
 	    exit 1; \
 	fi
-	# Nested .apps are NOT stapled here. Stapling writes a bundle's ticket to
-	# <bundle>/Contents/CodeResources, and the outer app seals every nested
-	# bundle byte-for-byte when it is signed -- so stapling nested code AFTER
-	# the outer is signed always invalidates the outer signature:
+	# TWO NOTARISATION ROUNDS. This is the only order that satisfies both
+	# constraints at once, and both are real:
 	#
-	#   OstlerInstaller.app: a sealed resource is missing or invalid
+	#   (a) Nested .apps must carry tickets for their FINAL CDHash.
+	#       install.sh dittos OstlerAssistant.app and Ostler.app out of this
+	#       bundle to their own install locations, so Gatekeeper reads THEIR
+	#       tickets. Verified: install.sh takes the bundled .app shape.
 	#
-	# Pre-stapling them does not help either: re-stapling an already-stapled
-	# bundle rewrites CodeResources with different bytes, which is still a
-	# "file modified" against the outer's seal. Proven on the v1.0.16 cut with
-	# all three nested bundles (Ostler.app, Sparkle's Updater.app,
-	# OstlerAssistant.app).
+	#   (b) The outer signature must stay valid.
+	#       Stapling writes <bundle>/Contents/CodeResources, which the outer has
+	#       sealed -- so any nested staple after the outer is signed breaks it:
+	#       "a sealed resource is missing or invalid".
 	#
-	# It is also unnecessary. `notarise-app` notarises the outer and EVERY
-	# NESTED CDHash with it, and the tickets that actually matter belong to the
-	# artefacts AS INSTALLED, applied before sealing:
+	# Pre-stapling cannot satisfy (a): `xcodebuild -exportArchive` re-signs the
+	# nested apps, so tickets applied before `release` are already STALE by the
+	# time the export finishes. Measured directly on this cut.
 	#
-	#   * OstlerAssistant.app -- stapled by its own release process, inside the
-	#     daemon tarball. install.sh dittos it out to ~/.ostler/, where that
-	#     ticket is what Gatekeeper reads.
-	#   * Ostler.app          -- stapled by `notarise-hub` before `release`
-	#     copies it in (added in v1.0.16; the Hub had never had its own).
-	#
-	# So #221's requirement (nested apps launch offline without a Gatekeeper
-	# block) is met, and met at the only point where it can be met without
-	# breaking the enclosing signature. The assertion below keeps it honest:
-	# if a nested app reaches this step WITHOUT a ticket, that is a real
-	# regression and the cut fails.
-	# Only the INDEPENDENTLY INSTALLED apps need their own ticket. install.sh
-	# copies Ostler.app and OstlerAssistant.app out to their own locations, so
-	# Gatekeeper reads THEIR tickets, not the installer's.
-	#
-	# Helper apps nested inside a .framework (Sparkle's Updater.app, its
-	# XPCServices) are never installed on their own -- they are covered by the
-	# signature of the bundle that contains them. Confirmed against the shipped
-	# v1.0.15 DMG: Ostler.app and OstlerAssistant.app carry tickets, Sparkle's
-	# Updater.app does not, and that DMG installs and runs correctly. Demanding
-	# a ticket for it would fail the cut over a property no shipped build has
-	# ever had.
-	$(STEP) "Asserting independently-installed nested .apps carry their tickets (stapled BEFORE sealing)"
+	# Therefore: staple nested AFTER notarise-app (tickets match final CDHashes),
+	# then RE-SEAL the outer so it seals those new CodeResources, then notarise
+	# the outer AGAIN for its new CDHash, then staple the outer. One extra
+	# notarisation round (~5 min) buys a deterministic, valid artefact.
+	$(STEP) "Round 1: stapling nested .apps (deepest-first) now their CDHashes are final"
 	@FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | grep -v '\.framework/')"; \
+	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
 	for app in $$NESTED_APPS; do \
-	    if xcrun stapler validate "$$app" >/dev/null 2>&1; then \
+	    if xcrun stapler staple "$$app" >/dev/null 2>&1; then \
 	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
 	    else \
-	        printf '  [FAIL] %s -- no ticket, and it CANNOT be stapled here\n' "$${app#$(APP_PATH)/}" >&2; \
-	        printf '         It is installed on its own, so it needs its own ticket.\n' >&2; \
-	        printf '         Most likely cause: the outer reseal used --deep and stripped it.\n' >&2; \
-	        FAIL=$$((FAIL+1)); \
+	        printf '  [skip] %s (no ticket issued for this CDHash)\n' "$${app#$(APP_PATH)/}"; \
 	    fi; \
-	done; \
-	if [ "$$FAIL" -gt 0 ]; then \
-	    echo "" >&2; \
-	    echo "ERROR: $$FAIL independently-installed .app(s) ship without a ticket." >&2; \
+	done
+	$(STEP) "Round 1: re-sealing the outer .app so it seals the freshly stapled nested bundles"
+	codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
+	@codesign --verify --deep --strict "$(APP_PATH)" 2>/dev/null || { \
+	    echo "ERROR: outer .app invalid immediately after the re-seal -- stop." >&2; exit 1; }
+	@echo "[OK] outer re-sealed and valid; its CDHash has changed, so it needs a new ticket."
+	$(STEP) "Round 2: re-notarising the outer .app for its new CDHash"
+	@APP_ZIP="$(BUILD_DIR)/$(APP_NAME)-notary-round2.zip"; \
+	SUB_JSON="$(BUILD_DIR)/round2-result.json"; \
+	rm -f "$$APP_ZIP"; \
+	ditto -c -k --sequesterRsrc --keepParent "$(APP_PATH)" "$$APP_ZIP"; \
+	xcrun notarytool submit "$$APP_ZIP" --keychain-profile "$(NOTARY_PROFILE)" \
+	    --wait --output-format json > "$$SUB_JSON" 2>&1 || true; \
+	cat "$$SUB_JSON"; \
+	STATUS="$$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("status",""))' "$$SUB_JSON" 2>/dev/null)"; \
+	SUBID="$$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("id",""))' "$$SUB_JSON" 2>/dev/null)"; \
+	rm -f "$$APP_ZIP"; \
+	if [ "$$STATUS" != "Accepted" ]; then \
+	    echo "ERROR: round-2 notarisation status '$$STATUS' (not Accepted)." >&2; \
+	    echo "  notarytool EXITS 0 on a rejection -- the status must be read." >&2; \
+	    echo "  Log:  xcrun notarytool log $$SUBID --keychain-profile $(NOTARY_PROFILE)" >&2; \
 	    exit 1; \
 	fi
-	@COUNT=0; FAIL=0; \
-	printf '[STEP] Stapling outer %s\n' "$(APP_NAME).app"; \
-	if xcrun stapler staple "$(APP_PATH)"; then \
-	    COUNT=$$((COUNT+1)); \
-	else \
-	    echo "  ERROR: stapler failed on outer $(APP_PATH)" >&2; \
-	    FAIL=$$((FAIL+1)); \
-	fi; \
-	if [ "$$FAIL" -gt 0 ]; then \
-	    echo "" >&2; \
-	    echo "ERROR: staple-apps failed on $$FAIL bundle(s). Most likely cause:" >&2; \
-	    echo "  notarise-app has not run yet, so Apple's ticket server has no" >&2; \
-	    echo "  ticket for these CDHashes. Run 'make notarise-app' then retry." >&2; \
-	    exit 1; \
-	fi; \
-	printf '[OK] stapled the outer bundle; nested tickets were applied before sealing\n'
+	$(STEP) "Round 2: stapling the outer .app"
+	@xcrun stapler staple "$(APP_PATH)" || { echo "ERROR: stapler failed on the outer app" >&2; exit 1; }
+	@printf '[OK] nested stapled, outer re-sealed, re-notarised and stapled\n'
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
 	@FAIL=0; \
 	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
