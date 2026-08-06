@@ -75,23 +75,55 @@ say() { printf '%s\n' "$*"; }
 # Exempt refs, one per line, from the pr_exemptions: block of cut-deferrals.yaml.
 # Parsed with grep/sed rather than a YAML library so this has no dependencies
 # beyond git/gh -- the same reason the sibling gates avoid python.
-exempt_refs() {
+# Emit "ref<TAB>review_by" for each entry in the pr_exemptions: block.
+#
+# POSIX classes, not \s: BSD sed/grep on macOS do not understand the GNU
+# shorthand, and fail SILENTLY rather than erroring -- the first cut of this
+# parser never matched anything, so the escape hatch was dead and nobody would
+# have known until the first genuine blocker.
+exempt_entries() {
     [[ -f "$DEFERRALS" ]] || return 0
-    # POSIX classes, not \s: BSD sed/grep on macOS do not understand the GNU
-    # shorthand, and silently fail to strip the prefix rather than erroring --
-    # so the exemption never matched and the escape hatch was dead. Caught by
-    # testing that the hatch actually works, not just that the gate goes red.
-    sed -n '/^pr_exemptions:/,$p' "$DEFERRALS" \
-        | grep -oE '^[[:space:]]*-[[:space:]]*ref:[[:space:]]*"?[^"]+"?' \
-        | sed -E 's/^[[:space:]]*-[[:space:]]*ref:[[:space:]]*"?//; s/"?[[:space:]]*$//'
+    sed -n '/^pr_exemptions:/,$p' "$DEFERRALS" | awk '
+        /^[[:space:]]*-[[:space:]]*ref:/ {
+            if (ref != "") print ref "\t" review
+            ref = $0; sub(/^[[:space:]]*-[[:space:]]*ref:[[:space:]]*"?/, "", ref)
+            sub(/"?[[:space:]]*$/, "", ref); review = ""
+            next
+        }
+        /^[[:space:]]*review_by:/ {
+            review = $0; sub(/^[[:space:]]*review_by:[[:space:]]*"?/, "", review)
+            sub(/"?[[:space:]]*$/, "", review)
+        }
+        END { if (ref != "") print ref "\t" review }
+    '
 }
 
-is_exempt() {
-    local needle="$1"
-    while IFS= read -r e; do
-        [[ -n "$e" && "$e" == "$needle" ]] && return 0
-    done < <(exempt_refs)
-    return 1
+# Verdict for a ref: "none" | "valid" | "expired" | "undated".
+#
+# An exemption MUST expire. Without this the escape hatch is unbounded: one
+# line buys permanent immunity, pr_exemptions: silently becomes the new
+# 176-PR backlog, and the rule launders the problem instead of fixing it.
+# An undated exemption is rejected for the same reason -- "blocked, no idea
+# until when" is precisely the state that produced this mess.
+exempt_verdict() {
+    local needle="$1" ref review
+    while IFS=$'\t' read -r ref review; do
+        [[ "$ref" == "$needle" ]] || continue
+        if [[ -z "$review" ]]; then
+            printf 'undated'; return
+        fi
+        local rev_epoch
+        rev_epoch=$(date -j -f "%Y-%m-%d" "$review" "+%s" 2>/dev/null \
+                    || date -d "$review" "+%s" 2>/dev/null)
+        if [[ -z "${rev_epoch:-}" ]]; then
+            printf 'undated'; return
+        fi
+        if (( rev_epoch < now_epoch )); then
+            printf 'expired'; return
+        fi
+        printf 'valid'; return
+    done < <(exempt_entries)
+    printf 'none'
 }
 
 effective_epoch=$(date -j -f "%Y-%m-%d" "$RULE_EFFECTIVE_DATE" "+%s" 2>/dev/null \
@@ -139,11 +171,17 @@ while IFS= read -r repo; do
 
         hours=$(( age / 3600 ))
         ref="${repo#*/}#${num}"
-        if is_exempt "$ref"; then
-            say "  [DEFERRED] ${ref} open ${hours}h -- exemption recorded"
-            exempted=$(( exempted + 1 ))
-            continue
-        fi
+        case "$(exempt_verdict "$ref")" in
+            valid)
+                say "  [DEFERRED] ${ref} open ${hours}h -- exemption valid"
+                exempted=$(( exempted + 1 )); continue ;;
+            expired)
+                say "  [RED]  ${ref} open ${hours}h: EXEMPTION EXPIRED -- re-decide it"
+                violations=$(( violations + 1 )); continue ;;
+            undated)
+                say "  [RED]  ${ref} open ${hours}h: exemption has no usable review_by date"
+                violations=$(( violations + 1 )); continue ;;
+        esac
         marker=""; [[ "$draft" == "true" ]] && marker=" (DRAFT)"
         say "  [RED]  ${ref} open ${hours}h${marker}: ${title}"
         violations=$(( violations + 1 ))
