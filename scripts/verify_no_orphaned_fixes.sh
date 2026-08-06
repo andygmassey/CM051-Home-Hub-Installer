@@ -117,17 +117,73 @@ report_orphan() {
 check_repo() {
     local label="$1" path="$2" ship_ref="$3" gh_repo="${4:-}"
 
-    if [[ ! -d "$path/.git" ]]; then
-        note "${label}: no checkout at ${path} -- skipping (cannot verify)"
+    # An unverifiable repo is a FAILURE, not a note.
+    #
+    # On the v1.0.16 cut this gate printed "4 repo(s) checked" and went GREEN
+    # while CM044 and the daemon were both silently skipped -- their *_DIR
+    # variables defaulted to the empty string, so "$path/.git" was "/.git" and
+    # the -d test simply failed. The daemon was 162 commits ahead of its own
+    # origin/main at the time and nothing said a word. That is the same shape
+    # as the ships-dark writer bug: the check exists, reports success, and
+    # inspects nothing.
+    #
+    # If a repo genuinely is not on this machine, say so explicitly via
+    # OSTLER_ORPHAN_GATE_SKIP="label1,label2" -- a deliberate, visible act.
+    if [[ -z "$path" ]]; then
+        if [[ ",${OSTLER_ORPHAN_GATE_SKIP:-}," == *",${label},"* ]]; then
+            note "${label}: skipped by OSTLER_ORPHAN_GATE_SKIP"
+            return
+        fi
+        bad "${label}: no checkout path configured -- cannot verify"
+        printf '         Set %s_DIR (or cut.env), or skip deliberately with\n' "$label" >&2
+        printf '         OSTLER_ORPHAN_GATE_SKIP=%s\n' "$label" >&2
+        return
+    fi
+
+    # `.git` is a FILE, not a directory, inside a git worktree. Testing for a
+    # directory makes this gate worktree-blind (same defect as #649), so ask
+    # git itself rather than guessing at the layout.
+    if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+        if [[ ",${OSTLER_ORPHAN_GATE_SKIP:-}," == *",${label},"* ]]; then
+            note "${label}: skipped by OSTLER_ORPHAN_GATE_SKIP"
+            return
+        fi
+        bad "${label}: ${path} is not a git checkout -- cannot verify"
         return
     fi
     checked=$((checked + 1))
     say ""
     say "-- ${label} (${ship_ref})"
 
+    # Per-repo credentials. The cut spans TWO GitHub accounts (andygmassey
+    # owns CM0xx, ostler-ai owns the daemon), and `gh auth switch` is GLOBAL --
+    # whichever account is active, the other account's repos answer 404
+    # "Repository not found", which reads like a permissions bug.
+    #
+    # On the first honest run of this gate that is exactly what happened:
+    # switching to ostler-ai so the daemon could be checked made CM044, CM041,
+    # CM031 and CM059 all report "fetch failed; results may be stale". A gate
+    # whose answer depends on ambient shell state is not a gate.
+    #
+    # So resolve the token for the repo's OWNER and use it explicitly.
+    local _owner="" _tok="" _auth=""
+    _owner="${gh_repo%%/*}"
+    if [[ -n "$_owner" ]] && command -v gh >/dev/null 2>&1; then
+        _tok="$(gh auth token -u "$_owner" 2>/dev/null || true)"
+    fi
+
     _timeout=""; command -v gtimeout >/dev/null 2>&1 && _timeout="gtimeout 30"
-    $_timeout git -C "$path" fetch -q origin --prune 2>/dev/null || \
-        note "${label}: fetch failed; results may be stale"
+    if [[ -n "$_tok" ]]; then
+        # base64 wraps at 76 columns on macOS; an embedded newline corrupts the
+        # header and the fetch fails in a way that looks like a bad token.
+        _auth="$(printf 'x-access-token:%s' "$_tok" | base64 | tr -d '\n')"
+        $_timeout git -c "http.extraheader=AUTHORIZATION: basic ${_auth}" \
+            -C "$path" fetch -q origin --prune 2>/dev/null || \
+            note "${label}: fetch failed; results may be stale"
+    else
+        $_timeout git -C "$path" fetch -q origin --prune 2>/dev/null || \
+            note "${label}: fetch failed; results may be stale"
+    fi
 
     local ship_sha
     ship_sha="$(git -C "$path" rev-parse --verify "$ship_ref" 2>/dev/null)" || {
@@ -170,7 +226,9 @@ check_repo() {
         note "${label}: PR check SKIPPED (OSTLER_ORPHAN_GATE_SKIP_PR set)"
     elif [[ -n "$gh_repo" ]] && command -v gh >/dev/null 2>&1; then
         local prs
-        prs="$(gh pr list --repo "$gh_repo" --state open --limit 100 \
+        # GH_TOKEN for the repo's OWNER, not whichever account `gh auth switch`
+        # last left active -- see the fetch block above for why that matters.
+        prs="$(GH_TOKEN="${_tok:-}" gh pr list --repo "$gh_repo" --state open --limit 100 \
                  --json number,title,headRefName,isDraft 2>/dev/null)" || prs=""
         if [[ -n "$prs" ]]; then
             local line
@@ -226,11 +284,11 @@ if [[ -n "${OSTLER_ORPHAN_GATE_REPOS:-}" ]]; then
     done
 else
 check_repo "CM051" "$REPO_ROOT" "origin/main" "andygmassey/CM051-Home-Hub-Installer"
-check_repo "CM044" "${CM044_DIR:-}" "origin/main" "andygmassey/CM044-PWG-Personal-Wiki"
+check_repo "CM044" "${CM044_DIR:-$HOME/Developer/CM044-PWG-Personal-Wiki}" "origin/main" "andygmassey/CM044-PWG-Personal-Wiki"
 check_repo "CM041" "${CM041_DIR:-$HOME/Developer/cm041-fresh}" "origin/main" "andygmassey/CM041-People-Graph"
 check_repo "CM059" "${CM059_DIR:-$HOME/Documents/Projects/CM059 - Ostler Editor}" "origin/main" "andygmassey/CM059-Ostler-Editor"
 check_repo "CM031" "${CM031_DIR:-$HOME/Documents/Projects/CM031 - PWG Companion}" "origin/main" "andygmassey/CM031-PWG-Companion"
-check_repo "daemon" "${OSTLER_ASSISTANT_DIR:-}" "origin/main" "ostler-ai/ostler-assistant"
+check_repo "daemon" "${OSTLER_ASSISTANT_DIR:-$HOME/Developer/ostler-assistant}" "origin/main" "ostler-ai/ostler-assistant"
 fi
 
 say ""
