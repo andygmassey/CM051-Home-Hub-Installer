@@ -60,7 +60,7 @@ fi
 
 # Resolve the assistant tag the pin maps to (try v<pin>, <pin>, hub-v<pin>).
 DAEMON_TAG=""
-if [[ -n "${DAEMON_PIN}" && -d "${ASSISTANT_DIR}/.git" ]]; then
+if [[ -n "${DAEMON_PIN}" ]] && git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "${ASSISTANT_DIR}" fetch origin --tags -q 2>/dev/null
   for cand in "v${DAEMON_PIN}" "${DAEMON_PIN}" "hub-v${DAEMON_PIN}"; do
     if git -C "${ASSISTANT_DIR}" rev-parse -q --verify "refs/tags/${cand}" >/dev/null 2>&1; then
@@ -79,7 +79,7 @@ while IFS='|' read -r kind target pattern desc; do
       if [[ -z "${DAEMON_PIN}" ]]; then
         red "daemon_tag ${sha} :: could not read daemon pin -- cannot verify"; continue
       fi
-      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+      if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
         red "daemon_tag ${sha} :: ostler-assistant not found at ${ASSISTANT_DIR} (set OSTLER_ASSISTANT_DIR)"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
@@ -120,7 +120,7 @@ while IFS='|' read -r kind target pattern desc; do
       # that have no vendored footprint -- e.g. the Hub web bundle, rebuilt
       # from source at cut time. `target` = path inside ostler-assistant;
       # `pattern` = regex that must appear in that file at the pinned tag.
-      if [[ ! -d "${ASSISTANT_DIR}/.git" ]]; then
+      if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
         red "assistant_tag_grep ${target} :: ostler-assistant not at ${ASSISTANT_DIR} (${desc})"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
@@ -157,6 +157,37 @@ while IFS='|' read -r kind target pattern desc; do
       else
         red "wiki_image_grep ${img_key} :${img_path} ~ /${pattern}/ NOT FOUND -- STALE WIKI IMAGE (${desc})"
         info "rebuild + repin the ${img_key} digest from current CM044 main before cutting"
+      fi
+      ;;
+    wiki_image_absent)
+      # The mirror of wiki_image_grep: assert a pattern is GONE from the pinned
+      # image and stays gone.
+      #
+      # Some things are removed on purpose and must never come back. The faked
+      # compile-time settling card is the case that forced this: Andy walked
+      # THREE DMGs with a static, fabricated progress card on the wiki homepage
+      # -- "That is a STATIC card. It's faked... remove the fucking thing
+      # entirely! I don't EVER want to see it again."
+      #
+      # A presence-only manifest cannot express that. Worse, the rows asserting
+      # the old card's PRESENCE survived its deletion and turned the provenance
+      # gate red against a correct image -- a gate that fails on the right
+      # answer teaches people to ignore it.
+      img_key="${target%%:*}"; img_path="${target#*:}"
+      ref="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
+      if [[ -z "${ref}" ]]; then
+        red "wiki_image_absent ${img_key} :: no pinned digest in install.sh (${desc})"; continue
+      fi
+      if ! command -v docker >/dev/null 2>&1; then
+        red "wiki_image_absent ${img_key} :: docker unavailable -- cannot verify image (${desc})"
+        continue
+      fi
+      docker pull -q "${ref}" >/dev/null 2>&1
+      if docker run --rm --entrypoint sh "${ref}" -c "grep -rq -- '${pattern}' '${img_path}' 2>/dev/null"; then
+        red "wiki_image_absent ${img_key} :${img_path} ~ /${pattern}/ IS PRESENT -- a deliberately removed component came back (${desc})"
+        info "this pattern was deleted on purpose; find what reintroduced it before cutting"
+      else
+        green "wiki_image_absent ${img_key}@${ref##*@} :${img_path} !~ /${pattern}/ (${desc})"
       fi
       ;;
     *)

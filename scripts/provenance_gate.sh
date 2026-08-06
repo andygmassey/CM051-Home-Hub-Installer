@@ -111,7 +111,7 @@ repo_gh_for() {
 is_ancestor() {
   local repo="$1" fix="$2" cand="$3" dir gh
   dir="$(repo_dir_for "$repo")"
-  if [[ -n "$dir" && -d "${dir}/.git" ]]; then
+  if [[ -n "$dir" ]] && git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
     if git -C "$dir" cat-file -e "${fix}^{commit}" 2>/dev/null \
        && git -C "$dir" cat-file -e "${cand}^{commit}" 2>/dev/null; then
       git -C "$dir" merge-base --is-ancestor "$fix" "$cand" 2>/dev/null && return 0
@@ -211,7 +211,7 @@ daemon_tag_sha() {
         | sed -E 's/.*:-([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?)\}.*/\1/')"
   pin="${mk:-$sh}"; [[ -z "$pin" ]] && return
   dir="$(repo_dir_for ostler-assistant)"
-  [[ -d "${dir}/.git" ]] || return
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || return
   for cand in "hub-v${pin}" "v${pin}" "${pin}"; do
     if git -C "$dir" rev-parse -q --verify "refs/tags/${cand}^{commit}" >/dev/null 2>&1; then
       git -C "$dir" rev-parse "refs/tags/${cand}^{commit}"; return
