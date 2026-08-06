@@ -1051,6 +1051,90 @@ dmg-bg:
 # resource forks / extended attributes and has been the cause of
 # "unable to build submission" notary errors in the past.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# notarise-hub: notarise + staple Ostler.app BEFORE the installer seals it.
+#
+# WHY THIS EXISTS (found on the v1.0.16 cut, 2026-08-07)
+# ------------------------------------------------------
+# `stapler staple` writes a nested app's ticket to <bundle>/Contents/
+# CodeResources. When the OUTER installer app is signed, it seals the byte-for-
+# byte contents of every nested bundle. So stapling a nested app AFTER the
+# outer is signed either:
+#
+#   * ADDS a file the outer never sealed  -> "a sealed resource is missing or
+#     invalid", the outer app is damaged; or
+#   * leaves it untouched, if the nested app ALREADY carried an identical
+#     ticket when the outer was signed.
+#
+# Every cut up to v1.0.15 took the second path by ACCIDENT. OstlerAssistant.app
+# arrives already stapled inside the daemon tarball, and Ostler.app was never
+# rebuilt -- it was the same bundle, stapled during some earlier cut, so
+# re-stapling rewrote identical bytes and the seal survived.
+#
+# v1.0.16 is the first cut to rebuild the Hub (mandatory: Ostler.app bundles
+# web/, so a stale one ships an old UI behind a correct daemon pin). A freshly
+# built Hub has no ticket, the outer sealed it without one, and staple-apps
+# broke the outer signature. The pipeline was only ever working because nobody
+# rebuilt the Hub.
+#
+# The fix is to make the Hub what the daemon already is: independently
+# notarised and stapled before anything seals it. Then staple-apps is a no-op
+# rewrite of identical bytes and the outer stays valid -- and the Hub can also
+# launch offline on first run, which is what #221 wanted in the first place.
+notarise-hub: check-tools
+	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
+	    echo "ERROR: OSTLER_APP_PATH is not a directory: $(OSTLER_APP_PATH)" >&2; \
+	    exit 1; \
+	fi
+	@if xcrun stapler validate "$(OSTLER_APP_PATH)" >/dev/null 2>&1; then \
+	    echo "[skip] Ostler.app already carries a valid ticket -- nothing to do."; \
+	else \
+	    printf '[STEP] Re-signing embedded upgrade-payload Mach-Os inside Ostler.app\n'; \
+	    PAYLOAD="$(OSTLER_APP_PATH)/Contents/Resources/ostler-payload"; \
+	    if [ -d "$$PAYLOAD" ]; then \
+	        find "$$PAYLOAD" -type f -perm +111 | while read -r bin; do \
+	            if file "$$bin" 2>/dev/null | grep -q 'Mach-O'; then \
+	                if ! codesign --verify --strict "$$bin" >/dev/null 2>&1; then \
+	                    printf '  re-sign: %s\n' "$${bin#$(OSTLER_APP_PATH)/}"; \
+	                    codesign --force --timestamp --options runtime \
+	                        --sign "$(CODESIGN_ID)" "$$bin" >/dev/null 2>&1 \
+	                        || { echo "  ERROR: could not re-sign $$bin" >&2; exit 1; }; \
+	                fi; \
+	            fi; \
+	        done; \
+	        printf '[STEP] Re-sealing Ostler.app after payload re-sign\n'; \
+	        codesign --force --timestamp --options runtime \
+	            --sign "$(CODESIGN_ID)" "$(OSTLER_APP_PATH)" >/dev/null 2>&1 \
+	            || { echo "ERROR: could not re-seal Ostler.app" >&2; exit 1; }; \
+	    fi; \
+	    printf '[STEP] Notarising Ostler.app (Hub) so the installer seals a STAPLED bundle\n'; \
+	    HUB_ZIP="$(BUILD_DIR)/Ostler-hub-notary.zip"; \
+	    rm -f "$$HUB_ZIP"; \
+	    ditto -c -k --sequesterRsrc --keepParent "$(OSTLER_APP_PATH)" "$$HUB_ZIP"; \
+	    SUB_JSON="$(BUILD_DIR)/hub-notary-result.json"; \
+	    xcrun notarytool submit "$$HUB_ZIP" --keychain-profile "$(NOTARY_PROFILE)" \
+	        --wait --output-format json > "$$SUB_JSON" 2>&1 || true; \
+	    cat "$$SUB_JSON"; \
+	    STATUS="$$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("status",""))' "$$SUB_JSON" 2>/dev/null)"; \
+	    SUBID="$$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("id",""))' "$$SUB_JSON" 2>/dev/null)"; \
+	    rm -f "$$HUB_ZIP"; \
+	    if [ "$$STATUS" != "Accepted" ]; then \
+	        echo "" >&2; \
+	        echo "ERROR: Hub notarisation status is '$$STATUS' (not Accepted)." >&2; \
+	        echo "  notarytool EXITS 0 even when the verdict is Invalid, so the status" >&2; \
+	        echo "  must be read explicitly -- an exit-code check alone passes a rejection." >&2; \
+	        echo "  Log:  xcrun notarytool log $$SUBID --keychain-profile $(NOTARY_PROFILE)" >&2; \
+	        exit 1; \
+	    fi; \
+	    printf '[STEP] Stapling the ticket into Ostler.app\n'; \
+	    xcrun stapler staple "$(OSTLER_APP_PATH)" || { echo "ERROR: stapler failed on Ostler.app" >&2; exit 1; }; \
+	fi
+	@xcrun stapler validate "$(OSTLER_APP_PATH)" >/dev/null 2>&1 || { \
+	    echo "ERROR: Ostler.app has no valid ticket after notarise+staple." >&2; exit 1; }
+	@codesign --verify --deep --strict "$(OSTLER_APP_PATH)" 2>/dev/null || { \
+	    echo "ERROR: Ostler.app signature invalid after stapling -- do not seal it." >&2; exit 1; }
+	@echo "[OK] Ostler.app notarised, stapled and still validly signed."
+
 notarise-app: check-tools
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' + 'make sign-python-bundle' first." >&2; \
@@ -1445,7 +1529,7 @@ verify-commit-parity:
 # verify-commit-parity catches daemon+wrapper frontend drift (#226 / #225).
 # All three must be GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-orphans check-pr-age check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: check-orphans check-pr-age check-ostler-app download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
