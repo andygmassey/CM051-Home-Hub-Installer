@@ -56,6 +56,18 @@ EXCEPTIONS: dict[str, str] = {
         "(extended 2026-05-22 to include write_pipeline_signals.py per "
         "deep-dive audit follow-up)."
     ),
+    "lib/ostler-model-fit.sh": (
+        "Covered by 'Bundle install.sh + lib/progress_emitter.sh' postBuildScript "
+        "(REUSE-4: the postBuildScript cp's lib/ostler-model-fit.sh into "
+        "Resources/lib so install.sh's model-fit source resolution finds it in "
+        "the .app flow). The gate maps lib/* leaves via this allow-list rather "
+        "than scanning the postBuildScript body."
+    ),
+    "lib/conversation_hydration.py": (
+        "Covered by 'Bundle install.sh + lib/progress_emitter.sh' postBuildScript "
+        "(extended v1.0.4 / BUG-037 to include conversation_hydration.py, the "
+        "conversation_seed signal helper, alongside write_pipeline_signals.py)."
+    ),
     "..": (
         "${SCRIPT_DIR}/../Ostler.app is a re-entry fallback for dev runs "
         "where install.sh runs from a sibling of the staged Ostler.app. "

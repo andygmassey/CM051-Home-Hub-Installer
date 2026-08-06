@@ -56,12 +56,21 @@ from pathlib import Path
 #   pane; the emit is telemetry, not a sidebar row, so the GUI falls
 #   through to .unknown. (Surfaced once CX106_QDRANT was resolved -- it
 #   was masked behind that failure on origin/main.)
+# - CONVERSATION_HYDRATION_SEEDED: BUG-037 (v1.0.4) telemetry marker
+#   ("queued=N") emitted once after the conversation_seed step writes
+#   ~/.ostler/state/conversation_hydration.json. install.sh already
+#   surfaces two customer-facing info() lines just before it (queued
+#   count + "drains in the background") on the log pane, and the
+#   "still settling in" panel (BUG-039) reads the JSON file directly,
+#   NOT this marker, so the GUI intentionally falls through to
+#   .unknown -- it is a signal, not a sidebar row.
 SOFT_UNKNOWN_OK: set[str] = {
     "MAIL_ACCOUNTS_FOUND",
     "STEP",
     "CX106_QDRANT_BEFORE",
     "CX106_QDRANT_AFTER",
     "IMESSAGE_TCC_DENIED",
+    "CONVERSATION_HYDRATION_SEEDED",
 }
 
 

@@ -128,6 +128,17 @@ final class StepCatalog {
         "email_bundle",
         "spoken_bundle",
         "imessage_bundle",
+        // BUG-037 (v1.0.4): conversation_seed is the fast/light first pass
+        // that replaces the old ~16h synchronous inline per-conversation LLM
+        // enrichment. install.sh emits `progress "..." "conversation_seed"`
+        // right after the four body feeds (whatsapp/email/spoken/imessage
+        // bundle) and before imessage_bridge: it runs capped, count-only
+        // backlog probes (no message body read, no LLM call) and seeds
+        // ~/.ostler/state/conversation_hydration.json so the heavy
+        // enrichment can drain in the background feed LaunchAgents while the
+        // customer starts using Ostler straight away. Registered here so the
+        // sidebar pre-renders the row.
+        "conversation_seed",
         "imessage_bridge",
         "wiki_recompile_agent",
         // First-day wiki catch-up LaunchAgent. install.sh emits the matching
