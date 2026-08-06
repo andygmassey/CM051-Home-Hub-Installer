@@ -213,3 +213,150 @@ def _country_code_to_region(code: int) -> str:
     if regions:
         return regions[0]
     return "US"
+
+
+# ---------------------------------------------------------------------------
+# Name agreement for SHAREABLE identifiers (BW-2)
+# ---------------------------------------------------------------------------
+#
+# An email address or a phone number is a SHAREABLE identifier: a household
+# landline, a family iPad, an info@ inbox, a couple who share an address book
+# entry. A UNIQUE identifier (icloud_uid, whatsapp_lid, linkedin_url) belongs
+# to exactly one human and always merges on its own authority; these do not.
+#
+# The original guard compared the two display names with raw Jaro-Winkler and
+# merged above a threshold (0.7 email / 0.6 phone). Jaro-Winkler weights a
+# shared PREFIX very heavily, which is exactly the wrong bias here, because
+# the thing two different people most often share is a first name:
+#
+#     Sandra Andersson  vs  Sandra Stewart   -> 0.867   merged. Wrong.
+#     John Smith        vs  Jane Smith       -> 0.880   merged. Wrong.
+#
+# Both cleared both thresholds and were silently merged into one person, which
+# is a data-corruption bug rather than a cosmetic one: once two people are one
+# node, their meetings, messages and facts are indistinguishable.
+#
+# A single similarity number cannot separate these from real nickname pairs --
+# the distributions overlap outright:
+#
+#     jim / james  -> 0.720   SAME person
+#     john / jane  -> 0.700   DIFFERENT people
+#
+# So we stop asking "how similar are these strings" and ask the question that
+# actually discriminates: DO THE SURNAMES MATCH? Nicknames vary the given name
+# and keep the surname; different people sharing a phone usually keep their own
+# surname. Surname equality is the hard gate; the given name then only has to
+# be plausibly the same name.
+#
+# The third verdict matters as much as the other two. "unsure" means REVIEW,
+# not merge and not create -- the pair surfaces on the wiki's duplicate-review
+# page with Combine / Different-people buttons. Sending a borderline pair there
+# costs one click; merging it wrongly is unpickable.
+
+# Given-name similarity required when the surnames already match. Chosen from
+# real pairs: it clears bob/rob (0.778) and mike/michael (0.781), and excludes
+# john/jane (0.700). jim/james (0.720) lands under it and goes to review --
+# deliberate: a click is cheaper than a bad merge.
+GIVEN_NAME_AGREEMENT_THRESHOLD = 0.75
+
+# Similarity required when there is no surname to compare (single-token names
+# such as "nana", or a mononym). Deliberately strict: with no surname there is
+# no second signal, so only near-identical strings may auto-merge.
+SINGLE_TOKEN_AGREEMENT_THRESHOLD = 0.97
+
+# Particles that belong to the surname rather than acting as one.
+_SURNAME_PARTICLES = frozenset({
+    "van", "von", "de", "der", "den", "del", "della", "delle", "degli",
+    "di", "da", "dei", "do", "dos", "das", "du", "la", "le", "el", "al",
+    "bin", "ibn", "ben", "bat", "mac", "mc", "o", "st", "saint",
+    "ter", "ten", "op", "aan", "zu", "af", "av", "y", "i",
+})
+
+# Honorifics and suffixes that must not be mistaken for a surname.
+_NAME_NOISE = frozenset({
+    "mr", "mrs", "ms", "miss", "dr", "prof", "sir", "dame", "rev",
+    "jr", "sr", "ii", "iii", "iv", "phd", "md", "esq",
+})
+
+
+def _name_tokens(name: str) -> list:
+    """Lowercased, punctuation-light tokens with honorifics/suffixes dropped."""
+    cleaned = name.lower().replace("-", " ").replace(".", " ").replace(",", " ")
+    return [t for t in cleaned.split() if t and t not in _NAME_NOISE]
+
+
+def split_given_surname(name: str):
+    """``(given, surname)`` for a display name; surname is ``""`` if absent.
+
+    Multi-token surnames with particles are kept whole ("van der Berg"), so
+    "Anna van der Berg" -> ("anna", "van der berg").
+    """
+    tokens = _name_tokens(name)
+    if not tokens:
+        return "", ""
+    if len(tokens) == 1:
+        return tokens[0], ""
+    # Walk back from the end over particles to keep compound surnames together.
+    idx = len(tokens) - 1
+    while idx > 1 and tokens[idx - 1] in _SURNAME_PARTICLES:
+        idx -= 1
+    return " ".join(tokens[:idx]), " ".join(tokens[idx:])
+
+
+def names_agree(name_a: str, name_b: str) -> str:
+    """``"agree"`` / ``"disagree"`` / ``"unsure"`` for two display names.
+
+    TWO KNOWN LIMITATIONS, both deliberate, both erring towards review:
+
+    1. Surname-last is assumed. For a name written surname-FIRST ("Chen Wei"),
+       the given name and surname are swapped. In practice the verdict still
+       comes out safe -- "Chen Wei" vs "Chen Yu" compares "wei" against "yu",
+       disagrees, and goes to review rather than merging two people -- but the
+       stated REASON would be wrong. Proper handling needs a script/locale
+       signal that the graph does not currently carry.
+
+    2. Nicknames that are not string-similar are not recognised. "Bob" scores
+       0.5 against "Robert", so Bob Jones and Robert Jones go to review rather
+       than merging. A nickname lookup table would fix that pair, and was
+       considered and rejected: the same table makes "Jack" a nickname for
+       "John", which would merge a father and son sharing a landline. Review
+       costs a click; that merge is unpickable.
+
+    Only ``"agree"`` may auto-merge a pair that is joined by a SHAREABLE
+    identifier. Both other verdicts mean "send it to human review"; they are
+    separated so the caller can explain itself honestly to the operator.
+
+    The rules, in order:
+
+      * Either name missing            -> ``unsure``. Absence is not evidence.
+      * Surnames both present:
+          - different surnames         -> ``disagree``  (the Sandra case)
+          - same surname, given names
+            similar enough             -> ``agree``     (Jon / Jonathan Smith)
+          - same surname, given names
+            far apart                  -> ``unsure``    (John / Jane Smith)
+      * No surname on one or both      -> ``agree`` only if the whole strings
+                                          are near-identical, else ``unsure``.
+    """
+    a = " ".join(_name_tokens(name_a))
+    b = " ".join(_name_tokens(name_b))
+    if not a or not b:
+        return "unsure"
+    if a == b:
+        return "agree"
+
+    given_a, sur_a = split_given_surname(name_a)
+    given_b, sur_b = split_given_surname(name_b)
+
+    if sur_a and sur_b:
+        if sur_a != sur_b:
+            return "disagree"
+        if not given_a or not given_b:
+            return "unsure"
+        if given_a == given_b:
+            return "agree"
+        sim = _jaro_winkler(given_a, given_b)
+        return "agree" if sim >= GIVEN_NAME_AGREEMENT_THRESHOLD else "unsure"
+
+    # One side has no surname: nothing to anchor on but the raw strings.
+    return "agree" if _jaro_winkler(a, b) >= SINGLE_TOKEN_AGREEMENT_THRESHOLD else "unsure"

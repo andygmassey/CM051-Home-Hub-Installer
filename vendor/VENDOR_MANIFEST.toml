@@ -71,7 +71,7 @@ name             = "cm041/identity_resolver"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
-  pinned_sha = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
+  pinned_sha = "1cf3e163a90e7319c1cf50b6d61f12e81a35e638"
   divergence_patch = "vendor/divergences/cm041_identity_resolver.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"
@@ -93,7 +93,7 @@ name             = "cm041/assistant_api"
 vendor_path      = "vendor/cm041/assistant_api"
 source_repo      = "$CM041"
 source_path      = "assistant_api"
-  pinned_sha = "865eaed15b6c7682033c7cbed2a09223e1c6190c"
+  pinned_sha = "8377b5f6a402b92ae204cb8d2daf591ec88bfd38"
   divergence_patch = "vendor/divergences/cm041_assistant_api.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
 verify           = "full"
@@ -154,10 +154,18 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "a52544f15345ab336a3fc70e42ae489c49090d52"
+  pinned_sha = "c993d13d312c6d400082ba0b7a579b965341365e"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
-  hold_ack_shas            = "9a53c466"
-  hold_ack_reason          = "v1.0.13.2 hotfix (2026-08-01 ORM): the sole ostler_fda-path delta commit vs HR015 main HEAD is 9a53c466 (fix(email-ingest): resilient emlx walk -- skip unreadable subdirs, #197 / #276). Not a launch blocker for this hotfix; the walk skips unreadable subdirs which is a mail-corpus edge-case, and any customer hitting it would see the pre-fix behaviour of the shipped v1.0.13.1 (same pin). To be grafted forward in v1.0.14 with the fresh HR015 re-pin."
+  # hold_ack for 9a53c466 REMOVED 2026-08-07 (v1.0.16) -- DISCHARGED, not dropped.
+  # It held "fix(email-ingest): resilient emlx walk -- skip unreadable subdirs"
+  # (#197/#276) across v1.0.13.2 with the promise "to be grafted forward with the
+  # fresh HR015 re-pin". This IS that re-pin. Proven twice before removal:
+  #   ancestry -- GitHub compare 9a53c466...c993d13d = ahead 7, behind 0
+  #   content  -- vendor/ostler_fda/apple_mail_mbox.py carries _on_walk_error()
+  #               and os.walk(..., onerror=...) at the #197 call site
+  # A hold_ack left in place after its commit lands is a gate that can no longer
+  # go red: it permanently exempts a path from the freshness diff. Discharge them
+  # with proof, or they become the silent-green this whole gate exists to stop.
   shipping_bugfixes_grafted = true
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_browser_history.sh", "test_vendor_imessage_history.sh", "test_vendor_whatsapp_history.sh"]
 verify           = "full"
@@ -341,7 +349,7 @@ name             = "cm059_editor"
 vendor_path      = "vendor/cm059_editor/compiler"
 source_repo      = "$CM059"
 source_path      = "compiler"
-  pinned_sha = "36b5f6967adb4ef80ad7a12316004eae0436340f"
+  pinned_sha = "619ef4049dc4b67203e1b537c198d0678f52f0a4"
   divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "full"

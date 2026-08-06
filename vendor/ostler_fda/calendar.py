@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time as _time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from .settling_progress import report_settling_progress
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,45 @@ class CalendarEvent:
     is_all_day: bool
     notes: Optional[str]
     recurrence: Optional[str]
+
+
+
+# ── Settling-progress ────────────────────────────────────────────────────────
+#
+# The wiki homepage's "still getting to know you" panel reads per-channel
+# shards from ~/.ostler/state/settling_progress.d/. `calendar` has exactly ONE
+# producer -- this extractor -- so it writes calendar.json with no shard tag.
+#
+# Emitted from the EXTRACTOR, not from pwg_ingest, deliberately: every other
+# channel reports at extraction (see imessage.py / whatsapp_history.py), and
+# two processes writing one shard file overwrite each other -- the panel would
+# jump backwards when the second one opened at 0.
+_SETTLING_CHANNEL = "calendar"
+_SETTLING_TICK_INTERVAL_SECONDS = 30.0
+
+
+def _emit_settling(
+    *,
+    done: int,
+    total: int,
+    needs_source: bool = False,
+    started_at: Optional[str] = None,
+) -> None:
+    """Best-effort settling emit. A reporting failure must never cost the
+    customer their calendar extract, so every error is swallowed."""
+    try:
+        report_settling_progress(
+            channel=_SETTLING_CHANNEL,
+            done=done,
+            total=total,
+            needs_source=needs_source,
+            started_at=started_at,
+        )
+    except Exception:
+        logger.warning(
+            "settling-progress: calendar emit failed; continuing extract",
+            exc_info=True,
+        )
 
 
 def _resolve_db_path(db_path: Optional[Path]) -> Optional[Path]:
@@ -250,7 +292,26 @@ def extract_events(
     conn.close()
 
     events: list[CalendarEvent] = []
+    _settling_started = datetime.now(timezone.utc).isoformat()
+    _settling_total = len(rows)
+    _settling_done = 0
+    _settling_last_tick = 0.0
+    # Announce at 0-of-N before any work: a channel that appears only on
+    # completion is indistinguishable from one that was never wired.
+    _emit_settling(done=0, total=_settling_total, started_at=_settling_started)
     for row in rows:
+        # Count the row as dealt with BEFORE the body -- malformed rows hit
+        # `continue`, and a tick at the bottom would strand `done` below
+        # `total` forever so the bar could never reach 100%.
+        _settling_done += 1
+        _now = _time.monotonic()
+        if (_settling_done == _settling_total
+                or _now - _settling_last_tick >= _SETTLING_TICK_INTERVAL_SECONDS):
+            _settling_last_tick = _now
+            _emit_settling(
+                done=_settling_done, total=_settling_total,
+                started_at=_settling_started,
+            )
         try:
             start = datetime.fromtimestamp(
                 (row["start_date"] or 0) + MAC_EPOCH_OFFSET, tz=timezone.utc
@@ -285,6 +346,9 @@ def extract_events(
             logger.warning("Skipping malformed Calendar row: %s", e)
             continue
 
+    _emit_settling(
+        done=_settling_total, total=_settling_total, started_at=_settling_started,
+    )
     logger.info(
         "Extracted %d calendar events from %s", len(events), resolved,
     )

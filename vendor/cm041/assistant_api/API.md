@@ -1,6 +1,6 @@
-# Assistant API — endpoint reference
+# Marvin API — endpoint reference
 
-The unified assistant API server (`ical-server.py`) runs on `localhost:8089`
+The unified Marvin API server (`ical-server.py`) runs on `localhost:8089`
 and exposes calendar, email, and People Graph endpoints. It is consumed
 by the CM031 PWG Companion iOS app and by the ZeroClaw assistant on the
 Mac Mini.
@@ -181,7 +181,7 @@ aliases:
 
 | Field | Notes |
 |---|---|
-| `summary`        | Legacy; matches the assistant / wiki tooling. |
+| `summary`        | Legacy; matches Marvin / wiki tooling. |
 | `title`          | Alias for `summary`; CM031 `CalendarEvent.title`. |
 | `start`, `end`   | iCal local-time, e.g. `20260428T093000`. |
 | `start_iso`, `end_iso` | ISO-8601, e.g. `2026-04-28T09:30:00`. |
@@ -237,7 +237,7 @@ Composite for the iOS Today view. Three sections:
 
 `reconnect` and `follow_up` are aliases for `stale_contacts` and
 `recent_meetings` respectively – CM031's `SuggestionsResponse` keys
-on those names; the assistant / wiki tools use the legacy keys. Both
+on those names; the Marvin / wiki tools use the legacy keys. Both
 clients work without coordination.
 
 Per-section failure capture: a section that fails will have its array

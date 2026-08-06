@@ -960,87 +960,31 @@ def _dispatch_whatsapp_sqlite(detection: Detection, *, output_dir: Optional[Path
 
 
 def _dispatch_apple_notes(detection: Detection, *, output_dir: Optional[Path]) -> dict:
-    # UN-DEFERRED (CM024 §7): the apple_notes parser stages a note-list JSON
-    # (the durable, re-runnable artefact) and we now persist it into the
-    # knowledge base through the SAME bundled ``ostler-knowledge convert
-    # --source <kind>`` path every other knowledge format uses (Obsidian /
-    # Evernote / Notion via _dispatch_knowledge). The ``apple_notes`` source
-    # kind is supplied by CM024's AppleNotesAdapter -- correctness requires a
-    # CM024 SHA that INCLUDES PR #17 (the evernote_guid vs note_id
-    # id-contract fix). On a build whose vendored ostler-knowledge predates
-    # that adapter, ``--source apple_notes`` exits non-zero (unknown choice)
-    # and we return the honest staged-only result -- never a crash
-    # (ship-dark). The AppleNotesAdapter's discover() RAISES ValueError on a
-    # missing file, so we only invoke convert when the staged JSON exists and
-    # is non-empty (silent-on-empty guard).
-    import subprocess
+    # DEFERRED persistence (documented follow-up): the apple_notes parser
+    # emits a note-list JSON, but the ``ostler-knowledge`` converter the
+    # other knowledge formats persist through reads SOURCE directories
+    # (Obsidian vault / Evernote ``.enex`` / Notion markdown export) and has
+    # no confirmed ``--source apple_notes`` kind for a note-list JSON on this
+    # build. Wiring it to a guessed source kind would be a risky broad
+    # mapping, so this leg stays stage-only until the converter grows an
+    # apple_notes source (or a notes-JSON -> markdown shim is built). The
+    # staged JSON is the durable, re-runnable artefact in the meantime.
     from dataclasses import asdict
 
     from . import apple_notes as an
 
     notes = an.extract_notes(db_path=detection.route_path, include_locked=False)
     out = _out_dir(output_dir)
-    notes_json = out / "apple_notes.json"
-    notes_json.write_text(
+    (out / "apple_notes.json").write_text(
         json.dumps([asdict(n) for n in notes], indent=2, default=str)
-    )
-
-    summary = {
-        "notes": len(notes),
-        "total_words": sum(n.word_count for n in notes),
-    }
-
-    # silent-on-empty: nothing extracted -> stage only, never invoke the
-    # adapter (whose discover() would raise on an empty/absent JSON).
-    if not notes or notes_json.stat().st_size == 0:
-        return {
-            "status": "ok",
-            "dispatched": "apple_notes",
-            "summary": summary,
-            "knowledge_persist_status": "no_notes",
-        }
-
-    # Resolve the same ostler-knowledge binary the Doctor knowledge runner
-    # and _dispatch_knowledge use; absent -> staged JSON is the durable
-    # artefact and on-demand hydrate persists it later.
-    binary = _knowledge_bin()
-    if binary is None:
-        return {
-            "status": "ok",
-            "dispatched": "apple_notes",
-            "summary": summary,
-            "knowledge_persist_status": "no_importer",
-        }
-
-    staging = out / "knowledge"
-    staging.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        binary, "convert", "--source", "apple_notes",
-        str(notes_json), "--output", str(staging),
-    ]
-    try:
-        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
-    except (OSError, ValueError) as exc:
-        logger.warning(
-            "universal_import: ostler-knowledge apple_notes exec failed: %s",
-            type(exc).__name__,
-        )
-        return {
-            "status": "ok",
-            "dispatched": "apple_notes",
-            "summary": summary,
-            "knowledge_persist_status": f"importer_error:{type(exc).__name__}",
-        }
-
-    persist_status = (
-        "converted" if proc.returncode == 0 else f"convert_failed:{proc.returncode}"
     )
     return {
         "status": "ok",
         "dispatched": "apple_notes",
-        "summary": summary,
-        "knowledge_persist_status": persist_status,
-        "knowledge_output_dir": str(staging),
+        "summary": {
+            "notes": len(notes),
+            "total_words": sum(n.word_count for n in notes),
+        },
     }
 
 

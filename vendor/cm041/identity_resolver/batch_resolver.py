@@ -33,7 +33,12 @@ _PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
-from identity_resolver.normalise import _jaro_winkler, normalise_email, normalise_phone
+from identity_resolver.normalise import (
+    _jaro_winkler,
+    names_agree,
+    normalise_email,
+    normalise_phone,
+)
 from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
 from identity_resolver.canonical_name import choose_canonical_display_name
 
@@ -283,16 +288,24 @@ def detect_email_matches(
             continue
         for i in range(len(uris)):
             for j in range(i + 1, len(uris)):
-                name_a = _normalise_name(persons[uris[i]].display_name)
-                name_b = _normalise_name(persons[uris[j]].display_name)
-                name_sim = _jaro_winkler(name_a, name_b) if name_a and name_b else 0.0
-
-                if name_sim >= name_threshold:
+                verdict = names_agree(
+                    persons[uris[i]].display_name, persons[uris[j]].display_name
+                )
+                if verdict == "agree":
                     confidence = high_conf
-                    detail = f"Shared email: {email} (names similar: {name_sim:.2f})"
+                    detail = f"Shared email: {email} (names agree)"
+                elif verdict == "disagree":
+                    confidence = low_conf
+                    detail = (
+                        f"Shared email: {email} (different surnames, so most "
+                        f"likely two people sharing one account)"
+                    )
                 else:
                     confidence = low_conf
-                    detail = f"Shared email: {email} (names differ: {name_sim:.2f}, possible shared/inherited account)"
+                    detail = (
+                        f"Shared email: {email} (names may or may not be the "
+                        f"same person)"
+                    )
 
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],
@@ -332,14 +345,24 @@ def detect_phone_matches(
             for j in range(i + 1, len(uris)):
                 name_a = _normalise_name(persons[uris[i]].display_name)
                 name_b = _normalise_name(persons[uris[j]].display_name)
-                name_sim = _jaro_winkler(name_a, name_b) if name_a and name_b else 0.0
-
-                if name_sim >= name_threshold:
+                verdict = names_agree(
+                    persons[uris[i]].display_name, persons[uris[j]].display_name
+                )
+                if verdict == "agree":
                     confidence = high_conf
-                    detail = f"Shared phone: {phone} (names similar: {name_sim:.2f})"
+                    detail = f"Shared phone: {phone} (names agree)"
+                elif verdict == "disagree":
+                    confidence = low_conf
+                    detail = (
+                        f"Shared phone: {phone} (different surnames, so most "
+                        f"likely a household, office or shared handset)"
+                    )
                 else:
                     confidence = low_conf
-                    detail = f"Shared phone: {phone} (names differ: {name_sim:.2f}, likely office number)"
+                    detail = (
+                        f"Shared phone: {phone} (names may or may not be the "
+                        f"same person)"
+                    )
 
                 matches.append(DuplicateMatch(
                     uri_a=uris[i],

@@ -63,7 +63,7 @@ This extractor enables two new schema properties downstream in
   Future non-DM sources should adopt the same property.
 - ``pwg:contactSourceTier`` (xsd:string). One of "whatsapp_dm",
   "whatsapp_group_intimate", "whatsapp_group_active". Used by CM044's
-  wiki renderer for per-source attribution + future assistant retrieval
+  wiki renderer for per-source attribution + future Marvin retrieval
   down-weighting.
 
 T3 chats are filtered out at extraction time -- they never make it
@@ -84,12 +84,49 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+from .settling_progress import report_settling_progress
+
 logger = logging.getLogger(__name__)
+
+# Settling-progress cadence + identifiers. Mirrors the iMessage producer so
+# both sibling shards tick at roughly the same rate on the customer's disk.
+_SETTLING_TICK_INTERVAL_SECONDS = 30.0
+_SETTLING_CHANNEL = "messages"
+_SETTLING_SHARD = "whatsapp"
+
+
+def _emit_settling(
+    *,
+    done: int,
+    total: int,
+    needs_source: bool = False,
+    started_at: Optional[str] = None,
+) -> None:
+    """Best-effort settling-progress emit for the WhatsApp backfill.
+
+    Wraps :func:`report_settling_progress` in a broad try/except so a full
+    disk or unwritable state dir can never abort the caller's ingest loop.
+    """
+    try:
+        report_settling_progress(
+            channel=_SETTLING_CHANNEL,
+            done=done,
+            total=total,
+            needs_source=needs_source,
+            started_at=started_at,
+            shard=_SETTLING_SHARD,
+        )
+    except Exception:  # noqa: BLE001 -- see docstring
+        logger.warning(
+            "settling-progress: WhatsApp emit failed; continuing extract",
+            exc_info=True,
+        )
 
 # Mac absolute time epoch -- seconds between 2001-01-01 and 1970-01-01.
 # Same offset iMessage uses; the WhatsApp schema treats timestamps
@@ -356,14 +393,31 @@ def extract_conversations(
         FileNotFoundError: ChatStorage.sqlite missing.
     """
     db_path = Path(db_path) if db_path else DEFAULT_CHAT_DB
+    # Stamp the backfill start once, up front. Preserved across ticks by the
+    # helper so CM044's rate-based ETA falls as work completes.
+    started_at = datetime.now(timezone.utc).isoformat()
+
     if not db_path.exists():
+        # WhatsApp Desktop is optional -- an absent ChatStorage.sqlite means
+        # the customer has not installed / linked the app yet. Emit a
+        # needs_source=True shard so the settling panel invites them to
+        # connect the source rather than showing a stalled bar. Then
+        # re-raise so callers (extract_all, main) keep their existing
+        # skip semantics.
+        _emit_settling(done=0, total=0, needs_source=True, started_at=started_at)
         raise FileNotFoundError(
             f"WhatsApp ChatStorage.sqlite not found at {db_path}. "
             "Install WhatsApp Desktop from the Mac App Store, then re-run."
         )
     now_utc = now_utc or datetime.now(timezone.utc)
 
-    conn = _open_readonly(db_path)
+    try:
+        conn = _open_readonly(db_path)
+    except PermissionError:
+        # FDA not granted -- from the customer's perspective the source is
+        # not yet connected. Emit needs_source=True and re-raise.
+        _emit_settling(done=0, total=0, needs_source=True, started_at=started_at)
+        raise
     try:
         # Pull a minimal session row -- we resolve participants per
         # session inside the classifier so the query plan stays
@@ -378,15 +432,39 @@ def extract_conversations(
         # participants + engagement queries reuse it. Close after.
         pass
 
+    # Total is measured ONCE from the session-row count so the bar cannot
+    # move backwards if a downstream retry re-invokes this function against
+    # a growing ChatStorage.sqlite. `done` counts sessions we have run
+    # through the classifier -- items fully processed, not items read.
+    total = len(sessions)
+
+    if total == 0:
+        # No sessions -- a fresh WhatsApp Desktop install with no chats.
+        # Emit a ready shard (needs_source=False -- the app is installed
+        # and the DB is reachable, there is just nothing to backfill).
+        conn.close()
+        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at)
+        logger.info("Extracted 0 WhatsApp chats (empty ChatStorage)")
+        return []
+
+    _emit_settling(done=0, total=total, started_at=started_at)
+
     chats: List[WhatsAppChat] = []
     cutoff_ts: Optional[float] = None
     if since_days is not None:
         cutoff_ts = (now_utc - timedelta(days=since_days)).timestamp()
 
+    done = 0
+    last_tick = time.monotonic()
     for row in sessions:
         last_dt = _convert_timestamp(row["ZLASTMESSAGEDATE"])
         if cutoff_ts is not None and last_dt is not None:
             if last_dt.timestamp() < cutoff_ts:
+                done += 1
+                now_mono = time.monotonic()
+                if done == total or now_mono - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
+                    _emit_settling(done=done, total=total, started_at=started_at)
+                    last_tick = now_mono
                 continue
 
         chat = classify_chat(
@@ -399,10 +477,25 @@ def extract_conversations(
         )
         # Drop T1 chats with no real contact JID (status@broadcast et al.)
         if chat.tier == TIER_T1_DM and not chat.contact_jid:
+            done += 1
+            now_mono = time.monotonic()
+            if done == total or now_mono - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
+                _emit_settling(done=done, total=total, started_at=started_at)
+                last_tick = now_mono
             continue
         chats.append(chat)
 
+        done += 1
+        now_mono = time.monotonic()
+        if done == total or now_mono - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
+            _emit_settling(done=done, total=total, started_at=started_at)
+            last_tick = now_mono
+
     conn.close()
+
+    # Belt-and-braces final emit so `done == total` on disk regardless of
+    # the last tick's timing.
+    _emit_settling(done=total, total=total, started_at=started_at)
     logger.info(
         "Extracted %d WhatsApp chats (t1_dm=%d, t2_intimate=%d, t2_active=%d, t3_skip=%d)",
         len(chats),
