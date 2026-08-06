@@ -139,14 +139,24 @@ resolve_wiki() { # artifact-key (wiki-compiler|wiki-site)
   local key="$1" digest ledger_sha ref override
   # Test / demo override wins.
   override="$(printf '%s\n' "${PROV_IMAGE_OVERRIDE}" | awk -F= -v k="$key" '$1==k{print $2; exit}')"
-  digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "${INSTALL_SH}" 2>/dev/null \
-            | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
+  # 2026-08-06 ORM: take the WHOLE ref (namespace included) from install.sh
+  # rather than reading only the digest and re-composing against a hardcoded
+  # namespace. The old code grepped one namespace and then rebuilt the ref as
+  # ghcr.io/creativemachines-ai/... -- so once install.sh pinned the SHIPPED
+  # namespace (ghcr.io/ostler-ai, what customers actually pull) this gate
+  # looked up a digest under a registry path that does not host it and
+  # fail-closed with "not present locally and could not be pulled".
+  # install.sh is the single source of truth for what ships; read it verbatim.
+  local pinned_ref
+  pinned_ref="$(grep -m1 -oE "ghcr\.io/[A-Za-z0-9._-]+/ostler-${key}@sha256:[0-9a-f]+" "${INSTALL_SH}" 2>/dev/null)"
+  digest="${pinned_ref##*@}"
+  [[ "$digest" == sha256:* ]] || digest=""
   if [[ -n "$override" ]]; then
     ref="$override"
     # Try to lift the digest out of the override ref for the ledger lookup.
     case "$override" in *@sha256:*) digest="sha256:${override##*@sha256:}" ;; esac
   else
-    ref="ghcr.io/creativemachines-ai/ostler-${key}@${digest}"
+    ref="$pinned_ref"
   fi
   ledger_sha=""
   if [[ -n "$digest" && -f "${WIKI_PROVENANCE_FILE}" ]]; then

@@ -131,7 +131,14 @@ trap cleanup EXIT
 #     fallback: OstlerInstaller.app/Contents/Resources/assistant-agent/bin/ostler-assistant
 # --------------------------------------------------------------------------
 RES="${MOUNT}/OstlerInstaller.app/Contents/Resources"
-WRAPPER="${RES}/Ostler.app/Contents/MacOS/zeroclaw-desktop"
+# 2026-08-06 ORM: the Tauri Hub binary was renamed zeroclaw-desktop -> ostler-hub
+# (ostler-assistant 9217a7d7, #263). CM051 was never updated, so every check
+# keyed on the old name silently found nothing -- an inert gate. Prefer the
+# current name, fall back to the legacy one for a Hub built from an older sha.
+WRAPPER="${RES}/Ostler.app/Contents/MacOS/ostler-hub"
+if [[ ! -e "${WRAPPER}" ]]; then
+    WRAPPER="${RES}/Ostler.app/Contents/MacOS/zeroclaw-desktop"
+fi
 DAEMON="${RES}/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
 if [[ ! -e "${DAEMON}" ]]; then
     DAEMON="${RES}/assistant-agent/bin/ostler-assistant"

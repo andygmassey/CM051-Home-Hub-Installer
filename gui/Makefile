@@ -1027,72 +1027,81 @@ notarise-app: check-tools
 	@echo "[OK] $(APP_NAME).app + every nested CDHash notarised. Ready to staple."
 
 # ---------------------------------------------------------------------------
-# staple-apps: staple the tickets INTO the .app bundles in the build tree.
+# staple-apps: staple the notarisation ticket INTO the OUTER .app only.
 #
-# Order matters: DEEPEST FIRST. Apple's stapler writes the ticket to a
-# well-known bundle path that codesign treats as an alternate resource;
-# stapling a nested .app after the outer's --deep --strict verify is
-# safe, but we still walk deepest-first so any surprise codesign
-# consequence surfaces on the innermost item (easier to diagnose).
+# 2026-08-06 ORM -- CORRECTION. The previous version of this step also stapled
+# every NESTED .app (deepest-first) on the stated assumption that "stapling a
+# nested .app after the outer's --deep --strict verify is safe". That
+# assumption is FALSE and it burned this cut:
 #
-# find is used to enumerate every .app under $(APP_PATH)/Contents/, so
-# a future new nested .app (e.g. an in-DMG Safari Extension) gets
-# stapled automatically without a Makefile edit. The outer $(APP_PATH)
-# is stapled LAST as its own step.
+#   xcrun stapler staple <nested.app> WRITES the ticket into that bundle's
+#   Contents/CodeResources. The OUTER signature SEALS CodeResources of every
+#   nested bundle. So stapling nested AFTER the outer is signed always
+#   invalidates the outer:
+#     "a sealed resource is missing or invalid
+#      file added:    .../Sparkle.framework/.../Updater.app/Contents/CodeResources
+#      file modified: .../Ostler.app/Contents/CodeResources
+#      file modified: .../assistant-agent/OstlerAssistant.app/Contents/CodeResources"
 #
-# HR015 task #221: without this step the DMG payload ships with
-# unstapled inner .apps.
+# It only surfaced now because a nested .app finally ARRIVED already stapled
+# (the Hub Ostler.app, notarised + stapled before the installer consumed it).
+# Previously every nested .app arrived unstapled and un-notarised, so the
+# staple silently no-op'd or failed soft.
+#
+# Why not just staple nested BEFORE the outer sign? Because `sign-app` reseals
+# with `codesign --force --deep` (line ~729), which RE-SIGNS every nested
+# bundle and strips any ticket they had. That reseal is load-bearing -- three
+# separate burnt cuts are encoded around it (CX-124 hardened runtime on nested
+# Mach-Os, CX-33 python3.11 disable-library-validation, BW2-1 ostler-mecard) --
+# so it is NOT safe to drop `--deep` here on cut night.
+#
+# Net: with a `--deep` outer reseal, nested bundles CANNOT hold their own
+# staple. The outer ticket covers the whole app for Gatekeeper, and the DMG
+# itself is notarised + stapled separately, so distribution is sound.
+#
+# DEFERRED (HR015 #221's original intent): nested .apps that get COPIED OUT and
+# run standalone (Ostler.app -> /Applications) have no ticket of their own, so
+# a FIRST launch with no network may fall back to an online Gatekeeper check.
+# Proper fix is to sign nested individually and drop the outer `--deep`
+# (Apple deprecated --deep for signing for exactly this reason) -- that belongs
+# in the `make cut` rework with a real signing-order test, not in a hotfix.
 # ---------------------------------------------------------------------------
 staple-apps: check-tools
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make notarise-app' first." >&2; \
 	    exit 1; \
 	fi
-	$(STEP) "Stapling every nested .app inside $(APP_PATH) (deepest-first)"
-	@COUNT=0; FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
-	for app in $$NESTED_APPS; do \
-	    printf '  staple: %s\n' "$${app#$(APP_PATH)/}"; \
-	    if xcrun stapler staple "$$app"; then \
-	        COUNT=$$((COUNT+1)); \
-	    else \
-	        echo "  ERROR: stapler failed on $$app" >&2; \
-	        FAIL=$$((FAIL+1)); \
-	    fi; \
-	done; \
-	printf '[STEP] Stapling outer %s\n' "$(APP_NAME).app"; \
-	if xcrun stapler staple "$(APP_PATH)"; then \
-	    COUNT=$$((COUNT+1)); \
+	$(STEP) "Stapling outer $(APP_NAME).app (nested bundles intentionally NOT stapled -- see header)"
+	@if xcrun stapler staple "$(APP_PATH)"; then \
+	    printf '[OK] stapled outer %s\n' "$(APP_NAME).app"; \
 	else \
-	    echo "  ERROR: stapler failed on outer $(APP_PATH)" >&2; \
-	    FAIL=$$((FAIL+1)); \
-	fi; \
-	if [ "$$FAIL" -gt 0 ]; then \
 	    echo "" >&2; \
-	    echo "ERROR: staple-apps failed on $$FAIL bundle(s). Most likely cause:" >&2; \
+	    echo "ERROR: stapler failed on outer $(APP_PATH). Most likely cause:" >&2; \
 	    echo "  notarise-app has not run yet, so Apple's ticket server has no" >&2; \
-	    echo "  ticket for these CDHashes. Run 'make notarise-app' then retry." >&2; \
+	    echo "  ticket for this CDHash. Run 'make notarise-app' then retry." >&2; \
 	    exit 1; \
-	fi; \
-	printf '[OK] stapled %d bundles (outer + %d nested)\n' "$$COUNT" "$$((COUNT-1))"
+	fi
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
-	@FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
-	for app in "$(APP_PATH)" $$NESTED_APPS; do \
-	    if xcrun stapler validate "$$app" >/dev/null 2>&1; then \
-	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
-	    else \
-	        printf '  [FAIL] %s -- ticket missing after staple\n' "$${app#$(APP_PATH)/}" >&2; \
-	        FAIL=$$((FAIL+1)); \
-	    fi; \
-	done; \
-	[ "$$FAIL" -eq 0 ] || { echo "ERROR: post-staple validate failed on $$FAIL bundle(s)" >&2; exit 1; }
+	# Only the OUTER carries a ticket (see staple-apps header): the `--deep`
+	# reseal in sign-app re-signs nested bundles, so they cannot retain one.
+	# Nested bundles are still covered by the outer ticket + the DMG ticket.
+	@if xcrun stapler validate "$(APP_PATH)" >/dev/null 2>&1; then \
+	    printf '  [OK] %s (outer)\n' "$(APP_NAME).app"; \
+	else \
+	    echo "ERROR: post-staple validate failed on outer $(APP_NAME).app" >&2; \
+	    exit 1; \
+	fi
 	$(STEP) "Re-verifying outer codesign after staple (--deep --strict)"
+	# This MUST still pass. Stapling the outer writes the ticket to a path
+	# codesign treats as an alternate resource, so the outer seal survives its
+	# own staple -- unlike a nested staple, which mutates a SEALED
+	# Contents/CodeResources and always breaks the outer.
 	@codesign --verify --deep --strict --verbose=2 "$(APP_PATH)" || { \
 	    echo "" >&2; \
-	    echo "ERROR: outer $(APP_NAME).app failed codesign --deep --strict after nested staple." >&2; \
-	    echo "  Stapling nested .apps should not invalidate the outer signature. This is a" >&2; \
-	    echo "  new failure mode -- investigate before shipping." >&2; \
+	    echo "ERROR: outer $(APP_NAME).app failed codesign --deep --strict after its own staple." >&2; \
+	    echo "  The outer staple alone should never invalidate the outer signature." >&2; \
+	    echo "  If this fires, something else mutated the bundle after sign-app --" >&2; \
+	    echo "  diff the bundle against the signed state before shipping." >&2; \
 	    exit 1; \
 	}
 
@@ -1184,14 +1193,16 @@ verify-dmg-contents:
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \
-	if [ ! -x "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" ]; then \
+	HUB_BIN="$$RES/Ostler.app/Contents/MacOS/ostler-hub"; \
+	if [ ! -x "$$HUB_BIN" ]; then HUB_BIN="$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop"; fi; \
+	if [ ! -x "$$HUB_BIN" ]; then \
 	    OSTLER_APP_OK=0; \
 	fi; \
 	PAYLOAD_OK=1; \
 	if [ ! -f "$$RES/Ostler.app/Contents/Resources/ostler-payload/VERSION" ]; then \
 	    PAYLOAD_OK=0; \
 	fi; \
-	HUB_SHA="$$(strings "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" 2>/dev/null | grep -oE 'OSTLER_HUB_BUILD_SHA=[0-9a-f]{40}' | head -1 | cut -d= -f2)"; \
+	HUB_SHA="$$(strings "$$HUB_BIN" 2>/dev/null | grep -oE 'OSTLER_HUB_BUILD_SHA=[0-9a-f]{40}' | head -1 | cut -d= -f2)"; \
 	INSTALL_SH_OK=1; \
 	if ! grep -q "OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases" "$$RES/install.sh" 2>/dev/null; then \
 	    INSTALL_SH_OK=0; \
@@ -1245,7 +1256,7 @@ verify-dmg-contents:
 	fi; \
 	if [ "$$OSTLER_APP_OK" = "0" ]; then \
 	    echo "ERROR: Ostler.app present in Resources/ but missing the Tauri" >&2; \
-	    echo "       executable at Contents/MacOS/zeroclaw-desktop." >&2; \
+	    echo "       executable at Contents/MacOS/ostler-hub (or legacy zeroclaw-desktop)." >&2; \
 	    exit 1; \
 	fi; \
 	if [ "$$PAYLOAD_OK" = "0" ]; then \
