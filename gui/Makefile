@@ -208,7 +208,8 @@ STEP          := @printf '\n[STEP] %s\n'
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         verify-commit-parity \
-        download-python sign-python-bundle download-daemon stage-daemon \
+        download-python sign-python-bundle notarise-nested-apps \
+        download-daemon stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
 
 all: debug
@@ -718,15 +719,37 @@ sign-python-bundle:
 	else \
 	    echo "  no ostler-mecard at $$MECARD_BIN -- skipping (standalone sign run)"; \
 	fi
+	# 2026-08-06 ORM. Nested .apps must be notarised + stapled HERE: after the
+	# LAST thing that mutates them (the daemon/mecard re-signs immediately
+	# above) and BEFORE the outer signature seals their CodeResources.
+	#   - stapling AFTER the outer sign mutates a SEALED resource and always
+	#     breaks `codesign --verify --deep --strict` on the outer;
+	#   - not stapling them at all fails verify-stapling (#221): install.sh
+	#     copies them OUT to /Applications, where the outer ticket no longer
+	#     covers them, so a customer with no network on first launch gets
+	#     Gatekeeper-blocked.
+	# Script (not inline) so it is re-runnable standalone as `make
+	# notarise-nested-apps` and testable with shimmed Apple tools.
+	@bash scripts/notarise-nested-apps.sh "$(APP_PATH)" "$(NOTARY_PROFILE)" "$(BUILD_DIR)"
 	$(STEP) "Re-signing outer .app to seal inner Python signatures"
 	# CX-33 (2026-05-24): --entitlements MUST be passed here, otherwise the
-	# --force --deep re-sign STRIPS the disable-library-validation entitlement
-	# that sign-python-bundle.sh just applied to python3.11 -- and the customer
+	# re-sign STRIPS the disable-library-validation entitlement that
+	# sign-python-bundle.sh just applied to python3.11 -- and the customer
 	# install dies at encrypt_db with the cryptography Team-ID-mismatch error
 	# (Studio retest #20 trail). Same entitlements file as the outer .app uses,
 	# so the runtime + entitlements state is uniform across every Mach-O.
 	# Without this CX-30's fix gets undone before the DMG is even packaged.
-	codesign --force --deep --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
+	#
+	# 2026-08-06 ORM: `--deep` REMOVED. It was never needed to SEAL -- the outer
+	# CodeResources hashes all nested content regardless. What --deep actually
+	# does is RE-SIGN every nested bundle, which stripped the notarisation
+	# tickets stapled immediately above and made verify-stapling (#221)
+	# unsatisfiable. Every nested Mach-O is already signed explicitly earlier in
+	# this target (daemon .app + its binary, ostler-mecard) and by
+	# sign-python-bundle.sh, so nothing is left unsigned -- and the
+	# `--verify --deep --strict` on the next line proves that on every run.
+	# Apple deprecated --deep for signing for exactly this reason.
+	codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
 	codesign --verify --deep --strict --verbose=2 "$(APP_PATH)"
 	@echo "Post-sign verify: python3.11 entitlements (must include disable-library-validation)"
 	@codesign -d --entitlements :- "$(APP_PATH)/Contents/Resources/python/bin/python3.11" 2>&1 | grep -q "disable-library-validation" \
@@ -746,6 +769,27 @@ sign-python-bundle:
 	        && echo "  ✓ hardened runtime present on ostler-mecard" \
 	        || (echo "  ✗ hardened runtime MISSING from ostler-mecard -- DMG will fail notarisation"; exit 1); \
 	fi
+
+# ---------------------------------------------------------------------------
+# notarise-nested-apps: standalone entry point for the step sign-app runs
+# inline. Gives Ostler.app + OstlerAssistant.app their OWN notarisation
+# tickets (HR015 #221) -- install.sh copies both OUT to /Applications, where
+# the outer installer's ticket no longer covers them.
+#
+# Idempotent: a bundle that already validates is skipped, so re-running after
+# a mid-chain failure costs nothing. See scripts/notarise-nested-apps.sh for
+# the full ordering rationale (why the Hub cannot be notarised pre-assembly).
+#
+# Standalone use is a DIAGNOSTIC path -- it does not re-seal the outer .app,
+# so run `make sign-python-bundle` (or the full `make ship`) afterwards if you
+# invoke it by hand mid-cut.
+# ---------------------------------------------------------------------------
+notarise-nested-apps: check-tools
+	@if [ ! -d "$(APP_PATH)" ]; then \
+	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
+	    exit 1; \
+	fi
+	@bash scripts/notarise-nested-apps.sh "$(APP_PATH)" "$(NOTARY_PROFILE)" "$(BUILD_DIR)"
 
 # ---------------------------------------------------------------------------
 # Hard prerequisite for `make ship`. Refuses to proceed when
@@ -1027,44 +1071,36 @@ notarise-app: check-tools
 	@echo "[OK] $(APP_NAME).app + every nested CDHash notarised. Ready to staple."
 
 # ---------------------------------------------------------------------------
-# staple-apps: staple the notarisation ticket INTO the OUTER .app only.
+# staple-apps: staple the notarisation ticket INTO the OUTER .app.
 #
-# 2026-08-06 ORM -- CORRECTION. The previous version of this step also stapled
-# every NESTED .app (deepest-first) on the stated assumption that "stapling a
-# nested .app after the outer's --deep --strict verify is safe". That
-# assumption is FALSE and it burned this cut:
+# The NESTED .apps are already ticketed + stapled by this point --
+# scripts/notarise-nested-apps.sh does that at the tail of sign-app, before the
+# outer reseal seals their CodeResources. This step handles the outer only.
 #
-#   xcrun stapler staple <nested.app> WRITES the ticket into that bundle's
-#   Contents/CodeResources. The OUTER signature SEALS CodeResources of every
-#   nested bundle. So stapling nested AFTER the outer is signed always
-#   invalidates the outer:
+# Do NOT staple a nested bundle from here. `xcrun stapler staple <nested.app>`
+# WRITES the ticket into that bundle's Contents/CodeResources, and the OUTER
+# signature SEALS the CodeResources of every nested bundle -- so a nested
+# staple AFTER the outer is signed always invalidates the outer:
 #     "a sealed resource is missing or invalid
 #      file added:    .../Sparkle.framework/.../Updater.app/Contents/CodeResources
 #      file modified: .../Ostler.app/Contents/CodeResources
 #      file modified: .../assistant-agent/OstlerAssistant.app/Contents/CodeResources"
+# That is what burned the first v1.0.15 attempt. Ordering is the whole fix:
+# notarise + staple nested BEFORE the outer sign, outer AFTER.
 #
-# It only surfaced now because a nested .app finally ARRIVED already stapled
-# (the Hub Ostler.app, notarised + stapled before the installer consumed it).
-# Previously every nested .app arrived unstapled and un-notarised, so the
-# staple silently no-op'd or failed soft.
+# History (2026-08-06): this used to be documented as impossible, because
+# sign-app resealed with `codesign --force --deep`, which RE-SIGNS every nested
+# bundle and strips any ticket it held. `--deep` has since been dropped from
+# that reseal -- it was never what did the sealing (the outer CodeResources
+# hashes all nested content regardless), every nested Mach-O is signed
+# explicitly earlier in sign-app, and `--verify --deep --strict` proves that on
+# every run. The three burnt cuts encoded around that reseal (CX-124 hardened
+# runtime on nested Mach-Os, CX-33 python3.11 disable-library-validation, BW2-1
+# ostler-mecard) are all still covered by those explicit signs plus the
+# post-sign assertions below them.
 #
-# Why not just staple nested BEFORE the outer sign? Because `sign-app` reseals
-# with `codesign --force --deep` (line ~729), which RE-SIGNS every nested
-# bundle and strips any ticket they had. That reseal is load-bearing -- three
-# separate burnt cuts are encoded around it (CX-124 hardened runtime on nested
-# Mach-Os, CX-33 python3.11 disable-library-validation, BW2-1 ostler-mecard) --
-# so it is NOT safe to drop `--deep` here on cut night.
-#
-# Net: with a `--deep` outer reseal, nested bundles CANNOT hold their own
-# staple. The outer ticket covers the whole app for Gatekeeper, and the DMG
-# itself is notarised + stapled separately, so distribution is sound.
-#
-# DEFERRED (HR015 #221's original intent): nested .apps that get COPIED OUT and
-# run standalone (Ostler.app -> /Applications) have no ticket of their own, so
-# a FIRST launch with no network may fall back to an online Gatekeeper check.
-# Proper fix is to sign nested individually and drop the outer `--deep`
-# (Apple deprecated --deep for signing for exactly this reason) -- that belongs
-# in the `make cut` rework with a real signing-order test, not in a hotfix.
+# HR015 #221 is therefore CLOSED, not deferred: a customer whose first launch
+# of /Applications/Ostler.app has no network now finds a stapled ticket.
 # ---------------------------------------------------------------------------
 staple-apps: check-tools
 	@if [ ! -d "$(APP_PATH)" ]; then \
@@ -1082,15 +1118,26 @@ staple-apps: check-tools
 	    exit 1; \
 	fi
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
-	# Only the OUTER carries a ticket (see staple-apps header): the `--deep`
-	# reseal in sign-app re-signs nested bundles, so they cannot retain one.
-	# Nested bundles are still covered by the outer ticket + the DMG ticket.
+	# Outer + both nested bundles must all carry tickets. The nested ones were
+	# stapled at the tail of sign-app; re-asserting here catches any regression
+	# that re-signs them between there and packaging, ~15 minutes before
+	# verify-stapling would catch the same thing from inside the finished DMG.
 	@if xcrun stapler validate "$(APP_PATH)" >/dev/null 2>&1; then \
 	    printf '  [OK] %s (outer)\n' "$(APP_NAME).app"; \
 	else \
 	    echo "ERROR: post-staple validate failed on outer $(APP_NAME).app" >&2; \
 	    exit 1; \
 	fi
+	@for rel in "Contents/Resources/Ostler.app" \
+	            "Contents/Resources/assistant-agent/OstlerAssistant.app"; do \
+	    if xcrun stapler validate "$(APP_PATH)/$$rel" >/dev/null 2>&1; then \
+	        printf '  [OK] %s (nested)\n' "$$rel"; \
+	    else \
+	        echo "ERROR: nested bundle lost its ticket before packaging: $$rel" >&2; \
+	        echo "  Something re-signed it after sign-app's notarise-nested-apps step." >&2; \
+	        exit 1; \
+	    fi; \
+	done
 	$(STEP) "Re-verifying outer codesign after staple (--deep --strict)"
 	# This MUST still pass. Stapling the outer writes the ticket to a path
 	# codesign treats as an alternate resource, so the outer seal survives its

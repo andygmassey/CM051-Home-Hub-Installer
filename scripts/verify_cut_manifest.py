@@ -47,21 +47,50 @@ CM051_DIR = SCRIPT_DIR.parent
 DEFAULT_APP_PATH = Path(f"/tmp/ostler-installer-dist-{os.environ.get('USER', 'nobody')}") / "OstlerInstaller.app"
 
 
+def _first_existing(*candidates: Path) -> Path:
+    """First candidate that exists; else the first (so SKIP names what we wanted).
+
+    2026-08-06: this exists because a RENAME silently disarmed a gate. The Hub
+    binary went `zeroclaw-desktop` -> `ostler-hub` (oa 9217a7d7 / #263) in June,
+    and `daemon-binary` kept resolving to the old name. A target that does not
+    exist returns SKIP, not FAIL -- so every entry aimed at it silently stopped
+    applying and the cut stayed green. Fourth instance of that class found in
+    this cut alone (three in the shell gates). Never resolve a shipped path to a
+    single hardcoded basename that a rename can invalidate.
+    """
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
 def resolve_target(target: str, app_path: Path, cm051_dir: Path, extra_paths: dict[str, Path]) -> Path:
     """Resolve a semantic target name to a filesystem path."""
-    daemon_app = app_path / "Contents" / "Resources" / "Ostler.app"
+    hub_app = app_path / "Contents" / "Resources" / "Ostler.app"
+    assistant_app = (app_path / "Contents" / "Resources" / "assistant-agent"
+                     / "OstlerAssistant.app")
     m = {
         "installer": cm051_dir / "install.sh",           # file (grep target)
         "installer-tree": cm051_dir,                     # dir (plist/file-exists target)
         "installer-app": app_path,
-        "daemon-app": daemon_app,
-        "daemon-web-bundle": daemon_app / "Contents" / "Resources",
+        "daemon-app": hub_app,
+        "daemon-web-bundle": hub_app / "Contents" / "Resources",
         # Tauri packs web/dist compressed inside the main binary; strings(1)
         # cannot grep those. For UI-string fixes, prefer grep_in_source_at_sha
-        # on the ostler-assistant repo. `daemon-binary` still works for Rust-
-        # literal strings the compiler emits verbatim (log messages, panic
-        # strings, format literals).
-        "daemon-binary": daemon_app / "Contents" / "MacOS" / "zeroclaw-desktop",
+        # on the ostler-assistant repo, or the *_FRONTEND_COMMIT env!() stamps
+        # (codesigning-invariant, and greppable). `daemon-binary` still works
+        # for Rust-literal strings the compiler emits verbatim (log messages,
+        # panic strings, format literals).
+        #
+        # NAMING, because it has misled before: `daemon-binary` is the Tauri
+        # HUB binary inside Ostler.app. The Rust ASSISTANT daemon is a separate
+        # bundle -- use `assistant-binary` for that one.
+        "daemon-binary": _first_existing(
+            hub_app / "Contents" / "MacOS" / "ostler-hub",
+            hub_app / "Contents" / "MacOS" / "zeroclaw-desktop",   # pre-June name
+        ),
+        "assistant-binary": assistant_app / "Contents" / "MacOS" / "ostler-assistant",
+        "assistant-app": assistant_app,
         "vendored-context-refresh": app_path / "Contents" / "Resources" / "context-refresh",
         "vendored-wiki-recompile": app_path / "Contents" / "Resources" / "wiki-recompile",
     }
@@ -298,8 +327,9 @@ def check_grep_in_artefact(entry: dict, ctx: dict) -> Result:
         return Result(entry["id"], entry["title"], "grep_in_artefact", "SKIP",
                       f"target {target_name!r} not present at {target} (has DMG been built?)",
                       entry.get("source_pr", ""))
-    # Special case: daemon-binary uses strings(1).
-    if target_name == "daemon-binary":
+    # Special case: Mach-O targets are searched with strings(1), not by walking
+    # a directory tree.
+    if target_name in ("daemon-binary", "assistant-binary"):
         hits = _grep_binary_strings(target, pattern)
     else:
         hits = _grep_tree(target, pattern, path_hint)
