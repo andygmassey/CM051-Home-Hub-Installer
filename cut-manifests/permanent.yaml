@@ -58,16 +58,17 @@ entries:
   # binary-grep. The correct proof is source-at-sha on ostler-assistant —
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
-  - id: firstrun-popup-governor-source
-    title: FirstRunPopup handler uses /governor route (source, at daemon-pinned SHA)
-    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
-    source_pr: ostler-ai/ostler-assistant#231
-    proof:
-      kind: grep_in_source_at_sha
-      target: ostler-assistant
-      path: "web/src/components/FirstRunPopup.tsx"
-      pattern: "navigate\\(['\"]\\/governor['\"]\\)"
-      must_match: true
+  # RETIRED 2026-07-31 by Archie on Q5a owner authority (TNM-verified):
+  # This row (id: firstrun-popup-governor-source, source_pr ostler-ai/ostler-assistant#231)
+  # guarded FirstRunPopup.tsx, which was deliberately DELETED in v1.0.3 by commit
+  # d47fef87 "reframe Home as first-run WOW hero, move system status to Doctor".
+  # The /governor route no longer exists in the v1.0.13 Hub frontend at all
+  # (verified grep on oa/main HEAD a6784bdc: 0 matches for '/governor'; the whole
+  # FirstRunPopup was replaced by FirstRunHero in Dashboard.tsx, first-run now
+  # points to the Doctor page). Reconciling the pattern would resurrect deleted UI.
+  # Original commit that added the CTA (1da581c4) is on hub-v0.4.40/0.4.42 but
+  # deliberately not on oa/main. Row retired, not reconciled. See TNM channel
+  # entry 2026-07-31 "CUT BLOCKED — check-manifest RED" for the full trace.
 
   # ==========================================================================
   # Operator-PII backstop. Andy's personal instance details (his IP, hostname,
