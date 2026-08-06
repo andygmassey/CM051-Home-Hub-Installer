@@ -139,14 +139,30 @@ resolve_wiki() { # artifact-key (wiki-compiler|wiki-site)
   local key="$1" digest ledger_sha ref override
   # Test / demo override wins.
   override="$(printf '%s\n' "${PROV_IMAGE_OVERRIDE}" | awk -F= -v k="$key" '$1==k{print $2; exit}')"
-  digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "${INSTALL_SH}" 2>/dev/null \
-            | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
+  # Namespace-AGNOSTIC, and the REF comes from install.sh -- not a constant.
+  #
+  # This grep was pinned to "ghcr.io/creativemachines-ai/", but install.sh ships
+  # "ghcr.io/ostler-ai/" (CI publishes to one namespace, the installer pulls the
+  # other -- CM044 #643). So the grep never matched, `digest` came back EMPTY,
+  # and EVERY wiki row failed as "UNRECORDED provenance" against a ledger that
+  # was perfectly correct -- with a mangled "/creativemac" in the message. The
+  # sibling bug in verify_cut_freshness.sh had the same single cause.
+  #
+  # Building the ref from a hardcoded owner is the worse half: a `docker pull`
+  # of ghcr.io/creativemachines-ai/... would fetch an image the customer never
+  # runs, and any marker check against it would be answering about the wrong
+  # artefact. Lift BOTH digest and owner out of the shipped line.
+  local line shipped_ref
+  line="$(grep -m1 -E "image: ghcr\.io/[a-z0-9-]+/ostler-${key}@sha256:" "${INSTALL_SH}" 2>/dev/null)"
+  digest="$(printf '%s' "$line" | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
+  shipped_ref="$(printf '%s' "$line" \
+    | sed -E "s#.*(ghcr\.io/[a-z0-9-]+/ostler-${key}@sha256:[0-9a-f]+).*#\1#")"
   if [[ -n "$override" ]]; then
     ref="$override"
     # Try to lift the digest out of the override ref for the ledger lookup.
     case "$override" in *@sha256:*) digest="sha256:${override##*@sha256:}" ;; esac
   else
-    ref="ghcr.io/creativemachines-ai/ostler-${key}@${digest}"
+    ref="$shipped_ref"
   fi
   ledger_sha=""
   if [[ -n "$digest" && -f "${WIKI_PROVENANCE_FILE}" ]]; then
