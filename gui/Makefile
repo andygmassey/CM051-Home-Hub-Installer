@@ -208,6 +208,7 @@ STEP          := @printf '\n[STEP] %s\n'
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
+        check-pr-age \
         verify-commit-parity \
         download-python sign-python-bundle download-daemon stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
@@ -867,6 +868,31 @@ check-orphans:
 	    exit 1; \
 	}
 
+# ---------------------------------------------------------------------------
+# PR AGE GATE (rule effective 2026-08-06)
+# ---------------------------------------------------------------------------
+# A PR opened from 2026-08-06 must be MERGED or CLOSED within 48 hours.
+#
+# The sibling gate above asks "did we forget to pin a fix that exists?". This
+# one attacks the cause rather than the symptom: on 2026-08-06 a sweep found
+# 176 open PRs and 458 unmerged branches carrying genuinely unique work. That
+# backlog is what made six forgotten fixes statistically inevitable, and it
+# grew because "done" meant "PR open" rather than "merged to main".
+#
+# NOT retroactive -- the pre-existing 176 are a legacy backlog with their own
+# phased sweep, and failing on them would leave this permanently red, which is
+# how a gate becomes something people route around.
+# ---------------------------------------------------------------------------
+check-pr-age:
+	$(STEP) "PR age preflight (merge or close within 48h)"
+	@../scripts/verify_pr_age.sh || { \
+	    echo "" >&2; \
+	    echo "ERROR: PRs have outstayed the 48h limit." >&2; \
+	    echo "       Merge, close, or record an exemption with a reason under" >&2; \
+	    echo "       pr_exemptions: in cut-deferrals.yaml. DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
+
 check-freshness:
 	$(STEP) "Cut-freshness preflight (live GitHub HEAD)"
 	@../scripts/verify_cut_freshness.sh || { \
@@ -1419,7 +1445,7 @@ verify-commit-parity:
 # verify-commit-parity catches daemon+wrapper frontend drift (#226 / #225).
 # All three must be GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-orphans check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: check-orphans check-pr-age check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
