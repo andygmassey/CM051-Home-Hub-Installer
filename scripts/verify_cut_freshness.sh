@@ -63,20 +63,18 @@
 #
 # Inputs checked:
 #   1. Vendor pins  (vendor/VENDOR_MANIFEST.toml -- per-tree, path-scoped)
-#   2. Daemon       (install.sh / gui/Makefile pin -> ostler-assistant tag ->
-#                    compared against the integration branch HEAD)
+#   2. Daemon       (install.sh / gui/Makefile pin -> tag -> PUBLISHED release
+#                    asset: .sha256 sidecar + build-info.json commit_sha)
 #   3. Wiki images  (install.sh digest -> scripts/wiki_image_provenance.tsv ->
 #                    recorded CM044 sha compared against CM044 main HEAD)
 #
 # Usage:   scripts/verify_cut_freshness.sh
 # Env (all optional):
-#   DAEMON_INTEGRATION_BRANCH  ostler-assistant branch the daemon must track
-#                              (default: integration/hub-v1.0.9)
 #   CM044_BRANCH               wiki source branch (default: main)
 #   WIKI_PROVENANCE_FILE       path to the digest->CM044-sha ledger
 #                              (default: scripts/wiki_image_provenance.tsv)
 #   FRESHNESS_ONLY             restrict the run to a single vendor tree by name
-#                              (ops/debug + self-demo; daemon+wiki still checked)
+#                              (ops/debug + self-demo; SKIPS the daemon check)
 #   GH_API_TIMEOUT             per-call timeout in seconds (default: 25)
 #   FRESHNESS_GH_BIN           override the `gh` binary (tests inject a mock)
 #
@@ -98,7 +96,6 @@ set +e
 # fixtures via the *_OVERRIDE env vars.
 INSTALL_SH="${INSTALL_SH_OVERRIDE:-$REPO_ROOT/install.sh}"
 GUI_MAKEFILE="${GUI_MAKEFILE_OVERRIDE:-$REPO_ROOT/gui/Makefile}"
-DAEMON_INTEGRATION_BRANCH="${DAEMON_INTEGRATION_BRANCH:-integration/hub-v1.0.9}"
 CM044_BRANCH="${CM044_BRANCH:-main}"
 WIKI_PROVENANCE_FILE="${WIKI_PROVENANCE_FILE:-$SCRIPT_DIR/wiki_image_provenance.tsv}"
 WIKI_HOLD_ACK_FILE="${WIKI_HOLD_ACK_FILE:-$SCRIPT_DIR/wiki_hold_ack.tsv}"
@@ -365,7 +362,7 @@ EOF
 
 echo "=== Cut-freshness gate (live GitHub HEAD) ==="
 echo "manifest:            $VLIB_MANIFEST"
-echo "daemon integration:  ostler-ai/ostler-assistant @ $DAEMON_INTEGRATION_BRANCH"
+echo "daemon provenance:   ${OSTLER_RELEASES_REPO:-ostler-ai/ostler-releases} release asset -> tag -> commit"
 echo "wiki source branch:  andygmassey/CM044-PWG-Personal-Wiki @ $CM044_BRANCH"
 echo "provenance ledger:   $WIKI_PROVENANCE_FILE"
 echo
@@ -510,16 +507,84 @@ else
         if [ "$h" = "UNREACH" ]; then daemon_unreach=1; continue; fi
         if [ "$h" != "NONE" ] && [ -n "$h" ]; then daemon_commit="$h"; break; fi
     done
-    integ_head="$(gh_head ostler-ai ostler-ai/ostler-assistant "$DAEMON_INTEGRATION_BRANCH")"
     if [ -z "$daemon_commit" ]; then
-        if [ "$daemon_unreach" = "1" ] || [ "$integ_head" = "UNREACH" ]; then
+        if [ "$daemon_unreach" = "1" ]; then
             n_cannot=$((n_cannot+1)); add_row "daemon" "$daemon_pin" "-" "CANNOT-VERIFY unreachable"
         else
             n_stale=$((n_stale+1)); add_row "daemon" "$daemon_pin" "-" "RED no-tag-for-pin"
         fi
     else
-        verdict="$(freshness_verdict ostler-ai ostler-ai/ostler-assistant "$daemon_commit" "$integ_head")"
-        classify_simple "daemon (${daemon_pin})" "$daemon_commit" "$integ_head" "$verdict"
+        # ARTEFACT-PROVENANCE CHAIN, not a branch comparison.
+        #
+        # This check used to compare the pin against $DAEMON_INTEGRATION_BRANCH,
+        # defaulted to "integration/hub-v1.0.9". By v1.0.16 that branch was
+        # abandoned: the comparison read "diverged, ahead 3, behind 123" and went
+        # RED on a perfectly coherent daemon. A gate keyed to a hand-maintained
+        # branch NAME rots silently and then cries wolf -- and the next person
+        # rightly ignores it, which is how a real divergence would have sailed
+        # through. Worse, the branch it named was not even the shipping line: the
+        # pin is a TAG, and install.sh downloads a RELEASE ASSET.
+        #
+        # So verify what actually reaches the customer, which cannot rot:
+        #   1. the pinned version resolves to a tag           (done above)
+        #   2. a published, non-draft release exists for it on the repo
+        #      install.sh really fetches from
+        #   3. that release's .sha256 sidecar == the Makefile's DAEMON_SHA256
+        #      -- binds the pin to the exact BYTES the installer downloads
+        #   4. its build-info.json commit_sha == the tag's commit
+        #      -- binds those bytes back to source
+        # Any break in the chain is RED and names which link failed.
+        rel_repo="$(grep -m1 -E 'OSTLER_ASSISTANT_REPO:-' "$INSTALL_SH" 2>/dev/null \
+                    | sed -E 's/.*:-([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\}.*/\1/')"
+        rel_repo="${rel_repo:-ostler-ai/ostler-releases}"
+        mk_sha="$(grep -m1 -E '^DAEMON_SHA256[[:space:]]*\?=' "$GUI_MAKEFILE" 2>/dev/null \
+                  | sed -E 's/.*\?=[[:space:]]*([0-9a-f]{64}).*/\1/')"
+        d_tok="$(gh auth token -u ostler-ai 2>/dev/null || true)"
+        rel_json="$(GH_TOKEN="${d_tok:-}" gh api \
+            "repos/${rel_repo}/releases/tags/hub-v${daemon_pin}" 2>/dev/null || true)"
+
+        if [ -z "$rel_json" ]; then
+            n_stale=$((n_stale+1))
+            add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "RED no-published-release"
+            add_detail "daemon RED: no published release hub-v${daemon_pin} on ${rel_repo} -- install.sh downloads from there, so every customer install would 404."
+        else
+            d_draft="$(printf '%s' "$rel_json" | sed -n 's/.*"draft":[[:space:]]*\([a-z]*\).*/\1/p' | head -1)"
+            side_id="$(GH_TOKEN="${d_tok:-}" gh api \
+                        "repos/${rel_repo}/releases/tags/hub-v${daemon_pin}" \
+                        --jq '.assets[]|select(.name|endswith(".sha256"))|.id' 2>/dev/null | head -1)"
+            pub_sha=""
+            [ -n "$side_id" ] && pub_sha="$(GH_TOKEN="${d_tok:-}" gh api \
+                "repos/${rel_repo}/releases/assets/${side_id}" \
+                -H "Accept: application/octet-stream" 2>/dev/null | awk '{print $1; exit}')"
+            bi_id="$(GH_TOKEN="${d_tok:-}" gh api "repos/${rel_repo}/releases/tags/hub-v${daemon_pin}" \
+                       --jq '.assets[]|select(.name|endswith("build-info.json"))|.id' 2>/dev/null | head -1)"
+            bi_commit=""
+            [ -n "$bi_id" ] && bi_commit="$(GH_TOKEN="${d_tok:-}" gh api \
+                "repos/${rel_repo}/releases/assets/${bi_id}" \
+                -H "Accept: application/octet-stream" 2>/dev/null \
+                | sed -n 's/.*"commit_sha":[[:space:]]*"\([0-9a-f]*\)".*/\1/p' | head -1)"
+
+            if [ "$d_draft" = "true" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "$daemon_commit" "draft" "RED release-is-draft"
+                add_detail "daemon RED: release hub-v${daemon_pin} on ${rel_repo} is a DRAFT -- not downloadable by a customer."
+            elif [ -n "$mk_sha" ] && [ -n "$pub_sha" ] && [ "$mk_sha" != "$pub_sha" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "${mk_sha:0:8}" "${pub_sha:0:8}" "RED sha256-mismatch"
+                add_detail "daemon RED: gui/Makefile DAEMON_SHA256 (${mk_sha}) != the published sidecar (${pub_sha}). The installer would reject the tarball it downloads."
+            elif [ -z "$pub_sha" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "RED no-sha256-asset"
+                add_detail "daemon RED: release hub-v${daemon_pin} has no .sha256 sidecar -- the pin cannot be bound to the shipped bytes."
+            elif [ -n "$bi_commit" ] && [ "${bi_commit}" != "${daemon_commit}" ]; then
+                n_stale=$((n_stale+1))
+                add_row "daemon (${daemon_pin})" "${daemon_commit:0:8}" "${bi_commit:0:8}" "RED built-from-other-commit"
+                add_detail "daemon RED: tag hub-v${daemon_pin} points at ${daemon_commit}, but the published binary's build-info.json says it was built from ${bi_commit}. The shipped daemon is not the tagged source."
+            else
+                n_fresh=$((n_fresh+1))
+                add_row "daemon (${daemon_pin})" "${daemon_commit:0:8}" "${daemon_commit:0:8}" "FRESH tag+sha256+build-info"
+            fi
+        fi
     fi
 fi
 }
@@ -537,7 +602,17 @@ fi
 check_wiki() {
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
 for key in wiki-compiler wiki-site; do
-    digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
+    # Namespace-AGNOSTIC on purpose. CI (release-images.yml) publishes to
+    # ghcr.io/creativemachines-ai/*, but install.sh ships ghcr.io/ostler-ai/*
+    # -- the automated path does not feed the shipped path (CM044 #643). This
+    # grep was pinned to the CI namespace, so it never matched the shipped
+    # line and this check has NEVER verified a wiki digest: it reported
+    # "no-digest-in-install.sh" against an install.sh that has always carried
+    # one. It failed CLOSED, which is the only reason it was not a shipping
+    # defect -- had the namespaces been the other way round it would have
+    # verified an image the customer never pulls. Match any owner, and let the
+    # provenance ledger bind digest -> CM044 sha regardless of registry path.
+    digest="$(grep -m1 -E "image: ghcr\.io/[a-z0-9-]+/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
               | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
     if [ -z "$digest" ]; then
         n_stale=$((n_stale+1))
