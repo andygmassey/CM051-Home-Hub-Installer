@@ -728,7 +728,33 @@ sign-python-bundle:
 	# (Studio retest #20 trail). Same entitlements file as the outer .app uses,
 	# so the runtime + entitlements state is uniform across every Mach-O.
 	# Without this CX-30's fix gets undone before the DMG is even packaged.
-	codesign --force --deep --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
+	# NO --deep. (v1.0.16, 2026-08-07)
+	#
+	# --deep re-signs every NESTED bundle as well as the outer one. That gives
+	# each nested .app a new CDHash, which silently invalidates the notarisation
+	# ticket it arrived with:
+	#
+	#   * OstlerAssistant.app is stapled inside the daemon tarball.
+	#   * Ostler.app is stapled by notarise-hub before `release` copies it in.
+	#
+	# Both tickets were measured STALE immediately after this step ran with
+	# --deep. staple-apps then had to re-staple them to restore the tickets,
+	# which writes Contents/CodeResources inside bundles the outer had already
+	# sealed -- and that is what produced:
+	#
+	#   OstlerInstaller.app: a sealed resource is missing or invalid
+	#
+	# The v1.0.15 cut manifest already carried this conclusion, as an entry
+	# named `v1015-outer-reseal-not-deep`: "outer .app reseal must not use
+	# --deep (it strips nested tickets)". That manifest is the file that never
+	# reached main (commit d7ee25b), so the finding was written down and lost.
+	#
+	# --deep is redundant here anyway: python3.11, the assistant daemon, the
+	# mecard helper and Sparkle are each signed explicitly by the steps above.
+	# All this step has to do is re-seal the OUTER bundle so its CodeResources
+	# reflects those inner signatures -- which a plain outer sign does. Apple
+	# deprecates --deep for signing for exactly these reasons.
+	codesign --force --sign "$(CODESIGN_ID)" --options runtime --timestamp --entitlements "OstlerInstaller/OstlerInstaller.entitlements" "$(APP_PATH)"
 	codesign --verify --deep --strict --verbose=2 "$(APP_PATH)"
 	@echo "Post-sign verify: python3.11 entitlements (must include disable-library-validation)"
 	@codesign -d --entitlements :- "$(APP_PATH)/Contents/Resources/python/bin/python3.11" 2>&1 | grep -q "disable-library-validation" \
@@ -1208,21 +1234,33 @@ staple-apps: check-tools
 	# breaking the enclosing signature. The assertion below keeps it honest:
 	# if a nested app reaches this step WITHOUT a ticket, that is a real
 	# regression and the cut fails.
-	$(STEP) "Asserting every nested .app already carries its ticket (stapled BEFORE sealing)"
+	# Only the INDEPENDENTLY INSTALLED apps need their own ticket. install.sh
+	# copies Ostler.app and OstlerAssistant.app out to their own locations, so
+	# Gatekeeper reads THEIR tickets, not the installer's.
+	#
+	# Helper apps nested inside a .framework (Sparkle's Updater.app, its
+	# XPCServices) are never installed on their own -- they are covered by the
+	# signature of the bundle that contains them. Confirmed against the shipped
+	# v1.0.15 DMG: Ostler.app and OstlerAssistant.app carry tickets, Sparkle's
+	# Updater.app does not, and that DMG installs and runs correctly. Demanding
+	# a ticket for it would fail the cut over a property no shipped build has
+	# ever had.
+	$(STEP) "Asserting independently-installed nested .apps carry their tickets (stapled BEFORE sealing)"
 	@FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
+	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | grep -v '\.framework/')"; \
 	for app in $$NESTED_APPS; do \
 	    if xcrun stapler validate "$$app" >/dev/null 2>&1; then \
 	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
 	    else \
 	        printf '  [FAIL] %s -- no ticket, and it CANNOT be stapled here\n' "$${app#$(APP_PATH)/}" >&2; \
-	        printf '         Staple it before the outer app seals it (see notarise-hub).\n' >&2; \
+	        printf '         It is installed on its own, so it needs its own ticket.\n' >&2; \
+	        printf '         Most likely cause: the outer reseal used --deep and stripped it.\n' >&2; \
 	        FAIL=$$((FAIL+1)); \
 	    fi; \
 	done; \
 	if [ "$$FAIL" -gt 0 ]; then \
 	    echo "" >&2; \
-	    echo "ERROR: $$FAIL nested .app(s) ship without a notarisation ticket." >&2; \
+	    echo "ERROR: $$FAIL independently-installed .app(s) ship without a ticket." >&2; \
 	    exit 1; \
 	fi
 	@COUNT=0; FAIL=0; \
