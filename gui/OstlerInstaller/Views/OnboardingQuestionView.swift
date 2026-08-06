@@ -101,51 +101,40 @@ struct OnboardingQuestionView: View {
 
     @ViewBuilder
     private func standardQuestionBody(_ q: DisplayedQuestion) -> some View {
-        // BW3-9 (box-walk 2026-07-30, Andy Studio-walk feedback on
-        // consent_spoken_capture): with dense body copy (intro +
-        // "What we ask of you" bullets + fine-print legal note), the
-        // pre-fix layout - VStack + Spacer, no ScrollView - clipped
-        // BOTH the top-of-content header ("QUESTION N" super-title,
-        // rendered by `header(q)`) AND the input toggle out of the
-        // customer's viewport on smaller display heights. Ostler
-        // window height is fixed-ish; taller content just fell off
-        // both ends because nothing scrolled.
+        // Layout history (three iterations, one enduring shape):
+        //   - BW3-9 (2026-07-30): the pre-fix layout was a plain
+        //     VStack + Spacer with no ScrollView. Dense legal copy
+        //     (consent_spoken_capture etc.) overflowed a fixed-ish
+        //     window and clipped BOTH the "QUESTION N" super-title and
+        //     the input toggle off-screen. Fix wrapped the body in a
+        //     ScrollView that filled the space, pinning input +
+        //     buttons to the bottom.
+        //   - #503 / BW7 (2026-08-01): that fix parked the input
+        //     toggle ~400px below short-body copy (Q1 "Ready to
+        //     continue?") with dead whitespace between. #503 swapped
+        //     in `ViewThatFits`, which for short bodies picked a
+        //     natural-height VStack top-flowing header + title + body
+        //     + input + BUTTONS together at the top.
+        //   - #632 (2026-08-05, box-walk #3): that top-flow made the
+        //     Back/Continue buttons sit directly under the
+        //     variable-length body, so the click target JUMPED from
+        //     one question to the next -- the buttons no longer stuck
+        //     to the bottom.
         //
-        // BW7 (box-walk retest #7 on v1.0.13.1, 2026-08-01, Archie
-        // internal task #202): BW3-9 wrapped the middle body region
-        // in `ScrollView { ... }.frame(maxHeight: .infinity)` which
-        // always claims the remaining vertical space between the
-        // sticky top (header + title) and the sticky bottom
-        // (inputField + buttonRow). That was correct for the tall
-        // legal prompts BW3-9 was fixing, but on every SHORT-body
-        // prompt (e.g. Q1 "Ready to continue?" -- two-sentence body)
-        // the ScrollView still stretched to fill the viewport,
-        // pushing the yes/no toggle + Back/Continue buttons ~400px
-        // below the body copy with a wall of dead whitespace in
-        // between. Andy caught this on the shipped v1.0.13.1 DMG
-        // and it applies to ALL short-body questions, not just Q1.
-        //
-        // Fix: use `ViewThatFits(in: .vertical)`. It picks the first
-        // child that fits in the proposed vertical space:
-        //   - Short body: the plain VStack branch fits, so the middle
-        //     region sizes to its natural content height. The outer
-        //     VStack's top-alignment then holds header + title + body
-        //     + input + buttons together at the top of the viewport,
-        //     with a natural gap sitting BELOW the buttons rather
-        //     than between the body and the input. Toggle sits
-        //     immediately below the body copy as expected.
-        //   - Tall body (spoken-consent, article-9, third-party,
-        //     passkey-ack, recovery-passphrase, or any future prompt
-        //     whose copy overflows): the plain VStack does not fit,
-        //     so `ViewThatFits` falls through to the ScrollView
-        //     branch. Header + title stay at top; inputField +
-        //     buttonRow stay at bottom (because the ScrollView then
-        //     takes the remaining vertical space between them);
-        //     content scrolls inside the middle region. Same
-        //     behaviour BW3-9 delivered for these prompts, no
-        //     regression.
-        //
-        // Requires macOS 13+ (project target is 14.0, see gui/project.yml).
+        // The two complaints (toggle-hugs-body vs. buttons-pinned)
+        // only reconcile if the input and the buttons are DECOUPLED:
+        //   - Sticky top: header + title.
+        //   - Flexible middle: body copy + input + validation error,
+        //     inside ONE ScrollView that claims the remaining vertical
+        //     space. Its content is top-aligned, so the input hugs the
+        //     body copy on short prompts (kills the BW3-9 gap) and
+        //     scrolls on tall prompts (keeps the BW3-9 overflow fix).
+        //   - Pinned bottom: buttonRow, OUTSIDE the scroll region, so
+        //     Back/Continue sit at a CONSTANT viewport-bottom position
+        //     on every question (kills the #632 moving target).
+        // `.scrollBounceBehavior(.basedOnSize)` (macOS 14+, matches the
+        // gui/project.yml deployment target) stops the middle region
+        // from feeling scrollable when the content already fits.
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
             // Sticky top: super-title header + question title.
             header(q)
@@ -156,25 +145,33 @@ struct OnboardingQuestionView: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Middle body region -- see the BW7 comment above.
-            // Content is factored into `bodyRegionContent(q)` so both
-            // ViewThatFits branches render the exact same view tree.
-            ViewThatFits(in: .vertical) {
-                bodyRegionContent(q)
-                ScrollView {
+            // Flexible middle: body copy + input + validation error.
+            // Scrolls when taller than the space; hugs the top when
+            // not. Claims all remaining height so the footer below is
+            // pinned to the same y-position on every question. Input
+            // lives here (not with the buttons) so the toggle stays
+            // next to its body copy -- the BW3-9 fix -- while the
+            // buttons stay pinned -- the #632 fix.
+            ScrollView {
+                VStack(alignment: .leading, spacing: .ostlerSpace4) {
                     bodyRegionContent(q)
+
+                    inputField(q)
+
+                    if let err = validationError, !q.isReview {
+                        Text(err)
+                            .font(.ostlerCaption)
+                            .foregroundStyle(Color.ostlerOxblood)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(maxHeight: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
 
-            // Sticky bottom: input field + validation error + buttons.
-            inputField(q)
-
-            if let err = validationError, !q.isReview {
-                Text(err)
-                    .font(.ostlerCaption)
-                    .foregroundStyle(Color.ostlerOxblood)
-            }
-
+            // Pinned bottom footer: Back / Continue. Sits outside the
+            // scroll region so its y-position is constant across every
+            // question regardless of body length (#632).
             buttonRow(q)
         }
         .padding(.horizontal, .ostlerSpace4)
@@ -188,10 +185,10 @@ struct OnboardingQuestionView: View {
 
     /// Body copy + optional prompt-error banner for the middle region
     /// of the standard onboarding-question layout. Factored out of
-    /// `standardQuestionBody` so both branches of the BW7
-    /// `ViewThatFits` (natural top-flow and ScrollView fallback) can
-    /// render the identical view tree from a single source. Help /
-    /// body copy branching order:
+    /// `standardQuestionBody`, which now renders it once inside the
+    /// scrolling middle region (see the #632 layout note there; the
+    /// two-branch `ViewThatFits` this was originally split out for is
+    /// gone). Help / body copy branching order:
     ///   - consent_install: special hyperlinked terms body
     ///   - passkey_ack (Q12): modality-branched copy because
     ///     MSG_PROMPT_PASSKEY_ACK_HELP hard-coded "Touch ID",
