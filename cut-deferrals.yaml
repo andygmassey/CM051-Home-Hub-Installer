@@ -32,3 +32,24 @@
 # ============================================================================
 
 deferrals: []
+
+# ---------------------------------------------------------------------------
+# PR AGE EXEMPTIONS (scripts/verify_pr_age.sh)
+# ---------------------------------------------------------------------------
+# RULE (2026-08-06): a PR opened from this date must be MERGED or CLOSED within
+# 48 hours. Deliberately blocked is fine; silently blocked is not.
+#
+# A PR that cannot clear in two days is too big, blocked, or unwanted -- all
+# three worth surfacing while whoever wrote it still remembers why. Closing one
+# is safe: every unmerged branch tip is preserved as archive/2026-08-06/<branch>
+# so nothing can be lost.
+#
+# FORMAT
+#   pr_exemptions:
+#     - ref: "CM044-PWG-Personal-Wiki#163"   # <repo-name>#<number>
+#       reason: "waiting on Archie's writer half; contract is agreed"
+#       review_by: "2026-08-09"
+#
+# The gate PRINTS every exemption on each run, so one cannot fade quietly into
+# the background the way the last 176 did.
+pr_exemptions: []
