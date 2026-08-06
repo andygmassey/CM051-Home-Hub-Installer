@@ -602,7 +602,7 @@ release: check-tools check-identity check-version download-python
 	# CodeSign with "resource fork, Finder information, or similar
 	# detritus not allowed". Strip them from inputs before archive.
 	/usr/bin/xattr -cr "OstlerInstaller" "OstlerInstaller.xcodeproj" || true
-	/usr/bin/xattr -cr "../install.sh" "../lib/progress_emitter.sh" || true
+	/usr/bin/xattr -cr "../install.sh" "../lib/progress_emitter.sh" "../lib/settling_progress.sh" || true
 	# OSTLER_APP_PATH must be passed as an explicit build setting (not just an
 	# exported env var) so xcodebuild's "Bundle install.sh / Ostler.app" script
 	# phase sees it. xcodebuild scrubs the environment for PhaseScriptExecution;
