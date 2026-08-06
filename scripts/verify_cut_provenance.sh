@@ -141,8 +141,17 @@ while IFS='|' read -r kind target pattern desc; do
       # where image-key is wiki-site or wiki-compiler; pattern = regex to find.
       # FAIL-CLOSED: if docker is unavailable or the pull fails, this is RED, so
       # a cut host that cannot verify the image cannot pass.
+      # 2026-08-06: read the WHOLE pinned ref verbatim rather than re-composing
+      # it against a namespace hardcoded here. This line used to hardcode
+      # ghcr.io/ostler-ai while verify_cut_freshness.sh hardcoded
+      # ghcr.io/creativemachines-ai -- two copies of "which namespace ships",
+      # in two gates, silently disagreeing. No single install.sh pin could
+      # satisfy both, so whichever way the pin went, one gate went RED and the
+      # temptation was to "fix" the gate. install.sh is the single source of
+      # truth for what ships; read it, pull exactly that, and let ONE gate
+      # (freshness check_wiki) own the namespace policy.
       img_key="${target%%:*}"; img_path="${target#*:}"
-      ref="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
+      ref="$(grep -m1 -oE "ghcr\.io/[A-Za-z0-9._-]+/ostler-${img_key}@sha256:[0-9a-f]+" "${CM051_DIR}/install.sh" 2>/dev/null)"
       if [[ -z "${ref}" ]]; then
         red "wiki_image_grep ${img_key} :: no pinned digest in install.sh (${desc})"; continue
       fi
