@@ -228,8 +228,17 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # settling_progress.sh: install.sh sources it from
+          # ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and
+          # `emails` channels on the wiki's settling panel. Those two producers
+          # (CM041 contact_syncer, CM021 pwg-email-ingest) cannot import HR015's
+          # Python writer -- ostler_fda is never copied into PIPELINE_DIR -- so
+          # this file IS their writer. Missing from the bundle = install.sh
+          # falls back to a silent no-op and both channels ship permanently
+          # blank, which looks identical to a feature nobody built.
+          cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
-          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh"
+          chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Ostler.app (Tauri Hub desktop) bundled inside OstlerInstaller.app
           # so the customer DMG ships a clean single-app layout (just the

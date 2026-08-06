@@ -1572,6 +1572,31 @@ elif [[ -f "${HOME}/.ostler/lib/progress_emitter.sh" ]]; then
     _ostler_emitter_candidate="${HOME}/.ostler/lib/progress_emitter.sh"
 fi
 
+# Settling-progress shell writer. Same resolution order as the emitter.
+#
+# `contacts` and `emails` are the two settling channels whose producers CANNOT
+# import HR015's ostler_fda/settling_progress.py: contact_syncer runs from
+# PIPELINE_DIR and pwg-email-ingest from its own venv, and neither has
+# ostler_fda on its path (this script copies contact_syncer, meeting_syncer and
+# identity_resolver into PIPELINE_DIR -- never ostler_fda). So those two report
+# from here, against the same filesystem contract.
+#
+# UNLIKE the emitter this is never fatal and never no-op'd loudly: a missing
+# settling writer costs a progress row on the wiki homepage, nothing more.
+# Define no-ops so every call site stays unguarded.
+_ostler_settling_candidate=""
+if [[ -f "${SCRIPT_DIR}/lib/settling_progress.sh" ]]; then
+    _ostler_settling_candidate="${SCRIPT_DIR}/lib/settling_progress.sh"
+elif [[ -f "${HOME}/.ostler/lib/settling_progress.sh" ]]; then
+    _ostler_settling_candidate="${HOME}/.ostler/lib/settling_progress.sh"
+fi
+if [[ -n "${_ostler_settling_candidate}" ]]; then
+    # shellcheck source=lib/settling_progress.sh
+    source "${_ostler_settling_candidate}"
+else
+    settling_report() { :; }
+fi
+
 if [[ -n "${_ostler_emitter_candidate}" ]]; then
     # shellcheck source=lib/progress_emitter.sh
     source "${_ostler_emitter_candidate}"
@@ -16006,6 +16031,20 @@ except Exception:
     )"
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
 
+    # Settling panel, `contacts` channel. Reported HERE rather than as a
+    # running tick because this is one blocking call: the syncer does not
+    # know its total up front and there is no meaningful mid-progress to
+    # show. done == total at completion is the honest statement -- this
+    # channel is settled. A zero count means we ran and found nothing, so
+    # needs_source invites the customer to connect a source rather than
+    # leaving a permanent 0%.
+    if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
+        settling_report contacts \
+            "$_HYDRATE_CONTACTS_COUNT" "$_HYDRATE_CONTACTS_COUNT" false
+    else
+        settling_report contacts 0 0 true
+    fi
+
     # FDA is the ONLY permission this path needs. Read the conservative
     # Phase-4 result; treat anything other than an explicit "true" that
     # comes with a 0-count as a denial worth surfacing (default to "true"
@@ -16369,8 +16408,13 @@ except Exception:
         _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNT:-0}"
         if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
+            settling_report emails \
+                "$_HYDRATE_EMAIL_COUNT" "$_HYDRATE_EMAIL_COUNT" false
         else
             info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+            # Ran, found nothing: invite a source rather than showing a
+            # permanent 0%.
+            settling_report emails 0 0 true
         fi
         # Tidy: the install-time mbox is one-shot. The hourly
         # LaunchAgent writes to its own date-bucketed filenames so
@@ -16378,12 +16422,17 @@ except Exception:
         rm -f "$_HYDRATE_EMAIL_MBOX"
     else
         info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
+        settling_report emails 0 0 true
     fi
 
     unset _HYDRATE_EMAIL_MBOX _HYDRATE_EMAIL_TIMED_OUT _HYDRATE_EMAIL_JSON
     unset _HYDRATE_EMAIL_COUNT _HYDRATE_EMAIL_TIMEOUT_WRAP _HYDRATE_EMAIL_LOG
 else
     info "$MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING"
+    # The channel must still APPEAR. A row absent from the panel is
+    # indistinguishable from a producer nobody wired -- the exact failure
+    # the settling coverage gate exists to end.
+    settling_report emails 0 0 true
 fi
 
 unset _HYDRATE_EMAIL_VENV _HYDRATE_EMAIL_PY _HYDRATE_EMAIL_BIN
