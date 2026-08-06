@@ -6463,7 +6463,13 @@ PHASE3_START=$(date +%s)
 # computation against a fixture; a new conditional `progress`
 # call must be paired with a matching subtract entry below.
 
-TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/null || echo 0)"
+# Same `grep -c ... || echo 0` trap as the DOCTOR_ERRORS site: on no-match
+# grep prints "0" AND exits 1, so both sides produce output and the variable
+# becomes "0\n0". Here the pattern always matches in a real install, so it
+# never fired -- but it is the identical latent defect, so it is fixed the
+# same way rather than left as a trap for the next person.
+TOTAL_STEPS="$(grep -cE '^[[:space:]]*progress "' "${BASH_SOURCE[0]}" 2>/dev/null || true)"
+TOTAL_STEPS="${TOTAL_STEPS:-0}"
 
 # Conditional `progress` calls -- one entry per gated section.
 # Subtract from the auto-count if the gate evaluates false. Add
@@ -18189,7 +18195,20 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
         # doctor module emits ❌ for Severity::Error and prefixes
         # the category. We do not fail the install here -- we just
         # surface the count so the operator knows to re-run.
-        DOCTOR_ERRORS=$(printf '%s\n' "$DOCTOR_OUTPUT" | grep -c '❌' 2>/dev/null || echo 0)
+        # `grep -c` PRINTS "0" and EXITS 1 when there are no matches, so a
+        # `|| echo 0` fallback fires ON TOP of grep's own output and yields
+        # the two-line string "0\n0" -- which the `-gt 0` test below cannot
+        # parse, printing a raw
+        #     [[: 0\n0: syntax error in expression (error token is "0")
+        # into the customer-visible log. That is the HAPPY path: zero doctor
+        # errors is the good case, so every clean install showed it (v1.0.15
+        # box-walk, 2026-08-06). `|| true` keeps the non-zero exit from
+        # tripping errexit without adding a second value; the ${..:-0} then
+        # covers only the genuine empty case (grep missing entirely).
+        # The same trap is documented at line ~3911 for a different call
+        # site; see also the TOTAL_STEPS assignment fixed alongside this.
+        DOCTOR_ERRORS=$(printf '%s\n' "$DOCTOR_OUTPUT" | grep -c '❌' 2>/dev/null || true)
+        DOCTOR_ERRORS="${DOCTOR_ERRORS:-0}"
         if [[ "$DOCTOR_ERRORS" -gt 0 ]]; then
             warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S" "${DOCTOR_ERRORS}")"
             warn "$(printf "$MSG_WARN_RUN_DOCTOR_AFTER_FIRST_LAUNCH" "${ASSISTANT_BINARY}")"
