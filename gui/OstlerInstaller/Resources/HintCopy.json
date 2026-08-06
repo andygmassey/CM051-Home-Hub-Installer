@@ -234,6 +234,16 @@
     "illustration": null,
     "needs_fda": true
   },
+  "data_step": {
+    "id": "data_step",
+    "title": "Conversations, citations and knowledge",
+    "subtitle": "First pass over your data",
+    "why": "Ostler runs one first pass over the conversations and notes already on your Mac, so your Conversations, citations and Knowledge pages are populated straight away rather than filling in over the following hours. Everything stays on your Mac; nothing is sent to us.",
+    "duration_estimate_s": 60,
+    "long_running_threshold_s": 300,
+    "illustration": null,
+    "needs_fda": true
+  },
   "wiki_recompile_agent": {
     "id": "wiki_recompile_agent",
     "title": "Wiki rebuild scheduler",

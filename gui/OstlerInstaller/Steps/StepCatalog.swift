@@ -128,6 +128,15 @@ final class StepCatalog {
         "email_bundle",
         "spoken_bundle",
         "imessage_bundle",
+        // v1.0.3 install-time DATA STEP (HR015 BUGS-023/024/028). Fires right
+        // after the conversation-feed setup (install.sh §3.14d, between
+        // imessage_bundle and imessage_bridge) and runs ONE synchronous
+        // producer pass for the three flagship wiki features that were dark
+        // on a fresh box: Knowledge (CM024 convert -> embed -> the
+        // `evernote_knowledge` collection), Conversations (the `conversations`
+        // collection) and citations (urn:pwg:Fact triples). Source-conditional
+        // and counts-only; skipped under --allow-plaintext.
+        "data_step",
         "imessage_bridge",
         "wiki_recompile_agent",
         // First-day wiki catch-up LaunchAgent. install.sh emits the matching
