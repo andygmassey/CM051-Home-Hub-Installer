@@ -210,7 +210,7 @@ STEP          := @printf '\n[STEP] %s\n'
         verify-commit-parity \
         download-python sign-python-bundle notarise-nested-apps \
         download-daemon stage-daemon \
-        check-provenance check-freshness check-provenance-content check-manifest
+        check-provenance check-freshness check-provenance-content check-manifest cut
 
 all: debug
 
@@ -1456,6 +1456,48 @@ verify-commit-parity:
 # All three must be GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
 ship: check-ostler-app download-python stage-daemon stage-payload sparkle-embed release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+
+# ---------------------------------------------------------------------------
+# cut: THE entry point. `make -C gui cut` and nothing else.
+#
+# Sources ../cut.env -- the committed, reviewable record of every input -- and
+# then runs the ship chain. Use this instead of typing env vars onto `make
+# ship`, because typed-on-the-command-line inputs are exactly how v1.0.14.1 got
+# cut from a tree 161 commits behind origin/main while passing 39 of 40 gates:
+# nothing recorded which inputs the cut was SUPPOSED to use, so nothing could
+# disagree with what it actually used.
+#
+# Refuses to run on a dirty tree. A cut must be reproducible from a commit; if
+# the tree is dirty, the SHA in the cut record is a lie about what shipped.
+# Override for a deliberate experiment with ALLOW_DIRTY_CUT=1.
+#
+# Everything cut.env sets is exported to the whole chain, so the gates see the
+# same OSTLER_ASSISTANT_DIR / CM044_DIR / HR015_DIR the build does. Values
+# already in the environment WIN over cut.env (that is what `-a` + `?=`-style
+# assignment gives you here), so a one-off override needs no file edit.
+# ---------------------------------------------------------------------------
+cut:
+	@if [ ! -f "$(CURDIR)/../cut.env" ]; then \
+	    echo "ERROR: cut.env not found at $(CURDIR)/../cut.env" >&2; \
+	    echo "  It is the committed record of every cut input. Do not cut without it." >&2; \
+	    exit 1; \
+	fi
+	@if [ -z "$${ALLOW_DIRTY_CUT:-}" ] && [ -n "$$(git -C "$(CURDIR)/.." status --porcelain)" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: working tree is DIRTY -- refusing to cut." >&2; \
+	    git -C "$(CURDIR)/.." status --short >&2; \
+	    echo "" >&2; \
+	    echo "  A cut must be reproducible from a commit. Commit or stash, then re-run." >&2; \
+	    echo "  Deliberate experiment: ALLOW_DIRTY_CUT=1 make -C gui cut" >&2; \
+	    exit 1; \
+	fi
+	@printf '\n[CUT] %s @ %s\n' "$$(git -C "$(CURDIR)/.." rev-parse --abbrev-ref HEAD)" "$$(git -C "$(CURDIR)/.." rev-parse --short HEAD)"
+	@set -a; . "$(CURDIR)/../cut.env"; set +a; \
+	  printf '[CUT] inputs from cut.env:\n'; \
+	  printf '        OSTLER_APP_PATH      = %s\n' "$$OSTLER_APP_PATH"; \
+	  printf '        OSTLER_ASSISTANT_DIR = %s\n' "$$OSTLER_ASSISTANT_DIR"; \
+	  printf '        NOTARY_PROFILE       = %s\n' "$$NOTARY_PROFILE"; \
+	  $(MAKE) --no-print-directory ship
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
