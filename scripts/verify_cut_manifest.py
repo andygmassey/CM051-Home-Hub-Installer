@@ -47,6 +47,27 @@ CM051_DIR = SCRIPT_DIR.parent
 DEFAULT_APP_PATH = Path(f"/tmp/ostler-installer-dist-{os.environ.get('USER', 'nobody')}") / "OstlerInstaller.app"
 
 
+def bundle_main_binary(bundle: Path) -> Path:
+    """Path to a bundle's declared main executable.
+
+    Read from CFBundleExecutable, never hardcoded. This path was pinned to
+    "zeroclaw-desktop" -- a name retired in the ZeroClaw -> Ostler rename; the
+    Hub binary is now "ostler-hub". A hardcoded executable name fails the cut
+    against a bundle that is perfectly correct, and (worse) would happily pass
+    a bundle whose real executable was missing so long as a stale-named file
+    sat beside it. Ask the bundle what it actually execs.
+    """
+    try:
+        with (bundle / "Contents" / "Info.plist").open("rb") as fh:
+            exe = plistlib.load(fh).get("CFBundleExecutable")
+    except Exception:
+        exe = None
+    # Fall back to the bundle's own name (the Apple default) so an unreadable
+    # Info.plist surfaces as the caller's own missing-file error rather than
+    # as an exception from here.
+    return bundle / "Contents" / "MacOS" / (exe or bundle.stem)
+
+
 def resolve_target(target: str, app_path: Path, cm051_dir: Path, extra_paths: dict[str, Path]) -> Path:
     """Resolve a semantic target name to a filesystem path."""
     daemon_app = app_path / "Contents" / "Resources" / "Ostler.app"
@@ -61,7 +82,7 @@ def resolve_target(target: str, app_path: Path, cm051_dir: Path, extra_paths: di
         # on the ostler-assistant repo. `daemon-binary` still works for Rust-
         # literal strings the compiler emits verbatim (log messages, panic
         # strings, format literals).
-        "daemon-binary": daemon_app / "Contents" / "MacOS" / "zeroclaw-desktop",
+        "daemon-binary": bundle_main_binary(daemon_app),
         "vendored-context-refresh": app_path / "Contents" / "Resources" / "context-refresh",
         "vendored-wiki-recompile": app_path / "Contents" / "Resources" / "wiki-recompile",
     }

@@ -56,9 +56,16 @@ def fake_app(tmp_path):
     app = tmp_path / "OstlerInstaller.app"
     resources = app / "Contents" / "Resources"
     resources.mkdir(parents=True)
-    ostler_app_bin_dir = resources / "Ostler.app" / "Contents" / "MacOS"
+    ostler_app = resources / "Ostler.app"
+    ostler_app_bin_dir = ostler_app / "Contents" / "MacOS"
     ostler_app_bin_dir.mkdir(parents=True)
-    (ostler_app_bin_dir / "zeroclaw-desktop").write_bytes(
+    # Declare the executable the way a real bundle does. The resolver reads
+    # CFBundleExecutable rather than assuming a name, so the fixture has to
+    # carry an Info.plist -- that IS the contract under test.
+    import plistlib as _plistlib
+    with (ostler_app / "Contents" / "Info.plist").open("wb") as _fh:
+        _plistlib.dump({"CFBundleExecutable": "ostler-hub"}, _fh)
+    (ostler_app_bin_dir / "ostler-hub").write_bytes(
         b"BEGIN\nfake binary strings with iMessage and WhatsApp inside\nEND\n"
     )
     # Vendored context-refresh

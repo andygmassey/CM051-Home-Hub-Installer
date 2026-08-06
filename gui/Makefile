@@ -1371,14 +1371,16 @@ verify-dmg-contents:
 	    if [ ! -e "$$RES/$$p" ]; then MISSING="$$MISSING $$p"; fi; \
 	done; \
 	OSTLER_APP_OK=1; \
-	if [ ! -x "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" ]; then \
+	HUB_EXE="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$$RES/Ostler.app/Contents/Info.plist" 2>/dev/null)"; \
+	HUB_BIN="$$RES/Ostler.app/Contents/MacOS/$$HUB_EXE"; \
+	if [ -z "$$HUB_EXE" ] || [ ! -x "$$HUB_BIN" ]; then \
 	    OSTLER_APP_OK=0; \
 	fi; \
 	PAYLOAD_OK=1; \
 	if [ ! -f "$$RES/Ostler.app/Contents/Resources/ostler-payload/VERSION" ]; then \
 	    PAYLOAD_OK=0; \
 	fi; \
-	HUB_SHA="$$(strings "$$RES/Ostler.app/Contents/MacOS/zeroclaw-desktop" 2>/dev/null | grep -oE 'OSTLER_HUB_BUILD_SHA=[0-9a-f]{40}' | head -1 | cut -d= -f2)"; \
+	HUB_SHA="$$(strings "$$HUB_BIN" 2>/dev/null | grep -oE 'OSTLER_HUB_BUILD_SHA=[0-9a-f]{40}' | head -1 | cut -d= -f2)"; \
 	INSTALL_SH_OK=1; \
 	if ! grep -q "OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases" "$$RES/install.sh" 2>/dev/null; then \
 	    INSTALL_SH_OK=0; \
@@ -1431,8 +1433,11 @@ verify-dmg-contents:
 	    exit 1; \
 	fi; \
 	if [ "$$OSTLER_APP_OK" = "0" ]; then \
-	    echo "ERROR: Ostler.app present in Resources/ but missing the Tauri" >&2; \
-	    echo "       executable at Contents/MacOS/zeroclaw-desktop." >&2; \
+	    echo "ERROR: Ostler.app is present in Resources/ but its declared main" >&2; \
+	    echo "       executable is missing or not executable." >&2; \
+	    echo "       CFBundleExecutable = '$$HUB_EXE'" >&2; \
+	    echo "       expected at         $$HUB_BIN" >&2; \
+	    echo "       (an empty CFBundleExecutable means Info.plist is unreadable)" >&2; \
 	    exit 1; \
 	fi; \
 	if [ "$$PAYLOAD_OK" = "0" ]; then \

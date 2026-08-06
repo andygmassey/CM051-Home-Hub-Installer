@@ -126,12 +126,23 @@ trap cleanup EXIT
 # Locate the two binaries in the DMG payload.
 #
 # Shape mirrors gui/Makefile verify-dmg-contents:
-#   Wrapper: OstlerInstaller.app/Contents/Resources/Ostler.app/Contents/MacOS/zeroclaw-desktop
+#   Wrapper: OstlerInstaller.app/Contents/Resources/Ostler.app -- main binary
+#            resolved from CFBundleExecutable, NOT hardcoded. It was pinned to
+#            "zeroclaw-desktop", a name retired in the ZeroClaw -> Ostler
+#            rename; the Hub now ships "ostler-hub". A hardcoded executable
+#            name is the same rot as a hardcoded branch or registry namespace:
+#            it fails the cut on a bundle that is perfectly correct, AND it
+#            would silently pass a bundle whose real executable was missing so
+#            long as a stale-named file happened to sit beside it. Ask the
+#            bundle what it execs.
 #   Daemon:  OstlerInstaller.app/Contents/Resources/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant
 #     fallback: OstlerInstaller.app/Contents/Resources/assistant-agent/bin/ostler-assistant
 # --------------------------------------------------------------------------
 RES="${MOUNT}/OstlerInstaller.app/Contents/Resources"
-WRAPPER="${RES}/Ostler.app/Contents/MacOS/zeroclaw-desktop"
+WRAPPER_EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+    "${RES}/Ostler.app/Contents/Info.plist" 2>/dev/null || true)"
+[[ -n "${WRAPPER_EXE}" ]] || die "Ostler.app declares no CFBundleExecutable (Info.plist missing or unreadable)"
+WRAPPER="${RES}/Ostler.app/Contents/MacOS/${WRAPPER_EXE}"
 DAEMON="${RES}/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
 if [[ ! -e "${DAEMON}" ]]; then
     DAEMON="${RES}/assistant-agent/bin/ostler-assistant"
