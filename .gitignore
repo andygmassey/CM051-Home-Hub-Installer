@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 *.env
+# cut.env is the DELIBERATE exception: it is the committed record of every
+# input to a DMG cut (paths + pins + gate bases), holds NO secrets, and is
+# useless if untracked -- `git log cut.env` is meant to BE the cut history.
+# It was silently swallowed by `*.env` on 2026-08-06; the commit that added
+# it reported success while committing nothing.
+!cut.env
 SERVER_INFO.md
 config.local.*
 *.pem
