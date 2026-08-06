@@ -15306,6 +15306,73 @@ if [[ "${TAILSCALE_CONFIRM:-setup}" == "setup" ]]; then
     TS_SOCK="${TS_STATE_DIR}/tailscaled.sock"
     mkdir -p "$TS_STATE_DIR"
 
+    # ── Recovery wrapper: ostler-tailscale ────────────────────────────
+    #
+    # tailscaled runs in USERSPACE mode on a PRIVATE socket
+    # (${TS_STATE_DIR}/tailscaled.sock). The stock `tailscale` CLI talks to
+    # the SYSTEM socket, so every command a customer might reasonably try --
+    # `tailscale status`, `tailscale up`, `tailscale ip -4` -- silently talks
+    # to the wrong daemon and reports nothing useful.
+    #
+    # That made the 3-minute browser sign-in window a ONE-SHOT. Miss it (walk
+    # away, get distracted, close the tab) and there was no supported way back:
+    # no CLI on PATH pointed at our socket, no menu-bar app (we install the
+    # headless formula deliberately), no helper. The v1.0.15 walk hit exactly
+    # this. Worse, the timeout message below used to advise `tailscale ip -4`,
+    # which is the stock CLI on the wrong socket -- advice that cannot work.
+    #
+    # The wrapper is written HERE, before any sign-in is attempted, so it
+    # exists on every path: success, timeout, skip, or a failed brew install.
+    # Recovery must not depend on the thing that failed.
+    mkdir -p "${OSTLER_DIR}/bin"
+    # QUOTED heredoc: nothing here is expanded by the installer. The first
+    # draft used an unquoted one with escaped dollars and shipped a wrapper
+    # whose $OSTLER_TS_SOCK and "$@" had both collapsed to a bare backslash --
+    # a recovery tool that could not run. Caught by rendering it and reading
+    # the output, which is the only way this class of bug is ever caught.
+    #
+    # The socket path is therefore NOT interpolated: the wrapper locates it
+    # relative to its own installed location (bin/../tailscale/), so it stays
+    # correct even if ~/.ostler moves, and there is no escaping to get wrong.
+    cat > "${OSTLER_DIR}/bin/ostler-tailscale" <<'OSTLER_TS_WRAPPER'
+#!/usr/bin/env bash
+# Ostler's Tailscale CLI.
+#
+# Ostler runs tailscaled in USERSPACE mode on its own private socket. The
+# stock `tailscale` command talks to the SYSTEM daemon, so it will report
+# nothing useful about this install. Use this instead:
+#
+#   ostler-tailscale status      # is it connected?
+#   ostler-tailscale up          # sign in (prints a login URL to open)
+#   ostler-tailscale ip -4       # the address the iPhone app needs
+#
+# Written by the Ostler installer. Safe to run at any time.
+set -euo pipefail
+
+# Resolve relative to this script, not to a baked-in path, so moving the
+# Ostler directory does not break recovery.
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OSTLER_TS_SOCK="${_self_dir%/bin}/tailscale/tailscaled.sock"
+
+if ! command -v tailscale >/dev/null 2>&1; then
+    echo "The Tailscale command is not installed." >&2
+    echo "Install it with:  brew install tailscale" >&2
+    exit 127
+fi
+
+if [ ! -S "$OSTLER_TS_SOCK" ]; then
+    echo "Ostler's Tailscale service does not appear to be running." >&2
+    echo "Expected its socket at:" >&2
+    echo "  $OSTLER_TS_SOCK" >&2
+    echo "" >&2
+    echo "Open the Ostler app, or restart the Mac, then try again." >&2
+    exit 1
+fi
+
+exec tailscale --socket="$OSTLER_TS_SOCK" "$@"
+OSTLER_TS_WRAPPER
+    chmod 0755 "${OSTLER_DIR}/bin/ostler-tailscale"
+
     if ! command -v tailscale &>/dev/null; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
         if brew install tailscale 2>&1; then
