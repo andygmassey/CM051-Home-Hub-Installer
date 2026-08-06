@@ -1180,18 +1180,52 @@ staple-apps: check-tools
 	    echo "ERROR: $(APP_PATH) not found. Run 'make notarise-app' first." >&2; \
 	    exit 1; \
 	fi
-	$(STEP) "Stapling every nested .app inside $(APP_PATH) (deepest-first)"
-	@COUNT=0; FAIL=0; \
-	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null | awk '{print length, $$0}' | sort -rn | cut -d' ' -f2-)"; \
+	# Nested .apps are NOT stapled here. Stapling writes a bundle's ticket to
+	# <bundle>/Contents/CodeResources, and the outer app seals every nested
+	# bundle byte-for-byte when it is signed -- so stapling nested code AFTER
+	# the outer is signed always invalidates the outer signature:
+	#
+	#   OstlerInstaller.app: a sealed resource is missing or invalid
+	#
+	# Pre-stapling them does not help either: re-stapling an already-stapled
+	# bundle rewrites CodeResources with different bytes, which is still a
+	# "file modified" against the outer's seal. Proven on the v1.0.16 cut with
+	# all three nested bundles (Ostler.app, Sparkle's Updater.app,
+	# OstlerAssistant.app).
+	#
+	# It is also unnecessary. `notarise-app` notarises the outer and EVERY
+	# NESTED CDHash with it, and the tickets that actually matter belong to the
+	# artefacts AS INSTALLED, applied before sealing:
+	#
+	#   * OstlerAssistant.app -- stapled by its own release process, inside the
+	#     daemon tarball. install.sh dittos it out to ~/.ostler/, where that
+	#     ticket is what Gatekeeper reads.
+	#   * Ostler.app          -- stapled by `notarise-hub` before `release`
+	#     copies it in (added in v1.0.16; the Hub had never had its own).
+	#
+	# So #221's requirement (nested apps launch offline without a Gatekeeper
+	# block) is met, and met at the only point where it can be met without
+	# breaking the enclosing signature. The assertion below keeps it honest:
+	# if a nested app reaches this step WITHOUT a ticket, that is a real
+	# regression and the cut fails.
+	$(STEP) "Asserting every nested .app already carries its ticket (stapled BEFORE sealing)"
+	@FAIL=0; \
+	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
 	for app in $$NESTED_APPS; do \
-	    printf '  staple: %s\n' "$${app#$(APP_PATH)/}"; \
-	    if xcrun stapler staple "$$app"; then \
-	        COUNT=$$((COUNT+1)); \
+	    if xcrun stapler validate "$$app" >/dev/null 2>&1; then \
+	        printf '  [OK] %s\n' "$${app#$(APP_PATH)/}"; \
 	    else \
-	        echo "  ERROR: stapler failed on $$app" >&2; \
+	        printf '  [FAIL] %s -- no ticket, and it CANNOT be stapled here\n' "$${app#$(APP_PATH)/}" >&2; \
+	        printf '         Staple it before the outer app seals it (see notarise-hub).\n' >&2; \
 	        FAIL=$$((FAIL+1)); \
 	    fi; \
 	done; \
+	if [ "$$FAIL" -gt 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: $$FAIL nested .app(s) ship without a notarisation ticket." >&2; \
+	    exit 1; \
+	fi
+	@COUNT=0; FAIL=0; \
 	printf '[STEP] Stapling outer %s\n' "$(APP_NAME).app"; \
 	if xcrun stapler staple "$(APP_PATH)"; then \
 	    COUNT=$$((COUNT+1)); \
@@ -1206,7 +1240,7 @@ staple-apps: check-tools
 	    echo "  ticket for these CDHashes. Run 'make notarise-app' then retry." >&2; \
 	    exit 1; \
 	fi; \
-	printf '[OK] stapled %d bundles (outer + %d nested)\n' "$$COUNT" "$$((COUNT-1))"
+	printf '[OK] stapled the outer bundle; nested tickets were applied before sealing\n'
 	$(STEP) "Verifying every stapled .app in $(APP_PATH)"
 	@FAIL=0; \
 	NESTED_APPS="$$(find "$(APP_PATH)/Contents" -type d -name '*.app' 2>/dev/null)"; \
