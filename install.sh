@@ -9338,7 +9338,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:f2acc0df18a800eed5230d46666f3ed98757a03f0b43b243d840d2a1dd28923c
+    image: ghcr.io/ostler-ai/ostler-wiki-site@sha256:1bc4dd3f5804019eddeb2367c28f7212243db1a022b6ddbf386576206cff3628
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -9373,7 +9373,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:2b7d494e2735693fc6d0d60d2ae28c515019fc37399442a7c015de7a8d191ddb
+    image: ghcr.io/ostler-ai/ostler-wiki-compiler@sha256:aab6c6fe3f30496566ced635afd09884d00edce934364d187fbf1d00a80a511a
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -13407,7 +13407,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.45}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.53}"
 
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
 # Hard-coded last-known-good release. The fallback path below
@@ -13478,7 +13478,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="8ef223f79bd61c8c00b4db3f54f8973131ce401e569404dc957d568b9d3ba17a"
+DEFAULT_ASSISTANT_TARBALL_SHA256="2363d9774b774c92bb34134a057debac484354ea081a48c30dbd4f944eb39c4b"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────

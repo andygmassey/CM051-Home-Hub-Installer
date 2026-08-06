@@ -1,46 +1,22 @@
-# wiki_image_provenance.tsv -- binds each PINNED wiki Docker image digest to the
-# CM044 source commit it was built from.
-# ============================================================================
+# wiki_provenance.tsv -- binds each SHIPPED wiki image digest to the CM044 source
+# commit it was built from. verify_cut_freshness.sh reads this to answer "what
+# source produced the image this cut actually pins?". Without a row a pinned
+# digest is unverifiable and the gate is fail-closed RED.
 #
-# WHY THIS FILE EXISTS
-# The wiki-compiler / wiki-site images ship in the DMG pinned by digest in
-# install.sh (`image: ghcr.io/ostler-ai/ostler-<key>@sha256:...`). The image
-# metadata carries NO org.opencontainers.image.revision label and no CM044 sha
-# in its config/env, so the source commit an image was built from cannot be
-# read back from the registry. Without a recorded binding, a repin of the
-# digest that lags CM044 main ships silently -- exactly how the privacy fixes
-# CM044 #121 / #122 (BUG-038) missed a cut.
+# Format (TAB-delimited): <image-key>\t<sha256:digest>\t<cm044-source-sha>
 #
-# scripts/verify_cut_freshness.sh reads the digest pinned in install.sh for
-# each image-key, looks it up HERE, and compares the recorded CM044 sha to
-# CM044 main HEAD (live GitHub). FAIL-CLOSED: a pinned digest with NO row here
-# is UNVERIFIABLE -> RED. A repin without a matching row cannot pass the gate.
+# 2026-08-06 ORM (v1.0.15): both images built at 01:27 from CM044 36cc552
+# ("exclude the current year from 'On this day' + first test on it", branch
+# fix/on-this-day-current-year). CONTENT-VERIFIED, not inferred from timestamps:
+# `docker run <compiler-digest> grep -c this_year /app/compiler/pages/dashboard.py`
+# returns 5, i.e. the pinned image demonstrably carries that fix.
 #
-# The ORM MUST add/update a row here whenever it repins a wiki image (the same
-# step that edits the install.sh digest). The image-content integrity (does the
-# recorded sha actually match what is baked in) is separately proven by the
-# wiki_image_grep markers in scripts/cut_markers.manifest.
-#
-# Format (TAB-separated, 3 fields). Lines starting with '#' and blank lines
-# are ignored.
-#   <image-key>   <digest>                <cm044_source_sha>
-# image-key is `wiki-compiler` or `wiki-site` (matches the install.sh pin).
-#
-# ---------------------------------------------------------------------------
-# Current pins (both re-pinned to the CM044 77300f6 build = post-#142 v1.0.10
-# red-team wave-2: nh3-sole-authority XSS gate + private-contact key-dates leak
-# fix + broadcast-gate sweep, on top of the #140 lockdown set). Supersedes the
-# earlier 2d9d5d9a (#140) build. Note the site image digest also moved this
-# round because #142 edited compiler/html_sanitise.py, which Dockerfile.site
-# copies into the site image.
-wiki-compiler	sha256:a7e8c7e8151e8e559ddefb8f6fb463b0ed25469ea42d74ffa9ccd74c7e032923	77300f6163f0efed6ad092e48d179a49d117e8ec
-wiki-site	sha256:303b3a1a164720cfbc39da5d9380c98ebde89b32600ce4653e4b02b800194a81	77300f6163f0efed6ad092e48d179a49d117e8ec
-# v1.0.10 recut (2026-07-24): both images rebuilt arm64 from CM044 648f7491
-# (folds #144 scaffolding strip + #145 dedup endpoint + #146 settling panel).
-wiki-compiler	sha256:2f7b0b7332f8e6e9e75206f9ea126702b46d9c4d3202d15fb040c1bd9710161a	648f7491ea2fa74aee3c669fd2be5503b4924a36
-wiki-site	sha256:563fbcecc46c2679b5aa5db47821712e51a0bfa6904a669dcfde57ab599aa5ea	648f7491ea2fa74aee3c669fd2be5503b4924a36
-# v1.0.13.3 (2026-08-01): both images rebuilt arm64 from CM044 v0.1.2 = main HEAD
-# cd79c50 (fresh; supersedes the stale 648f7491 pin that predated #219). Namespace
-# moved to creativemachines-ai per CM044 CI #31.
-wiki-compiler	sha256:2b7d494e2735693fc6d0d60d2ae28c515019fc37399442a7c015de7a8d191ddb	cd79c50234951ada51fb2fbe514ecb58220fb903
-wiki-site	sha256:f2acc0df18a800eed5230d46666f3ed98757a03f0b43b243d840d2a1dd28923c	cd79c50234951ada51fb2fbe514ecb58220fb903
+# KNOWN GAP, flagged to Andy 2026-08-06: 36cc552 is NOT on any remote. Pushing
+# andygmassey/CM044-PWG-Personal-Wiki 404s under BOTH authed accounts
+# (ostler-ai, creativemachines-ai) -- a credentials gap, not a missing repo.
+# Until Andy pushes it, this image's source exists only on the cut machine and
+# is not independently rebuildable. Not a content risk for this DMG (the image
+# is content-verified above and lives in ghcr), but it MUST be resolved before
+# anyone else can reproduce the wiki images.
+wiki-site	sha256:1bc4dd3f5804019eddeb2367c28f7212243db1a022b6ddbf386576206cff3628	36cc552
+wiki-compiler	sha256:aab6c6fe3f30496566ced635afd09884d00edce934364d187fbf1d00a80a511a	36cc552

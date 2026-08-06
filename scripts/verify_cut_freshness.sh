@@ -535,9 +535,17 @@ fi
 #    un-acknowledged delta commit stays fail-closed RED.
 # ===========================================================================
 check_wiki() {
+# NAMESPACE (2026-08-06 ORM): accept BOTH ghcr namespaces. This gate hardcoded
+# ghcr.io/creativemachines-ai (the CI publish target) while verify_cut_provenance.sh
+# hardcoded ghcr.io/ostler-ai (the SHIPPED pull path customers use). No single
+# install.sh pin could satisfy both gates, so the wiki rows were unsatisfiable and
+# wiki pinning rotted. ostler-ai is what ships; creativemachines-ai stays accepted so
+# a CI-namespace pin is still verifiable rather than silently unchecked. A MISSING
+# digest is still RED -- this widens what counts as a pin, it does not weaken the check.
+
 cm044_head="$(gh_head andygmassey andygmassey/CM044-PWG-Personal-Wiki "$CM044_BRANCH")"
 for key in wiki-compiler wiki-site; do
-    digest="$(grep -m1 -E "image: ghcr.io/creativemachines-ai/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
+    digest="$(grep -m1 -E "image: ghcr.io/(ostler-ai|creativemachines-ai)/ostler-${key}@sha256:" "$INSTALL_SH" 2>/dev/null \
               | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
     if [ -z "$digest" ]; then
         n_stale=$((n_stale+1))
