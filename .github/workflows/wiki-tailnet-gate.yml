@@ -1,0 +1,30 @@
+name: wiki-tailnet-gate
+
+# The wiki renders the customer's entire personal graph and has no auth
+# of its own. v1.0.17 exposes it on the tailnet ONLY behind an nginx
+# gate that checks the identity headers `tailscale serve` stamps from
+# the verified WireGuard session.
+#
+# tests/test_wiki_tailnet_gate.sh does not merely grep install.sh: it
+# generates the real config, stands it up against a stub wiki in the
+# pinned nginx image, and drives HTTP at it -- 403 for no identity, a
+# non-owner, an empty header and Funnel; 200 + body for the owner. It
+# also runs a positive control so a validator that can no longer fail
+# is caught as a failure itself.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  wiki-tailnet-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the wiki tailnet gate guard
+        run: bash tests/test_wiki_tailnet_gate.sh
