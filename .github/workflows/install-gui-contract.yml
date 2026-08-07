@@ -21,6 +21,8 @@ on:
       - 'install.sh.strings.en-GB.sh'
       - 'lib/progress_emitter.sh'
       - 'lib/write_pipeline_signals.py'
+      - 'lib/ostler-model-fit.sh'
+      - 'lib/settling_progress.sh'
       - 'gui/OstlerInstaller/**'
       - 'gui/project.yml'
       - 'scripts/extract_install_protocol.py'
@@ -29,6 +31,9 @@ on:
       - 'tests/test_install_gui_contract.py'
       - 'tests/test_install_gui_contract_negatives.py'
       - 'tests/test_installer_app_bundle_contents.sh'
+      # A gate must trigger on changes to ITSELF, or it can be broken (or
+      # quietly narrowed) in a PR that never runs it.
+      - 'tests/test_bundle_phase_declares_every_copy.sh'
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
