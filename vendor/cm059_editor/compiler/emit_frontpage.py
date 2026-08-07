@@ -193,6 +193,20 @@ def _profile_from_flat(art: dict) -> dict:
     }
 
 
+def _read_feed(path: str) -> dict | None:
+    """Read an existing feed artefact, or None when absent/unreadable.
+
+    Deliberately forgiving: a corrupt or half-written previous feed must not
+    stop the degraded path writing its stub, because then the stub really is
+    the better of the two.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else None
+    except Exception:  # noqa: BLE001 - missing, unreadable or malformed
+        return None
+
 def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
          now: datetime | None = None) -> dict:
     """Build + write the Front Page artefacts. Returns
@@ -304,18 +318,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-def _read_feed(path: str) -> dict | None:
-    """Read an existing feed artefact, or None when absent/unreadable.
-
-    Deliberately forgiving: a corrupt or half-written previous feed must not
-    stop the degraded path writing its stub, because then the stub really is
-    the better of the two.
-    """
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else None
-    except Exception:  # noqa: BLE001 - missing, unreadable or malformed
-        return None
