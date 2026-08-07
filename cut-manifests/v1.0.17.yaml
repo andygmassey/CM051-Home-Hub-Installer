@@ -1,0 +1,199 @@
+# cut-manifests/v1.0.17.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.17 DMG cut MUST contain.
+#
+# Every entry is a fix that has slipped, or would silently slip, without an
+# artefact-level proof. The verifier walks this file + permanent.yaml before
+# codesign. Any FAIL fails the cut BEFORE signing (fail-closed).
+#
+# THE FILE MUST EXIST FOR ITS VERSION. gui/Makefile derives
+# CUT_MANIFEST_VERSION from the installer version (1.0.17 -> v1.0.17).
+#
+# This file exists because the v1.0.17 cut died with exactly the
+# FileNotFoundError v1.0.16.yaml's header warned about, the moment the
+# installer was bumped to 1.0.17. That is the gate behaving correctly: a
+# manifest that is merely missing is indistinguishable from one that passes
+# vacuously. Worth noting for whoever reads the failure next -- the error text
+# says "a required fix is missing from the built .app", which is NOT what a
+# FileNotFoundError means. A tool fault wearing the costume of a cut fault.
+#
+# Derived from v1.0.16.yaml. NOTHING was dropped or weakened: every v1.0.16
+# assertion is carried forward, three have updated expected values (installer
+# version, build number, and the two wiki digests, all re-pinned since that
+# manifest was written), and one NEW assertion was added for the fix this cut
+# is actually for.
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.17
+description: |
+  v1.0.17 cut contract. Supersedes v1.0.16 (that DMG was never shipped).
+  Consumes permanent.yaml plus these entries. Fails the cut on any RED
+  before codesign.
+
+  What this cut is FOR, and therefore what must be proved at the artefact:
+
+    - The doctor oracle-absent fallback, IN THE COPY THAT SHIPS. This is the
+      blocker that stopped the 2026-08-07 attempt: `_local_fallback_allowed`
+      existed only as an uncommitted working-tree edit in HR015 -- present in
+      no commit, on no branch, and absent from CM051 vendor/doctor entirely.
+      A `git clean` would have destroyed it silently. The capability gate read
+      GREEN on it because it grepped the SOURCE tree and found a developer's
+      unsaved work. Landed via HR015 #291/#292 and grafted into the vendored
+      copy by CM051 #523.
+
+      The assertion below deliberately targets the file inside the BUILT app,
+      not the repo: verify the artefact, never the tree it was supposed to be
+      copied from. That confusion is the whole reason this entry exists.
+
+    - Daemon hub-v0.4.54 @ 782a6195 and a Hub wrapper built from the SAME
+      commit -- unchanged from v1.0.16, re-asserted because Ostler.app bundles
+      web/ and no pin check can see a stale wrapper.
+
+    - The re-pinned wiki images. v1.0.16.yaml pinned 0777ab93/b6f33d0e; those
+      digests were superseded by CM051 #515/#521. Both digests below were
+      confirmed anonymously pullable (HTTP 200, with a bogus-digest control
+      returning 404 to prove the probe was not blind) and content-verified
+      byte-for-byte against CM044 c4448cc.
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # Installer version stamp -- DMG-boundary assertion.
+  # --------------------------------------------------------------------------
+  # Sibling of the source-consistency gate; this proves the BUILT app stamps
+  # 1.0.17, catching "sources agree but the built app is stale".
+  - id: v1017-installer-app-version-stamp
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.17
+    incident: v1.0.11 AND v1.0.12 both shipped an installer stamping "1.0.10"
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleShortVersionString"
+      value: "1.0.17"
+
+  # --------------------------------------------------------------------------
+  # Build number -- the failure the consistency gate structurally cannot see.
+  # --------------------------------------------------------------------------
+  # A gate that checks AGREEMENT is blind to a value that is uniformly wrong,
+  # so the expected number has to be asserted somewhere, and this is that
+  # somewhere. 1700 follows the established scheme (1.0.13 -> 13,
+  # 1.0.13.2 -> 1302, 1.0.16 -> 1600) and is strictly greater than 1600, so a
+  # customer upgrading from the v1.0.16 line sees a new build number.
+  - id: v1017-installer-app-build-number
+    title: built OstlerInstaller.app CFBundleVersion must equal 1700
+    incident: v1.0.16 bumped 1.0.13.2 -> 1.0.16 while leaving CFBundleVersion at 1302
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleVersion"
+      value: "1700"
+
+  # --------------------------------------------------------------------------
+  # THE fix this cut is for: the doctor fallback, in the artefact.
+  # --------------------------------------------------------------------------
+  # Doctor treats a MISSING bearer-validation oracle as deployment skew rather
+  # than an auth denial -- the "Connecting forever" lockout class. Ships to the
+  # customer inside the Hub's embedded upgrade payload as services/doctor/.
+  #
+  # Severity, honestly: hub-v0.4.54 DOES serve /internal/validate-bearer, so
+  # the lockout does not arise for this daemon+doctor pairing. This is
+  # defence-in-depth against skew. It is asserted here because it is the item
+  # that blocked the previous attempt, and because the gate that was supposed
+  # to cover it proved it was reading the wrong file.
+  - id: v1017-doctor-oracle-fallback-in-shipped-payload
+    title: shipped doctor proxy.py must carry the oracle-absent fallback
+    incident: "_local_fallback_allowed existed in no commit on no branch; the capability gate read GREEN on an uncommitted working-tree edit"
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/Ostler.app/Contents/Resources/ostler-payload/services/doctor/proxy.py"
+      pattern: "_local_fallback_allowed"
+      must_match: true
+
+  # The kill switch Archie asked for, defaulting ON. Asserted separately so a
+  # partial graft (fallback present, switch missing) cannot pass as complete.
+  - id: v1017-doctor-oracle-fallback-kill-switch
+    title: shipped doctor proxy.py must carry the OSTLER_DOCTOR_ORACLE_FALLBACK kill switch
+    incident: review condition on HR015 #292 -- an auth-widening path must be switchable off
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/Ostler.app/Contents/Resources/ostler-payload/services/doctor/proxy.py"
+      pattern: "OSTLER_DOCTOR_ORACLE_FALLBACK"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Daemon + wrapper identity. Unchanged from v1.0.16 -- same daemon.
+  # --------------------------------------------------------------------------
+  # The daemon stamps DAEMON_FRONTEND_COMMIT=<40-hex> via env!() at build time
+  # (HR015 #226). It is codesigning-invariant and survives into the shipped
+  # Mach-O verbatim, so this proves WHICH build the artefact embeds -- not
+  # which one the pin claims.
+  #
+  # verify-commit-parity proves wrapper == daemon. It cannot prove they are the
+  # RIGHT commit: two stale-but-equal binaries pass parity happily. This entry
+  # is the half that pins the identity.
+  - id: v1017-daemon-frontend-commit-is-reboot-fix
+    title: shipped daemon must embed the 782a6195 build (gateway binds before Colima)
+    incident: v1.0.14.1 shipped from a tree 161 commits behind main and passed 39/40 gates
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+      pattern: "DAEMON_FRONTEND_COMMIT=782a6195ca0747f0dcaba043a20d3c50e491d8cd"
+      must_match: true
+
+  # The wrapper half of the same identity claim. Ostler.app bundles web/, so a
+  # stale wrapper renders an old Hub UI while every daemon pin reads correct.
+  - id: v1017-wrapper-frontend-commit-matches-daemon
+    title: shipped Hub wrapper must embed the SAME build as the daemon (782a6195)
+    incident: v1.0.13 #225 stale wrapper -- all gates green, customer UI wrong
+    proof:
+      kind: grep_in_artefact
+      target: daemon-app
+      path: "Contents/MacOS/ostler-hub"
+      pattern: "WRAPPER_FRONTEND_COMMIT=782a6195ca0747f0dcaba043a20d3c50e491d8cd"
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # The settling panel's contacts/emails producer must be BUNDLED.
+  # --------------------------------------------------------------------------
+  # install.sh copies contact_syncer / meeting_syncer / identity_resolver into
+  # PIPELINE_DIR but never ostler_fda, so the contacts and emails channels
+  # cannot import the Python settling writer. They use a bash writer instead --
+  # which is inert unless it is inside the .app.
+  - id: v1017-settling-shell-writer-bundled
+    title: lib/settling_progress.sh must ship inside the installer app
+    incident: "#288 shipped a settling writer with 17 tests and zero production callers"
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/lib/settling_progress.sh"
+
+  # --------------------------------------------------------------------------
+  # The wiki images the DMG points at must be the ones that were verified.
+  # --------------------------------------------------------------------------
+  # RE-PINNED since v1.0.16.yaml, which still named 0777ab93/b6f33d0e. Both
+  # digests below are the ones install.sh actually ships, each confirmed
+  # anonymously pullable the way a customer's Mac fetches (HTTP 200; bogus
+  # digest -> 404, proving the probe is not blind), and content-verified
+  # byte-for-byte against CM044 c4448cc: extra.css 143,344 bytes, 370 .pw-doc
+  # rules. For contrast, what shipped for months: 68,542 bytes, ZERO rules --
+  # three provenance checks passed the whole time. Provenance is not content.
+  - id: v1017-wiki-site-digest-pinned
+    title: install.sh must pin the verified wiki-site digest
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-site@sha256:d4436f75cd5a00efd95504938078318af3f5b34158f3f561bc40e9db6b6aa170"
+      must_match: true
+
+  - id: v1017-wiki-compiler-digest-pinned
+    title: install.sh must pin the verified wiki-compiler digest
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-compiler@sha256:dbb355bc606ae1e3d6a66360ea11eabad8a68c1b91e07723e8878fde30458de4"
+      must_match: true
