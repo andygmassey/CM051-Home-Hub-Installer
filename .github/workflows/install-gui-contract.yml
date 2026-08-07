@@ -81,6 +81,18 @@ jobs:
           set -euo pipefail
           python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
 
+      - name: Check bundling phases declare every file they copy
+        # The ${SCRIPT_DIR}/X gate above proves a file IS copied. It does not
+        # prove Xcode knows about the copy. A file absent from a phase's
+        # inputFiles/outputFiles is untracked for incremental builds, so
+        # editing it may not dirty the phase and the .app keeps the PREVIOUS
+        # copy -- green build, stale artefact, and the symptom ("my edit did
+        # nothing") points at the edited file rather than the build system.
+        # lib/settling_progress.sh shipped in exactly that state on 2026-08-07.
+        run: |
+          set -euo pipefail
+          bash tests/test_bundle_phase_declares_every_copy.sh
+
       - name: Run app-bundle byte-by-byte regression
         # Per locked memory feedback_silent_bail_regression_test_shape.
         # Each per-finding assertion pins the EXACT failure shape the
