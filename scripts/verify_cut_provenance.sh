@@ -142,7 +142,21 @@ while IFS='|' read -r kind target pattern desc; do
       # FAIL-CLOSED: if docker is unavailable or the pull fails, this is RED, so
       # a cut host that cannot verify the image cannot pass.
       img_key="${target%%:*}"; img_path="${target#*:}"
-      ref="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
+      # NAMESPACE-AGNOSTIC ON PURPOSE. This grep was pinned to
+      # "ghcr.io/ostler-ai/", but install.sh ships
+      # "ghcr.io/creativemachines-ai/" -- so it never matched, `ref` came back
+      # empty, and EVERY wiki_image_grep / wiki_image_absent row reported
+      # "no pinned digest in install.sh" against an install.sh that has always
+      # carried one. All 11 wiki rows in cut_markers.manifest had therefore
+      # NEVER ONCE been evaluated. It failed CLOSED, which is the only reason
+      # this was not a shipping defect -- but a gate that cannot run is not
+      # coverage, it is the appearance of coverage.
+      #
+      # verify_cut_freshness.sh and provenance_gate.sh were both already fixed
+      # this way (see their equivalent comments); this was the third copy of the
+      # same hardcoded-namespace rot. Match ANY owner and let the digest plus
+      # the provenance ledger bind the artefact, never a hand-typed org name.
+      ref="$(grep -m1 -E "image: ghcr\.io/[a-z0-9-]+/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
       if [[ -z "${ref}" ]]; then
         red "wiki_image_grep ${img_key} :: no pinned digest in install.sh (${desc})"; continue
       fi
@@ -174,7 +188,8 @@ while IFS='|' read -r kind target pattern desc; do
       # gate red against a correct image -- a gate that fails on the right
       # answer teaches people to ignore it.
       img_key="${target%%:*}"; img_path="${target#*:}"
-      ref="$(grep -m1 -E "image: ghcr.io/ostler-ai/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
+      # NAMESPACE-AGNOSTIC ON PURPOSE -- see the note at wiki_image_grep above.
+      ref="$(grep -m1 -E "image: ghcr\.io/[a-z0-9-]+/ostler-${img_key}@sha256:" "${CM051_DIR}/install.sh" 2>/dev/null | sed -E 's/.*image:[[:space:]]*//' | tr -d ' ')"
       if [[ -z "${ref}" ]]; then
         red "wiki_image_absent ${img_key} :: no pinned digest in install.sh (${desc})"; continue
       fi

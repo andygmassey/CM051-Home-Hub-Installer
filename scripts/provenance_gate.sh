@@ -252,7 +252,21 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
 
   case "$artifact" in
     wiki-compiler|wiki-site)
-      IFS=$'\t' read -r digest ledger_sha ref < <(resolve_wiki "$artifact")
+      # SPLIT WITHOUT COLLAPSING EMPTY FIELDS. `IFS=$'\t' read -r a b c` looks
+      # like a faithful 3-field split, but TAB is an IFS *whitespace* character,
+      # so bash collapses runs of it: when resolve_wiki emits an EMPTY
+      # ledger_sha (the exact case this gate exists to catch -- a digest with no
+      # provenance row) the output is "digest\t\tref" and the two tabs collapse
+      # into one. `ref` then slides into `ledger_sha`, the [[ -z "$ledger_sha" ]]
+      # UNRECORDED branch below becomes UNREACHABLE, and the gate instead
+      # reports "ledger sha ghcr.io/crea does NOT contain <fix> -- STALE
+      # BINDING" -- a real fault described as the wrong fault, sending whoever
+      # reads it off to rebuild a perfectly good image.
+      #
+      # Splitting on a literal newline is not affected: the fields are read
+      # positionally and an empty one stays empty.
+      { IFS= read -r digest; IFS= read -r ledger_sha; IFS= read -r ref; } \
+        < <(resolve_wiki "$artifact" | tr '\t' '\n')
       if [[ -z "$digest" ]]; then
         red "${label} :: no pinned digest for ${artifact} in install.sh -- unresolvable provenance"; continue
       fi
