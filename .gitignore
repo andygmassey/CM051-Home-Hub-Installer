@@ -108,3 +108,6 @@ vendor/ostler_security/build/
 
 # tests/test_wiki_tailnet_gate.sh scratch (repo-local so Docker Desktop can bind-mount it)
 .wiki-gate-test.*
+
+# scratch dir for tests/test_pinned_wiki_image_has_design_system.sh
+.wikicheck.*/
