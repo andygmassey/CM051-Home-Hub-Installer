@@ -1756,3 +1756,50 @@ deferrals:
   - ref: "daemon:fix/v1013.1-daemon-recut"
     reason: "0 commit(s) not in the shipped ref. Zero unapplied patches -- the content is already in the shipped artefact. The ref is redundant, not missing work. Tip preserved as an archive/2026-08-07 tag on the remote, so deferring cannot lose it."
     until_cut: "n/a -- already shipped"
+
+  # ==========================================================================
+  # v1.0.17 CUT -- 2026-08-08 (ORM)
+  #
+  # Seven refs appeared AFTER the 2026-08-07 02:15 sweep wrote this file. All
+  # seven were checked against the artefact being assembled, not against a
+  # branch name. None of them can reach this DMG.
+  # ==========================================================================
+
+  # -- CM031 (iOS companion) --------------------------------------------------
+  # CM031 is not a build input to the macOS DMG. Proven mechanically, not
+  # assumed: `grep -rniE 'CM031|iOS-Companion|OstlerCompanion' gui/Makefile
+  # gui/project.yml` returns nothing, and the ship chain reads only
+  # install.sh, vendor/*, assistant-agent/ and OSTLER_APP_PATH. CM031 ships
+  # through the App Store, on its own cadence. Deferring these cannot change
+  # one byte of this artefact.
+  - ref: "CM031:fix/cm031-paywall-trap-and-pairing-ux"
+    reason: "iOS companion, 4 commit(s) not in origin/main. Not a macOS DMG build input (no CM031 reference in gui/Makefile or gui/project.yml), so it cannot be in this artefact either way. NOTE: this is launch-relevant work for the phone side (paywall unbrick + QR pairing) and should lead the CM031 queue -- it is deferred from THIS DMG, not from the launch."
+    until_cut: "v1.0.18 / next CM031 App Store build"
+  - ref: "CM031:#158"
+    reason: "Open PR for fix/cm031-paywall-trap-and-pairing-ux, opened 2026-08-07T07:02Z, after the 02:15 sweep. Same item as the branch above; deferred for the same reason -- iOS companion is not a DMG input."
+    until_cut: "v1.0.18 / next CM031 App Store build"
+  - ref: "CM031:fix/cm031-hub-cert-pinning"
+    reason: "iOS companion, 8 commit(s) not in origin/main. Hub certificate pinning is phone-side transport hardening; it is not a macOS DMG build input. Deferring cannot change this artefact."
+    until_cut: "v1.0.18 / next CM031 App Store build"
+  - ref: "CM031:#159"
+    reason: "Open PR for fix/cm031-hub-cert-pinning, opened 2026-08-07T13:02Z, after the 02:15 sweep. Same item as the branch above."
+    until_cut: "v1.0.18 / next CM031 App Store build"
+
+  # -- daemon dependency bumps ------------------------------------------------
+  # All three are bot-raised bumps against the daemon's web/ frontend, opened
+  # 2026-08-07 02:01-02:11Z -- minutes after this file was last written, which
+  # is the only reason they are newly RED. None is in hub-v0.4.54 (782a6195),
+  # the daemon this cut ships and which is already built, signed, notarised
+  # Accepted and stapled. Landing any one of them means rebuilding AND
+  # re-notarising both the daemon and the Hub (Ostler.app bundles web/), i.e.
+  # a fresh daemon cut with its own review -- not something to do to a
+  # gate-green launch candidate at cut time, unreviewed, overnight.
+  - ref: "daemon:#283"
+    reason: "dependabot: bump undici 7.28.0 -> 7.29.0 in /web, opened 2026-08-07T02:01Z. Transitive dev-dependency bump, not a walk defect. Not in hub-v0.4.54; including it requires a daemon + Hub rebuild and re-notarisation."
+    until_cut: "next daemon cut"
+  - ref: "daemon:#284"
+    reason: "dependabot: bump postcss 8.5.6 -> 8.5.26 in /web, opened 2026-08-07T02:01Z. Build-time CSS toolchain bump, not a walk defect. Not in hub-v0.4.54; including it requires a daemon + Hub rebuild and re-notarisation."
+    until_cut: "next daemon cut"
+  - ref: "daemon:#285"
+    reason: "Snyk SECURITY upgrade: react-router-dom 7.13.0 -> 7.14.0, opened 2026-08-07T02:11Z. Deferred from this DMG only because the daemon is already built and notarised at 782a6195 and this arrived after that build; it is NOT dismissed. This is the one of the three with a security rationale and it should be FIRST into the next daemon cut. Recorded here so it cannot fade quietly."
+    until_cut: "next daemon cut -- PRIORITY"

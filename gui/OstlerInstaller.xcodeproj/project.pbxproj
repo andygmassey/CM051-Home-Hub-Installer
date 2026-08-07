@@ -996,6 +996,7 @@
 				"$(SRCROOT)/../lib/progress_emitter.sh",
 				"$(SRCROOT)/../lib/write_pipeline_signals.py",
 				"$(SRCROOT)/../lib/ostler-model-fit.sh",
+				"$(SRCROOT)/../lib/settling_progress.sh",
 				"$(SRCROOT)/../install.sh.strings.en-GB.sh",
 			);
 			name = "Bundle install.sh + lib/progress_emitter.sh + strings catalogue into Resources";
@@ -1006,6 +1007,7 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1303,7 +1305,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1600;
+				CURRENT_PROJECT_VERSION = 1700;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1318,7 +1320,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.16;
+				MARKETING_VERSION = 1.0.17;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -1368,7 +1370,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1600;
+				CURRENT_PROJECT_VERSION = 1700;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -1389,7 +1391,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.16;
+				MARKETING_VERSION = 1.0.17;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
