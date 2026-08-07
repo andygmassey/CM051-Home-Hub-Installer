@@ -46,3 +46,21 @@ wiki-compiler	sha256:2b7d494e2735693fc6d0d60d2ae28c515019fc37399442a7c015de7a8d1
 wiki-site	sha256:f2acc0df18a800eed5230d46666f3ed98757a03f0b43b243d840d2a1dd28923c	cd79c50234951ada51fb2fbe514ecb58220fb903
 wiki-compiler	sha256:b6f33d0efc98716313b6753eb4e787e374c5ff5be18ea58680632e5f77cb0e5f	e2991e435fed37e83234a8fb356071a2e4bc56de
 wiki-site	sha256:0777ab938226cb793bb91c27df8af669bfcb00c5d5dfcdb247516994c0e84ddb	e2991e435fed37e83234a8fb356071a2e4bc56de
+# v1.0.17 (2026-08-07): both images rebuilt arm64 from CM044 tag v0.1.5 =
+# c4448cc "Merge PR #165: v1.0.17 wiki design-system rollout + box-walk fixes".
+# These are the digests CM051 #515 pinned into install.sh. That re-pin did NOT
+# add rows here, so verify_cut_freshness.sh reported RED unrecorded-provenance
+# and provenance_gate.sh reported a bogus STALE BINDING -- the pins were fine,
+# the ledger was simply silent. A re-pin and its ledger row are one step.
+#
+# The digest -> c4448cc binding was verified by CONTENT before being recorded,
+# not taken from the publishing job's claim:
+#   site     mkdocs/overrides/stylesheets/extra.css
+#            143344 bytes / 370 .pw-doc rules, byte-identical to git c4448cc
+#   compiler /app/compiler/{pages/dashboard.py,pages/person_pages.py,locale.py}
+#            sha256 identical to git c4448cc for all three
+# c4448cc is an ancestor of CM044 main f949872; the only delta to main is
+# docs/RUNBOOK_wiki_image_release.md + scripts/release_wiki_images.sh, neither
+# of which is copied into either image, so the pin is content-current.
+wiki-compiler	sha256:dbb355bc606ae1e3d6a66360ea11eabad8a68c1b91e07723e8878fde30458de4	c4448ccfd07121ce1c2aeaf465ae98990bbd424c
+wiki-site	sha256:d4436f75cd5a00efd95504938078318af3f5b34158f3f561bc40e9db6b6aa170	c4448ccfd07121ce1c2aeaf465ae98990bbd424c
