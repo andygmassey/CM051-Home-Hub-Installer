@@ -54,6 +54,7 @@ upstream verifies the bearer itself).
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 from typing import Iterable, Optional
@@ -202,6 +203,97 @@ def _extract_bearer_token(headers) -> str:
     return ""
 
 
+# Whether the gateway has been observed NOT to serve the bearer-validation
+# oracle. Set only by a 404/405 from that route, cleared by any real 401.
+# Process-local and deliberately not persisted: it describes the daemon we are
+# talking to right now, and must re-derive itself after a daemon swap.
+_ORACLE_STATE = {"absent": False}
+
+
+def _machine_admin_token() -> str:
+    """The machine-local admin token, if this install has one."""
+    for name in ("OSTLER_ADMIN_TOKEN", "OSTLER_MACHINE_ADMIN_TOKEN"):
+        raw = os.environ.get(name, "").strip()
+        if raw:
+            return raw
+    return ""
+
+
+def _local_fallback_allowed(request, client_bearer: str) -> bool:
+    """May this request proceed even though the gateway gave no auth verdict?
+
+    ONLY when all of:
+      * the bearer-validation oracle is absent (deployment skew, not denial),
+      * the caller is on loopback -- never a remote or tunnelled client, and
+      * the caller either presents the machine admin token, or is doing a
+        read-only GET.
+
+    The narrowness is the point. A missing endpoint must degrade to "the
+    person sitting at this Mac can still read their own data", never to
+    "anyone on the network is authenticated". On a daemon that serves the
+    oracle this function is unreachable, because `absent` is never set.
+
+    THE LOOPBACK ASSUMPTION, AND ITS EXPIRY DATE (Archie, 2026-08-08)
+    ----------------------------------------------------------------
+    This whole function rests on "arrived on loopback" meaning "is physically
+    at this Mac". That holds for the SHIPPED wiring and was verified against
+    it: Doctor's uvicorn binds loopback with no proxy_headers, nothing
+    tailscale-serves :8089, and the Companion TLS listener terminates on the
+    daemon, not here.
+
+    It is an assumption about WIRING, not about this file, so this file cannot
+    keep it true. The day someone puts a reverse proxy in front of Doctor,
+    enables proxy_headers, or points `tailscale serve` at a Doctor loopback
+    port -- exactly what CM051 #512 now does for the WIKI -- every remote
+    caller starts presenting as 127.0.0.1 and this fallback silently widens
+    from "the owner" to "the tailnet".
+
+    Hence the kill switch below. It defaults ON, so behaviour is unchanged
+    today. Its job is to be a thing that must be consciously kept on: a future
+    PR that wires any of the above has to come past this env var and decide,
+    at wire-time, whether the fallback is still safe -- rather than inheriting
+    a decision nobody remembers making.
+    """
+    if os.environ.get("OSTLER_DOCTOR_ORACLE_FALLBACK", "1").strip().lower() in (
+        "0", "false", "no", "off",
+    ):
+        return False
+
+    if not _ORACLE_STATE["absent"]:
+        return False
+
+    host = ""
+    try:
+        if request.client and request.client.host:
+            host = str(request.client.host)
+    except Exception:  # pragma: no cover - defensive
+        return False
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        return False
+
+    admin = _machine_admin_token()
+    # compare_digest, not ==, so the comparison time does not depend on how
+    # many leading characters matched. A loopback attacker who can make
+    # repeated requests could otherwise recover the admin token one character
+    # at a time. The window is narrow -- this path is only live on a daemon
+    # that does not serve the oracle -- but the cost of closing it is one
+    # import, and "narrow" is not "closed". (Archie, 2026-08-08.)
+    # ...and compare BYTES, not str. compare_digest raises TypeError on str
+    # operands containing non-ASCII, and client_bearer is attacker-controlled:
+    # a bearer of "sekrité" would have crashed the proxy rather than being
+    # rejected. Caught by test_non_ascii_bearer_does_not_crash on the first run
+    # after the compare_digest swap -- the hardening introduced the bug and the
+    # test written alongside it found it.
+    if admin and client_bearer and hmac.compare_digest(
+        client_bearer.encode("utf-8", "surrogatepass"),
+        admin.encode("utf-8", "surrogatepass"),
+    ):
+        return True
+
+    method = str(getattr(request, "method", "") or "").upper()
+    return method in ("GET", "HEAD")
+
+
 async def _is_paired_bearer(
     token: str,
     validator_url: Optional[str] = None,
@@ -246,12 +338,47 @@ async def _is_paired_bearer(
         return False
     if resp.status_code == 204:
         return True
+    # 404/405 is NOT an auth decision -- it means this daemon build does not
+    # serve the oracle at all (deployment skew), and the gateway has therefore
+    # expressed no opinion about the bearer. Treating "route absent" as "auth
+    # denied" is what turned a missing endpoint into a TOTAL lockout on the
+    # v1.0.14.1 box-walk: every /api/v1/* answered 401 and the Hub sat on
+    # "Connecting..." for ever on a machine whose data layer was perfectly
+    # healthy. Record the skew so the loopback fallback below can apply; the
+    # flag is only ever set by these two statuses, so on a daemon that does
+    # serve the oracle this branch never runs and nothing changes.
+    if resp.status_code in (404, 405):
+        if not _ORACLE_STATE["absent"]:
+            # 405 is louder than 404 on purpose (Archie, 2026-08-08). 404 says
+            # "no such route" -- an older daemon, the case this exists for. 405
+            # says "route exists, wrong method", which is evidence the oracle
+            # IS there and we are calling it incorrectly. Same handling, but
+            # 405 is an API-shape drift we want visible in triage rather than
+            # quietly absorbed as skew.
+            logger.log(
+                logging.ERROR if resp.status_code == 405 else logging.WARNING,
+                "Doctor proxy: gateway does not serve /internal/validate-bearer "
+                "(HTTP %s at %s). This is deployment skew, not an auth denial. "
+                "Loopback callers will be admitted under the local fallback; "
+                "remote callers stay denied.%s",
+                resp.status_code,
+                validator_url or "<default validator url>",
+                " A 405 means the route EXISTS but rejected our method -- check"
+                " the validator API shape, this is probably not skew."
+                if resp.status_code == 405 else "",
+            )
+        _ORACLE_STATE["absent"] = True
+        return False
     if resp.status_code != 401:
         logger.warning(
             "Doctor proxy: unexpected /internal/validate-bearer status %s; "
             "failing closed",
             resp.status_code,
         )
+    # A real 401 means the oracle exists and rejected this bearer, so any
+    # earlier skew observation is stale -- clear it rather than letting one
+    # 404 during a restart permanently loosen the door.
+    _ORACLE_STATE["absent"] = False
     return False
 
 
@@ -306,9 +433,22 @@ async def proxy_request(
         client_bearer = _extract_bearer_token(request.headers)
         # BW2-5: ask the gateway (single source of pairing truth, which decrypts
         # the enc2: paired_tokens) rather than re-reading config.toml ourselves.
-        if not await _is_paired_bearer(
+        authorized = await _is_paired_bearer(
             client_bearer, validator_url=validator_url, client=client
-        ):
+        )
+        if not authorized and _local_fallback_allowed(request, client_bearer):
+            # The gateway expressed no opinion because it does not serve the
+            # oracle at all. Admit this narrow loopback case rather than
+            # locking the owner out of their own machine. See
+            # _local_fallback_allowed for why this cannot widen access.
+            logger.warning(
+                "Doctor proxy: admitting loopback %s %s under the local "
+                "fallback (gateway serves no bearer-validation oracle)",
+                request.method,
+                path,
+            )
+            authorized = True
+        if not authorized:
             logger.warning(
                 "Doctor proxy: rejecting unpaired client bearer for %s %s",
                 request.method,
