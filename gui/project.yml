@@ -265,17 +265,28 @@ targets:
           else
             echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2
           fi
+        # Every file this phase copies MUST appear in BOTH lists. Xcode uses
+        # them for incremental-build dependency tracking: a file absent from
+        # inputFiles does not dirty the phase when it changes, and one absent
+        # from outputFiles is not recorded as produced. Miss either and a
+        # rebuild can ship a STALE copy of a file that is demonstrably in the
+        # bundle -- the failure looks like "my edit did nothing", not like a
+        # build error. settling_progress.sh was missing from both between
+        # 2026-08-07 00:55 and this commit.
+        # tests/test_bundle_phase_declares_every_copy.sh enforces this.
         inputFiles:
           - $(SRCROOT)/../install.sh
           - $(SRCROOT)/../lib/progress_emitter.sh
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that
