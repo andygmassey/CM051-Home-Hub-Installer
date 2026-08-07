@@ -28,3 +28,12 @@ jobs:
 
       - name: Run the wiki tailnet gate guard
         run: bash tests/test_wiki_tailnet_gate.sh
+
+      - name: Owner-resolution parser
+        # The gate guard above proves nginx rejects the wrong user. It stays
+        # green when the owner was never resolved at all, because a gate with
+        # no owner rejects everyone -- correct, and indistinguishable from
+        # working. So it cannot catch a parser regression; this can.
+        # It extracts the parser from install.sh rather than copying it, so
+        # the test cannot drift from what ships.
+        run: python3 -m unittest tests.test_tailnet_owner_resolution -v

@@ -9678,13 +9678,29 @@ chmod 644 "${OSTLER_DIR}/ostler-wiki-gate.conf"
 # pulled the wiki off Tailscale precisely because `serve --tcp=8044`
 # hands the customer's entire personal graph to any peer on the
 # tailnet with no authentication. `tailscale serve` in HTTP-proxy mode
-# fixes that at the source: tailscaled DELETES any client-supplied
-# Tailscale-* headers and re-stamps them from the tunnel's verified
-# WireGuard identity, so Tailscale-User-Login cannot be forged by a
-# peer. Funnel traffic (public internet) gets NO identity headers and
-# is instead marked Tailscale-Funnel-Request -- we reject on both
+# fixes that at the source: before proxying, tailscaled unconditionally
+# DELETES five specific headers and re-stamps them from the tunnel's
+# verified WireGuard identity, so Tailscale-User-Login cannot be forged
+# by a peer. Funnel traffic (public internet) gets NO identity headers
+# and is instead marked Tailscale-Funnel-Request -- we reject on both
 # limbs, so even an operator who enables Funnel by hand cannot leak
 # the wiki. We never invoke `tailscale funnel` ourselves.
+#
+# 🔴 THE DELETION IS PER-HEADER, NOT A WILDCARD. Only these five are
+# stripped (ipn/ipnlocal/serve.go, addTailscaleIdentityHeaders):
+#
+#     Tailscale-User-Login   Tailscale-User-Name   Tailscale-User-Profile-Pic
+#     Tailscale-Funnel-Request               Tailscale-Headers-Info
+#
+# Any OTHER Tailscale-* header a client invents is passed straight
+# through. This gate reads only the first and the fourth, so it is safe
+# today -- but if you ever widen what the nginx conf reads, confirm the
+# new header is on that list first. A sixth Tailscale-Something header
+# would be attacker-controlled, and it would look exactly as
+# trustworthy as the two that are not.
+# (Raised by review, 2026-08-07: the original comment said "any
+# client-supplied Tailscale-* headers", which is the kind of
+# almost-true that gets a future change wrong.)
 #
 # The gate is bound to 127.0.0.1:8144 on the host: unreachable off-box
 # except through the tunnel, and a local user on this Mac can already
@@ -15743,6 +15759,8 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     raise SystemExit(0)
+if not isinstance(d, dict):
+    raise SystemExit(0)
 uid = (d.get("Self") or {}).get("UserID")
 if uid is None:
     raise SystemExit(0)
@@ -15775,6 +15793,8 @@ import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
+    raise SystemExit(0)
+if not isinstance(d, dict):
     raise SystemExit(0)
 name = ((d.get("Self") or {}).get("DNSName") or "").rstrip(".")
 if name:
