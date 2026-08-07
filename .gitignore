@@ -105,3 +105,6 @@ assistant-agent/OstlerAssistant.app/
 # F1 hygiene: never bundle stale python-build output (pre-F1 consent_cli)
 vendor/ostler_security/build/
 **/*.egg-info/
+
+# tests/test_wiki_tailnet_gate.sh scratch (repo-local so Docker Desktop can bind-mount it)
+.wiki-gate-test.*
