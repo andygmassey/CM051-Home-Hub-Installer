@@ -42,7 +42,7 @@ cd "$HERE"
 
 MODE="${1:-gate}"
 
-CM044_DIR="${CM044_DIR:-$HOME/Developer/cm044-wiki-remaining}"
+CM044_DIR="${CM044_DIR:-$HOME/Developer/CM044-PWG-Personal-Wiki}"
 BOM="${BOM:-}"
 
 RED=0; GREEN=0; SKIPPED=0
@@ -105,7 +105,20 @@ run "bundle-phase declarations" \
 
 echo
 echo "-- Wiki images: provenance AND content ---------------------------"
-if [[ -d "$CM044_DIR" ]]; then
+# CM044_DIR must be the CANONICAL checkout, not a worktree. A worktree sits on
+# whatever branch someone left it on -- during the 2026-08-07 cut it was on a
+# docs branch, and comparing the shipped image against it produced a confident
+# RED on images that were provably correct. A false red costs as much trust as
+# a false green: it teaches you to disbelieve the gate.
+# In a worktree, .git is a FILE (a gitdir pointer), not a directory.
+if [[ -n "$CM044_DIR" && -f "$CM044_DIR/.git" ]]; then
+    unavailable "wiki image namespace" \
+        "CM044_DIR is a git WORKTREE, not the canonical checkout: $CM044_DIR"
+    unavailable "wiki image CONTENT" \
+        "CM044_DIR is a git WORKTREE -- it sits on whoever's branch was left
+                    checked out, so a mismatch here would say nothing about the cut.
+                    Use the canonical clone (\$HOME/Developer/CM044-PWG-Personal-Wiki)."
+elif [[ -d "$CM044_DIR" ]]; then
     run "wiki image namespace" \
         "CI publishes where install.sh reads" \
         env CM044_DIR="$CM044_DIR" bash tests/test_wiki_image_namespace_matches_ci.sh

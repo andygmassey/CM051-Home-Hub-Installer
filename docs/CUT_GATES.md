@@ -3,7 +3,7 @@
 **One command:**
 
 ```bash
-CM044_DIR=~/Developer/cm044-wiki-remaining \
+CM044_DIR=~/Developer/CM044-PWG-Personal-Wiki \
 BOM="~/Documents/Projects/OS003 - Ostler Release/cuts/<ver>/MUST_CONTAIN.tsv" \
 scripts/run_all_cut_gates.sh
 ```
