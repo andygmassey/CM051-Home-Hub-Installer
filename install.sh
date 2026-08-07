@@ -2656,7 +2656,7 @@ echo ""
 echo -e "  ${BOLD}One tip before you continue:${NC}"
 echo ""
 echo "  If you use Gmail, iCloud Mail, Outlook, or any other email via"
-echo "  webmail only -- add those accounts to Mac Mail first:"
+echo "  webmail only – add those accounts to Mac Mail first:"
 echo "    System Settings > Internet Accounts > add account > tick Mail"
 echo ""
 echo "  Apple handles the authentication; messages land in your local Mail"
@@ -3795,7 +3795,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
     echo ""
     echo "    Apple Mail is the recommended source for almost everyone."
     echo "    Sign in to iCloud, Gmail, or Outlook inside Apple Mail and"
-    echo "    Ostler reads them all via Full Disk Access -- no passwords"
+    echo "    Ostler reads them all via Full Disk Access – no passwords"
     echo "    stored anywhere."
     echo ""
 
@@ -4138,7 +4138,7 @@ echo ""
 echo -e "  ${BOLD}Your data sources${NC}"
 echo ""
 echo "  Ostler imports from 20 platforms. Request your data exports"
-echo "  now -- they take 1-3 days to arrive by email. You can do this"
+echo "  now – they take 1-3 days to arrive by email. You can do this"
 echo "  on your phone while the installer runs."
 echo ""
 echo -e "  ${GREEN}iCloud Contacts: already exported (${CONTACT_COUNT:-0} contacts)${NC}"
@@ -4194,7 +4194,7 @@ else
     echo ""
     echo "  FileVault is strongly recommended. Turn it on any time in"
     echo "  System Settings > Privacy & Security > FileVault (it encrypts"
-    echo "  in the background -- no reinstall needed)."
+    echo "  in the background – no reinstall needed)."
     echo ""
     # Default Yes: plaintext-at-rest is accepted for v1, so the install
     # continues by default rather than blocking. The choice is still
@@ -4206,7 +4206,7 @@ else
         # FileVault first. This is a user-selected exit, not an
         # installer-imposed block on the plaintext posture.
         echo ""
-        echo "  Stopping here as you asked -- nothing has failed."
+        echo "  Stopping here as you asked – nothing has failed."
         echo "  Turn FileVault on (System Settings > Privacy & Security >"
         echo "  FileVault), then re-run this installer to continue."
         exit 1
@@ -4217,7 +4217,7 @@ else
     # support touch can see the at-rest protection was knowingly
     # declined (rather than silently absent). Best-effort -- never abort
     # on a marker write failure this early.
-    warn "Proceeding WITHOUT FileVault -- your Ostler data is NOT encrypted at rest on this disk (you acknowledged this)."
+    warn "Proceeding WITHOUT FileVault – your Ostler data is NOT encrypted at rest on this disk (you acknowledged this)."
     mkdir -p "${SECURITY_CONFIG_DIR:-${HOME}/.ostler/config/security}" 2>/dev/null || true
     {
         echo "filevault_declined_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -5468,7 +5468,7 @@ else
     else
         info "$MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP"
     fi
-    echo "  That is fine -- you can import later. Request your data from:"
+    echo "  That is fine – you can import later. Request your data from:"
     echo "     LinkedIn, Facebook, Instagram, Google, Twitter, WhatsApp"
     echo "  Exports typically take 1-3 days to arrive."
     echo ""
@@ -5574,7 +5574,7 @@ echo -e "  ${BOLD}Which Mac sources should Ostler learn from?${NC}"
 echo ""
 echo "  Each source can be turned on or off. You can change these"
 echo "  any time later. Sensitive ones (face recognition) are off"
-echo "  by default -- tick deliberately if you want them."
+echo "  by default – tick deliberately if you want them."
 echo ""
 
 # Detect Apple Mail Gmail-attached accounts to give the user a
@@ -5622,7 +5622,7 @@ cat <<MENU
 
     [1] Recommended  Safari history + bookmarks, Notes, Calendar,
                      Reminders, iMessage, Apple Mail${_recommended_chrome_note}. The
-                     everyday sources -- privacy-friendly, all local.
+                     everyday sources – privacy-friendly, all local.
 
     [2] Everything   The above + WhatsApp + Chrome (if installed),
                      Photos events (NOT face recognition). Slower,
@@ -5733,7 +5733,7 @@ case "$PRESET" in
         fi
         _ask_source "photos_metadata"  "Photos events (no faces)  " N
         echo ""
-        echo "  Special-category data (default off -- explicit consent required):"
+        echo "  Special-category data (default off – explicit consent required):"
         _ask_source "photos_faces" "Photos face recognition (Art. 9)" N
         # Build comma-separated list
         IFS=','
@@ -6457,7 +6457,7 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away -- this takes 15-60 minutes, depending on how much history is on your Mac.${NC}"
+    echo -e "  ${GREEN}  You can walk away – this takes 15-60 minutes, depending on how much history is on your Mac.${NC}"
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -15571,7 +15571,7 @@ TSPLIST
                 fi
             done
             unset _ts_port
-            info "Wiki (:8044) is intentionally on-device only -- not exposed over Tailscale (it has no auth of its own). Browse it at http://localhost:8044 on this Mac."
+            info "Wiki (:8044) is intentionally on-device only – not exposed over Tailscale (it has no auth of its own). Browse it at http://localhost:8044 on this Mac."
             ok "$(printf "$MSG_OK_TAILSCALE_IP" "${OSTLER_TAILSCALE_IP}")"
             echo "  Use this address in the Ostler iOS companion app:"
             echo "    http://${OSTLER_TAILSCALE_IP}:8089"
@@ -18957,7 +18957,7 @@ echo ""
 if [[ "$WIKI_FIRST_COMPILE_OK" == true ]]; then
     echo -e "  ${BOLD}Your wiki:${NC} http://localhost:8044"
 else
-    echo "  Your wiki:  not yet available (first compile failed -- see warnings above)"
+    echo "  Your wiki:  not yet available (first compile failed – see warnings above)"
 fi
 
 # Channel summary: tell the customer how to actually talk to the
@@ -18970,7 +18970,7 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ||
     if [[ "${ASSISTANT_BINARY_INSTALLED:-false}" == true ]]; then
         echo -e "  ${GREEN}${BOLD}Your assistant ${ASSISTANT_NAME} is running.${NC}"
     else
-        echo -e "  ${YELLOW}${BOLD}${ASSISTANT_NAME}'s binary did not install -- channels are configured but no daemon is up.${NC}"
+        echo -e "  ${YELLOW}${BOLD}${ASSISTANT_NAME}'s binary did not install – channels are configured but no daemon is up.${NC}"
         echo "  See warnings above for the download / extract failure."
     fi
     echo -e "  ${BOLD}Talk to ${ASSISTANT_NAME}:${NC}"

@@ -1,0 +1,38 @@
+name: no-em-dash-check
+
+# House typography gate. Fails the build if an em dash (U+2014) appears
+# anywhere in shipped user-facing copy (install.sh echoed copy, the
+# install.sh.strings.*.sh MSG_* catalogues, and the SwiftUI GUI
+# ViewCopy.json / HintCopy.json).
+#
+# Owner-locked rule: em dashes "smack of AI slop" and are banned. The
+# house convention is the EN DASH (U+2013) with spaces, or ASCII '--'.
+# See ViewCopy.json "note": "Do NOT add em-dashes...".
+#
+# Runs the whole-tree scanner (scripts/check_no_em_dashes.sh); no diff
+# base needed - the shipped copy must be em-dash-free in its entirety.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  no-em-dash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run em-dash gate
+        run: |
+          set -euo pipefail
+          SCRIPT="scripts/check_no_em_dashes.sh"
+          if [ ! -x "$SCRIPT" ]; then
+              echo "::error::$SCRIPT missing or not executable."
+              exit 1
+          fi
+          "$SCRIPT"
