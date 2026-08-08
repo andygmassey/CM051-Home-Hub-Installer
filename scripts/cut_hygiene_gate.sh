@@ -153,8 +153,12 @@ die_usage() {
 # through the rows emitting "class unknown" for every line -- which reads like
 # a broken manifest rather than the wrong document entirely.
 # ---------------------------------------------------------------------------
-if grep -qE '(^|	)capability_id(	|$)' "$MANIFEST" 2>/dev/null \
-   || grep -qE '(^|	)landed(	|$)' "$MANIFEST" 2>/dev/null; then
+# Header-row match ONLY (Archie, 2026-08-08). Scanning the whole file would
+# refuse a legitimate PR manifest whose free-text `note` column happens to say
+# "landed" -- a false refusal, which costs exactly as much trust as a false
+# pass. The header is the first non-comment, non-blank line.
+_hdr="$(grep -vE '^[[:space:]]*(#|$)' "$MANIFEST" 2>/dev/null | head -1)"
+if printf '%s' "$_hdr" | grep -qE '(^|	)(capability_id|landed)(	|$)'; then
   echo "ERROR: this looks like a MUST_CONTAIN BOM, not a PR manifest." >&2
   echo "       $MANIFEST" >&2
   echo "" >&2
