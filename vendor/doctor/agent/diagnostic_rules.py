@@ -83,6 +83,10 @@ from diagnostic_copy import (
     IMESSAGE_CAPTURE_STALLED_FIX,
     IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
     IMESSAGE_CAPTURE_STALLED_TITLE,
+    CONVO_DISPATCH_FAILING_TITLE,
+    CONVO_DISPATCH_FAILING_DETAIL,
+    CONVO_DISPATCH_FAILING_FIX,
+    CONVO_DISPATCH_FAILING_FIX_COMMAND,
     IMESSAGE_FDA_DETAIL,
     IMESSAGE_FDA_FIX,
     IMESSAGE_FDA_FIX_COMMAND,
@@ -1199,6 +1203,84 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
 # ── Rule registry ────────────────────────────────────────────────────
 
 
+# Dispatch failures are logged as a non-zero return code from the CM048
+# conversation processor. Counted over the log TAIL only: the log is appended
+# to forever, so counting the whole file would keep surfacing failures the
+# customer already dealt with weeks ago.
+_DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
+
+
+def _dispatch_failure_count() -> int:
+    """How many dispatch failures appear in the tail of the bundle error log.
+
+    Same read posture as :func:`_imessage_capture_crash_logged` -- tail only,
+    and any read failure counts as zero so a missing log on a fresh box cannot
+    manufacture a warning.
+    """
+    path = _imessage_bundle_err_path()
+    try:
+        if not path.is_file():
+            return 0
+        with open(path, "rb") as fh:
+            try:
+                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
+            except OSError:
+                fh.seek(0)
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return 0
+    return sum(
+        1 for line in tail.splitlines()
+        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
+    )
+
+
+def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
+    """Surface conversations that were READ but failed to be processed.
+
+    WHY THIS RULE EXISTS (2026-08-08 box-walk of .208)
+    Doctor's status endpoint reported "Everything looks healthy. Nice one."
+    at 16:49 while ``imessage-bundle.err`` was 37KB and carried a fresh rc=1
+    from 16:43. Doctor was not wrong about what it checked -- it checked this
+    log for the pre-FDA SQLite crash signature and for nothing else. There was
+    no rule for FAILURE, only for SILENCE.
+
+    That distinction is the whole defect. A crash-looping bundle is caught by
+    :func:`check_imessage_capture_stalled`. A bundle that ticks forever while
+    every dispatch fails looks identical to a healthy one from the outside:
+    the process is running, the log is growing, messages are being read. The
+    conversations are simply dropped on the floor.
+
+    Second-in-class after #208 (Doctor reporting a device as paired when it
+    was not). A product that reports green over a red state twice is not
+    trusted a third time, so this rule errs towards saying something.
+
+    Deliberately a WARNING, not an error: the ingest as a whole is working and
+    the customer's other data is unaffected. It is a "some of your things did
+    not make it" message, which is what actually happened.
+    """
+    findings: list[dict] = []
+
+    n = _dispatch_failure_count()
+    if n <= 0:
+        return findings
+
+    findings.append({
+        "severity": "warning",
+        "title": CONVO_DISPATCH_FAILING_TITLE,
+        "detail": CONVO_DISPATCH_FAILING_DETAIL.format(
+            n=n,
+            noun="conversation" if n == 1 else "conversations",
+            have="has" if n == 1 else "have",
+        ),
+        "fix": CONVO_DISPATCH_FAILING_FIX,
+        "fix_command": CONVO_DISPATCH_FAILING_FIX_COMMAND,
+        "risk": "low",
+        "category": "installation",
+    })
+    return findings
+
+
 ALL_RULES = [
     check_first_install,
     check_container_health,
@@ -1219,6 +1301,7 @@ ALL_RULES = [
     check_imessage_fda,
     check_last_upgrade,
     check_imessage_capture_stalled,
+    check_conversation_dispatch_failures,
 ]
 
 

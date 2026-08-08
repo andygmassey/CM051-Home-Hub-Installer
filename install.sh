@@ -9055,7 +9055,50 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     #                                 can extend further post-install via
     #                                 `ostler-fda` with a larger value
     #                                 (the "extend now?" affordance).
-    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=1825}"
+    # iMessage is the ONE exception to the 5-year rule, and it is not a
+    # preference -- it is arithmetic. (2026-08-08, FIX 1.)
+    #
+    # Every other source here is cheap per item: extract, normalise, write.
+    # iMessage is not. Each conversation is dispatched to the CM048 pipeline,
+    # and each dispatch makes TEN chained Ollama calls (processor.py -- the
+    # call sites were grep-verified). Measured cost: 1.20 min per dispatch.
+    #
+    # At 1825 days a real box yielded 28,405 conversations:
+    #
+    #     28,405 x 1.20 min  =  ~24 days of continuous local inference
+    #
+    # while the installer tells the customer they can walk away. That is not a
+    # slow install, it is a promise the product cannot keep -- and the machine
+    # is pinned the whole time.
+    #
+    # 45 days for FIRST ingest, then the tail is pulled progressively over the
+    # settle-in period (Andy's call, 2026-08-08). This is a floor, not a cap:
+    # extract_all.py walks a widening ladder on subsequent ticks
+    # (45 -> 90 -> 180 -> 365 -> 730 -> 1825) so the full five years still
+    # arrives, just without pinning the machine during onboarding.
+    #
+    #     1825d  28,405 convos  ~24 days   <- what a fresh box did before
+    #       90d  ~1,401         ~28 hours  <- still not "walk away"
+    #       45d    ~700         ~14 hours
+    #
+    # Those projections scale LINEARLY with the window, which FLATTERS the
+    # shorter ones: recent months are denser than a 5-year average, so the
+    # true count at 45d is above 700. Measure on a real box.
+    #
+    # This value is the ladder's FIRST rung. Setting the env var explicitly
+    # pins the window and disables the ladder entirely -- an operator who asks
+    # for 1825 gets 1825 on run one, and owns the runtime.
+    #
+    # The window stays operator-overridable exactly as before, so anyone who
+    # wants the full 5 years sets OSTLER_IMESSAGE_BACKFILL_DAYS=1825 and
+    # accepts the runtime knowingly.
+    #
+    # HONEST TRADE-OFF: a customer with years of iMessage gets 90 days at
+    # install, not 5 years. The older history is NOT extracted -- it is
+    # deferred, not silently dropped, and the same "backfill further from
+    # Doctor later" affordance named above applies. Shipping 90 days that
+    # completes beats 5 years that never finishes.
+    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=45}"
     : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
     : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
@@ -11764,6 +11807,24 @@ launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
+# 2026-08-08 (MUST-B partial): these two were WRITTEN by install.sh and never
+# torn down. A static audit of install.sh found 25 labels written, 23 removed.
+# Confirmed on the .208 box-walk: com.ostler.ollama-logrotate was present AND
+# loaded on a box that had been installed and reinstalled -- it survives
+# uninstall, so a reinstall leaves the old agent running alongside the new one.
+# meeting-brief-sender is written conditionally (absent on .208) but has the
+# same hole whenever it IS written.
+#
+# This is the launch-tractable half of the two-domain split-brain. The full
+# rename of com.ostler.* -> com.creativemachines.ostler.* is NOT done here:
+# renaming 26 launchd labels needs a bootout/bootstrap migration, and getting
+# it wrong strands agents under the old labels on every existing install --
+# a worse regression than the defect. Deferred, with the orphan gate below
+# holding the line meanwhile.
+launchctl bootout "gui/$(id -u)/com.ostler.meeting-brief-sender" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/com.ostler.ollama-logrotate" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
@@ -11800,6 +11861,8 @@ rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist"
+rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
 rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"

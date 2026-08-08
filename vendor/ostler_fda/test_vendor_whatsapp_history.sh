@@ -110,12 +110,49 @@ echo "pwg_ingest check: whatsapp entry in _SOURCE_PREDICATE"
 
 # extract_all must include whatsapp_history in ALL_SOURCES (NOT
 # DEFAULT_SOURCES per Q3b sign-off -- opt-in only).
-if ! grep -qE 'ALL_SOURCES.*whatsapp_history' "$SCRIPT_DIR/extract_all.py"; then
+# ALL_SOURCES is a MULTI-LINE set literal:
+#     ALL_SOURCES = DEFAULT_SOURCES | {
+#         "photos_faces", "google_takeout", "whatsapp_history", ...
+#     }
+# so a single-line `grep -E 'ALL_SOURCES.*whatsapp_history'` can NEVER match and
+# this gate was permanently, silently FALSE RED. Evaluate the module instead.
+if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PYEOF'; then
+import ast, sys
+tree = ast.parse(open(sys.argv[1]).read())
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "ALL_SOURCES" for t in node.targets):
+        names = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant)
+                 and isinstance(n.value, str)}
+        sys.exit(0 if "whatsapp_history" in names else 1)
+sys.exit(1)
+PYEOF
     echo "FAIL: extract_all.ALL_SOURCES missing whatsapp_history." >&2
     echo "      The Phase 2 picker tickbox will be unwireable." >&2
     exit 1
 fi
 echo "extract_all check: whatsapp_history in ALL_SOURCES"
+
+# POSITIVE CONTROL: the same evaluation must FAIL when the member is removed.
+_probe="$(mktemp)"; sed 's/"whatsapp_history", //' "$SCRIPT_DIR/extract_all.py" > "$_probe"
+if python3 - "$_probe" <<'PYEOF'; then
+import ast, sys
+tree = ast.parse(open(sys.argv[1]).read())
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "ALL_SOURCES" for t in node.targets):
+        names = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant)
+                 and isinstance(n.value, str)}
+        sys.exit(0 if "whatsapp_history" in names else 1)
+sys.exit(1)
+PYEOF
+    rm -f "$_probe"
+    echo "POSITIVE CONTROL FAILED: ALL_SOURCES check passes with the member" >&2
+    echo "  removed -- it is not checking anything." >&2
+    exit 1
+fi
+rm -f "$_probe"
+echo "positive control: ALL_SOURCES check detects a missing member"
 
 # Optional import-time check. Mirrors how install.sh invokes the
 # CLI ("python -m ostler_fda.whatsapp_history --json"). Falls back

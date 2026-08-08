@@ -432,11 +432,45 @@ def extract_conversations(
         # participants + engagement queries reuse it. Close after.
         pass
 
-    # Total is measured ONCE from the session-row count so the bar cannot
-    # move backwards if a downstream retry re-invokes this function against
-    # a growing ChatStorage.sqlite. `done` counts sessions we have run
-    # through the classifier -- items fully processed, not items read.
-    total = len(sessions)
+    # Per-chat LOCAL message counts, measured once.
+    #
+    # NOT ZWACHATSESSION.ZMESSAGECOUNTER: that is a lifetime counter and
+    # includes messages WhatsApp no longer stores on this Mac. Measured on a
+    # real box 2026-08-08 it summed to 732,842 against 163,651 rows actually
+    # present in ZWAMESSAGE -- a denominator 4.5x larger than anything that
+    # could ever be ingested, so the bar could never reach 100%. One GROUP BY
+    # over ZWAMESSAGE is a single cheap scan and counts what is really there.
+    _msg_counts: dict = {}
+    try:
+        for _pk, _n in conn.execute(
+            "SELECT ZCHATSESSION, COUNT(*) FROM ZWAMESSAGE "
+            "WHERE ZCHATSESSION IS NOT NULL GROUP BY ZCHATSESSION"
+        ):
+            _msg_counts[_pk] = int(_n or 0)
+    except sqlite3.Error as exc:  # pragma: no cover - defensive
+        logger.warning("WhatsApp: per-chat message count unavailable (%s)", exc)
+
+    # Total is measured ONCE so the bar cannot move backwards if a downstream
+    # retry re-invokes this function against a growing ChatStorage.sqlite.
+    #
+    # THE UNIT IS MESSAGES, NOT CHATS (changed 2026-08-08), matching
+    # ostler_fda/imessage.py -- CM044 merges both shards into one `messages`
+    # channel, and summing chats with messages would make the merged
+    # percentage meaningless. It used to be len(sessions), with `done`
+    # incremented for every session INCLUDING ones the window excluded, so a
+    # fresh install reported 1,860 of 1,860 while 163,651 messages sat
+    # unread.
+    # One unit function, used for BOTH total and done. When ZWAMESSAGE yields
+    # no per-chat counts (an empty or unreadable store) we fall back to
+    # counting chats -- but for the numerator too. An earlier version fell back
+    # only for the denominator, giving total-in-chats over done-in-messages,
+    # which is the same category error as the defect being fixed.
+    _have_counts = bool(_msg_counts)
+
+    def _units(r) -> int:
+        return _msg_counts.get(r["Z_PK"], 0) if _have_counts else 1
+
+    total = sum(_units(r) for r in sessions)
 
     if total == 0:
         # No sessions -- a fresh WhatsApp Desktop install with no chats.
@@ -458,13 +492,12 @@ def extract_conversations(
     last_tick = time.monotonic()
     for row in sessions:
         last_dt = _convert_timestamp(row["ZLASTMESSAGEDATE"])
+        row_msgs = _units(row)
         if cutoff_ts is not None and last_dt is not None:
             if last_dt.timestamp() < cutoff_ts:
-                done += 1
-                now_mono = time.monotonic()
-                if done == total or now_mono - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
-                    _emit_settling(done=done, total=total, started_at=started_at)
-                    last_tick = now_mono
+                # Outside the backfill window: these messages have NOT been
+                # ingested, so they are not done. Counting them was what let
+                # a fresh install show 100% having read almost nothing.
                 continue
 
         chat = classify_chat(
@@ -477,15 +510,15 @@ def extract_conversations(
         )
         # Drop T1 chats with no real contact JID (status@broadcast et al.)
         if chat.tier == TIER_T1_DM and not chat.contact_jid:
-            done += 1
-            now_mono = time.monotonic()
-            if done == total or now_mono - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
-                _emit_settling(done=done, total=total, started_at=started_at)
-                last_tick = now_mono
+            # Dropped (status@broadcast et al.): deliberately never ingested,
+            # so it counts toward NEITHER done nor total. Leaving it in the
+            # denominator would park the bar permanently short of 100% -- the
+            # mirror image of the defect being fixed, and just as dishonest.
+            total = max(0, total - row_msgs)
             continue
         chats.append(chat)
 
-        done += 1
+        done += row_msgs
         now_mono = time.monotonic()
         if done == total or now_mono - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
             _emit_settling(done=done, total=total, started_at=started_at)
@@ -493,9 +526,10 @@ def extract_conversations(
 
     conn.close()
 
-    # Belt-and-braces final emit so `done == total` on disk regardless of
-    # the last tick's timing.
-    _emit_settling(done=total, total=total, started_at=started_at)
+    # Final emit carries the ACTUAL done. The previous version passed
+    # done=total here "belt-and-braces", which overwrote the honest count with
+    # a claim of completion on every single run.
+    _emit_settling(done=done, total=total, started_at=started_at)
     logger.info(
         "Extracted %d WhatsApp chats (t1_dm=%d, t2_intimate=%d, t2_active=%d, t3_skip=%d)",
         len(chats),

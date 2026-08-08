@@ -128,6 +128,35 @@ def _read_existing_started_at(path: Path) -> Optional[str]:
     return started if isinstance(started, str) and started.strip() else None
 
 
+def _read_existing_done(path: Path) -> Optional[int]:
+    """Return the existing ``done`` on this shard, or ``None``.
+
+    Used to keep ``done`` monotonic. These producers run hourly against their
+    own filtered window; without this, a narrower later run walks the bar
+    backwards and the customer watches their progress un-happen.
+
+    Any read error returns ``None`` -- the caller then trusts the value it was
+    given, which is the same behaviour as a first run.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "settling-progress: could not read existing shard at %s (%s: %s)",
+            path, type(exc).__name__, exc,
+        )
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return max(0, int(data.get("done")))
+    except (TypeError, ValueError):
+        return None
+
+
 def report_settling_progress(
     channel: str,
     *,
@@ -203,6 +232,30 @@ def report_settling_progress(
             target_dir, type(exc).__name__, exc, channel,
         )
         return
+
+    # `done` is MONOTONIC across runs.
+    #
+    # WHY (2026-08-08). These producers run hourly and each run measures its
+    # own filtered window (since_days, min_messages), then finishes with
+    # done == total. Per run that is true; as a statement about the customer's
+    # history it is false, and it is what pinned the panel at 100% on a box
+    # that had ingested 167 of 28,405 messages and 1,860 of 163,651 WhatsApp
+    # messages. Taking the max against the previous shard means a later,
+    # narrower window cannot walk the bar backwards, and a widening backfill
+    # moves it forward -- which is the only behaviour that lets the panel keep
+    # its promise that this takes days.
+    #
+    # An explicit reset (a new install, a wiped state dir) removes the shard,
+    # so there is nothing to be monotonic against and the count starts clean.
+    prev_done = _read_existing_done(target_path)
+    if prev_done is not None and prev_done > done_int:
+        done_int = prev_done
+
+    # A denominator below the numerator renders as over 100%. Producers that
+    # cannot measure the full corpus pass total == done; clamping here means
+    # no call site can publish an impossible bar.
+    if total_int < done_int:
+        total_int = done_int
 
     # Preserve started_at across updates: read existing shard, keep original.
     preserved_started = _read_existing_started_at(target_path)

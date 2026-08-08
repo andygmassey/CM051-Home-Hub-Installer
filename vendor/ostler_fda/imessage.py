@@ -180,11 +180,21 @@ def extract_conversations(
 
     conn.close()
 
-    # Total is measured ONCE up front from the SQL row count so the bar
-    # cannot move backwards if a downstream retry re-invokes this function
-    # against a growing chat.db. `done` counts conversations we accept
-    # after the since_days filter -- items fully processed, not items read.
-    total = len(rows)
+    # Total is measured ONCE up front so the bar cannot move backwards if a
+    # downstream retry re-invokes this function against a growing chat.db.
+    #
+    # THE UNIT IS MESSAGES, NOT CONVERSATIONS (changed 2026-08-08).
+    # It used to be len(rows) -- the number of chats scanned -- and `done`
+    # incremented for every row INCLUDING the ones the since_days filter threw
+    # away, with the comment "the customer's view is 'we've looked at this
+    # one'". It is not. Scanning a chat row is instant; ingesting its messages
+    # is the work that takes days, and the panel exists to say so. On a real
+    # box that shipped 167 of 167 -- 100%, in under a minute -- while 28,405
+    # messages sat unread, because nearly every chat fell outside the window.
+    #
+    # Counting messages makes the denominator the thing the customer actually
+    # waits for, and makes a widening backfill window visibly move the bar.
+    total = sum(int(r["message_count"] or 0) for r in rows)
 
     if total == 0:
         # Nothing to do -- emit a ready shard (needs_source=False) so the
@@ -214,14 +224,10 @@ def extract_conversations(
         if last and since_days:
             cutoff = datetime.now(timezone.utc).timestamp() - (since_days * 86400)
             if last.timestamp() < cutoff:
-                done += 1
-                # Filtered items still count against the queue -- the
-                # customer's view is "we've looked at this one", not "we
-                # kept it". Emit a tick if the throttle has elapsed.
-                now = time.monotonic()
-                if done == total or now - last_tick >= _SETTLING_TICK_INTERVAL_SECONDS:
-                    _emit_settling(done=done, total=total, started_at=started_at)
-                    last_tick = now
+                # A chat outside the window is NOT done -- its messages have
+                # not been ingested and will only arrive when the backfill
+                # window widens. Counting it as done is what let a fresh
+                # install reach 100% having ingested almost nothing.
                 continue
 
         # chat_style 43 = group, 45 = individual
@@ -237,7 +243,7 @@ def extract_conversations(
             is_group=is_group,
         ))
 
-        done += 1
+        done += int(row["message_count"] or 0)
         # 30s throttle -- ~1000 rows/second at the SQL layer would otherwise
         # thrash the customer's disk with tiny shard rewrites. See the
         # writer helper's docstring for the rationale.
@@ -246,9 +252,11 @@ def extract_conversations(
             _emit_settling(done=done, total=total, started_at=started_at)
             last_tick = now
 
-    # Belt-and-braces final emit so `done == total` is on disk even if the
-    # loop's terminal tick fired before the last item completed processing.
-    _emit_settling(done=total, total=total, started_at=started_at)
+    # Final emit carries the ACTUAL done, not total. The previous version
+    # passed done=total here "belt-and-braces", which meant every run ended at
+    # 100% no matter how much of the corpus the window had excluded -- it
+    # overwrote the honest count with a claim of completion.
+    _emit_settling(done=done, total=total, started_at=started_at)
 
     logger.info("Extracted %d conversations from iMessage", len(conversations))
     return conversations

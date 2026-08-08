@@ -103,7 +103,7 @@
                  "top_3": [d.domain for d in chrome_domains[:3]],
              }
              logger.info(
-@@ -270,7 +274,13 @@
+@@ -282,7 +286,13 @@
                  chat_to_dict as _wa_to_dict,
                  TIER_T3_SKIP,
              )
@@ -118,7 +118,7 @@
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -495,12 +505,31 @@
+@@ -507,12 +517,31 @@
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -152,7 +152,7 @@
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -671,7 +700,21 @@
+@@ -683,7 +712,21 @@
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -175,7 +175,7 @@
              stats = email_stats(messages)
              contacts = frequent_contacts(messages)
  
-@@ -682,14 +725,31 @@
+@@ -694,14 +737,31 @@
                  json.dumps(contacts, indent=2, default=str)
              )
  
@@ -217,7 +217,7 @@
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -93,6 +93,33 @@
+@@ -96,6 +96,33 @@
  
  # ── Shared utilities (same patterns as contact_syncer) ────────────
  
@@ -251,7 +251,7 @@
  def _sparql_update(sparql: str) -> None:
      """Execute a SPARQL UPDATE against Oxigraph."""
      transport = httpx.HTTPTransport(proxy=None)
-@@ -265,6 +292,15 @@
+@@ -292,6 +319,15 @@
                      f'<{uri}> pwg:source "imessage_fda"',
                  ]
  
@@ -267,7 +267,7 @@
                  # Add identifier
                  id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
                  triples.extend([
-@@ -526,6 +562,13 @@
+@@ -563,6 +599,13 @@
                      f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                      f'<{uri}> pwg:source "whatsapp_fda"',
                  ]

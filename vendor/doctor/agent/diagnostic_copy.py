@@ -453,3 +453,23 @@ LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT = (
 LAST_UPGRADE_ROLLED_BACK_FIX = (
     "No action is needed. You can try updating again later from Settings."
 )
+
+
+# ---------------------------------------------------------------------------
+# Conversation dispatch failures (2026-08-08)
+#
+# Doctor read this log for exactly ONE signature -- the pre-FDA SQLite crash.
+# A bundle that ticks happily while every dispatch exits rc=1 was therefore
+# invisible, and Doctor said "Everything looks healthy" beside a 37KB error
+# log. Doctor was not lying; it was reporting on the only thing it checked.
+#
+# Silence and failure are different states. This copy is for the second.
+# ---------------------------------------------------------------------------
+CONVO_DISPATCH_FAILING_TITLE = "Some conversations could not be processed"
+CONVO_DISPATCH_FAILING_DETAIL = (
+    "Ostler is reading your messages, but {n} recent {noun} failed while being "
+    "summarised and {have} been skipped. Those conversations will not appear in "
+    "your wiki or answers until they are retried. Everything else is unaffected."
+)
+CONVO_DISPATCH_FAILING_FIX = "Show the error log"
+CONVO_DISPATCH_FAILING_FIX_COMMAND = "open ~/.ostler/logs/imessage-bundle.err"

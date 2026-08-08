@@ -230,7 +230,19 @@ def run_all(
             # CX-84: operator override for chat.db backfill window
             # (e.g. customer with a long iMessage history may want 5y).
             # Same shape as OSTLER_BROWSER_BACKFILL_DAYS (CX-86).
-            imsg_backfill_days = int(os.environ.get("OSTLER_IMESSAGE_BACKFILL_DAYS", "365"))
+            #
+            # 2026-08-08: iMessage now WIDENS across runs instead of taking a
+            # fixed window. Each conversation costs ten chained Ollama calls
+            # (~1.2 min), so a 5-year first ingest is ~24 days of inference
+            # while the installer says "walk away". First run takes 45 days;
+            # later ticks walk 90 -> 180 -> 365 -> 730 -> 1825, so the tail
+            # still arrives, over the settle-in period rather than during
+            # onboarding. An explicit env value pins the window and disables
+            # the ladder. Andy's call.
+            from .backfill_ladder import resolve_backfill_days
+            imsg_backfill_days = resolve_backfill_days(
+                "imessage", "OSTLER_IMESSAGE_BACKFILL_DAYS"
+            )
             conversations = extract_conversations(since_days=imsg_backfill_days)
             stats = conversation_stats(conversations)
 
