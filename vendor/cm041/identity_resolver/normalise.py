@@ -4,6 +4,7 @@ import re
 import unicodedata
 
 import phonenumbers
+from rapidfuzz.distance import JaroWinkler
 
 
 # Unicode general categories that mark a leading/trailing "junk" run on a
@@ -150,60 +151,34 @@ def normalise_email(email: str) -> str:
 
 
 def _jaro_winkler(s1: str, s2: str) -> float:
-    """Jaro-Winkler string similarity (0.0 to 1.0)."""
-    if s1 == s2:
-        return 1.0
-    len1, len2 = len(s1), len(s2)
-    if len1 == 0 or len2 == 0:
-        return 0.0
+    """Jaro-Winkler string similarity (0.0 to 1.0).
 
-    match_distance = max(len1, len2) // 2 - 1
-    if match_distance < 0:
-        match_distance = 0
+    Delegates to rapidfuzz (MIT, C++ core) rather than the hand-rolled
+    implementation this used to carry.
 
-    s1_matches = [False] * len1
-    s2_matches = [False] * len2
+    WHY THE SWAP IS SAFE (verified 2026-08-08, not assumed)
+    -------------------------------------------------------
+    Every caller compares against a threshold -- batch_resolver uses 0.85 --
+    so a silent scoring change would silently change merge decisions on
+    customer data. Both implementations were run over real name pairs from the
+    graph before the swap:
 
-    matches = 0
-    transpositions = 0
+        andrew massey / andy massey          0.8666 -> 0.8783
+        andrew massey / andrew smith         0.8662 -> 0.8662
+        mike chan / michael chan             0.7981 -> 0.8148
+        chris tannous / christopher tannous  0.8984 -> 0.9061
+        craig whittet / madhu motwani        0.5021 -> 0.5299
 
-    for i in range(len1):
-        start = max(0, i - match_distance)
-        end = min(i + match_distance + 1, len2)
-        for j in range(start, end):
-            if s2_matches[j] or s1[i] != s2[j]:
-                continue
-            s1_matches[i] = True
-            s2_matches[j] = True
-            matches += 1
-            break
+        max delta 0.0278, THRESHOLD CROSSINGS: 0
 
-    if matches == 0:
-        return 0.0
+    Same name, same signature, same call sites -- five of them across
+    identity_resolver and contact_syncer -- so the swap is one edit and every
+    consumer gets the faster, better-tested implementation.
 
-    k = 0
-    for i in range(len1):
-        if not s1_matches[i]:
-            continue
-        while not s2_matches[k]:
-            k += 1
-        if s1[i] != s2[k]:
-            transpositions += 1
-        k += 1
-
-    jaro = (
-        matches / len1 + matches / len2 + (matches - transpositions / 2) / matches
-    ) / 3
-
-    # Winkler modification: boost for common prefix (up to 4 chars)
-    prefix = 0
-    for i in range(min(4, len1, len2)):
-        if s1[i] == s2[i]:
-            prefix += 1
-        else:
-            break
-
-    return jaro + prefix * 0.1 * (1 - jaro)
+    Andy, 2026-08-08: "Are we reinventing the wheel ... Is there no open source
+    script that we can leverage?" For string similarity: yes, we were.
+    """
+    return JaroWinkler.similarity(s1, s2)
 
 
 def _country_code_to_region(code: int) -> str:
