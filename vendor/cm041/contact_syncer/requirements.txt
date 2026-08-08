@@ -1,7 +1,23 @@
-vobject>=0.9.6
-httpx>=0.27,<1.0
-phonenumbers>=8.13.0
+vobject>=0.9.9,<1.0
+httpx>=0.28.1,<1.0
+phonenumbers>=8.13.0,<10.0
 # qdrant-client: 1.x is API-stable. Pin to the major; allow patches and
 # minors so security fixes pull through without manual intervention.
-# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (52 / 52).
-qdrant-client>=1.15,<2.0
+# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (30 / 30,
+# with CM041's identity_resolver on PYTHONPATH per the cross-repo dep).
+qdrant-client>=1.18.0,<2.0
+
+# rapidfuzz: replaces the hand-rolled Jaro-Winkler in
+# identity_resolver/normalise.py (C++ core, MIT). Verified on real name pairs
+# from the graph before the swap -- max delta 0.028 and ZERO crossings of the
+# 0.85 merge threshold, so no customer's merge decisions change. Pinned to the
+# major; 3.x has been API-stable since 2023.
+rapidfuzz>=3.14.0,<4.0
+
+# nameparser: structured first/middle/last/suffix. Replaces hand-rolled word
+# sorting and suffix regexes, and is the only one of the two that gets CJK
+# ordering right (yamada taro -> first=taro last=yamada), which the hand-rolled
+# version could not do at all.
+# CAVEAT, verified not assumed: it parses "Craig Whittet via LinkedIn" to
+# last="LinkedIn", so the source-suffix stripper must run BEFORE it.
+nameparser>=2.1.0,<3.0

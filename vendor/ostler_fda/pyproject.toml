@@ -17,8 +17,17 @@ requires-python = ">=3.10"
 # (the .145 box-walk install failure). It only ever worked because the
 # fat venvs (import-pipeline/cm019/cm048/knowledge/doctor) pull httpx
 # transitively; the minimal venvs do not.
+# nameparser was added to that list on 2026-08-08 for the same reason, one
+# defect later: identifier_quality.py uses HumanName to pull the GIVEN name
+# out of a display name (the household-over-merge rule compares given names),
+# and pwg_ingest.py imports identifier_quality. So every ingest path needs it
+# and none of them declared it. HR015's ostler_fda/pyproject.toml is now the
+# source of truth for this list -- a re-vendor overwrites this file with it --
+# and scripts/check_declared_deps.py fails the build if the import graph
+# reaches anything absent from it.
 dependencies = [
     "httpx>=0.27",
+    "nameparser>=2.1.0,<3.0",
 ]
 
 # The ostler_fda Python source lives directly in this directory

@@ -16301,15 +16301,18 @@ except Exception:
     _HYDRATE_CONTACTS_COUNT="${_HYDRATE_CONTACTS_COUNT:-0}"
 
     # Settling panel, `contacts` channel. Reported HERE rather than as a
-    # running tick because this is one blocking call: the syncer does not
-    # know its total up front and there is no meaningful mid-progress to
-    # show. done == total at completion is the honest statement -- this
-    # channel is settled. A zero count means we ran and found nothing, so
-    # needs_source invites the customer to connect a source rather than
-    # leaving a permanent 0%.
+    # running tick because this is one blocking call and there is no
+    # meaningful mid-progress to show.
+    #
+    # The denominator is MEASURED from the address book, not taken from what
+    # this pass happened to import. The previous version passed the pass count
+    # as both done and total and called it "the honest statement -- this
+    # channel is settled"; that is what pinned every channel at 100% on a box
+    # that had ingested 0.6% of its history. A zero count means we ran and
+    # found nothing, so needs_source invites the customer to connect a source
+    # rather than leaving a permanent 0%.
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
-        settling_report contacts \
-            "$_HYDRATE_CONTACTS_COUNT" "$_HYDRATE_CONTACTS_COUNT" false
+        settling_report_measured contacts "$_HYDRATE_CONTACTS_COUNT" false
     else
         settling_report contacts 0 0 true
     fi
@@ -16677,8 +16680,11 @@ except Exception:
         _HYDRATE_EMAIL_COUNT="${_HYDRATE_EMAIL_COUNT:-0}"
         if [[ "$_HYDRATE_EMAIL_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_EMAIL_DONE" "$_HYDRATE_EMAIL_COUNT")"
-            settling_report emails \
-                "$_HYDRATE_EMAIL_COUNT" "$_HYDRATE_EMAIL_COUNT" false
+            # Denominator measured from the Mail store, not from this pass.
+            # This phase reads a capped slice and the hourly agent carries on
+            # for days; reporting the slice as the whole is what made the panel
+            # claim 641 of 641 on a Mac holding 16,565 messages.
+            settling_report_measured emails "$_HYDRATE_EMAIL_COUNT" false
         else
             info "$MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT"
             # Ran, found nothing: invite a source rather than showing a

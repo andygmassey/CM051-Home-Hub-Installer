@@ -71,6 +71,128 @@ settling_shard_dir() {
     printf '%s/settling_progress.d' "$(settling_state_dir)"
 }
 
+# settling_source_total <channel> [shard]
+#
+# The REAL denominator: how much of this source exists on the Mac, not how much
+# one pass happened to touch.
+#
+# WHY THIS EXISTS (2026-08-08)
+# ---------------------------------------------------------------------------
+# The install used to report `done == total` at the end of each hydrate phase,
+# with a comment calling that "the honest statement -- this channel is settled".
+# It is not. The install ingests a SLICE and the hourly LaunchAgents carry on
+# for days; reporting the slice as the whole pins the bar at 100% by
+# construction. Measured on a real box on 2026-08-08:
+#
+#     channel     reported        actually on disk
+#     ----------  --------------  ----------------
+#     messages    167 of 167      28,405 rows in chat.db
+#     emails      641 of 641      16,565 .emlx files
+#
+# 0.6% of the work, rendered as finished. The panel exists precisely to tell a
+# customer "this takes days" -- so a panel that cannot show anything except
+# 100% is worse than no panel, because it is a promise the product breaks on
+# first contact.
+#
+# Prints an integer on stdout. Prints 0 when the source cannot be measured --
+# callers MUST treat 0 as "unknown", never as "empty", and fall back to the
+# count they have rather than publishing a denominator they invented.
+#
+# Every branch is best-effort and silent: this is telemetry, and a locked
+# database or a missing file must never cost the customer their import.
+settling_source_total() {
+    local channel="${1:-}" shard="${2:-}" n=0
+
+    case "$channel" in
+        messages)
+            case "$shard" in
+                whatsapp)
+                    # macOS WhatsApp is ChatStorage.sqlite in the SHARED group
+                    # container. msgstore.db is the Android name and does not
+                    # exist here -- an earlier version of this function looked
+                    # for it, measured 0, and silently fell back to
+                    # done-as-total, which is the bug it was written to fix.
+                    local wa
+                    wa="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
+                    [[ -f "$wa" ]] && n="$(sqlite3 "file:${wa}?immutable=1" \
+                        'SELECT COUNT(*) FROM ZWAMESSAGE' 2>/dev/null || echo 0)"
+                    ;;
+                *)
+                    # immutable=1: read a live, WAL-mode chat.db without taking
+                    # a lock or perturbing Messages.app.
+                    [[ -f "${HOME}/Library/Messages/chat.db" ]] && \
+                        n="$(sqlite3 "file:${HOME}/Library/Messages/chat.db?immutable=1" \
+                            'SELECT COUNT(*) FROM message' 2>/dev/null || echo 0)"
+                    ;;
+            esac
+            ;;
+        emails)
+            # No depth cap. Measured on a real store: .emlx files sit as deep
+            # as 11 levels below ~/Library/Mail, so the -maxdepth 8 this used
+            # to carry found 6,584 of 16,844 -- a wrong denominator is the same
+            # class of defect as no denominator. An unbounded find over 16k
+            # files measured 0s, so the cap bought nothing.
+            [[ -d "${HOME}/Library/Mail" ]] && \
+                n="$(find "${HOME}/Library/Mail" -name '*.emlx' 2>/dev/null | wc -l | tr -d ' ')"
+            ;;
+        contacts)
+            # Contacts do NOT live in the top-level AddressBook-v22.abcddb --
+            # that one is empty on a real Mac. They are sharded per account
+            # under Sources/<uuid>/. Sum across every store.
+            local ab total=0 one
+            while IFS= read -r ab; do
+                [[ -n "$ab" ]] || continue
+                one="$(sqlite3 "file:${ab}?immutable=1" \
+                    'SELECT COUNT(*) FROM ZABCDRECORD WHERE ZFIRSTNAME IS NOT NULL OR ZLASTNAME IS NOT NULL OR ZORGANIZATION IS NOT NULL' \
+                    2>/dev/null || echo 0)"
+                case "$one" in ''|*[!0-9]*) one=0 ;; esac
+                total=$(( total + one ))
+            done < <(find "${HOME}/Library/Application Support/AddressBook" \
+                        -name 'AddressBook-v22.abcddb' 2>/dev/null)
+            n="$total"
+            ;;
+        *)
+            # calendar and notes have no cheap shell-side count. Their
+            # producers live in ostler_fda and measure their own totals.
+            n=0
+            ;;
+    esac
+
+    case "$n" in
+        ''|*[!0-9]*) n=0 ;;
+    esac
+    printf '%s' "$n"
+    return 0
+}
+
+# settling_report_measured <channel> <done> [needs_source] [shard]
+#
+# settling_report with the denominator measured from the source instead of
+# supplied by the caller. Use this from any phase that processes a SLICE and
+# leaves the rest to the hourly agents -- which is every hydrate phase.
+#
+# Falls back to done-as-total only when the source cannot be measured, and says
+# so in the install log, because a silent fallback here reintroduces exactly
+# the defect this function exists to remove.
+settling_report_measured() {
+    local channel="${1:-}" done_n="${2:-0}" needs_source="${3:-false}" shard="${4:-}"
+    local total_n
+    total_n="$(settling_source_total "$channel" "$shard")"
+
+    if [[ "${total_n:-0}" -le 0 ]]; then
+        printf 'settling: %s source volume unmeasurable; falling back to done-as-total (bar will read 100%%)\n' \
+            "$channel" >&2
+        total_n="$done_n"
+    elif [[ "$total_n" -lt "$done_n" ]]; then
+        # Ingest can legitimately exceed a naive source count (dedup expansion,
+        # multi-source merges). A total below done would render over 100%.
+        total_n="$done_n"
+    fi
+
+    settling_report "$channel" "$done_n" "$total_n" "$needs_source" "$shard"
+    return 0
+}
+
 # settling_report <channel> <done> <total> [needs_source] [shard]
 #
 # Always returns 0. Rejects an unknown channel loudly in the install log but
