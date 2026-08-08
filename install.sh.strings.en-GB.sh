@@ -1308,3 +1308,21 @@ MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="iCloud / CalDAV calendar bridge a
 # F9 - deferred-register-device script missing
 MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh not bundled with installer. Device-registration retry on next network is disabled."
 
+# ── Reboot self-heal: automatic login on boot (v1.0.11) ─────────────
+# LOCALE PARITY (future de/fr/es/it catalogues): these keys are en-GB only.
+# Re-translate the values below when a new locale catalogue is added; do NOT
+# machine-translate the consent / FileVault copy -- it is legal-adjacent and
+# must read naturally in the operator's language.
+MSG_PROGRESS_REBOOT_SELFHEAL="Configuring reboot self-heal"
+MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler is an always-on hub, so it needs to come back on its own after a power-cut or restart. To do that we will set this Mac to sign %s in automatically when it starts up. You can turn this off at any time in System Settings > Users & Groups > Automatic login."
+MSG_PROMPT_AUTOLOGIN_CONSENT="Enable automatic sign-in on boot so the hub recovers itself after a restart? [Y/n]"
+MSG_INFO_AUTOLOGIN_PROMPT_REASON="Enter the login password for %s so automatic sign-in can be enabled. It is stored only in the macOS auto-login keystore and is never shown or written to any log."
+MSG_PROMPT_AUTOLOGIN_PASSWORD="Login password for %s"
+MSG_OK_AUTOLOGIN_CONFIGURED="Automatic sign-in enabled for %s. After a restart or power-cut the hub will sign in and bring its services back on its own."
+MSG_INFO_AUTOLOGIN_ALREADY="Automatic sign-in is already enabled for %s; leaving it in place."
+MSG_INFO_AUTOLOGIN_DECLINED="Automatic sign-in was not enabled. After a restart or power-cut, sign in as usual and the hub will restart its services once you do."
+MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="Skipping automatic sign-in setup because there is no interactive prompt available. You can enable it later in System Settings > Users & Groups > Automatic login for unattended reboot recovery."
+MSG_WARN_AUTOLOGIN_NO_PASSWORD="No password was entered, so automatic sign-in was not enabled. Re-run the installer, or enable it in System Settings > Users & Groups > Automatic login."
+MSG_WARN_AUTOLOGIN_FAILED="Could not enable automatic sign-in (%s). You can still enable it in System Settings > Users & Groups > Automatic login."
+MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault is on, so this Mac asks for a password to unlock the disk at the boot screen before anyone can sign in. Automatic sign-in cannot answer that prompt, so after a power-cut the hub waits at the FileVault unlock screen until someone enters it. Automatic sign-in was not enabled; unattended reboot recovery is not possible while FileVault is on."
+

@@ -7014,6 +7014,150 @@ else
     # com.ostler.colima agent lives in the LaunchAgent teardown section below.
 fi
 
+# ── 3.2b Reboot self-heal: automatic login on boot (v1.0.11) ────────
+#
+# WHY: the Ostler hub is an always-on, single-machine product -- after a
+# power-cut or restart it MUST bring itself back with nobody at the keyboard.
+# Every Ostler runtime is a per-USER LaunchAgent: the signed daemon
+# (com.creativemachines.ostler.assistant -> `ostler-assistant daemon`,
+# RunAtLoad + KeepAlive), Ollama, tailscaled, and the ingest feeds. The
+# Colima/Docker stack is NOT its own login item -- the daemon starts Colima on
+# launch (ensure_colima_running, which inherits the daemon's Full Disk Access
+# so Colima can mount ~/Documents for the wiki), and the wiki/store containers
+# are `restart: unless-stopped`, so Docker itself revives all seven once Colima
+# is up.
+#
+# THE GAP this closes: per-user LaunchAgents only load inside an ACTIVE GUI
+# login session. On a stock Mac, after a reboot NOTHING in that chain runs
+# until a human logs in -- so the hub stays dark after a power-cut. Enabling
+# macOS automatic login for the install user lands a reboot straight in the
+# user session, which loads every RunAtLoad agent: daemon -> Colima -> the
+# restart:unless-stopped containers -> wiki. That is the whole self-heal chain.
+#
+# We deliberately do NOT add a bare Colima LaunchAgent here: a login-time
+# `colima start` with no FDA cannot mount ~/Documents/Ostler/Wiki/_images
+# (a TCC-protected path the wiki-site container bind-mounts), which is the
+# exact regression the v1.0.10 Group C change removed. Colima-start stays
+# daemon-owned (FDA-correct); auto-login is what makes the daemon actually run.
+#
+# Honest + reversible: announced, default ON for the hub, opt-out via the
+# [Y/n] gate or OSTLER_AUTOLOGIN=0, and reversible in System Settings. It
+# writes autoLoginUser + the obfuscated /etc/kcpassword. FileVault defeats it
+# (the pre-boot unlock still needs a human), so we detect FileVault and say so
+# rather than pretend recovery is unattended. Idempotent: once configured for
+# this user with a kcpassword on disk, a re-run leaves it untouched and never
+# re-prompts.
+_ostler_configure_reboot_autologin() {
+    # Never let `bash -x` leak the plaintext password into an xtrace line.
+    { set +x; } 2>/dev/null
+
+    # Operator opt-out (non-hub / managed installs): OSTLER_AUTOLOGIN=0.
+    if [[ "${OSTLER_AUTOLOGIN:-1}" == "0" ]]; then
+        info "$MSG_INFO_AUTOLOGIN_DECLINED"
+        return 0
+    fi
+
+    local _login_user _display
+    _login_user="$(id -un)"
+    _display="${USER_NAME:-$_login_user}"
+
+    # FileVault guard: with FV on, the disk is locked at pre-boot and macOS
+    # demands the unlock password at the boot screen BEFORE any auto-login can
+    # fire. Auto-login cannot bypass that, so surface the honest limitation
+    # and skip rather than claim unattended self-heal we cannot deliver.
+    if fdesetup status 2>/dev/null | grep -q "FileVault is On"; then
+        warn "$MSG_WARN_AUTOLOGIN_FILEVAULT"
+        return 0
+    fi
+
+    # Idempotency: already enabled for THIS user with a kcpassword on disk.
+    local _existing
+    _existing="$(sudo -n defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)"
+    if [[ "$_existing" == "$_login_user" && -s /etc/kcpassword ]]; then
+        info "$(printf "$MSG_INFO_AUTOLOGIN_ALREADY" "$_display")"
+        return 0
+    fi
+
+    # We need the login password to write /etc/kcpassword, and there is no
+    # non-interactive way to get it (the cached sudo credential is not the
+    # login password). So this step only runs when an interactive prompt is
+    # available (a TTY, or the GUI installer's sheet).
+    if [[ ! -t 0 && "${OSTLER_GUI:-0}" != "1" ]]; then
+        info "$MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE"
+        return 0
+    fi
+
+    info "$(printf "$MSG_INFO_AUTOLOGIN_EXPLAIN" "$_display")"
+
+    # Consent gate (default ON for the hub -- empty answer means yes).
+    local _consent
+    _consent="$(gui_read "$MSG_PROMPT_AUTOLOGIN_CONSENT" text "Y")"
+    if [[ "$_consent" =~ ^[Nn] ]]; then
+        info "$MSG_INFO_AUTOLOGIN_DECLINED"
+        return 0
+    fi
+
+    info "$(printf "$MSG_INFO_AUTOLOGIN_PROMPT_REASON" "$_display")"
+    local _pw
+    _pw="$(gui_read "$(printf "$MSG_PROMPT_AUTOLOGIN_PASSWORD" "$_display")" secret)"
+    if [[ -z "$_pw" ]]; then
+        warn "$MSG_WARN_AUTOLOGIN_NO_PASSWORD"
+        return 0
+    fi
+
+    # Resolve an absolute python3 (sudo resets PATH). macOS ships
+    # /usr/bin/python3; the installer has already relied on python3 upstream.
+    local _py
+    _py="$(command -v python3 2>/dev/null || true)"
+    [[ -x "$_py" ]] || _py="/usr/bin/python3"
+
+    # The /etc/kcpassword XOR encoder. Reads the password on STDIN (never argv,
+    # never a log line), writes ONLY the obfuscated bytes to the root-owned
+    # 0600 file. Passed to python via -c so the here-doc does not collide with
+    # the STDIN password pipe. Algorithm: XOR each byte with the fixed 11-byte
+    # loginwindow cipher, cycling; append a NUL terminator so loginwindow knows
+    # where the password ends; pad to a 12-byte boundary.
+    local _kcpy
+    _kcpy='
+import os, sys
+key = bytes([0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F])
+buf = bytearray(sys.stdin.buffer.read())
+buf.append(0)
+while len(buf) % 12 != 0:
+    buf.append(0)
+enc = bytes(b ^ key[i % len(key)] for i, b in enumerate(buf))
+fd = os.open("/etc/kcpassword", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+try:
+    os.write(fd, enc)
+finally:
+    os.close(fd)
+os.chmod("/etc/kcpassword", 0o600)
+try:
+    os.chown("/etc/kcpassword", 0, 0)
+except OSError:
+    pass
+'
+    # sudo -n uses the cached credential (keepalive above), so the STDIN pipe
+    # feeds python, not a sudo password prompt.
+    if printf '%s' "$_pw" | sudo -n "$_py" -c "$_kcpy" 2>/dev/null; then
+        unset _pw
+        if sudo -n defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$_login_user" 2>/dev/null; then
+            # loginwindow reads the pref as any user; keep it world-readable
+            # (the SECRET lives in the 0600 /etc/kcpassword, never here).
+            sudo -n chmod 644 /Library/Preferences/com.apple.loginwindow 2>/dev/null || true
+            ok "$(printf "$MSG_OK_AUTOLOGIN_CONFIGURED" "$_display")"
+        else
+            warn "$(printf "$MSG_WARN_AUTOLOGIN_FAILED" "the loginwindow preference could not be written")"
+        fi
+    else
+        unset _pw
+        warn "$(printf "$MSG_WARN_AUTOLOGIN_FAILED" "/etc/kcpassword could not be written")"
+    fi
+}
+
+progress "$MSG_PROGRESS_REBOOT_SELFHEAL" "reboot_selfheal"
+_ostler_configure_reboot_autologin
+
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
 
 progress "Setting up Ollama (local AI engine)" "ollama_install"

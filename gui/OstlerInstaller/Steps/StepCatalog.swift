@@ -93,6 +93,15 @@ final class StepCatalog {
         "setup_complete_wrap_up",
         "homebrew_install",
         "docker_install",
+        // reboot_selfheal (v1.0.11, PR #452): configures boot auto-login so a
+        // mid-install reboot self-heals and resumes unattended. install.sh
+        // emits `progress "$MSG_PROGRESS_REBOOT_SELFHEAL" "reboot_selfheal"`
+        // (phase 3.2b) BETWEEN docker_install and ollama_install; this entry
+        // sits at the matching position so the step-parity contract test
+        // passes. Internal step (no HintCopy.json entry -> no dedicated
+        // sidebar row), same posture as initial_hydrate / the hydrate_* steps;
+        // it still advances the sidebar via advanceSidebarFromPhase.
+        "reboot_selfheal",
         "ollama_install",
         "config_save",
         "encrypt_db",
