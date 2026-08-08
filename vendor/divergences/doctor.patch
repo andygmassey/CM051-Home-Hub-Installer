@@ -561,3 +561,468 @@
                  "Doctor proxy: rejecting unpaired client bearer for %s %s",
                  request.method,
                  path,
+--- a/agent/diagnostic_copy.py
++++ b/agent/diagnostic_copy.py
+@@ -383,4 +383,93 @@
+     "After granting access, restart the assistant: "
+     "launchctl kickstart -k gui/$(id -u)/"
+     "com.creativemachines.ostler.assistant"
++)
++
++
++# ── check_imessage_capture_stalled ───────────────────────────────────
++#
++# Distinct from check_imessage_fda: that rule fires on the install-time
++# probe signal; this one fires on the RUNTIME evidence that the iMessage
++# capture bundle is actually crash-looping. Before Full Disk Access is
++# granted, every capture tick logs
++# ``sqlite3.OperationalError: unable to open database file`` to
++# ``~/.ostler/logs/imessage-bundle.err`` -- the capture is silently stalled
++# and no messages are being read. This surfaces that as an actionable card.
++
++
++IMESSAGE_CAPTURE_STALLED_TITLE = (
++    "iMessage capture stalled: waiting for Full Disk Access"
++)
++IMESSAGE_CAPTURE_STALLED_DETAIL = (
++    "Ostler's iMessage capture is retrying but cannot open your Messages "
++    "database yet, so no messages are being read. macOS blocks access until "
++    "you grant Full Disk Access to the assistant. Grant it and the capture "
++    "resumes on its own; this card clears once Messages can be read."
++)
++IMESSAGE_CAPTURE_STALLED_FIX = "Open System Settings to Full Disk Access"
++# Same remedial action as the install-time card: the FDA deep-link. Kept as
++# its own catalogue entry so the two call sites stay decoupled, but pointed
++# at the shared command so there is one deep-link string to maintain.
++IMESSAGE_CAPTURE_STALLED_FIX_COMMAND = IMESSAGE_FDA_FIX_COMMAND
++
++
++# ── check_last_upgrade ───────────────────────────────────────────────
++#
++# The (B-lite) upgrade audit-trail row. Reads the durable, reboot-
++# surviving upgrade result the Hub records in preferences.json and
++# tells the customer, in plain terms, how the last update went.
++#
++# The success detail deliberately carries no capital "T" or "Z" so a
++# malformed timestamp can never leak an ISO string (2026-07-27T...Z)
++# into the reassurance line.
++
++LAST_UPGRADE_SUCCESS_TITLE_FMT = "Ostler updated to v{version}"
++LAST_UPGRADE_SUCCESS_DETAIL_FMT = (
++    "Last update applied {applied}. "
++    "Assistant and services have been reconciled and are running normally."
+ )
++# Shown when the recorded timestamp cannot be parsed, so the applied-time
++# clause is omitted rather than printing a half-formed value.
++LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME = (
++    "Assistant and services have been reconciled and are running normally."
++)
++
++LAST_UPGRADE_FAILED_TITLE = "Last Ostler update didn't finish"
++LAST_UPGRADE_FAILED_DETAIL = (
++    "The most recent update did not complete, so your previous (working) "
++    "version of Ostler is still running. Nothing was lost. The Doctor logs "
++    "have the details if you want to see what stopped it."
++)
++LAST_UPGRADE_FAILED_FIX = (
++    "You can try the update again later. If it keeps stopping, the Doctor "
++    "logs (in this window) show where."
++)
++
++LAST_UPGRADE_ROLLED_BACK_TITLE = "Ostler update was rolled back"
++LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT = (
++    "Your previous Ostler is running. Version {version} did not install, so "
++    "the working version was restored automatically. Nothing was lost."
++)
++LAST_UPGRADE_ROLLED_BACK_FIX = (
++    "No action is needed. You can try updating again later from Settings."
++)
++
++
++# ---------------------------------------------------------------------------
++# Conversation dispatch failures (2026-08-08)
++#
++# Doctor read this log for exactly ONE signature -- the pre-FDA SQLite crash.
++# A bundle that ticks happily while every dispatch exits rc=1 was therefore
++# invisible, and Doctor said "Everything looks healthy" beside a 37KB error
++# log. Doctor was not lying; it was reporting on the only thing it checked.
++#
++# Silence and failure are different states. This copy is for the second.
++# ---------------------------------------------------------------------------
++CONVO_DISPATCH_FAILING_TITLE = "Some conversations could not be processed"
++CONVO_DISPATCH_FAILING_DETAIL = (
++    "Ostler is reading your messages, but {n} recent {noun} failed while being "
++    "summarised and {have} been skipped. Those conversations will not appear in "
++    "your wiki or answers until they are retried. Everything else is unaffected."
++)
++CONVO_DISPATCH_FAILING_FIX = "Show the error log"
++CONVO_DISPATCH_FAILING_FIX_COMMAND = "open ~/.ostler/logs/imessage-bundle.err"
+--- a/agent/diagnostic_rules.py
++++ b/agent/diagnostic_rules.py
+@@ -79,6 +79,14 @@
+     HIGH_MEM_CONTAINER_FIX,
+     HIGH_MEM_CONTAINER_FIX_COMMAND_FMT,
+     HIGH_MEM_CONTAINER_TITLE_FMT,
++    IMESSAGE_CAPTURE_STALLED_DETAIL,
++    IMESSAGE_CAPTURE_STALLED_FIX,
++    IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
++    IMESSAGE_CAPTURE_STALLED_TITLE,
++    CONVO_DISPATCH_FAILING_TITLE,
++    CONVO_DISPATCH_FAILING_DETAIL,
++    CONVO_DISPATCH_FAILING_FIX,
++    CONVO_DISPATCH_FAILING_FIX_COMMAND,
+     IMESSAGE_FDA_DETAIL,
+     IMESSAGE_FDA_FIX,
+     IMESSAGE_FDA_FIX_COMMAND,
+@@ -95,6 +103,15 @@
+     IMPORT_READY_DETAIL,
+     IMPORT_READY_FIX_COMMAND,
+     IMPORT_READY_TITLE,
++    LAST_UPGRADE_FAILED_DETAIL,
++    LAST_UPGRADE_FAILED_FIX,
++    LAST_UPGRADE_FAILED_TITLE,
++    LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
++    LAST_UPGRADE_ROLLED_BACK_FIX,
++    LAST_UPGRADE_ROLLED_BACK_TITLE,
++    LAST_UPGRADE_SUCCESS_DETAIL_FMT,
++    LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME,
++    LAST_UPGRADE_SUCCESS_TITLE_FMT,
+     LOW_RAM_DETAIL,
+     LOW_RAM_TITLE_FMT,
+     MANY_MODELS_DETAIL,
+@@ -945,12 +962,325 @@
+         "risk": "low",
+         "category": "installation",
+     })
++    return findings
++
++
++# ── (B-lite) upgrade audit-trail row ─────────────────────────────────
++
++
++def _ostler_preferences_path() -> str:
++    """Returns the canonical ~/.ostler/preferences.json path.
++
++    Pulled to its own helper so tests can monkeypatch HOME without
++    touching the rule body (mirrors :func:`_imessage_chat_db_path`).
++    """
++    import os
++
++    return os.path.join(
++        os.path.expanduser("~"),
++        ".ostler",
++        "preferences.json",
++    )
++
++
++def _format_upgrade_applied(timestamp: str | None) -> str | None:
++    """Format an ISO 8601 upgrade timestamp as ``%Y-%m-%d %H:%M``.
++
++    Returns ``None`` when the value is missing or unparseable, so the
++    rule omits the applied-time clause rather than surfacing a raw
++    string with a "T"/"Z" in it. Mirrors :func:`_format_backfill_month`.
++    """
++    if not timestamp:
++        return None
++    from datetime import datetime as _dt
++    raw = timestamp.strip()
++    # Tolerate the trailing 'Z' zulu shape the Hub writer emits;
++    # fromisoformat accepts it from 3.11 but the doctor image targets
++    # 3.10+ so we normalise defensively.
++    if raw.endswith("Z"):
++        raw = raw[:-1] + "+00:00"
++    try:
++        parsed = _dt.fromisoformat(raw)
++    except (TypeError, ValueError):
++        return None
++    return parsed.strftime("%Y-%m-%d %H:%M")
++
++
++def check_last_upgrade(snapshot: Any) -> list[dict]:
++    """(B-lite) upgrade audit-trail Doctor row.
++
++    Reads the durable, reboot-surviving upgrade result the Hub records
++    at ``~/.ostler/preferences.json`` and surfaces exactly one row
++    describing how the last Ostler update went.
++
++    This rule is READ-ONLY: the Hub (Rust) owns writes to
++    preferences.json. Doctor never creates, modifies, or repairs the
++    file -- a malformed file is left byte-for-byte untouched.
++
++    Quiet-on-legacy posture (mirrors :func:`check_imessage_fda`): a
++    missing file, malformed JSON, or a missing / ``None`` /
++    non-object ``last_upgrade_result`` all mean "this install has no
++    upgrade audit trail yet" and return no findings rather than
++    firing a false row. An unknown ``status`` value is likewise not
++    guessed.
++
++    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
++    """
++    import json
++
++    findings: list[dict] = []
++
++    path = _ostler_preferences_path()
++    try:
++        with open(path, encoding="utf-8") as fh:
++            prefs = json.load(fh)
++    except OSError:
++        # Missing file (FileNotFoundError is an OSError) or unreadable:
++        # legacy install with no audit trail. Stay quiet.
++        return findings
++    except ValueError:
++        # Malformed JSON (JSONDecodeError / UnicodeDecodeError both
++        # subclass ValueError). Stay quiet, never crash, never rewrite.
++        return findings
++
++    if not isinstance(prefs, dict):
++        return findings
++
++    result = prefs.get("last_upgrade_result")
++    if not isinstance(result, dict):
++        # Missing key, explicit null, or a non-object value: no trail.
++        return findings
++
++    status = result.get("status")
++    version = result.get("version")
++    applied = _format_upgrade_applied(result.get("timestamp"))
++
++    if status == "success":
++        if applied:
++            detail = LAST_UPGRADE_SUCCESS_DETAIL_FMT.format(applied=applied)
++        else:
++            detail = LAST_UPGRADE_SUCCESS_DETAIL_NO_TIME
++        findings.append({
++            "severity": "info",
++            "title": LAST_UPGRADE_SUCCESS_TITLE_FMT.format(version=version),
++            "detail": detail,
++            "fix": None,
++            "fix_command": None,
++            "risk": "low",
++            "category": "upgrade",
++        })
++    elif status == "failed":
++        findings.append({
++            "severity": "warning",
++            "title": LAST_UPGRADE_FAILED_TITLE,
++            "detail": LAST_UPGRADE_FAILED_DETAIL,
++            "fix": LAST_UPGRADE_FAILED_FIX,
++            "fix_command": None,
++            "risk": "low",
++            "category": "upgrade",
++        })
++    elif status == "rolled-back":
++        findings.append({
++            "severity": "warning",
++            "title": LAST_UPGRADE_ROLLED_BACK_TITLE,
++            "detail": LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT.format(version=version),
++            "fix": LAST_UPGRADE_ROLLED_BACK_FIX,
++            "fix_command": None,
++            "risk": "low",
++            "category": "upgrade",
++        })
++    # Unknown status value: do not guess. Return no findings.
++
+     return findings
+ 
+ 
++# Runtime signature the iMessage capture bundle logs on every tick while it
++# cannot open ~/Library/Messages/chat.db (Full Disk Access not yet granted).
++# Matched as two tokens rather than one literal so incidental whitespace /
++# path suffix variations in the traceback line still match.
++_IMESSAGE_SQLITE_CRASH_TOKENS = (
++    "sqlite3.OperationalError",
++    "unable to open database file",
++)
++# Cap how much of the (potentially long-lived, appended-to) error log we read.
++_IMESSAGE_ERR_TAIL_BYTES = 65536
++
++
++def _imessage_bundle_err_path() -> "Any":
++    """Path to the iMessage capture bundle's stderr log.
++
++    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
++    ``OSTLER_DIR=~/.ostler`` and points launchd logs at ``${OSTLER_DIR}/logs``),
++    falling back to ``~/.ostler/logs/imessage-bundle.err``. Mirrors
++    ``web_ui._ostler_logs_dir`` so the resolution stays in lockstep, and lets
++    tests point it at a fixture via ``OSTLER_LOGS_DIR`` without touching HOME.
++    """
++    import os
++    from pathlib import Path
++
++    override = os.environ.get("OSTLER_LOGS_DIR")
++    if override:
++        base = Path(override)
++    else:
++        ostler_dir = os.environ.get("OSTLER_DIR")
++        base = Path(ostler_dir) / "logs" if ostler_dir else (
++            Path.home() / ".ostler" / "logs"
++        )
++    return base / "imessage-bundle.err"
++
++
++def _imessage_capture_crash_logged() -> bool:
++    """True if the iMessage capture stderr log shows the pre-FDA SQLite crash.
++
++    Reads only the tail of the file (the log is appended to on every tick, so
++    it can grow) and looks for the ``sqlite3.OperationalError: unable to open
++    database file`` signature. Any read failure (missing file on a fresh box,
++    permission error) is treated as "no crash observed" so the rule stays
++    quiet rather than firing a false positive.
++    """
++    path = _imessage_bundle_err_path()
++    try:
++        if not path.is_file():
++            return False
++        with open(path, "rb") as fh:
++            try:
++                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
++            except OSError:
++                # File shorter than the tail window: read from the start.
++                fh.seek(0)
++            tail = fh.read().decode("utf-8", errors="replace")
++    except OSError:
++        return False
++    return all(token in tail for token in _IMESSAGE_SQLITE_CRASH_TOKENS)
++
++
++def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
++    """#172 Doctor card: the iMessage capture bundle is crash-looping on
++    SQLite because Full Disk Access has not been granted yet.
++
++    Distinct from :func:`check_imessage_fda` (which fires on the install-time
++    probe signal): this rule reads the RUNTIME evidence. Before FDA is granted
++    every capture tick logs
++    ``sqlite3.OperationalError: unable to open database file`` to
++    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
++    no messages are being read -- so we surface an actionable card.
++
++    Fires when BOTH:
++
++    1. The crash signature is present in the log tail, AND
++    2. A live re-probe from this Doctor process *also* cannot open chat.db.
++
++    The live re-probe is the auto-dismiss path (shared with
++    :func:`check_imessage_fda`): the crash lines linger in the appended log
++    after FDA is finally granted, so without the re-probe the card would never
++    clear. Once FDA is granted and Messages is readable, the card disappears.
++
++    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9. The fix-command
++    opens System Settings -> Privacy & Security -> Full Disk Access.
++    """
++    findings: list[dict] = []
++
++    if not _imessage_capture_crash_logged():
++        return findings
++
++    # Live auto-dismiss: if this Doctor process can now open chat.db, FDA has
++    # been granted on this Mac and the logged crashes are stale history.
++    if _imessage_chat_db_readable():
++        return findings
++
++    findings.append({
++        "severity": "warning",
++        "title": IMESSAGE_CAPTURE_STALLED_TITLE,
++        "detail": IMESSAGE_CAPTURE_STALLED_DETAIL,
++        "fix": IMESSAGE_CAPTURE_STALLED_FIX,
++        "fix_command": IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
++        "risk": "low",
++        "category": "installation",
++    })
++    return findings
++
++
+ # ── Rule registry ────────────────────────────────────────────────────
+ 
+ 
++# Dispatch failures are logged as a non-zero return code from the CM048
++# conversation processor. Counted over the log TAIL only: the log is appended
++# to forever, so counting the whole file would keep surfacing failures the
++# customer already dealt with weeks ago.
++_DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
++
++
++def _dispatch_failure_count() -> int:
++    """How many dispatch failures appear in the tail of the bundle error log.
++
++    Same read posture as :func:`_imessage_capture_crash_logged` -- tail only,
++    and any read failure counts as zero so a missing log on a fresh box cannot
++    manufacture a warning.
++    """
++    path = _imessage_bundle_err_path()
++    try:
++        if not path.is_file():
++            return 0
++        with open(path, "rb") as fh:
++            try:
++                fh.seek(-_IMESSAGE_ERR_TAIL_BYTES, 2)
++            except OSError:
++                fh.seek(0)
++            tail = fh.read().decode("utf-8", errors="replace")
++    except OSError:
++        return 0
++    return sum(
++        1 for line in tail.splitlines()
++        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
++    )
++
++
++def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
++    """Surface conversations that were READ but failed to be processed.
++
++    WHY THIS RULE EXISTS (2026-08-08 box-walk of .208)
++    Doctor's status endpoint reported "Everything looks healthy. Nice one."
++    at 16:49 while ``imessage-bundle.err`` was 37KB and carried a fresh rc=1
++    from 16:43. Doctor was not wrong about what it checked -- it checked this
++    log for the pre-FDA SQLite crash signature and for nothing else. There was
++    no rule for FAILURE, only for SILENCE.
++
++    That distinction is the whole defect. A crash-looping bundle is caught by
++    :func:`check_imessage_capture_stalled`. A bundle that ticks forever while
++    every dispatch fails looks identical to a healthy one from the outside:
++    the process is running, the log is growing, messages are being read. The
++    conversations are simply dropped on the floor.
++
++    Second-in-class after #208 (Doctor reporting a device as paired when it
++    was not). A product that reports green over a red state twice is not
++    trusted a third time, so this rule errs towards saying something.
++
++    Deliberately a WARNING, not an error: the ingest as a whole is working and
++    the customer's other data is unaffected. It is a "some of your things did
++    not make it" message, which is what actually happened.
++    """
++    findings: list[dict] = []
++
++    n = _dispatch_failure_count()
++    if n <= 0:
++        return findings
++
++    findings.append({
++        "severity": "warning",
++        "title": CONVO_DISPATCH_FAILING_TITLE,
++        "detail": CONVO_DISPATCH_FAILING_DETAIL.format(
++            n=n,
++            noun="conversation" if n == 1 else "conversations",
++            have="has" if n == 1 else "have",
++        ),
++        "fix": CONVO_DISPATCH_FAILING_FIX,
++        "fix_command": CONVO_DISPATCH_FAILING_FIX_COMMAND,
++        "risk": "low",
++        "category": "installation",
++    })
++    return findings
++
++
+ ALL_RULES = [
+     check_first_install,
+     check_container_health,
+@@ -969,6 +1299,9 @@
+     check_mail_content,
+     check_backfill_progress,
+     check_imessage_fda,
++    check_last_upgrade,
++    check_imessage_capture_stalled,
++    check_conversation_dispatch_failures,
+ ]
+ 
+ 
