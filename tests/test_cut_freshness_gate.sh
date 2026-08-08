@@ -103,6 +103,27 @@ case "$path" in
     val="$(eval "printf '%s' \"\${$key:-}\"")"
     if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
     echo "$val"; exit 0 ;;
+  repos/*/releases/tags/*)
+    # The gate asks three ways about a release (2026-08-08 fix):
+    #   1. bare        -> JSON body; it greps "draft"
+    #   2. --jq .assets .sha256 id      -> asset id
+    #   3. --jq .assets build-info.json -> asset id
+    # MOCK_REL_<tag>=absent leaves it unpublished (the no-published-release path).
+    tag="${path##*/}"
+    key="MOCK_REL_$(san "$tag")"
+    val="$(eval "printf '%s' \"\${$key:-}\"")"
+    if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
+    for a in "$@"; do
+      case "$a" in
+        *sha256*)         echo "9001"; exit 0 ;;
+        *build-info*)     echo "9002"; exit 0 ;;
+      esac
+    done
+    echo "$val"; exit 0 ;;
+  repos/*/releases/assets/9001)
+    printf '%s\n' "${MOCK_REL_SHA256:-}"; exit 0 ;;
+  repos/*/releases/assets/9002)
+    printf '{"commit_sha": "%s"}\n' "${MOCK_REL_COMMIT:-}"; exit 0 ;;
 esac
 echo "{\"message\":\"unmatched: $path\"}"; exit 1
 MOCK
