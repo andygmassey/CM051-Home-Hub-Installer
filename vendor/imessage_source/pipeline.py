@@ -205,6 +205,10 @@ def process_imessage(
             continue
         prev_watermark = watermarks.get(convo.chat_id, -1)
         max_rowid = prev_watermark
+        # Lowest rowid that FAILED to dispatch in this chat, if any. The
+        # watermark is capped below it after the loop -- see the comment at
+        # the cap for why an inline claw-back is not enough.
+        first_failed_rowid = None
 
         sessions = thread_messages(
             convo.chat_id,
@@ -251,9 +255,33 @@ def process_imessage(
                 dispatched += 1
             else:
                 failed += 1
-                # Don't advance the watermark past a failed session so
-                # the next tick retries it.
-                max_rowid = min(max_rowid, session_max - 1)
+                if first_failed_rowid is None or session_max < first_failed_rowid:
+                    first_failed_rowid = session_max
+
+        # Cap the watermark BELOW the earliest failure in this chat.
+        #
+        # 2026-08-08: this used to claw back inline --
+        #     max_rowid = min(max_rowid, session_max - 1)
+        # -- immediately after a failure. That is defeated by any LATER
+        # success in the same chat, because the top of the loop does
+        #     max_rowid = max(max_rowid, session_max)
+        # unconditionally:
+        #
+        #     session A rowid 100 FAILS -> max_rowid = 99
+        #     session B rowid 200 OK    -> max_rowid = max(99, 200) = 200
+        #     watermark advances to 200, past the failure at 100
+        #
+        # The failed session is then permanently skipped, because the next
+        # tick's `session_max <= prev_watermark` check treats it as already
+        # processed. Observed on the .208 box-walk: `sessions_failed: 1`, tick
+        # reported complete, conversation never in the graph. Silent, and
+        # unrecoverable without resetting the watermark by hand.
+        #
+        # Capping once, after the loop, is order-independent: a failure at any
+        # position holds the line for everything after it. Re-dispatching a
+        # few already-successful sessions on the next tick is cheap and
+        # idempotent; losing a conversation forever is neither.
+        max_rowid = cap_watermark(max_rowid, first_failed_rowid)
 
         if not dry_run and max_rowid > prev_watermark:
             watermarks[convo.chat_id] = max_rowid
@@ -267,7 +295,17 @@ def process_imessage(
         "sessions_skipped": skipped,
         "sessions_failed": failed,
     }
-    logger.info("iMessage source tick complete: %s", summary)
+    # Do not call a tick with failures "complete". A tick that dropped work
+    # and reported completion is what let this go unnoticed for a whole
+    # box-walk; Doctor now surfaces the same signal to the customer.
+    if failed:
+        logger.error(
+            "iMessage source tick FINISHED WITH FAILURES (%s session(s) not "
+            "processed; watermark held so they retry next tick): %s",
+            failed, summary,
+        )
+    else:
+        logger.info("iMessage source tick complete: %s", summary)
     return summary
 
 
@@ -283,6 +321,20 @@ def _resolve_pwg_convo_cmd() -> list[str]:
     if override:
         return override.split()
     return ["pwg-convo"]
+
+
+
+def cap_watermark(max_rowid: int, first_failed_rowid: "Optional[int]") -> int:
+    """Highest rowid safe to record, given the earliest failure in this chat.
+
+    Pure, so the rule can be tested without a chat.db. The rule itself:
+    a watermark may never advance past a session that failed to dispatch,
+    because the next tick treats anything at or below the watermark as already
+    processed and will never retry it.
+    """
+    if first_failed_rowid is None:
+        return max_rowid
+    return min(max_rowid, first_failed_rowid - 1)
 
 
 def run(argv: Optional[list[str]] = None) -> int:
