@@ -203,15 +203,42 @@ DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
 
 STEP          := @printf '\n[STEP] %s\n'
 
-.PHONY: all debug release package notarise notarise-app notarise-dmg \
+.PHONY: help all debug release package notarise notarise-app notarise-dmg \
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
+        check-pbxproj-sync \
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
         check-pr-age \
         verify-commit-parity \
         download-python sign-python-bundle download-daemon stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
+
+# The default goal is deliberately INERT.
+#
+# It used to be `all: debug`, and `debug` ends with `open "$(DEBUG_APP)"` --
+# so a bare `make` in gui/ built AND LAUNCHED the installer. That is a bad
+# default anywhere and a dangerous one on the cut machine: on 2026-08-08 a
+# `make -p` (intended only to dump the variable database -- but -p without a
+# target still runs the default goal) built and launched a Debug installer on
+# the operator's Mac mid-session. Nothing in the repo invokes `make` in gui/
+# without a target, so making the default a no-op costs nothing.
+#
+# Build explicitly: `make debug`, `make release`, `make ship`.
+.DEFAULT_GOAL := help
+
+help:
+	@echo "Ostler installer (gui/) -- no default build; choose a target:"
+	@echo ""
+	@echo "  make debug              build Debug and OPEN the .app"
+	@echo "  make release            build Release (runs the preflight gates)"
+	@echo "  make ship               full cut: build, sign, notarise, staple, package"
+	@echo "  make regen              regenerate the .xcodeproj from project.yml"
+	@echo "  make check-version      version-consistency preflight (#171)"
+	@echo "  make check-pbxproj-sync tracked .xcodeproj == xcodegen(project.yml)"
+	@echo "  make print-version      print the version this tree would stamp"
+	@echo ""
+	@echo "Pre-cut gates all at once:  ../scripts/run_all_cut_gates.sh"
 
 all: debug
 
@@ -266,6 +293,33 @@ print-version:
 check-version:
 	$(STEP) "Installer version-consistency preflight (#171)"
 	@bash "$(CURDIR)/../tests/test_installer_version_consistency.sh"
+
+# ---------------------------------------------------------------------------
+# Project-sync preflight (#662). check-version above proves project.yml and the
+# pbxproj agree on the VERSION fields. This generalises that to the whole
+# project: it regenerates with xcodegen and fails if the tracked pbxproj is not
+# byte-identical to the result.
+#
+# Why: xcodebuild builds the PBXPROJ; humans edit project.yml; nothing in the
+# ship chain runs `xcodegen`. At the v1.0.17 cut the pbxproj was stale --
+# PR #516's inputFiles/outputFiles for lib/settling_progress.sh were never
+# regenerated -- and the bundling gate, which parses project.yml only, still
+# reported "Xcode tracks every copy". True of the YAML, false of the build.
+# Harmless that time only because `release` rm -rf's the staging dir first.
+#
+# Exit 2 (xcodegen missing / project already dirty) is UNAVAILABLE, not a pass.
+# ---------------------------------------------------------------------------
+check-pbxproj-sync:
+	$(STEP) "Xcode project-sync preflight (pbxproj == xcodegen(project.yml))"
+	@bash "$(CURDIR)/../scripts/verify_pbxproj_in_sync.sh" || { \
+	    echo "" >&2; \
+	    echo "ERROR: the tracked Xcode project does not match gui/project.yml." >&2; \
+	    echo "       xcodebuild builds the pbxproj, so anything project.yml adds" >&2; \
+	    echo "       is absent from the build until you re-run xcodegen AND commit." >&2; \
+	    echo "       Fix:  cd gui && xcodegen generate && git add -A && commit" >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
 
 # ---------------------------------------------------------------------------
 # Debug build – fast, ad-hoc signed, opens the .app
@@ -591,7 +645,7 @@ stage-payload:
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
-release: check-tools check-identity check-version download-python
+release: check-tools check-identity check-version check-pbxproj-sync download-python
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"

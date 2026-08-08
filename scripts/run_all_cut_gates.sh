@@ -99,9 +99,21 @@ echo "-- Bundling: does the .app actually carry what install.sh probes? -"
 run "SCRIPT_DIR/X coverage" \
     "every install.sh probe has a bundler" \
     python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
+# These two are a PAIR and neither is sufficient alone. The first proves
+# project.yml DESCRIBES every copy; the second proves the tracked pbxproj --
+# the file xcodebuild actually builds -- still MATCHES project.yml. At the
+# v1.0.17 cut only the first existed, and it reported "Xcode tracks every
+# copy" while the pbxproj was stale and declared neither of PR #516's files.
+# The label below now says which artefact it read, so it cannot overclaim again.
 run "bundle-phase declarations" \
-    "Xcode tracks every copy (no stale files)" \
+    "project.yml describes every copy" \
     bash tests/test_bundle_phase_declares_every_copy.sh
+run "pbxproj in sync" \
+    "the built project MATCHES project.yml" \
+    bash scripts/verify_pbxproj_in_sync.sh
+run "project.yml brace hygiene" \
+    "no \${VAR} xcodegen can freeze in" \
+    bash scripts/check_project_yml_braces.sh
 
 echo
 echo "-- Wiki images: provenance AND content ---------------------------"

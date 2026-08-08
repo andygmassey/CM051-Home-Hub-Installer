@@ -140,11 +140,11 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           # The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.
           # When `make ship` is the entry point, BUILD_DIR defaults to
-          # /tmp/ostler-installer-build-${USER}. When xcodebuild runs from
+          # /tmp/ostler-installer-build-${USER:-}. When xcodebuild runs from
           # Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.
           PYTHON_TARBALL=""
           for candidate in \
-              "/tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" \
+              "/tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" \
               "${SRCROOT}/../build/python-bundle.tar.gz" \
               "${SRCROOT}/build/python-bundle.tar.gz"; do
               if [ -f "$candidate" ]; then
@@ -156,7 +156,7 @@ targets:
               echo "ERROR: python-build-standalone tarball missing." >&2
               echo "       Run 'make -C gui download-python' before building." >&2
               echo "       Searched:" >&2
-              echo "         /tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" >&2
+              echo "         /tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/../build/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/build/python-bundle.tar.gz" >&2
               exit 1
@@ -252,9 +252,10 @@ targets:
           #
           # IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`
           # default form FIRST. xcodegen performs its own ${VAR} substitution
-          # on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it
-          # with the empty string when unset in the generator's env), which
-          # silently broke hub bundling after a `make regen`. The `:-` form
+          # on a plain brace-reference to OSTLER_APP_PATH at *generation* time
+          # (replacing it with the empty string when the var exists but is
+          # empty in the generator's env), which silently broke hub bundling
+          # after a `make regen`. The `:-` form
           # is passed through literally to the shell, so we read the build
           # setting through it once and use a plain shell var thereafter.
           OSTLER_APP_SRC="${OSTLER_APP_PATH:-}"
