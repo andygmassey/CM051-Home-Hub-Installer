@@ -31,6 +31,9 @@ from typing import Optional
 
 import httpx
 
+from .role_addresses import is_role_identifier  # noqa: F401
+from .identifier_quality import observe as _observe_identifier
+
 logger = logging.getLogger(__name__)
 
 # ── Config from environment (same as GDPR import pipeline) ────────
@@ -211,8 +214,20 @@ def _embed_text(text: str) -> list[float]:
 
 
 def _person_id_from_identifier(identifier: str) -> str:
-    """Generate a stable person ID from a phone number or email."""
+    """Generate a stable person ID from a phone number or email.
+
+    A role address (see :func:`is_role_identifier`) is NOT an identity, so it
+    must never be the key -- callers should skip creating a person at all.
+    This function raises rather than silently returning a colliding ID,
+    because the silent version is exactly what merged nine people into one.
+    """
     clean = identifier.strip().lower()
+    if is_role_identifier(clean):
+        raise ValueError(
+            f"refusing to key a person on the role address {clean!r}: "
+            "it is a sender, not a person, and keying on it merges everyone "
+            "who was ever mailed by it into a single node (#659)"
+        )
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://pwg.dev/person/{clean}"))
 
 
@@ -267,11 +282,23 @@ def ingest_imessage(fda_dir: Path) -> dict:
         participants = convo.get("participants", [])
         msg_count = convo.get("message_count", 0)
         last_msg = convo.get("last_message")
+        # The label this conversation presents its participants under. Fed to
+        # observe() so the structural rule can spot an identifier that turns
+        # up wearing two different people's names.
+        convo_name = convo.get("display_name") or ""
 
         for participant in participants:
             if not participant:
                 continue
 
+            # A role/bulk sender is not a person. Keying on it merges every
+            # iMessage participant who shared it into ONE node (#659).
+            # observe() also applies the STRUCTURAL rule: the moment this
+            # identifier presents as a second distinct person it is refused
+            # from then on, whatever it is called and in whatever language.
+            if _observe_identifier(participant, convo_name):
+                logger.debug("skipping role address %s", participant)
+                continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
 
@@ -374,47 +401,6 @@ def _identifier_exists(id_uri: str) -> bool:
         return len(result) > 0
     except Exception:
         return False
-
-
-def _person_uri_by_identifier_value(value: str) -> Optional[str]:
-    """URI of an existing Person that already holds ``value`` as an identifier.
-
-    THE MISSED-MERGE FIX. Every writer here mints its person URI as
-    ``uuid5(lowercased identifier)`` and then asks only ``_person_exists(uri)``
-    -- i.e. "did *I* already create this one?". Contacts, LinkedIn and the
-    CM041 resolver mint URIs by a completely different scheme, so that check
-    can never see them, and the same human is created again under a new URI
-    every time a second source mentions them.
-
-    Measured on a real graph (2026-08-07): 8 provable collisions, including
-    a calendar attendee ``alison.massey@bupa.com`` created alongside "Mum
-    Massey", who already held exactly that address as an identifier. Andy saw
-    the result as one person appearing three times.
-
-    Asking the identifier VALUE instead of the URI crosses every scheme.
-    Email comparison is case-insensitive (RFC 5321 leaves the local part
-    case-sensitive in theory; in practice no mail provider treats it so, and
-    every other writer here already lowercases before hashing). Returns None
-    on a query error so a degraded store falls back to create-as-new -- a
-    recoverable duplicate, never a dropped contact.
-    """
-    v = (value or "").strip()
-    if not v:
-        return None
-    try:
-        rows = _sparql_query(
-            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
-            "SELECT ?p WHERE {\n"
-            "  ?p a pwg:Person ; pwg:hasIdentifier ?i .\n"
-            "  ?i pwg:identifierValue ?iv .\n"
-            f'  FILTER(LCASE(STR(?iv)) = "{_escape(v.lower())}")\n'
-            "} ORDER BY ?p LIMIT 1"
-        )
-    except Exception:
-        return None
-    if not rows:
-        return None
-    return rows[0].get("p", {}).get("value") or None
 
 
 # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
@@ -584,6 +570,16 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             if participant.endswith("@lid"):
                 continue
 
+            # A role/bulk sender is not a person. Keying on it merges every
+            # WhatsApp participant who shared it into ONE node (#659).
+            # No name is passed: the WhatsApp extractor deliberately carries
+            # JIDs only, never display names (privacy). observe() is still the
+            # right call -- it consults what OTHER sources have already learned
+            # about this identifier, so a channel exposed by mail is refused
+            # here too.
+            if _observe_identifier(participant, ""):
+                logger.debug("skipping role address %s", participant)
+                continue
             person_id = _person_id_from_identifier(participant)
             uri = _person_uri(person_id)
             exists = _person_exists(uri)
@@ -703,12 +699,6 @@ def ingest_calendar(fda_dir: Path) -> dict:
 
     events = json.loads(events_file.read_text())
     people_seen: set[str] = set()
-    # attendee-key -> the person URI it actually resolved to. An attendee
-    # matched to an existing person keeps THAT person's URI, so the Meeting
-    # node links to the real human rather than to a uuid5 URI nothing owns.
-    resolved_uris: dict[str, str] = {}
-    people_created = 0
-    people_matched = 0
     events_processed = 0
     meetings_created = 0
 
@@ -723,26 +713,21 @@ def ingest_calendar(fda_dir: Path) -> dict:
             if not attendee:
                 continue
 
+            # A role/bulk sender is not a person. Keying on it merges every
+            # calendar attendee who shared it into ONE node (#659). An invite
+            # carries no attendee display name, so this contributes nothing to
+            # the structural rule -- but it still honours it.
+            if _observe_identifier(attendee, ""):
+                logger.debug("skipping role address %s", attendee)
+                continue
             person_id = _person_id_from_identifier(attendee)
             uri = _person_uri(person_id)
+            attendee_uris.append(uri)
 
             if person_id not in people_seen:
                 people_seen.add(person_id)
 
-                # Resolve-before-create. A calendar attendee is an email
-                # address, and that address is very often already held as an
-                # identifier by a person Contacts / LinkedIn / iMessage
-                # created under a DIFFERENT URI scheme. Checking only
-                # _person_exists(uri) asked "did I create this?", never "does
-                # this human already exist?", so every such attendee became a
-                # second copy named by their email -- e.g. an
-                # "alison.massey@bupa.com" sitting beside "Mum Massey", who
-                # already held that exact address.
-                existing = _person_uri_by_identifier_value(attendee)
-                if existing:
-                    uri = existing
-                    people_matched += 1
-                elif not _person_exists(uri):
+                if not _person_exists(uri):
                     triples = [
                         f"<{uri}> a pwg:Person",
                         f'<{uri}> pwg:displayName "{_escape(attendee)}"',
@@ -751,50 +736,12 @@ def ingest_calendar(fda_dir: Path) -> dict:
                         f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                         f'<{uri}> pwg:source "calendar_fda"',
                     ]
-
-                    # An email used as a name is a placeholder, not a name --
-                    # _is_provisional_display_name says so in as many words,
-                    # and iMessage/WhatsApp already mark it. Calendar never
-                    # did, so the raw address rendered as the person's name on
-                    # the wiki and the resolver treated it as a real name it
-                    # must not overwrite.
-                    if _is_provisional_display_name(attendee):
-                        triples.append(
-                            f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
-                        )
-
-                    # Record the address we just keyed on as an identifier.
-                    # Without this the record carries NOTHING to match on and
-                    # is unmergeable forever -- 900 such people were measured
-                    # on a real graph. With it, a later Contacts import or the
-                    # CM041 resolver folds this person in on the shared email.
-                    is_phone = attendee.startswith("+") or attendee.replace(
-                        "-", ""
-                    ).replace(" ", "").isdigit()
-                    id_uri = f"https://pwg.dev/ontology#id_{person_id}_calendar"
-                    triples.extend([
-                        f"<{uri}> pwg:hasIdentifier <{id_uri}>",
-                        f"<{id_uri}> a pwg:PersonIdentifier",
-                        f'<{id_uri}> pwg:identifierType "{"phone" if is_phone else "email"}"',
-                        f'<{id_uri}> pwg:identifierValue "{_escape(attendee)}"',
-                        f'<{id_uri}> pwg:identifierLabel "CALENDAR"',
-                    ])
-
                     sparql = (
                         "PREFIX pwg: <https://pwg.dev/ontology#>\n"
                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                     )
                     _sparql_update(sparql)
-                    people_created += 1
-                # Remember the URI this attendee string resolved to, so the
-                # second and subsequent events naming them reuse it rather
-                # than falling back to the uuid5 URI we may not have created.
-                resolved_uris[person_id] = uri
-            else:
-                uri = resolved_uris.get(person_id, uri)
-
-            attendee_uris.append(uri)
 
             # Update last contact from meeting date
             if start_date:
@@ -846,19 +793,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
         events_processed += 1
 
     logger.info(
-        "Calendar: %d events processed, %d unique attendees "
-        "(%d matched to existing people, %d created), %d meetings",
-        events_processed, len(people_seen),
-        people_matched, people_created, meetings_created,
+        "Calendar: %d events processed, %d unique attendees, %d meetings",
+        events_processed, len(people_seen), meetings_created,
     )
     return {
         "status": "ok",
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
-        # Surfaced so a regression that stops matching shows up as a
-        # number, not as duplicate people someone notices months later.
-        "people_matched": people_matched,
-        "people_created": people_created,
         "meetings_created": meetings_created,
     }
 
@@ -937,25 +878,23 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
 
     contacts = json.loads(contacts_file.read_text())
     people_created = 0
-    people_matched = 0
 
     for email, count in contacts.items():
         if not email or count < 3:
             # Skip very infrequent senders
             continue
 
+        # A role/bulk sender is not a person. Keying on it merges every
+        # email correspondent who shared it into ONE node (#659). The frequency
+        # map is address->count with no names, so this consults the learned set
+        # rather than adding to it.
+        if _observe_identifier(email, ""):
+            logger.debug("skipping role address %s", email)
+            continue
         person_id = _person_id_from_identifier(email)
         uri = _person_uri(person_id)
 
-        # Resolve-before-create, same reasoning as ingest_calendar: a
-        # frequent sender is usually somebody Contacts already knows, under
-        # a URI this module's uuid5 scheme can never guess. This writer at
-        # least recorded an email identifier, so its duplicates were
-        # merge-ABLE -- but they were still duplicates on the wiki until
-        # something merged them.
-        if _person_uri_by_identifier_value(email):
-            people_matched += 1
-        elif not _person_exists(uri):
+        if not _person_exists(uri):
             triples = [
                 f"<{uri}> a pwg:Person",
                 f'<{uri}> pwg:displayName "{_escape(email)}"',
@@ -963,13 +902,6 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                 f'<{uri}> pwg:source "apple_mail_fda"',
             ]
-
-            # The address is standing in for a name until a real one
-            # arrives. Mark it so, exactly as iMessage/WhatsApp do.
-            if _is_provisional_display_name(email):
-                triples.append(
-                    f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
-                )
 
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_mail"
             triples.extend([
@@ -988,15 +920,8 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             _sparql_update(sparql)
             people_created += 1
 
-    logger.info(
-        "Apple Mail: %d contacts created, %d matched to existing people",
-        people_created, people_matched,
-    )
-    return {
-        "status": "ok",
-        "people_created": people_created,
-        "people_matched": people_matched,
-    }
+    logger.info("Apple Mail: %d contacts created", people_created)
+    return {"status": "ok", "people_created": people_created}
 
 
 # ── Browser history ingestion (direct path, v1.0) ─────────────────

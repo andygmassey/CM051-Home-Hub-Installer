@@ -160,7 +160,7 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "c993d13d312c6d400082ba0b7a579b965341365e"
+  pinned_sha = "9de8d93abae8dab16fda214acd57d0bc298fa6f9"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
   # hold_ack for 9a53c466 REMOVED 2026-08-07 (v1.0.16) -- DISCHARGED, not dropped.
   # It held "fix(email-ingest): resilient emlx walk -- skip unreadable subdirs"
