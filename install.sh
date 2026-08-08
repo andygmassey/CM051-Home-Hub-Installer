@@ -9055,7 +9055,46 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     #                                 can extend further post-install via
     #                                 `ostler-fda` with a larger value
     #                                 (the "extend now?" affordance).
-    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=1825}"
+    # iMessage is the ONE exception to the 5-year rule, and it is not a
+    # preference -- it is arithmetic. (2026-08-08, FIX 1.)
+    #
+    # Every other source here is cheap per item: extract, normalise, write.
+    # iMessage is not. Each conversation is dispatched to the CM048 pipeline,
+    # and each dispatch makes TEN chained Ollama calls (processor.py -- the
+    # call sites were grep-verified). Measured cost: 1.20 min per dispatch.
+    #
+    # At 1825 days a real box yielded 28,405 conversations:
+    #
+    #     28,405 x 1.20 min  =  ~24 days of continuous local inference
+    #
+    # while the installer tells the customer they can walk away. That is not a
+    # slow install, it is a promise the product cannot keep -- and the machine
+    # is pinned the whole time.
+    #
+    # 30 days keeps the recent, useful history (the graph is about who you are
+    # in touch with NOW) and brings first ingest to an overnight.
+    #
+    #     1825d  28,405 convos  ~24 days
+    #       90d  ~1,401         ~28 hours   <- still not "walk away"
+    #       30d    ~467         ~9 hours    <- an overnight
+    #
+    # Those projections scale LINEARLY with the window, which FLATTERS the
+    # shorter ones: recent months are denser than a 5-year average, so the
+    # true count at 30d is higher than 467 and the true saving is smaller than
+    # the table implies. 30d was chosen for that reason -- at 90d a dense
+    # messager is back above 24h and the promise breaks again. Measure on a
+    # real box before widening.
+    #
+    # The window stays operator-overridable exactly as before, so anyone who
+    # wants the full 5 years sets OSTLER_IMESSAGE_BACKFILL_DAYS=1825 and
+    # accepts the runtime knowingly.
+    #
+    # HONEST TRADE-OFF: a customer with years of iMessage gets 90 days at
+    # install, not 5 years. The older history is NOT extracted -- it is
+    # deferred, not silently dropped, and the same "backfill further from
+    # Doctor later" affordance named above applies. Shipping 90 days that
+    # completes beats 5 years that never finishes.
+    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=30}"
     : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
     : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
