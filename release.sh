@@ -248,6 +248,51 @@ done
 [[ -d "${CM021_DIR}" ]] || die "--cm021 path not found: ${CM021_DIR}" 3
 
 # -----------------------------------------------------------------------------
+# Clean-tree preflight (UNBYPASSABLE for a real cut)
+# -----------------------------------------------------------------------------
+# Fast, network-free assertion that THIS checkout is clean + on the expected
+# branch, so the tarball is reproducible from origin/<branch> and cannot ship
+# un-reviewed local edits, a stale feature branch, or a detached-HEAD rebase
+# artefact. Runs FIRST -- a dirty tree invalidates every gate after it. Dirty
+# tree + detached HEAD HARD-fail; branch identity is advisory (WARN) unless
+# EXPECTED_CUT_BRANCH is explicitly set (cuts run from a cut-pin branch, not
+# main). ALLOW_DIRTY_CUT=1 downgrades the dirty-tree check (dev only).
+# Skipped only for --dry-run (never a shippable cut).
+CLEAN_TREE_GATE="${CM051_DIR}/scripts/verify_clean_tree.sh"
+if [[ "${DO_DRY_RUN}" -eq 0 ]]; then
+    echo "==> Clean-tree preflight (checkout is clean + on expected branch)"
+    [[ -x "${CLEAN_TREE_GATE}" ]] || die "clean-tree gate missing/not executable: ${CLEAN_TREE_GATE}" 2
+    if ! "${CLEAN_TREE_GATE}"; then
+        die "clean-tree preflight FAILED -- the cut checkout is dirty and/or on the wrong branch. Commit/stash/discard + check out the expected branch, then re-cut. DO NOT SHIP." 2
+    fi
+    ok "clean-tree preflight GREEN"
+else
+    warn "--dry-run: skipping clean-tree preflight (inspection only, not a shippable cut)"
+fi
+
+# -----------------------------------------------------------------------------
+# Branch-truth preflight (UNBYPASSABLE for a real cut)
+# -----------------------------------------------------------------------------
+# Proves the daemon tag THIS cut pins CONTAINS (descends from, or is identical
+# to) the daemon tag the LAST cut shipped -- a cut may NEVER drop commits a
+# previous ship already contained. The v1.0.12-regression guard: it would have
+# caught RED the cut that rebuilt the daemon from a diverged main and dropped
+# ~65 shipped pairing/security commits. Fail-closed: RED (exit 1) or
+# CANNOT-VERIFY (exit 3, GitHub unreachable) both abort. Skipped only for
+# --dry-run. See scripts/branch_truth_ack.tsv for the deliberate-rollback ack.
+BRANCH_TRUTH_GATE="${CM051_DIR}/scripts/verify_branch_truth.sh"
+if [[ "${DO_DRY_RUN}" -eq 0 ]]; then
+    echo "==> Branch-truth preflight (pinned daemon contains the last ship)"
+    [[ -x "${BRANCH_TRUTH_GATE}" ]] || die "branch-truth gate missing/not executable: ${BRANCH_TRUTH_GATE}" 2
+    if ! HR015_DIR="${HR015_DIR}" "${BRANCH_TRUTH_GATE}"; then
+        die "branch-truth preflight FAILED -- this cut drops daemon commits the last ship contained (or a tag/ledger could not be read). Re-pin DAEMON_VERSION to a tag that DESCENDS from the last-shipped daemon (graft-forward), then re-cut. DO NOT SHIP." 2
+    fi
+    ok "branch-truth preflight GREEN"
+else
+    warn "--dry-run: skipping branch-truth preflight (inspection only, not a shippable cut)"
+fi
+
+# -----------------------------------------------------------------------------
 # Cut-freshness preflight (UNBYPASSABLE for a real cut)
 # -----------------------------------------------------------------------------
 # Compares EVERY shippable input (vendor pins, daemon, wiki images) to its LIVE

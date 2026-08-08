@@ -89,3 +89,24 @@ entries:
       kind: grep_in_installer
       pattern: 'OSTLER_COMPANION_ENABLED:-true'
       must_match: true
+
+  # --------------------------------------------------------------------------
+  # Runtime acceptance probe -- the box-walk, automated (A1-A8)
+  # --------------------------------------------------------------------------
+  # Static provenance/structure/version gates verify the BUILD; this probe
+  # verifies the RUNNING PRODUCT on a real box -- the gap that let v1.0.13.2 ship
+  # with R1/R5/#259/#260/#1/#2 despite every static gate passing. It ports TNM's
+  # ostler-acceptance-gate.sh A-series assertions into the existing box_walk_probe
+  # mechanism (no new pipeline step): read-only ssh to $OSTLER_BOX_HOST, exit
+  # non-zero if any launch-critical assertion (A1 brand-neutral binary / A2
+  # pre-pair frontpage / A3 no SPA-mask / A4 pairing-consistent / A5 wiki-LLM /
+  # A6 wiki-compiler-clean / A8 LaunchAgents) fails. A7 (Home/Wiki phase
+  # coherence) prints for the operator but does not hard-fail (needs a rendered
+  # SPA). SKIPs cleanly when OSTLER_BOX_HOST is unset (CI + offline dev) via the
+  # box_walk_probe primitive, so this never false-fails a headless cut.
+  - id: v1013-box-walk-acceptance-gate
+    title: runtime acceptance probe (A1-A8) must pass on OSTLER_BOX_HOST
+    source_pr: ostler-ai/ostler-assistant#255
+    proof:
+      kind: box_walk_probe
+      probe: "acceptance_gate_v1013"
