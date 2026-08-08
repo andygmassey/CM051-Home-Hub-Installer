@@ -252,9 +252,10 @@ targets:
           #
           # IMPORTANT (2026-06-19 cut): capture the value via the `${VAR:-}`
           # default form FIRST. xcodegen performs its own ${VAR} substitution
-          # on plain `${OSTLER_APP_PATH}` at *generation* time (replacing it
-          # with the empty string when unset in the generator's env), which
-          # silently broke hub bundling after a `make regen`. The `:-` form
+          # on a plain brace-reference to OSTLER_APP_PATH at *generation* time
+          # (replacing it with the empty string when the var exists but is
+          # empty in the generator's env), which silently broke hub bundling
+          # after a `make regen`. The `:-` form
           # is passed through literally to the shell, so we read the build
           # setting through it once and use a plain shell var thereafter.
           OSTLER_APP_SRC="${OSTLER_APP_PATH:-}"

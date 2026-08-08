@@ -206,6 +206,7 @@ STEP          := @printf '\n[STEP] %s\n'
 .PHONY: all debug release package notarise notarise-app notarise-dmg \
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
+        check-pbxproj-sync \
         print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
         check-pr-age \
@@ -266,6 +267,33 @@ print-version:
 check-version:
 	$(STEP) "Installer version-consistency preflight (#171)"
 	@bash "$(CURDIR)/../tests/test_installer_version_consistency.sh"
+
+# ---------------------------------------------------------------------------
+# Project-sync preflight (#662). check-version above proves project.yml and the
+# pbxproj agree on the VERSION fields. This generalises that to the whole
+# project: it regenerates with xcodegen and fails if the tracked pbxproj is not
+# byte-identical to the result.
+#
+# Why: xcodebuild builds the PBXPROJ; humans edit project.yml; nothing in the
+# ship chain runs `xcodegen`. At the v1.0.17 cut the pbxproj was stale --
+# PR #516's inputFiles/outputFiles for lib/settling_progress.sh were never
+# regenerated -- and the bundling gate, which parses project.yml only, still
+# reported "Xcode tracks every copy". True of the YAML, false of the build.
+# Harmless that time only because `release` rm -rf's the staging dir first.
+#
+# Exit 2 (xcodegen missing / project already dirty) is UNAVAILABLE, not a pass.
+# ---------------------------------------------------------------------------
+check-pbxproj-sync:
+	$(STEP) "Xcode project-sync preflight (pbxproj == xcodegen(project.yml))"
+	@bash "$(CURDIR)/../scripts/verify_pbxproj_in_sync.sh" || { \
+	    echo "" >&2; \
+	    echo "ERROR: the tracked Xcode project does not match gui/project.yml." >&2; \
+	    echo "       xcodebuild builds the pbxproj, so anything project.yml adds" >&2; \
+	    echo "       is absent from the build until you re-run xcodegen AND commit." >&2; \
+	    echo "       Fix:  cd gui && xcodegen generate && git add -A && commit" >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit 1; \
+	}
 
 # ---------------------------------------------------------------------------
 # Debug build – fast, ad-hoc signed, opens the .app
@@ -591,7 +619,7 @@ stage-payload:
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
-release: check-tools check-identity check-version download-python
+release: check-tools check-identity check-version check-pbxproj-sync download-python
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"
