@@ -78,17 +78,32 @@ nobody read the output.
 
 > A gate with a default input answers *"which cut am I gating?"* by accident.
 
-**Status:** partially fixed. `verify_must_contain.sh` now reads the real BOM and
-has no default. `cut_hygiene_gate.sh`'s stale default is **task #661, still
-open** — treat any GREEN from it without an explicit manifest argument as
-meaningless.
+**Status: FIXED (2026-08-08, #661).** `verify_must_contain.sh` reads the real BOM
+and has no default. `cut_hygiene_gate.sh` now has **no defaults at all** — the
+manifest and `--integration` are both required, and a bare invocation exits 2
+with usage instead of gating a six-version-old cut.
+
+It also **refuses a BOM outright**. The two schemas were never two versions of
+one document, and reconciling them would be the wrong fix:
+
+| document | schema | question it answers |
+|---|---|---|
+| PR manifest | `repo\|pr\|ebase\|class\|note\|status` | is this work item **merged**? — *provenance* |
+| MUST_CONTAIN BOM | `what\|repo\|landed\|capability_id\|verify\|ref` | is this capability **in the artefact**? — *content* |
+
+A PR can be merged with the capability still absent (stale vendor pin, unbuilt
+image); a capability can be present with no PR row at all (grafted, vendored).
+Merging the documents would rebuild the confusion this gate family exists to
+prevent. So the gate detects a `capability_id`/`landed` column and points you at
+`verify_must_contain.sh` rather than emitting "class unknown" for every row —
+which reads like a broken manifest rather than the wrong document.
 
 ### 2. A manifest nobody reads is a manifest nobody updates
 
 There were three manifest systems:
 
 ```
-scripts/cut_manifest.v1010.tsv   ->  cut_hygiene_gate.sh   (v1.0.10, stale)
+scripts/cut_manifest.v1010.tsv   ->  cut_hygiene_gate.sh   (now REQUIRED, no default)
 cut-manifests/*.yaml             ->  verify_cut_manifest.py
 cuts/<ver>/MUST_CONTAIN.tsv      ->  NOTHING
 ```
@@ -216,6 +231,7 @@ every digest, including ones that demonstrably work.
 
 | | |
 |---|---|
-| **#661** | `cut_hygiene_gate.sh` still defaults to the v1.0.10 manifest; its PR schema and the BOM schema are genuinely different documents and need reconciling |
+| ~~#661~~ | **CLOSED 2026-08-08.** No defaults; refuses a BOM. The two schemas are deliberately NOT reconciled — provenance is not content. |
+| ~~#649~~ | **CLOSED 2026-08-08 as not-a-defect.** `verify_cut_provenance.sh` has no `-d .git` test; it uses `git -C … rev-parse --git-dir` (worktree-correct), reads only **tags** and `merge-base --is-ancestor` against tags — and tags live in the shared common dir, so a worktree returns identical answers. A missing/non-repo path goes `red` and continues, so it already fails closed. |
 | — | `run_all_cut_gates.sh` does not yet include `~/bin/ostler-acceptance-gate.sh` (runtime A1–A8, needs a running box) or `tests/test_wiki_tailnet_gate.sh` (needs docker + ~2 min) |
 | — | no gate asserts a written field is ever **read** — `displayNameProvisional` ships written 4×, read 0× (task #658), the same shape as a probe with no bundler |
