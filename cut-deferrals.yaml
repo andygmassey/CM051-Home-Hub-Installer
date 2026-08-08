@@ -31,7 +31,69 @@
 # Deferred entries are still PRINTED on every run, so nothing goes quiet.
 # ============================================================================
 
-deferrals: []
+deferrals:
+  # -------------------------------------------------------------------------
+  # v1.0.18, recorded 2026-08-08 after check-orphans went RED on 11 refs.
+  #
+  # Six of the eleven were STALE LOCAL BRANCHES whose content had already
+  # squash-merged; those were deleted, not deferred, each proven first by
+  # diffing the branch's file CONTENTS against origin/main (zero) with a
+  # known-unmerged branch as a positive control (CM041 fix/one-person-one-name,
+  # 1291 lines) to show the check discriminates. The five below are real work
+  # that is genuinely not in this cut.
+  # -------------------------------------------------------------------------
+
+  - ref: "CM041:fix/one-person-one-name"
+    reason: >-
+      Real, unmerged identity work -- one canonical displayName per person,
+      kinship labels dropped rather than stored as alternateName. VERIFIED not
+      landed: rapidfuzz appears in identity_resolver/normalise.py on the branch
+      and in zero files on origin/main; 17 files, +1206/-1062. It is a genuine
+      improvement and it is NOT a v1.0.18 must-ship item: the cut's scope is the
+      .208 box-walk MUST list (A-E), and Andy's instruction for this cut was "no
+      new scope, push through". Landing a 17-file identity change into a launch
+      DMG hours before a box-walk is how the last two cuts went wrong. It also
+      needs Archie's review, which it has not had.
+    until_cut: "v1.0.19"
+
+  - ref: "CM041:#109"
+    reason: >-
+      Same work as CM041:fix/one-person-one-name (that branch is its head).
+      Deferred for the same reason; kept open, not closed, because the work is
+      wanted -- it is the fix for the "raw phone/email stays as a person's name
+      forever" defect on the board.
+    until_cut: "v1.0.19"
+
+  - ref: "CM051:fix/cut-freshness-selftest-release-mock"
+    reason: >-
+      Pushed, unmerged, and PARTIAL by its own commit message ("still 10/2") --
+      it teaches the mock gh the release endpoints but does not finish the
+      cut-freshness self-test's two dead controls. It touches ONE test file and
+      changes nothing a customer receives, so merging it cannot improve this
+      DMG; landing a half-finished gate self-test mid-cut could only make the
+      cut's own tooling less predictable. Tracked on the board as the
+      "cut-freshness self-test: 2 dead controls" item, which is the real fix.
+    until_cut: "v1.0.19"
+
+  - ref: "daemon:#287"
+    reason: >-
+      Dependabot bump of react-router/react-router-dom in the daemon's web/.
+      The daemon is PINNED for this cut at hub-v0.4.54 and is deliberately NOT
+      being rebuilt -- rebuilding it reopens the lineage question (#648) in the
+      middle of a launch cut, which is the exact hub-v0.4.48->.49 failure that
+      dropped 149 commits. Merging this changes nothing in the shipped artefact
+      because the artefact is not built from main. Land it with the next daemon
+      rebuild, alongside the Snyk bump (#285) already queued for that.
+    until_cut: "v1.0.19"
+
+  - ref: "daemon:#286"
+    reason: >-
+      Dependabot bump of nanoid 3.3.11 -> 3.3.18 in the daemon's web/. Same
+      reasoning as daemon:#287 -- the daemon is pinned at hub-v0.4.54 and not
+      rebuilt in this cut, so this cannot reach the DMG either way. This one is
+      a published advisory fix, so it is FIRST in the queue for the next daemon
+      rebuild, not merely batched with it.
+    until_cut: "v1.0.19"
 
 # ---------------------------------------------------------------------------
 # PR AGE EXEMPTIONS (scripts/verify_pr_age.sh)
