@@ -18,9 +18,9 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `adb39f521fafaa9f99c993e09feca5af1690ef1f02fba13756e00d930d7c95eb` (post-graft, this repo) |
+| Current SHA-256 | `684130d35640c6ef9cf5de922aafcb2193f4af717363e948e5893082959d68cc` (post-graft, this repo) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
-| Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
+| Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3); 2026-07-27 (ical-server service-token auth, v1.0.11 #232) |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -37,6 +37,17 @@ re-vendor:
 3. Unknown-owner calendar rows render under **"Unattributed"** (rendered
    LAST), never silently under "Your calendar" — an unknown-owner event is
    never attributed to the operator (BATCH1 #3 F2, the fail-open fix).
+4. **ical-server service-token auth** on the data-plane calls (`_service_token`
+   + `SERVICE_TOKEN`, and the `Authorization: Bearer` / `X-Ostler-Service`
+   headers in `_get_json`). The ical-server locked its data plane behind a
+   localhost service token (#200 / v1.0.10 lockdown); without the header every
+   `/api/v1/*` call returned 401, so the digest saw "no data" on every section
+   and CONTEXT.md was never written on a fresh box (v1.0.11 data-dark defect C).
+   Ported verbatim from the upstream fix in ostler-assistant PR #232
+   (`fix/v1011-data-dark-defects`, `scripts/generate_pwg_context.py`) — so this
+   graft item folds away once that PR merges and this file is re-vendored on top
+   of it. The Oxigraph `_sparql_select` call is intentionally NOT authed (the
+   lockdown is the ical-server's data plane only; upstream did not touch it).
 
 ## Why vendored rather than shipped in the assistant release
 
