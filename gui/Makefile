@@ -203,7 +203,7 @@ DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
 
 STEP          := @printf '\n[STEP] %s\n'
 
-.PHONY: all debug release package notarise notarise-app notarise-dmg \
+.PHONY: help all debug release package notarise notarise-app notarise-dmg \
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         check-pbxproj-sync \
@@ -213,6 +213,32 @@ STEP          := @printf '\n[STEP] %s\n'
         verify-commit-parity \
         download-python sign-python-bundle download-daemon stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
+
+# The default goal is deliberately INERT.
+#
+# It used to be `all: debug`, and `debug` ends with `open "$(DEBUG_APP)"` --
+# so a bare `make` in gui/ built AND LAUNCHED the installer. That is a bad
+# default anywhere and a dangerous one on the cut machine: on 2026-08-08 a
+# `make -p` (intended only to dump the variable database -- but -p without a
+# target still runs the default goal) built and launched a Debug installer on
+# the operator's Mac mid-session. Nothing in the repo invokes `make` in gui/
+# without a target, so making the default a no-op costs nothing.
+#
+# Build explicitly: `make debug`, `make release`, `make ship`.
+.DEFAULT_GOAL := help
+
+help:
+	@echo "Ostler installer (gui/) -- no default build; choose a target:"
+	@echo ""
+	@echo "  make debug              build Debug and OPEN the .app"
+	@echo "  make release            build Release (runs the preflight gates)"
+	@echo "  make ship               full cut: build, sign, notarise, staple, package"
+	@echo "  make regen              regenerate the .xcodeproj from project.yml"
+	@echo "  make check-version      version-consistency preflight (#171)"
+	@echo "  make check-pbxproj-sync tracked .xcodeproj == xcodegen(project.yml)"
+	@echo "  make print-version      print the version this tree would stamp"
+	@echo ""
+	@echo "Pre-cut gates all at once:  ../scripts/run_all_cut_gates.sh"
 
 all: debug
 
