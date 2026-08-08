@@ -88,7 +88,21 @@ restore() {
 }
 trap restore EXIT INT TERM
 
-GEN_LOG="$(cd gui && xcodegen generate --quiet 2>&1)"
+# DEFENCE IN DEPTH (part 3 of 3, Archie 2026-08-08). Scrub the variables the
+# Makefile exports so an env-sourced ${VAR} cannot be captured even if one is
+# reintroduced between linter runs.
+#
+# WHAT THIS DOES NOT COVER, stated so nobody trusts it further than it goes:
+# process-identity vars. `env -i` still yielded the operator username, because
+# XcodeGen resolves ${USER} from the process, not the environment. That class
+# is closed by the ${VAR:-} source form and check_project_yml_braces.sh -- NOT
+# by this scrub. Recommending the scrub as the fix for ${USER} was the review
+# miss that found the bug.
+_MAKE_EXPORTS="$(grep -oE '^[[:space:]]*export[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' gui/Makefile 2>/dev/null \
+                 | awk '{print $NF}' | sort -u)"
+_SCRUB=()
+for _v in $_MAKE_EXPORTS; do _SCRUB+=(-u "$_v"); done
+GEN_LOG="$(cd gui && env "${_SCRUB[@]}" xcodegen generate --quiet 2>&1)"
 GEN_RC=$?
 if (( GEN_RC != 0 )); then
     unavailable "xcodegen failed (rc=$GEN_RC):
