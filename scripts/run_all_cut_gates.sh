@@ -111,6 +111,9 @@ run "bundle-phase declarations" \
 run "pbxproj in sync" \
     "the built project MATCHES project.yml" \
     bash scripts/verify_pbxproj_in_sync.sh
+run "project.yml brace hygiene" \
+    "no \${VAR} xcodegen can freeze in" \
+    bash scripts/check_project_yml_braces.sh
 
 echo
 echo "-- Wiki images: provenance AND content ---------------------------"
