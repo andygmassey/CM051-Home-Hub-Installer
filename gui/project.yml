@@ -140,11 +140,11 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           # The Makefile drops the tarball at ${BUILD_DIR}/python-bundle.tar.gz.
           # When `make ship` is the entry point, BUILD_DIR defaults to
-          # /tmp/ostler-installer-build-${USER}. When xcodebuild runs from
+          # /tmp/ostler-installer-build-${USER:-}. When xcodebuild runs from
           # Xcode.app directly, fall back to a sibling-of-SRCROOT build/ dir.
           PYTHON_TARBALL=""
           for candidate in \
-              "/tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" \
+              "/tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" \
               "${SRCROOT}/../build/python-bundle.tar.gz" \
               "${SRCROOT}/build/python-bundle.tar.gz"; do
               if [ -f "$candidate" ]; then
@@ -156,7 +156,7 @@ targets:
               echo "ERROR: python-build-standalone tarball missing." >&2
               echo "       Run 'make -C gui download-python' before building." >&2
               echo "       Searched:" >&2
-              echo "         /tmp/ostler-installer-build-${USER}/python-bundle.tar.gz" >&2
+              echo "         /tmp/ostler-installer-build-${USER:-}/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/../build/python-bundle.tar.gz" >&2
               echo "         ${SRCROOT}/build/python-bundle.tar.gz" >&2
               exit 1
