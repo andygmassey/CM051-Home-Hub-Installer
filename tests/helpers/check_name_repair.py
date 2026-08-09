@@ -109,15 +109,18 @@ def main(repo_str: str) -> int:
     # no undo. Every one of these carries a real name and must never be
     # droppable, however kinship-adjacent it looks.
     #
-    # All nine are CONSTRUCTED, not sampled from any graph -- each one was
-    # built around the substring it has to survive, so grepping this file
-    # for a real contact finds nothing:
-    #   Auntie/Granny/Mum/Nan/Papa/Mother  a bare kinship word plus a name
-    #   Motherwell  "mother"     Sonia  "son"     Kidd  "kid"
-    #   Grant       "gran"       Boyle  "boy"
-    for label in ["Auntie Emma", "Granny Ritchie", "Mum Zhang", "Nan Robertson",
-                  "Papa Johnson", "Mother Teresa", "Jane Motherwell",
-                  "Sonia Kidd", "Grant Boyle"]:
+    # All nine are SYNTHETIC, built around the substring each has to
+    # survive. Only the SHAPE is load-bearing -- "Auntie Wren" proves
+    # exactly what a real aunt's name would prove -- so there is no reason
+    # for a real contact to appear here, and grepping this file for one
+    # finds nothing.
+    #
+    #   Auntie/Granny/Mum/Nan/Papa/Mother   kinship word + a name
+    #   Motherwell "mother"   Jameson "son"   Kidwell "kid"
+    #   Grant "gran"          Boyd "boy"
+    for label in ["Auntie Wren", "Granny Fairholm", "Mum Chen", "Nan Whitfield",
+                  "Papa Okonkwo", "Mother Bexley", "Jane Motherwell",
+                  "Jameson Kidwell", "Grant Boyd"]:
         k, d, g, c, v = decide([label, PHONE])
         checks.append(("a real name is never deleted: %r" % label,
                        g == [] and k == label))
