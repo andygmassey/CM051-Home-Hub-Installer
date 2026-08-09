@@ -117,18 +117,18 @@ def _wiki_slug(name: str) -> str:
 # is per-VALUE-SHAPE, so calendar, photos and mail-contacts all go
 # through the same door and the tier decides. No per-source allowlist to
 # drift out of date.
-# v1018-D659. A kinship word is a RELATIONSHIP, not a name -- and never
-# the account owner's. Andy, 2026-08-08:
-#
-#   "'Mum' for Alison is NOT - she is my WIFE and Connor's MUM, but not
-#    MY MUM (who was Sylvia Massey)."
+# v1018-D659. A kinship word is a RELATIONSHIP, not a name -- and the
+# relationship it records is almost never the account owner's.
 #
 # A label on a contact card is PERSPECTIVAL: it says how SOMEBODY refers
 # to this person, and on a shared address book that somebody is usually
-# not the account owner. Stored as a name it is offered to the assistant
-# as "another name this person goes by", which lets it answer "your mum
-# is <wife>". Andy's mother has died. That is the worst sentence this
-# graph can produce and it comes from a card filed for his son.
+# not the account owner -- a card filed by one household member carries
+# THEIR relationships, not the owner's. Stored as a name it is offered to
+# the assistant as "another name this person goes by", so the assistant
+# will assert a parent, sibling or spouse the user does not have. The
+# worst case is not a cosmetic one: told that a living contact is the
+# user's parent, it contradicts a bereavement the user never has to
+# explain to it. Product-side this is task #298.
 #
 # So a kinship word is REFUSED outright: never a displayName, never an
 # alternateName, and never grounds to clear the provisional flag. Only
