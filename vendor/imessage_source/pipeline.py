@@ -49,6 +49,49 @@ from .threader import (
 logger = logging.getLogger(__name__)
 
 
+# --- v1018-D020: every pwg-convo dispatch is bounded ---------------------
+#
+# `subprocess.run` without a timeout waits forever. One document that never
+# returns therefore wedges this tick permanently -- and because the tick
+# holds the shared single-flight ingest lock (deliberately never reclaimed
+# on age, so the hours-long wiki summary backfill is not evicted), a single
+# wedged dispatch stops EVERY conversation feed: email, WhatsApp, iMessage
+# and spoken. `launchctl list` reports the label healthy throughout.
+#
+# Observed on the shipped v1.0.18 box, 2026-08-09: one pwg-convo alive
+# 6h47m, the shared lock held 9h19m by the email tick, 36 iMessage and 38
+# spoken ticks yielded to it. Nothing anywhere recorded a reason.
+#
+# The ceiling is per-dispatch, not per-tick, so a slow-but-progressing
+# backlog still drains; only an individual pathological document is
+# abandoned.
+_DISPATCH_TIMEOUT_DEFAULT_SECS = 900
+
+# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
+# returns, so "this document is slow" is never confused with "this
+# document is broken" by whoever reads the log next.
+DISPATCH_TIMEOUT_RC = 75
+
+
+def _dispatch_timeout_secs():
+    """Per-dispatch wall-clock ceiling in seconds, or None for unbounded.
+
+    ``OSTLER_DISPATCH_TIMEOUT_SECS=0`` restores the old unbounded
+    behaviour for debugging. A malformed value falls back to the default
+    rather than raising: a typo in an env var must not be the thing that
+    stops ingest.
+    """
+    raw = os.environ.get("OSTLER_DISPATCH_TIMEOUT_SECS")
+    if raw is None or not raw.strip():
+        return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
+    try:
+        secs = float(raw)
+    except ValueError:
+        return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
+    return None if secs <= 0 else secs
+# ------------------------------------------------------------------------
+
+
 # Engine-zone state under ~/.ostler/ (two-zone architecture). The
 # watermark records the highest message ROWID processed per chat.
 def _default_state_dir() -> Path:
@@ -159,7 +202,28 @@ def _dispatch_to_cm048(
             metadata["conversation_id"],
             " ".join(pwg_convo_cmd),
         )
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=_dispatch_timeout_secs(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            # v1018-D020. subprocess.run has already killed the child by
+            # the time this is raised, so the shared ingest lock is
+            # released when this tick ends rather than being held until
+            # the machine reboots. Abandon this one document and let the
+            # caller move on -- the watermark is left untouched, so the
+            # next tick retries it.
+            logger.error(
+                "pwg-convo TIMED OUT for %s after %ss; abandoning this "
+                "document and continuing. Raise or disable the ceiling "
+                "with OSTLER_DISPATCH_TIMEOUT_SECS.",
+                metadata["conversation_id"],
+                exc.timeout,
+            )
+            return DISPATCH_TIMEOUT_RC
         if proc.returncode != 0:
             logger.error(
                 "pwg-convo failed for %s (rc=%d): %s",
