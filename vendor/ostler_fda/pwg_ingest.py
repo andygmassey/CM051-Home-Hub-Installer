@@ -516,6 +516,66 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
         logger.debug("Could not update last_contact: %s", e)
 
 
+def _upsert_display_name(person_uri: str, value: str) -> None:
+    """Write ``value`` as displayName only if it OUTRANKS what is stored.
+
+    v1018-D658. EVERY displayName write in this module sits inside an
+    ``if not _person_exists(uri)`` branch, so a name is written once at
+    creation and never revisited. That is the whole defect: ingest marks
+    a raw handle `displayNameProvisional`, meaning "replace me when a real
+    name arrives"; a real name later arrives from another source; nothing
+    retracts anything, and the node accumulates both. 43 person nodes on
+    the founder box carry two names and 5 wiki pages show one person's
+    identity on another person's page.
+
+    Upward-only, per the tier table above. tier 2 replaces anything still
+    provisional and CLEARS the flag; tier 1 replaces a phone placeholder
+    only -- never another email, never a real name -- and KEEPS the flag;
+    tier 0 never overwrites.
+
+    One atomic DELETE-INSERT-WHERE, the same idiom as
+    ``_update_last_contact``. If the guard does not hold the WHERE yields
+    nothing and the node is untouched, flag included -- which is correct:
+    no upgrade means no change.
+
+    The tier-1 guard tests the STORED value's shape (``!CONTAINS(?old,
+    "@")``) rather than trusting the flag, because tier 0 and tier 1 are
+    both flagged and the flag cannot tell them apart.
+    """
+    tier = _display_name_tier(value)
+    if tier == _NAME_TIER_PLACEHOLDER:
+        guard = "!BOUND(?old)"
+    elif tier == _NAME_TIER_HANDLE:
+        guard = '!BOUND(?old) || (BOUND(?prov) && !CONTAINS(STR(?old), "@"))'
+    else:
+        guard = "!BOUND(?old) || BOUND(?prov)"
+
+    keep_flag = (
+        f'\n  <{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean .'
+        if tier < _NAME_TIER_NAME
+        else ""
+    )
+    try:
+        _sparql_update(
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+            "DELETE {\n"
+            f"  <{person_uri}> pwg:displayName ?old .\n"
+            f"  <{person_uri}> pwg:displayNameProvisional ?prov .\n"
+            "}\n"
+            "INSERT {\n"
+            f'  <{person_uri}> pwg:displayName "{_escape(value)}" .{keep_flag}\n'
+            "}\n"
+            "WHERE {\n"
+            f"  OPTIONAL {{ <{person_uri}> pwg:displayName ?old }}\n"
+            f"  OPTIONAL {{ <{person_uri}> pwg:displayNameProvisional ?prov }}\n"
+            f"  FILTER ({guard})\n"
+            "}"
+        )
+    except Exception as e:  # a name upgrade must never break an ingest
+        logger.debug("Could not upsert displayName for %s: %s", person_uri, e)
+
+
 # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
 #
 # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
