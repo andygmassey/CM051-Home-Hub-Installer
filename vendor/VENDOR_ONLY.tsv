@@ -1,0 +1,34 @@
+# VENDOR_ONLY.tsv -- addresses v1018-D024, precondition of v1018-D026.
+#
+# Files that live in vendor/ and have NO upstream counterpart.
+#
+# WHY THIS FILE EXISTS
+# sync_vendor.sh replaces a vendored tree wholesale (`rm -rf "$abs_vendor"`,
+# then untar the upstream export). That is correct behaviour for a mirror: a
+# file absent upstream is, from the mirror's point of view, a file that should
+# not be there. So a vendor-only file is deleted on every sync, silently.
+#
+# The divergence patch does not save it either: `--regen-patch` strips
+# vendor-only new-file hunks, so the protection evaporates the moment anyone
+# regenerates. Today's green is an accident of nobody having regenerated
+# recently, not a guarantee.
+#
+# This turns "a file someone has to remember" into "a declared exception the
+# tooling enforces". sync_vendor.sh restores every path listed here after the
+# swap; tests/test_vendor_only_survives_sync.sh fails the build if one vanishes.
+# Making Doctor vendoring automatic (v1018-D024) is unsafe until this exists,
+# which is why it lands inside Part 2 rather than after it.
+#
+# ADDING A ROW IS A LAST RESORT. A vendor-only file cannot be reviewed upstream
+# and drifts from the source it belongs to. Prefer landing the file in its home
+# repo. If you must add one, say WHY there is no upstream, so the next person
+# can retire it rather than inherit it.
+#
+# Columns (tab-separated):
+#   path              vendor-relative path, e.g. doctor/agent/daemon_cron.py
+#   owning_repo       repo the surrounding tree is vendored FROM
+#   why_no_upstream   one line; the reason, not a description
+#
+# path	owning_repo	why_no_upstream
+doctor/agent/daemon_cron.py	HR015	Cut-side cron entrypoint for the bundled Doctor. Written for the installer's launchd layout, which has no equivalent in HR015 where Doctor runs as a service. Deleted by the v1.0.18 re-vendor; recovered by hand. Retire by moving it to HR015 behind an is-native-deployment switch.
+doctor/agent/test_daemon_cron.py	HR015	Test for the above. Same reason; must move with it.
