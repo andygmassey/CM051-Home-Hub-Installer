@@ -45,18 +45,26 @@ def _bindings(values):
 
 def load(repo: pathlib.Path):
     # ostler_fda.pwg_ingest pulls in identifier_quality, which imports
-    # `nameparser` -- a third-party package that is NOT declared anywhere
-    # this gate can rely on. Stubbing it is legitimate here and only here:
-    # the code under test is main()'s two refusal guards, which never
-    # reach a name parser. What it must NOT do is hide the gap, so the
-    # stub is loud rather than silent, and the gap is on the PR.
-    for name in ("nameparser", "rapidfuzz", "rapidfuzz.fuzz"):
-        if name not in sys.modules:
-            stub = types.ModuleType(name)
-            stub.HumanName = lambda *a, **k: None       # noqa: E731
-            stub.fuzz = stub
-            stub.__stubbed_by_gate__ = True
-            sys.modules[name] = stub
+    # third-party packages that are NOT declared anywhere this gate can
+    # rely on. Stubbing them is legitimate here and only here: the code
+    # under test is main()'s two refusal guards, which never reach a name
+    # parser or a fuzzy matcher.
+    #
+    # The first version hardcoded ("nameparser", "rapidfuzz"). It passed
+    # on this Mac and FAILED IN CI, where a different dependency was
+    # missing -- and the failure surfaced as "No module named
+    # 'pwg_ingest'", because the shipped module catches ImportError and
+    # falls back to an absolute import that then fails for an unrelated
+    # reason. A misleading message for a cause it does not name.
+    #
+    # So: discover what is missing instead of predicting it, and SAY what
+    # was stubbed rather than hiding the gap.
+    # ONLY vendor/ goes on the path. Adding vendor/ostler_fda/ as well
+    # looks helpful -- it would let the shipped module's `from pwg_ingest
+    # import` fallback resolve -- and it is actively harmful: pwg_ingest
+    # then loads as a TOP-LEVEL module, its own relative imports have no
+    # parent package, and the whole thing fails with "attempted relative
+    # import with no known parent package". Tried it; reverted it.
     sys.path.insert(0, str(repo / "vendor"))
     # A STALE __pycache__ makes this gate assert against code that is no
     # longer in the file, and it does it silently: inspect.getsource reads
@@ -66,7 +74,41 @@ def load(repo: pathlib.Path):
     # be fooled by a cache is not a gate, so refuse the cache outright.
     sys.dont_write_bytecode = True
     importlib.invalidate_caches()
-    mod = importlib.import_module("ostler_fda.repair_placeholder_names")
+
+    # Resolve the dependency chain against ostler_fda.pwg_ingest FIRST.
+    #
+    # Importing repair_placeholder_names directly hides the real cause: it
+    # wraps its own `from .pwg_ingest import` in `except ImportError` and
+    # falls back to an absolute import, so ANY missing third-party module
+    # deep in the chain resurfaces as "No module named 'pwg_ingest'" --
+    # naming a module that is present, and not naming the one that is not.
+    # That is what CI reported, and it sent me looking in the wrong place.
+    stubbed: list[str] = []
+    for _ in range(16):
+        try:
+            importlib.import_module("ostler_fda.pwg_ingest")
+            mod = importlib.import_module("ostler_fda.repair_placeholder_names")
+            break
+        except ImportError as exc:
+            missing = getattr(exc, "name", None)
+            # Never stub the thing under test, or a green here would mean
+            # nothing at all.
+            if not missing or missing.split(".")[0] in ("ostler_fda", "pwg_ingest"):
+                fail(f"cannot import the shipped module: {type(exc).__name__}: {exc}")
+            stub = types.ModuleType(missing)
+            # Anything the shipped module reaches for on this stub returns a
+            # callable that yields None. The guards never call into it; this
+            # only has to survive import.
+            stub.__getattr__ = lambda _n: (lambda *a, **k: None)  # noqa: E731
+            stub.__stubbed_by_gate__ = True
+            sys.modules[missing] = stub
+            stubbed.append(missing)
+    else:
+        fail("gave up stubbing missing third-party modules after 16 rounds: "
+             + ", ".join(stubbed))
+    if stubbed:
+        print("NOTE: stubbed undeclared third-party module(s) to load the "
+              "shipped module: " + ", ".join(sorted(set(stubbed))))
     return importlib.reload(mod)
 
 
