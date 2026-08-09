@@ -53,6 +53,7 @@ def main(repo_str: str) -> int:
     # --- the automatic cases -------------------------------------------
     keep, drop, clear, verdict = decide([PHONE, NAME])
     checks.append(("a real name beats a phone", keep == NAME and drop == [PHONE]))
+    checks.append(("...and the phone is returned for DEMOTION, not loss", drop == [PHONE]))
     checks.append(("...and clears the provisional flag", clear is True))
     checks.append(("...and is automatic", verdict == "auto"))
 

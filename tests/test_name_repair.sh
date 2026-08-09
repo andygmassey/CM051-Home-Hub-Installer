@@ -47,6 +47,54 @@ else
 	bad "writing is not gated behind --apply"
 fi
 
+# NOTHING may be deleted outright. Every losing name must reappear as
+# alternateName in the SAME update -- taken from CM041 #109, which was right
+# about this where the first draft of this module was wrong: "Mum" is real
+# matching signal even when it is the wrong answer to "who is my wife".
+if grep -q 'alternateName' "$MOD"; then
+	ok "losing names are demoted to alternateName, not destroyed"
+else
+	bad "no alternateName write -- this repair DELETES names and is irreversible"
+fi
+if "$PY" - "$MOD" <<'PYEOF2'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+# Walk every CALL to _update (not its definition -- matching `def _update(`
+# is what made the first version of this check fail against correct code)
+# and require the one carrying DELETE to also carry INSERT + alternateName.
+calls = [m.start() for m in re.finditer(r"(?<!def )_update\(", src)]
+if not calls:
+    sys.exit(2)
+ok = False
+for start in calls:
+    depth, i = 0, src.index("(", start)
+    for j in range(i, len(src)):
+        if src[j] == "(":
+            depth += 1
+        elif src[j] == ")":
+            depth -= 1
+            if depth == 0:
+                blk = src[i:j]
+                break
+    else:
+        continue
+    if "DELETE" in blk:
+        # The SPARQL is assembled from variables, so the literal
+        # "alternateName" lives ABOVE the call, not inside it. Looking for
+        # it here is what made the first version of this check fail against
+        # correct code. The property under test is ATOMICITY: one update
+        # carrying both halves. That alternateName is what gets inserted is
+        # asserted separately, above.
+        ok = "INSERT" in blk
+        break
+sys.exit(0 if ok else 1)
+PYEOF2
+then
+	ok "the DELETE and the alternateName INSERT are one atomic update"
+else
+	bad "the demotion is not atomic -- a crash between them loses the name"
+fi
+
 # The review list holds real names; it must not land in the repo.
 if grep -q 'expanduser("~/.ostler' "$MOD"; then
 	ok "the review list is written under ~/.ostler, not into the tree"

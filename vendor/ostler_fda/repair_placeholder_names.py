@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collapse a person's stacked displayNames down to the best one.
+"""Elect one displayName per person and DEMOTE the rest, losing nothing.
 
 WHY (v1018-D658, 2026-08-10)
 ============================
@@ -31,6 +31,18 @@ of those.
 A tier-1 name is an improvement, not a resolution: the domain gives you the
 company and the local-part usually gives surname-plus-initial, which beats a
 bare number, but it is still not the person's name.
+
+NOTHING IS DELETED
+==================
+A losing name becomes ``pwg:alternateName``. Taken from CM041 #109
+(``contact_syncer/name_election.py``), which reached the same ranking order
+independently and was right about this where an earlier draft of this module
+was wrong: **"Mum" is genuinely useful for matching, just not as the answer to
+"who is my wife".** Deleting it throws away real signal.
+
+That also makes this repair NON-DESTRUCTIVE, which is what takes the teeth out
+of the tie question below -- a wrong election is a one-line correction, not a
+lost name.
 
 WHAT IT WILL NOT DO
 ===================
@@ -102,11 +114,12 @@ def _fold(value: str) -> str:
 def decide(names: Sequence[str]) -> Tuple[str | None, List[str], bool, str]:
     """Pick the surviving name for one node.
 
-    Returns ``(keep, drop, clear_flag, verdict)``.
+    Returns ``(keep, demote, clear_flag, verdict)`` -- the second element
+    is DEMOTED to alternateName, never deleted.
 
     ``verdict`` is one of ``"single"``, ``"auto"``, ``"review"``. A
-    ``"review"`` verdict returns no drops at all -- the node is reported and
-    left exactly as it is.
+    ``"review"`` verdict returns nothing to demote -- the node is reported
+    and left exactly as it is.
     """
     distinct: Dict[str, str] = {}
     for n in names:
@@ -128,8 +141,8 @@ def decide(names: Sequence[str]) -> Tuple[str | None, List[str], bool, str]:
         return None, [], False, "review"
 
     keep = ranked[0]
-    drop = [v for v in values if v != keep]
-    return keep, drop, top >= _NAME_TIER_NAME, "auto"
+    demote = [v for v in values if v != keep]
+    return keep, demote, top >= _NAME_TIER_NAME, "auto"
 
 
 # ── graph I/O ──────────────────────────────────────────────────────────
@@ -175,14 +188,14 @@ def main(argv=None) -> int:
     auto: List[Tuple[str, str, List[str], bool]] = []
     review: List[Tuple[str, List[str]]] = []
     for uri, names in by_uri.items():
-        keep, drop, clear, verdict = decide(names)
+        keep, demote, clear, verdict = decide(names)
         if verdict == "auto":
-            auto.append((uri, keep, drop, clear))
+            auto.append((uri, keep, demote, clear))
         elif verdict == "review":
             review.append((uri, sorted(set(names))))
 
     print(f"person nodes            {len(by_uri)}")
-    print(f"repairable automatically {len(auto)}")
+    print(f"electable automatically  {len(auto)}")
     print(f"needs a human            {len(review)}")
 
     if review:
@@ -199,19 +212,26 @@ def main(argv=None) -> int:
         return 0
 
     written = 0
-    for uri, keep, drop, clear in auto:
-        parts = [f'<{uri}> <{NS}displayName> "{_escape(d)}" .' for d in drop]
-        parts += [f'<{uri}> <{SKOS}prefLabel> "{_escape(d)}" .' for d in drop]
+    for uri, keep, demote, clear in auto:
+        # Every losing name moves to alternateName in the SAME update, so at
+        # no point does the graph hold fewer names than it started with.
+        gone = [f'<{uri}> <{NS}displayName> "{_escape(d)}" .' for d in demote]
+        gone += [f'<{uri}> <{SKOS}prefLabel> "{_escape(d)}" .' for d in demote]
+        kept = [f'<{uri}> <{NS}alternateName> "{_escape(d)}" .' for d in demote]
         if clear:
-            parts.append(f"<{uri}> <{NS}displayNameProvisional> ?f .")
-        body = "\n  ".join(parts)
+            gone.append(f"<{uri}> <{NS}displayNameProvisional> ?f .")
         where = (
             f"  OPTIONAL {{ <{uri}> <{NS}displayNameProvisional> ?f }}\n"
             if clear else "  BIND(1 AS ?ignore)\n"
         )
-        _update(f"DELETE {{\n  {body}\n}}\nWHERE {{\n{where}}}")
+        _update(
+            "DELETE {\n  " + "\n  ".join(gone) + "\n}\n"
+            "INSERT {\n  " + "\n  ".join(kept) + "\n}\n"
+            "WHERE {\n" + where + "}"
+        )
         written += 1
-    print(f"\napplied to {written} node(s); {len(review)} left for review.")
+    print(f"\ndemoted on {written} node(s); {len(review)} left for review. "
+          f"No name was deleted.")
     return 0
 
 
