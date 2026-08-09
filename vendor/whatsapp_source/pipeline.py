@@ -97,6 +97,44 @@ def _dispatch_timeout_secs():
     except ValueError:
         return float(_DISPATCH_TIMEOUT_DEFAULT_SECS)
     return None if secs <= 0 else secs
+
+
+# --- v1018-D032: keep the TAIL of a captured stream, never the head ------
+#
+# The original form took the FIRST 500 chars of stderr. For a process that
+# HUNG, the first 500 characters are the least informative 500 characters
+# available -- they record the run starting normally. The last thing it did
+# before wedging, the only line that localises the hang, is at the other
+# end, and was discarded on every single dispatch failure.
+#
+# This cost a real diagnosis. A document that hung 13 hours on the shipped
+# box surfaced exactly 500 characters, cut mid-word, every one of them from
+# the first ten seconds of a thirteen-hour run. It read like an ending. It
+# was a truncation, and a conclusion was drawn from it.
+#
+# The marker is not decoration: a clipped window that does not say it was
+# clipped invites the next reader to repeat that exact mistake.
+_STDERR_EXCERPT_DEFAULT_CHARS = 2000
+
+
+def _stderr_excerpt(raw):
+    """Tail of a captured stream, with an explicit marker when clipped."""
+    if raw is None:
+        return "<no stderr captured>"
+    text = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+    text = text.strip()
+    if not text:
+        return "<stderr empty>"
+    raw_limit = os.environ.get("OSTLER_DISPATCH_STDERR_CHARS")
+    try:
+        limit = int(raw_limit) if raw_limit and raw_limit.strip() else _STDERR_EXCERPT_DEFAULT_CHARS
+    except ValueError:
+        limit = _STDERR_EXCERPT_DEFAULT_CHARS
+    if limit <= 0 or len(text) <= limit:
+        return text
+    dropped = len(text) - limit
+    return f"<...{dropped} earlier chars dropped, showing last {limit}...>\n{text[-limit:]}"
+# ------------------------------------------------------------------------
 # ------------------------------------------------------------------------
 
 
@@ -237,9 +275,16 @@ def _dispatch_to_cm048(
             logger.error(
                 "pwg-convo TIMED OUT for %s after %ss; abandoning this "
                 "document and continuing. Raise or disable the ceiling "
-                "with OSTLER_DISPATCH_TIMEOUT_SECS.",
+                "with OSTLER_DISPATCH_TIMEOUT_SECS. Last output before the "
+                "kill: %s",
                 metadata["conversation_id"],
                 exc.timeout,
+                # v1018-D032. TimeoutExpired carries what was captured
+                # before the kill, and for a wedged document that tail is
+                # the ONLY record of what it was doing. The first cut of
+                # the D020 ceiling logged the timeout and dropped this --
+                # bounding the hang while discarding its diagnosis.
+                _stderr_excerpt(exc.stderr),
             )
             return DISPATCH_TIMEOUT_RC
         elapsed = time.monotonic() - started
@@ -249,7 +294,7 @@ def _dispatch_to_cm048(
                 metadata["conversation_id"],
                 elapsed,
                 proc.returncode,
-                proc.stderr.strip()[:500],
+                _stderr_excerpt(proc.stderr),
             )
         else:
             # v1018-D021. The ONLY per-document timing that survives a
