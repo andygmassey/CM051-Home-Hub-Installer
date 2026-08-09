@@ -909,6 +909,31 @@ def _step_enrich_inner(
         )
 
 
+def _validate_document(
+    text: str, prompt_name: str, expected_headings: list[str],
+):
+    """Validate a document against BOTH heading levels.
+
+    v1018-D014b. The `##` check alone passed a merged document whose
+    `### Narrative` had been dropped -- the check was one level coarser
+    than the defect, so the defect was invisible to it. A missing
+    sub-section is reported as `### Name` so the retry prompt and the
+    log say which level is wrong.
+    """
+    top = enrichment_validation.validate_headings(text, expected_headings)
+    subs = enrichment_validation.validate_subheadings(
+        text, enrichment_validation.expected_subheadings_for(prompt_name),
+    )
+    if subs.ok:
+        return top
+    return enrichment_validation.HeadingValidation(
+        ok=False,
+        missing=top.missing + [f"### {m}" for m in subs.missing],
+        extras=top.extras,
+        found=top.found + subs.found,
+    )
+
+
 def _validate_and_maybe_retry(
     *,
     client: OllamaClient,
@@ -927,9 +952,7 @@ def _validate_and_maybe_retry(
     is still written - downstream consumers will see whatever the model
     produced and the sidecar records the gap.
     """
-    validation = enrichment_validation.validate_headings(
-        initial_text, expected_headings,
-    )
+    validation = _validate_document(initial_text, prompt_name, expected_headings)
     if validation.ok:
         if validation.extras:
             logger.info(
@@ -953,8 +976,8 @@ def _validate_and_maybe_retry(
         priority="medium",
         timeout=_budget_timeout(),
     )
-    retry_validation = enrichment_validation.validate_headings(
-        retry_result.raw_response, expected_headings,
+    retry_validation = _validate_document(
+        retry_result.raw_response, prompt_name, expected_headings,
     )
     if not retry_validation.ok:
         logger.warning(
@@ -1074,6 +1097,8 @@ Locale: {settings.locale}
 {conventions}
 
 {chunks_body}
+
+{enrichment_validation.build_section_contract(prompt_name)}
 """
     merge_system = (
         "You are merging multiple enrichment outputs into one coherent "
