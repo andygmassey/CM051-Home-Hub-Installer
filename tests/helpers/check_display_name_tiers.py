@@ -34,9 +34,12 @@ Emits one `PASS: ` / `FAIL: ` line per assertion. Never a raw traceback.
 
 from __future__ import annotations
 
+import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
 
 
 def fail(msg: str) -> None:
@@ -56,14 +59,28 @@ def load_shipped(repo: pathlib.Path) -> dict:
         fail(f"shipped module missing at {src_path}")
     src = src_path.read_text(encoding="utf-8")
 
-    consts = re.search(r"^_NAME_TIER_PLACEHOLDER = .*?^_NAME_TIER_NAME = \d+$",
-                       src, re.S | re.M)
+    # One contiguous slice from the refusal list to the last tier
+    # constant: it carries _KINSHIP_*, _kinship_words,
+    # _is_relationship_label and _NAME_TIER_*. Taking it whole is
+    # deliberate -- a rule split across five regexes is a rule where one
+    # half can be deleted while the gate still passes.
+    rule = re.search(r"^_KINSHIP_DEFAULT = .*?^_NAME_TIER_NAME = \d+$",
+                     src, re.S | re.M)
     tier_fn = re.search(r"^def _display_name_tier\(.*?(?=^def |\Z)", src, re.S | re.M)
+    prov_fn = re.search(r"^def _is_provisional_display_name\(.*?(?=^def |\Z)",
+                        src, re.S | re.M)
     upsert = re.search(r"^def _upsert_display_name\(.*?(?=^def |\Z)", src, re.S | re.M)
-    for name, m in (("tier constants", consts), ("_display_name_tier", tier_fn),
+    for name, m in (("the name-rule block", rule), ("_display_name_tier", tier_fn),
+                    ("_is_provisional_display_name", prov_fn),
                     ("_upsert_display_name", upsert)):
         if not m:
-            fail(f"{name} is gone from the shipped module (v1018-D658)")
+            fail(f"{name} is gone from the shipped module (v1018-D658/D659)")
+    # The slice must contain exactly the two rule functions -- no more
+    # (it ran away) and no fewer (half the rule was moved out of it).
+    defs = re.findall(r"^def (\w+)\(", rule.group(0), re.M)
+    if sorted(defs) != ["_is_relationship_label", "_kinship_words"]:
+        fail(f"the name-rule slice holds {defs!r}, expected exactly the two "
+             "kinship functions (v1018-D659)")
     for leaked in ("def ingest_", "def _person_exists"):
         if leaked in tier_fn.group(0) or leaked in upsert.group(0):
             fail(f"extraction overshot and pulled in {leaked!r}")
@@ -78,8 +95,12 @@ def load_shipped(repo: pathlib.Path) -> dict:
         "_sparql_update": lambda q: captured.append(q),
         "_escape": lambda v: str(v).replace('"', '\\"'),
         "logger": _Log(),
+        "os": os,
+        "json": json,
+        "re": re,
     }
-    exec(consts.group(0) + "\n" + tier_fn.group(0) + "\n" + upsert.group(0), ns)
+    exec(rule.group(0) + "\n" + tier_fn.group(0) + "\n" + prov_fn.group(0)
+         + "\n" + upsert.group(0), ns)
     ns["_captured"] = captured
     return ns
 
@@ -163,6 +184,70 @@ def main(repo_str: str) -> int:
         "email does not replace another email",
         '!CONTAINS(STR(?old), "@")' in q_mail,
     ))
+
+    # --- v1018-D659: a kinship word is never a name ---------------------
+    # Andy 2026-08-08: "'Mum' for Alison is NOT - she is my WIFE and
+    # Connor's MUM, but not MY MUM (who was Sylvia Massey)." His mother
+    # has died. Left eligible, "Mum" is tier 2 -- letters, no @, no digit
+    # run -- so it would become her canonical name AND clear the
+    # provisional flag, and the assistant would answer "your mum is
+    # <wife>".
+    REFUSED = ns["_NAME_TIER_REFUSED"]
+    is_rel = ns["_is_relationship_label"]
+    provisional = ns["_is_provisional_display_name"]
+
+    for label, value, want in [
+        ("bare kinship word is refused", "Mum", REFUSED),
+        ("case does not evade refusal", "MUM", REFUSED),
+        ("trailing space does not evade refusal", "Mum ", REFUSED),
+        ("punctuation does not evade refusal", "Mum.", REFUSED),
+        ("qualified kinship is refused", "my mum", REFUSED),
+        ("household place label is refused", "Home", REFUSED),
+        ("kinship PLUS a real name is kept", "Auntie Emma", NAME),
+        ("a name that merely starts with one is kept", "Mum Zhang", NAME),
+        ("an ordinary name is unaffected", "Alison Massey", NAME),
+    ]:
+        checks.append((label, tier(value) == want))
+
+    checks.append((
+        "a refused label reads as provisional, so a real name can still land",
+        provisional("Mum") is True,
+    ))
+
+    # The behavioural core: the writer must emit NOTHING. A weaker guard
+    # that still writes would leave the string on the node.
+    cap.clear()
+    upsert("urn:p", "Mum")
+    checks.append((
+        "the writer emits NO SPARQL AT ALL for a refused label",
+        len(cap) == 0,
+    ))
+
+    # Locale data, same env contract as cm041 relationship_labels.
+    with tempfile.TemporaryDirectory() as td:
+        custom = os.path.join(td, "kin.json")
+        with open(custom, "w", encoding="utf-8") as fh:
+            json.dump(["mamma", "papà"], fh)
+        os.environ["OSTLER_KINSHIP_WORDS_FILE"] = custom
+        try:
+            checks.append((
+                "a locale list is actually read, not merely present",
+                is_rel("Mamma") is True,
+            ))
+            checks.append((
+                "a locale list REPLACES the default rather than unioning",
+                is_rel("Mum") is False,
+            ))
+            broken = os.path.join(td, "broken.json")
+            with open(broken, "w", encoding="utf-8") as fh:
+                fh.write("{not json")
+            os.environ["OSTLER_KINSHIP_WORDS_FILE"] = broken
+            checks.append((
+                "a malformed locale file falls back closed, never open",
+                is_rel("Mum") is True,
+            ))
+        finally:
+            os.environ.pop("OSTLER_KINSHIP_WORDS_FILE", None)
 
     rc = 0
     for label, good in checks:
