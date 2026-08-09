@@ -15909,6 +15909,18 @@ if name:
                     # sessions carry their own nested ServeConfig, so
                     # recurse rather than reading the top level only.
                     #
+                    # Those two locations are the COMPLETE set, and that
+                    # is upstream's answer rather than an inference from
+                    # one sample. `ipn.ServeConfig` (ipn/serve.go) has
+                    # exactly one funnel field, `AllowFunnel`, written
+                    # only by `SetFunnel`; funnel is not supported for
+                    # `Services` at all. Upstream's own predicates say
+                    # the same: `HasAllowFunnel` and `FindFunnel` check
+                    # the top-level `AllowFunnel` and then each
+                    # `Foreground` config's `AllowFunnel`, and nothing
+                    # else. Under-reporting here would mean silence on a
+                    # genuinely public box, so it is worth being sure.
+                    #
                     # No prompt and no mutation here. This runs deep in
                     # Phase 3 where a blocking question stalls a
                     # walk-away install (see the Mail history-window
