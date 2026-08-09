@@ -47,6 +47,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -218,6 +219,7 @@ def _dispatch_to_cm048(
             metadata["conversation_id"],
             " ".join(pwg_convo_cmd),
         )
+        started = time.monotonic()
         try:
             proc = subprocess.run(
                 cmd,
@@ -240,12 +242,28 @@ def _dispatch_to_cm048(
                 exc.timeout,
             )
             return DISPATCH_TIMEOUT_RC
+        elapsed = time.monotonic() - started
         if proc.returncode != 0:
             logger.error(
-                "pwg-convo failed for %s (rc=%d): %s",
+                "pwg-convo failed for %s after %.1fs (rc=%d): %s",
                 metadata["conversation_id"],
+                elapsed,
                 proc.returncode,
                 proc.stderr.strip()[:500],
+            )
+        else:
+            # v1018-D021. The ONLY per-document timing that survives a
+            # successful dispatch. capture_output=True discards pwg-convo's
+            # own instrumentation on rc=0, so without this line the feed is
+            # unmeasurable except by diffing "Dispatching" timestamps, which
+            # attributes queueing and lock waits to the document. Two windows
+            # 13h apart both measured ~100s/document that way; where the time
+            # actually goes could not be established, because the evidence was
+            # being thrown away on every success.
+            logger.info(
+                "pwg-convo completed %s in %.1fs",
+                metadata["conversation_id"],
+                elapsed,
             )
         return proc.returncode
 
