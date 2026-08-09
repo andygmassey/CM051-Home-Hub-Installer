@@ -398,6 +398,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
                     _sparql_update(sparql)
                     people_enriched += 1
 
+            # v1018-D658: runs for NEW and EXISTING alike. Every name write
+            # above sits inside the not-exists guard, so an existing person's
+            # placeholder was never revisited by any source. Upward-only -- a
+            # same-tier or lower value is a no-op.
+            _upsert_display_name(uri, participant)
+
             # Update last_contact if this conversation is more recent
             if last_msg and msg_count > 0:
                 _update_last_contact(uri, last_msg, "imessage")
@@ -754,6 +760,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                     _sparql_update(sparql)
                     people_enriched += 1
 
+            # v1018-D658: runs for NEW and EXISTING alike. Every name write
+            # above sits inside the not-exists guard, so an existing person's
+            # placeholder was never revisited by any source. Upward-only -- a
+            # same-tier or lower value is a no-op.
+            _upsert_display_name(uri, display)
+
             # Always upsert lastContactWhatsApp regardless of person
             # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
             # in _update_last_contact ensures older timestamps never
@@ -836,6 +848,12 @@ def ingest_calendar(fda_dir: Path) -> dict:
                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                     )
                     _sparql_update(sparql)
+
+                # v1018-D658: runs for NEW and EXISTING alike. Every name write
+                # above sits inside the not-exists guard, so an existing person's
+                # placeholder was never revisited by any source. Upward-only -- a
+                # same-tier or lower value is a no-op.
+                _upsert_display_name(uri, attendee)
 
             # Update last contact from meeting date
             if start_date:
@@ -953,6 +971,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
             _sparql_update(sparql)
             people_created += 1
 
+        # v1018-D658: runs for NEW and EXISTING alike. Every name write
+        # above sits inside the not-exists guard, so an existing person's
+        # placeholder was never revisited by any source. Upward-only -- a
+        # same-tier or lower value is a no-op.
+        _upsert_display_name(uri, name)
+
     logger.info("Photos: %d people created from face labels", people_created)
     return {"status": "ok", "people_created": people_created}
 
@@ -1013,6 +1037,12 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             )
             _sparql_update(sparql)
             people_created += 1
+
+        # v1018-D658: runs for NEW and EXISTING alike. Every name write
+        # above sits inside the not-exists guard, so an existing person's
+        # placeholder was never revisited by any source. Upward-only -- a
+        # same-tier or lower value is a no-op.
+        _upsert_display_name(uri, email)
 
     logger.info("Apple Mail: %d contacts created", people_created)
     return {"status": "ok", "people_created": people_created}
