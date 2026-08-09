@@ -97,6 +97,29 @@ def main(repo_str: str) -> int:
     checks.append(("the LAST name is never deleted, even a kinship word",
                    verdict == "review" and gone == [] and keep is None))
 
+    # --- THE OVER-REFUSAL DIRECTION, which is the one with teeth ---------
+    # TNM, 2026-08-10, reviewing this pair: "the failure mode of an
+    # over-eager kinship guard is silently deleting a real person's only
+    # label. That wants a demonstrated RED on the KEEP case, not just the
+    # DROP case."
+    #
+    # He is right and this file did not have it. #550 refusing to WRITE a
+    # name is recoverable -- nothing is lost. THIS module DELETES, so a
+    # predicate that over-matches here destroys a real person's name with
+    # no undo. Every one of these carries a real name and must never be
+    # droppable, however kinship-adjacent it looks.
+    for label in ["Auntie Emma", "Granny Ritchie", "Mum Zhang", "Nan Robertson",
+                  "Papa Johnson", "Mother Teresa", "Jane Motherwell",
+                  "Sonia Kidd", "Grant Boyle"]:
+        k, d, g, c, v = decide([label, PHONE])
+        checks.append(("a real name is never deleted: %r" % label,
+                       g == [] and k == label))
+    # And the same names must survive as the SOLE label on a node.
+    for label in ["Auntie Emma", "Mum Zhang", "Sonia Kidd"]:
+        k, d, g, c, v = decide([label])
+        checks.append(("sole real name is never deleted: %r" % label,
+                       g == [] and k == label))
+
     # --- THE NEGATIVE, which is the whole point -------------------------
     for label, names in [
         ("two real names are NEVER auto-resolved", [NAME, NAME2]),
