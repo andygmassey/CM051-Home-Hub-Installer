@@ -645,7 +645,7 @@ stage-payload:
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
-release: check-tools check-identity check-version check-pbxproj-sync download-python
+release: guard-local-cut check-tools check-identity check-version check-pbxproj-sync download-python
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"
@@ -731,7 +731,7 @@ release: check-tools check-identity check-version check-pbxproj-sync download-py
 # Re-signs the outer .app at the end so the outer signature seals
 # the new inner signatures.
 # ---------------------------------------------------------------------------
-sign-python-bundle:
+sign-python-bundle: guard-local-cut
 	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"
 	@bash scripts/sign-python-bundle.sh "$(APP_PATH)" "$(CODESIGN_ID)"
 	$(STEP) "Signing bundled assistant daemon with hardened runtime"
@@ -872,7 +872,7 @@ check-ostler-app:
 	fi
 	@printf '[CHECK] OSTLER_APP_PATH=%s (directory exists)\n' "$(OSTLER_APP_PATH)"
 
-sparkle-embed:
+sparkle-embed: guard-local-cut
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
 	    echo "WARNING: OSTLER_APP_PATH=$(OSTLER_APP_PATH) not found; skipping Sparkle embed." >&2; \
 	    echo "         (For ship-path invocation use \`make ship\` — its check-ostler-app" >&2; \
@@ -1031,7 +1031,7 @@ check-manifest:
 	    exit 1; \
 	}
 
-package: check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
+package: guard-local-cut check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
@@ -1161,7 +1161,7 @@ dmg-bg:
 # notarised and stapled before anything seals it. Then staple-apps is a no-op
 # rewrite of identical bytes and the outer stays valid -- and the Hub can also
 # launch offline on first run, which is what #221 wanted in the first place.
-notarise-hub: check-tools
+notarise-hub: guard-local-cut check-tools
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
 	    echo "ERROR: OSTLER_APP_PATH is not a directory: $(OSTLER_APP_PATH)" >&2; \
 	    exit 1; \
@@ -1215,7 +1215,7 @@ notarise-hub: check-tools
 	    echo "ERROR: Ostler.app signature invalid after stapling -- do not seal it." >&2; exit 1; }
 	@echo "[OK] Ostler.app notarised, stapled and still validly signed."
 
-notarise-app: check-tools
+notarise-app: guard-local-cut check-tools
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' + 'make sign-python-bundle' first." >&2; \
 	    exit 1; \
@@ -1255,7 +1255,7 @@ notarise-app: check-tools
 # HR015 task #221: without this step the DMG payload ships with
 # unstapled inner .apps.
 # ---------------------------------------------------------------------------
-staple-apps: check-tools
+staple-apps: guard-local-cut check-tools
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make notarise-app' first." >&2; \
 	    exit 1; \
@@ -1343,7 +1343,7 @@ staple-apps: check-tools
 # so this submission returns fast. The DMG wrapper still needs its own
 # ticket for Gatekeeper to accept the DMG mount on a first-launch offline.
 # ---------------------------------------------------------------------------
-notarise-dmg: check-tools
+notarise-dmg: guard-local-cut check-tools
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: $(DMG_PATH) not found. Run 'make package' first." >&2; \
 	    exit 1; \
@@ -1366,7 +1366,7 @@ notarise-dmg: check-tools
 # ---------------------------------------------------------------------------
 notarise: notarise-dmg
 
-staple: check-tools
+staple: guard-local-cut check-tools
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: $(DMG_PATH) not found." >&2; \
 	    exit 1; \
@@ -1643,7 +1643,77 @@ verify-commit-parity:
 # verify-commit-parity catches daemon+wrapper frontend drift (#226 / #225).
 # All three must be GREEN before archive writes to ~/.ostler-release-artefacts/.
 # ---------------------------------------------------------------------------
-ship: check-orphans check-pr-age check-ostler-app download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+# ---------------------------------------------------------------------------
+# guard-local-cut -- addresses v1018-D027.
+#
+# WHY THIS EXISTS. Five months of cuts were hand-made on this laptop. Every
+# gate we built was advisory, because `make ship` would happily sign, notarise
+# and staple a DMG that had passed none of them. v1.0.18 is the proof: 13/13
+# manifest assertions green, and the box-walk found 20 defects. A gate that can
+# be walked around is documentation, not a gate.
+#
+# So the CAPABILITY goes, not the convenience. Cuts run in CI (v1018-D026).
+#
+# THE ESCAPE HATCH IS DELIBERATE, AND IT IS LOUD. A hand-cut under duress has
+# to remain possible -- refusing that just gets the guard commented out at 3am.
+# What it must never be is SILENT. So OSTLER_EMERGENCY_CUT=1 requires a reason
+# AND a writable shipping ledger, and it FAILS CLOSED: if the cut cannot be
+# recorded, the cut does not happen. An untraceable escape hatch is how we end
+# up back here in three months.
+# ---------------------------------------------------------------------------
+.PHONY: guard-local-cut
+guard-local-cut:
+	@if [ -n "$$CI" ] || [ -n "$$GITHUB_ACTIONS" ]; then \
+	    echo "  [guard] CI detected -- cut permitted."; \
+	elif [ "$$OSTLER_EMERGENCY_CUT" = "1" ]; then \
+	    if [ -z "$$OSTLER_EMERGENCY_REASON" ]; then \
+	        echo "ERROR: OSTLER_EMERGENCY_CUT=1 requires OSTLER_EMERGENCY_REASON." >&2; \
+	        echo "       An emergency cut must say why, in the ledger, for ever." >&2; \
+	        exit 1; \
+	    fi; \
+	    if [ -z "$$OSTLER_SHIPPING_LEDGER" ]; then \
+	        echo "ERROR: OSTLER_EMERGENCY_CUT=1 requires OSTLER_SHIPPING_LEDGER" >&2; \
+	        echo "       to point at the SHIPPING_LEDGER.yaml to append to." >&2; \
+	        echo "       No ledger, no record; no record, no cut." >&2; \
+	        exit 1; \
+	    fi; \
+	    if [ ! -w "$$OSTLER_SHIPPING_LEDGER" ]; then \
+	        echo "ERROR: shipping ledger not writable: $$OSTLER_SHIPPING_LEDGER" >&2; \
+	        echo "       Failing closed -- an unrecordable cut must not proceed." >&2; \
+	        exit 1; \
+	    fi; \
+	    { \
+	      echo ""; \
+	      echo "- emergency_cut:"; \
+	      echo "    utc: \"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\""; \
+	      echo "    operator: \"$$(id -un)@$$(hostname -s)\""; \
+	      echo "    repo_sha: \"$$(git rev-parse HEAD 2>/dev/null || echo unknown)\""; \
+	      echo "    dirty: $$(test -n \"$$(git status --porcelain 2>/dev/null)\" && echo true || echo false)"; \
+	      echo "    reason: \"$$OSTLER_EMERGENCY_REASON\""; \
+	      echo "    note: \"Bypassed CI (v1018-D026). Recorded by guard-local-cut (v1018-D027).\""; \
+	    } >> "$$OSTLER_SHIPPING_LEDGER" || { \
+	        echo "ERROR: failed writing the ledger entry. Refusing to cut." >&2; exit 1; }; \
+	    echo "  [guard] EMERGENCY cut recorded in $$OSTLER_SHIPPING_LEDGER"; \
+	else \
+	    echo "" >&2; \
+	    echo "REFUSING TO CUT LOCALLY  (v1018-D027)" >&2; \
+	    echo "" >&2; \
+	    echo "  Signing and notarising happen in CI, triggered by pushing a" >&2; \
+	    echo "  v1.0.X tag. A DMG built here would bypass every gate in" >&2; \
+	    echo "  OS003/cuts/DEFECTS_ROLLFORWARD.md, which is exactly how" >&2; \
+	    echo "  v1.0.18 shipped 20 defects with all its own gates green." >&2; \
+	    echo "" >&2; \
+	    echo "  To cut:       git tag v1.0.X && git push origin v1.0.X" >&2; \
+	    echo "  To build      make debug          (unsigned, local, safe)" >&2; \
+	    echo "  In a real     OSTLER_EMERGENCY_CUT=1 \\" >&2; \
+	    echo "  emergency:    OSTLER_EMERGENCY_REASON='...' \\" >&2; \
+	    echo "                OSTLER_SHIPPING_LEDGER=/path/SHIPPING_LEDGER.yaml make ship" >&2; \
+	    echo "                (recorded permanently in the ledger)" >&2; \
+	    echo "" >&2; \
+	    exit 1; \
+	fi
+
+ship: guard-local-cut check-orphans check-pr-age check-ostler-app download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
