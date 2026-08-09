@@ -731,7 +731,7 @@ release: check-tools check-identity check-version check-pbxproj-sync download-py
 # Re-signs the outer .app at the end so the outer signature seals
 # the new inner signatures.
 # ---------------------------------------------------------------------------
-sign-python-bundle:
+sign-python-bundle: guard-local-cut
 	$(STEP) "Signing bundled Python Mach-O files with hardened runtime"
 	@bash scripts/sign-python-bundle.sh "$(APP_PATH)" "$(CODESIGN_ID)"
 	$(STEP) "Signing bundled assistant daemon with hardened runtime"
@@ -1031,7 +1031,7 @@ check-manifest:
 	    exit 1; \
 	}
 
-package: check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
+package: guard-local-cut check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make release' first." >&2; \
 	    exit 1; \
@@ -1255,7 +1255,7 @@ notarise-app: guard-local-cut check-tools
 # HR015 task #221: without this step the DMG payload ships with
 # unstapled inner .apps.
 # ---------------------------------------------------------------------------
-staple-apps: check-tools
+staple-apps: guard-local-cut check-tools
 	@if [ ! -d "$(APP_PATH)" ]; then \
 	    echo "ERROR: $(APP_PATH) not found. Run 'make notarise-app' first." >&2; \
 	    exit 1; \
@@ -1366,7 +1366,7 @@ notarise-dmg: guard-local-cut check-tools
 # ---------------------------------------------------------------------------
 notarise: notarise-dmg
 
-staple: check-tools
+staple: guard-local-cut check-tools
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: $(DMG_PATH) not found." >&2; \
 	    exit 1; \
