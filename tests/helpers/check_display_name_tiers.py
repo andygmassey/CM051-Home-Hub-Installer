@@ -202,8 +202,11 @@ def main(repo_str: str) -> int:
         ("punctuation does not evade refusal", "Mum.", REFUSED),
         ("qualified kinship is refused", "my mum", REFUSED),
         ("household place label is refused", "Home", REFUSED),
-        ("kinship PLUS a real name is kept", "Auntie Emma", NAME),
-        ("a name that merely starts with one is kept", "Mum Zhang", NAME),
+        # Synthetic, and only the SHAPE is load-bearing: the kept case
+        # needs a kinship word plus ANY given name, so "Auntie Wren"
+        # proves exactly what a real aunt's name would prove.
+        ("kinship PLUS a real name is kept", "Auntie Wren", NAME),
+        ("a name that merely starts with one is kept", "Mum Chen", NAME),
         ("an ordinary name is unaffected", "Jane Smith", NAME),
     ]:
         checks.append((label, tier(value) == want))
