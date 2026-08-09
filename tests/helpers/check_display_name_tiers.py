@@ -186,12 +186,11 @@ def main(repo_str: str) -> int:
     ))
 
     # --- v1018-D659: a kinship word is never a name ---------------------
-    # Andy 2026-08-08: "'Mum' for Alison is NOT - she is my WIFE and
-    # Connor's MUM, but not MY MUM (who was Sylvia Massey)." His mother
-    # has died. Left eligible, "Mum" is tier 2 -- letters, no @, no digit
-    # run -- so it would become her canonical name AND clear the
-    # provisional flag, and the assistant would answer "your mum is
-    # <wife>".
+    # Left eligible, "Mum" is tier 2 -- letters, no @, no digit run -- so
+    # it becomes that contact's canonical name AND clears the provisional
+    # flag, and the assistant then asserts a parent the user does not
+    # have. The label came off a card filed by a different household
+    # member, so the relationship it records was never the owner's.
     REFUSED = ns["_NAME_TIER_REFUSED"]
     is_rel = ns["_is_relationship_label"]
     provisional = ns["_is_provisional_display_name"]
@@ -203,9 +202,12 @@ def main(repo_str: str) -> int:
         ("punctuation does not evade refusal", "Mum.", REFUSED),
         ("qualified kinship is refused", "my mum", REFUSED),
         ("household place label is refused", "Home", REFUSED),
-        ("kinship PLUS a real name is kept", "Auntie Emma", NAME),
-        ("a name that merely starts with one is kept", "Mum Zhang", NAME),
-        ("an ordinary name is unaffected", "Alison Massey", NAME),
+        # Synthetic, and only the SHAPE is load-bearing: the kept case
+        # needs a kinship word plus ANY given name, so "Auntie Wren"
+        # proves exactly what a real aunt's name would prove.
+        ("kinship PLUS a real name is kept", "Auntie Wren", NAME),
+        ("a name that merely starts with one is kept", "Mum Chen", NAME),
+        ("an ordinary name is unaffected", "Jane Smith", NAME),
     ]:
         checks.append((label, tier(value) == want))
 
