@@ -158,6 +158,53 @@ def validate_headings(text: str, expected: list[str]) -> HeadingValidation:
     )
 
 
+_PLACEHOLDER_TOKEN = re.compile(r"\{[a-z][a-z0-9_]*\}")
+
+
+def strip_placeholder_tokens(text: str) -> tuple[str, list[str]]:
+    """Remove prompt-template placeholder tokens the model copied verbatim.
+
+    v1018-D014c. The enrichment prompts are INSTRUCTIONS; the real values
+    arrive in `prompt_body` below a `---` separator (see the ten
+    `load_prompt` call sites in processor.py, all of which do
+    `template + "\n\n---\n\n" + prompt_body`). The `{token}` forms inside
+    a template are ILLUSTRATIVE -- they show the model the shape of the
+    output it should produce. `prompts.render()` exists but has zero
+    callers; nothing substitutes them and nothing is meant to.
+
+    The defect is that the model sometimes copies an illustrative token
+    into its answer instead of substituting the value it can see below the
+    rule, so a customer's wiki page ends up carrying a literal
+    `{user_email}`. It is intermittent for exactly that reason -- a
+    plumbing bug would fire every time.
+
+    STRIPS rather than retries, deliberately. A retry costs a model call,
+    and v1018-D031 established that those run to 900s each and that the
+    step's total budget is the scarce resource. Dropping a token is
+    deterministic, free, and a strict improvement on shipping it.
+
+    Lowercase-initial only: `{user_email}` and `{conversation_id}` are
+    template tokens, while prose legitimately contains `{...}` in code
+    samples and JSON, and those overwhelmingly start with a quote, a
+    digit, an uppercase letter or a brace. Narrow beats clever here --
+    a missed token is a cosmetic defect, a false positive silently edits
+    the customer's content.
+
+    Returns the cleaned text and the sorted unique tokens removed, so the
+    caller can log WHICH ones fired rather than just that something did.
+    """
+    found = sorted(set(_PLACEHOLDER_TOKEN.findall(text)))
+    if not found:
+        return text, []
+    cleaned = _PLACEHOLDER_TOKEN.sub("", text)
+    # Collapse the double spaces and orphaned separators a removal leaves
+    # behind, so the sentence still reads.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"\(\s*\)", "", cleaned)
+    return cleaned, found
+
+
 def _extract_top_level_headings(text: str) -> list[str]:
     """Return every `## Heading` line in `text`, skipping fenced code blocks.
 
