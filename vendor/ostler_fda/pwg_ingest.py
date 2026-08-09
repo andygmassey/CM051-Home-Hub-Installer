@@ -97,6 +97,47 @@ def _wiki_slug(name: str) -> str:
 # ── Shared utilities (same patterns as contact_syncer) ────────────
 
 
+# v1018-D658. Andy's ruling 2026-08-10: a displayName is RANKED and
+# overwrites go UPWARD ONLY.
+#
+#   tier 0  "+852 1234 5678"       replaces nothing
+#   tier 1  "j.smith@company.com"  replaces tier 0
+#   tier 2  "Jane Smith"           replaces tier 0 or 1
+#
+# His reasoning: a phone number is "totally indecipherable to a human",
+# where an email gives you the company from the domain and usually a
+# surname-plus-initial from the local-part. So an email IS worth writing
+# over a phone -- but it is an IMPROVEMENT, not a RESOLUTION, and
+# `displayNameProvisional` therefore STAYS SET at tier 1, clearing only
+# at tier 2. The earlier proposal ("only overwrite with a real human
+# name") was rejected for leaving a phone number on screen when a
+# strictly better email was available.
+#
+# This also dissolves "which SOURCES may overwrite a name?": the answer
+# is per-VALUE-SHAPE, so calendar, photos and mail-contacts all go
+# through the same door and the tier decides. No per-source allowlist to
+# drift out of date.
+_NAME_TIER_PLACEHOLDER = 0
+_NAME_TIER_HANDLE = 1
+_NAME_TIER_NAME = 2
+
+
+def _display_name_tier(value: str) -> int:
+    """Rank a candidate displayName. See the tier table above."""
+    if not value:
+        return _NAME_TIER_PLACEHOLDER
+    v = value.strip()
+    if not v:
+        return _NAME_TIER_PLACEHOLDER
+    if "@" in v and "." in v.split("@", 1)[1]:
+        return _NAME_TIER_HANDLE
+    digits = sum(c.isdigit() for c in v)
+    phoneish = all(c in "+()-. \t0123456789" for c in v)
+    if phoneish and digits >= 5:
+        return _NAME_TIER_PLACEHOLDER
+    return _NAME_TIER_NAME
+
+
 def _is_provisional_display_name(value: str) -> bool:
     """True when ``value`` is a raw phone/handle placeholder, not a name.
 
@@ -111,17 +152,10 @@ def _is_provisional_display_name(value: str) -> bool:
     (>= 5 digits, phone-shaped) but is kept local: ostler_fda ships
     independently of cm041 and must not take a hard import on it.
     """
-    if not value:
-        return True
-    v = value.strip()
-    if not v:
-        return True
-    if "@" in v and "." in v.split("@", 1)[1]:
-        # A bare email used as a name is also a placeholder, not a name.
-        return True
-    digits = sum(c.isdigit() for c in v)
-    phoneish = all(c in "+()-. \t0123456789" for c in v)
-    return phoneish and digits >= 5
+    # v1018-D658: expressed via the tier so the two predicates cannot
+    # drift apart. "Provisional" is exactly "not yet a real human name",
+    # which covers BOTH the phone placeholder and the email stand-in.
+    return _display_name_tier(value) < _NAME_TIER_NAME
 
 def _sparql_update(sparql: str) -> None:
     """Execute a SPARQL UPDATE against Oxigraph."""
