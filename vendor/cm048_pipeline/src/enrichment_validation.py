@@ -107,6 +107,42 @@ EXPECTED_HEADINGS_BY_PROMPT: dict[str, list[str]] = {
 }
 
 
+# v1018-D014b. Sub-headings (`### `) that live INSIDE a `## ` section.
+#
+# Only two variants declare any; every other conversation shape is flat.
+# These were previously known ONLY to the prompt template files, which is
+# how they came to be dropped: the chunk-merge pass loads
+# `02b_merge_chunks` rather than the variant template, so nothing told the
+# model to keep them -- and the expected-heading check is `##`-only, so
+# nothing noticed they were gone. 29 of 129 conversation summaries on the
+# founder box carry `### Participants` and `### Thread` with no
+# `### Narrative` at all: the prose the section exists for is simply
+# absent, and the surrounding metadata reads as raw scaffolding.
+#
+# Measured, and it tracks CHUNKING rather than sparse input, which is the
+# opposite of D014a's failure mode:
+#
+#   1 msg   83 ok /  2 missing    2% fail
+#   2 msg   10 ok / 10 missing   50% fail
+#   3 msg    1 ok / 10 missing   91% fail
+#   4+ msgs  6 ok /  7 missing   54% fail
+EXPECTED_SUBHEADINGS_BY_PROMPT: dict[str, list[str]] = {
+    "02_enrich_email_thread": ["Participants", "Thread", "Narrative"],
+    "02_enrich_work_one-on-one": ["Participants", "Location", "Narrative"],
+}
+
+
+def expected_subheadings_for(prompt_name: str) -> list[str]:
+    """Return the expected `### ` sub-heading list for a prompt name.
+
+    Unknown or flat variants return [] -- unlike `expected_headings_for`,
+    there is NO fallback to another variant's list. Asserting
+    work_one-on-one's sub-sections against a family conversation would
+    manufacture failures for sections that variant never declares.
+    """
+    return list(EXPECTED_SUBHEADINGS_BY_PROMPT.get(prompt_name, []))
+
+
 def expected_headings_for(prompt_name: str) -> list[str]:
     """Return the expected `## ` heading list for a prompt name.
 
@@ -226,6 +262,78 @@ def _extract_top_level_headings(text: str) -> list[str]:
         if m:
             headings.append(m.group(1).strip())
     return headings
+
+
+def _extract_sub_headings(text: str) -> list[str]:
+    """Return every `### Heading` line in `text`, skipping fenced code.
+
+    Mirrors `_extract_top_level_headings`. The `(?!#)` guard keeps `####`
+    and deeper out, so a model that over-nests does not satisfy the
+    contract by accident.
+    """
+    headings: list[str] = []
+    in_fence = False
+    fence_re = re.compile(r"^```")
+    heading_re = re.compile(r"^###\s+(?!#)(.+?)\s*$")
+    for line in text.splitlines():
+        if fence_re.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = heading_re.match(line)
+        if m:
+            headings.append(m.group(1).strip())
+    return headings
+
+
+def validate_subheadings(text: str, expected: list[str]) -> HeadingValidation:
+    """Validate that every expected `### Heading` appears in `text`.
+
+    Extras are NOT reported for sub-headings. A cleaned transcript
+    legitimately contains one `###` per speaker turn, so every real
+    document has dozens of them and an extras list would be noise.
+    """
+    if not expected:
+        return HeadingValidation(ok=True, missing=[], extras=[], found=[])
+    found = _extract_sub_headings(text)
+    found_lower = {h.lower() for h in found}
+    missing = [h for h in expected if h.lower() not in found_lower]
+    return HeadingValidation(
+        ok=not missing, missing=missing, extras=[], found=found,
+    )
+
+
+def build_section_contract(prompt_name: str) -> str:
+    """The section contract, as one string, for ANY pass over a document.
+
+    Single source of truth so the chunk-merge pass cannot drift from the
+    per-chunk pass -- that drift IS v1018-D014b. Callers append this to
+    whatever body they are building.
+    """
+    lines = [
+        "--- SECTION STRUCTURE REMINDER ---",
+        "You MUST use EXACTLY these section headings in this order. Do NOT",
+        "invent your own headings. Do NOT skip sections. If a section has no",
+        'content, write the heading followed by "_Nothing to report._"',
+        "",
+    ]
+    lines += [f"## {h}" for h in expected_headings_for(prompt_name)]
+    subs = expected_subheadings_for(prompt_name)
+    if subs:
+        lines += [
+            "",
+            "Inside `## " + expected_headings_for(prompt_name)[0] + "`, keep these",
+            "sub-sections, in this order, each with its own content:",
+            "",
+        ]
+        lines += [f"### {h}" for h in subs]
+        lines += [
+            "",
+            "`### " + subs[-1] + "` carries the prose. Metadata sub-sections",
+            "without it are not a summary.",
+        ]
+    return "\n".join(lines)
 
 
 def build_system_prompt(prompt_name: str) -> str:
