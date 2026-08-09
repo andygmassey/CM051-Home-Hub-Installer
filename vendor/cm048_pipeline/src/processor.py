@@ -645,6 +645,17 @@ def _step_enrich(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # v1018-D014c: last stop before the customer's wiki page. A
+        # placeholder the model copied out of the prompt template must not
+        # reach disk. Stripped, not retried -- see the helper's docstring.
+        rendered, _dropped = enrichment_validation.strip_placeholder_tokens(rendered)
+        if _dropped:
+            logger.warning(
+                "Dropped %d prompt-template placeholder(s) from %s output: %s",
+                len(_dropped),
+                metadata.get("conversation_id"),
+                ", ".join(_dropped),
+            )
         out_path.write_text(rendered)
         # Pre-meeting brief input: walk the enrichment's Action items
         # table and emit a per-participant outstanding_todos.json
@@ -740,6 +751,17 @@ def _step_enrich(
             expected_headings=expected_headings,
             settings=settings,
         )
+        # v1018-D014c: last stop before the customer's wiki page. A
+        # placeholder the model copied out of the prompt template must not
+        # reach disk. Stripped, not retried -- see the helper's docstring.
+        rendered, _dropped = enrichment_validation.strip_placeholder_tokens(rendered)
+        if _dropped:
+            logger.warning(
+                "Dropped %d prompt-template placeholder(s) from %s output: %s",
+                len(_dropped),
+                metadata.get("conversation_id"),
+                ", ".join(_dropped),
+            )
         out_path.write_text(rendered)
         # See note above (single-chunk branch) for the rationale on
         # extracting outstanding_todos here rather than during ingest.
