@@ -73,50 +73,28 @@ for t in "${TREES[@]}"; do
 done
 
 # --- Behaviour, executed from the shipped source (not a copy) ----------
+#
+# The first cut of this block extracted the helper with `.*$` under re.S,
+# which is greedy to end-of-file and silently swallowed the rest of the
+# module, then exec'd function definitions annotated `Optional[Path]`.
+#
+# It passed locally on Python 3.14 -- where deferred annotation evaluation
+# is the default, so those annotations were never evaluated -- and failed
+# on CI's older Python, which evaluates them and raised NameError. A
+# harness that only works on its author's interpreter is not a gate.
+#
+# Two changes: the match is bounded by the helper's own closing sentinel,
+# and the extraction must PROVE it did not overshoot before a single line
+# is executed.
 echo ""
 echo "behaviour (helper lifted out of vendor/email_source/pipeline.py)"
-out="$("$PY" - "$REPO/vendor/email_source/pipeline.py" <<'PYEOF' 2>&1
-import os, re, sys
-
-src = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r"^_STDERR_EXCERPT_DEFAULT_CHARS = .*?^    return f\"<\.\.\..*$", src, re.S | re.M)
-if not m:
-    print("FAIL: helper block not found in shipped source")
-    sys.exit(1)
-ns = {"os": os}
-exec(m.group(0), ns)                       # noqa: S102 -- our own shipped source
-f = ns["_stderr_excerpt"]
-
-os.environ["OSTLER_DISPATCH_STDERR_CHARS"] = "40"
-long = "START-OF-RUN " + ("x" * 300) + " LAST-THING-BEFORE-IT-WEDGED"
-got = f(long)
-
-checks = [
-    ("keeps the tail",              got.endswith("LAST-THING-BEFORE-IT-WEDGED")),
-    ("drops the head",              "START-OF-RUN" not in got),
-    ("marks the clip",              "earlier chars dropped" in got),
-    ("reports how much was dropped", re.search(r"<\.\.\.\d+ earlier", got) is not None),
-    ("short text passes through",   f("brief error") == "brief error"),
-    ("None is explicit",            f(None) == "<no stderr captured>"),
-    ("empty is explicit",           f("   ") == "<stderr empty>"),
-]
-os.environ["OSTLER_DISPATCH_STDERR_CHARS"] = "banana"
-checks.append(("malformed env falls back rather than raising", isinstance(f(long), str)))
-os.environ["OSTLER_DISPATCH_STDERR_CHARS"] = "0"
-checks.append(("zero means no clipping", f(long) == long.strip()))
-
-rc = 0
-for label, good in checks:
-    print(("PASS: " if good else "FAIL: ") + label)
-    if not good:
-        rc = 1
-sys.exit(rc)
-PYEOF
-)"
+out="$("$PY" "$REPO/tests/helpers/check_stderr_excerpt.py" \
+        "$REPO/vendor/email_source/pipeline.py" 2>&1)"
 while IFS= read -r line; do
 	case "$line" in
 		PASS:*) ok "${line#PASS: }" ;;
-		*)      bad "${line#FAIL: }" ;;
+		FAIL:*) bad "${line#FAIL: }" ;;
+		*)      [ -n "$line" ] && bad "unexpected harness output: $line" ;;
 	esac
 done <<< "$out"
 
