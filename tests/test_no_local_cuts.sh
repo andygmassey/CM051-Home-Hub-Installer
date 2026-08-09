@@ -48,7 +48,13 @@ if printf '%s' "$out" | grep -qi 'git tag'; then
 else fail "refusal gives no route forward -- invites working around it"; fi
 
 # 3. Direct entry points must also refuse (defence in depth).
-for t in notarise-hub notarise-app notarise-dmg; do
+# Archie found four more reachable signing targets after my first pass; I then
+# found two more (release, sparkle-embed) that his pass missed. The lesson is
+# that "the entry point is guarded" is not the same as "signing is unreachable",
+# so this list is now derived from what ACTUALLY signs, not from what I assumed
+# the entry points were.
+for t in notarise-hub notarise-app notarise-dmg staple staple-apps \
+         package sign-python-bundle release sparkle-embed; do
 	run_local "$t" >/dev/null 2>&1
 	if [ $? -ne 0 ]; then pass "make $t refuses outside CI"
 	else fail "make $t SUCCEEDED outside CI -- bypasses the ship guard"; fi

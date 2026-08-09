@@ -645,7 +645,7 @@ stage-payload:
 # ---------------------------------------------------------------------------
 # Release build – Developer ID signed, exported to dist/
 # ---------------------------------------------------------------------------
-release: check-tools check-identity check-version check-pbxproj-sync download-python
+release: guard-local-cut check-tools check-identity check-version check-pbxproj-sync download-python
 	$(STEP) "Release archive → $(ARCHIVE_PATH)"
 	rm -rf "$(ARCHIVE_PATH)" "$(APP_PATH)"
 	mkdir -p "$(DIST_DIR)"
@@ -872,7 +872,7 @@ check-ostler-app:
 	fi
 	@printf '[CHECK] OSTLER_APP_PATH=%s (directory exists)\n' "$(OSTLER_APP_PATH)"
 
-sparkle-embed:
+sparkle-embed: guard-local-cut
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
 	    echo "WARNING: OSTLER_APP_PATH=$(OSTLER_APP_PATH) not found; skipping Sparkle embed." >&2; \
 	    echo "         (For ship-path invocation use \`make ship\` — its check-ostler-app" >&2; \
@@ -1704,7 +1704,7 @@ guard-local-cut:
 	    echo "  v1.0.18 shipped 20 defects with all its own gates green." >&2; \
 	    echo "" >&2; \
 	    echo "  To cut:       git tag v1.0.X && git push origin v1.0.X" >&2; \
-	    echo "  To build      make release        (unsigned, local, safe)" >&2; \
+	    echo "  To build      make debug          (unsigned, local, safe)" >&2; \
 	    echo "  In a real     OSTLER_EMERGENCY_CUT=1 \\" >&2; \
 	    echo "  emergency:    OSTLER_EMERGENCY_REASON='...' \\" >&2; \
 	    echo "                OSTLER_SHIPPING_LEDGER=/path/SHIPPING_LEDGER.yaml make ship" >&2; \
