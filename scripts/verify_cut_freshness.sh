@@ -539,29 +539,46 @@ else
         rel_repo="${rel_repo:-ostler-ai/ostler-releases}"
         mk_sha="$(grep -m1 -E '^DAEMON_SHA256[[:space:]]*\?=' "$GUI_MAKEFILE" 2>/dev/null \
                   | sed -E 's/.*\?=[[:space:]]*([0-9a-f]{64}).*/\1/')"
-        d_tok="$(gh auth token -u ostler-ai 2>/dev/null || true)"
-        rel_json="$(GH_TOKEN="${d_tok:-}" gh api \
-            "repos/${rel_repo}/releases/tags/hub-v${daemon_pin}" 2>/dev/null || true)"
+        # Every call goes through `api ostler-ai`, NOT bare `gh` (v1018-D029).
+        # As first written this block shelled out to `gh` directly, which
+        # bypassed three things the rest of this script depends on:
+        #   1. $GH_BIN / FRESHNESS_GH_BIN -- so the daemon chain could not be
+        #      mocked, and its self-test cases could never pass. The gate sat
+        #      red from 2026-08-01 through v1.0.16/17/18 for exactly this.
+        #   2. run_to $GH_API_TIMEOUT -- an unbounded API call in a gate that
+        #      times out every other call.
+        #   3. the rc=2 UNREACHABLE signal -- so a network failure here was
+        #      indistinguishable from "no release exists" and reported RED.
+        #      That is a FALSE POSITIVE in the fail-closed direction, which is
+        #      how a gate teaches people to ignore it.
+        rel_ep="repos/${rel_repo}/releases/tags/hub-v${daemon_pin}"
+        api ostler-ai "$rel_ep"; rel_rc=$?
+        rel_json="$API_OUT"
 
-        if [ -z "$rel_json" ]; then
+        if [ "$rel_rc" -eq 2 ]; then
+            n_cannot=$((n_cannot+1))
+            add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "CANNOT-VERIFY unreachable"
+            add_detail "daemon CANNOT-VERIFY: ${rel_repo} unreachable while resolving the published release. Not asserting anything about the artefact."
+        elif [ "$rel_rc" -ne 0 ] || [ -z "$rel_json" ]; then
             n_stale=$((n_stale+1))
             add_row "daemon (${daemon_pin})" "$daemon_commit" "-" "RED no-published-release"
             add_detail "daemon RED: no published release hub-v${daemon_pin} on ${rel_repo} -- install.sh downloads from there, so every customer install would 404."
         else
             d_draft="$(printf '%s' "$rel_json" | sed -n 's/.*"draft":[[:space:]]*\([a-z]*\).*/\1/p' | head -1)"
-            side_id="$(GH_TOKEN="${d_tok:-}" gh api \
-                        "repos/${rel_repo}/releases/tags/hub-v${daemon_pin}" \
-                        --jq '.assets[]|select(.name|endswith(".sha256"))|.id' 2>/dev/null | head -1)"
+            side_id=""
+            api ostler-ai "$rel_ep" --jq '.assets[]|select(.name|endswith(".sha256"))|.id' \
+                && side_id="$(printf '%s' "$API_OUT" | head -1)"
             pub_sha=""
-            [ -n "$side_id" ] && pub_sha="$(GH_TOKEN="${d_tok:-}" gh api \
-                "repos/${rel_repo}/releases/assets/${side_id}" \
-                -H "Accept: application/octet-stream" 2>/dev/null | awk '{print $1; exit}')"
-            bi_id="$(GH_TOKEN="${d_tok:-}" gh api "repos/${rel_repo}/releases/tags/hub-v${daemon_pin}" \
-                       --jq '.assets[]|select(.name|endswith("build-info.json"))|.id' 2>/dev/null | head -1)"
+            [ -n "$side_id" ] && api ostler-ai "repos/${rel_repo}/releases/assets/${side_id}" \
+                -H "Accept: application/octet-stream" \
+                && pub_sha="$(printf '%s' "$API_OUT" | awk '{print $1; exit}')"
+            bi_id=""
+            api ostler-ai "$rel_ep" --jq '.assets[]|select(.name|endswith("build-info.json"))|.id' \
+                && bi_id="$(printf '%s' "$API_OUT" | head -1)"
             bi_commit=""
-            [ -n "$bi_id" ] && bi_commit="$(GH_TOKEN="${d_tok:-}" gh api \
-                "repos/${rel_repo}/releases/assets/${bi_id}" \
-                -H "Accept: application/octet-stream" 2>/dev/null \
+            [ -n "$bi_id" ] && api ostler-ai "repos/${rel_repo}/releases/assets/${bi_id}" \
+                -H "Accept: application/octet-stream" \
+                && bi_commit="$(printf '%s' "$API_OUT" \
                 | sed -n 's/.*"commit_sha":[[:space:]]*"\([0-9a-f]*\)".*/\1/p' | head -1)"
 
             if [ "$d_draft" = "true" ]; then
