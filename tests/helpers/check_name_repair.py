@@ -108,6 +108,13 @@ def main(repo_str: str) -> int:
     # predicate that over-matches here destroys a real person's name with
     # no undo. Every one of these carries a real name and must never be
     # droppable, however kinship-adjacent it looks.
+    #
+    # All nine are CONSTRUCTED, not sampled from any graph -- each one was
+    # built around the substring it has to survive, so grepping this file
+    # for a real contact finds nothing:
+    #   Auntie/Granny/Mum/Nan/Papa/Mother  a bare kinship word plus a name
+    #   Motherwell  "mother"     Sonia  "son"     Kidd  "kid"
+    #   Grant       "gran"       Boyle  "boy"
     for label in ["Auntie Emma", "Granny Ritchie", "Mum Zhang", "Nan Robertson",
                   "Papa Johnson", "Mother Teresa", "Jane Motherwell",
                   "Sonia Kidd", "Grant Boyle"]:

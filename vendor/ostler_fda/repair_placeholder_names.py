@@ -41,10 +41,12 @@ name.
 
 **The exception is a kinship word, which is DELETED (v1018-D659).** An
 ``alternateName`` is offered to the assistant as another name this person goes
-by, so demoting "Mum" still lets it answer *"your mum is <wife>"*. Andy,
-2026-08-08: *"'Mum' for Alison is NOT - she is my WIFE and Connor's MUM, but
-not MY MUM (who was Sylvia Massey)."* His mother has died. Demotion does not
-solve the thing that made the name wrong; only removal does.
+by, so demoting "Mum" still lets the assistant assert a parent the user does
+not have. That label came off a card filed by a different household member and
+records THEIR relationship, never the account owner's; where the real parent
+has died, the assistant contradicts a bereavement the user never had to
+explain to it. Demotion does not solve the thing that made the name wrong;
+only removal does.
 
 I got this backwards earlier today. CM041 #109's module HEADER says a losing
 name is *"kept, because 'Mum' is genuinely useful for matching"* -- and its
@@ -93,6 +95,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 from typing import Dict, List, Sequence, Tuple
@@ -187,6 +190,14 @@ def _query(sparql: str) -> list:
         return json.load(r)["results"]["bindings"]
 
 
+def _construct(sparql: str) -> str:
+    """CONSTRUCT, returned as N-Triples. Used for the pre-write snapshot."""
+    url = OXIGRAPH + "/query?" + urllib.parse.urlencode({"query": sparql})
+    req = urllib.request.Request(url, headers={"Accept": "application/n-triples"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return r.read().decode("utf-8")
+
+
 def _update(sparql: str) -> None:
     req = urllib.request.Request(
         OXIGRAPH + "/update",
@@ -207,6 +218,12 @@ def main(argv=None) -> int:
     ap.add_argument("--review-out",
                     default=os.path.expanduser("~/.ostler/name-review.tsv"),
                     help="where to write the needs-a-human list")
+    ap.add_argument("--households-already-split", action="store_true",
+                    help="acknowledge the ordering precondition explicitly "
+                         "when no split marker exists yet (see below)")
+    ap.add_argument("--snapshot-out",
+                    default=os.path.expanduser("~/.ostler/name-repair-backup"),
+                    help="prefix for the pre-write N-Triples snapshot")
     args = ap.parse_args(argv)
 
     rows = _query(
@@ -248,6 +265,71 @@ def main(argv=None) -> int:
     if not args.apply:
         print("\nDry run. Re-run with --apply to write.")
         return 0
+
+    # ── ORDERING PRECONDITION (TNM's review, 2026-08-10) ──────────────
+    # The household split must run BEFORE this pass touches live data.
+    # An unsplit node holds several people behind one URI. This pass then
+    # elects ONE of their names and treats the rest as losers. Demotion is
+    # recoverable, but a kinship word on such a node is DELETED, and it may
+    # be the only label one of those people has -- so the alternateName
+    # rescue does not save them, because they would land as alternates on a
+    # node that is not theirs.
+    #
+    # Nothing about that errors or warns at runtime. It was defended only
+    # by whoever ran this remembering to split first, which is not a
+    # control. So: refuse.
+    #
+    # The signal is a marker file written by the split. That path is a
+    # CONFIGURABLE DEFAULT, not an asserted fact about any machine -- and
+    # its absence makes this pass REFUSE TO WRITE, never proceed, so a
+    # wrong guess here fails closed. The split does not ship yet, hence the
+    # explicit acknowledgement flag: the ordering becomes a deliberate act
+    # rather than an assumption, which is the whole ask.
+    marker = os.environ.get(
+        "OSTLER_HOUSEHOLD_SPLIT_MARKER",
+        os.path.expanduser("~/.ostler/household-split.done"),
+    )
+    if not os.path.exists(marker) and not args.households_already_split:
+        print("\nREFUSING to apply: no household-split marker at")
+        print(f"  {marker}")
+        print("A household node holds several people behind one URI. Electing")
+        print("a name across one deletes a kinship word that may be another")
+        print("person's only label, and there is no undo for that.")
+        print("\nRun the household split first, or pass")
+        print("  --households-already-split")
+        print("to state that it has already been done.")
+        return 2
+
+    # ── SNAPSHOT (TNM's review) ──────────────────────────────────────
+    # "No undo" was stated five times in this module and mitigated zero
+    # times. Every subject about to be written is dumped first, so a wrong
+    # election is a reload rather than a reconstruction. Writing 193 nodes
+    # without one was the actual risk, not the theoretical one.
+    #
+    # If the snapshot cannot be written we do NOT proceed. A backup step
+    # that silently skips is worse than none: it is the sentence "there is
+    # a backup" with nothing behind it.
+    if not auto:
+        print("\nNothing to write.")
+        return 0
+
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    snap = f"{args.snapshot_out}-{stamp}.nt"
+    try:
+        os.makedirs(os.path.dirname(snap) or ".", exist_ok=True)
+        values = " ".join(f"<{uri}>" for uri, *_ in auto)
+        body = _construct(
+            "CONSTRUCT { ?s ?p ?o } WHERE { VALUES ?s { " + values + " } ?s ?p ?o }"
+        )
+        with open(snap, "w", encoding="utf-8") as fh:
+            fh.write(body)
+    except Exception as exc:  # noqa: BLE001
+        print(f"\nREFUSING to apply: could not write the pre-write snapshot to")
+        print(f"  {snap}\n  {type(exc).__name__}: {exc}")
+        return 2
+    # Real names, on the operator's machine only. Never commit, same as the
+    # review list.
+    print(f"snapshot -> {snap}  ({len(auto)} subject(s))")
 
     written = 0
     for uri, keep, demote, drop, clear in auto:

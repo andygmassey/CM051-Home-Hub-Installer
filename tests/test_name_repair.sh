@@ -114,6 +114,21 @@ while IFS= read -r line; do
 done <<< "$out"
 
 echo ""
+echo "destructive-path guards (the SHIPPED main(), network stubbed)"
+# These live in main(), not in decide(), so the helper above cannot see
+# them -- and a grep would pass against a guard placed after the first
+# write. This one runs main() and asserts NOTHING is written.
+out="$("$PY" "$REPO/tests/helpers/check_repair_guards.py" "$REPO" 2>/dev/null \
+	| grep -E '^(PASS|FAIL):')"
+[ -n "$out" ] || bad "the guard harness produced no assertions at all"
+while IFS= read -r line; do
+	case "$line" in
+		PASS:*) ok "${line#PASS: }" ;;
+		FAIL:*) bad "${line#FAIL: }" ;;
+	esac
+done <<< "$out"
+
+echo ""
 if [ "$fail" -eq 0 ]; then
 	printf '\033[0;32mGREEN -- %d assertion(s); the repair cannot guess a winner\033[0m\n' "$pass"
 	exit 0
