@@ -19,6 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -365,6 +367,76 @@ def _should_run_coach(c: Classification) -> bool:
 
 
 MAX_RETRIES = 3
+
+# --- v1018-D031: a total wall-clock allowance for the enrichment step ----
+#
+# Every LLM call in _step_enrich was already individually bounded at 900s.
+# That is why no per-call timeout could fix this: nothing was ever stuck.
+# The step simply has a very large BOUNDED worst case --
+#
+#   3-4 chunks x 900s + merge 900s + validation retry 900s   ~= 1h15m
+#   x MAX_RETRIES (3), backoff 30s + 60s                     ~= 4h30m
+#
+# -- four and a half hours, by design, for one email. On the shipped box a
+# single 236KB newsletter thread (2.8x the next largest document) sat in
+# this step from 03:47 until it was killed, holding the shared ingest lock
+# and stopping all four conversation feeds.
+#
+# So the ceiling belongs on the STEP, not on the call. Each call is given
+# whatever remains of the document's allowance, so the total cannot exceed
+# it however the chunks divide up.
+#
+# The deadline is module-level rather than threaded through
+# _merge_chunk_outputs / _validate_and_maybe_retry because pwg-convo
+# processes exactly ONE document per invocation (`pwg-convo process
+# <transcript> <metadata>`), single-threaded -- so there is never a second
+# concurrent budget in this process. Threading it through would mean
+# changing three signatures in a vendored tree whose source repo is
+# git-sick and whose divergence patch must be hand-crafted.
+_ENRICH_BUDGET_DEFAULT_SECS = 1800
+_ENRICH_CALL_CEILING_SECS = 900.0
+
+_enrich_deadline: float | None = None
+
+
+class EnrichmentBudgetExceeded(Exception):
+    """The enrichment step used up its total wall-clock allowance."""
+
+
+def _enrich_budget_secs():
+    """Total allowance for one document, or None for unbounded.
+
+    ``OSTLER_ENRICH_BUDGET_SECS=0`` restores the old behaviour. A
+    malformed value falls back to the default rather than raising -- a
+    typo in an env var must not be the thing that stops ingest.
+    """
+    raw = os.environ.get("OSTLER_ENRICH_BUDGET_SECS")
+    if raw is None or not raw.strip():
+        return float(_ENRICH_BUDGET_DEFAULT_SECS)
+    try:
+        secs = float(raw)
+    except ValueError:
+        return float(_ENRICH_BUDGET_DEFAULT_SECS)
+    return None if secs <= 0 else secs
+
+
+def _budget_timeout(ceiling: float = _ENRICH_CALL_CEILING_SECS) -> float:
+    """Timeout for the next LLM call: whatever is left of the allowance.
+
+    Raises EnrichmentBudgetExceeded rather than issuing a call that
+    cannot finish inside the document's remaining time.
+    """
+    if _enrich_deadline is None:
+        return ceiling
+    remaining = _enrich_deadline - time.monotonic()
+    if remaining <= 0:
+        raise EnrichmentBudgetExceeded(
+            f"enrichment budget exhausted before the next model call "
+            f"(allowance {_enrich_budget_secs()}s; raise or disable it with "
+            f"OSTLER_ENRICH_BUDGET_SECS)"
+        )
+    return min(ceiling, remaining)
+# ------------------------------------------------------------------------
 BASE_DELAY_SECONDS = 30
 
 
@@ -378,6 +450,14 @@ def _is_retryable(exc: Exception) -> bool:
     JSON parse failures, value errors  –  retrying won't help.
     """
     import httpx
+
+    # v1018-D031. Retrying a budget exhaustion just spends the budget
+    # again, and MAX_RETRIES would multiply the step ceiling by three --
+    # which is precisely the arithmetic that made a 4h30m worst case
+    # possible in the first place. Checked FIRST because the function
+    # ends in `return True`: every unrecognised exception is retried.
+    if isinstance(exc, EnrichmentBudgetExceeded):
+        return False
 
     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
         return True
@@ -593,6 +673,41 @@ def _step_enrich(
     if out_path.exists():
         return
 
+    # v1018-D031. Arm the document's total allowance. Disarmed in the
+    # finally below so a later step never inherits a spent budget, and so
+    # a _run_step retry starts from a full one rather than a stale
+    # deadline in the past.
+    global _enrich_deadline
+    _budget = _enrich_budget_secs()
+    _enrich_deadline = None if _budget is None else time.monotonic() + _budget
+    if _budget is not None:
+        logger.info(
+            "Enrichment budget for %s: %.0fs total across all model calls.",
+            metadata["conversation_id"],
+            _budget,
+        )
+    try:
+        _step_enrich_inner(
+            client, transcript, metadata, classification, settings, dry_run,
+            state_dir, out_path, sidecar_path,
+        )
+    finally:
+        _enrich_deadline = None
+    return
+
+
+def _step_enrich_inner(
+    client: OllamaClient,
+    transcript: str,
+    metadata: dict,
+    classification: Classification,
+    settings: Settings,
+    dry_run: bool,
+    state_dir,
+    out_path,
+    sidecar_path,
+) -> None:
+
     prompt_name = prompts.enrichment_prompt_name_for(
         classification.suggested_type_slug
     )
@@ -635,7 +750,7 @@ def _step_enrich(
             full_prompt,
             system=enrichment_system,
             priority="medium",
-            timeout=900.0,
+            timeout=_budget_timeout(),
         )
         rendered, retry_attempted, validation = _validate_and_maybe_retry(
             client=client,
@@ -705,7 +820,7 @@ def _step_enrich(
                 full_prompt,
                 system=enrichment_system,
                 priority="medium",
-                timeout=900.0,
+                timeout=_budget_timeout(),
             )
             per_chunk_outputs.append(result.raw_response)
 
@@ -814,7 +929,7 @@ def _validate_and_maybe_retry(
         full_prompt,
         system=retry_system,
         priority="medium",
-        timeout=900.0,
+        timeout=_budget_timeout(),
     )
     retry_validation = enrichment_validation.validate_headings(
         retry_result.raw_response, expected_headings,
@@ -949,7 +1064,7 @@ Locale: {settings.locale}
         full_prompt,
         system=merge_system,
         priority="medium",
-        timeout=900.0,
+        timeout=_budget_timeout(),
     )
     return result.raw_response
 
