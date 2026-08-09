@@ -4,7 +4,11 @@
 #
 # WHY THIS FILE EXISTS
 # The wiki-compiler / wiki-site images ship in the DMG pinned by digest in
-# install.sh (`image: ghcr.io/ostler-ai/ostler-<key>@sha256:...`). The image
+# install.sh (`image: ghcr.io/creativemachines-ai/ostler-<key>@sha256:...`).
+# (Namespace corrected 2026-08-10: this said `ostler-ai` long after the move to
+# `creativemachines-ai` landed. The data rows below and install.sh were always
+# right; only this comment was stale, and it reads as a reason to distrust the
+# CM044 release-images workflow -- which is in fact the customer path.) The image
 # metadata carries NO org.opencontainers.image.revision label and no CM044 sha
 # in its config/env, so the source commit an image was built from cannot be
 # read back from the registry. Without a recorded binding, a repin of the
