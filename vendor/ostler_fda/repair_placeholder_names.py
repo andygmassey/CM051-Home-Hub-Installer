@@ -32,17 +32,25 @@ A tier-1 name is an improvement, not a resolution: the domain gives you the
 company and the local-part usually gives surname-plus-initial, which beats a
 bare number, but it is still not the person's name.
 
-NOTHING IS DELETED
-==================
-A losing name becomes ``pwg:alternateName``. Taken from CM041 #109
-(``contact_syncer/name_election.py``), which reached the same ranking order
-independently and was right about this where an earlier draft of this module
-was wrong: **"Mum" is genuinely useful for matching, just not as the answer to
-"who is my wife".** Deleting it throws away real signal.
+A LOSING NAME IS DEMOTED, NOT DELETED -- WITH ONE EXCEPTION
+===========================================================
+A losing name becomes ``pwg:alternateName``, so it stays useful for matching.
+That makes this repair NON-DESTRUCTIVE, which is what takes the teeth out of
+the tie question below: a wrong election is a one-line correction, not a lost
+name.
 
-That also makes this repair NON-DESTRUCTIVE, which is what takes the teeth out
-of the tie question below -- a wrong election is a one-line correction, not a
-lost name.
+**The exception is a kinship word, which is DELETED (v1018-D659).** An
+``alternateName`` is offered to the assistant as another name this person goes
+by, so demoting "Mum" still lets it answer *"your mum is <wife>"*. Andy,
+2026-08-08: *"'Mum' for Alison is NOT - she is my WIFE and Connor's MUM, but
+not MY MUM (who was Sylvia Massey)."* His mother has died. Demotion does not
+solve the thing that made the name wrong; only removal does.
+
+I got this backwards earlier today. CM041 #109's module HEADER says a losing
+name is *"kept, because 'Mum' is genuinely useful for matching"* -- and its
+CODE drops kinship words six lines below, for the reason above. I cited the
+header. The predicate now lives in ``pwg_ingest`` and is shared with the
+writer, so there is one rule rather than three descriptions of one.
 
 WHAT IT WILL NOT DO
 ===================
@@ -63,7 +71,9 @@ SAFETY
 Dry run by default; ``--apply`` is required to write. Per node, ALL of:
 
   * every name is ranked by the SHIPPED tier function, not a local copy
-  * only STRICTLY-lower-tier names are deleted -- a tie is never resolved
+  * only STRICTLY-lower-tier names are demoted -- a tie is never resolved
+  * the ONLY name ever deleted is a kinship word, and never the last one
+    the node has
   * the provisional flag is cleared ONLY when the surviving name is tier 2
   * nothing else on the node is touched: no identifier, edge or fact
 
@@ -91,11 +101,13 @@ try:
     from .pwg_ingest import (
         _display_name_tier,
         _NAME_TIER_NAME,
+        _NAME_TIER_PLACEHOLDER,
     )
 except ImportError:  # running as a plain script, not a package member
     from pwg_ingest import (  # type: ignore
         _display_name_tier,
         _NAME_TIER_NAME,
+        _NAME_TIER_PLACEHOLDER,
     )
 
 NS = "https://pwg.dev/ontology#"
@@ -111,15 +123,28 @@ def _fold(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", value.lower())).strip()
 
 
-def decide(names: Sequence[str]) -> Tuple[str | None, List[str], bool, str]:
+def decide(
+    names: Sequence[str],
+) -> Tuple[str | None, List[str], List[str], bool, str]:
     """Pick the surviving name for one node.
 
-    Returns ``(keep, demote, clear_flag, verdict)`` -- the second element
-    is DEMOTED to alternateName, never deleted.
+    Returns ``(keep, demote, drop, clear_flag, verdict)``.
 
-    ``verdict`` is one of ``"single"``, ``"auto"``, ``"review"``. A
-    ``"review"`` verdict returns nothing to demote -- the node is reported
-    and left exactly as it is.
+    ``demote`` becomes ``pwg:alternateName`` -- kept, still useful for
+    matching. ``drop`` is DELETED outright, and the only thing that ever
+    lands there is a kinship word (v1018-D659): "Mum" as an alternateName
+    is still offered to the assistant as a name this person goes by, so
+    demoting it does not solve the problem that made it wrong.
+
+    ``verdict`` describes the ELECTION only -- ``"single"``, ``"auto"``,
+    ``"review"``. It is deliberately independent of ``drop``: removing a
+    kinship word is unambiguous whether or not the remaining names can be
+    ranked, so a ``"review"`` node still returns its drops.
+
+    The one exception is a node whose ONLY name is a kinship word.
+    Dropping it would leave a person with no name at all, and no surface
+    here has been measured against that. It goes to review untouched
+    rather than trading a known wrong name for an unmeasured empty one.
     """
     distinct: Dict[str, str] = {}
     for n in names:
@@ -127,10 +152,17 @@ def decide(names: Sequence[str]) -> Tuple[str | None, List[str], bool, str]:
         if f and f not in distinct:
             distinct[f] = n
     values = list(distinct.values())
+
+    drop = [v for v in values if _display_name_tier(v) < _NAME_TIER_PLACEHOLDER]
+    values = [v for v in values if v not in drop]
+    if drop and not values:
+        # Refusing every name it has would leave the node nameless.
+        return None, [], [], False, "review"
+
     if len(values) < 2:
         keep = values[0] if values else None
         clear = keep is not None and _display_name_tier(keep) >= _NAME_TIER_NAME
-        return keep, [], clear, "single"
+        return keep, [], drop, clear, "auto" if drop else "single"
 
     ranked = sorted(values, key=_display_name_tier, reverse=True)
     top = _display_name_tier(ranked[0])
@@ -138,11 +170,11 @@ def decide(names: Sequence[str]) -> Tuple[str | None, List[str], bool, str]:
     if len(tied) > 1:
         # Two names of equal standing. The rule cannot choose and this
         # module will not guess -- Andy 2026-08-10, "review list".
-        return None, [], False, "review"
+        return None, [], drop, False, "review"
 
     keep = ranked[0]
     demote = [v for v in values if v != keep]
-    return keep, demote, top >= _NAME_TIER_NAME, "auto"
+    return keep, demote, drop, top >= _NAME_TIER_NAME, "auto"
 
 
 # ── graph I/O ──────────────────────────────────────────────────────────
@@ -185,18 +217,24 @@ def main(argv=None) -> int:
     for r in rows:
         by_uri.setdefault(r["s"]["value"], []).append(r["v"]["value"])
 
-    auto: List[Tuple[str, str, List[str], bool]] = []
+    auto: List[Tuple[str, str | None, List[str], List[str], bool]] = []
     review: List[Tuple[str, List[str]]] = []
+    dropped_names = 0
     for uri, names in by_uri.items():
-        keep, demote, clear, verdict = decide(names)
-        if verdict == "auto":
-            auto.append((uri, keep, demote, clear))
-        elif verdict == "review":
+        keep, demote, drop, clear, verdict = decide(names)
+        # A drop is unambiguous even when the election is not, so a
+        # review node still gets its kinship word removed.
+        if verdict == "auto" or drop:
+            auto.append((uri, keep, demote, drop, clear))
+            dropped_names += len(drop)
+        if verdict == "review":
             review.append((uri, sorted(set(names))))
 
     print(f"person nodes            {len(by_uri)}")
-    print(f"electable automatically  {len(auto)}")
+    print(f"nodes to be written      {len(auto)}")
     print(f"needs a human            {len(review)}")
+    if dropped_names:
+        print(f"kinship names deleted    {dropped_names}  (v1018-D659)")
 
     if review:
         os.makedirs(os.path.dirname(args.review_out), exist_ok=True)
@@ -212,26 +250,45 @@ def main(argv=None) -> int:
         return 0
 
     written = 0
-    for uri, keep, demote, clear in auto:
+    for uri, keep, demote, drop, clear in auto:
         # Every losing name moves to alternateName in the SAME update, so at
         # no point does the graph hold fewer names than it started with.
         gone = [f'<{uri}> <{NS}displayName> "{_escape(d)}" .' for d in demote]
         gone += [f'<{uri}> <{SKOS}prefLabel> "{_escape(d)}" .' for d in demote]
         kept = [f'<{uri}> <{NS}alternateName> "{_escape(d)}" .' for d in demote]
+        # v1018-D659: a kinship word is removed from EVERY name predicate,
+        # alternateName included -- demoting it would leave the assistant
+        # able to answer "your mum is <wife>", which is the whole defect.
+        for d in drop:
+            gone.append(f'<{uri}> <{NS}displayName> "{_escape(d)}" .')
+            gone.append(f'<{uri}> <{SKOS}prefLabel> "{_escape(d)}" .')
+            gone.append(f'<{uri}> <{NS}alternateName> "{_escape(d)}" .')
         if clear:
             gone.append(f"<{uri}> <{NS}displayNameProvisional> ?f .")
         where = (
             f"  OPTIONAL {{ <{uri}> <{NS}displayNameProvisional> ?f }}\n"
             if clear else "  BIND(1 AS ?ignore)\n"
         )
+        if not gone:
+            continue
+        # Both halves in ONE update, so a reader never sees the node with
+        # a name deleted and its replacement not yet inserted. The INSERT
+        # is written inline rather than hoisted into a variable so that
+        # the atomicity check in tests/test_name_repair.sh can still see
+        # it -- and so can a person reading this.
+        #
+        # It is conditional because a node whose only change is a deleted
+        # kinship word demotes nothing, and an empty INSERT template is
+        # not a thing to rely on.
         _update(
             "DELETE {\n  " + "\n  ".join(gone) + "\n}\n"
-            "INSERT {\n  " + "\n  ".join(kept) + "\n}\n"
-            "WHERE {\n" + where + "}"
+            + (("INSERT {\n  " + "\n  ".join(kept) + "\n}\n") if kept else "")
+            + "WHERE {\n" + where + "}"
         )
         written += 1
-    print(f"\ndemoted on {written} node(s); {len(review)} left for review. "
-          f"No name was deleted.")
+    print(f"\nwrote {written} node(s); {len(review)} left for review. "
+          f"{dropped_names} kinship name(s) deleted; every other losing "
+          f"name was demoted, not lost.")
     return 0
 
 

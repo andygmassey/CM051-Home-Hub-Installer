@@ -11,6 +11,8 @@ quietly picks a winner deletes a correct name with no undo.
 """
 from __future__ import annotations
 
+import json
+import os
 import pathlib
 import re
 import sys
@@ -25,17 +27,20 @@ def load(repo: pathlib.Path):
     ing = (repo / "vendor/ostler_fda/pwg_ingest.py").read_text(encoding="utf-8")
     rep = (repo / "vendor/ostler_fda/repair_placeholder_names.py").read_text(encoding="utf-8")
 
-    consts = re.search(r"^_NAME_TIER_PLACEHOLDER = .*?^_NAME_TIER_NAME = \d+$", ing, re.S | re.M)
+    # The whole name rule in one slice -- kinship list, kinship
+    # predicates and tier constants. Taking it whole is what makes this
+    # gate test the SHIPPED rule rather than a restatement of it.
+    consts = re.search(r"^_KINSHIP_DEFAULT = .*?^_NAME_TIER_NAME = \d+$", ing, re.S | re.M)
     tier = re.search(r"^def _display_name_tier\(.*?(?=^def |\Z)", ing, re.S | re.M)
     fold = re.search(r"^def _fold\(.*?(?=^def |\Z)", rep, re.S | re.M)
     dec = re.search(r"^def decide\(.*?(?=^# ──|\Z)", rep, re.S | re.M)
-    for name, m in (("tier constants", consts), ("_display_name_tier", tier),
+    for name, m in (("the name-rule block", consts), ("_display_name_tier", tier),
                     ("_fold", fold), ("decide", dec)):
         if not m:
-            fail(f"{name} not found in the shipped source (v1018-D658)")
+            fail(f"{name} not found in the shipped source (v1018-D658/D659)")
 
-    ns: dict = {"re": re, "Dict": dict, "List": list, "Tuple": tuple,
-                "Sequence": list}
+    ns: dict = {"re": re, "os": os, "json": json, "Dict": dict, "List": list,
+                "Tuple": tuple, "Sequence": list}
     exec("from __future__ import annotations\n" + consts.group(0) + "\n"
          + tier.group(0) + "\n" + fold.group(0) + "\n" + dec.group(0), ns)
     return ns
@@ -50,20 +55,47 @@ def main(repo_str: str) -> int:
     MAIL, MAIL2 = "j.smith@company.com", "jane@other.co.uk"
     NAME, NAME2 = "Jane Smith", "Robert Chen"
 
+    KIN = "Mum"
+
     # --- the automatic cases -------------------------------------------
-    keep, drop, clear, verdict = decide([PHONE, NAME])
-    checks.append(("a real name beats a phone", keep == NAME and drop == [PHONE]))
-    checks.append(("...and the phone is returned for DEMOTION, not loss", drop == [PHONE]))
+    keep, demote, gone, clear, verdict = decide([PHONE, NAME])
+    checks.append(("a real name beats a phone", keep == NAME and demote == [PHONE]))
+    checks.append(("...and the phone is returned for DEMOTION, not loss",
+                   demote == [PHONE] and gone == []))
     checks.append(("...and clears the provisional flag", clear is True))
     checks.append(("...and is automatic", verdict == "auto"))
 
-    keep, drop, clear, verdict = decide([PHONE, MAIL])
-    checks.append(("an email beats a phone", keep == MAIL and drop == [PHONE]))
+    keep, demote, gone, clear, verdict = decide([PHONE, MAIL])
+    checks.append(("an email beats a phone", keep == MAIL and demote == [PHONE]))
     checks.append(("...and KEEPS the flag (improvement, not resolution)", clear is False))
 
-    keep, drop, clear, _ = decide([PHONE, MAIL, NAME])
-    checks.append(("a real name beats both, dropping both",
-                   keep == NAME and sorted(drop) == sorted([PHONE, MAIL]) and clear))
+    keep, demote, gone, clear, _ = decide([PHONE, MAIL, NAME])
+    checks.append(("a real name beats both, demoting both",
+                   keep == NAME and sorted(demote) == sorted([PHONE, MAIL]) and clear))
+
+    # --- v1018-D659: a kinship word is DELETED, never demoted -----------
+    # An alternateName is offered to the assistant as another name this
+    # person goes by, so demoting "Mum" onto Andy's wife still lets it
+    # answer "your mum is <wife>". His mother has died.
+    keep, demote, gone, clear, verdict = decide([KIN, NAME])
+    checks.append(("a kinship word never survives beside a real name", keep == NAME))
+    checks.append(("...it is DELETED, not demoted to alternateName",
+                   gone == [KIN] and demote == []))
+    checks.append(("...and there is work to do, so it is not 'single'",
+                   verdict == "auto"))
+
+    keep, demote, gone, clear, verdict = decide([KIN, PHONE])
+    checks.append(("a kinship word does not beat even a phone number",
+                   keep == PHONE and gone == [KIN]))
+    checks.append(("...and a surviving phone does NOT clear the flag", clear is False))
+
+    keep, demote, gone, clear, verdict = decide([KIN, NAME, NAME2])
+    checks.append(("a drop still happens when the election is unresolvable",
+                   verdict == "review" and gone == [KIN] and keep is None))
+
+    keep, demote, gone, clear, verdict = decide([KIN])
+    checks.append(("the LAST name is never deleted, even a kinship word",
+                   verdict == "review" and gone == [] and keep is None))
 
     # --- THE NEGATIVE, which is the whole point -------------------------
     for label, names in [
@@ -74,20 +106,21 @@ def main(repo_str: str) -> int:
          ["Bob", "Bob Chen"]),
         ("three-way tie is never auto-resolved", [NAME, NAME2, "Ada Lovelace"]),
     ]:
-        k, d, c, v = decide(names)
-        checks.append((label, v == "review" and d == [] and k is None and c is False))
+        k, d, g, c, v = decide(names)
+        checks.append((label, v == "review" and d == [] and g == []
+                       and k is None and c is False))
 
     # --- folding: same name written twice is not a conflict -------------
-    k, d, c, v = decide(["Jane Smith", "jane  smith"])
+    k, d, g, c, v = decide(["Jane Smith", "jane  smith"])
     checks.append(("case/space variants of one name collapse to 'single'", v == "single"))
-    checks.append(("...and drop nothing", d == []))
-    k, d, c, v = decide(["Jane Smith", "Jane Smith."])
+    checks.append(("...and demote nothing", d == []))
+    k, d, g, c, v = decide(["Jane Smith", "Jane Smith."])
     checks.append(("trailing punctuation is not a second name", v == "single"))
 
     # --- degenerate input ------------------------------------------------
-    checks.append(("no names at all is safe", decide([])[3] == "single"))
-    checks.append(("one name is 'single' and drops nothing", decide([NAME])[1] == []))
-    k, d, c, v = decide([PHONE])
+    checks.append(("no names at all is safe", decide([])[4] == "single"))
+    checks.append(("one name is 'single' and demotes nothing", decide([NAME])[1] == []))
+    k, d, g, c, v = decide([PHONE])
     checks.append(("a lone phone does NOT get its flag cleared", c is False))
 
     rc = 0
