@@ -160,16 +160,132 @@ fi
 # put them back after. Fail closed: if a declared file is present and cannot be
 # stashed, stop rather than proceed into a delete we cannot undo.
 _vendor_only_tsv="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/vendor/VENDOR_ONLY.tsv"
+_vo_root="$VLIB_REPO_ROOT/vendor"
+
+# TWO DEFECTS FIXED HERE, 2026-08-11, BOTH FOUND BY RUNNING THE THING.
+#
+# 1. THE PATH JOIN DOUBLED THE TREE NAME, SO THIS GUARD HAD NEVER FIRED.
+#    TSV paths are relative to vendor/ ("doctor/agent/daemon_cron.py"), and
+#    abs_vendor is ALREADY .../vendor/doctor, so the old
+#        _vo_src="$abs_vendor/$_vo_path"
+#    resolved to .../vendor/doctor/doctor/agent/daemon_cron.py, which does not
+#    exist. `[ -e ]` was therefore always false, every row was skipped,
+#    _vo_kept stayed 0, and the restore block never ran. The two doctor files
+#    it names survive only because nobody has run a full `sync_vendor.sh
+#    doctor` since it was written. A guard that cannot find its own subject is
+#    not a guard.
+#
+# 2. THE REGISTRY COULD SILENTLY MISS A FILE, AND DID.
+#    `cm041/assistant_api/subscription_gate.py` is vendor-only and install.sh
+#    imports it (`from subscription_gate import activate_first_month_free`, the
+#    30-day free Pro month). It was never registered, so a re-pin of
+#    cm041/assistant_api deleted it, and nothing downstream would have
+#    objected: git shows a clean commit and the DMG ships an installer whose
+#    import dangles.
+#
+#    So the registry is no longer TRUSTED to be complete. Vendor-only files are
+#    COMPUTED (present in the vendored tree, absent from the freshly
+#    materialised source) and any unregistered one is a HARD REFUSAL. You
+#    cannot forget a row, because forgetting stops the sync. On the very first
+#    run this found a second file I had missed by hand, test_vendor_import.sh,
+#    because my manual sweep looked only at *.py.
+#
+# EXCLUDED PATHS ARE NOT UNREGISTERED, THEY ARE ALREADY DECIDED.
+#
+# The first version of this check REFUSED on six files. Five of them match the
+# tree's own exclude globs -- cm041/assistant_api excludes "tests/" and
+# "test_vendor_import.sh" -- so they are absent from the materialised source BY
+# INSTRUCTION, not by accident. The exclude glob IS the recorded decision, and
+# demanding a second record of the same decision would make this guard fire on
+# every sync of every tree until someone silenced it. A guard that cries wolf
+# gets disabled, and then the one real finding goes with it.
+#
+# So: excluded files do NOT need a row. They are still DROPPED by the swap --
+# that is what an exclude glob means, and pretending otherwise would be the
+# same lie in the other direction -- but the drop is now ANNOUNCED rather than
+# silent. Only a file that is neither in the source nor covered by an exclude
+# glob is genuinely vendor-only, and that one must be registered. Exactly one
+# file in cm041/assistant_api qualifies: subscription_gate.py.
+_vo_excluded_globs="$(vlib_field "$TREE" exclude 2>/dev/null | tr -d '[]"' | tr ',' ' ')"
+_vo_is_excluded() {   # $1 = path relative to the vendored tree
+    local _p="$1" _g
+    for _g in $_vo_excluded_globs; do
+        [ -n "$_g" ] || continue
+        case "$_g" in
+            */) case "$_p" in "${_g}"*|*"/${_g}"*) return 0 ;; esac ;;
+            *)  case "$_p" in $_g|*"/$_g") return 0 ;; esac ;;
+        esac
+    done
+    return 1
+}
+
+_vo_unregistered=""
+_vo_preserve=""
+while IFS= read -r _f; do
+    [ -n "$_f" ] || continue
+    [ -e "$tmp/$_f" ] && continue                       # upstream has it -- not vendor-only
+    # Absent from source. It WILL be deleted by the swap either way, so it is
+    # preserved either way; the only question is whether it needed a decision.
+    _vo_preserve="${_vo_preserve}${_f}
+"
+    _vo_is_excluded "$_f" && continue                   # the exclude glob is the decision
+    _vo_rel_from_vendor="${abs_vendor#"$_vo_root"/}/$_f"
+    if [ -f "$_vendor_only_tsv" ] && grep -qF "$_vo_rel_from_vendor" "$_vendor_only_tsv"; then
+        continue
+    fi
+    _vo_unregistered="${_vo_unregistered}    ${_vo_rel_from_vendor}
+"
+done <<EOF
+$(cd "$abs_vendor" 2>/dev/null && find . -type f -not -path '*/__pycache__/*' | sed 's|^\./||')
+EOF
+
+# Announce what the swap is about to drop. Five vendored test files under an
+# excluded path went in the first run of this and nothing said a word; a
+# defensible deletion is still a deletion, and the operator should read it.
+if [ -n "$_vo_preserve" ]; then
+    _vo_drop_n="$(printf '%s' "$_vo_preserve" | grep -c . || true)"
+    if [ "${_vo_drop_n:-0}" -gt 0 ]; then
+        echo "  note: the swap drops ${_vo_drop_n} file(s) absent from source@${TO_SHA} (excluded paths, or restored below if registered):"
+        printf '%s' "$_vo_preserve" | sed 's/^/          /'
+    fi
+fi
+
+if [ -n "$_vo_unregistered" ]; then
+    cat >&2 <<REFUSE
+REFUSING TO SYNC $TREE.
+
+The swap is a wholesale replace, so any file with no upstream counterpart is
+DELETED. These files exist in the vendored tree and NOT in source@$TO_SHA, and
+they are not declared in vendor/VENDOR_ONLY.tsv:
+
+$_vo_unregistered
+Each one is either
+  (a) genuinely vendor-only  -> add a row to vendor/VENDOR_ONLY.tsv with the
+      reason and the retirement plan, then re-run; or
+  (b) upstream content this sync would legitimately drop -> say so in the
+      manifest note, then add the row anyway so the decision is recorded.
+
+Do NOT delete the row to make this pass. The one that started this was
+cm041/assistant_api/subscription_gate.py, which install.sh imports; deleting it
+ships an installer with a dangling import and a clean-looking commit.
+REFUSE
+    exit 1
+fi
+
 _vo_stash=""
 _vo_kept=0
 if [ -f "$_vendor_only_tsv" ]; then
     _vo_stash="$(mktemp -d)"
     while IFS=$'\t' read -r _vo_path _vo_repo _vo_why; do
         case "${_vo_path:-}" in ''|'#'*) continue ;; esac
-        _vo_src="$abs_vendor/$_vo_path"
-        [ -e "$_vo_src" ] || continue
-        mkdir -p "$_vo_stash/$(dirname "$_vo_path")"
-        cp -p "$_vo_src" "$_vo_stash/$_vo_path" || {
+        _vo_abs="$_vo_root/$_vo_path"
+        # Only touch files inside the tree being synced. The swap rm -rf's
+        # exactly abs_vendor, so a file outside it is neither at risk nor ours.
+        case "$_vo_abs" in "$abs_vendor"/*) ;; *) continue ;; esac
+        [ -e "$_vo_abs" ] || continue
+        _vo_rel="${_vo_abs#"$abs_vendor"/}"
+        mkdir -p "$_vo_stash/$(dirname "$_vo_rel")"
+        cp -p "$_vo_abs" "$_vo_stash/$_vo_rel" || {
             echo "ERROR: could not stash vendor-only file: $_vo_path" >&2
             echo "       Refusing to sync -- the swap would delete it unrecoverably." >&2
             rm -rf "$_vo_stash"; exit 1; }
