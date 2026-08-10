@@ -111,6 +111,149 @@ report_orphan() {
 }
 
 # ---------------------------------------------------------------------------
+# ANCESTRY IS NOT LANDING. DO NOT REINTRODUCE `merge-base --is-ancestor` AS
+# THE ANSWER TO "DID THIS BRANCH LAND".
+#
+# CM051 has allow_squash_merge=true. A squash merge creates a NEW commit, so
+# the branch head is never reachable from main -- for a FULLY MERGED branch,
+# forever. `ostler-ai/ostler-assistant` is rebase-merge-only, which has the
+# same consequence. Measured 2026-08-11 against three merged CM051 PRs:
+#
+#     PR #559  merged   main..head ahead_by = 1   -> ancestry says "unmerged"
+#     PR #556  merged   main..head ahead_by = 6   -> ancestry says "unmerged"
+#     PR #555  merged   main..head ahead_by = 1   -> ancestry says "unmerged"
+#
+# The old predicate therefore produced SIX false REDs on the v1.0.19 preflight
+# and `git fetch --prune` gave 15 before and 15 after: structural, not stale.
+# The only sanctioned way past this gate is cut-deferrals.yaml, so a
+# false-positive blocker asks the operator to attest to fifteen untrue things
+# -- while its own error text says "Do NOT bypass this gate. Bypassing it is
+# the habit it exists to stop." A broken blocker manufactures the habit it
+# forbids. That is worse than no gate.
+#
+# Ancestry survives ONLY as a cheap pre-filter: if the branch IS an ancestor
+# it certainly landed, so we can skip the network call. A non-ancestor proves
+# nothing and must be escalated to PR merge state.
+#
+# Returns: 0 = landed (reason on stdout)
+#          2 = an OPEN PR exists (the PR loop reports it; do not double-report)
+#          1 = not landed, or could not be determined -- FAIL CLOSED
+# ---------------------------------------------------------------------------
+branch_landed() {
+    local gh_repo="$1" path="$2" branch="$3" rev="$4" ship_sha="$5" tok="${6:-}"
+
+    # `rev` and `branch` are DIFFERENT THINGS and conflating them cost an hour.
+    #
+    # `branch` is the NAME GitHub knows ("fix/foo") -- what `gh pr list --head`
+    # needs. `rev` is something git can resolve HERE, which for a branch that
+    # exists only on the remote is "origin/fix/foo". Passing the bare name as
+    # the rev makes merge-base fail to resolve, which is indistinguishable from
+    # "not an ancestor", which escalates to a PR lookup, which for a branch
+    # pushed without a PR answers NONE -- a RED for work sitting on main.
+    #
+    # Measured while building this: four CM051 branches (fix/632-button-footer-
+    # baseline, fix/install-grep-c-arith-leak, fix/strings-emdash-gate-green,
+    # fix/wiki-pin-orphan-blob-lines-v1.0.3) are all ancestors of origin/main
+    # and all four went RED on my first draft. A rewrite of a blocking gate can
+    # introduce false positives just as easily as it removes them; that is what
+    # the "remote-only branch that IS an ancestor" self-test case is for.
+    if [[ -n "$rev" ]] && \
+       git -C "$path" rev-parse --verify --quiet "${rev}^{commit}" >/dev/null && \
+       git -C "$path" merge-base --is-ancestor "$rev" "$ship_sha"; then
+        printf 'commits are ancestors of the shipping ref\n'; return 0
+    fi
+
+    # No repo or no gh means we CANNOT answer. Say so and fail closed; do not
+    # let an unanswerable question read as "landed".
+    if [[ -z "$gh_repo" ]] || ! command -v gh >/dev/null 2>&1; then
+        return 1
+    fi
+
+    local js verdict num
+    # NO 2>/dev/null. A usage error, an auth failure and a genuinely empty
+    # result all look identical once stderr is discarded, and every one of
+    # those reads as "no PR" -- which here means RED, but on the next edit
+    # could just as easily mean GREEN. Fourth stderr-suppression incident of
+    # 2026-08-10/11; the rule is now: never suppress a probe's stderr.
+    if ! js="$(GH_TOKEN="$tok" gh pr list --repo "$gh_repo" --head "$branch" \
+                 --state all --limit 20 --json number,state,mergedAt 2>&1)"; then
+        printf '  [warn] gh pr list failed for %s#%s: %s\n' \
+            "$gh_repo" "$branch" "$(printf '%s' "$js" | head -1)" >&2
+        return 1
+    fi
+
+    verdict="$(printf '%s' "$js" | python3 -c '
+import json,sys
+try:
+    prs = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+merged = [p for p in prs if p.get("mergedAt")]
+if merged:
+    p = merged[0]; print("MERGED %s %s" % (p["number"], p["mergedAt"])); raise SystemExit
+op = [p for p in prs if p.get("state") == "OPEN"]
+if op:
+    print("OPEN %s" % op[0]["number"]); raise SystemExit
+if prs:
+    print("CLOSED %s" % prs[0]["number"]); raise SystemExit
+print("NONE")
+')" || { printf '  [warn] unparseable gh output for %s\n' "$branch" >&2; return 1; }
+
+    case "$verdict" in
+        MERGED*)
+            printf 'PR #%s merged %s\n' "$(awk '{print $2}' <<<"$verdict")" \
+                                        "$(awk '{print $3}' <<<"$verdict")"
+            return 0 ;;
+        OPEN*)
+            printf 'open PR #%s\n' "$(awk '{print $2}' <<<"$verdict")"
+            return 2 ;;
+        CLOSED*)
+            # A closed-unmerged PR is normally real orphaned work. The one
+            # honest exception is a REPLACEMENT merge: #542 was closed, and
+            # main carries 4467e49 "(replaces #542) (#543)". The content
+            # landed by another route, and the convention is machine-readable.
+            num="$(awk '{print $2}' <<<"$verdict")"
+            local hit
+            hit="$(git -C "$path" log --extended-regexp \
+                      --grep="replaces #${num}([^0-9]|\$)" \
+                      --format='%h %s' "$ship_sha" 2>/dev/null | head -1)"
+            if [[ -n "$hit" ]]; then
+                printf 'PR #%s closed but replaced on the shipping ref: %s\n' "$num" "$hit"
+                return 0
+            fi
+            return 1 ;;
+        *)
+            return 1 ;;
+    esac
+}
+
+# Report a branch UNLESS it is deferred, or it demonstrably landed, or an open
+# PR already covers it. Every outcome is PRINTED -- silence is the bug this
+# gate exists to stop, so "landed" is stated, not assumed.
+maybe_orphan_branch() {
+    local ref="$1" branch="$2" rev="$3" detail="$4" \
+          gh_repo="$5" path="$6" ship_sha="$7" tok="${8:-}"
+
+    if is_deferred "$ref"; then
+        local why; why="$(deferral_reason "$ref")"
+        note "DEFERRED  ${ref} -- ${why:-no reason recorded}"
+        return
+    fi
+
+    local why rc
+    why="$(branch_landed "$gh_repo" "$path" "$branch" "$rev" "$ship_sha" "$tok")"; rc=$?
+    case "$rc" in
+        0) ok "${ref}: landed -- ${why}" ; return ;;
+        2) ok "${ref}: ${why} -- reported once, by the PR check below" ; return ;;
+    esac
+
+    bad "${ref}"
+    printf '         %s\n' "$detail" >&2
+    printf '         Merge it, or record the deferral in %s\n' \
+        "$(basename "$DEFERRALS_FILE")" >&2
+}
+
+# ---------------------------------------------------------------------------
 # 1 + 2 + 3: per-repo branch and PR checks.
 #   $1 repo label   $2 checkout path   $3 shipping ref   $4 gh "owner/name" ("" to skip PRs)
 # ---------------------------------------------------------------------------
@@ -154,6 +297,11 @@ check_repo() {
     checked=$((checked + 1))
     say ""
     say "-- ${label} (${ship_ref})"
+    # Per-repo, because the closing "nothing orphaned" line used to read the
+    # GLOBAL counter: once ANY repo went red, no later clean repo could ever
+    # say it was clean. Cosmetic, but it is the same class of bug as the rest
+    # of this file -- a status line that does not describe what it names.
+    local red_at_entry="$red"
 
     # Per-repo credentials. The cut spans TWO GitHub accounts (andygmassey
     # owns CM0xx, ostler-ai owns the daemon), and `gh auth switch` is GLOBAL --
@@ -192,16 +340,21 @@ check_repo() {
     }
 
     # -- 3. LOCAL-ONLY branches (the #632 class) ----------------------------
+    #
+    # "No remote-tracking ref" does NOT mean "never pushed". Every repo here
+    # has delete_branch_on_merge, so the remote branch is REMOVED at merge and
+    # the local one is left behind. Four of the six false REDs on 2026-08-11
+    # were exactly this: merged work described as "One rm -rf from gone".
+    # branch_landed() settles it against PR merge state.
     local b
     while IFS= read -r b; do
         [[ -z "$b" ]] && continue
         [[ "$b" == "HEAD" ]] && continue
         if ! git -C "$path" show-ref -q --verify "refs/remotes/origin/$b" 2>/dev/null; then
-            if ! git -C "$path" merge-base --is-ancestor "$b" "$ship_sha" 2>/dev/null; then
-                local n; n="$(git -C "$path" rev-list --count "${ship_sha}..$b" 2>/dev/null || echo '?')"
-                report_orphan "${label}:${b}" \
-                    "LOCAL-ONLY branch, never pushed, ${n} commit(s) not in ${ship_ref}. One rm -rf from gone."
-            fi
+            local n; n="$(git -C "$path" rev-list --count "${ship_sha}..$b" 2>/dev/null || echo '?')"
+            maybe_orphan_branch "${label}:${b}" "$b" "$b" \
+                "LOCAL-ONLY branch, no remote ref and no merged PR, ${n} commit(s) not in ${ship_ref}. One rm -rf from gone." \
+                "$gh_repo" "$path" "$ship_sha" "$_tok"
         fi
     done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null)
 
@@ -214,11 +367,10 @@ check_repo() {
             fix/*|hotfix/*|feat/*|feature/*) ;;
             *) continue ;;
         esac
-        if ! git -C "$path" merge-base --is-ancestor "$b" "$ship_sha" 2>/dev/null; then
-            local n; n="$(git -C "$path" rev-list --count "${ship_sha}..$b" 2>/dev/null || echo '?')"
-            report_orphan "${label}:${short}" \
-                "unmerged branch, ${n} commit(s) not in ${ship_ref}"
-        fi
+        local n; n="$(git -C "$path" rev-list --count "${ship_sha}..$b" 2>/dev/null || echo '?')"
+        maybe_orphan_branch "${label}:${short}" "$short" "$b" \
+            "unmerged branch, ${n} commit(s) not in ${ship_ref}" \
+            "$gh_repo" "$path" "$ship_sha" "$_tok"
     done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/remotes/origin 2>/dev/null)
 
     # -- 1. OPEN PRs, drafts included ---------------------------------------
@@ -259,7 +411,7 @@ for p in json.load(sys.stdin):
             "uncommitted or untracked changes in the cut checkout"
     fi
 
-    [[ "$red" -eq 0 ]] && ok "${label}: nothing orphaned"
+    [[ "$red" -eq "$red_at_entry" ]] && ok "${label}: nothing orphaned"
 }
 
 # ---------------------------------------------------------------------------
