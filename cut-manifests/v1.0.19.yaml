@@ -1,0 +1,220 @@
+# cut-manifests/v1.0.19.yaml
+# ============================================================================
+# Point-in-time contract of what the v1.0.19 DMG cut MUST contain.
+#
+# Derived from v1.0.18.yaml. NOTHING was dropped or weakened: all 13 v1.0.18
+# assertions are carried forward, ids renamed v1018- -> v1019-. TWO have
+# updated expected values -- the wiki-site and wiki-compiler digests, re-pinned
+# to CM044 v0.1.8 (tag commit 301ee165) which carries D016, D014a, D010, D004.
+#
+# v1.0.18.yaml is deliberately NOT edited. It is the contract for a cut that
+# shipped; rewriting its digest patterns to name images that cut never
+# contained would falsify the record, and the point of this gate family is
+# that the record is evidence.
+#
+# WHY v1.0.18 AND NOT A v1.0.17 RE-CUT  (v1.0.18's rationale, kept as history)
+# The v1.0.17 DMG exists, is signed and notarised (sha 48947b5b), and is
+# INSTALLED on .208 -- Archie box-walked it. This artefact is materially
+# different: MUST-B (LaunchAgent teardown), MUST-C (watermark claw-back),
+# MUST-D (Doctor reports dispatch failures), the iMessage 45d->1825d ladder,
+# and newer wiki images. Shipping it as 1.0.17 build 1700 would put a
+# different product behind an identical version+build, on a machine that
+# already runs that version -- the exact defect v1.0.17's own cut.env records
+# ("a customer upgrading from 1.0.13.2 would have got a new product with an
+# identical build number"). 1800 follows the scheme and is strictly greater
+# than 1700. Andy's call, taken 2026-08-08.
+#
+# NOTE ON THE WIKI DIGESTS. v1.0.18.yaml named 0eed755f/445952c6. install.sh
+# has since been re-pinned to 3f8e01f8/099975d3 (CM044 v0.1.8, tag commit
+# 301ee165). The v1.0.18 rows were NOT edited to match -- editing a gate to
+# pass a cut is the habit these files exist to stop. A new cut gets a new
+# manifest. The digests below were
+# content-verified at cut time, not merely pulled: extra.css 150,360 bytes /
+# 414 .pw-doc rules, byte-identical to CM044 git, and the compiler image's
+# dashboard.py byte-identical too, with three positive controls firing
+# (tests/test_pinned_wiki_image_has_design_system.sh).
+#
+# Format: see cut-manifests/README.md.
+# ============================================================================
+
+version: v1.0.19
+description: |
+  v1.0.19 cut contract. Supersedes v1.0.18 (whose contract is retained
+  unedited as the record of that cut). Consumes permanent.yaml plus
+  these entries. Fails the cut on any RED before codesign.
+
+  What this cut is FOR, and therefore what must be proved at the artefact:
+
+    - MUST-D: Doctor reports dispatch FAILURES, not only silence. On .208
+      Doctor said "Everything looks healthy. Nice one." at 16:49 beside a 37KB
+      error log carrying a fresh rc=1 from 16:43. It read that log for exactly
+      one signature and had no rule for anything else.
+
+    - The iMessage backfill ladder: 45 days on first ingest, widening to the
+      full 5 years across the settle-in period. Andy's call: "45 days to start
+      with. But need to pull the longer tail over the longer settle in period."
+
+    - BOTH of the above were merged to HR015 main and NEITHER would have
+      reached the DMG. The customer-facing Doctor and ostler_fda ship from
+      CM051's VENDOR trees (gui/project.yml:493 bundles vendor/doctor/agent;
+      install.sh:11972 prefers that bundled copy over the git clone). The
+      vendored extract_all.py still carried the OLD flat 365d default and
+      backfill_ladder.py was absent entirely, so install.sh's :=45 would have
+      given a 45-day window that NEVER WIDENED. The assertions below therefore
+      target the BUILT app, never the tree the fix was merged into.
+
+entries:
+
+  # --------------------------------------------------------------------------
+  # Installer version stamp -- DMG-boundary assertion.
+  # --------------------------------------------------------------------------
+  - id: v1019-installer-app-version-stamp
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.19
+    incident: v1.0.11 AND v1.0.12 both shipped an installer stamping "1.0.10"
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleShortVersionString"
+      value: "1.0.19"
+
+  # --------------------------------------------------------------------------
+  # Build number -- the failure the consistency gate structurally cannot see.
+  # --------------------------------------------------------------------------
+  # A gate that checks AGREEMENT is blind to a value that is uniformly wrong.
+  # 1800 is strictly greater than 1700, so the .208 box (which runs 1.0.17
+  # build 1700) sees a genuine upgrade rather than an identical build number.
+  - id: v1019-installer-app-build-number
+    title: built OstlerInstaller.app CFBundleVersion must equal 1900
+    incident: v1.0.16 bumped 1.0.13.2 -> 1.0.16 while leaving CFBundleVersion at 1302
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: "Contents/Info.plist"
+      key: "CFBundleVersion"
+      value: "1900"
+
+  # ==========================================================================
+  # NEW FOR v1.0.18 -- the fixes this cut is for, proved at the artefact.
+  # ==========================================================================
+
+  # MUST-D, in the copy install.sh actually bundles. Asserted on the trailing
+  # comma of the ALL_RULES entry, NOT the def: a rule that is defined but not
+  # registered ships dark, which is the exact failure class this cut chased.
+  - id: v1019-doctor-dispatch-failure-rule-bundled
+    title: bundled doctor must have check_conversation_dispatch_failures REGISTERED in ALL_RULES
+    incident: "Doctor reported healthy beside a 37KB error log with a fresh rc=1 (.208 box-walk 2026-08-08)"
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/doctor/agent/diagnostic_rules.py"
+      pattern: "check_conversation_dispatch_failures,"
+      must_match: true
+
+  # The same rule in the Hub's embedded upgrade payload. Both copies ship;
+  # asserting only one would leave the other free to go stale silently.
+  - id: v1019-doctor-dispatch-failure-rule-in-payload
+    title: upgrade-payload doctor must ALSO have the dispatch-failure rule registered
+    incident: "two doctor copies ship (installer Resources + Hub upgrade payload); a gate on one is blind to the other"
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/Ostler.app/Contents/Resources/ostler-payload/services/doctor/diagnostic_rules.py"
+      pattern: "check_conversation_dispatch_failures,"
+      must_match: true
+
+  # The ladder MODULE must reach the artefact.
+  - id: v1019-imessage-backfill-ladder-bundled
+    title: ostler_fda/backfill_ladder.py must ship inside the installer app
+    incident: "the module was merged to HR015 main and was absent from CM051's vendor tree entirely"
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/ostler_fda/backfill_ladder.py"
+
+  # ...and the extractor must CALL it. A vendored module nothing calls is the
+  # ships-dark shape: install.sh's :=45 would still give a first ingest, but
+  # the window would never widen, so the "longer tail" half never happens.
+  - id: v1019-imessage-backfill-ladder-wired
+    title: shipped extract_all.py must CALL resolve_backfill_days, not the old flat default
+    incident: "vendored extract_all.py:233 still had int(os.environ.get(..., \"365\")) after the fix merged upstream"
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/ostler_fda/extract_all.py"
+      pattern: "resolve_backfill_days"
+      must_match: true
+
+  # ==========================================================================
+  # CARRIED FORWARD FROM v1.0.17 -- unchanged, same daemon, same fixes.
+  # ==========================================================================
+
+  - id: v1019-doctor-oracle-fallback-in-shipped-payload
+    title: shipped doctor proxy.py must carry the oracle-absent fallback
+    incident: "_local_fallback_allowed existed in no commit on no branch; the capability gate read GREEN on an uncommitted working-tree edit"
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/Ostler.app/Contents/Resources/ostler-payload/services/doctor/proxy.py"
+      pattern: "_local_fallback_allowed"
+      must_match: true
+
+  - id: v1019-doctor-oracle-fallback-kill-switch
+    title: shipped doctor proxy.py must carry the OSTLER_DOCTOR_ORACLE_FALLBACK kill switch
+    incident: review condition on HR015 #292 -- an auth-widening path must be switchable off
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/Ostler.app/Contents/Resources/ostler-payload/services/doctor/proxy.py"
+      pattern: "OSTLER_DOCTOR_ORACLE_FALLBACK"
+      must_match: true
+
+  # Daemon identity. UNCHANGED for this cut: hub-v0.4.54 @ 782a6195 stays
+  # pinned. The daemon was deliberately NOT rebuilt -- rebuilding reopens the
+  # lineage question (#648) mid-cut, which is the hub-v0.4.48->.49 shape.
+  - id: v1019-daemon-frontend-commit-is-reboot-fix
+    title: shipped daemon must embed the 782a6195 build (gateway binds before Colima)
+    incident: v1.0.14.1 shipped from a tree 161 commits behind main and passed 39/40 gates
+    proof:
+      kind: grep_in_artefact
+      target: installer-app
+      path: "Contents/Resources/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+      pattern: "DAEMON_FRONTEND_COMMIT=782a6195ca0747f0dcaba043a20d3c50e491d8cd"
+      must_match: true
+
+  - id: v1019-wrapper-frontend-commit-matches-daemon
+    title: shipped Hub wrapper must embed the SAME build as the daemon (782a6195)
+    incident: v1.0.13 #225 stale wrapper -- all gates green, customer UI wrong
+    proof:
+      kind: grep_in_artefact
+      target: daemon-app
+      path: "Contents/MacOS/ostler-hub"
+      pattern: "WRAPPER_FRONTEND_COMMIT=782a6195ca0747f0dcaba043a20d3c50e491d8cd"
+      must_match: true
+
+  - id: v1019-settling-shell-writer-bundled
+    title: lib/settling_progress.sh must ship inside the installer app
+    incident: "#288 shipped a settling writer with 17 tests and zero production callers"
+    proof:
+      kind: file_exists_in_artefact
+      target: installer-app
+      path: "Contents/Resources/lib/settling_progress.sh"
+
+  # --------------------------------------------------------------------------
+  # The wiki images the DMG points at must be the ones that were verified.
+  # --------------------------------------------------------------------------
+  # RE-PINNED since v1.0.17.yaml (which named d4436f75/dbb355bc). Content
+  # verified at cut time, not just pulled -- provenance is not content.
+  - id: v1019-wiki-site-digest-pinned
+    title: install.sh must pin the verified wiki-site digest
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-site@sha256:3f8e01f8952d35102eb1071ca85a70922d72e3bfc77e7d904291e18349d873cd"
+      must_match: true
+
+  - id: v1019-wiki-compiler-digest-pinned
+    title: install.sh must pin the verified wiki-compiler digest
+    proof:
+      kind: grep_in_installer
+      pattern: "ostler-wiki-compiler@sha256:099975d30a11344f84768c3768e52479e3eea5540c7f0b3d2127992f4ce64408"
+      must_match: true
