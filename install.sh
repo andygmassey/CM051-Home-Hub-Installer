@@ -9426,7 +9426,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:0eed755f6fc2f603587e0cb50b8cc81bcbac4f0e5bdaa5977148733d59dc8567
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:07b472f7b45a263c80a56f6de3ab2f23ca09594d9cce87df6cd56519a728355e
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -9461,7 +9461,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:445952c69fc86738609c191cfd5b419496c62729f5ef8f04e2e6af80fb145fcd
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:14b5b4529a8e36d14b1fa84277cbbb4fd0eaa8779e85187eb3ff5f2901ce48f1
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -15885,8 +15885,85 @@ if name:
                     # so plainly -- the gate already refuses Funnel
                     # traffic, but a surprised customer deserves to
                     # know their machine has a public front door.
-                    if "$TS_CLI" --socket="$TS_SOCK" funnel status 2>/dev/null | grep -qi "https://"; then
-                        warn "$MSG_WARN_WIKI_TAILNET_FUNNEL_ON"
+                    #
+                    # v1018-D001. The old predicate was
+                    #     funnel status | grep -qi "https://"
+                    # and it fired on the SUCCESS path. `funnel status`
+                    # and `serve status` are the same upstream function:
+                    # both subcommands register `runServeStatus` in
+                    # cmd/tailscale/cli/serve_legacy.go, and there is no
+                    # funnel-only filter. A tailnet-private serve prints
+                    #     https://<host> (tailnet only)
+                    # so every install that successfully published the
+                    # wiki over HTTPS on the tailnet -- the happy path,
+                    # two lines above -- then told the customer their
+                    # machine had a public front door. Confirmed on the
+                    # shipped v1.0.18 box 2026-08-09: both commands emit
+                    # byte-identical output reading "(tailnet only)".
+                    #
+                    # `AllowFunnel` is the real predicate. `tailscale
+                    # serve` sets it false for the port it configures,
+                    # `tailscale funnel` sets it true, and the key is
+                    # absent entirely when nothing is funnelled (that is
+                    # what the v1.0.18 box reports today). Foreground
+                    # sessions carry their own nested ServeConfig, so
+                    # recurse rather than reading the top level only.
+                    #
+                    # Those two locations are the COMPLETE set, and that
+                    # is upstream's answer rather than an inference from
+                    # one sample. `ipn.ServeConfig` (ipn/serve.go) has
+                    # exactly one funnel field, `AllowFunnel`, written
+                    # only by `SetFunnel`; funnel is not supported for
+                    # `Services` at all. Upstream's own predicates say
+                    # the same: `HasAllowFunnel` and `FindFunnel` check
+                    # the top-level `AllowFunnel` and then each
+                    # `Foreground` config's `AllowFunnel`, and nothing
+                    # else. Under-reporting here would mean silence on a
+                    # genuinely public box, so it is worth being sure.
+                    #
+                    # No prompt and no mutation here. This runs deep in
+                    # Phase 3 where a blocking question stalls a
+                    # walk-away install (see the Mail history-window
+                    # note in Phase 2, hoisted for exactly that reason),
+                    # and neither Tailscale verb does what it looks
+                    # like: `funnel reset` is SetServeConfig(new(...)),
+                    # which wipes OUR serve config and kills the wiki
+                    # URL, and `funnel <port> off` removes the web
+                    # handler while carrying an upstream
+                    # "TODO: remove funnel" -- it never clears the bit.
+                    #
+                    # The BEGIN/END markers are load-bearing:
+                    # tests/test_wiki_tailnet_gate.sh extracts this exact
+                    # block and runs it against on/off fixtures.
+                    # >>> OSTLER_FUNNEL_DETECT_BEGIN
+                    OSTLER_FUNNEL_PORTS="$("$TS_CLI" --socket="$TS_SOCK" funnel status --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+
+def collect(cfg, out):
+    if not isinstance(cfg, dict):
+        return
+    allow = cfg.get("AllowFunnel")
+    if isinstance(allow, dict):
+        for hostport, allowed in allow.items():
+            if allowed:
+                out.append(str(hostport))
+    fg = cfg.get("Foreground")
+    if isinstance(fg, dict):
+        for nested in fg.values():
+            collect(nested, out)
+
+ports = []
+collect(d, ports)
+if ports:
+    print(", ".join(sorted(set(ports))))
+' 2>/dev/null || true)"
+                    # <<< OSTLER_FUNNEL_DETECT_END
+                    if [[ -n "${OSTLER_FUNNEL_PORTS:-}" ]]; then
+                        warn "$(printf "$MSG_WARN_WIKI_TAILNET_FUNNEL_ON" "$OSTLER_FUNNEL_PORTS")"
                     fi
                 fi
             else

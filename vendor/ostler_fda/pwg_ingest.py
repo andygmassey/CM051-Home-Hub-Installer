@@ -97,6 +97,142 @@ def _wiki_slug(name: str) -> str:
 # ── Shared utilities (same patterns as contact_syncer) ────────────
 
 
+# v1018-D658. Andy's ruling 2026-08-10: a displayName is RANKED and
+# overwrites go UPWARD ONLY.
+#
+#   tier 0  "+852 1234 5678"       replaces nothing
+#   tier 1  "j.smith@company.com"  replaces tier 0
+#   tier 2  "Jane Smith"           replaces tier 0 or 1
+#
+# His reasoning: a phone number is "totally indecipherable to a human",
+# where an email gives you the company from the domain and usually a
+# surname-plus-initial from the local-part. So an email IS worth writing
+# over a phone -- but it is an IMPROVEMENT, not a RESOLUTION, and
+# `displayNameProvisional` therefore STAYS SET at tier 1, clearing only
+# at tier 2. The earlier proposal ("only overwrite with a real human
+# name") was rejected for leaving a phone number on screen when a
+# strictly better email was available.
+#
+# This also dissolves "which SOURCES may overwrite a name?": the answer
+# is per-VALUE-SHAPE, so calendar, photos and mail-contacts all go
+# through the same door and the tier decides. No per-source allowlist to
+# drift out of date.
+# v1018-D659. A kinship word is a RELATIONSHIP, not a name -- and the
+# relationship it records is almost never the account owner's.
+#
+# A label on a contact card is PERSPECTIVAL: it says how SOMEBODY refers
+# to this person, and on a shared address book that somebody is usually
+# not the account owner -- a card filed by one household member carries
+# THEIR relationships, not the owner's. Stored as a name it is offered to
+# the assistant as "another name this person goes by", so the assistant
+# will assert a parent, sibling or spouse the user does not have. The
+# worst case is not a cosmetic one: told that a living contact is the
+# user's parent, it contradicts a bereavement the user never has to
+# explain to it. Product-side this is task #298.
+#
+# So a kinship word is REFUSED outright: never a displayName, never an
+# alternateName, and never grounds to clear the provisional flag. Only
+# the BARE word goes -- "Auntie Emma" and "Granny Ritchie" carry a real
+# name and are kept, because a false positive here erases a real
+# person's name, which is worse than keeping an odd alias.
+#
+# Same rule, same env contract (OSTLER_KINSHIP_WORDS_FILE) as
+# cm041.contact_syncer.relationship_labels, deliberately, so the two
+# lists can be collapsed into one later instead of drifting -- the drift
+# class that produced most of this cut. Not imported: ostler_fda ships
+# independently of cm041 and must not take a hard import on it (the same
+# reason stated on _is_provisional_display_name below).
+_KINSHIP_DEFAULT = frozenset({
+    "mum", "mummy", "mom", "mommy", "mother", "ma", "mam", "mama",
+    "dad", "daddy", "father", "pa", "papa", "pop",
+    "nan", "nana", "nanny", "gran", "granny", "grandma", "grandmother",
+    "grandad", "granddad", "grandpa", "grandfather", "gramps",
+    "bro", "brother", "sis", "sister", "auntie", "aunty", "aunt", "uncle",
+    "cousin", "nephew", "niece", "godmother", "godfather", "godson",
+    "goddaughter", "stepmum", "stepmom", "stepdad", "stepfather",
+    "stepmother", "stepbrother", "stepsister",
+    "hubby", "hubbie", "husband", "wife", "wifey", "partner", "spouse",
+    "other half", "missus", "fiance", "fiancee",
+    "son", "daughter", "kid", "boy", "girl", "bairn",
+    "home", "house", "work", "office", "landline",
+})
+_KINSHIP_QUALIFIERS = frozenset({"my", "our", "the", "big", "little", "wee"})
+
+
+def _kinship_words() -> frozenset:
+    """The refusal list, overridable as locale data.
+
+    Read on every call rather than cached at import: a customer's locale
+    file is written during install, and this module is imported by
+    long-lived ingest processes that would otherwise hold a list from
+    before it existed. The cost is a stat per name and the list is small.
+    """
+    path = os.environ.get("OSTLER_KINSHIP_WORDS_FILE")
+    if not path:
+        return _KINSHIP_DEFAULT
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            words = {str(w).strip().lower() for w in data if str(w).strip()}
+            if words:
+                return frozenset(words)
+    except (OSError, ValueError):
+        pass
+    # A malformed or unreadable locale file must NEVER open the gate --
+    # failing back to English refuses less than intended but never more.
+    return _KINSHIP_DEFAULT
+
+
+def _is_relationship_label(value: str) -> bool:
+    """True when this label is a kinship/household term, not a name.
+
+    Matches the WHOLE label only. "Mum" is a relationship; "Mum Zhang" is
+    plausibly somebody's actual name and is left alone.
+    """
+    n = re.sub(r"[^\w\s]", " ", (value or "").strip().lower(), flags=re.UNICODE)
+    n = " ".join(n.split())
+    if not n:
+        return False
+    words = _kinship_words()
+    if n in words:
+        return True
+    # "my mum", "our nan", "big sis" -- a single qualifier in front.
+    parts = n.split()
+    return (
+        len(parts) == 2
+        and parts[0] in _KINSHIP_QUALIFIERS
+        and parts[1] in words
+    )
+
+
+_NAME_TIER_REFUSED = -1
+_NAME_TIER_PLACEHOLDER = 0
+_NAME_TIER_HANDLE = 1
+_NAME_TIER_NAME = 2
+
+
+def _display_name_tier(value: str) -> int:
+    """Rank a candidate displayName. See the tier table above."""
+    if not value:
+        return _NAME_TIER_PLACEHOLDER
+    v = value.strip()
+    if not v:
+        return _NAME_TIER_PLACEHOLDER
+    if "@" in v and "." in v.split("@", 1)[1]:
+        return _NAME_TIER_HANDLE
+    digits = sum(c.isdigit() for c in v)
+    phoneish = all(c in "+()-. \t0123456789" for c in v)
+    if phoneish and digits >= 5:
+        return _NAME_TIER_PLACEHOLDER
+    # v1018-D659. Checked LAST, and only against something already
+    # name-shaped: a kinship word outranks nothing, so it must not be
+    # allowed to reach tier 2 where it would clear the provisional flag.
+    if _is_relationship_label(v):
+        return _NAME_TIER_REFUSED
+    return _NAME_TIER_NAME
+
+
 def _is_provisional_display_name(value: str) -> bool:
     """True when ``value`` is a raw phone/handle placeholder, not a name.
 
@@ -111,17 +247,10 @@ def _is_provisional_display_name(value: str) -> bool:
     (>= 5 digits, phone-shaped) but is kept local: ostler_fda ships
     independently of cm041 and must not take a hard import on it.
     """
-    if not value:
-        return True
-    v = value.strip()
-    if not v:
-        return True
-    if "@" in v and "." in v.split("@", 1)[1]:
-        # A bare email used as a name is also a placeholder, not a name.
-        return True
-    digits = sum(c.isdigit() for c in v)
-    phoneish = all(c in "+()-. \t0123456789" for c in v)
-    return phoneish and digits >= 5
+    # v1018-D658: expressed via the tier so the two predicates cannot
+    # drift apart. "Provisional" is exactly "not yet a real human name",
+    # which covers BOTH the phone placeholder and the email stand-in.
+    return _display_name_tier(value) < _NAME_TIER_NAME
 
 def _sparql_update(sparql: str) -> None:
     """Execute a SPARQL UPDATE against Oxigraph."""
@@ -364,6 +493,12 @@ def ingest_imessage(fda_dir: Path) -> dict:
                     _sparql_update(sparql)
                     people_enriched += 1
 
+            # v1018-D658: runs for NEW and EXISTING alike. Every name write
+            # above sits inside the not-exists guard, so an existing person's
+            # placeholder was never revisited by any source. Upward-only -- a
+            # same-tier or lower value is a no-op.
+            _upsert_display_name(uri, participant)
+
             # Update last_contact if this conversation is more recent
             if last_msg and msg_count > 0:
                 _update_last_contact(uri, last_msg, "imessage")
@@ -480,6 +615,77 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
         _sparql_update(sparql)
     except Exception as e:
         logger.debug("Could not update last_contact: %s", e)
+
+
+def _upsert_display_name(person_uri: str, value: str) -> None:
+    """Write ``value`` as displayName only if it OUTRANKS what is stored.
+
+    v1018-D658. EVERY displayName write in this module sits inside an
+    ``if not _person_exists(uri)`` branch, so a name is written once at
+    creation and never revisited. That is the whole defect: ingest marks
+    a raw handle `displayNameProvisional`, meaning "replace me when a real
+    name arrives"; a real name later arrives from another source; nothing
+    retracts anything, and the node accumulates both. 43 person nodes on
+    the founder box carry two names and 5 wiki pages show one person's
+    identity on another person's page.
+
+    Upward-only, per the tier table above. tier 2 replaces anything still
+    provisional and CLEARS the flag; tier 1 replaces a phone placeholder
+    only -- never another email, never a real name -- and KEEPS the flag;
+    tier 0 never overwrites.
+
+    One atomic DELETE-INSERT-WHERE, the same idiom as
+    ``_update_last_contact``. If the guard does not hold the WHERE yields
+    nothing and the node is untouched, flag included -- which is correct:
+    no upgrade means no change.
+
+    The tier-1 guard tests the STORED value's shape (``!CONTAINS(?old,
+    "@")``) rather than trusting the flag, because tier 0 and tier 1 are
+    both flagged and the flag cannot tell them apart.
+    """
+    tier = _display_name_tier(value)
+    if tier < _NAME_TIER_PLACEHOLDER:
+        # v1018-D659: refused outright. Not a weaker write, NO write --
+        # a kinship word must not become a name, must not displace one,
+        # and must not clear the provisional flag. Returning here rather
+        # than emitting a never-satisfied guard keeps the refusal legible
+        # in the log instead of hiding it inside a SPARQL FILTER.
+        logger.debug(
+            "Refused %r as a displayName for %s: it is a relationship, "
+            "not a name (v1018-D659)", value, person_uri,
+        )
+        return
+    if tier == _NAME_TIER_PLACEHOLDER:
+        guard = "!BOUND(?old)"
+    elif tier == _NAME_TIER_HANDLE:
+        guard = '!BOUND(?old) || (BOUND(?prov) && !CONTAINS(STR(?old), "@"))'
+    else:
+        guard = "!BOUND(?old) || BOUND(?prov)"
+
+    keep_flag = (
+        f'\n  <{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean .'
+        if tier < _NAME_TIER_NAME
+        else ""
+    )
+    try:
+        _sparql_update(
+            "PREFIX pwg: <https://pwg.dev/ontology#>\n"
+            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+            "DELETE {\n"
+            f"  <{person_uri}> pwg:displayName ?old .\n"
+            f"  <{person_uri}> pwg:displayNameProvisional ?prov .\n"
+            "}\n"
+            "INSERT {\n"
+            f'  <{person_uri}> pwg:displayName "{_escape(value)}" .{keep_flag}\n'
+            "}\n"
+            "WHERE {\n"
+            f"  OPTIONAL {{ <{person_uri}> pwg:displayName ?old }}\n"
+            f"  OPTIONAL {{ <{person_uri}> pwg:displayNameProvisional ?prov }}\n"
+            f"  FILTER ({guard})\n"
+            "}"
+        )
+    except Exception as e:  # a name upgrade must never break an ingest
+        logger.debug("Could not upsert displayName for %s: %s", person_uri, e)
 
 
 # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
@@ -660,6 +866,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                     _sparql_update(sparql)
                     people_enriched += 1
 
+            # v1018-D658: runs for NEW and EXISTING alike. Every name write
+            # above sits inside the not-exists guard, so an existing person's
+            # placeholder was never revisited by any source. Upward-only -- a
+            # same-tier or lower value is a no-op.
+            _upsert_display_name(uri, display)
+
             # Always upsert lastContactWhatsApp regardless of person
             # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
             # in _update_last_contact ensures older timestamps never
@@ -742,6 +954,12 @@ def ingest_calendar(fda_dir: Path) -> dict:
                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
                     )
                     _sparql_update(sparql)
+
+                # v1018-D658: runs for NEW and EXISTING alike. Every name write
+                # above sits inside the not-exists guard, so an existing person's
+                # placeholder was never revisited by any source. Upward-only -- a
+                # same-tier or lower value is a no-op.
+                _upsert_display_name(uri, attendee)
 
             # Update last contact from meeting date
             if start_date:
@@ -859,6 +1077,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
             _sparql_update(sparql)
             people_created += 1
 
+        # v1018-D658: runs for NEW and EXISTING alike. Every name write
+        # above sits inside the not-exists guard, so an existing person's
+        # placeholder was never revisited by any source. Upward-only -- a
+        # same-tier or lower value is a no-op.
+        _upsert_display_name(uri, name)
+
     logger.info("Photos: %d people created from face labels", people_created)
     return {"status": "ok", "people_created": people_created}
 
@@ -919,6 +1143,12 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             )
             _sparql_update(sparql)
             people_created += 1
+
+        # v1018-D658: runs for NEW and EXISTING alike. Every name write
+        # above sits inside the not-exists guard, so an existing person's
+        # placeholder was never revisited by any source. Upward-only -- a
+        # same-tier or lower value is a no-op.
+        _upsert_display_name(uri, email)
 
     logger.info("Apple Mail: %d contacts created", people_created)
     return {"status": "ok", "people_created": people_created}

@@ -1,0 +1,37 @@
+# v1018-D658 repair. CM051 #548 stopped the writer stacking names; this
+# collapses the ones already stacked. The load-bearing property is a
+# NEGATIVE one: when two names are of equal standing the repair must not
+# choose (Andy 2026-08-10, "review list"), because a deleted name has no
+# undo.
+name: name-repair
+
+on:
+  push:
+    paths:
+      - 'vendor/ostler_fda/repair_placeholder_names.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/helpers/check_name_repair.py'
+      - 'tests/test_name_repair.sh'
+      - '.github/workflows/name-repair.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/repair_placeholder_names.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/helpers/check_name_repair.py'
+      - 'tests/test_name_repair.sh'
+      - '.github/workflows/name-repair.yml'
+
+jobs:
+  name-repair:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: The repair cannot guess a winner
+        run: bash tests/test_name_repair.sh
