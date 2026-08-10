@@ -9,6 +9,14 @@ config.local.*
 *.key
 *_private*
 *credentials*
+# This one bit on 2026-08-10 too: bin/require_signing_credentials.sh, a guard
+# script holding no secret at all, was silently skipped by `git add -A`. The
+# commit pushed without it and cut.yml was left calling a file absent from the
+# repo. Caught only because its test asserts the script exists. Renamed to
+# bin/require_signing_secrets.sh rather than adding a second negation below --
+# for a file we own, a rename is cheaper than an exception to a security rule.
+# If you add a script whose name contains any word on this list, check
+# `git check-ignore -v <path>` BEFORE you commit.
 *token*
 # Vendored Doctor source module (NOT a secret) - the broad *token* guard above
 # otherwise swallows it, which dropped it from the vendor and blanked the iOS

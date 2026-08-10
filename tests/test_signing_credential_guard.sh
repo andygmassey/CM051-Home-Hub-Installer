@@ -2,7 +2,7 @@
 #
 # Does the signing-credential guard fire on the states that actually occur?
 #
-# Executes bin/require_signing_credentials.sh -- the real file the cut runs --
+# Executes bin/require_signing_secrets.sh -- the real file the cut runs --
 # rather than a copy of its logic. A guard proven only by a re-implementation
 # proves the re-implementation.
 #
@@ -16,7 +16,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-GUARD="bin/require_signing_credentials.sh"
+GUARD="bin/require_signing_secrets.sh"
 ALL="OSTLER_SIGNING_CERT_P12 OSTLER_SIGNING_CERT_PASSWORD OSTLER_NOTARY_KEY OSTLER_NOTARY_KEY_ID OSTLER_NOTARY_ISSUER"
 fails=0
 
@@ -27,7 +27,7 @@ fi
 
 # The workflow must actually CALL it. A guard nothing invokes is the oldest
 # failure mode in this repo's catalogue.
-if grep -q 'require_signing_credentials.sh' .github/workflows/cut.yml; then
+if grep -q 'require_signing_secrets.sh' .github/workflows/cut.yml; then
 	echo "PASS  cut.yml invokes the guard"
 else
 	echo "FAIL  cut.yml does NOT invoke the guard -- it would never run"
