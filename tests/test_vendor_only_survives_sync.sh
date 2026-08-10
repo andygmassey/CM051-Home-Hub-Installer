@@ -130,7 +130,18 @@ else
 	missing=""
 	while IFS=$'\t' read -r vp _ _; do
 		case "${vp:-}" in ''|'#'*) continue ;; esac
-		[ -e "$scratch2/vendor/$vp" ] || missing="$missing $vp"
+		# EXISTENCE is not enough. A restore that recreates the path and
+		# loses the bytes passes an -e test, and that is not a hypothetical
+		# shape: a tar built from the wrong cwd, a cp that fails on one file
+		# while the pipeline exit stays 0, a truncating redirect. The two
+		# files this gate exists for were "deleted by the v1.0.18 re-vendor,
+		# recovered by hand" -- recovering an EMPTY file by hand is worse
+		# than recovering a missing one, because nothing tells you.
+		# The fixture writes a known marker into each file (see
+		# run_real_region); require it back. 5d proves this line fires.
+		[ -e "$scratch2/vendor/$vp" ] || { missing="$missing $vp"; continue; }
+		grep -q "vendor-only marker for $vp" "$scratch2/vendor/$vp" 2>/dev/null \
+			|| missing="$missing $vp(empty-or-corrupt)"
 	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
 	if [ -z "$missing" ] && [ -e "$scratch2/vendor/doctor/agent/other.py" ]; then
 		pass "REAL sync_vendor.sh code preserves every declared file across the swap ($res)"
@@ -162,6 +173,61 @@ else
 	fi
 fi
 rm -rf "$scratch3"
+
+# 5d. THE SECOND RED, for the CONTENT half of check 5. 5b deletes the restore
+#     entirely, so it only proves check 5 notices a file that is GONE. It says
+#     nothing about a file that comes back empty. Replace the restore with one
+#     that recreates every stashed path as a zero-byte file and prove check 5
+#     still goes red. Without this, the content assertion added above could
+#     itself be inert and nobody would know -- which is the whole defect class
+#     this gate is about.
+scratch4="$(mktemp -d)"; sv_touch="$scratch4/sync_vendor_touch.sh"
+# SUBSTRING replacement, not whole-line. The restore line ends in ` || { ... }`
+# and the first version of this probe replaced the entire line, silently
+# orphaning that brace block. The region then died before restoring, the files
+# came back MISSING rather than EMPTY, and a counter that lumped missing in
+# with intact reported "content RED did not fire". Two wrong instruments
+# cancelling out is exactly the shape this gate exists to catch, so the
+# replacement now preserves everything either side of the pipeline.
+_VO_TAR='( cd "$_vo_stash" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )'
+_VO_TOUCH='( cd "$_vo_stash" && find . -type f -print ) | ( cd "$abs_vendor" && while IFS= read -r _p; do mkdir -p "$(dirname "$_p")"; : > "$_p"; done )'
+awk -v find="$_VO_TAR" -v repl="$_VO_TOUCH" '
+	{
+		n = index($0, find)
+		if (n > 0) {
+			print substr($0, 1, n - 1) repl substr($0, n + length(find))
+			next
+		}
+		print
+	}
+' "$SV" > "$sv_touch"
+if cmp -s "$SV" "$sv_touch"; then
+	fail "self-test could not swap in a content-losing restore -- the RED below proves nothing"
+elif ! sh -n "$sv_touch" 2>/dev/null; then
+	fail "the content-losing injection does not parse -- it would fail for the wrong reason"
+else
+	run_real_region "$sv_touch" "$scratch4/root" >/dev/null
+	empty=0; gone=0; intact=0
+	while IFS=$'\t' read -r vp _ _; do
+		case "${vp:-}" in ''|'#'*) continue ;; esac
+		if [ ! -e "$scratch4/root/vendor/$vp" ]; then
+			gone=$((gone + 1))
+		elif grep -q "vendor-only marker for $vp" "$scratch4/root/vendor/$vp" 2>/dev/null; then
+			intact=$((intact + 1))
+		else
+			empty=$((empty + 1))
+		fi
+	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
+	# The three states are counted separately ON PURPOSE. "missing" would also
+	# make check 5 go red, but for the reason 5b already covers -- it would
+	# prove nothing about the CONTENT assertion.
+	if [ "$empty" -gt 0 ] && [ "$intact" -eq 0 ] && [ "$gone" -eq 0 ]; then
+		pass "RED demonstrated: a path-only restore is caught by the CONTENT assertion ($empty present-but-empty)"
+	else
+		fail "content RED did not fire cleanly: empty=$empty gone=$gone intact=$intact (want empty>0, gone=0, intact=0)"
+	fi
+fi
+rm -rf "$scratch4"
 
 # 5c. ORDERING. Executing the region in isolation cannot see a restore block
 #     that sits after an early exit in the real control flow. Assert position.
