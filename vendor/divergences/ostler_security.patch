@@ -125,7 +125,7 @@
 +# its setup.py ignored every build-flag env var. sqlcipher3 0.6.2
 +# ships prebuilt arm64/x86_64 macOS wheels.
  dependencies = [
-     "cryptography>=46.0.1,<47.0.0",
+     "cryptography>=50.0.0,<51.0.0",
  ]
  
  [project.optional-dependencies]
@@ -135,12 +135,23 @@
  ]
  # OPF (OpenAI Privacy Filter) runtime – pulled in only when the
  # caller actually needs the privacy classifier. Switched from
+--- a/README.md
++++ b/README.md
+@@ -68,7 +68,7 @@
+ 
+ ## Public API – what downstream consumers use
+ 
+-Out-of-tree consumers (CM048 `ingest.py`, CM041 `marvin_api` +
++Out-of-tree consumers (CM048 `ingest.py`, CM041 `assistant_api` +
+ `whatsapp_bridge`) import exactly one symbol:
+ 
+ ```python
 --- a/requirements.txt
 +++ b/requirements.txt
 @@ -3,7 +3,7 @@
  # TODO: add --require-hashes once hash values are captured for all platforms
  
- cryptography>=46.0.1,<47.0.0
+ cryptography>=50.0.0,<51.0.0
 -pysqlcipher3>=1.2.0,<2.0.0
 +sqlcipher3>=0.6.0,<0.7.0
  
