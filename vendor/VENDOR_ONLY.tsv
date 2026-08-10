@@ -32,3 +32,4 @@
 # path	owning_repo	why_no_upstream
 doctor/agent/daemon_cron.py	HR015	Cut-side cron entrypoint for the bundled Doctor. Written for the installer's launchd layout, which has no equivalent in HR015 where Doctor runs as a service. Deleted by the v1.0.18 re-vendor; recovered by hand. Retire by moving it to HR015 behind an is-native-deployment switch.
 doctor/agent/test_daemon_cron.py	HR015	Test for the above. Same reason; must move with it.
+cm041/assistant_api/subscription_gate.py	CM041	Ostler Pro subscription gate (G0). Vendor-only: it exists in NO CM041 commit, and install.sh does `from subscription_gate import activate_first_month_free` to grant the 30-day free month. A re-pin of cm041/assistant_api on 2026-08-11 deleted it, which would have shipped an installer with a dangling import behind a clean-looking commit. Retire by upstreaming it into CM041 behind an is-bundled-deployment switch, the same shape as the doctor rows above.
