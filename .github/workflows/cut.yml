@@ -74,6 +74,12 @@ jobs:
           ./tests/test_no_local_cuts.sh
           # v1018-D024: vendor-only files must survive a re-vendor.
           ./tests/test_vendor_only_survives_sync.sh
+          # The credential guard must check ALL FIVE, not one. Runs here, on
+          # ubuntu, with placeholder values only -- it asserts the guard's
+          # logic, never touches a real secret, and the real secrets do not
+          # exist in this job. Catches a regression at preflight rather than
+          # after the macOS runner has already been spun up.
+          ./tests/test_signing_credential_guard.sh
 
   # ---------------------------------------------------------------------
   # 2. CUT. macOS runner; the only place signing credentials exist.
@@ -87,18 +93,44 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ALL FIVE CREDENTIALS, CHECKED TOGETHER, BEFORE ANY OF THEM IS USED.
+      #
+      # This step exists because the previous guard checked exactly ONE of the
+      # five -- OSTLER_SIGNING_CERT_P12 -- and that turned out to be the wrong
+      # shape the moment the secrets were provisioned one at a time.
+      #
+      # Measured on 2026-08-10. Three of the five were provisionable from the
+      # operator's material; the other two were not present and had to be
+      # fetched by hand. In that half-provisioned state the old guard PASSED,
+      # because the only secret it tested was set, and the cut then failed
+      # further down inside `security import` with an opaque keychain error
+      # that names no secret at all. A missing credential must not present as
+      # a toolchain fault.
+      #
+      # The notary step was worse: it had NO guard whatsoever. An empty
+      # --issuer went straight into `notarytool store-credentials`.
+      #
+      # Checking one member of a set is not checking the set. This asserts all
+      # five, reports EVERY missing one in a single run rather than one per
+      # re-tag, and names them exactly as they appear in repo settings so the
+      # message is directly actionable.
+      #
+      # Values are never echoed -- only names. The check is emptiness only.
+      - name: Verify signing credentials are present
+        env:
+          OSTLER_SIGNING_CERT_P12:      ${{ secrets.OSTLER_SIGNING_CERT_P12 }}
+          OSTLER_SIGNING_CERT_PASSWORD: ${{ secrets.OSTLER_SIGNING_CERT_PASSWORD }}
+          OSTLER_NOTARY_KEY:            ${{ secrets.OSTLER_NOTARY_KEY }}
+          OSTLER_NOTARY_KEY_ID:         ${{ secrets.OSTLER_NOTARY_KEY_ID }}
+          OSTLER_NOTARY_ISSUER:         ${{ secrets.OSTLER_NOTARY_ISSUER }}
+        run: ./bin/require_signing_credentials.sh
+
       - name: Import signing identity
         env:
           CERT_P12:     ${{ secrets.OSTLER_SIGNING_CERT_P12 }}
           CERT_PASSWORD: ${{ secrets.OSTLER_SIGNING_CERT_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "${CERT_P12:-}" ]; then
-            echo "::error::OSTLER_SIGNING_CERT_P12 is not set." >&2
-            echo "Add the repo secrets before tagging. Failing closed rather" >&2
-            echo "than producing an unsigned artefact that looks like a cut." >&2
-            exit 1
-          fi
           KEYCHAIN="$RUNNER_TEMP/ostler-cut.keychain-db"
           KEYCHAIN_PW="$(uuidgen)"
           security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
