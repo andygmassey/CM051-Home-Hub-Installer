@@ -79,12 +79,216 @@ else
 fi
 rm -rf "$scratch" "$stash"
 
-# 5. sync_vendor.sh must actually reference the TSV. Without this, everything
-#    above tests a mechanism that production does not use.
-if grep -q 'VENDOR_ONLY.tsv' "$REPO_ROOT/scripts/sync_vendor.sh"; then
-	pass "sync_vendor.sh reads VENDOR_ONLY.tsv"
+# 5. EXECUTE THE REAL CODE. Everything above proves an algorithm that this
+#    test file implements. That is the same defect class the algorithm exists
+#    to fix: a hand-written re-implementation carries the belief that caused
+#    the bug. The previous version of this step was
+#    `grep -q 'VENDOR_ONLY.tsv' sync_vendor.sh` -- a string check that passes
+#    on a wrong $abs_vendor, on a restore block sitting after an early exit,
+#    and on the restore half simply not being there.
+#
+#    So: lift the real stash/swap/restore region out of scripts/sync_vendor.sh
+#    and run it against a scratch fixture, unmodified.
+SV="$REPO_ROOT/scripts/sync_vendor.sh"
+MARK_START='^# Preserve vendor-only files across the swap'
+MARK_END='^\[ -n "\$_vo_stash" \] && rm -rf "\$_vo_stash"'
+
+run_real_region() {   # $1 = script to lift from, $2 = scratch root; echoes verdict
+	local src="$1" root="$2" s e
+	s="$(grep -n "$MARK_START" "$src" | head -1 | cut -d: -f1)"
+	e="$(grep -n "$MARK_END"   "$src" | head -1 | cut -d: -f1)"
+	[ -n "$s" ] && [ -n "$e" ] && [ "$e" -gt "$s" ] || { echo "NOREGION"; return; }
+
+	# Fixture laid out so the region's own path arithmetic resolves into it:
+	# it computes the TSV as "$(dirname BASH_SOURCE)/../vendor/VENDOR_ONLY.tsv".
+	mkdir -p "$root/scripts" "$root/vendor/doctor/agent" "$root/upstream/doctor/agent"
+	cp "$REPO_ROOT/vendor/VENDOR_ONLY.tsv" "$root/vendor/VENDOR_ONLY.tsv"
+	while IFS=$'\t' read -r vp _ _; do
+		case "${vp:-}" in ''|'#'*) continue ;; esac
+		mkdir -p "$root/vendor/$(dirname "$vp")"
+		printf 'vendor-only marker for %s\n' "$vp" > "$root/vendor/$vp"
+	done < "$root/vendor/VENDOR_ONLY.tsv"
+	echo "from upstream" > "$root/upstream/doctor/agent/other.py"
+
+	{
+		echo 'set -uo pipefail'
+		echo 'abs_vendor="'"$root"'/vendor"'
+		echo 'tmp="'"$root"'/upstream"'
+		sed -n "${s},${e}p" "$src"
+	} > "$root/scripts/region.sh"
+
+	( cd "$root" && bash "$root/scripts/region.sh" ) >"$root/run.log" 2>&1
+	echo "rc=$?"
+}
+
+# ONE predicate, shared by check 5 and by the RED that proves check 5 fires.
+#
+# TNM's review finding: 5d originally RE-IMPLEMENTED this grep instead of
+# executing it -- the same expression written twice, ~70 lines apart. 5d then
+# proved "a path-only restore produces empty files" and merely *inferred* that
+# check 5 would notice. Change check 5's predicate and 5d keeps passing while
+# proving nothing about it. That is precisely the objection this whole gate was
+# written to answer -- "a hand-written re-implementation carries the belief that
+# caused the defect" -- aimed back at its author, and it was correct.
+#
+# Now there is one expression. If it drifts, both checks drift together and the
+# control below catches it before either runs.
+vo_state() {   # $1 = vendor root, $2 = declared path; echoes gone|empty|ok
+	if [ ! -e "$1/$2" ]; then
+		echo gone
+	elif grep -q "vendor-only marker for $2" "$1/$2" 2>/dev/null; then
+		echo ok
+	else
+		echo empty
+	fi
+}
+
+# CONTROL ON THE SHARED PREDICATE. Both check 5 and 5d now depend on vo_state,
+# so a broken vo_state would break them in the SAME direction and neither would
+# report anything odd. Prove it discriminates all three states first.
+_vs="$(mktemp -d)"; mkdir -p "$_vs/a"
+printf 'vendor-only marker for a/x\n' > "$_vs/a/x"
+: > "$_vs/a/y"
+if [ "$(vo_state "$_vs" a/x)" = ok ] &&
+   [ "$(vo_state "$_vs" a/y)" = empty ] &&
+   [ "$(vo_state "$_vs" a/z)" = gone ]; then
+	pass "shared vo_state predicate discriminates ok / empty / gone"
 else
-	fail "sync_vendor.sh does NOT read VENDOR_ONLY.tsv -- declaration is inert"
+	fail "shared vo_state predicate does NOT discriminate (ok=$(vo_state "$_vs" a/x) empty=$(vo_state "$_vs" a/y) gone=$(vo_state "$_vs" a/z)) -- checks 5 and 5d are both unreliable"
+fi
+rm -rf "$_vs"
+
+verdict_lost=0
+scratch2="$(mktemp -d)"
+res="$(run_real_region "$SV" "$scratch2")"
+if [ "$res" = "NOREGION" ]; then
+	fail "could not locate the stash/restore region in sync_vendor.sh -- markers moved; this check is now blind"
+else
+	missing=""
+	while IFS=$'\t' read -r vp _ _; do
+		case "${vp:-}" in ''|'#'*) continue ;; esac
+		# EXISTENCE is not enough. A restore that recreates the path and
+		# loses the bytes passes an -e test, and that is not a hypothetical
+		# shape: a tar built from the wrong cwd, a cp that fails on one file
+		# while the pipeline exit stays 0, a truncating redirect. The two
+		# files this gate exists for were "deleted by the v1.0.18 re-vendor,
+		# recovered by hand" -- recovering an EMPTY file by hand is worse
+		# than recovering a missing one, because nothing tells you.
+		# vo_state is the shared predicate; 5d proves THIS line fires by
+		# calling the same function, not a copy of it.
+		case "$(vo_state "$scratch2/vendor" "$vp")" in
+			ok)    ;;
+			gone)  missing="$missing $vp" ;;
+			empty) missing="$missing $vp(empty-or-corrupt)" ;;
+		esac
+	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
+	if [ -z "$missing" ] && [ -e "$scratch2/vendor/doctor/agent/other.py" ]; then
+		pass "REAL sync_vendor.sh code preserves every declared file across the swap ($res)"
+	else
+		fail "REAL sync_vendor.sh code LOST:${missing:- (upstream files)} -- see $scratch2/run.log"
+		verdict_lost=1
+	fi
+fi
+rm -rf "$scratch2"
+
+# 5b. THE RED. Delete only the restore line from a COPY and prove step 5 fails.
+#     Without this, step 5 could be passing for a reason unrelated to the
+#     restore -- e.g. if the swap never deleted anything in the first place.
+scratch3="$(mktemp -d)"; sv_broken="$scratch3/sync_vendor_broken.sh"
+sed '/( cd "\$_vo_stash" \&\& tar -cf - \. ) | ( cd "\$abs_vendor" \&\& tar -xf - )/d' "$SV" > "$sv_broken"
+if cmp -s "$SV" "$sv_broken"; then
+	fail "self-test could not remove the restore line -- the RED below proves nothing"
+else
+	res3="$(run_real_region "$sv_broken" "$scratch3/root")"
+	lost=0
+	while IFS=$'\t' read -r vp _ _; do
+		case "${vp:-}" in ''|'#'*) continue ;; esac
+		[ -e "$scratch3/root/vendor/$vp" ] || lost=1
+	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
+	if [ "$lost" -eq 1 ]; then
+		pass "RED demonstrated: removing the restore line DOES lose the declared files"
+	else
+		fail "removing the restore line changed nothing -- step 5 is not testing the restore"
+	fi
+fi
+rm -rf "$scratch3"
+
+# 5d. THE SECOND RED, for the CONTENT half of check 5. 5b deletes the restore
+#     entirely, so it only proves check 5 notices a file that is GONE. It says
+#     nothing about a file that comes back empty. Replace the restore with one
+#     that recreates every stashed path as a zero-byte file and prove check 5
+#     still goes red. Without this, the content assertion added above could
+#     itself be inert and nobody would know -- which is the whole defect class
+#     this gate is about.
+scratch4="$(mktemp -d)"; sv_touch="$scratch4/sync_vendor_touch.sh"
+# SUBSTRING replacement, not whole-line. The restore line ends in ` || { ... }`
+# and the first version of this probe replaced the entire line, silently
+# orphaning that brace block. The region then died before restoring, the files
+# came back MISSING rather than EMPTY, and a counter that lumped missing in
+# with intact reported "content RED did not fire". Two wrong instruments
+# cancelling out is exactly the shape this gate exists to catch, so the
+# replacement now preserves everything either side of the pipeline.
+_VO_TAR='( cd "$_vo_stash" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )'
+_VO_TOUCH='( cd "$_vo_stash" && find . -type f -print ) | ( cd "$abs_vendor" && while IFS= read -r _p; do mkdir -p "$(dirname "$_p")"; : > "$_p"; done )'
+awk -v find="$_VO_TAR" -v repl="$_VO_TOUCH" '
+	{
+		n = index($0, find)
+		if (n > 0) {
+			print substr($0, 1, n - 1) repl substr($0, n + length(find))
+			next
+		}
+		print
+	}
+' "$SV" > "$sv_touch"
+if cmp -s "$SV" "$sv_touch"; then
+	fail "self-test could not swap in a content-losing restore -- the RED below proves nothing"
+elif ! sh -n "$sv_touch" 2>/dev/null; then
+	fail "the content-losing injection does not parse -- it would fail for the wrong reason"
+else
+	run_real_region "$sv_touch" "$scratch4/root" >/dev/null
+	empty=0; gone=0; intact=0
+	while IFS=$'\t' read -r vp _ _; do
+		case "${vp:-}" in ''|'#'*) continue ;; esac
+		# Same vo_state check 5 uses, called not copied. This is what makes
+		# 5d a proof about check 5 rather than a parallel belief about it.
+		case "$(vo_state "$scratch4/root/vendor" "$vp")" in
+			empty) empty=$((empty + 1)) ;;
+			gone)  gone=$((gone + 1)) ;;
+			ok)    intact=$((intact + 1)) ;;
+		esac
+	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
+	# The three states are counted separately ON PURPOSE. "missing" would also
+	# make check 5 go red, but for the reason 5b already covers -- it would
+	# prove nothing about the CONTENT assertion.
+	if [ "$empty" -gt 0 ] && [ "$intact" -eq 0 ] && [ "$gone" -eq 0 ]; then
+		pass "RED demonstrated: a path-only restore is caught by the CONTENT assertion ($empty present-but-empty)"
+	else
+		fail "content RED did not fire cleanly: empty=$empty gone=$gone intact=$intact (want empty>0, gone=0, intact=0)"
+	fi
+fi
+rm -rf "$scratch4"
+
+# 5c. ORDERING. Executing the region in isolation cannot see a restore block
+#     that sits after an early exit in the real control flow. Assert position.
+_swap_ln="$(grep -n '^rm -rf "\$abs_vendor"' "$SV" | head -1 | cut -d: -f1)"
+_rest_ln="$(grep -n '( cd "\$_vo_stash" && tar -cf - \. )' "$SV" | head -1 | cut -d: -f1)"
+if [ -n "$_swap_ln" ] && [ -n "$_rest_ln" ] && [ "$_rest_ln" -gt "$_swap_ln" ]; then
+	# Match exit/return ANYWHERE on the line, not just at line start. The
+	# first version of this check anchored with ^[[:space:]]* and sailed
+	# straight past an injected `[ "$FLAG" = 9 ] && exit 1` -- asserting a
+	# FORMATTING of the hazard instead of the hazard. Any reachable exit
+	# between the rm -rf and the restore means the tree can be deleted and
+	# the vendor-only files never put back.
+	_between="$(sed -n "$((_swap_ln + 1)),$((_rest_ln - 1))p" "$SV" \
+	            | grep -vE '^[[:space:]]*#' \
+	            | grep -cE '\b(exit|return)\b')"
+	if [ "$_between" -eq 0 ]; then
+		pass "restore follows the swap with no unconditional exit between them"
+	else
+		fail "$_between exit/return between swap and restore -- the restore can be skipped"
+	fi
+else
+	fail "could not order swap vs restore in sync_vendor.sh -- structure changed"
 fi
 
 echo ""
