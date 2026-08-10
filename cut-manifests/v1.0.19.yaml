@@ -39,8 +39,8 @@
 
 version: v1.0.19
 description: |
-  v1.0.18 cut contract. Supersedes v1.0.17 (that DMG was cut and installed on
-  .208, but declared NO SHIP after the box-walk). Consumes permanent.yaml plus
+  v1.0.19 cut contract. Supersedes v1.0.18 (whose contract is retained
+  unedited as the record of that cut). Consumes permanent.yaml plus
   these entries. Fails the cut on any RED before codesign.
 
   What this cut is FOR, and therefore what must be proved at the artefact:
@@ -68,22 +68,15 @@ entries:
   # --------------------------------------------------------------------------
   # Installer version stamp -- DMG-boundary assertion.
   # --------------------------------------------------------------------------
-  # 🔴 DECISION NEEDED BEFORE CUT -- carried forward from v1.0.18 UNCHANGED.
-  # This asserts the v1.0.18 value. If v1.0.19 ships with a new version or
-  # build, these two expected values must be updated FIRST or the gate passes
-  # a DMG stamped with the previous release -- which is precisely the incident
-  # each row records below. The version/build numbers are the operator's call
-  # (v1.0.18's 1800 is recorded above as "Andy's call, taken 2026-08-08"), so
-  # they are deliberately NOT guessed here.
   - id: v1019-installer-app-version-stamp
-    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.18
+    title: built OstlerInstaller.app CFBundleShortVersionString must equal 1.0.19
     incident: v1.0.11 AND v1.0.12 both shipped an installer stamping "1.0.10"
     proof:
       kind: plist_key_equals
       target: installer-app
       path: "Contents/Info.plist"
       key: "CFBundleShortVersionString"
-      value: "1.0.18"
+      value: "1.0.19"
 
   # --------------------------------------------------------------------------
   # Build number -- the failure the consistency gate structurally cannot see.
@@ -91,22 +84,15 @@ entries:
   # A gate that checks AGREEMENT is blind to a value that is uniformly wrong.
   # 1800 is strictly greater than 1700, so the .208 box (which runs 1.0.17
   # build 1700) sees a genuine upgrade rather than an identical build number.
-  # 🔴 DECISION NEEDED BEFORE CUT -- carried forward from v1.0.18 UNCHANGED.
-  # This asserts the v1.0.18 value. If v1.0.19 ships with a new version or
-  # build, these two expected values must be updated FIRST or the gate passes
-  # a DMG stamped with the previous release -- which is precisely the incident
-  # each row records below. The version/build numbers are the operator's call
-  # (v1.0.18's 1800 is recorded above as "Andy's call, taken 2026-08-08"), so
-  # they are deliberately NOT guessed here.
   - id: v1019-installer-app-build-number
-    title: built OstlerInstaller.app CFBundleVersion must equal 1800
+    title: built OstlerInstaller.app CFBundleVersion must equal 1900
     incident: v1.0.16 bumped 1.0.13.2 -> 1.0.16 while leaving CFBundleVersion at 1302
     proof:
       kind: plist_key_equals
       target: installer-app
       path: "Contents/Info.plist"
       key: "CFBundleVersion"
-      value: "1800"
+      value: "1900"
 
   # ==========================================================================
   # NEW FOR v1.0.18 -- the fixes this cut is for, proved at the artefact.
