@@ -1865,3 +1865,38 @@ deferrals:
   - ref: "daemon:#285"
     reason: "Snyk SECURITY upgrade: react-router-dom 7.13.0 -> 7.14.0, opened 2026-08-07T02:11Z. Deferred from this DMG only because the daemon is already built and notarised at 782a6195 and this arrived after that build; it is NOT dismissed. This is the one of the three with a security rationale and it should be FIRST into the next daemon cut. Recorded here so it cannot fade quietly."
     until_cut: "next daemon cut -- PRIORITY"
+
+  # ---------------------------------------------------------------------------
+  # v1.0.19, recorded 2026-08-11 by Archie (ORM lane).
+  #
+  # These are the SIX findings that survived the check-orphans rewrite (CM051
+  # #560). The gate previously reported 15; six of those were false and are now
+  # gone, and two more were the same work counted twice. What is left is real,
+  # and every one of them is deferred for the same structural reason, stated
+  # per row rather than as a blanket: NONE OF THEM CAN REACH THE v1.0.19
+  # ARTEFACT, so merging them would change the register and not the DMG.
+  #
+  # The three delivery paths, because the reasons below depend on them:
+  #   CM051   ships DIRECTLY  (installer + vendored trees are the DMG base)
+  #   CM044   ships ONLY as pinned wiki image digests, never as source
+  #   daemon  ships as hub-v0.4.54, already built + signed + notarised
+  #   CM031   does not ship in the DMG at all (iOS, App Store)
+  # ---------------------------------------------------------------------------
+  - ref: "CM051:#553"
+    reason: "docs(provenance): corrects a header COMMENT in scripts/wiki_image_provenance.tsv that named ghcr.io/ostler-ai after the move to creativemachines-ai. Measured: the diff touches only lines beginning with '#'. The data rows that provenance_gate.sh and verify_cut_freshness.sh actually read are unchanged, and install.sh was always right. Zero artefact impact, and zero gate-behaviour impact. Merge it into v1.0.20 with the rest of the batch."
+    until_cut: "v1.0.20"
+  - ref: "CM044:#176"
+    reason: "test(sanitise): adds compiler/tests/test_html_sanitise.py only. Tests are not executed by, and do not exist in, the pinned wiki images this DMG ships. Merging it changes no byte the customer receives."
+    until_cut: "v1.0.20"
+  - ref: "CM044:#180"
+    reason: "docs(security): SECURITY.md only, recording that PR-time Snyk SCA is paused for cost so its absence is not read as coverage. Documentation, not shipped content. Worth landing precisely because it stops a silence being mistaken for a pass, but it is not a v1.0.19 artefact input."
+    until_cut: "v1.0.20"
+  - ref: "CM044:#179"
+    reason: "v1018-D014a, the person-summary prompt fix. THIS ONE IS A REAL CUSTOMER-VISIBLE QUALITY FIX AND IS BEING DEFERRED ON COST, NOT ON MERIT -- say so plainly. It changes compiler/llm.py and compiler/pages/person_pages.py, so it reaches a box ONLY through a rebuilt and re-pinned wiki image. Measured 2026-08-11: Colima is broken on BOTH reachable Macs (192.168.1.173 and 192.168.1.98 each report 'lima not found'), so an image rebuild is not a cut-time operation, and re-pinning would invalidate a BOM whose digests are already verified. v1.0.19 therefore ships the person-summary prompt as it stands. FIRST into the next wiki image rebuild, ahead of everything else in this block."
+    until_cut: "v1.0.20 -- PRIORITY, first into the next wiki rebuild"
+  - ref: "CM031:#160"
+    reason: "fix(ci): CM031 .github/workflows/operator-pii-scan.yml. CM031 is the iOS companion and ships through the App Store; it is not in the DMG in any form. A CI workflow in a repo that is not an input to this cut cannot be orphaned work relative to this cut. The gate is right to name it and wrong to block on it; that scoping is a v1.0.20 gate improvement."
+    until_cut: "v1.0.20"
+  - ref: "daemon:#297"
+    reason: "docs(ci): .github/workflows/README.md and master-branch-flow.md, correcting docs that still call the default branch master. Documentation in the daemon repo. The daemon in this DMG is hub-v0.4.54 at 782a6195, already built, signed and notarised; including this would require a full rebuild and re-notarisation to change two markdown files."
+    until_cut: "next daemon cut"
