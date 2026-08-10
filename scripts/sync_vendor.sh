@@ -148,11 +148,50 @@ if [ -f "$abs_patch" ]; then
     fi
 fi
 
+# Preserve vendor-only files across the swap (v1018-D024).
+#
+# The swap below is a wholesale replace: rm -rf the vendored tree, untar the
+# upstream export over it. That is right for a mirror -- but it means any file
+# with no upstream counterpart is deleted, silently, every single sync. The
+# divergence patch is not a backstop: --regen-patch strips vendor-only new-file
+# hunks, so the protection disappears the next time the patch is regenerated.
+#
+# vendor/VENDOR_ONLY.tsv declares those files. We stash them before the swap and
+# put them back after. Fail closed: if a declared file is present and cannot be
+# stashed, stop rather than proceed into a delete we cannot undo.
+_vendor_only_tsv="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/vendor/VENDOR_ONLY.tsv"
+_vo_stash=""
+_vo_kept=0
+if [ -f "$_vendor_only_tsv" ]; then
+    _vo_stash="$(mktemp -d)"
+    while IFS=$'\t' read -r _vo_path _vo_repo _vo_why; do
+        case "${_vo_path:-}" in ''|'#'*) continue ;; esac
+        _vo_src="$abs_vendor/$_vo_path"
+        [ -e "$_vo_src" ] || continue
+        mkdir -p "$_vo_stash/$(dirname "$_vo_path")"
+        cp -p "$_vo_src" "$_vo_stash/$_vo_path" || {
+            echo "ERROR: could not stash vendor-only file: $_vo_path" >&2
+            echo "       Refusing to sync -- the swap would delete it unrecoverably." >&2
+            rm -rf "$_vo_stash"; exit 1; }
+        _vo_kept=$((_vo_kept + 1))
+    done < "$_vendor_only_tsv"
+fi
+
 # Swap the vendored tree.
 rm -rf "$abs_vendor"
 mkdir -p "$abs_vendor"
 ( cd "$tmp" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )
 rm -rf "$tmp"
+
+# Restore the vendor-only files the swap just deleted.
+if [ -n "$_vo_stash" ] && [ "$_vo_kept" -gt 0 ]; then
+    ( cd "$_vo_stash" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - ) || {
+        echo "ERROR: failed restoring vendor-only files after the swap." >&2
+        echo "       Stash retained at: $_vo_stash" >&2
+        exit 1; }
+    echo "  restored $_vo_kept vendor-only file(s) (see vendor/VENDOR_ONLY.tsv)"
+fi
+[ -n "$_vo_stash" ] && rm -rf "$_vo_stash"
 
 # Regenerate the patch from clean source@to_sha -> new vendor and bump sha.
 tmp2="$(mktemp -d)"
