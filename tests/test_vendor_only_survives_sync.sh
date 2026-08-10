@@ -121,6 +121,43 @@ run_real_region() {   # $1 = script to lift from, $2 = scratch root; echoes verd
 	echo "rc=$?"
 }
 
+# ONE predicate, shared by check 5 and by the RED that proves check 5 fires.
+#
+# TNM's review finding: 5d originally RE-IMPLEMENTED this grep instead of
+# executing it -- the same expression written twice, ~70 lines apart. 5d then
+# proved "a path-only restore produces empty files" and merely *inferred* that
+# check 5 would notice. Change check 5's predicate and 5d keeps passing while
+# proving nothing about it. That is precisely the objection this whole gate was
+# written to answer -- "a hand-written re-implementation carries the belief that
+# caused the defect" -- aimed back at its author, and it was correct.
+#
+# Now there is one expression. If it drifts, both checks drift together and the
+# control below catches it before either runs.
+vo_state() {   # $1 = vendor root, $2 = declared path; echoes gone|empty|ok
+	if [ ! -e "$1/$2" ]; then
+		echo gone
+	elif grep -q "vendor-only marker for $2" "$1/$2" 2>/dev/null; then
+		echo ok
+	else
+		echo empty
+	fi
+}
+
+# CONTROL ON THE SHARED PREDICATE. Both check 5 and 5d now depend on vo_state,
+# so a broken vo_state would break them in the SAME direction and neither would
+# report anything odd. Prove it discriminates all three states first.
+_vs="$(mktemp -d)"; mkdir -p "$_vs/a"
+printf 'vendor-only marker for a/x\n' > "$_vs/a/x"
+: > "$_vs/a/y"
+if [ "$(vo_state "$_vs" a/x)" = ok ] &&
+   [ "$(vo_state "$_vs" a/y)" = empty ] &&
+   [ "$(vo_state "$_vs" a/z)" = gone ]; then
+	pass "shared vo_state predicate discriminates ok / empty / gone"
+else
+	fail "shared vo_state predicate does NOT discriminate (ok=$(vo_state "$_vs" a/x) empty=$(vo_state "$_vs" a/y) gone=$(vo_state "$_vs" a/z)) -- checks 5 and 5d are both unreliable"
+fi
+rm -rf "$_vs"
+
 verdict_lost=0
 scratch2="$(mktemp -d)"
 res="$(run_real_region "$SV" "$scratch2")"
@@ -137,11 +174,13 @@ else
 		# files this gate exists for were "deleted by the v1.0.18 re-vendor,
 		# recovered by hand" -- recovering an EMPTY file by hand is worse
 		# than recovering a missing one, because nothing tells you.
-		# The fixture writes a known marker into each file (see
-		# run_real_region); require it back. 5d proves this line fires.
-		[ -e "$scratch2/vendor/$vp" ] || { missing="$missing $vp"; continue; }
-		grep -q "vendor-only marker for $vp" "$scratch2/vendor/$vp" 2>/dev/null \
-			|| missing="$missing $vp(empty-or-corrupt)"
+		# vo_state is the shared predicate; 5d proves THIS line fires by
+		# calling the same function, not a copy of it.
+		case "$(vo_state "$scratch2/vendor" "$vp")" in
+			ok)    ;;
+			gone)  missing="$missing $vp" ;;
+			empty) missing="$missing $vp(empty-or-corrupt)" ;;
+		esac
 	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
 	if [ -z "$missing" ] && [ -e "$scratch2/vendor/doctor/agent/other.py" ]; then
 		pass "REAL sync_vendor.sh code preserves every declared file across the swap ($res)"
@@ -210,13 +249,13 @@ else
 	empty=0; gone=0; intact=0
 	while IFS=$'\t' read -r vp _ _; do
 		case "${vp:-}" in ''|'#'*) continue ;; esac
-		if [ ! -e "$scratch4/root/vendor/$vp" ]; then
-			gone=$((gone + 1))
-		elif grep -q "vendor-only marker for $vp" "$scratch4/root/vendor/$vp" 2>/dev/null; then
-			intact=$((intact + 1))
-		else
-			empty=$((empty + 1))
-		fi
+		# Same vo_state check 5 uses, called not copied. This is what makes
+		# 5d a proof about check 5 rather than a parallel belief about it.
+		case "$(vo_state "$scratch4/root/vendor" "$vp")" in
+			empty) empty=$((empty + 1)) ;;
+			gone)  gone=$((gone + 1)) ;;
+			ok)    intact=$((intact + 1)) ;;
+		esac
 	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
 	# The three states are counted separately ON PURPOSE. "missing" would also
 	# make check 5 go red, but for the reason 5b already covers -- it would
