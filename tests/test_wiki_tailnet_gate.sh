@@ -276,6 +276,186 @@ grep -q 'funnel status' "$INSTALL" \
     || fail "the installer no longer checks funnel status -- the warning is gone"
 pass "installer only ever reads funnel status, never enables it"
 
+# ── 6b. The Funnel predicate discriminates (v1018-D001) ────────────
+#
+# The check above proves the installer never ENABLES Funnel. It says
+# nothing about whether the DETECTION is right, and until 2026-08-09 it
+# was not. The shipped predicate was
+#
+#     funnel status | grep -qi "https://"
+#
+# which fires on the SUCCESS path. `funnel status` and `serve status`
+# are the same upstream function -- both subcommands register
+# `runServeStatus` in cmd/tailscale/cli/serve_legacy.go, with no
+# funnel-only filter -- so a tailnet-PRIVATE serve prints
+#
+#     https://<host> (tailnet only)
+#
+# and the grep matched it. Every customer whose wiki was successfully
+# published over HTTPS on the tailnet was then told their machine had a
+# public front door. Verified on the shipped v1.0.18 box: `funnel
+# status` and `serve status` emitted byte-identical output and the line
+# read "(tailnet only)".
+#
+# So this section does not grep for the fix. It extracts the shipped
+# detection block and runs it against fixtures on BOTH sides of the
+# line, and it separately demonstrates that the old predicate went red
+# on the funnel-OFF fixture. A gate that has not been watched failing
+# is not a gate.
+awk '/# >>> OSTLER_FUNNEL_DETECT_BEGIN$/{f=1;next} /# <<< OSTLER_FUNNEL_DETECT_END$/{exit} f{print}' \
+    "$INSTALL" > "$TMP/funnel_detect.sh"
+grep -q 'OSTLER_FUNNEL_PORTS=' "$TMP/funnel_detect.sh" \
+    || fail "could not extract the Funnel detection block from $INSTALL (markers moved?)"
+grep -q '# <<< OSTLER_FUNNEL_DETECT_END' "$INSTALL" \
+    || fail "the OSTLER_FUNNEL_DETECT_END marker is gone -- extraction is unbounded"
+bash -n "$TMP/funnel_detect.sh" \
+    || fail "extracted Funnel detection block does not parse -- extraction is wrong"
+
+# Stub CLI. It BEHAVES like the real tool rather than replaying one
+# blob: `--json` gets the machine shape, anything else gets the human
+# tree. That matters. If the stub only ever returned JSON, then
+# reverting the fix to the old prose-grep predicate would still pass
+# here (the JSON happens not to contain "https://"), and the test would
+# be measuring the fixture format instead of the predicate. Every case
+# below therefore carries BOTH representations of the same box.
+cat > "$TMP/fake-tailscale" <<'FAKETS'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${ARGV_LOG}"
+case " $* " in
+    *" --json "*|*" --json") cat "${FIXTURE_JSON}" ;;
+    *)                       cat "${FIXTURE_HUMAN}" ;;
+esac
+FAKETS
+chmod +x "$TMP/fake-tailscale"
+
+detect_funnel() {
+    # $1 = fixture stem. Echoes the detected host:port list (possibly empty).
+    env TS_CLI="$TMP/fake-tailscale" TS_SOCK="/dev/null" \
+        FIXTURE_JSON="$TMP/$1.json" FIXTURE_HUMAN="$TMP/$1.human" \
+        ARGV_LOG="$TMP/argv.log" \
+        bash -c 'source "$1"; printf "%s" "${OSTLER_FUNNEL_PORTS:-}"' _ "$TMP/funnel_detect.sh"
+}
+
+# Fixtures are SYNTHETIC. The structure is copied from a real box, the
+# tailnet name is not (Rule zero -- no real-instance identifiers in
+# tracked fixtures).
+#
+# (a) Exactly what a healthy install looks like: our own serve on 443
+#     proxying the wiki gate, and no AllowFunnel key at all. This is the
+#     case the old predicate got wrong.
+cat > "$TMP/funnel_off_real.json" <<'JSON'
+{
+  "TCP": { "443": { "HTTPS": true }, "8089": { "TCPForward": "localhost:8089" } },
+  "Web": {
+    "hub.example-tailnet.ts.net:443": {
+      "Handlers": { "/": { "Proxy": "http://127.0.0.1:8144" } }
+    }
+  }
+}
+JSON
+#     ...and the human tree the same box prints. Note "(tailnet only)"
+#     on a line that still contains "https://". THAT is v1018-D001.
+cat > "$TMP/funnel_off_real.human" <<'HUMAN'
+|-- tcp://hub.example-tailnet.ts.net:8089 (tailnet only)
+|--> tcp://localhost:8089
+
+https://hub.example-tailnet.ts.net (tailnet only)
+|-- / proxy http://127.0.0.1:8144
+HUMAN
+# (b) AllowFunnel present but every entry false -- `tailscale serve`
+#     writes this shape when it re-declares a port as tailnet-only.
+cat > "$TMP/funnel_off_explicit.json" <<'JSON'
+{ "AllowFunnel": { "hub.example-tailnet.ts.net:443": false } }
+JSON
+cp "$TMP/funnel_off_real.human" "$TMP/funnel_off_explicit.human"
+# (c) Genuinely on. The human tree says "Funnel on" instead.
+cat > "$TMP/funnel_on.json" <<'JSON'
+{ "AllowFunnel": { "hub.example-tailnet.ts.net:443": true } }
+JSON
+cat > "$TMP/funnel_on.human" <<'HUMAN'
+https://hub.example-tailnet.ts.net (Funnel on)
+|-- / proxy http://127.0.0.1:8144
+HUMAN
+# (d) Mixed -- only the true one is the customer's problem.
+cat > "$TMP/funnel_on_mixed.json" <<'JSON'
+{
+  "AllowFunnel": {
+    "hub.example-tailnet.ts.net:443": false,
+    "hub.example-tailnet.ts.net:8443": true
+  }
+}
+JSON
+cp "$TMP/funnel_on.human" "$TMP/funnel_on_mixed.human"
+# (e) Foreground sessions carry their own nested ServeConfig. A funnel
+#     declared in one is just as public as a background one.
+cat > "$TMP/funnel_on_foreground.json" <<'JSON'
+{
+  "Foreground": {
+    "sess-1": { "AllowFunnel": { "hub.example-tailnet.ts.net:9000": true } }
+  }
+}
+JSON
+cp "$TMP/funnel_on.human" "$TMP/funnel_on_foreground.human"
+# (f) No serve config at all -- tailscale marshals a nil ServeConfig as
+#     literal null, which must not crash the parser.
+printf 'null\n' > "$TMP/funnel_null.json"
+printf 'No serve config\n' > "$TMP/funnel_null.human"
+# (g) Daemon unreachable / CLI missing: empty output.
+: > "$TMP/funnel_empty.json"
+: > "$TMP/funnel_empty.human"
+# (h) Not JSON at all (an error message on stdout).
+printf 'The Tailscale command is not installed.\n' > "$TMP/funnel_garbage.json"
+cp "$TMP/funnel_garbage.json" "$TMP/funnel_garbage.human"
+
+for f in funnel_off_real funnel_off_explicit funnel_null funnel_empty funnel_garbage; do
+    got="$(detect_funnel "$f")"
+    [[ -z "$got" ]] \
+        || fail "$f: Funnel is OFF but the installer reported it on (got: '$got')"
+done
+pass "Funnel-off fixtures produce no warning (incl. the healthy-serve shape D001 got wrong)"
+
+got="$(detect_funnel funnel_on)"
+[[ "$got" == "hub.example-tailnet.ts.net:443" ]] \
+    || fail "funnel_on: expected the funnelled host:port, got '$got'"
+got="$(detect_funnel funnel_on_mixed)"
+[[ "$got" == "hub.example-tailnet.ts.net:8443" ]] \
+    || fail "funnel_on_mixed: expected only the true entry, got '$got'"
+got="$(detect_funnel funnel_on_foreground)"
+[[ "$got" == "hub.example-tailnet.ts.net:9000" ]] \
+    || fail "funnel_on_foreground: nested Foreground funnel not detected, got '$got'"
+pass "Funnel-on fixtures name the exact host:port, including nested Foreground"
+
+# The block must only ever READ. If someone later reaches for a
+# mutating verb inside these markers, this catches it even though the
+# file-wide grep in 6 would too.
+grep -q 'funnel status --json' "$TMP/funnel_detect.sh" \
+    || fail "the detection block no longer asks for --json -- it is back to parsing prose"
+if grep -qE '\bfunnel\b[^|]*\b(reset|off|on)\b' "$TMP/funnel_detect.sh"; then
+    fail "the detection block invokes a mutating funnel verb"
+fi
+pass "detection block reads funnel status --json and mutates nothing"
+
+# ── The demonstrated RED ───────────────────────────────────────────
+# Proof the OLD predicate was wrong, not merely different. Run it, here,
+# against the human output of the Funnel-OFF box in fixture (a) and
+# assert it says "on". Because the stub answers prose and JSON the same
+# way the real CLI does, restoring that predicate inside the markers
+# makes the funnel_off_real case above fail -- which is what makes the
+# section above a gate rather than a formality.
+if ! grep -i "https://" "$TMP/funnel_off_real.human" >/dev/null; then
+    fail "fixture no longer reproduces the D001 trap -- update it deliberately"
+fi
+grep -q "tailnet only" "$TMP/funnel_off_real.human" \
+    || fail "fixture must show Funnel OFF for the demonstration to mean anything"
+# Comments stripped first: the code above quotes the broken predicate
+# verbatim so the next reader knows what went wrong, and that prose
+# must not trip the guard on the prose's own subject.
+if grep -vE '^[[:space:]]*#' "$INSTALL" \
+    | grep -qE 'funnel status[^|]*\|[[:space:]]*grep'; then
+    fail "$INSTALL still pipes funnel status into grep -- the v1018-D001 false positive is back"
+fi
+pass "old predicate matches a Funnel-OFF box (demonstrated RED); shipped code no longer uses it"
+
 # ── 7. The serve call targets the gate, not the wiki directly ──────
 grep -q 'serve --bg --https=443 "http://127.0.0.1:8144"' "$INSTALL" \
     || fail "no HTTPS serve of the gate port"

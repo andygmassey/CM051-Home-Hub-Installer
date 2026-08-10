@@ -1,0 +1,44 @@
+# v1018-D032. A failed dispatch's captured stderr is the only record of
+# what pwg-convo was doing. Keeping the FIRST N characters of it discards
+# exactly the part that localises a hang. A 13-hour wedge on the shipped
+# box surfaced 500 characters, all from its first ten seconds, and a
+# conclusion was drawn from the truncation.
+name: stderr-tail
+
+on:
+  push:
+    paths:
+      - 'vendor/email_source/pipeline.py'
+      - 'vendor/whatsapp_source/pipeline.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/spoken_source/pipeline.py'
+      - 'tests/test_stderr_tail.sh'
+      - '.github/workflows/stderr-tail.yml'
+  pull_request:
+    paths:
+      - 'vendor/email_source/pipeline.py'
+      - 'vendor/whatsapp_source/pipeline.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/spoken_source/pipeline.py'
+      - 'tests/test_stderr_tail.sh'
+      - '.github/workflows/stderr-tail.yml'
+
+jobs:
+  stderr-tail:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The first cut of this gate passed on the author's Python 3.14 --
+        # where deferred annotation evaluation is the default -- and failed
+        # on CI's older interpreter, which evaluates annotations and raised
+        # NameError. A harness that only works on one interpreter is not a
+        # gate, so it is now proven on the range the fleet actually spans.
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Captured stderr keeps its useful end
+        run: bash tests/test_stderr_tail.sh
