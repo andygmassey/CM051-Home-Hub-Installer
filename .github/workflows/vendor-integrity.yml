@@ -30,6 +30,7 @@ on:
       - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
+      - 'tests/test_vendor_manifest_is_valid_toml.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
@@ -50,6 +51,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      # The manifest is read everywhere by scripts/_vendor_lib.sh, which is a
+      # line-based reader and does not care whether the file is valid TOML.
+      # #563 landed a hold_ack_reason with an unescaped quote and every check
+      # stayed green, so the format claim in the filename was asserted nowhere.
+      - name: VENDOR_MANIFEST.toml is valid TOML
+        run: python3 tests/test_vendor_manifest_is_valid_toml.py
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
         run: bash tests/test_no_divergent_vendor_twin.sh

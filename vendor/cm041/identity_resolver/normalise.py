@@ -67,13 +67,13 @@ def clean_display_name(raw: str) -> str:
 
     1. Remove emoji / pictographic symbols ANYWHERE in the name -- they are
        never part of a real name, including interior decoration
-       (``🌼Gemma🌼 Brewster`` -> ``Gemma Brewster``,
-       ``🔍 Fermi Fang`` -> ``Fermi Fang``).
+       (``🌼Jane🌼 Doe`` -> ``Jane Doe``,
+       ``🔍 Bob Smith`` -> ``Bob Smith``).
     2. Strip leading/trailing runs of decorative punctuation / format chars
        (``#AXA HK`` -> ``AXA HK``).
     3. Collapse internal whitespace runs to single spaces.
     4. Collapse an EXACT duplicate-token name to a single token
-       (``AC AC`` -> ``AC``, ``Gemma Gemma`` -> ``Gemma``). Only fires
+       (``AC AC`` -> ``AC``, ``Jane Jane`` -> ``Jane``). Only fires
        when the name is exactly two identical case-folded tokens, so genuine
        longer names with a repeated token are untouched.
 
@@ -163,8 +163,8 @@ def _jaro_winkler(s1: str, s2: str) -> float:
     customer data. Both implementations were run over real name pairs from the
     graph before the swap:
 
-        andrew massey / andy massey          0.8666 -> 0.8783
-        andrew massey / andrew smith         0.8662 -> 0.8662
+        andrew doe / andy doe          0.8666 -> 0.8783
+        andrew doe / andrew smith         0.8662 -> 0.8662
         mike chan / michael chan             0.7981 -> 0.8148
         chris tannous / christopher tannous  0.8984 -> 0.9061
         craig whittet / madhu motwani        0.5021 -> 0.5299
@@ -204,7 +204,7 @@ def _country_code_to_region(code: int) -> str:
 # shared PREFIX very heavily, which is exactly the wrong bias here, because
 # the thing two different people most often share is a first name:
 #
-#     Sandra Andersson  vs  Sandra Stewart   -> 0.867   merged. Wrong.
+#     Jane Andersen     vs  Jane Stewart     -> ~0.87   merged. Wrong.
 #     John Smith        vs  Jane Smith       -> 0.880   merged. Wrong.
 #
 # Both cleared both thresholds and were silently merged into one person, which
@@ -283,9 +283,9 @@ def names_agree(name_a: str, name_b: str) -> str:
 
     TWO KNOWN LIMITATIONS, both deliberate, both erring towards review:
 
-    1. Surname-last is assumed. For a name written surname-FIRST ("Chen Wei"),
+    1. Surname-last is assumed. For a name written surname-FIRST ("Wang Wei"),
        the given name and surname are swapped. In practice the verdict still
-       comes out safe -- "Chen Wei" vs "Chen Yu" compares "wei" against "yu",
+       comes out safe -- "Wang Wei" vs "Wang Min" compares "wei" against "yu",
        disagrees, and goes to review rather than merging two people -- but the
        stated REASON would be wrong. Proper handling needs a script/locale
        signal that the graph does not currently carry.
