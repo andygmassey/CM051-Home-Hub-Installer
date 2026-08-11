@@ -127,6 +127,38 @@ tmp="$(mktemp -d)"
 # Temporarily pin to the target sha for the materialise helper.
 _orig_pin="$(vlib_field "$TREE" pinned_sha)"
 set_manifest_field "$TREE" pinned_sha "$TO_SHA"
+
+# RESTORE THE PIN ON ANY EXIT THAT IS NOT A COMPLETED SYNC.
+#
+# The line above bumps pinned_sha BEFORE anything is validated, because the
+# materialise helper reads the pin to know what to fetch. Fine as a mechanism,
+# lethal as a default: every abort after this point leaves the manifest
+# asserting a sha whose content was never vendored.
+#
+# Two abort paths restored it by hand. THREE DID NOT -- the VENDOR_ONLY refusal
+# and the two stash failures. Measured 2026-08-12: `sync_vendor.sh doctor`
+# refused at VENDOR_ONLY and left
+#
+#     - pinned_sha = "b0b383109e6e..."   (the deliberate hold)
+#     + pinned_sha = "85621fb7a64b..."   (an UNMERGED local branch)
+#
+# while saying nothing about the manifest. A second run then aborted on the
+# divergence patch and dutifully restored to the ALREADY-CORRUPTED value --
+# which is how a leak like this quietly becomes the new baseline.
+#
+# The manifest's own hold_ack_reason names it: "pinning to a commit whose
+# content you have not taken is the exact lie this ledger exists to prevent."
+#
+# A trap, not three more hand-written restores. The defect was never the
+# missing lines; it was that adding an abort path silently opts out of the
+# invariant. A new `exit` cannot forget this one.
+_pin_committed=0
+_restore_pin_on_exit() {
+    [ "$_pin_committed" = "1" ] && return 0
+    set_manifest_field "$TREE" pinned_sha "$_orig_pin"
+}
+trap _restore_pin_on_exit EXIT
+
 rc=0
 vlib_materialise "$TREE" "$tmp" || rc=$?
 if [ "$rc" != "0" ]; then
@@ -319,5 +351,9 @@ else
     clear_manifest_patch_ref "$TREE"
 fi
 rm -rf "$tmp2"
+
+# The sync completed: the vendored tree now HOLDS this sha's content, so the
+# pin is earned and the trap must not undo it.
+_pin_committed=1
 
 echo "synced $TREE -> pinned_sha ${TO_SHA:0:12}. Review 'git diff vendor/$vendor_path' and the regenerated patch, then commit."
