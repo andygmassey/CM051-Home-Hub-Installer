@@ -6217,6 +6217,28 @@ def api_hydration_status():
     if comp is None:
         ai["state"] = "pending"            # compiler has not started yet
     elif comp.get("complete"):
+        # v1018-D007: a DONE phase must carry its numbers.
+        #
+        # This branch used to set the state and return without touching the
+        # counters, so `done`/`total` kept the 0/0 the initialiser above gave
+        # them. A phase that had summarised everything therefore reported
+        # "done, 0 of 0" -- structurally incapable of saying otherwise, on
+        # every completed run, for every customer.
+        #
+        # Measured on the founder box 2026-08-11: the endpoint returned
+        # `{state: "done", done: 0, total: 0}` while the status file it had
+        # just read held `stage_done: 80, stage_total: 80`, and 333
+        # summary-bearing pages sat on disk. `overall_state` was "complete",
+        # so the customer was told the work had finished AND shown a zero.
+        #
+        # `count` rather than only done/total because that is the shape the
+        # other terminal phases use (contacts, graph) and what a reader of a
+        # finished phase actually wants: how many, not a ratio that is now
+        # always N of N.
+        done = int(comp.get("stage_done", 0) or 0)
+        total = int(comp.get("stage_total", 0) or 0)
+        ai["done"], ai["total"] = done, total
+        ai["count"] = done
         ai["state"] = "done"
     else:
         done = int(comp.get("stage_done", 0) or 0)
