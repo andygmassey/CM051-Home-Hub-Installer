@@ -257,310 +257,6 @@
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
---- a/agent/duplicate_decision.py
-+++ b/agent/duplicate_decision.py
-@@ -25,7 +25,7 @@
- 
- import yaml
- 
--_VALID_ACTIONS = {"merge", "distinct"}
-+_VALID_ACTIONS = {"merge", "distinct", "split"}
- # short-id shape: hex tails plus a safe alphanumeric set. Crucially this rejects
- # path separators and dots, so a malformed/hostile id can never escape the
- # corrections dir or poison the YAML.
-@@ -63,8 +63,8 @@
-         )
- 
-     ids = body.get("ids")
--    if not isinstance(ids, list) or len(ids) < 2:
--        raise ValidationError("ids must be a list of at least 2 short-ids")
-+    if not isinstance(ids, list) or not ids:
-+        raise ValidationError("ids must be a non-empty list of short-ids")
- 
-     seen: set = set()
-     uniq: List[str] = []
-@@ -74,9 +74,15 @@
-         if x not in seen:
-             seen.add(x)
-             uniq.append(x)
--    if len(uniq) < 2:
--        raise ValidationError("need at least 2 distinct short-ids")
- 
-+    # ``split`` flags ONE record as wrongly-fused (one contact that is really
-+    # two people); ``merge``/``distinct`` are pairwise so they need 2+.
-+    min_ids = 1 if action == "split" else 2
-+    if len(uniq) < min_ids:
-+        raise ValidationError(
-+            f"action {action!r} needs at least {min_ids} distinct short-id(s)"
-+        )
-+
-     return {"action": action, "ids": uniq}
- 
- 
-@@ -84,6 +90,9 @@
-     action, ids = normalised["action"], normalised["ids"]
-     if action == "merge":
-         return [{"merge": list(ids)}]
-+    if action == "split":
-+        # split: flag the single fused record for separation on next refresh.
-+        return [{"split": list(ids)}]
-     # distinct: record every pair so the resolver vetoes each one independently.
-     return [
-         {"distinct": [ids[i], ids[j]]}
---- a/agent/pair_status.py
-+++ b/agent/pair_status.py
-@@ -78,15 +78,8 @@
- 
- 
- def gateway_port() -> int:
--    """Resolve the gateway port from env, mirroring zeroclaw-config's order.
--
--    OSTLER_CHAT_GATEWAY_PORT is the canonical override the installer writes
--    and the one chat_token.py reads (see _zeroclaw_port there). It must be
--    consulted first; without it the Pair panel falls through to the default
--    (42617), which is dead on the productised single-machine install, so the
--    panel reports the gateway as down even though it is live on :8000.
--    """
--    for var in ("OSTLER_CHAT_GATEWAY_PORT", "ZEROCLAW_GATEWAY_PORT", "PORT"):
-+    """Resolve the gateway port from env, mirroring zeroclaw-config's order."""
-+    for var in ("ZEROCLAW_GATEWAY_PORT", "PORT"):
-         raw = os.environ.get(var)
-         if raw:
-             try:
---- a/agent/requirements.txt
-+++ b/agent/requirements.txt
-@@ -1,4 +1,4 @@
--fastapi>=0.136.3,<1.0
-+fastapi>=0.115.0,<1.0
- uvicorn>=0.32.0,<1.0
- httpx>=0.28.1,<1.0
- pyyaml>=6.0,<7.0
---- a/agent/web_ui_copy.py
-+++ b/agent/web_ui_copy.py
-@@ -209,6 +209,11 @@
-     "Open your email client with the diagnostic report ready to send "
-     "to support"
- )
-+DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
-+DASHBOARD_BTN_SETTINGS_TITLE = (
-+    "Pause or ease off background work, and adjust channels, model and "
-+    "schedule"
-+)
- 
- DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
- DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
---- a/agent/web_ui.py
-+++ b/agent/web_ui.py
-@@ -82,6 +82,8 @@
-     DASHBOARD_BTN_EMAIL_PREPARING,
-     DASHBOARD_BTN_EMAIL_TITLE,
-     DASHBOARD_BTN_REFRESH,
-+    DASHBOARD_BTN_SETTINGS,
-+    DASHBOARD_BTN_SETTINGS_TITLE,
-     DASHBOARD_FIX_LABEL_FMT,
-     DASHBOARD_FIX_NOTE,
-     DASHBOARD_HEADING,
-@@ -1149,6 +1151,7 @@
-             display: inline-flex;
-             align-items: center;
-             gap: 6px;
-+            text-decoration: none;
-         }}
-         .refresh-btn:hover, .auto-refresh-btn:hover {{
-             border-color: var(--ostler-accent);
-@@ -1543,6 +1546,7 @@
-             </div>
-             <div>
-                 <div class="header-controls">
-+                    <a class="refresh-btn" href="/config" id="settingsBtn" title="{DASHBOARD_BTN_SETTINGS_TITLE}">{DASHBOARD_BTN_SETTINGS}</a>
-                     <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
-                     <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
-                     <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-
---- a/agent/proxy.py
-+++ b/agent/proxy.py
-@@ -54,6 +54,7 @@
- """
- from __future__ import annotations
- 
-+import hmac
- import logging
- import os
- from typing import Iterable, Optional
-@@ -200,8 +201,99 @@
-     if raw.startswith(prefix):
-         return raw[len(prefix):].strip()
-     return ""
-+
-+
-+# Whether the gateway has been observed NOT to serve the bearer-validation
-+# oracle. Set only by a 404/405 from that route, cleared by any real 401.
-+# Process-local and deliberately not persisted: it describes the daemon we are
-+# talking to right now, and must re-derive itself after a daemon swap.
-+_ORACLE_STATE = {"absent": False}
-+
-+
-+def _machine_admin_token() -> str:
-+    """The machine-local admin token, if this install has one."""
-+    for name in ("OSTLER_ADMIN_TOKEN", "OSTLER_MACHINE_ADMIN_TOKEN"):
-+        raw = os.environ.get(name, "").strip()
-+        if raw:
-+            return raw
-+    return ""
-+
-+
-+def _local_fallback_allowed(request, client_bearer: str) -> bool:
-+    """May this request proceed even though the gateway gave no auth verdict?
-+
-+    ONLY when all of:
-+      * the bearer-validation oracle is absent (deployment skew, not denial),
-+      * the caller is on loopback -- never a remote or tunnelled client, and
-+      * the caller either presents the machine admin token, or is doing a
-+        read-only GET.
-+
-+    The narrowness is the point. A missing endpoint must degrade to "the
-+    person sitting at this Mac can still read their own data", never to
-+    "anyone on the network is authenticated". On a daemon that serves the
-+    oracle this function is unreachable, because `absent` is never set.
-+
-+    THE LOOPBACK ASSUMPTION, AND ITS EXPIRY DATE (Archie, 2026-08-08)
-+    ----------------------------------------------------------------
-+    This whole function rests on "arrived on loopback" meaning "is physically
-+    at this Mac". That holds for the SHIPPED wiring and was verified against
-+    it: Doctor's uvicorn binds loopback with no proxy_headers, nothing
-+    tailscale-serves :8089, and the Companion TLS listener terminates on the
-+    daemon, not here.
-+
-+    It is an assumption about WIRING, not about this file, so this file cannot
-+    keep it true. The day someone puts a reverse proxy in front of Doctor,
-+    enables proxy_headers, or points `tailscale serve` at a Doctor loopback
-+    port -- exactly what CM051 #512 now does for the WIKI -- every remote
-+    caller starts presenting as 127.0.0.1 and this fallback silently widens
-+    from "the owner" to "the tailnet".
-+
-+    Hence the kill switch below. It defaults ON, so behaviour is unchanged
-+    today. Its job is to be a thing that must be consciously kept on: a future
-+    PR that wires any of the above has to come past this env var and decide,
-+    at wire-time, whether the fallback is still safe -- rather than inheriting
-+    a decision nobody remembers making.
-+    """
-+    if os.environ.get("OSTLER_DOCTOR_ORACLE_FALLBACK", "1").strip().lower() in (
-+        "0", "false", "no", "off",
-+    ):
-+        return False
-+
-+    if not _ORACLE_STATE["absent"]:
-+        return False
-+
-+    host = ""
-+    try:
-+        if request.client and request.client.host:
-+            host = str(request.client.host)
-+    except Exception:  # pragma: no cover - defensive
-+        return False
-+    if host not in ("127.0.0.1", "::1", "localhost"):
-+        return False
-+
-+    admin = _machine_admin_token()
-+    # compare_digest, not ==, so the comparison time does not depend on how
-+    # many leading characters matched. A loopback attacker who can make
-+    # repeated requests could otherwise recover the admin token one character
-+    # at a time. The window is narrow -- this path is only live on a daemon
-+    # that does not serve the oracle -- but the cost of closing it is one
-+    # import, and "narrow" is not "closed". (Archie, 2026-08-08.)
-+    # ...and compare BYTES, not str. compare_digest raises TypeError on str
-+    # operands containing non-ASCII, and client_bearer is attacker-controlled:
-+    # a bearer of "sekrité" would have crashed the proxy rather than being
-+    # rejected. Caught by test_non_ascii_bearer_does_not_crash on the first run
-+    # after the compare_digest swap -- the hardening introduced the bug and the
-+    # test written alongside it found it.
-+    if admin and client_bearer and hmac.compare_digest(
-+        client_bearer.encode("utf-8", "surrogatepass"),
-+        admin.encode("utf-8", "surrogatepass"),
-+    ):
-+        return True
- 
-+    method = str(getattr(request, "method", "") or "").upper()
-+    return method in ("GET", "HEAD")
- 
-+
- async def _is_paired_bearer(
-     token: str,
-     validator_url: Optional[str] = None,
-@@ -246,12 +338,47 @@
-         return False
-     if resp.status_code == 204:
-         return True
-+    # 404/405 is NOT an auth decision -- it means this daemon build does not
-+    # serve the oracle at all (deployment skew), and the gateway has therefore
-+    # expressed no opinion about the bearer. Treating "route absent" as "auth
-+    # denied" is what turned a missing endpoint into a TOTAL lockout on the
-+    # v1.0.14.1 box-walk: every /api/v1/* answered 401 and the Hub sat on
-+    # "Connecting..." for ever on a machine whose data layer was perfectly
-+    # healthy. Record the skew so the loopback fallback below can apply; the
-+    # flag is only ever set by these two statuses, so on a daemon that does
-+    # serve the oracle this branch never runs and nothing changes.
-+    if resp.status_code in (404, 405):
-+        if not _ORACLE_STATE["absent"]:
-+            # 405 is louder than 404 on purpose (Archie, 2026-08-08). 404 says
-+            # "no such route" -- an older daemon, the case this exists for. 405
-+            # says "route exists, wrong method", which is evidence the oracle
-+            # IS there and we are calling it incorrectly. Same handling, but
-+            # 405 is an API-shape drift we want visible in triage rather than
-+            # quietly absorbed as skew.
-+            logger.log(
-+                logging.ERROR if resp.status_code == 405 else logging.WARNING,
-+                "Doctor proxy: gateway does not serve /internal/validate-bearer "
-+                "(HTTP %s at %s). This is deployment skew, not an auth denial. "
-+                "Loopback callers will be admitted under the local fallback; "
-+                "remote callers stay denied.%s",
-+                resp.status_code,
-+                validator_url or "<default validator url>",
-+                " A 405 means the route EXISTS but rejected our method -- check"
-+                " the validator API shape, this is probably not skew."
-+                if resp.status_code == 405 else "",
-+            )
-+        _ORACLE_STATE["absent"] = True
-+        return False
-     if resp.status_code != 401:
-         logger.warning(
-             "Doctor proxy: unexpected /internal/validate-bearer status %s; "
-             "failing closed",
-             resp.status_code,
-         )
-+    # A real 401 means the oracle exists and rejected this bearer, so any
-+    # earlier skew observation is stale -- clear it rather than letting one
-+    # 404 during a restart permanently loosen the door.
-+    _ORACLE_STATE["absent"] = False
-     return False
- 
- 
-@@ -306,10 +433,23 @@
-         client_bearer = _extract_bearer_token(request.headers)
-         # BW2-5: ask the gateway (single source of pairing truth, which decrypts
-         # the enc2: paired_tokens) rather than re-reading config.toml ourselves.
--        if not await _is_paired_bearer(
-+        authorized = await _is_paired_bearer(
-             client_bearer, validator_url=validator_url, client=client
--        ):
-+        )
-+        if not authorized and _local_fallback_allowed(request, client_bearer):
-+            # The gateway expressed no opinion because it does not serve the
-+            # oracle at all. Admit this narrow loopback case rather than
-+            # locking the owner out of their own machine. See
-+            # _local_fallback_allowed for why this cannot widen access.
-             logger.warning(
-+                "Doctor proxy: admitting loopback %s %s under the local "
-+                "fallback (gateway serves no bearer-validation oracle)",
-+                request.method,
-+                path,
-+            )
-+            authorized = True
-+        if not authorized:
-+            logger.warning(
-                 "Doctor proxy: rejecting unpaired client bearer for %s %s",
-                 request.method,
-                 path,
 --- a/agent/diagnostic_copy.py
 +++ b/agent/diagnostic_copy.py
 @@ -383,4 +383,93 @@
@@ -1026,3 +722,744 @@
  ]
  
  
+--- a/agent/duplicate_decision.py
++++ b/agent/duplicate_decision.py
+@@ -25,7 +25,7 @@
+ 
+ import yaml
+ 
+-_VALID_ACTIONS = {"merge", "distinct"}
++_VALID_ACTIONS = {"merge", "distinct", "split"}
+ # short-id shape: hex tails plus a safe alphanumeric set. Crucially this rejects
+ # path separators and dots, so a malformed/hostile id can never escape the
+ # corrections dir or poison the YAML.
+@@ -63,8 +63,8 @@
+         )
+ 
+     ids = body.get("ids")
+-    if not isinstance(ids, list) or len(ids) < 2:
+-        raise ValidationError("ids must be a list of at least 2 short-ids")
++    if not isinstance(ids, list) or not ids:
++        raise ValidationError("ids must be a non-empty list of short-ids")
+ 
+     seen: set = set()
+     uniq: List[str] = []
+@@ -74,9 +74,15 @@
+         if x not in seen:
+             seen.add(x)
+             uniq.append(x)
+-    if len(uniq) < 2:
+-        raise ValidationError("need at least 2 distinct short-ids")
+ 
++    # ``split`` flags ONE record as wrongly-fused (one contact that is really
++    # two people); ``merge``/``distinct`` are pairwise so they need 2+.
++    min_ids = 1 if action == "split" else 2
++    if len(uniq) < min_ids:
++        raise ValidationError(
++            f"action {action!r} needs at least {min_ids} distinct short-id(s)"
++        )
++
+     return {"action": action, "ids": uniq}
+ 
+ 
+@@ -84,6 +90,9 @@
+     action, ids = normalised["action"], normalised["ids"]
+     if action == "merge":
+         return [{"merge": list(ids)}]
++    if action == "split":
++        # split: flag the single fused record for separation on next refresh.
++        return [{"split": list(ids)}]
+     # distinct: record every pair so the resolver vetoes each one independently.
+     return [
+         {"distinct": [ids[i], ids[j]]}
+--- a/agent/import_evernote_runner.py
++++ b/agent/import_evernote_runner.py
+@@ -37,6 +37,7 @@
+ 
+ import argparse
+ import json
++import logging
+ import os
+ import subprocess
+ import sys
+@@ -44,7 +45,58 @@
+ from pathlib import Path
+ from typing import Any, Dict, List
+ 
++# Best-effort settling-progress import. The runner is stdlib-only by design
++# so it can boot inside a fresh Doctor venv before extra deps land -- the
++# helper import is guarded so an absent module never blocks the runner from
++# finishing the import (the settling panel then falls back to calendar mode,
++# which is the correct honest degradation).
++try:
++    _REPO_ROOT = Path(__file__).resolve().parents[2]
++    if str(_REPO_ROOT) not in sys.path:
++        sys.path.insert(0, str(_REPO_ROOT))
++    from ostler_fda.settling_progress import (  # noqa: E402
++        report_settling_progress,
++    )
++except Exception:  # noqa: BLE001 -- see comment above
++    report_settling_progress = None  # type: ignore[assignment]
+ 
++_logger = logging.getLogger(__name__)
++
++# Channel identifier for the "notes" settling shard. Runner is a subprocess
++# of start_import (in import_evernote.py); both emit into the same shard.
++_SETTLING_CHANNEL = "notes"
++
++
++def _emit_notes_settling(
++    *,
++    done: int,
++    total: int,
++    needs_source: bool = False,
++    started_at: str,
++) -> None:
++    """Emit a `notes` settling shard from the runner subprocess.
++
++    Safe against a missing helper import or a full-disk write -- neither
++    can abort the runner (which owns the terminal state file + lockfile
++    removal). Silent failure here is degrades-to-calendar-mode, not lost
++    data.
++    """
++    if report_settling_progress is None:
++        return
++    try:
++        report_settling_progress(
++            channel=_SETTLING_CHANNEL,
++            done=done,
++            total=total,
++            needs_source=needs_source,
++            started_at=started_at,
++        )
++    except Exception:  # noqa: BLE001 -- see docstring
++        # Runner's own log stream is inherited by the parent; write a
++        # single warning line so a real problem is at least visible.
++        sys.stderr.write("runner: settling-progress emit failed\n")
++
++
+ # Sentinel that separates sequential phases in the command after ``--``.
+ # Doctor passes ``convert ... --and-then embed ...`` so the supervisor
+ # runs convert, then embed ONLY if convert succeeded. A command with no
+@@ -80,7 +132,18 @@
+     parser.add_argument("--log-path", required=True, dest="log_path")
+     parser.add_argument("--enex-path", required=True, dest="enex_path")
+     parser.add_argument("--started-at", required=True, dest="started_at")
++    # Optional: count of `<note>` tags in the ENEX, measured by start_import
++    # before fork. Feeds the settling-progress `total` denominator; 0 means
++    # "count unknown" and results in a needs_source=False, total=0 shard
++    # (reader classifies as ready). Optional so old callers still work.
+     parser.add_argument(
++        "--note-count",
++        type=int,
++        default=0,
++        dest="note_count",
++        help="ENEX <note>-tag count for settling-progress total (optional).",
++    )
++    parser.add_argument(
+         "command",
+         nargs=argparse.REMAINDER,
+         help="The command(s) to execute; precede with -- to disambiguate. "
+@@ -190,6 +253,28 @@
+         # Fall through and still try to remove the lockfile so the
+         # next start_import isn't blocked by a stale lock.
+ 
++    # Settling-progress: emit the terminal shard so the wiki "notes" panel
++    # transitions off waiting/partway once this import completes. We treat
++    # `succeeded` AND `partial` as "notes landed" -- partial means only
++    # the embed step failed (Qdrant/Ollama down); the markdown IS in the
++    # staging tree, which is what the settling panel actually cares about.
++    # A hard `failed` state does NOT emit -- the panel keeps its last-known
++    # `done` and the reader's stale-updated_at handling (via the A9 gate)
++    # catches truly-abandoned imports.
++    if status in ("succeeded", "partial"):
++        # A zero note_count means the caller could not measure a
++        # denominator (mangled ENEX, or older caller pre-dating the
++        # --note-count flag). Emit total=0/done=0 which the reader
++        # classifies as ready (needs_source=False), NOT as an invitation
++        # to add a source -- the source IS connected, an import ran.
++        note_count = max(0, args.note_count)
++        _emit_notes_settling(
++            done=note_count,
++            total=note_count,
++            needs_source=False,
++            started_at=args.started_at,
++        )
++
+     try:
+         Path(args.lock).unlink(missing_ok=True)
+     except OSError as exc:
+--- a/agent/import_evernote.py
++++ b/agent/import_evernote.py
+@@ -46,6 +46,7 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import os
+ import re
+ import subprocess
+@@ -59,7 +60,30 @@
+ 
+ import yaml  # PyYAML, listed in doctor/agent/requirements.txt
+ 
++# The settling-progress writer lives in ostler_fda (already vendored into
++# CM051). Doctor's sys.path may not include the HR015 root at test time; we
++# make the import best-effort so a missing module here never blocks an
++# import (the panel degrades to calendar mode -- honest fallback).
++try:
++    # ostler_fda ships as a sibling package at the HR015 repo root; add the
++    # repo root to sys.path so the import resolves whether Doctor is run
++    # from the repo, from a vendored install, or under pytest.
++    _REPO_ROOT = Path(__file__).resolve().parents[2]
++    if str(_REPO_ROOT) not in sys.path:
++        sys.path.insert(0, str(_REPO_ROOT))
++    from ostler_fda.settling_progress import (  # noqa: E402
++        report_settling_progress,
++    )
++except Exception:  # noqa: BLE001 -- best-effort import; see comment
++    report_settling_progress = None  # type: ignore[assignment]
+ 
++_logger = logging.getLogger(__name__)
++
++# Settling-progress channel for the "notes" panel. Evernote is the sole
++# producer today; Notion/Obsidian will follow the same shape once wired.
++_SETTLING_CHANNEL = "notes"
++
++
+ # ── Default paths ─────────────────────────────────────────────────────
+ 
+ DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
+@@ -226,8 +250,101 @@
+         )
+ 
+     return resolved
++
++
++# ── Settling-progress emit ───────────────────────────────────────────
++
++
++# Regex compiled once. `<note>` opening tag with optional attributes; we
++# count the opening tag rather than a closing one so a truncated ENEX still
++# emits a plausible total rather than 0. Non-anchored, byte-oriented so the
++# streaming parser below can walk arbitrarily large ENEX files without
++# loading the whole document into memory.
++_NOTE_OPEN_TAG_RE = re.compile(rb"<\s*note\b", re.IGNORECASE)
++
++# ENEX files can be tens or hundreds of MB. The count helper reads in fixed
++# chunks so we never balloon Doctor's RSS on a big export.
++_ENEX_CHUNK_BYTES = 1 << 20  # 1 MiB
+ 
++# Cap the note-count scan to keep start_import fast on a very large ENEX
++# (hundreds of thousands of notes = ~seconds of scanning). If the customer's
++# export is larger than the cap we return the cap; the settling panel's job
++# is a rough denominator, not a forensic count.
++_ENEX_MAX_NOTES_FOR_TOTAL = 200_000
+ 
++
++def count_enex_notes(enex_path: Path) -> int:
++    """Count `<note>` opening tags in an ENEX export.
++
++    Streaming byte scan so a 200 MB ENEX does not balloon Doctor's memory.
++    Best-effort: any read error returns 0 so a mangled ENEX cannot abort
++    the import (the reader treats total=0 as "ready" or "waiting", never
++    as an error).
++
++    The count is a rough denominator for the settling-progress bar --
++    tiny over/under-counts are fine (a trailing `<note>` inside a CDATA
++    body counts, an ENEX header does not). We do NOT parse XML: that would
++    slow start_import measurably on a real export.
++    """
++    try:
++        with open(enex_path, "rb") as fh:
++            total = 0
++            # Carry the last 5 bytes across chunk boundaries so a `<note`
++            # split across two reads is still matched. 5 bytes is enough
++            # for the regex's `<\s*note\b` anchor plus a byte of whitespace.
++            carry = b""
++            while True:
++                chunk = fh.read(_ENEX_CHUNK_BYTES)
++                if not chunk:
++                    break
++                buffer = carry + chunk
++                # Do not double-count the carry region: the regex is
++                # matched on the whole buffer, then we keep the tail as
++                # the next carry.
++                matches = _NOTE_OPEN_TAG_RE.findall(buffer)
++                total += len(matches)
++                if total >= _ENEX_MAX_NOTES_FOR_TOTAL:
++                    return _ENEX_MAX_NOTES_FOR_TOTAL
++                carry = buffer[-8:]
++            return total
++    except OSError as exc:
++        _logger.warning(
++            "settling-progress: could not count notes in %s (%s: %s)",
++            enex_path, type(exc).__name__, exc,
++        )
++        return 0
++
++
++def _emit_notes_settling(
++    *,
++    done: int,
++    total: int,
++    needs_source: bool = False,
++    started_at: Optional[str] = None,
++) -> None:
++    """Best-effort settling-progress emit for the notes (Evernote) backfill.
++
++    Wraps :func:`report_settling_progress` in try/except so a missing
++    helper import or full-disk write can never abort ``start_import`` --
++    the settling panel is a UX affordance, not a load-bearing dependency.
++    """
++    if report_settling_progress is None:
++        return
++    try:
++        report_settling_progress(
++            channel=_SETTLING_CHANNEL,
++            done=done,
++            total=total,
++            needs_source=needs_source,
++            started_at=started_at,
++        )
++    except Exception:  # noqa: BLE001 -- see docstring
++        _logger.warning(
++            "settling-progress: notes emit failed; continuing import",
++            exc_info=True,
++        )
++
++
+ # ── Lockfile ─────────────────────────────────────────────────────────
+ 
+ 
+@@ -383,6 +500,25 @@
+             raise EvernoteImportError(
+                 500, f"could not open log file {log_path}: {exc}",
+             )
++
++        # Count notes in the ENEX for the settling-progress denominator.
++        # Fast streaming byte scan; a mangled ENEX returns 0 (the panel
++        # then falls back to calendar mode -- honest degradation). We do
++        # this BEFORE the fork so the panel has a real total immediately
++        # rather than 0 for the whole convert phase.
++        note_count = count_enex_notes(enex_path)
++
++        # Initial settling emit: `done=0, total=note_count`. If note_count
++        # is 0 (empty or unreadable ENEX) we still emit needs_source=False
++        # so the reader classifies as ready rather than waiting -- an
++        # empty ENEX is a completed import of zero notes, not "no source
++        # connected". The runner emits the terminal `done=total` at end.
++        _emit_notes_settling(
++            done=0,
++            total=note_count,
++            needs_source=False,
++            started_at=started_at,
++        )
+ 
+         try:
+             try:
+@@ -417,6 +553,11 @@
+                         "--log-path", str(log_path),
+                         "--enex-path", str(enex_path),
+                         "--started-at", started_at,
++                        # Pass the note count through so the runner can
++                        # emit the terminal settling tick with a real
++                        # total. Runner treats 0 as "count unknown" and
++                        # emits done=0/total=0 (ready) on success.
++                        "--note-count", str(note_count),
+                         "--",
+                         *convert_phase,
+                         "--and-then",
+--- a/agent/proxy.py
++++ b/agent/proxy.py
+@@ -54,6 +54,7 @@
+ """
+ from __future__ import annotations
+ 
++import hmac
+ import logging
+ import os
+ from typing import Iterable, Optional
+@@ -200,8 +201,99 @@
+     if raw.startswith(prefix):
+         return raw[len(prefix):].strip()
+     return ""
++
++
++# Whether the gateway has been observed NOT to serve the bearer-validation
++# oracle. Set only by a 404/405 from that route, cleared by any real 401.
++# Process-local and deliberately not persisted: it describes the daemon we are
++# talking to right now, and must re-derive itself after a daemon swap.
++_ORACLE_STATE = {"absent": False}
++
++
++def _machine_admin_token() -> str:
++    """The machine-local admin token, if this install has one."""
++    for name in ("OSTLER_ADMIN_TOKEN", "OSTLER_MACHINE_ADMIN_TOKEN"):
++        raw = os.environ.get(name, "").strip()
++        if raw:
++            return raw
++    return ""
++
++
++def _local_fallback_allowed(request, client_bearer: str) -> bool:
++    """May this request proceed even though the gateway gave no auth verdict?
++
++    ONLY when all of:
++      * the bearer-validation oracle is absent (deployment skew, not denial),
++      * the caller is on loopback -- never a remote or tunnelled client, and
++      * the caller either presents the machine admin token, or is doing a
++        read-only GET.
++
++    The narrowness is the point. A missing endpoint must degrade to "the
++    person sitting at this Mac can still read their own data", never to
++    "anyone on the network is authenticated". On a daemon that serves the
++    oracle this function is unreachable, because `absent` is never set.
++
++    THE LOOPBACK ASSUMPTION, AND ITS EXPIRY DATE (Archie, 2026-08-08)
++    ----------------------------------------------------------------
++    This whole function rests on "arrived on loopback" meaning "is physically
++    at this Mac". That holds for the SHIPPED wiring and was verified against
++    it: Doctor's uvicorn binds loopback with no proxy_headers, nothing
++    tailscale-serves :8089, and the Companion TLS listener terminates on the
++    daemon, not here.
++
++    It is an assumption about WIRING, not about this file, so this file cannot
++    keep it true. The day someone puts a reverse proxy in front of Doctor,
++    enables proxy_headers, or points `tailscale serve` at a Doctor loopback
++    port -- exactly what CM051 #512 now does for the WIKI -- every remote
++    caller starts presenting as 127.0.0.1 and this fallback silently widens
++    from "the owner" to "the tailnet".
++
++    Hence the kill switch below. It defaults ON, so behaviour is unchanged
++    today. Its job is to be a thing that must be consciously kept on: a future
++    PR that wires any of the above has to come past this env var and decide,
++    at wire-time, whether the fallback is still safe -- rather than inheriting
++    a decision nobody remembers making.
++    """
++    if os.environ.get("OSTLER_DOCTOR_ORACLE_FALLBACK", "1").strip().lower() in (
++        "0", "false", "no", "off",
++    ):
++        return False
++
++    if not _ORACLE_STATE["absent"]:
++        return False
++
++    host = ""
++    try:
++        if request.client and request.client.host:
++            host = str(request.client.host)
++    except Exception:  # pragma: no cover - defensive
++        return False
++    if host not in ("127.0.0.1", "::1", "localhost"):
++        return False
++
++    admin = _machine_admin_token()
++    # compare_digest, not ==, so the comparison time does not depend on how
++    # many leading characters matched. A loopback attacker who can make
++    # repeated requests could otherwise recover the admin token one character
++    # at a time. The window is narrow -- this path is only live on a daemon
++    # that does not serve the oracle -- but the cost of closing it is one
++    # import, and "narrow" is not "closed". (Archie, 2026-08-08.)
++    # ...and compare BYTES, not str. compare_digest raises TypeError on str
++    # operands containing non-ASCII, and client_bearer is attacker-controlled:
++    # a bearer of "sekrité" would have crashed the proxy rather than being
++    # rejected. Caught by test_non_ascii_bearer_does_not_crash on the first run
++    # after the compare_digest swap -- the hardening introduced the bug and the
++    # test written alongside it found it.
++    if admin and client_bearer and hmac.compare_digest(
++        client_bearer.encode("utf-8", "surrogatepass"),
++        admin.encode("utf-8", "surrogatepass"),
++    ):
++        return True
+ 
++    method = str(getattr(request, "method", "") or "").upper()
++    return method in ("GET", "HEAD")
+ 
++
+ async def _is_paired_bearer(
+     token: str,
+     validator_url: Optional[str] = None,
+@@ -246,12 +338,47 @@
+         return False
+     if resp.status_code == 204:
+         return True
++    # 404/405 is NOT an auth decision -- it means this daemon build does not
++    # serve the oracle at all (deployment skew), and the gateway has therefore
++    # expressed no opinion about the bearer. Treating "route absent" as "auth
++    # denied" is what turned a missing endpoint into a TOTAL lockout on the
++    # v1.0.14.1 box-walk: every /api/v1/* answered 401 and the Hub sat on
++    # "Connecting..." for ever on a machine whose data layer was perfectly
++    # healthy. Record the skew so the loopback fallback below can apply; the
++    # flag is only ever set by these two statuses, so on a daemon that does
++    # serve the oracle this branch never runs and nothing changes.
++    if resp.status_code in (404, 405):
++        if not _ORACLE_STATE["absent"]:
++            # 405 is louder than 404 on purpose (Archie, 2026-08-08). 404 says
++            # "no such route" -- an older daemon, the case this exists for. 405
++            # says "route exists, wrong method", which is evidence the oracle
++            # IS there and we are calling it incorrectly. Same handling, but
++            # 405 is an API-shape drift we want visible in triage rather than
++            # quietly absorbed as skew.
++            logger.log(
++                logging.ERROR if resp.status_code == 405 else logging.WARNING,
++                "Doctor proxy: gateway does not serve /internal/validate-bearer "
++                "(HTTP %s at %s). This is deployment skew, not an auth denial. "
++                "Loopback callers will be admitted under the local fallback; "
++                "remote callers stay denied.%s",
++                resp.status_code,
++                validator_url or "<default validator url>",
++                " A 405 means the route EXISTS but rejected our method -- check"
++                " the validator API shape, this is probably not skew."
++                if resp.status_code == 405 else "",
++            )
++        _ORACLE_STATE["absent"] = True
++        return False
+     if resp.status_code != 401:
+         logger.warning(
+             "Doctor proxy: unexpected /internal/validate-bearer status %s; "
+             "failing closed",
+             resp.status_code,
+         )
++    # A real 401 means the oracle exists and rejected this bearer, so any
++    # earlier skew observation is stale -- clear it rather than letting one
++    # 404 during a restart permanently loosen the door.
++    _ORACLE_STATE["absent"] = False
+     return False
+ 
+ 
+@@ -306,10 +433,23 @@
+         client_bearer = _extract_bearer_token(request.headers)
+         # BW2-5: ask the gateway (single source of pairing truth, which decrypts
+         # the enc2: paired_tokens) rather than re-reading config.toml ourselves.
+-        if not await _is_paired_bearer(
++        authorized = await _is_paired_bearer(
+             client_bearer, validator_url=validator_url, client=client
+-        ):
++        )
++        if not authorized and _local_fallback_allowed(request, client_bearer):
++            # The gateway expressed no opinion because it does not serve the
++            # oracle at all. Admit this narrow loopback case rather than
++            # locking the owner out of their own machine. See
++            # _local_fallback_allowed for why this cannot widen access.
+             logger.warning(
++                "Doctor proxy: admitting loopback %s %s under the local "
++                "fallback (gateway serves no bearer-validation oracle)",
++                request.method,
++                path,
++            )
++            authorized = True
++        if not authorized:
++            logger.warning(
+                 "Doctor proxy: rejecting unpaired client bearer for %s %s",
+                 request.method,
+                 path,
+--- a/agent/requirements.txt
++++ b/agent/requirements.txt
+@@ -1,4 +1,4 @@
+-fastapi>=0.136.3,<1.0
++fastapi>=0.115.0,<1.0
+ uvicorn>=0.32.0,<1.0
+ httpx>=0.28.1,<1.0
+ pyyaml>=6.0,<7.0
+--- a/agent/web_ui_copy.py
++++ b/agent/web_ui_copy.py
+@@ -209,6 +209,11 @@
+     "Open your email client with the diagnostic report ready to send "
+     "to support"
+ )
++DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
++DASHBOARD_BTN_SETTINGS_TITLE = (
++    "Pause or ease off background work, and adjust channels, model and "
++    "schedule"
++)
+ 
+ DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
+ DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
+--- a/agent/web_ui.py
++++ b/agent/web_ui.py
+@@ -32,9 +32,15 @@
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+-from fastapi import FastAPI, Request
++import httpx
++from fastapi import FastAPI, Request, Response
+ from fastapi.middleware.cors import CORSMiddleware
+-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
++from fastapi.responses import (
++    HTMLResponse,
++    JSONResponse,
++    PlainTextResponse,
++    RedirectResponse,
++)
+ 
+ from status_collector import (
+     collect_full_snapshot,
+@@ -82,6 +88,8 @@
+     DASHBOARD_BTN_EMAIL_PREPARING,
+     DASHBOARD_BTN_EMAIL_TITLE,
+     DASHBOARD_BTN_REFRESH,
++    DASHBOARD_BTN_SETTINGS,
++    DASHBOARD_BTN_SETTINGS_TITLE,
+     DASHBOARD_FIX_LABEL_FMT,
+     DASHBOARD_FIX_NOTE,
+     DASHBOARD_HEADING,
+@@ -1149,6 +1157,7 @@
+             display: inline-flex;
+             align-items: center;
+             gap: 6px;
++            text-decoration: none;
+         }}
+         .refresh-btn:hover, .auto-refresh-btn:hover {{
+             border-color: var(--ostler-accent);
+@@ -1543,6 +1552,7 @@
+             </div>
+             <div>
+                 <div class="header-controls">
++                    <a class="refresh-btn" href="/config" id="settingsBtn" title="{DASHBOARD_BTN_SETTINGS_TITLE}">{DASHBOARD_BTN_SETTINGS}</a>
+                     <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
+                     <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
+                     <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
+@@ -2002,8 +2012,34 @@
+ 
+ 
+ # ── Endpoints ────────────────────────────────────────────────────────
++
++
++@app.get("/")
++async def front_door():
++    """Send the bare root to the dashboard. v1018-D023.
+ 
++    Every route on this service lives under /doctor or /api/v1, and nothing
++    served `/` at all, so the front door returned 404. A customer who opens the
++    Doctor at its host and port -- the only address they have been given -- gets
++    a 404 from a service that is running perfectly.
+ 
++    302 rather than 307 or 301, deliberately:
++      * 307 is FastAPI's RedirectResponse default and preserves the method,
++        meaningless for a browser hitting the root, and the D023 gate accepts
++        only 200/301/302 -- a 307 would leave the gate red.
++      * 301 is permanent and browsers cache it hard. If the dashboard ever
++        moves, every customer who visited once keeps the stale target.
++
++    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
++    deliberately. Reconstruction is source@upstream + vendor/divergences/
++    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
++    function alone would have turned a 404 into a NameError 500, which is worse,
++    so the import moved to the parenthesised form upstream already uses.
++    """
++    return RedirectResponse(url="/doctor", status_code=302)
++
++
++
+ @app.get("/doctor", response_class=HTMLResponse)
+ async def dashboard():
+     """Serve the diagnostic dashboard or first-run wizard."""
+@@ -2292,8 +2328,106 @@
+     breaking-change must roll a /api/v2 instead of mutating this.
+     """
+     return all_observability_postures()
++
++
++# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
++#
++# The wiki homepage's first-run "still settling" panel (CM044
++# ``compiler/hydration.py`` bakes it into the page HTML; a small JS
++# poller then auto-hides it once hydration completes) fetches
++# ``GET /api/v1/hydration/status``. That panel renders inside the wiki
++# iframe on :8044 and carries NO paired-iOS bearer. When this path is
++# served through the ``DOCTOR_PROXY_PATHS`` reverse proxy (below) it hits
++# ``proxy._is_paired_bearer`` and 401s ("client bearer is not a paired
++# token"), so BOTH the compile-time bake-check and the runtime auto-hide
++# poller silently fail and the panel bakes into the page forever (#178,
++# live-probed as a 401 on the Mini).
++#
++# The hydration payload is non-PII by construction -- per-phase counts,
++# states and an ETA only, no names, no content. The upstream ical-server
++# already marks it a PUBLIC route that never requires the service token
++# (``_PUBLIC_GET_PATHS`` in assistant_api/ical-server.py). So the Doctor
++# serves it UNAUTHENTICATED too, the same posture as ``/doctor/api/status``:
++# a dedicated explicit route that fetches the composite from the upstream
++# server-side (no Authorization forwarded) and returns the body verbatim,
++# 200 regardless of any inbound Authorization header.
++#
++# This route is registered BEFORE ``register_proxy_routes(app)`` so it wins
++# over the proxy catch-all: Starlette matches routes in registration order,
++# so an explicit ``/api/v1/hydration/status`` registered first takes
++# precedence over the same path the proxy would otherwise register from
++# ``DOCTOR_PROXY_PATHS``.
++
++_HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
++# Loopback round-trip to the upstream composite; a few seconds is generous
++# and a wedged upstream must fail fast rather than hang the panel poll.
++_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
++
++
++async def _fetch_hydration_status(
++    gateway_url: "str | None" = None,
++    client: "httpx.AsyncClient | None" = None,
++) -> httpx.Response:
++    """Fetch the composite hydration status from the upstream ical-server.
++
++    The per-phase hydration feed is owned by the upstream (it combines the
++    wiki compiler's progress file with live Qdrant / Oxigraph / conversation
++    counts), so the Doctor cannot synthesise it from a local file -- it
++    fetches server-side. NO Authorization header is sent: the upstream marks
++    this a public route and the whole point of #178 is to serve it without a
++    paired bearer. Reuses ``proxy._gateway_base_url`` so the upstream base is
++    read from one place (``DOCTOR_GATEWAY_URL``; the customer install points
++    it at the loopback ical-server on :8090).
++
++    ``gateway_url`` / ``client`` exist for tests that inject a destination or
++    a mocked transport; production callers pass neither.
++    """
++    from proxy import _gateway_base_url  # single source of the upstream base
++
++    base = (gateway_url or _gateway_base_url()).rstrip("/")
++    url = base + _HYDRATION_STATUS_PATH
++    if client is not None:
++        return await client.get(
++            url, timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
++        )
++    async with httpx.AsyncClient(
++        timeout=_HYDRATION_UPSTREAM_TIMEOUT_SECONDS
++    ) as new_client:
++        return await new_client.get(url)
+ 
+ 
++@app.get(_HYDRATION_STATUS_PATH)
++async def api_hydration_status() -> Response:
++    """Unauthenticated passthrough for the first-run wiki hydration panel.
++
++    Returns the upstream hydration JSON with a 200 whenever the upstream is
++    reachable, regardless of any inbound Authorization header -- there is no
++    bearer gate on this route (that is the #178 fix). On an upstream network
++    failure we mirror the proxy's honest 502 posture rather than fabricating
++    a "complete" payload that would wrongly hide the panel; the poller keeps
++    the panel visible and retries. Never 401s for auth reasons.
++    """
++    try:
++        upstream = await _fetch_hydration_status()
++    except (httpx.HTTPError, OSError) as exc:
++        # Upstream ical-server unreachable / timed out. Honest "cannot tell"
++        # so the wiki poller keeps the settling panel up and retries, instead
++        # of a 401 (the bug) or a fabricated done-state.
++        return Response(
++            content=json.dumps(
++                {"error": "upstream hydration status unreachable",
++                 "detail": exc.__class__.__name__}
++            ),
++            status_code=502,
++            media_type="application/json",
++        )
++    return Response(
++        content=upstream.content,
++        status_code=upstream.status_code,
++        media_type=upstream.headers.get("content-type", "application/json"),
++    )
++
++
+ # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
+ #
+ # Forwards iOS-initiated CM019 paths to the local gateway over
