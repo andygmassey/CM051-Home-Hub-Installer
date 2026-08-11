@@ -2252,11 +2252,47 @@ def _memory_query_facts() -> list:
         return []
     # Confidence is optional on the writer side; coalesce in Python
     # rather than the SPARQL query so we don't drop rows that lack it.
+    # TWO ways a fact belongs to this user, and we must match BOTH.
+    #
+    # THE BUG THIS FIXES (2026-08-08)
+    # ------------------------------------------------------------------
+    # This query used to match only `pwg:aboutPerson <USER_URI>` -- facts
+    # about the user themselves. But the assert endpoint above writes a fact
+    # about SOMEONE ELSE and marks ownership separately:
+    #
+    #     <fact> pwg:aboutPerson   <person_alison>   # who it is about
+    #            pwg:belongsToUser <user_andy>       # whose memory it is
+    #
+    # So "Jane Doe is your wife" was stored with aboutPerson = jane,
+    # and this reader asked for aboutPerson = Andy. It matched nothing.
+    # `pwg:belongsToUser` was written on line ~1833 and read NOWHERE -- a
+    # write-only field, the same defect class as displayNameProvisional
+    # (task #658).
+    #
+    # What that looked like to the customer, 2026-08-08:
+    #   in the app:      "I have successfully remembered that Jane Doe
+    #                     is your wife."
+    #   then on iMessage: "I cannot tell you who your wife is. I do not have
+    #                     access to that personal information."
+    # Andy: "WTAF? Why is this STILL not working?"
+    #
+    # It was never a cross-channel problem and never a privacy guardrail. The
+    # write succeeded, the fact is in the graph, and the reader was looking in
+    # the wrong place -- so EVERY channel was equally blind. The app only
+    # looked smarter because it was quoting back what it had just been told.
+    #
+    # ?about is returned so a caller can name the subject: answering "who is
+    # my wife" needs jane's name, not just the sentence.
     sparql = (
         'PREFIX pwg: <{ns}>\n'
-        'SELECT ?fact ?text ?source ?domain ?conf ?validFrom WHERE {{\n'
-        '  ?fact a pwg:PersonFact ; pwg:aboutPerson <{user}> ; '
-        'pwg:factText ?text .\n'
+        'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
+        'WHERE {{\n'
+        '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
+        '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
+        '  UNION\n'
+        '  {{ ?fact pwg:belongsToUser <{user}> }}\n'
+        '  OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
+        '             OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
         '  OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
         '  OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
         '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
