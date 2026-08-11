@@ -31,6 +31,10 @@ on:
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/test_vendor_manifest_is_valid_toml.py'
+      # The D024 harness. A path entry alone would only make the workflow
+      # TRIGGER; the run step above is what makes it CHECK. Both are needed,
+      # and the pair is the point: the gate must fire on changes to itself.
+      - 'tests/test_vendor_only_survives_sync.sh'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
@@ -113,6 +117,13 @@ jobs:
       # People/Timeline LOAD FAILED. This closes that gap.
       - name: Doctor web_ui string-catalogue completeness guard
         run: python3 -m unittest tests.test_doctor_web_ui_strings_complete -v
+
+      # v1018-D024. This ran ONLY in cut.yml, which means a change to vendor/
+      # -- or to the harness itself -- got no pre-merge signal, and a break was
+      # discoverable only at cut time. It was in fact broken on main for a
+      # while and nobody saw it until the cut needed it (CM051 #565).
+      - name: Vendor-only files survive a re-vendor (D024)
+        run: bash tests/test_vendor_only_survives_sync.sh
 
       - name: Browser-history vendor regression
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
