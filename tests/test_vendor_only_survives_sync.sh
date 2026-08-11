@@ -93,32 +93,111 @@ SV="$REPO_ROOT/scripts/sync_vendor.sh"
 MARK_START='^# Preserve vendor-only files across the swap'
 MARK_END='^\[ -n "\$_vo_stash" \] && rm -rf "\$_vo_stash"'
 
-run_real_region() {   # $1 = script to lift from, $2 = scratch root; echoes verdict
-	local src="$1" root="$2" s e
+# A SYNC RUNS ON ONE TREE, AND THE FIXTURE HAS TO SAY WHICH.
+#
+# The region computes    _vo_rel_from_vendor="${abs_vendor#"$_vo_root"/}/$_f"
+# so abs_vendor must be a SUBDIRECTORY of the vendor root -- vendor/doctor,
+# never vendor/ itself. The first version of this fixture set both to the same
+# path, which is the shape the OLD, BUGGY arithmetic assumed
+# (`_vo_src="$abs_vendor/$_vo_path"`). With them equal the prefix strip
+# no-ops, every computed path comes out absolute, no TSV row matches, and the
+# region hard-refuses. A fixture that encodes the defect cannot test the fix.
+#
+# Tree names come from the manifest, which is the same list sync_vendor.sh
+# iterates, so a new tree cannot silently fall outside this test.
+manifest_trees() {
+	grep -E '^name[[:space:]]*=' "$REPO_ROOT/vendor/VENDOR_MANIFEST.toml" \
+		| sed 's/.*=[[:space:]]*"//; s/".*//'
+}
+
+# Longest manifest tree name that prefixes a TSV row. Longest wins because
+# "cm041" and "cm041/assistant_api" can both be trees.
+tree_of() {
+	local p="$1" t best=""
+	while IFS= read -r t; do
+		[ -n "$t" ] || continue
+		case "$p" in "$t"/*) [ "${#t}" -gt "${#best}" ] && best="$t" ;; esac
+	done <<-EOF
+	$(manifest_trees)
+	EOF
+	printf '%s\n' "$best"
+}
+
+# The trees that actually carry vendor-only rows. A real sync runs per tree, so
+# check 5 does too -- otherwise a tree could be registered and never exercised.
+vo_trees="$(
+	while IFS=$'\t' read -r _vp _ _; do
+		case "${_vp:-}" in ''|'#'*) continue ;; esac
+		tree_of "$_vp"
+	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv" | sort -u | sed '/^$/d'
+)"
+
+run_real_region() {   # $1 = script, $2 = scratch root, $3 = tree; echoes verdict
+	local src="$1" root="$2" tree="$3" s e vp rel
 	s="$(grep -n "$MARK_START" "$src" | head -1 | cut -d: -f1)"
 	e="$(grep -n "$MARK_END"   "$src" | head -1 | cut -d: -f1)"
 	[ -n "$s" ] && [ -n "$e" ] && [ "$e" -gt "$s" ] || { echo "NOREGION"; return; }
 
 	# Fixture laid out so the region's own path arithmetic resolves into it:
 	# it computes the TSV as "$(dirname BASH_SOURCE)/../vendor/VENDOR_ONLY.tsv".
-	mkdir -p "$root/scripts" "$root/vendor/doctor/agent" "$root/upstream/doctor/agent"
+	# The TSV therefore sits at vendor/ -- OUTSIDE abs_vendor, exactly as in the
+	# real repo, so the region's `find` never mistakes the registry itself for
+	# an unregistered vendor-only file.
+	mkdir -p "$root/scripts" "$root/vendor/$tree" "$root/upstream"
 	cp "$REPO_ROOT/vendor/VENDOR_ONLY.tsv" "$root/vendor/VENDOR_ONLY.tsv"
 	while IFS=$'\t' read -r vp _ _; do
 		case "${vp:-}" in ''|'#'*) continue ;; esac
-		mkdir -p "$root/vendor/$(dirname "$vp")"
-		printf 'vendor-only marker for %s\n' "$vp" > "$root/vendor/$vp"
+		[ "$(tree_of "$vp")" = "$tree" ] || continue
+		rel="${vp#"$tree"/}"
+		mkdir -p "$root/vendor/$tree/$(dirname "$rel")"
+		printf 'vendor-only marker for %s\n' "$vp" > "$root/vendor/$tree/$rel"
 	done < "$root/vendor/VENDOR_ONLY.tsv"
-	echo "from upstream" > "$root/upstream/doctor/agent/other.py"
+	# The upstream half of the swap: present in source, so it must ARRIVE.
+	echo "from upstream" > "$root/upstream/other.py"
 
+	# THE PREAMBLE IS A CONTRACT WITH THE REGION, AND IT DRIFTS.
+	#
+	# 2026-08-11: the region gained `_vo_root="$VLIB_REPO_ROOT/vendor"` (the
+	# path-join fix). The preamble still defined only abs_vendor and tmp, so
+	# under `set -u` the region died on line 16 with "VLIB_REPO_ROOT: unbound
+	# variable" BEFORE the swap. Nothing was ever deleted, so every vendor-only
+	# file trivially survived, the upstream fixture never appeared, and checks
+	# 5, 5b and 5d all went red with three different misleading messages. One
+	# broken premise, three wrong diagnoses.
+	#
+	#   VLIB_REPO_ROOT  load-bearing. TSV paths are relative to vendor/, so
+	#                   _vo_root must equal the fixture's vendor root.
+	#   TREE            names the tree in refusal text and feeds the `exclude`
+	#                   lookup. vlib_field is absent here, so excludes are
+	#                   empty -- correct for a fixture with nothing excluded.
+	#   TO_SHA          appears only inside message strings.
 	{
 		echo 'set -uo pipefail'
-		echo 'abs_vendor="'"$root"'/vendor"'
+		echo 'abs_vendor="'"$root"'/vendor/'"$tree"'"'
 		echo 'tmp="'"$root"'/upstream"'
+		echo 'VLIB_REPO_ROOT="'"$root"'"'
+		echo 'TREE="'"$tree"'"'
+		echo 'TO_SHA="0000000000000000000000000000000000000000"'
 		sed -n "${s},${e}p" "$src"
 	} > "$root/scripts/region.sh"
 
 	( cd "$root" && bash "$root/scripts/region.sh" ) >"$root/run.log" 2>&1
 	echo "rc=$?"
+}
+
+# Did the region actually EXECUTE? `run_real_region` has always computed this
+# and check 5 has always printed it in the pass line -- and never asserted on
+# it. That is this gate's own catalogue entry "fires, and the result is
+# discarded", and it cost three false diagnoses. A region that dies on line 16
+# cannot tell you anything about a restore on line 140, so a non-zero rc is a
+# DIFFERENT failure from "files were lost" and must say so.
+region_ran() {   # $1 = verdict from run_real_region, $2 = scratch root
+	case "$1" in
+		NOREGION) fail "could not locate the stash/restore region in sync_vendor.sh -- markers moved; this check is now blind"; return 1 ;;
+		rc=0)     return 0 ;;
+	esac
+	fail "CANNOT RUN: lifted region exited ${1#rc=} before finishing -- $(head -1 "$2/run.log" 2>/dev/null | sed 's|.*region\.sh: ||')"
+	return 1
 }
 
 # ONE predicate, shared by check 5 and by the RED that proves check 5 fires.
@@ -159,14 +238,20 @@ fi
 rm -rf "$_vs"
 
 verdict_lost=0
+if [ -z "$vo_trees" ]; then
+	fail "no TSV row maps to a manifest tree -- the fixture cannot model a real sync"
+	verdict_lost=1
+fi
+for vtree in $vo_trees; do
 scratch2="$(mktemp -d)"
-res="$(run_real_region "$SV" "$scratch2")"
-if [ "$res" = "NOREGION" ]; then
-	fail "could not locate the stash/restore region in sync_vendor.sh -- markers moved; this check is now blind"
+res="$(run_real_region "$SV" "$scratch2" "$vtree")"
+if ! region_ran "$res" "$scratch2"; then
+	verdict_lost=1
 else
 	missing=""
 	while IFS=$'\t' read -r vp _ _; do
 		case "${vp:-}" in ''|'#'*) continue ;; esac
+		[ "$(tree_of "$vp")" = "$vtree" ] || continue
 		# EXISTENCE is not enough. A restore that recreates the path and
 		# loses the bytes passes an -e test, and that is not a hypothetical
 		# shape: a tar built from the wrong cwd, a cp that fails on one file
@@ -182,33 +267,77 @@ else
 			empty) missing="$missing $vp(empty-or-corrupt)" ;;
 		esac
 	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
-	if [ -z "$missing" ] && [ -e "$scratch2/vendor/doctor/agent/other.py" ]; then
-		pass "REAL sync_vendor.sh code preserves every declared file across the swap ($res)"
+	# BOTH halves. The declared files must survive AND the upstream file must
+	# arrive -- a region that dies before the swap satisfies the first alone.
+	if [ -z "$missing" ] && [ -e "$scratch2/vendor/$vtree/other.py" ]; then
+		pass "REAL sync_vendor.sh preserves every declared file in $vtree across the swap ($res)"
 	else
-		fail "REAL sync_vendor.sh code LOST:${missing:- (upstream files)} -- see $scratch2/run.log"
+		fail "REAL sync_vendor.sh LOST in $vtree:${missing:- (upstream files)} -- see $scratch2/run.log"
 		verdict_lost=1
 	fi
 fi
-rm -rf "$scratch2"
+[ "$verdict_lost" -eq 1 ] || rm -rf "$scratch2"
+done
+
+# The mutation REDs below prove the MECHANISM, so one tree is enough; check 5
+# above is what provides per-tree coverage. First sorted tree is
+# cm041/assistant_api, which is where subscription_gate.py lives -- the file
+# whose silent deletion is the reason this gate exists.
+PRIMARY_TREE="$(printf '%s\n' $vo_trees | head -1)"
 
 # 5b. THE RED. Delete only the restore line from a COPY and prove step 5 fails.
 #     Without this, step 5 could be passing for a reason unrelated to the
 #     restore -- e.g. if the swap never deleted anything in the first place.
+# REPLACE THE RESTORE PIPELINE, NEVER THE WHOLE LINE.
+#
+# The restore line ends in ` || {` and the brace block runs three more lines.
+# Deleting the line therefore orphans `exit 1; }`, and the region dies with a
+# bash SYNTAX ERROR (exit 2) before reaching any restore logic at all. 5b did
+# exactly that: it deleted the line, nothing was lost because nothing ran, and
+# it reported "removing the restore line changed nothing -- step 5 is not
+# testing the restore". The instrument was broken, not the subject. 5d had
+# already been fixed for this same hazard; 5b had not, so the fix now lives in
+# one shared mutator that both call.
+_VO_TAR='( cd "$_vo_stash" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )'
+mutate_restore() {   # $1 = replacement for the pipeline, $2 = output path
+	awk -v find="$_VO_TAR" -v repl="$1" '
+		{
+			n = index($0, find)
+			if (n > 0) {
+				print substr($0, 1, n - 1) repl substr($0, n + length(find))
+				next
+			}
+			print
+		}
+	' "$SV" > "$2"
+}
+
 scratch3="$(mktemp -d)"; sv_broken="$scratch3/sync_vendor_broken.sh"
-sed '/( cd "\$_vo_stash" \&\& tar -cf - \. ) | ( cd "\$abs_vendor" \&\& tar -xf - )/d' "$SV" > "$sv_broken"
+# `true` keeps the `|| { ... }` attached and parsing, while restoring nothing.
+mutate_restore 'true' "$sv_broken"
 if cmp -s "$SV" "$sv_broken"; then
-	fail "self-test could not remove the restore line -- the RED below proves nothing"
+	fail "self-test could not neutralise the restore -- the RED below proves nothing"
+elif ! sh -n "$sv_broken" 2>/dev/null; then
+	fail "the neutralised restore does not parse -- it would fail for the wrong reason"
 else
-	res3="$(run_real_region "$sv_broken" "$scratch3/root")"
-	lost=0
-	while IFS=$'\t' read -r vp _ _; do
-		case "${vp:-}" in ''|'#'*) continue ;; esac
-		[ -e "$scratch3/root/vendor/$vp" ] || lost=1
-	done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
-	if [ "$lost" -eq 1 ]; then
-		pass "RED demonstrated: removing the restore line DOES lose the declared files"
-	else
-		fail "removing the restore line changed nothing -- step 5 is not testing the restore"
+	res3="$(run_real_region "$sv_broken" "$scratch3/root" "$PRIMARY_TREE")"
+	# Same trap as check 5: a region that cannot run deletes nothing, so nothing
+	# is lost, which reads identically to "the restore was never load-bearing".
+	if region_ran "$res3" "$scratch3/root"; then
+		lost=0
+		while IFS=$'\t' read -r vp _ _; do
+			case "${vp:-}" in ''|'#'*) continue ;; esac
+			# Only rows for the tree the fixture built. Without this, rows from
+			# OTHER trees are absent by construction and 5b would "pass" on
+			# files the mutation never touched.
+			[ "$(tree_of "$vp")" = "$PRIMARY_TREE" ] || continue
+			[ -e "$scratch3/root/vendor/$vp" ] || lost=1
+		done < "$REPO_ROOT/vendor/VENDOR_ONLY.tsv"
+		if [ "$lost" -eq 1 ]; then
+			pass "RED demonstrated: removing the restore line DOES lose the declared files"
+		else
+			fail "removing the restore line changed nothing -- step 5 is not testing the restore"
+		fi
 	fi
 fi
 rm -rf "$scratch3"
@@ -228,27 +357,23 @@ scratch4="$(mktemp -d)"; sv_touch="$scratch4/sync_vendor_touch.sh"
 # with intact reported "content RED did not fire". Two wrong instruments
 # cancelling out is exactly the shape this gate exists to catch, so the
 # replacement now preserves everything either side of the pipeline.
-_VO_TAR='( cd "$_vo_stash" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )'
 _VO_TOUCH='( cd "$_vo_stash" && find . -type f -print ) | ( cd "$abs_vendor" && while IFS= read -r _p; do mkdir -p "$(dirname "$_p")"; : > "$_p"; done )'
-awk -v find="$_VO_TAR" -v repl="$_VO_TOUCH" '
-	{
-		n = index($0, find)
-		if (n > 0) {
-			print substr($0, 1, n - 1) repl substr($0, n + length(find))
-			next
-		}
-		print
-	}
-' "$SV" > "$sv_touch"
+mutate_restore "$_VO_TOUCH" "$sv_touch"
 if cmp -s "$SV" "$sv_touch"; then
 	fail "self-test could not swap in a content-losing restore -- the RED below proves nothing"
 elif ! sh -n "$sv_touch" 2>/dev/null; then
 	fail "the content-losing injection does not parse -- it would fail for the wrong reason"
 else
-	run_real_region "$sv_touch" "$scratch4/root" >/dev/null
+	# This line used to end in `>/dev/null` -- the verdict computed and thrown
+	# away, the purest form of the defect this gate is about.
+	res4="$(run_real_region "$sv_touch" "$scratch4/root" "$PRIMARY_TREE")"
+	if region_ran "$res4" "$scratch4/root"; then
 	empty=0; gone=0; intact=0
 	while IFS=$'\t' read -r vp _ _; do
 		case "${vp:-}" in ''|'#'*) continue ;; esac
+		# Same tree filter as 5b, for the same reason: an uncreated row would
+		# read as `gone` and drive the gone=0 assertion red for no real cause.
+		[ "$(tree_of "$vp")" = "$PRIMARY_TREE" ] || continue
 		# Same vo_state check 5 uses, called not copied. This is what makes
 		# 5d a proof about check 5 rather than a parallel belief about it.
 		case "$(vo_state "$scratch4/root/vendor" "$vp")" in
@@ -265,8 +390,31 @@ else
 	else
 		fail "content RED did not fire cleanly: empty=$empty gone=$gone intact=$intact (want empty>0, gone=0, intact=0)"
 	fi
+	fi
 fi
 rm -rf "$scratch4"
+
+# 5e. CONTROL ON THE CANNOT-RUN DETECTOR. region_ran is only worth having if a
+#     region that dies really does yield a non-zero verdict. This is the exact
+#     failure of 2026-08-11 reproduced deliberately: inject a reference to a
+#     variable nothing defines and require BOTH a non-zero rc and the shell's
+#     own "unbound variable" in the log. Without this control, the preamble
+#     could drift again and checks 5/5b/5d would go back to reporting "files
+#     lost" about a region that never executed a single line of restore code.
+scratch5="$(mktemp -d)"; sv_unbound="$scratch5/sync_vendor_unbound.sh"
+awk '{ print } /^_vo_root=/ { print "_vo_probe=\"$OSTLER_NO_SUCH_VAR\"" }' "$SV" > "$sv_unbound"
+if cmp -s "$SV" "$sv_unbound"; then
+	fail "self-test could not inject an unbound reference -- the CANNOT-RUN detector is unproven"
+else
+	res5="$(run_real_region "$sv_unbound" "$scratch5/root" "$PRIMARY_TREE")"
+	if [ "$res5" != "rc=0" ] && [ "$res5" != NOREGION ] \
+	   && grep -q 'unbound variable' "$scratch5/root/run.log" 2>/dev/null; then
+		pass "control: a region that cannot run yields $res5 and is not read as 'files lost'"
+	else
+		fail "CANNOT-RUN detector did not fire (verdict=$res5) -- 5/5b/5d can still misreport a dead region"
+	fi
+fi
+rm -rf "$scratch5"
 
 # 5c. ORDERING. Executing the region in isolation cannot see a restore block
 #     that sits after an early exit in the real control flow. Assert position.
