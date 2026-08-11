@@ -75,6 +75,39 @@ fi
 src_sha="$(git -C "$SRC" rev-parse HEAD 2>/dev/null)" || die "cannot read OS003 HEAD"
 src_branch="$(git -C "$SRC" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 
+# REFUSE TO PIN A SOURCE CHECKOUT THAT IS NOT origin/main.
+#
+# WHY (measured 2026-08-11, Archie). Everything above pins `git rev-parse HEAD`
+# of a LOCAL checkout, whatever that happens to be. Mine was sitting on
+# 06dda1b0 while OS003 main was 0e4c3aff, so `--check` reported "STALE ...
+# from main @ 06dda1b0" and a plain run would have written a REGISTRY_PIN
+# naming 06dda1b0 -- three commits short, including the `--cut` pin binding.
+# The pin test would then have passed, because it verifies the copy matches
+# the pin, not that the pin is current. A stale sync is indistinguishable
+# from a fresh one once it is written down.
+#
+# That is the same shape as the thing this script exists to prevent. The pin
+# was honest about WHAT it copied and silent about WHETHER that was current,
+# and silence reads as currency.
+#
+# Offline is a refusal, not a warning. A pin is provenance; writing one you
+# could not verify is worse than not writing one. ALLOW_STALE_SOURCE=1 is the
+# deliberate escape hatch, and it says so in the output so it cannot be used
+# by accident.
+if [ "${ALLOW_STALE_SOURCE:-0}" = "1" ]; then
+	printf '\033[0;33mWARNING: ALLOW_STALE_SOURCE=1 -- pinning %s @ %s WITHOUT checking it is origin/main\033[0m\n' \
+		"$src_branch" "${src_sha:0:8}" >&2
+else
+	[ "$src_branch" = "main" ] || die "OS003 checkout is on '$src_branch', not main. A pin taken off a feature branch names a commit that is not what CM051 should be vendoring. Check out main, or set ALLOW_STALE_SOURCE=1 deliberately."
+	git -C "$SRC" fetch -q origin main 2>/dev/null \
+		|| die "cannot fetch OS003 origin/main, so freshness is UNVERIFIABLE. Refusing to write a pin that claims provenance it could not check. Set ALLOW_STALE_SOURCE=1 to override deliberately."
+	src_remote="$(git -C "$SRC" rev-parse origin/main 2>/dev/null)" || die "cannot read OS003 origin/main"
+	if [ "$src_sha" != "$src_remote" ]; then
+		behind="$(git -C "$SRC" rev-list --count "$src_sha".."$src_remote" 2>/dev/null || echo '?')"
+		die "OS003 checkout is ${behind} commit(s) behind origin/main (local ${src_sha:0:8}, remote ${src_remote:0:8}). Pull first. Pinning now would record a stale commit AND pass the pin test, because that test checks the copy against the pin, not the pin against OS003."
+	fi
+fi
+
 hash_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
 changed=0
