@@ -1663,22 +1663,22 @@ verify-commit-parity:
 # ---------------------------------------------------------------------------
 .PHONY: guard-local-cut
 guard-local-cut:
-	@if [ -n "$$CI" ] || [ -n "$$GITHUB_ACTIONS" ]; then \
+	@if [ -n "$${CI:-}" ] || [ -n "$${GITHUB_ACTIONS:-}" ]; then \
 	    echo "  [guard] CI detected -- cut permitted."; \
-	elif [ "$$OSTLER_EMERGENCY_CUT" = "1" ]; then \
-	    if [ -z "$$OSTLER_EMERGENCY_REASON" ]; then \
+	elif [ "$${OSTLER_EMERGENCY_CUT:-}" = "1" ]; then \
+	    if [ -z "$${OSTLER_EMERGENCY_REASON:-}" ]; then \
 	        echo "ERROR: OSTLER_EMERGENCY_CUT=1 requires OSTLER_EMERGENCY_REASON." >&2; \
 	        echo "       An emergency cut must say why, in the ledger, for ever." >&2; \
 	        exit 1; \
 	    fi; \
-	    if [ -z "$$OSTLER_SHIPPING_LEDGER" ]; then \
+	    if [ -z "$${OSTLER_SHIPPING_LEDGER:-}" ]; then \
 	        echo "ERROR: OSTLER_EMERGENCY_CUT=1 requires OSTLER_SHIPPING_LEDGER" >&2; \
 	        echo "       to point at the SHIPPING_LEDGER.yaml to append to." >&2; \
 	        echo "       No ledger, no record; no record, no cut." >&2; \
 	        exit 1; \
 	    fi; \
-	    if [ ! -w "$$OSTLER_SHIPPING_LEDGER" ]; then \
-	        echo "ERROR: shipping ledger not writable: $$OSTLER_SHIPPING_LEDGER" >&2; \
+	    if [ ! -w "$${OSTLER_SHIPPING_LEDGER:-}" ]; then \
+	        echo "ERROR: shipping ledger not writable: $${OSTLER_SHIPPING_LEDGER:-}" >&2; \
 	        echo "       Failing closed -- an unrecordable cut must not proceed." >&2; \
 	        exit 1; \
 	    fi; \
@@ -1689,11 +1689,11 @@ guard-local-cut:
 	      echo "    operator: \"$$(id -un)@$$(hostname -s)\""; \
 	      echo "    repo_sha: \"$$(git rev-parse HEAD 2>/dev/null || echo unknown)\""; \
 	      echo "    dirty: $$(test -n \"$$(git status --porcelain 2>/dev/null)\" && echo true || echo false)"; \
-	      echo "    reason: \"$$OSTLER_EMERGENCY_REASON\""; \
+	      echo "    reason: \"$${OSTLER_EMERGENCY_REASON:-}\""; \
 	      echo "    note: \"Bypassed CI (v1018-D026). Recorded by guard-local-cut (v1018-D027).\""; \
-	    } >> "$$OSTLER_SHIPPING_LEDGER" || { \
+	    } >> "$${OSTLER_SHIPPING_LEDGER:-}" || { \
 	        echo "ERROR: failed writing the ledger entry. Refusing to cut." >&2; exit 1; }; \
-	    echo "  [guard] EMERGENCY cut recorded in $$OSTLER_SHIPPING_LEDGER"; \
+	    echo "  [guard] EMERGENCY cut recorded in $${OSTLER_SHIPPING_LEDGER:-}"; \
 	else \
 	    echo "" >&2; \
 	    echo "REFUSING TO CUT LOCALLY  (v1018-D027)" >&2; \
