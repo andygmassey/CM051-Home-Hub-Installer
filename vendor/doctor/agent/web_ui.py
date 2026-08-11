@@ -35,7 +35,12 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 
 from status_collector import (
     collect_full_snapshot,
@@ -2007,6 +2012,32 @@ def render_history(history_entries: list[dict]) -> str:
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
+
+
+@app.get("/")
+async def front_door():
+    """Send the bare root to the dashboard. v1018-D023.
+
+    Every route on this service lives under /doctor or /api/v1, and nothing
+    served `/` at all, so the front door returned 404. A customer who opens the
+    Doctor at its host and port -- the only address they have been given -- gets
+    a 404 from a service that is running perfectly.
+
+    302 rather than 307 or 301, deliberately:
+      * 307 is FastAPI's RedirectResponse default and preserves the method,
+        meaningless for a browser hitting the root, and the D023 gate accepts
+        only 200/301/302 -- a 307 would leave the gate red.
+      * 301 is permanent and browsers cache it hard. If the dashboard ever
+        moves, every customer who visited once keeps the stale target.
+
+    GRAFTED into the vendor tree, not re-vendored: CM051's doctor pin is held
+    deliberately. Reconstruction is source@upstream + vendor/divergences/
+    doctor.patch. RedirectResponse was NOT imported in this copy -- grafting the
+    function alone would have turned a 404 into a NameError 500, which is worse,
+    so the import moved to the parenthesised form upstream already uses.
+    """
+    return RedirectResponse(url="/doctor", status_code=302)
+
 
 
 @app.get("/doctor", response_class=HTMLResponse)
