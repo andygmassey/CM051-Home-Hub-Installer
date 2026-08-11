@@ -53,7 +53,15 @@ jobs:
           fi
           echo "manifest: $MANIFEST"
 
-      - name: Rollforward gate -- every MUST-FIX-NEXT row must be green
+      # The vendored gate must match the OS003 commit it claims to come from.
+      # #540 vendored the runner with nothing holding it to its source and it
+      # drifted 239 diff lines behind, missing the redactor, the claim-coverage
+      # pass, and a parse fix OS003 already had. Checked BEFORE the gate runs,
+      # because a gate of unknown vintage cannot be evidence about anything.
+      - name: Vendored rollforward gate matches its OS003 pin
+        run: ./tests/test_rollforward_registry_pin.sh
+
+      - name: Rollforward claims -- no row may claim a fix with no gate
         run: |
           set -euo pipefail
           RUNNER=bin/rollforward_gate.sh
@@ -64,7 +72,34 @@ jobs:
             echo "than none, because it reads as enforcement." >&2
             exit 1
           fi
-          "$RUNNER" --cut "${GITHUB_REF_NAME}"
+          # --verify-claims, NOT --cut. THIS IS DELIBERATE AND IT IS A
+          # NARROWING OF WHAT THIS STEP CLAIMS, NOT OF WHAT IT ENFORCES.
+          #
+          # This step used to call `--cut`, and its name promised "every
+          # MUST-FIX-NEXT row must be green". It never delivered that on a
+          # single tag, because it CANNOT on a hosted runner. Measured
+          # 2026-08-11 on the v1.0.19 tag push, run 31449951403, the first and
+          # only run this workflow has ever had: of 27 gates, 15 are
+          # runs-on=box and print UNRUNNABLE with no Mini behind GATE_BOX, and
+          # 8 more go red purely because CM051_DIR / OA_DIR / CM044_DIR /
+          # OS003_DIR name sibling checkouts that do not exist here. Two pass.
+          #
+          # It also could not even start: the runner defaults to
+          # $REPO/cuts/DEFECTS_ROLLFORWARD.md, CM051 had no cuts/ directory,
+          # and the step died on `PARSE ERROR: registry not found`.
+          #
+          # So the promise was never kept, and a gate that cannot pass is
+          # decorative -- exactly what v1018-D026 exists to abolish. The work
+          # is now split by what each environment can honestly prove:
+          #
+          #   here, every tag push  --verify-claims  registry parses; no row
+          #                                          claims fixed without a gate
+          #   operator, pre-tag     --cut            the gate bodies run
+          #   box-walk, on the Mini --cut + GATE_BOX the 15 box gates run
+          #
+          # --verify-claims prints what it did NOT prove, every run, so a green
+          # here cannot be read as "the defects are fixed".
+          "$RUNNER" --verify-claims --cut "${GITHUB_REF_NAME}"
 
       - name: Repo-side gates
         run: |
