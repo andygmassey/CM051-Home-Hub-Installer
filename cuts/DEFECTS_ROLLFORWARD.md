@@ -278,14 +278,66 @@ exit 1
 ### v1018-D004 — base32 blob as person display_name
 
 ```gate id=v1018-D004 expect=0 runs-on=box
-count=$(find "$HOME/Documents/Ostler/Wiki/People" -maxdepth 1 -name '*.md' 2>/dev/null \
+# EXAMINED-COUNT CONTROL. This gate had none, and its sibling D011 carries one
+# with a comment explaining exactly why -- same file, same author, and D004 was
+# left behind when D011 was fixed.
+#
+# DEMONSTRATED 2026-08-11, pointing the old body at a directory that does not
+# exist: find matches nothing, xargs runs grep over an empty list, count=0, and
+# `[ 0 -eq 0 ]` reports PASS. A machine with NO WIKI AT ALL passed this gate.
+# Zero violations over zero pages is not a pass; it is a gate that did not run.
+DIR="$HOME/Documents/Ostler/Wiki/People"
+[ -d "$DIR" ] || { echo "CANNOT-RUN: $DIR does not exist -- nothing was examined."; exit 97; }
+examined=$(find "$DIR" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+[ "${examined:-0}" -gt 0 ] || { echo "CANNOT-RUN: 0 People pages in $DIR -- nothing was examined."; exit 97; }
+
+count=$(find "$DIR" -maxdepth 1 -name '*.md' 2>/dev/null \
   | xargs grep -l 'display_name: "[0-9]* [A-Za-z0-9]\{40,\}"' 2>/dev/null | wc -l | tr -d ' ')
-[ "${count:-0}" -eq 0 ] || { echo "FAIL: $count wiki pages carry a blob-like display_name"; exit 1; }
+echo "examined $examined People page(s) in $DIR"
+[ "${count:-0}" -eq 0 ] || { echo "FAIL: $count of $examined wiki pages carry a blob-like display_name"; exit 1; }
+echo "GREEN: no blob-like display_name in $examined page(s)"
 ```
 
 ### v1018-D005 — dedupe fragmentation ratio
 
 ```gate id=v1018-D005 expect=0 runs-on=box
+# THIS GATE MUST REFUSE UNLESS IT IS MEASURING AT T+0.
+#
+# The row's own Gate column says so: "T+0 ONLY -- hex6-suffixed ratio measured
+# on the FIRST compile after a fresh install, not whenever someone looks ... the
+# ratio converges, so a late measurement passes while the customer's first
+# impression fails."
+#
+# That condition lived ONLY in the table prose. The body measured whenever it
+# was run, so on any settled box it returned GREEN -- the precise reading the
+# row warns is meaningless.
+#
+# MEASURED 2026-08-11 on the operator box:
+#
+#     ~/.ostler/.installer-tree-created        Aug  9 00:40   (install)
+#     ~/Documents/Ostler/Wiki/.compile-complete Aug 10 18:23  (~42h later)
+#     fragment ratio 1.83% (90 of 4918)  ->  gate said GREEN
+#
+# 1.83% against a 5% threshold looks like a comfortable pass. It is a converged
+# corpus on a box that has been recompiling for days, and it says nothing about
+# what a customer sees on their first compile. Reporting that as GREEN would
+# have retired a launch-blocker row on the one measurement its own acceptance
+# criteria excludes.
+#
+# WHY AN OPT-IN AND NOT A TIME WINDOW: "within N hours of install" would be an
+# invented environmental fact -- a fresh-install walk may compile promptly or
+# slowly, and I have no basis for N. So the gate refuses to self-certify and
+# requires the fresh-install walk to say so. rc=97 is CANNOT-RUN: it blocks the
+# cut like any other unmet gate, but it is NOT recorded as a product defect.
+if [ "${GATE_D005_T0:-0}" != "1" ]; then
+    echo "CANNOT-RUN: this row accepts a T+0 measurement only (first compile after a fresh install)."
+    echo "            A settled box converges and passes regardless of the defect."
+    _inst=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$HOME/.ostler/.installer-tree-created" 2>/dev/null)
+    _comp=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$HOME/Documents/Ostler/Wiki/.compile-complete" 2>/dev/null)
+    echo "            install=${_inst:-unknown}  last compile=${_comp:-unknown}"
+    echo "            Set GATE_D005_T0=1 in the fresh-install walk to assert T+0."
+    exit 97
+fi
 total=$(ls "$HOME/Documents/Ostler/Wiki/People"/*.md 2>/dev/null | wc -l | tr -d ' ')
 [ "${total:-0}" -gt 0 ] || { echo "FAIL: no People pages found — cannot measure"; exit 1; }
 frags=$(ls "$HOME/Documents/Ostler/Wiki/People"/*.md 2>/dev/null | grep -cE -- '-[a-f0-9]{6}\.md$')
@@ -298,10 +350,28 @@ echo "OK: fragment ratio ${pct}% ($frags/$total)"
 
 ```gate id=v1018-D006 expect=0 runs-on=box
 # The two slugs are a real person's name, so they live on the box, not in
-# this register. `:?` refuses when the fixture is absent -- a gate that
-# cannot read its subject must not report a pass.
-: "${GATE_D006_SLUG_A:?set GATE_D006_SLUG_A in the box gate-fixture file}"
-: "${GATE_D006_SLUG_B:?set GATE_D006_SLUG_B in the box gate-fixture file}"
+# this register. The gate must refuse when the fixture is absent -- a gate that
+# cannot read its subject must not report a pass. That instinct was right; the
+# MECHANISM was wrong.
+#
+# It used to be:
+#
+#     : "${GATE_D006_SLUG_A:?set GATE_D006_SLUG_A in the box gate-fixture file}"
+#
+# `:?` exits non-zero with a shell diagnostic, and the runner reads any non-zero
+# body exit as a MEASURED FAILURE. So the refusal was reported as "this defect
+# is present" when it meant "I could not look" -- and D006 sat in the walk as a
+# product defect on every run where the fixture was unset. Measured 2026-08-11:
+# it was one of nine gates doing this, which is what prompted the rc=97
+# sentinel (OS003 #64).
+#
+# 97 is the runner's CANNOT-RUN vocabulary: it still BLOCKS the cut, it is just
+# not counted as a finding about the product.
+if [ -z "${GATE_D006_SLUG_A:-}" ] || [ -z "${GATE_D006_SLUG_B:-}" ]; then
+    echo "CANNOT-RUN: set GATE_D006_SLUG_A and GATE_D006_SLUG_B in the box gate-fixture file."
+    echo "            The two slugs are a real person's name and deliberately do not live in this register."
+    exit 97
+fi
 a=0; b=0
 [ -f "$HOME/Documents/Ostler/Wiki/People/${GATE_D006_SLUG_A}.md" ] && a=1
 [ -f "$HOME/Documents/Ostler/Wiki/People/${GATE_D006_SLUG_B}.md" ] && b=1
@@ -406,7 +476,17 @@ DIR="${OSTLER_WIKI_PEOPLE:-$HOME/Documents/Ostler/Wiki/People}"
 # pass. Zero violations over zero pages is the vacuous green this file is about.
 [ -d "$DIR" ] || { echo "CANNOT RUN: $DIR does not exist. This is not a pass."; exit 1; }
 
-out=$(find "$DIR" -maxdepth 1 -name '*.md' 2>/dev/null | while IFS= read -r f; do
+# SCOPE: PERSON PAGES ONLY (v1018-D011 narrowing, 2026-08-11).
+#
+# The old body scanned every People/*.md. Three of them are not people --
+# index.md (type: index), timeline.md (type: timeline), duplicates.md
+# (type: report). They carry no display_name BY DESIGN, so all three were
+# reported as "BAD EMPTY", i.e. three permanent false positives out of twelve.
+#
+# `type: person` is the discriminator the compiler already writes, and it
+# accounts for the corpus exactly: 4915 person + 3 structural = 4918 files.
+# That is why this is a scoping fix and not a convenient exclusion list.
+out=$(grep -lE '^type:[[:space:]]*person' "$DIR"/*.md 2>/dev/null | while IFS= read -r f; do
   echo "EXAMINED"
   # Accept quoted, single-quoted OR bare scalars. The old extraction matched only
   # a double-quoted value, so a bare `display_name:` yielded the literal text
@@ -414,7 +494,21 @@ out=$(find "$DIR" -maxdepth 1 -name '*.md' 2>/dev/null | while IFS= read -r f; d
   dn=$(sed -n 's/^display_name:[[:space:]]*//p' "$f" | head -1)
   dn=$(printf '%s' "$dn" | sed 's/^"\(.*\)"$/\1/' | sed "s/^'\(.*\)'\$/\1/")
   [ -n "$dn" ] || { echo "BAD EMPTY $f"; continue; }
-  printf '%s' "$dn" | grep -qiE "$KIN"                      && { echo "BAD KINSHIP $f"; continue; }
+  # KINSHIP ONLY IN TITLE POSITION (leading token).
+  #
+  # The old test matched the kinship word ANYWHERE, so a kinship word used as a
+  # SURNAME was a defect. Measured 2026-08-11: of 9 kinship hits, 2 were
+  # surnames in final position -- a French surname and a Korean surname, both
+  # entirely legitimate names of real people. The remaining 7 have the kinship
+  # word FIRST, which is the actual defect this row names: a relationship label
+  # standing in for a given name ("<kinship> <surname>").
+  #
+  # Deliberately still RED on the ambiguous ones. `nan` and `nana` are real
+  # given names in several cultures AND English grandmother words; leading
+  # position cannot separate those two, and guessing which of a real person's
+  # names is a nickname is not the gate's job. It flags them; a human decides.
+  dn_first=$(printf '%s' "$dn" | awk '{print $1}')
+  printf '%s' "$dn_first" | grep -qiE "^${KIN#\\b}" && { echo "BAD KINSHIP $f"; continue; }
   printf '%s' "$dn" | grep -qE '^[+(]?[0-9][0-9 ()+-]{6,}$' && { echo "BAD PHONE $f"; continue; }
   printf '%s' "$dn" | grep -q '@'                           && { echo "BAD EMAIL $f"; continue; }
   printf '%s' "$dn" | grep -qiE '^(unknown|unnamed|n/?a|null|none|tbd)$' && { echo "BAD PLACEHOLDER $f"; continue; }
@@ -511,12 +605,49 @@ cell said `#292` was "OPEN, UNSTABLE" until today. Neither closes D038.
 
 ```gate id=v1018-D017 expect=0 runs-on=repo
 GH="${GH_BIN:-gh}"
+# Resolve the token for the repo's OWNER before every read.
+#
+# This gate spans TWO GitHub accounts -- andygmassey owns CM051, ostler-ai owns
+# the daemon -- and `gh auth switch` is GLOBAL. Whichever is active, the other
+# org answers 404 "Not Found", indistinguishable from a deleted file.
+# Measured 2026-08-11 on the first completed box-walk:
+#
+#   andygmassey -> repos/ostler-ai/ostler-assistant/contents/...  Not Found
+#   ostler-ai   -> same path                                      returns content
+#   control: andygmassey -> its OWN CM051 repo                    returns content
+#
+# The token was not broken, it was the wrong one. The empty body then fed
+# `base64 -d`, which printed `stdin: (null): error decoding base64 input
+# stream`, `checked` stayed 0, and the gate said "examined 0 channel send
+# paths -- the gate is measuring nothing". That message was HONEST and is the
+# only reason this was findable; a gate counting zero as a pass ships a green.
+#
+# Same root cause as the orphan gate's gh_as, fixed the same day.
+gh_owner() {   # $1 = owner/repo ; remaining args go to gh
+  _o="${1%%/*}"; shift
+  _t="$($GH auth token -u "$_o" 2>/dev/null || true)"
+  if [ -n "$_t" ]; then GH_TOKEN="$_t" $GH "$@"; else $GH "$@"; fi
+}
 OA_REPO="${OA_REPO:-ostler-ai/ostler-assistant}"
 CM051_REPO="${CM051_REPO:-andygmassey/CM051-Home-Hub-Installer}"
-OA_REF="${OA_REF:-main}"
-CM051_REF="${CM051_REF:-main}"
 
-inst=$($GH api "repos/$CM051_REPO/contents/install.sh?ref=$CM051_REF" --jq '.content' 2>/dev/null | base64 -d)
+# THE SUBJECT IS THE PIN, NEVER `main`. Both refs, and both matter here: this
+# gate derives the shipped channel SET from CM051's install.sh and then checks
+# the daemon's send paths, so a main-vs-pin mismatch on either half asks the
+# question about a product that is not being cut. At the v1.0.19 pins this gate
+# reports 0 of 6 send paths scrubbing; at main it is 6 of 6. Same script.
+OA_REF="${OA_REF:-${OSTLER_PIN_OA:-}}"
+CM051_REF="${CM051_REF:-${OSTLER_PIN_CM051:-}}"
+if [ -z "$OA_REF" ] || [ -z "$CM051_REF" ]; then
+	echo "CANNOT RUN: missing pin(s) -- OA_REF='${OA_REF:-}' CM051_REF='${CM051_REF:-}'."
+	echo "            Run with --cut <version> so DAEMON_COMMIT and CM051 from that"
+	echo "            cut.env bind them, or set both explicitly to measure on"
+	echo "            purpose. Falling back to main would ask about the wrong tree."
+	exit 97
+fi
+echo "subject: $OA_REPO@$OA_REF + $CM051_REPO@$CM051_REF"
+
+inst=$(gh_owner "$CM051_REPO" api "repos/$CM051_REPO/contents/install.sh?ref=$CM051_REF" --jq '.content' 2>/dev/null | base64 -d)
 [ -n "$inst" ] || { echo "FAIL: could not read install.sh -- cannot derive the shipped channel set"; exit 1; }
 
 shipped=$(printf '%s\n' "$inst" \
@@ -538,18 +669,24 @@ src_files_for() {
 }
 
 missing=""
+unread=""
 checked=0
 for ch in $shipped; do
   for f in $(src_files_for "$ch"); do
-    body=$($GH api "repos/$OA_REPO/contents/crates/zeroclaw-channels/src/${f}.rs?ref=$OA_REF" --jq '.content' 2>/dev/null | base64 -d)
-    [ -n "$body" ] || continue
+    body=$(gh_owner "$OA_REPO" api "repos/$OA_REPO/contents/crates/zeroclaw-channels/src/${f}.rs?ref=$OA_REF" --jq '.content' 2>/dev/null | base64 -d)
+    # UNREADABLE is not ABSENT. A file that exists but could not be fetched
+    # must not be silently skipped into a zero count.
+    [ -n "$body" ] || { unread="$unread $ch/$f"; continue; }
     printf '%s\n' "$body" | grep -q "async fn send" || continue
     checked=$((checked + 1))
     printf '%s\n' "$body" | grep -q "strip_tool_call_tags" || missing="$missing $ch/$f"
   done
 done
 
-[ "$checked" -gt 0 ] || { echo "FAIL: examined 0 channel send paths -- the gate is measuring nothing"; exit 1; }
+[ "$checked" -gt 0 ] || {
+  echo "FAIL: examined 0 channel send paths -- the gate is measuring nothing"
+  [ -n "$unread" ] && echo "      COULD NOT READ:$unread -- credential/path fault, NOT a finding about the code"
+  exit 1; }
 [ -z "$missing" ] || { echo "FAIL: shipped channels whose send path does NOT scrub tool-call payloads:$missing"; echo "      (examined $checked send paths across $n_shipped shipped channels)"; exit 1; }
 echo "OK: all $checked shipped send paths scrub tool-call payloads"
 ```
@@ -1332,8 +1469,30 @@ n=$(find "$W/People" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
 # scaffolding renders mid-line inside a bullet. The address requirement keeps
 # this to the PII-bearing form; a roster with no address leaks nothing.
 c=$(grep -rlE '(Summary[[:space:]]+)?(Participants|Attendees)[[:space:]]*[-:][[:space:]]*[^,()]+\([^)]*@[^)]*\)' "$W/People/" 2>/dev/null | wc -l | tr -d ' ')
+# PROVENANCE. This gate reads RENDERED PAGES, so what it measures is whatever
+# compiler last wrote them -- which is NOT necessarily the one the cut ships.
+#
+# Measured 2026-08-11: this gate went RED on 3 of 4918 pages and the CM044 code
+# was correct the whole time. The box's compose pinned
+# ostler-wiki-compiler@sha256:099975d3..., whose _PARTICIPANT_ENTRY still
+# required an address inside every entry's parens -- the pre-fix form that
+# 9163ade replaced on 2026-07-23. install.sh pins 14b5b452..., which strips the
+# same input correctly. So a fresh install was never affected; this box was an
+# older install whose compose was never re-pinned.
+#
+# Without this line the RED reads as "the product leaks addresses". With it,
+# the operator can tell a stale box from a real defect in one look. Printing
+# the digest is not a fix for the attribution problem -- the real fix is to
+# assert the STRIPPER'S BEHAVIOUR against the shipped image, which is
+# deterministic and attributable. Recorded as the follow-up, not done here.
+compose="$HOME/.ostler/docker-compose.yml"
+pin="$(grep -oE 'ostler-wiki-compiler@sha256:[a-f0-9]{64}' "$compose" 2>/dev/null | head -1)"
+[ -n "$pin" ] || pin="UNKNOWN (no wiki-compiler pin found in $compose)"
 [ "${c:-0}" -eq 0 ] \
-  || { echo "FAIL: $c of $n wiki People page(s) render a raw participants roster carrying email addresses"; exit 1; }
+  || { echo "FAIL: $c of $n wiki People page(s) render a raw participants roster carrying email addresses"; \
+       echo "      pages were written by: $pin"; \
+       echo "      if that digest is not the one install.sh pins, this is a STALE BOX, not a product defect"; \
+       exit 1; }
 ```
 
 
@@ -1441,7 +1600,22 @@ construction rather than by luck.
 ```gate id=v1018-D038 expect=0 runs-on=repo
 GH="${GH_BIN:-gh}"
 OA_REPO="${OA_REPO:-ostler-ai/ostler-assistant}"
-OA_REF="${OA_REF:-main}"
+
+# THE SUBJECT IS THE PIN, NEVER `main`.
+#
+# This read `OA_REF="${OA_REF:-main}"` until 2026-08-11 and was GREEN on that
+# basis while the daemon the cut actually pins was RED on all three limbs below.
+# `main` is the one value that must not be a fallback here: it is always
+# readable, always the most-fixed tree, and therefore always the flattering
+# answer. Precedence is explicit-override, then pin, then REFUSE.
+OA_REF="${OA_REF:-${OSTLER_PIN_OA:-}}"
+[ -n "$OA_REF" ] || {
+	echo "CANNOT RUN: no daemon pin. Run with --cut <version> so DAEMON_COMMIT"
+	echo "            from that cut.env binds OA_REF, or set OA_REF= explicitly"
+	echo "            to measure a ref on purpose. This is not a pass."
+	exit 97
+}
+echo "subject: $OA_REPO@$OA_REF"
 
 # ostler-ai/* is readable only by the ostler-ai gh account. A wrong-account read
 # comes back 404, which is indistinguishable from "the invariant holds" -- so

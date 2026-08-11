@@ -36,13 +36,45 @@ ONLY=""
 LIST_ONLY=0
 VERIFY_CLAIMS=0
 
+# A value-taking option whose value is MISSING must be a usage error, never a
+# spin.
+#
+# The previous form was `CUT="${2:-}"; shift 2`. When the option is the LAST
+# argument there is no $2, so `${2:-}` quietly yields empty -- and then
+# `shift 2` FAILS, because you cannot shift 2 off a 1-element list. A failed
+# shift does not decrement $#, so `[ $# -gt 0 ]` stays true and the loop runs
+# forever, re-reading the same $1.
+#
+# Measured 2026-08-11: `rollforward_gate.sh --cut` (no version) ran for 7m15s
+# at 100.0% CPU with ZERO bytes of output and no child processes, and had to be
+# killed. A `bash -x` trace showed the three-line cycle repeating without end:
+#
+#     + case "$1" in
+#     + CUT=
+#     + shift 2
+#
+# Three options were affected -- --cut, --only, --registry -- so any of them
+# passed last-without-value hung the operator half of the gate. The
+# `${2:-}` default is what hides it: it makes the missing value LOOK handled,
+# which is why this survived review. Silence plus a default is not error
+# handling.
+#
+# This matters beyond the typo: --cut is how the 15 runs-on=box gates are
+# executed before a cut, so the one mode that could not report is the one that
+# walks the box.
+need_val() {   # $1 = option name, $2 = remaining arg count
+	[ "$2" -ge 2 ] && return 0
+	echo "error: $1 requires a value (e.g. $1 v1.0.23)" >&2
+	exit 2
+}
+
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--cut)      CUT="${2:-}"; shift 2 ;;
-		--only)     ONLY="${2:-}"; shift 2 ;;
+		--cut)      need_val --cut "$#";      CUT="$2"; shift 2 ;;
+		--only)     need_val --only "$#";     ONLY="$2"; shift 2 ;;
 		--list)     LIST_ONLY=1; shift ;;
 		--verify-claims) VERIFY_CLAIMS=1; shift ;;
-		--registry) REGISTRY="${2:-}"; shift 2 ;;
+		--registry) need_val --registry "$#"; REGISTRY="$2"; shift 2 ;;
 		-h|--help)
 			sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -54,6 +86,73 @@ green() { printf '\033[0;32m%s\033[0m\n' "$1"; }
 dim()   { printf '\033[2m%s\033[0m\n' "$1"; }
 
 [ -f "$REGISTRY" ] || { red "PARSE ERROR: registry not found: $REGISTRY"; exit 2; }
+
+# ---------------------------------------------------------------------------
+# --cut BINDS THE RUN TO THAT VERSION'S PINS. Until 2026-08-11 it bound nothing.
+#
+# `$CUT` was set at line 73 and read at exactly ONE place -- the header line, to
+# print a label. No cut.env was ever sourced. Meanwhile the two repo-scoped
+# gates that read a remote resolved their subject as `${OA_REF:-main}`, so they
+# answered "is this fixed upstream today" while the cut needs "does this ship".
+#
+# Not theoretical. Measured on `06dda1b`, same script, three refs:
+#
+#   v1018-D038  oa main                       GREEN
+#   v1018-D038  oa #299 base d6e141ac         RED   (all three limbs)
+#   v1018-D038  daemon 782a6195  <- the pin   RED   (all three limbs)
+#   v1018-D017  main / main                   GREEN
+#   v1018-D017  782a6195 / af6d05b <- pins    RED   0 of 6 send paths scrub
+#
+# 782a6195 and af6d05b are the pins in cuts/v1.0.19/cut.env, whose own comment
+# already said "this daemon predates oa #299 ... D038 therefore does NOT ship in
+# v1.0.19". The gate went green anyway, because it never looked at the pin. The
+# comment was correct and had no exit status.
+#
+# Population, so the size of this is not left to imagination: 27 gates, 12
+# runs-on=repo, exactly 2 read a moving ref -- and those 2 were the only 2
+# repo-scoped gates that passed.
+#
+# A VERSION THAT NAMES NO CUT IS A USAGE ERROR, not a label. The run records in
+# cuts/gate-runs/ are named v1.0.23 and there is no cuts/v1.0.23/ to bind them
+# to, which is precisely how a PASS came to be read as a statement about a cut.
+# ---------------------------------------------------------------------------
+if [ -n "$CUT" ]; then
+	cut_env="$HERE/cuts/$CUT/cut.env"
+	if [ ! -f "$cut_env" ]; then
+		red "PARSE ERROR: --cut '$CUT' names no cut -- $cut_env does not exist."
+		dim "A version label that binds no pins is how a repo gate ends up asserting main."
+		dim "Cuts with a cut.env:"
+		for d in "$HERE"/cuts/v*/cut.env; do
+			[ -f "$d" ] || continue
+			d="${d%/cut.env}"; dim "  ${d##*/}"
+		done
+		exit 2
+	fi
+	# Read in a SUBSHELL, one key at a time.
+	#
+	# cut.env legitimately sets CM051_DIR, OSTLER_APP_PATH, GATE_BOX and others.
+	# Sourcing it into THIS shell would silently redefine the runner's own
+	# environment -- including the very *_DIR variables the freshness check
+	# reads -- so a cut.env could quietly re-point the gates at other trees.
+	#
+	# Sourcing rather than grepping is deliberate: several pins carry a trailing
+	# `# comment` on the assignment line (`CM051=af6d05b  # main tip ...`), which
+	# the shell discards correctly and a cut -d= would hand back as part of the
+	# value. `set +u` because cut.env is written for a permissive environment.
+	_cut_pin() { ( set +u; . "$cut_env" >/dev/null 2>&1; eval "printf '%s' \"\${$1:-}\"" ); }
+
+	# The mapping is DECLARED, not inferred from variable names. cut.env speaks
+	# in artefacts (DAEMON_COMMIT); gate bodies speak in refs (OA_REF). Anything
+	# not listed here is not a pin and must not be treated as one.
+	OSTLER_PIN_OA="$(_cut_pin DAEMON_COMMIT)"
+	OSTLER_PIN_CM051="$(_cut_pin CM051)"
+	export OSTLER_PIN_OA OSTLER_PIN_CM051
+
+	# Print what actually bound. An empty pin is a real outcome -- it sends the
+	# gates that need it to CANNOT-RUN -- and it must be visible rather than
+	# inferred from a colour further down.
+	echo "cut $CUT pins: DAEMON_COMMIT=${OSTLER_PIN_OA:-<unset>} CM051=${OSTLER_PIN_CM051:-<unset>}"
+fi
 
 # The outbound redactor is what stands between a customer's graph and this
 # script's output, so it is proved before a gate is allowed to produce any.
@@ -330,9 +429,10 @@ fi
 # ---------------------------------------------------------------------------
 # Pass 2 -- run.
 # ---------------------------------------------------------------------------
-failed=0
+failed=0          # blocks the cut: measured failures PLUS cannot-runs
+measured_fail=0   # gates that RAN and did not meet expectation
 ran=0
-skipped_env=0
+skipped_env=0     # gates that could not run at all
 
 _tree_is_current() {
 	# One checkout. $1 is the env-var name, for a message that says which
@@ -471,6 +571,37 @@ while IFS=$'\t' read -r id expect runson section; do
 	fi
 	ran=$((ran + 1))
 
+	# CANNOT-RUN, declared BY THE BODY. rc=97 is the vocabulary a gate uses to
+	# say "I could not look", as opposed to "the defect is present".
+	#
+	# WHY THIS EXISTS. Until now the runner decided cannot-run ONLY before the
+	# body ran -- no GATE_BOX, no GATE_ARTEFACT, stale checkout. Once a body
+	# executed, the sole test was `rc == expect`, so EVERY body-side refusal
+	# scored as a measured failure. That is not a corner case; measured
+	# 2026-08-11 on one walk:
+	#
+	#   D001 D027 D029 D032 D034  died on `CM051_DIR: CM051_DIR unset`
+	#   D030                      died on `CM044_DIR unset`
+	#   D033                      died on `OS003_DIR unset`
+	#   D002                      printed "TOOLING, not D002 ... Nothing here
+	#                             says anything about the product" AND exit 1
+	#   D006                      `: "${GATE_D006_SLUG_A:?...}"`, chosen to
+	#                             refuse rather than silently pass
+	#
+	# Nine gates, two authors, one missing concept. Every one of them was
+	# reported as a defect in the product. D002 and D006 both SAID they were
+	# not, in English, in the log -- and the harness had no way to hear it.
+	#
+	# 97 is outside the range a gate body plausibly returns on its own: 0-1 are
+	# verdicts, 2 is usage, 126/127 are exec failures, 128+N are signals.
+	if [ "$rc" -eq 97 ]; then
+		red "CANNOT-RUN (rc=97, declared by the gate)"
+		printf '%s\n' "$out" | redact | sed 's/^/      /'
+		skipped_env=$((skipped_env + 1)); failed=$((failed + 1))
+		ran=$((ran - 1))
+		continue
+	fi
+
 	if [ "$rc" -eq "$expect" ]; then
 		green "GREEN (rc=$rc)"
 	else
@@ -494,7 +625,7 @@ while IFS=$'\t' read -r id expect runson section; do
 		# not inlined here because a leak guard written in the middle of an
 		# error path is a leak guard nobody tests.
 		printf '%s\n' "$out" | redact | sed 's/^/      /'
-		failed=$((failed + 1))
+		failed=$((failed + 1)); measured_fail=$((measured_fail + 1))
 	fi
 done < "$work/gates.tsv"
 
@@ -503,7 +634,42 @@ if [ "$failed" -eq 0 ]; then
 	green "ROLLFORWARD GREEN -- $ran gate(s) met expectation"
 	exit 0
 fi
-red "ROLLFORWARD RED -- $failed of $total gate(s) failed ($skipped_env unrunnable)"
+# SPLIT, because these are not the same claim and the old line merged them.
+#
+# It read "$failed of $total gate(s) failed ($skipped_env unrunnable)", and
+# $failed ALREADY INCLUDED $skipped_env -- an unrunnable gate increments both
+# counters. On the first completed --cut run (2026-08-11) that printed
+#
+#     ROLLFORWARD RED -- 19 of 27 gate(s) failed (12 unrunnable)
+#
+# Nineteen reads as nineteen defects. Seven were measured; twelve were gates
+# that could not run at all. The parenthetical was doing all the correcting
+# and nobody reads a parenthetical as a subtraction.
+#
+# The same walk with the sibling *_DIR vars unset said "18 of 27 failed
+# (0 unrunnable)" while gate bodies were aborting on an unbound variable. So
+# the number also MOVED with the environment, in the direction that flatters:
+# fewer declared unrunnable, more implied defects.
+#
+# What does NOT change: a cannot-run still BLOCKS. Failing closed is right.
+# Only the sentence changes, so the operator can tell a defect from a blind
+# spot without re-reading the log.
+# $ran counts gates that EXECUTED, not gates that passed -- it increments
+# before the expectation is checked. I wrote "${ran} passed" in the split I
+# shipped earlier today and it printed, on the first full run that had no
+# cannot-runs left:
+#
+#     12 measured failure(s), 0 CANNOT-RUN, 27 passed (27 gates)
+#
+# 12 + 0 + 27 = 39 against 27 gates. The arithmetic is what exposed it; the
+# wording alone reads fine, which is exactly the shape of every other defect
+# found today. Passed is executed minus failed.
+passed=$((ran - measured_fail))
+red "ROLLFORWARD RED -- ${measured_fail} measured failure(s), ${skipped_env} CANNOT-RUN, ${passed} passed (${total} gates, ${ran} ran)"
+if [ "$skipped_env" -gt 0 ]; then
+	dim "CANNOT-RUN is not a finding about the product. Those gates measured"
+	dim "nothing; treat them as coverage you do not have, not as defects."
+fi
 dim "A cut does not proceed past this. Fix the defect or fix the gate; do not"
 dim "edit the expectation to match the failure."
 exit 1
