@@ -57,7 +57,7 @@ Every entry here has a gate. The cut pipeline (`pipeline/release.yml`) MUST run 
 | v1018-D013 | Wiki quality low: 9,759 orphans / 5,933 thin / 50 topic gaps / 200 missing cross-links | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d013--wiki-quality-low-9759-orphan-pages--5933-thin-pages--50-topic-gaps--200-missing-cross-links) | orphan pages < 2000 | **CITATION WITHDRAWN 2026-08-11, inherited from D005.** It read "Rides on PR #4 + PR #17 (D005 dedupe fix reduces orphan count materially)" -- the same two non-fixes already withdrawn on D005 and D006. `CM041-People-Graph#4` is an OPEN ISSUE about iCloud photo sourcing, not a pull request; `CM051#17` is merged but is "CM046 LaunchAgent piece 3". Third row riding the same pair, which is why one bad citation is never one bad row. | open -- status corrected from `measured_in_v1.0.19` 2026-08-11. Two separate reasons, either sufficient. First, the citations it rode on are withdrawn and D005 itself is now open, so the premise "the D005 dedupe fix reduces orphan count materially" has no fix behind it. Second, the acceptance is a MEASUREMENT and the measurement is not in evidence here: a box measurement of 11,982 orphans against an acceptance of under 2000 was recorded on the unmerged branch for OS003 #26 and has NOT been reproduced on main, so it is carried here as a claim to re-run, not as a result. Re-measure on the box before this row moves again in either direction. |
 | **v1018-D014 🔴🔴🔴** | Wiki content-quality bugs: (a) 249 pages with numeric-only summaries, (b) raw prompt scaffolding written instead of output, (c) unfilled {user_email} placeholders | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d014--wiki-content-quality-bugs-a-llm-returns-just-a-number-b-raw-prompt-scaffolding-rendered-instead-of-output-c-unfilled-template-placeholders) | zero numeric-only summaries + zero {placeholder} + zero raw-prompt patterns | PR #7 (CM044 `fix/wiki-d014-content-quality-cluster` — manual port of PR #154) + PR #8 (CM048 `fix/cm048-d014-prompt-scaffolding-echo`) | **UNEVIDENCED** -- source fixes are in (CM044 #7, CM048 #8, CM051 #546/#547), but no box has demonstrated them. Two of this row's three sub-predicates could not fire (OS003 #20), and the founder box today reports 249 / 6 / 29 against code that predates all of them. Re-run the gate on a rebuilt box before this says fixed. Pre-existing damage is NOT repaired by any of those PRs: the 29 summaries and 6 placeholder files on disk stay broken until re-enrichment. **MEASURED ON THE BOX 2026-08-10 (Archie). D014 SPLITS, and the split confirms the delivery-path theory.** (a) **numeric-only summaries: STILL RED.** 249 People pages carry a `pw-summary` block and **all 249 contain a bare integer** -- exactly the 249 originally reported. Verified by masking content (`<div class="pw-summary"><p>999`, line lengths min 28 / median 30 / max 30); an earlier `grep -A2` returned 0 only because the text sits on the SAME line as the div. (b) **raw scaffolding + literal `{user_email}`: GREEN.** Zero template placeholders of `{[a-z_]{3,30}}` shape and zero `user_email` anywhere, against a positive control of **11,722 pages containing a brace**. **Why the split:** D014b/c were fixed in CM051 (#547, #546) -- vendored code that reaches the box on install -- while D014a was fixed in CM044 #174, which ships INSIDE the digest-pinned wiki-compiler image that has not been rebuilt since 2026-08-08. Same cause as D010 + D016; remedy is the `v0.1.8` tag push. Counts only left the box. **RE-MEASURED ON THE BOX 2026-08-10 21:20 HKT (Archie): THE WHOLE GATE IS GREEN, exit 0, a=0 b=0 c=0.** D014a has flipped: 327 People pages now carry a `pw-summary` and **zero** are numeric-only, against 249-of-249 numeric-only when this row was written. Prose length min 52 / median 167 / max 278 characters versus the RED-era min 28 / median 30 / max 30. **Both controls run before believing the green,** because an absence is the reading most often manufactured by a dead predicate: POSITIVE, the predicate has a real population to search (4,918 People pages, 11,838 wiki pages total); NEGATIVE, a planted `<div class="pw-summary"><p>249` file in a temp tree still matches, so the `[0-9]+$` anchor is intact and the line format has not drifted away from it. **The delivery-path blocker this row names is RESOLVED.** The wiki recompiled inside the Docker wiki-compiler image (`ostler-wiki-compiler-run-c231cb3633a8`) from 18:29 to 19:06 HKT, and all 4,918 People pages carry an 19:06:21 mtime, so the image did deliver rather than the fix being applied by hand. The `v0.1.8` remedy is done. Legacy flat-layout debris remains and is reported, not failed: 61 conversations without a narrative and 11 with an unfilled placeholder, all in the pre-migration layout the current writer cannot emit. NOT changing the status cell to fixed in this PR: the gate is green on ANDY'S box, and CM044 #179 (the D014a prompt fix) is still open, so whether this green survives a fresh install with a different data shape is untested. Evidence recorded; the claim stays where it is until TNM rules on #179. |
 | **v1018-D015 🔴🔴🔴** | Wiki theme uses admonition-style AI-tell callout treatment — BANNED per feedback_no_glowing_callout_admonition_style_anywhere (D010 is a sub-symptom) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d015--wiki-theme-uses-admonition-style-ai-tell-callout-treatment-banned-per-andys-brand-rules) | shipped wiki CSS has zero admonition-style callout rules + Andy signs off multi-page consistency sweep | **CITATION WITHDRAWN 2026-08-11 -- same shape as D008, right branch, wrong number.** The parenthetical names `fix/wiki-d010-d015-d016-theme-cluster`, which contains this defect's own id and is unmistakably the theme-cluster branch. `CM044#6` is "R3-12: incremental fingerprint catches in-place edits via MAX(created_at)", merged 2026-04-24, touching compiler/incremental.py and its test. **It changes zero CSS.** This row is about wiki theme callout treatment; an incremental-compile fingerprint cannot address it. Checked by FILES, not by title, because the title is what makes these plausible. | open -- status corrected from `fixed_in_v1.0.19` 2026-08-11. The described scope (de-admonize `.pw-summary` and `.pw-doc blockquote`) may well have been written, but the cited PR is not where it landed, so there is nothing here to verify it against. Its acceptance is unchanged and is strong: shipped wiki CSS carries zero admonition-style callout rules, plus Andy's multi-page consistency sign-off. That acceptance has never been run against a located fix. Andy's sign-off is a REQUIRED half of this row and cannot be satisfied by any PR. |
-| **v1018-D016 🔴🔴🔴** | Wiki body text + everything sitewide MASSIVE — type-scale blown out (same class as task #224) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d016--wiki-body-text--everything-renders-massive--sitewide-type-scale-blown-out) | body font-size ≤ 18px + no raw px text > 24px + Andy signs off multi-viewport sweep | PR #6 (CM044 `fix/wiki-d010-d015-d016-theme-cluster`) | **DELIVERED + VERIFIED ON THE BOX 2026-08-10.** Gate re-run by Archie, extracted verbatim from this file and executed on the founder Mini against the v0.1.8 image (`ostler-wiki-site` `3f8e01f8952d`, `build-20260810-035744`): exit 0. `extra.css:2245` carries an unscoped `html { font-size: 100% !important; }`. **The previous gate body was a FALSE RED** -- it required selector and declaration on one line, and the shipped CSS is ordinary multi-line, so it could never have passed; it would have blocked a cut on a fixed defect. Corrected gate parses the block and additionally holds the unscoped requirement. Controls: unmodified PASS, block-deleted FAIL, re-scoped-to-`.ostler-embed` FAIL. Andy's 13.1 px vs 14 px body-target preference is a separate open question, not a defect. |
+| **v1018-D016 🔴🔴🔴** | Wiki body text + everything sitewide MASSIVE -- type-scale blown out (same class as task #224) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d016--wiki-body-text--everything-renders-massive--sitewide-type-scale-blown-out) | body font-size ≤ 18px + no raw px text > 24px + Andy signs off multi-viewport sweep | PR #6 (CM044 `fix/wiki-d010-d015-d016-theme-cluster`) | **DELIVERED + VERIFIED ON THE BOX 2026-08-10.** Gate re-run by Archie, extracted verbatim from this file and executed on the founder Mini against the v0.1.8 image (`ostler-wiki-site` `3f8e01f8952d`, `build-20260810-035744`): exit 0. `extra.css:2245` carries an unscoped `html { font-size: 100% !important; }`. **The previous gate body was a FALSE RED** -- it required selector and declaration on one line, and the shipped CSS is ordinary multi-line, so it could never have passed; it would have blocked a cut on a fixed defect. Corrected gate parses the block and additionally holds the unscoped requirement. Controls: unmodified PASS, block-deleted FAIL, re-scoped-to-`.ostler-embed` FAIL. Andy's 13.1 px vs 14 px body-target preference is a separate open question, not a defect. **SCOPE CORRECTED + APP SURFACE NOW MEASURED 2026-08-11 (Archie).** The row says "+ everything sitewide" and cites task #224, which is the app SPA; the gate covered only the wiki and its own heading said so, so a PASS answered half the row and was read as answering all of it. A second limb now measures the surface the app actually renders. **Which surface that is was resolved from RUNTIME CONFIG, not from `strings`:** `apps/tauri/tauri.conf.json` sets `frontendDist = ../../web/dist`, so Tauri EMBEDS the frontend and serves it from `tauri://localhost`; `devUrl` is dev-only and is where the dead `42617` port (task #170) in the shipped binary comes from, harmless in a production build. **Measured on the box:** the shipped SPA stylesheet is 58,668 bytes with 71 `font-size` declarations; the scale is fully tokenised (`--fs-micro` 10 through `--fs-display` 28), `body{font-size:var(--fs-body)}` resolves to **14px**, and there are **zero** raw-px `font-size` declarations, so task #224's untokenised 10-24px scale is genuinely gone. **Six controls run before writing the limb:** shipped build PASS (71 examined); injected `font-size:42px` FAIL; `--fs-body` forced to 32px FAIL; `--fs-body` deleted FAIL; absent directory rc=97; empty stylesheet rc=97 rather than a vacuous green. **The limb was then proven live inside the runner**, not just as a standalone probe, by temporarily lowering the ceiling to 13px and watching the walk go RED after printing `LIMB A (wiki) PASS`. **NOT changing this row to fixed:** its own criterion requires Andy's multi-viewport sign-off, and that has not happened. Evidence recorded; the claim stays where it is. **A SEPARATE defect was found while measuring and is deliberately NOT folded in here:** the daemon at `:8000` serves its SPA index but cannot serve the SPA's assets -- measured on the box over loopback, `/`, `/assets/index-*.js` and `/assets/index-*.css` all return the same 508-byte index page although both files exist on disk. The app never loads from `:8000`, so this is not this row's cause, but it is a live trap for task #228, which wants Ostler.app to stop embedding and always load from the daemon. |
 | **v1018-D017 🔴🔴🔴** | **SCOPE NARROWED 2026-08-11 to the channel-scrub WIRING, which is what its gate actually asserts. The customer-visible defect this row was filed for is `v1018-D038` and remains OPEN.** Original report: assistant iMessage rendering leak, raw tool-call syntax reached the customer. Two corrections are kept here so they travel with the claim. **(1) The HTML-entity half is REFUTED** -- `escape_html` exists at exactly two private sites (`telegram.rs:1743`, correct there because that API takes `parse_mode=HTML`, and `report_templates.rs:32`), neither has a cross-channel caller, and `link_enricher.rs:148` only ever UNescapes. No shipped plain-text send path has an escape step that could fail to unescape. What produced `< " >` is unknown and probably unknowable, because the daemon logs no outbound message bodies. **(2) `🤖 ` is the configured message prefix** (`schema.rs:1963`, `imessage.rs:408`), not a renderer, so the leaked text is the model's own reply. | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d017--assistant-imessage-rendering-leak-raw-tool-call-syntax--html-entity-mis-escaping-to-customer) | **The predicate this cell used to name -- "zero raw tool-call or HTML entities in outbound iMessage log" -- is UNMEASURABLE: there is no outbound iMessage log.** The gate below asserts the send path instead: every shipped channel must call the scrub. See its scope note before reading a green as a fixed D017; the real defect is `v1018-D038`. | **`ostler-ai/ostler-assistant#292` MERGED** (`archie/d017-imessage-tool-call-scrub`). This cell read "OPEN, UNSTABLE" until 2026-08-10; it merged, and so did `#296` for the other five send paths. Neither closes `v1018-D038`. | **fixed_in_v1.0.19 -- NARROWED SCOPE ONLY. Read the next sentence before citing this row as closed.** What is closed: every shipped channel's send path now calls `strip_tool_call_tags`. What is NOT closed: a bare `tool_name(args)` reply still reaches the customer on every channel, and that is **`v1018-D038`, OPEN**. **GATE RE-RUN BY ARCHIE 2026-08-11 WITH A DEMONSTRATED RED, which it had never had:** at oa `#292`'s base `52b1ffba` the gate goes RED naming **0 of 6** shipped send paths scrubbing (apple_mail, email_channel, gmail_push, imessage, whatsapp, whatsapp_web); on current oa `main` it is GREEN at **6 of 6**. Same script, two refs, opposite verdicts, so it discriminates. **Two preconditions for anyone re-running it.** (a) Only the `ostler-ai` gh account can read both `ostler-ai/*` and `andygmassey/*`; under the other two every oa read returns empty and the gate exits `FAIL: examined 0 channel send paths`, which is correct fail-closed behaviour, not a flake. (b) To find a pre-fix ref do **not** use `merge_commit_sha`'s parent: oa is rebase-merge, so there is no merge commit and `parents[0]` walks backwards INSIDE the same PR. Doing that returned a RED that was real but mislabelled. Use `.base.sha`, and sanity-check the commit's subject line before quoting it as a before-state. **Prior history of this cell, kept because it is the point:** it read `fixed_in_v1.0.19` citing PR #9 and a branch that 404s; #9 is an unrelated cron-delivery repair merged 2026-05-02. Anyone spot-checking "#9 -- merged? yes" would have confirmed a fix that never landed, which is exactly `v1018-D029`. |
 | **v1018-D018 🔴🔴🔴** | Assistant memory doesn't cross channels — macOS Chat memory not reaching iMessage (persistence works within-channel, retrieval fails cross-channel) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d018--assistant-memory-does-not-cross-channels-macos-chat-memory-not-reaching-imessage) | after chat asserts "X is Y", subsequent iMessage query for "Y" resolves to X (real-box gate) | **CITATION DOES NOT RESOLVE (2026-08-10).** oa #10 is "cron-delivery: piece E", merged 2026-05-02, unrelated; the cited branch 404s (control: `main` resolves). No fix has been located. | open — status corrected from `fixed_in_v1.0.19` 2026-08-10 after the citation failed to resolve. Ungated by design: there is nothing yet to gate. Acceptance stays a real-box two-channel probe. |
 | **v1018-D019 🔴🔴🔴** | whatsapp-bundle exits 78 (EX_CONFIG) with 0-byte .err+.log — ships dark, MUST-D class in different job | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d019--whatsapp-bundle-launchd-job-exits-78-ex_config-with-zero-byte-err-and-log--ships-dark) | whatsapp-bundle either exits 0 OR writes non-empty log on failure | **CITATION IS THE WRONG SUBSYSTEM (2026-08-10).** CM051 #20 is "Wiki container piece 3: daily wiki-recompile LaunchAgent". Called by DIFF, not title: it touches 5 files, all under `wiki-recompile/`, with ZERO occurrences of "whatsapp" in the whole patch. D019's acceptance is entirely about whatsapp-bundle. | open — status corrected from `fixed_in_v1.0.19` 2026-08-10. Both share the word "launchd", which is why this one needed the diff rather than the title. No whatsapp-bundle logging fix located. |
@@ -688,7 +688,99 @@ done
   [ -n "$unread" ] && echo "      COULD NOT READ:$unread -- credential/path fault, NOT a finding about the code"
   exit 1; }
 [ -z "$missing" ] || { echo "FAIL: shipped channels whose send path does NOT scrub tool-call payloads:$missing"; echo "      (examined $checked send paths across $n_shipped shipped channels)"; exit 1; }
-echo "OK: all $checked shipped send paths scrub tool-call payloads"
+echo "LIMB A OK: all $checked shipped send paths scrub tool-call payloads"
+
+# ---------------------------------------------------------------------------
+# LIMB B -- THE DEFECT THE ROW IS ACTUALLY NAMED FOR.
+#
+# Limb A asserts every shipped channel CALLS strip_tool_call_tags. The row's own
+# SCOPE NOTE says, in bold, that this "is not D017", and the shipped test in the
+# daemon repo says the same thing in its header:
+#
+#     "It is emphatically NOT a proof that D017 is fixed. strip_tool_call_tags
+#      matches seven literal XML open tags and returns any tag-free message
+#      unchanged, so the string D017 was actually filed for -- a bare
+#      name(args) form carrying none of those tags -- passes through untouched
+#      on every channel, including the ones that have always had the scrub."
+#
+# VERIFIED 2026-08-11 by reading the function at origin/main: it keys entirely
+# off TOOL_CALL_OPEN_TAGS, seven XML-ish literals. A bare `name(args)` contains
+# none of them, so the function returns it unchanged. Limb A can therefore be
+# GREEN on every channel while the customer-visible defect is fully present.
+#
+# Both notes were correct and NEITHER HAD AN EXIT STATUS. A green row in a cut
+# walk is read as a satisfied row; nobody re-reads the prose. That is the same
+# failure this whole file exists to stop, so the prose is now wired to a verdict.
+#
+# THIS LIMB IS EXPECTED TO BE RED UNTIL THE FIX IS BUILT. That is not a broken
+# gate, it is an honest one: the defect is real, unfixed, and customer-facing.
+# Whether to ship anyway is Andy's call, made explicitly, not a decision a gate
+# makes quietly by passing.
+#
+# CLOSING CONDITION, named here so the gate is deterministic rather than
+# guessing at whatever shape a future fix takes. The fix must:
+#   1. expose a scrubber for the bare paren form named `strip_bare_tool_calls`
+#      in crates/zeroclaw-channels/src/util.rs, and
+#   2. have every shipped send path call it, exactly as limb A requires for the
+#      tag form.
+# If a different name is chosen, change it HERE in the same PR. A gate that
+# cannot be satisfied by a correct fix is worse than no gate.
+BARE_FN="${D017_BARE_FN:-strip_bare_tool_calls}"
+util=$(gh_owner "$OA_REPO" api "repos/$OA_REPO/contents/crates/zeroclaw-channels/src/util.rs?ref=$OA_REF" --jq '.content' 2>/dev/null | base64 -d)
+[ -n "$util" ] || { echo "CANNOT RUN: could not read util.rs at $OA_REF -- credential/path fault, NOT a finding"; exit 97; }
+
+# POSITIVE CONTROL. If the tag scrubber is not in the file we fetched, we are
+# reading the wrong file and an absence below would be manufactured.
+printf '%s\n' "$util" | grep -q 'fn strip_tool_call_tags' || {
+  echo "CANNOT RUN: util.rs at $OA_REF has no strip_tool_call_tags -- wrong file or moved; refusing to report an absence"; exit 97; }
+
+printf '%s\n' "$util" | grep -q "fn $BARE_FN" || {
+  echo "FAIL: no \`$BARE_FN\` in util.rs. strip_tool_call_tags keys off seven XML open tags"
+  echo "      only, so a bare \`name(args)\` reply reaches the customer on EVERY shipped"
+  echo "      channel, including those that already scrub. This is the defect D017 was"
+  echo "      filed for; limb A's green covers the tag form only. See the SCOPE NOTE."
+  exit 1; }
+
+# LIMB B COUNTS ITS OWN READS. It must not inherit limb A's $checked.
+#
+# TNM demonstrated the hole 2026-08-11: an empty read hit `continue`, limb B
+# kept no counter, and the success line printed limb A's number -- so with every
+# read returning empty it printed "all 6 shipped send paths also scrub" having
+# examined ZERO. That is my own D004 finding one limb over, and the (b)
+# precondition on this row already warns that a wrong-account read returns empty
+# everywhere. Limb A turns that into "examined 0"; limb B turned it into green.
+#
+# UNREADABLE is tracked separately from ABSENT, because a credential fault is
+# not a finding about the code.
+bare_missing=""
+bare_unread=""
+bare_checked=0
+for ch in $shipped; do
+  for f in $(src_files_for "$ch"); do
+    body=$(gh_owner "$OA_REPO" api "repos/$OA_REPO/contents/crates/zeroclaw-channels/src/${f}.rs?ref=$OA_REF" --jq '.content' 2>/dev/null | base64 -d)
+    [ -n "$body" ] || { bare_unread="$bare_unread $ch/$f"; continue; }
+    printf '%s\n' "$body" | grep -q "async fn send" || continue
+    bare_checked=$((bare_checked + 1))
+    printf '%s\n' "$body" | grep -q "$BARE_FN" || bare_missing="$bare_missing $ch/$f"
+  done
+done
+
+# EXAMINED-COUNT CONTROL. Zero reads is never a pass.
+[ "$bare_checked" -gt 0 ] || {
+  echo "CANNOT RUN: limb B examined 0 send paths -- it is measuring nothing"
+  [ -n "$bare_unread" ] && echo "            COULD NOT READ:$bare_unread -- credential/path fault, NOT a finding"
+  exit 97; }
+
+# The two limbs must have seen the same surface. A divergence means one of them
+# is reading a different set and neither number can be trusted.
+[ "$bare_checked" -eq "$checked" ] || {
+  echo "CANNOT RUN: limb A examined $checked send path(s), limb B examined $bare_checked."
+  echo "            The limbs disagree about the shipped surface; neither count is trustworthy."
+  [ -n "$bare_unread" ] && echo "            COULD NOT READ:$bare_unread"
+  exit 97; }
+
+[ -z "$bare_missing" ] || { echo "FAIL: \`$BARE_FN\` exists but these shipped send paths do not call it:$bare_missing"; echo "      (examined $bare_checked send paths)"; exit 1; }
+echo "LIMB B OK: all $bare_checked shipped send paths also scrub the bare paren form"
 ```
 
 ### v1018-D003 -- the blocking gate must authenticate, not read 401 as absent data
@@ -899,7 +991,79 @@ docker exec ostler-wiki-site sh -c \
 exit 0
 ```
 
-### v1018-D016 — wiki type scale not inflated in a standalone browser
+### v1018-D016 -- type scale not inflated, on BOTH surfaces the row names
+
+**SCOPE CORRECTED 2026-08-11.** The row says "Wiki body text **+ everything
+sitewide** MASSIVE" and cites task #224, which is about the **app SPA**, not the
+wiki. The gate covered only the wiki, and its own heading said so. So a PASS was
+answering half the row and being read as answering all of it. The wiki limb was
+correct and is unchanged; a second limb now measures the app surface.
+
+**WHICH SURFACE THE APP ACTUALLY RENDERS, resolved from runtime config rather
+than from `strings`.** `apps/tauri/tauri.conf.json` sets
+
+    build.frontendDist = ../../web/dist
+    build.devUrl       = http://127.0.0.1:42617/_app/
+
+`frontendDist` means Tauri **embeds** the built frontend and serves it from
+`tauri://localhost`. `devUrl` is dev-only, and it is where the dead `42617` port
+in the shipped binary comes from (task #170): harmless in a production build,
+because nothing reads it there. This matters because the earlier reading of this
+question was made from `strings` output alone, which showed both a
+`tauri://localhost` and a `http://127.0.0.1:8000` and could not distinguish
+them. Resolve the executing surface from the runtime config. Same lesson as
+D035.
+
+**MEASURED ON THE BOX 2026-08-11.** The shipped SPA stylesheet is
+`~/.ostler/OstlerAssistant.app/Contents/Resources/web/dist/assets/index-*.css`,
+58,668 bytes, 71 `font-size` declarations. The scale is fully tokenised:
+
+    --fs-micro 10   --fs-caption 11   --fs-caption-lg 12   --fs-body-sm 13
+    --fs-body  14   --fs-body-lg 16   --fs-heading-sm  18  --fs-heading-md 20
+    --fs-heading-lg 24                --fs-display     28
+
+`body{font-size:var(--fs-body)}`, so body text is **14px**, and there are
+**zero** raw-px `font-size` declarations. Task #224's untokenised 10-24px scale
+is genuinely gone. Nothing here is "MASSIVE".
+
+**WHY THE GATE ASSERTS "TOKENISED" AND NOT THE ROW'S LITERAL "no raw px text >
+24px".** Taken literally that criterion fails on `--fs-display:28px`, which is
+an ordinary display-heading size and not a defect. Fitting the threshold to make
+the current build pass would be encoding the answer into the gate. So the limb
+asserts the two things the defect was actually about: body text stays at or
+below 18px, and the scale is expressed in tokens rather than raw px. A genuine
+blow-out fails both.
+
+**CONTROLS, all six run on the box before this was written:**
+
+    shipped build                     PASS  (71 declarations examined)
+    inject `.leak{font-size:42px}`    FAIL  raw-px declaration detected
+    set --fs-body to 32px             FAIL  above the 18px body ceiling
+    delete the --fs-body token        FAIL  no body token defined
+    point at an absent directory      97    CANNOT-RUN, not a pass
+    empty stylesheet                  97    CANNOT-RUN, not a vacuous green
+
+The last two are the ones that matter most: `find`-shaped gates in this file
+have twice reported "0 violations" over 0 examined files.
+
+**A SEPARATE DEFECT FOUND WHILE MEASURING THIS, deliberately NOT folded into
+D016.** The daemon at `:8000` serves its SPA index but **cannot serve the SPA's
+assets**. Measured on the box over loopback, not over the LAN:
+
+    GET /                            200  text/html  508
+    GET /assets/index-BJGHlmN_.js    200  text/html  508
+    GET /assets/index-C3vVbOBz.css   200  text/html  508
+
+All three return the same 508-byte index page, i.e. the catch-all, although both
+asset files exist on disk under `Contents/Resources/web/dist/assets/`. A browser
+pointed at `:8000` therefore gets no CSS and no JS and renders unstyled at the
+UA default size, which looks exactly like this row's symptom. It is not this
+row's cause, because the app does not load from `:8000`. It IS a live trap for
+task #228, which wants Ostler.app to stop embedding and "ALWAYS load from daemon
+:8000": executing #228 today would migrate a working embedded frontend onto a
+broken served one. Filed separately rather than smuggled into a green.
+
+### v1018-D016 -- wiki limb: type scale not inflated in a standalone browser
 
 **GATE CORRECTED 2026-08-10, and the old one was a FALSE RED.** The previous
 body required the selector and the declaration on a **single line**:
@@ -949,6 +1113,106 @@ docker exec ostler-wiki-site sh -c "awk '
   END { exit !found }
 ' $CSS" \
   || { echo "FAIL: no UNSCOPED html{ ... font-size:100% ... } -- browser view still inherits Material 125%"; exit 1; }
+echo "LIMB A (wiki) PASS"
+
+# ---------------------------------------------------------------------------
+# LIMB B -- the APP SPA surface, which the row named and the gate did not cover.
+#
+# The app renders its EMBEDDED frontend (tauri.conf.json frontendDist =
+# ../../web/dist, served from tauri://localhost), so the stylesheet that governs
+# what Andy sees is the one shipped inside the app bundle, NOT anything the
+# daemon serves over :8000. Point the gate at the artefact that executes.
+# ---------------------------------------------------------------------------
+SPA="${OSTLER_SPA_DIST:-$HOME/.ostler/OstlerAssistant.app/Contents/Resources/web/dist}"
+[ -d "$SPA/assets" ] || { echo "CANNOT RUN: no SPA assets dir at $SPA/assets. This is not a pass."; exit 97; }
+css=$(ls "$SPA"/assets/index-*.css 2>/dev/null | head -1)
+[ -n "$css" ] || { echo "CANNOT RUN: no index-*.css under $SPA/assets. This is not a pass."; exit 97; }
+
+# EXAMINED-COUNT CONTROL. A stylesheet whose format has drifted would yield zero
+# matches and report a clean bill of health over nothing examined.
+decls=$(tr '}' '\n' < "$css" | grep -cE 'font-size:')
+echo "examined: $decls font-size declaration(s) in $(basename "$css")"
+[ "${decls:-0}" -ge 20 ] || { echo "CANNOT RUN: only ${decls:-0} font-size declarations -- format drifted, gate is blind. This is not a pass."; exit 97; }
+
+# B1. Body text stays at or below 18px. This is the row's own criterion.
+fsbody=$(tr '{;' '\n\n' < "$css" | grep -oE '^[[:space:]]*--fs-body:[0-9]+px' | grep -oE '[0-9]+' | head -1)
+[ -n "$fsbody" ] || { echo "FAIL: no --fs-body px token defined -- the type scale has no body anchor"; exit 1; }
+echo "--fs-body = ${fsbody}px"
+[ "$fsbody" -le 18 ] || { echo "FAIL: --fs-body is ${fsbody}px, above the 18px body ceiling (v1018-D016)"; exit 1; }
+
+# B2. NOTHING RENDERS ABOVE A 32px CEILING. Say what this asserts, because it is
+# not what it once asserted and not what the heading here used to claim.
+#
+# It began life as "the scale is TOKENISED" -- literally `raw px count == 0`, on
+# the reasoning that task #224 named a raw 10-24px scale with 18 distinct values
+# and no token system, so any raw px meant that scale was back. TNM's rem hole
+# (below) forced the move to a rendered-size ceiling, and that is a REAL
+# LOOSENING, stated rather than buried:
+#
+#   task #224's original defect  -- untokenised scale, no tokens at all
+#     still FAILS, but via B1 ("no --fs-body px token"), not here.
+#   tokens present, raw px scattered alongside, every value <= 32px
+#     now PASSES.  The old `raw == 0` predicate would have failed it.
+#
+# So the original defect is still caught, by the right limb. What is no longer
+# caught is DRIFT -- raw px creeping back in alongside the tokens, which is how
+# #224 arrived in the first place. Every value in #224's scale was 24px or less,
+# comfortably inside this ceiling; only the total absence of tokens gives it
+# away. Accepted deliberately: this row is about things being MASSIVE, and a
+# ceiling measures massive. If #224 recurs, add a non-blocking raw-px count
+# beside this so drift is visible without failing a cut on a 20px literal.
+#
+# The row's literal "no raw px > 24px" is still not the test, for the original
+# reason: it fails on --fs-display:28px, an ordinary display-heading size.
+# MEASURE THE RENDERED SIZE, NOT THE NOTATION.
+#
+# The first version of this limb counted `px` literals only. TNM demonstrated
+# the hole 2026-08-11: a stylesheet where every element is `4rem` -- 64px at a
+# 16px root, which IS "everything sitewide MASSIVE", the literal words of this
+# row -- passed with "raw px font-size declarations: 0", exit 0. Both controls
+# discriminated, so it was the gate and not the harness.
+#
+# That is the same family as this row's ORIGINAL false RED, which required the
+# selector and declaration on one line: a predicate pinned to one RENDERING of
+# the defect instead of the defect. Notation is not the defect. SIZE is.
+#
+# So every literal is normalised to px at a 16px root and compared to a ceiling:
+#
+#     Npx    -> N            Nrem -> N*16
+#     Nem    -> N*16         N%   -> N/100*16
+#
+# 32px, because the shipped scale tops out at --fs-display 28px and a genuine
+# blow-out is far above that. This is NOT fitted to make the current build pass:
+# the build has zero literals above 16px, so the ceiling could be 20 and still
+# pass. It is set where a heading stops being a heading.
+#
+# var(--*) values are exempt BY DESIGN -- that is the tokenised path this row
+# wants, and the token DEFINITIONS are checked by B1 plus the loop below.
+ceiling=32
+over=$(tr '}' '\n' < "$css" \
+  | grep -oE 'font-size:[[:space:]]*[0-9.]+(px|rem|em|%)' \
+  | grep -oE '[0-9.]+(px|rem|em|%)' \
+  | awk -v c="$ceiling" '
+      { n=$0+0; u=$0; sub(/^[0-9.]+/,"",u)
+        if (u=="px") v=n; else if (u=="rem"||u=="em") v=n*16; else if (u=="%") v=n/100*16; else next
+        if (v > c) print $0" = "v"px" }')
+n_over=$(printf '%s' "$over" | grep -c . || true)
+echo "font-size literals over ${ceiling}px: ${n_over:-0}"
+[ "${n_over:-1}" -eq 0 ] || {
+  echo "FAIL: ${n_over} font-size literal(s) render above ${ceiling}px -- this is the sitewide blow-out (v1018-D016)"
+  printf '%s\n' "$over" | sed 's/^/      /' | head -8
+  exit 1; }
+
+# AND the token definitions themselves must not blow out, in any unit.
+tok_over=$(tr '{;' '\n\n' < "$css" \
+  | grep -oE '^[[:space:]]*--(fs|text)-[a-z0-9-]+:[[:space:]]*[0-9.]+(px|rem|em)' \
+  | grep -oE '[0-9.]+(px|rem|em)' \
+  | awk -v c="$ceiling" '{ n=$0+0; u=$0; sub(/^[0-9.]+/,"",u); v=(u=="px")?n:n*16; if (v>c) print $0" = "v"px" }')
+n_tok=$(printf '%s' "$tok_over" | grep -c . || true)
+echo "type-scale tokens over ${ceiling}px: ${n_tok:-0}"
+[ "${n_tok:-1}" -eq 0 ] || { echo "FAIL: ${n_tok} type-scale token(s) render above ${ceiling}px (v1018-D016)"; printf '%s\n' "$tok_over" | sed 's/^/      /' | head -8; exit 1; }
+echo "LIMB B (app SPA) PASS"
+exit 0
 ```
 
 ### v1018-D026 — Part 2: cuts must be tag-triggered and gate-enforced
@@ -1792,6 +2056,53 @@ session_ref = None       -> the `if let` never binds, NOTHING is filtered
 session_ref = Some(sid)  -> keep only exact matches, and a NULL-session row
                             is SKIPPED, because None != Some(sid)
 ```
+
+**QUANTIFIED 2026-08-11 (Archie). The split is CATEGORICAL, and that is what
+makes this severe rather than merely awkward.**
+
+Re-measured at `~/.ostler/assistant-config/workspace/memory/brain.db`:
+
+```
+category      session      rows
+core          NULL           2     durable facts about the user
+daily         NULL          13
+conversation  scoped         4     across 3 distinct keys
+                            ---
+                             19
+```
+
+**The WRITE side is correct.** Durable facts land unscoped; per-conversation
+ephemera land scoped. That separation is sensible and nothing about it needs to
+change.
+
+**The READ filter inverts it.** `session_ref = Some(sid)` keeps only exact
+matches and SKIPS every NULL-session row. So a channel that runs with a session
+id sees its own handful of `conversation` rows and **none of `core`, none of
+`daily`** -- 15 of 19 rows, and **100% of the `core` category**, which is
+precisely where the user's own facts live.
+
+That is the difference between "two channels cannot share" and what is actually
+happening: **a scoped channel cannot see the user's durable memory at all.** Not
+a sharing problem between peers -- the durable store is invisible to any reader
+that identifies itself.
+
+It explains the fresh-install ritual exactly. Seed "X is my wife" in chat, which
+writes `core` with a NULL session. Ask on iMessage, which reads with
+`imessage_<handle>_<handle>`. The row is skipped because `None != Some(sid)`.
+Nothing errors at write time and nothing errors at read time.
+
+**Consequence for the fix shape:** relaxing `recall()` to ignore the session is
+NOT enough on its own, and deleting the filter is still wrong (purge-scoping is
+a deliberate tested property). The minimal correct change is that a read must
+match `session_id = sid OR session_id IS NULL`, applied at all four sites, so
+durable rows are always visible and conversation rows stay scoped.
+
+**A NOTE ON HOW THIS WAS FOUND, because the first probe lied.** A glob for
+`~/.ostler/*memory*.db` returned nothing and would have supported "there is no
+memory store". The DIRECTORY is `memory/`; the FILE is `brain.db`. Only the
+control -- enumerate every `*.db`, ask each for a `memories` table -- found it.
+A failed glob is a candidate false absence, never evidence.
+
 
 **Measured on the founder box, 2026-08-10.** 19 memories total, of which **15
 carry a NULL session_id**; the remainder are scoped to per-conversation keys of
