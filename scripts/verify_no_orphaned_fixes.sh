@@ -65,9 +65,40 @@ DEFERRALS_FILE="${OSTLER_CUT_DEFERRALS:-${REPO_ROOT}/cut-deferrals.yaml}"
 red=0
 warn=0
 checked=0
+unchecked=0          # declared unverifiable in THIS environment
+unverifiable=0       # undeclared and unreachable -- fails closed
+unchecked_labels=""
 
 say()  { printf '%s\n' "$*"; }
 bad()  { printf '  [RED]  %s\n' "$*" >&2; red=$((red + 1)); }
+
+# Run gh with an EXPLICIT token when we resolved one, and with the AMBIENT
+# environment when we did not.
+#
+# The previous form was `GH_TOKEN="$tok" gh ...` at both call sites, which
+# looks equivalent and is not: when $tok is empty it exports GH_TOKEN as the
+# empty string, and an empty GH_TOKEN does not mean "fall back", it means
+# "unauthenticated". So the assignment intended to ADD credentials actively
+# STRIPPED the ones the environment already had.
+#
+# Measured on the v1.0.22 cut (run 31478119136). `gh auth token -u <owner>`
+# returns nothing on a hosted runner -- there is no `gh auth login` there --
+# so every PR lookup ran unauthenticated and answered:
+#
+#   gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN
+#       environment variable
+#
+# branch_landed() treats a failed lookup as "not landed", so that produced a
+# RED naming a BRANCH for what was actually a missing credential. The branch
+# it named did turn out to be genuinely unmerged, which is the dangerous part:
+# a blind instrument returned the right answer, and would have been believed.
+#
+# The consequence worth spelling out: setting GH_TOKEN in the workflow would
+# NOT have fixed this on its own. The script would have overwritten it.
+gh_as() {
+    local t="$1"; shift
+    if [[ -n "$t" ]]; then GH_TOKEN="$t" gh "$@"; else gh "$@"; fi
+}
 note() { printf '  [warn] %s\n' "$*"; warn=$((warn + 1)); }
 ok()   { printf '  [ok]   %s\n' "$*"; }
 
@@ -97,11 +128,60 @@ deferral_reason() {
     ' "$DEFERRALS_FILE" 2>/dev/null
 }
 
+# until_cut is written on nearly every deferral and, until now, was read by
+# NOTHING. is_deferred() matches on `ref:` alone, so a row saying "defer to
+# v1.0.20" kept deferring at v1.0.21, v1.0.22 and v1.0.23. Every deferral in
+# the file is, in practice, permanent.
+#
+# Reported and not enforced, deliberately. Roughly a hundred rows currently
+# carry an until_cut at or before v1.0.20, so enforcing expiry in the same
+# change would turn every one of them RED and block the cut outright -- fixing
+# the ledger by burning the release. The warning makes the debt visible now;
+# making it blocking is a post-launch change, once the backlog is worked down.
+deferral_until() {
+    local ref="$1"
+    awk -v want="$ref" '
+        $0 ~ /ref:/ {
+            line = $0; gsub(/.*ref:[[:space:]]*/, "", line)
+            gsub(/["'"'"']/, "", line); gsub(/[[:space:]]*$/, "", line)
+            cur = (line == want)
+        }
+        cur && /until_cut:/ {
+            u = $0; gsub(/.*until_cut:[[:space:]]*/, "", u)
+            gsub(/["'"'"']/, "", u); print u; exit
+        }
+    ' "$DEFERRALS_FILE" 2>/dev/null
+}
+
+# The version being cut, for expiry comparison only. GITHUB_REF_NAME is the
+# tag on a tag-triggered run; empty elsewhere, in which case expiry is simply
+# not evaluated rather than guessed at.
+CUT_VERSION="${OSTLER_CUT_VERSION:-${GITHUB_REF_NAME:-}}"
+expired_deferrals=0
+
+deferred_note() {
+    local ref="$1" why="$2" until_v suffix=""
+    until_v="$(deferral_until "$ref")"
+    # Compare only the leading vX.Y.Z; several rows carry trailing prose such as
+    # "v1.0.20 -- PRIORITY, first into the next wiki rebuild".
+    local u_num c_num
+    u_num="$(printf '%s' "${until_v:-}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    c_num="$(printf '%s' "${CUT_VERSION:-}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    if [[ -n "$u_num" && -n "$c_num" && "$u_num" != "$c_num" ]]; then
+        # Expired iff until_cut sorts strictly BEFORE the version being cut.
+        if [[ "$(printf '%s\n%s\n' "${u_num#v}" "${c_num#v}" | sort -V | head -1)" == "${u_num#v}" ]]; then
+            suffix="  [EXPIRED: said ${u_num}, cutting ${c_num}]"
+            expired_deferrals=$((expired_deferrals + 1))
+        fi
+    fi
+    note "DEFERRED  ${ref} -- ${why}${suffix}"
+}
+
 report_orphan() {
     local ref="$1" detail="$2"
     if is_deferred "$ref"; then
         local why; why="$(deferral_reason "$ref")"
-        note "DEFERRED  ${ref} -- ${why:-no reason recorded}"
+        deferred_note "$ref" "${why:-no reason recorded}"
     else
         bad "${ref}"
         printf '         %s\n' "$detail" >&2
@@ -175,7 +255,7 @@ branch_landed() {
     # those reads as "no PR" -- which here means RED, but on the next edit
     # could just as easily mean GREEN. Fourth stderr-suppression incident of
     # 2026-08-10/11; the rule is now: never suppress a probe's stderr.
-    if ! js="$(GH_TOKEN="$tok" gh pr list --repo "$gh_repo" --head "$branch" \
+    if ! js="$(gh_as "$tok" pr list --repo "$gh_repo" --head "$branch" \
                  --state all --limit 20 --json number,state,mergedAt 2>&1)"; then
         printf '  [warn] gh pr list failed for %s#%s: %s\n' \
             "$gh_repo" "$branch" "$(printf '%s' "$js" | head -1)" >&2
@@ -236,7 +316,7 @@ maybe_orphan_branch() {
 
     if is_deferred "$ref"; then
         local why; why="$(deferral_reason "$ref")"
-        note "DEFERRED  ${ref} -- ${why:-no reason recorded}"
+        deferred_note "$ref" "${why:-no reason recorded}"
         return
     fi
 
@@ -288,10 +368,37 @@ check_repo() {
     # git itself rather than guessing at the layout.
     if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
         if [[ ",${OSTLER_ORPHAN_GATE_SKIP:-}," == *",${label},"* ]]; then
-            note "${label}: skipped by OSTLER_ORPHAN_GATE_SKIP"
+            note "${label}: NOT CHECKED HERE (declared in OSTLER_ORPHAN_GATE_SKIP)"
+            unchecked_labels="${unchecked_labels}${unchecked_labels:+, }${label}"
+            unchecked=$((unchecked + 1))
             return
         fi
-        bad "${label}: ${path} is not a git checkout -- cannot verify"
+        # "I could not look" is NOT "there is abandoned work", and this line
+        # used to say the second while meaning the first.
+        #
+        # On the v1.0.22 cut every one of CM044, CM041, CM059, CM031 and the
+        # daemon reported here, because their default paths are $HOME/Developer
+        # and $HOME/Documents/Projects -- the OPERATOR's Mac. On a hosted
+        # runner $HOME is /Users/runner and none of them can exist. The gate
+        # then printed five [RED]s and "6 orphaned", which reads as six
+        # abandoned fixes and was in fact one real finding plus five absent
+        # directories.
+        #
+        # That is the shape this whole gate exists to prevent, turned inward:
+        # a check reporting a verdict it never measured. It is also why
+        # check-orphans could never have passed in hosted CI on any tag --
+        # a hard gate encoding an environmental assumption
+        # (feedback_dont_invent_environmental_facts_in_hard_gates).
+        #
+        # Still fails closed when UNDECLARED: silence is the bug, and an
+        # unreachable repo nobody has thought about is exactly the silence.
+        # Declaring it in OSTLER_ORPHAN_GATE_SKIP is a conscious "this
+        # environment cannot see this repo", the same contract as a deferral.
+        bad "${label}: CANNOT VERIFY -- ${path} is not a git checkout here"
+        printf '         This is NOT a finding of orphaned work. Nothing was measured.\n' >&2
+        printf '         Point %s_DIR at a checkout, or declare it unverifiable in\n' "$label" >&2
+        printf '         this environment with OSTLER_ORPHAN_GATE_SKIP=%s\n' "$label" >&2
+        unverifiable=$((unverifiable + 1))
         return
     fi
     checked=$((checked + 1))
@@ -318,6 +425,15 @@ check_repo() {
     _owner="${gh_repo%%/*}"
     if [[ -n "$_owner" ]] && command -v gh >/dev/null 2>&1; then
         _tok="$(gh auth token -u "$_owner" 2>/dev/null || true)"
+    fi
+    # On a hosted runner there is no `gh auth login`, so the per-owner lookup
+    # above returns nothing and the ONLY credential available is the workflow's
+    # own. Fall back to it. It reaches THIS repo and no other -- a repo-scoped
+    # GITHUB_TOKEN cannot read a sibling repo even under the same owner -- so
+    # this makes the cut repo's own PR check work in CI and changes nothing for
+    # the siblings, which is exactly the true division of what CI can see.
+    if [[ -z "$_tok" ]]; then
+        _tok="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
     fi
 
     _timeout=""; command -v gtimeout >/dev/null 2>&1 && _timeout="gtimeout 30"
@@ -380,7 +496,7 @@ check_repo() {
         local prs
         # GH_TOKEN for the repo's OWNER, not whichever account `gh auth switch`
         # last left active -- see the fetch block above for why that matters.
-        prs="$(GH_TOKEN="${_tok:-}" gh pr list --repo "$gh_repo" --state open --limit 100 \
+        prs="$(gh_as "${_tok:-}" pr list --repo "$gh_repo" --state open --limit 100 \
                  --json number,title,headRefName,isDraft 2>/dev/null)" || prs=""
         if [[ -n "$prs" ]]; then
             local line
@@ -444,9 +560,36 @@ check_repo "daemon" "${OSTLER_ASSISTANT_DIR:-$HOME/Developer/ostler-assistant}" 
 fi
 
 say ""
-say "== summary: ${checked} repo(s) checked, ${red} orphaned, ${warn} warning(s) =="
+say "== summary: ${checked} repo(s) checked, ${red} orphaned, ${warn} warning(s), ${unchecked} NOT CHECKED =="
+
+# A gate that goes quiet about its own coverage gets read as covering
+# everything. Name the unchecked repos every run, not only when something is
+# wrong -- a green line saying "5 repos not checked" is the whole point.
+if [[ "$expired_deferrals" -gt 0 ]]; then
+    say ""
+    say "   ${expired_deferrals} deferral(s) are marked [EXPIRED]: their until_cut named a"
+    say "   version older than the one being cut, so they are still deferring past"
+    say "   their own stated deadline. Not blocking (yet). Work them down."
+fi
+
+if [[ "$unchecked" -gt 0 ]]; then
+    say ""
+    say "   NOT CHECKED IN THIS ENVIRONMENT: ${unchecked_labels}"
+    say "   These were declared unverifiable here, so this run says NOTHING about"
+    say "   them either way. They are covered by the OPERATOR run of this script"
+    say "   on the build machine, where all three gh accounts resolve. If that run"
+    say "   did not happen, these repos went unexamined."
+fi
 
 if [[ "$red" -gt 0 ]]; then
+    if [[ "$unverifiable" -gt 0 ]]; then
+        printf '\n' >&2
+        printf 'NOTE: %d of the %d RED(s) above are CANNOT-VERIFY, not orphaned work.\n' \
+            "$unverifiable" "$red" >&2
+        printf '      Nothing was measured for those. Either point their *_DIR at a\n' >&2
+        printf '      checkout, or declare them in OSTLER_ORPHAN_GATE_SKIP. Do not\n' >&2
+        printf '      read them as a finding, and do not read them as a pass.\n' >&2
+    fi
     cat >&2 <<'EOF'
 
 ERROR: work exists that is NOT in what you are about to ship.
@@ -469,5 +612,10 @@ if [[ "$checked" -eq 0 ]]; then
     exit 3
 fi
 
+if [[ "$unchecked" -gt 0 ]]; then
+    say "GREEN, PARTIAL: every written fix in the ${checked} repo(s) CHECKED HERE is"
+    say "shipping or consciously deferred. ${unchecked} repo(s) were not examined."
+    exit 0
+fi
 say "GREEN: every written fix is either shipping or consciously deferred."
 exit 0

@@ -196,6 +196,38 @@ jobs:
       - name: Build, sign, notarise, staple
         env:
           NOTARY_PROFILE: ostler-ci
+          # check-orphans shells out to `gh`. Without this its PR lookups run
+          # unauthenticated and FAIL, and a failed lookup is treated as "no PR
+          # exists", which is a RED naming a branch for a missing credential.
+          # That happened on v1.0.22 (run 31478119136).
+          #
+          # This alone was not sufficient: the script also did
+          # `GH_TOKEN="$tok" gh ...` with an empty $tok, which OVERWROTE this
+          # with the empty string. Fixed alongside, in gh_as().
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          #
+          # The five sibling repos CANNOT be checked from here, and saying so
+          # is the honest option rather than the convenient one.
+          #
+          # Their default paths are $HOME/Developer and $HOME/Documents/
+          # Projects -- the operator's Mac. On a hosted runner $HOME is
+          # /Users/runner, so all five are absent BY CONSTRUCTION and the gate
+          # could never have passed in CI on any tag.
+          #
+          # Cloning them here would not help either: a repo-scoped
+          # GITHUB_TOKEN cannot read a sibling repo even under the same owner,
+          # and the daemon is in a different org entirely. Making CI able to
+          # see them needs a cross-repo PAT, which is a credential decision for
+          # Andy and not something to provision inside a cut.
+          #
+          # So this declares the boundary instead of faking coverage. The gate
+          # prints "NOT CHECKED IN THIS ENVIRONMENT" and downgrades its verdict
+          # to "GREEN, PARTIAL". The sibling repos are covered by the OPERATOR
+          # run of scripts/verify_no_orphaned_fixes.sh on the build machine,
+          # where all three gh accounts resolve -- run it before tagging.
+          OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          # Lets the gate flag deferrals whose until_cut has already passed.
+          OSTLER_CUT_VERSION: ${{ github.ref_name }}
         run: make -C gui ship
 
       - name: Verify the artefact, not the build log
