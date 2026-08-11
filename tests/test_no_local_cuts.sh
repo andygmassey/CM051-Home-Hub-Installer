@@ -42,10 +42,29 @@ else fail "make ship SUCCEEDED outside CI -- local cutting is still possible"; f
 # 2. It must say why, not just die. A refusal nobody understands gets patched out.
 if printf '%s' "$out" | grep -q 'v1018-D027'; then
 	pass "refusal cites the ledger ID"
-else fail "refusal does not cite v1018-D027 -- operator cannot trace it"; fi
+else fail "refusal does not cite v1018-D027 -- operator cannot trace it"; text_missing=1; fi
 if printf '%s' "$out" | grep -qi 'git tag'; then
 	pass "refusal tells the operator how to cut properly"
-else fail "refusal gives no route forward -- invites working around it"; fi
+else fail "refusal gives no route forward -- invites working around it"; text_missing=1; fi
+
+# SHOW WHAT WE ACTUALLY SAW. Added 2026-08-11 after this test failed in CI and
+# was undiagnosable, because it reported that a string was ABSENT and never said
+# what was present instead.
+#
+# I guessed the cause twice from that absence -- a ledger precondition, then an
+# early make death -- and was wrong twice. The second guess rested on the guard
+# exiting 1 while CI showed 2; measured, the guard exits 2 on macOS as well, so
+# there was no difference to reason from and the inference was void.
+#
+# A test that fails without showing its evidence does not merely withhold help,
+# it invites speculation, and speculation published as a finding is how a wrong
+# cause gets inherited. Unconditional, cheap, and it turns the next failure from
+# a guessing game into a reading task.
+if [ "${text_missing:-0}" -eq 1 ]; then
+	echo "        --- captured output of 'make ship' (rc=$rc), verbatim ---"
+	printf '%s\n' "$out" | sed 's/^/        | /'
+	echo "        --- end captured output ---"
+fi
 
 # 3. Direct entry points must also refuse (defence in depth).
 # Archie found four more reachable signing targets after my first pass; I then
@@ -78,7 +97,7 @@ emerg OSTLER_EMERGENCY_REASON=test OSTLER_SHIPPING_LEDGER=/nonexistent/ledger.ya
 
 # 5. Positive control: the emergency path must actually WORK when used properly,
 #    and must leave a record. A guard that can never be satisfied gets deleted.
-tmp_ledger="$(mktemp -t shipping_ledger)"
+tmp_ledger="$(mktemp "${TMPDIR:-/tmp}/shipping_ledger.XXXXXX")"
 if env -u CI -u GITHUB_ACTIONS \
        OSTLER_EMERGENCY_CUT=1 \
        OSTLER_EMERGENCY_REASON="gate self-test, not a real cut" \
