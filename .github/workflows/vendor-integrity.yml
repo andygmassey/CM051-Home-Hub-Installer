@@ -35,6 +35,7 @@ on:
       # TRIGGER; the run step above is what makes it CHECK. Both are needed,
       # and the pair is the point: the gate must fire on changes to itself.
       - 'tests/test_vendor_only_survives_sync.sh'
+      - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
@@ -124,6 +125,28 @@ jobs:
       # while and nobody saw it until the cut needed it (CM051 #565).
       - name: Vendor-only files survive a re-vendor (D024)
         run: bash tests/test_vendor_only_survives_sync.sh
+
+      # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
+      #
+      # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
+      # asks "does web_ui_copy exist?" and waves through `from web_ui_copy
+      # import WHATSAPP_PAIR_TITLE` when the module is there and the symbol is
+      # not. That is exactly the shape of a half-applied graft, and it is what
+      # the v1.0.24 WhatsApp panel nearly shipped: web_ui.py importing 15
+      # WHATSAPP_PAIR_* constants that were not in the vendored web_ui_copy.py.
+      #
+      # THE CHECK WAS CORRECT AND NOTHING RAN IT. It landed in #602 with no
+      # caller anywhere -- verified with a control, since a confident absence is
+      # usually a broken predicate: `test_vendor_only_survives_sync` was
+      # referenced in this file AND in cut.yml, `test_vendor_symbol_resolution`
+      # in neither. A guard that never fires protects nothing while reading as
+      # protection, which is the class it was written to catch.
+      #
+      # Run with `python3` and NOT under pytest: it is a script with a __main__
+      # guard, and pytest correctly collects nothing from it. Invoking it wrong
+      # reports "no tests ran", which is indistinguishable from a pass.
+      - name: Imported symbols resolve, not just modules (D024)
+        run: python3 tests/test_vendor_symbol_resolution.py
 
       - name: Browser-history vendor regression
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
