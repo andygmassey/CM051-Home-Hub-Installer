@@ -157,3 +157,39 @@ forever, which is not a gate.
 
 Recording the measurement rather than the assumption, because the version
 string looked authoritative and was wrong twice over.
+
+## Implementation sites, located 2026-08-13
+
+Both paths must write the record. Located so step 1 is a bounded edit rather than
+a hunt through 19,688 lines.
+
+**Fresh install: `_finalise_daemon_staging()`, install.sh ~line 14009.**
+Its own header states the invariant: "EVERY path that stages a daemon into
+`${ASSISTANT_APP_BUNDLE}` (DMG-bundled .app, DMG-bundled bare binary wrapped
+locally, or the curl recovery download) MUST funnel through this gate". That is
+the chokepoint, so one insertion covers all three fresh routes. Write the record
+in the success arm, after `_verify_daemon_signature` passes and alongside the
+existing quarantine strip, so an unverified bundle never gets a provenance
+record.
+
+**Upgrade / Sparkle: `_upg_stage_daemon()`, install.sh ~line 219.**
+Stages to `~/.ostler/OstlerAssistant.app.new` via ditto, then a later arm swaps
+it in. The record must be written on the SWAP, not the stage, or a failed
+upgrade leaves a record describing a daemon that never became live. Note this
+function deliberately returns non-zero with nothing moved on verify failure
+(20/21/22), and that property must not be disturbed.
+
+**The installer already knows the value it is failing to record.**
+`OSTLER_ASSISTANT_VERSION` is in scope at the staging gate and is already
+interpolated into the success message. What is missing is the commit and the
+durable write, not the knowledge.
+
+**A live lead worth following, not yet measured.** The run-source preflight
+comment inside `_finalise_daemon_staging` names `v0.4.34 / v0.4.1` as known
+`OSTLER_ASSISTANT_VERSION` pin-skew values, and warns that such a daemon passes
+`--version` but clap-REJECTS `run-source`, so "every ingest tick would silently
+no-op". The box reports exactly `0.4.1`. That may mean the Mini is carrying the
+precise skew this gate was written to catch, which would make it an ingest
+defect and not only a provenance one. I have NOT confirmed the daemon rejects
+`run-source` on that box, so this is a lead, not a finding. Confirm before
+acting on it.
