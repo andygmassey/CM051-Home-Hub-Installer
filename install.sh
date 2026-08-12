@@ -8037,12 +8037,56 @@ TOMLPREAMBLE
         echo "[channels.whatsapp]"
         echo "enabled = true"
         echo "mode = \"personal\""
+        # BACKEND SELECTOR. `enabled = true` on its own is INERT: the daemon
+        # picks its WhatsApp backend by which credentials are present, and with
+        # neither `session_path` (Web / wa-rs) nor phone_number_id + access_token
+        # + verify_token (Cloud API) it logs
+        #
+        #     WhatsApp channel enabled but not configured (set `session_path`
+        #     for Web pair-code mode, or phone_number_id + access_token +
+        #     verify_token for Cloud API)
+        #
+        # and never registers in the cron-delivery registry. Every customer
+        # install since this block landed has written `enabled = true` with no
+        # selector, so the consent ceremony recorded a yes and the channel was
+        # never reachable. Found 2026-08-12 on the gate box by putting
+        # session_path into the config by hand and restarting the daemon.
+        #
+        # SQLite file, not a directory: wa-rs opens it through RusqliteStore and
+        # writes `-wal` / `-shm` siblings alongside. Engine zone, not the
+        # customer's data/ tree, and NOT under Caches, which the OS purges. The
+        # dir is created here rather than relying on the later `mkdir -p
+        # "${OSTLER_DIR}/state"` around line 11200, so this block does not carry
+        # a silent ordering dependency on a line 3000 lines further down.
+        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
+        _wa_session_path_esc="${OSTLER_DIR}/state/whatsapp-session.db"
+        _wa_session_path_esc="${_wa_session_path_esc//\"/\\\"}"
+        echo "session_path = \"${_wa_session_path_esc}\""
+        unset _wa_session_path_esc
         if [[ -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
             # Escape any embedded double quotes (paranoia: E.164
             # validation rejects them already, but the TOML emit
             # path stays safe regardless).
             _wa_recipient_esc="${CHANNEL_WHATSAPP_RECIPIENT//\"/\\\"}"
             echo "allowed_numbers = [\"${_wa_recipient_esc}\"]"
+
+            # pair_phone selects pair-CODE linking over QR. Without it wa-rs
+            # falls back to a QR code, and a QR printed to daemon stderr on a
+            # headless Hub is not a surface a customer can use.
+            #
+            # DIGITS ONLY, and this is not cosmetic. `allowed_numbers` is E.164
+            # and keeps its leading `+`; `pair_phone` is documented as
+            # "country code + number (e.g. 15551234567)" and is handed to
+            # wa-rs VERBATIM as PairCodeOptions.phone_number
+            # (whatsapp_web.rs:1529, `phone.clone()`). Only the internal
+            # bot_phone identity is digit-filtered, so a stored `+` reaches
+            # Meta unchanged. Reusing the E.164 value here would be a silent
+            # pairing failure whose only symptom is a code that never arrives.
+            _wa_pair_phone="${CHANNEL_WHATSAPP_RECIPIENT//[^0-9]/}"
+            if [[ -n "$_wa_pair_phone" ]]; then
+                echo "pair_phone = \"${_wa_pair_phone}\""
+            fi
+            unset _wa_pair_phone
         fi
     fi
 
