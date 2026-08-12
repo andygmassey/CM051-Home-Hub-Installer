@@ -1,18 +1,22 @@
-"""Kinship words are RELATIONSHIPS, not names -- and never the user's own.
+"""Kinship words are RELATIONSHIPS, not names -- and never the account owner's.
 
-WHY (Andy, 2026-08-08)
-======================
-The name election picked "Alison Massey" as canonical and demoted "Mum" to
-pwg:alternateName. Andy:
+WHY
+===
+Worked example. The people are invented; the failure is not.
 
-    "'Mum' for Alison is NOT - she is my WIFE and Connor's MUM, but not MY MUM
-     (who was Sylvia Massey)."
+Rowan Quillon's address book has a card for his wife Marta. He filed it years
+ago from their son Teo's point of view, so the card is titled "Mum". The name
+election picks "Marta Quillon" as canonical and demotes "Mum" to
+pwg:alternateName.
 
-That is not a cosmetic error. An alternateName is offered to the assistant as
-"another name this person goes by", so with "Mum" on Alison's card Ava can
-answer "your mum is Alison Massey". Andy's mother was Sylvia Massey, and she
-has died. Getting that wrong out loud, from a contact card he filed for his
-son's benefit, is the single worst thing this graph can say to him.
+An alternateName is offered to the assistant as "another name this person goes
+by". So with "Mum" sitting on Marta's card, the assistant will answer "your mum
+is Marta Quillon". Rowan's mother is Beatriz, and she has died.
+
+That is not a cosmetic error. A card the owner filed for his son's benefit
+turns into the assistant confidently naming the wrong person, in the one
+relationship where being wrong out loud is unbearable. Every rule below exists
+for that one sentence.
 
 THE RULE
 ========
@@ -29,8 +33,9 @@ So kinship labels:
     the holder is unknown unless something states it -- so v1 drops them
     rather than guessing whose mum she is.
 
-Dropping loses nothing the customer can see: Alison still renders as "Alison
-Massey", and "Mum" was only ever going to make the assistant confidently wrong.
+Dropping loses nothing the customer can see: Marta still renders as "Marta
+Quillon", and "Mum" was only ever going to make the assistant confidently
+wrong.
 
 Not English-only: the word list is locale data
 (OSTLER_KINSHIP_WORDS_FILE), same pattern as given_name_variants. A locale
@@ -108,5 +113,5 @@ def explain(name: str) -> str:
         f"{name!r} is a relationship, not a name: it says how SOMEBODY refers "
         "to this person, and on a shared address book that somebody is usually "
         "not the account owner. Storing it as a name lets the assistant answer "
-        "'your mum is <wife>'."
+        "'your mum is' followed by the wrong person entirely."
     )

@@ -125,6 +125,89 @@ echo "syncing $TREE from $repo @ ${TO_SHA:0:12} ..."
 # Materialise the NEW source.
 tmp="$(mktemp -d)"
 # Temporarily pin to the target sha for the materialise helper.
+# ---------------------------------------------------------------------------
+# REFUSE TO SYNC A TREE THAT IS NOT RECONSTRUCTIBLE.
+#
+# The swap replaces vendor/<tree> with source@TO_SHA + the divergence patch.
+# Anything in the vendored tree that the patch does NOT describe is therefore
+# DELETED, silently, and step 4 then regenerates the patch from the lossy
+# result -- so the freshness gate goes green over the deletion.
+#
+# This is NOT the "patch failed to apply" case below. That one already refuses.
+# Here the patch applies perfectly; it is simply INCOMPLETE.
+#
+# MEASURED 2026-08-12 on ostler_fda. The vendored pwg_ingest.py carried 273
+# lines over upstream while the checked-in patch described about 64 of them.
+# `sync_vendor.sh ostler_fda --to-sha ab63b7be` returned rc=0, printed a clean
+# summary, and deleted 230 lines -- every one of them vendor-only, verified
+# against upstream with a control:
+#
+#     _KINSHIP_DEFAULT / _kinship_words / _is_relationship_label   v1018-D659,
+#         "a kinship word must never be a name"
+#     _NAME_TIER_* / _display_name_tier / _upsert_display_name     the
+#         display-name tier ladder (phone < email < human name)
+#
+# Two tracked launch fixes, removed from a shipped ingest module by a command
+# that reported success. verify_vendor_fresh.sh DOES flag the precondition
+# ("vendored tree DIFFERS from source@pinned_sha+patch") -- and then prints
+# "-> graft them: scripts/sync_vendor.sh <tree>", which is this command. The
+# gate's own remedy was the thing that destroyed the code.
+#
+# So the order has to be capture-then-sync, and the tool has to enforce it
+# rather than document it: --regen-patch first (which captures the undescribed
+# divergence at the CURRENT pin), then sync. Proven on ostler_fda: after
+# --regen-patch the patch went 283 -> 557 lines and all six symbols survived
+# the same sync that had deleted them.
+#
+# Checked BEFORE the pin is bumped, so vlib_materialise reads the OLD pin.
+if [ "${SYNC_ACCEPT_DIVERGENCE_LOSS:-0}" != "1" ]; then
+    _pf_tmp="$(mktemp -d)"
+    _pf_rc=0
+    vlib_materialise "$TREE" "$_pf_tmp" >/dev/null 2>&1 || _pf_rc=$?
+    if [ "$_pf_rc" = "0" ]; then
+        vlib_apply_patch "$TREE" "$_pf_tmp" >/dev/null 2>&1 || _pf_rc=$?
+    fi
+    if [ "$_pf_rc" != "0" ]; then
+        # Cannot build the comparison. That is CANNOT-RUN, never a pass: a
+        # missing oracle must not read as "nothing would be lost".
+        echo "REFUSING TO SYNC $TREE: could not reconstruct source@pinned_sha+patch (rc=$_pf_rc)." >&2
+        echo "  Without that tree there is no way to know what the swap would delete." >&2
+        echo "  Fix the pin or the patch first, or re-run with SYNC_ACCEPT_DIVERGENCE_LOSS=1" >&2
+        echo "  if you have checked by hand that nothing is lost." >&2
+        rm -rf "$_pf_tmp"
+        exit 1
+    fi
+    _pf_diff="$(mktemp)"
+    if ! vlib_shared_diff "$_pf_tmp" "$abs_vendor" "$_pf_diff"; then
+        _pf_files="$(grep -c '^--- a/' "$_pf_diff" || true)"
+        cat >&2 <<REFUSE
+REFUSING TO SYNC $TREE.
+
+The vendored tree contains content that vendor/divergences is NOT describing,
+in ${_pf_files} file(s). The swap rebuilds the tree from source + that patch, so
+every undescribed line would be DELETED -- and the patch would then be
+regenerated from the result, making the gate green over the loss.
+
+Undescribed divergence, by file:
+$(grep '^--- a/' "$_pf_diff" | sed 's|^--- a/|    |')
+
+DO THIS FIRST, then re-run the sync:
+
+    scripts/sync_vendor.sh $TREE --regen-patch
+
+That captures the current divergence at the CURRENT pin, which makes the tree
+reconstructible; the sync afterwards preserves it instead of deleting it.
+
+Do NOT reach for SYNC_ACCEPT_DIVERGENCE_LOSS=1 to make this go away. On
+ostler_fda the undescribed lines were the kinship-word guard (v1018-D659) and
+the display-name tier ladder, both shipped, both tracked launch fixes.
+REFUSE
+        rm -rf "$_pf_tmp" "$_pf_diff"
+        exit 1
+    fi
+    rm -rf "$_pf_tmp" "$_pf_diff"
+fi
+
 _orig_pin="$(vlib_field "$TREE" pinned_sha)"
 set_manifest_field "$TREE" pinned_sha "$TO_SHA"
 

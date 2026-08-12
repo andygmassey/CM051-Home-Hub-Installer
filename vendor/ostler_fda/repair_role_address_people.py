@@ -43,7 +43,7 @@ satisfy ALL of:
 
   * is a pwg:Person
   * its pwg:email is a role/bulk address (pwg_ingest.is_role_identifier)
-  * has ZERO pwg:hasIdentifier -- a real merged person has many (Alison has 12)
+  * has ZERO pwg:hasIdentifier -- a real merged person has many (Anthony has 12)
   * NOTHING in the graph references it as an object
 
 The last two are what keep a real person safe. A node with identifiers, or one
