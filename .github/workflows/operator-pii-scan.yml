@@ -78,6 +78,30 @@ jobs:
         if: ${{ steps.stage.outputs.count == '0' }}
         run: echo "No tracked files changed in this PR; scan skipped."
 
+      # The check that CAN run here. Runs FIRST and unconditionally, because it
+      # needs no inventory: it matches PII by SHAPE, and it carries its own
+      # canary so it refuses to report clean when its detector loaded nothing.
+      # This is the step that actually gates the PR.
+      - name: Run ci-pii-shape-scan
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          SHAPE=".github/scripts/ci-pii-shape-scan.sh"
+          if [ ! -x "$SHAPE" ]; then
+              echo "::error::Shape scan not found at $SHAPE."
+              echo "Run bin/install-pii-guards.sh from the HR015 - Gaming PC repo to provision it."
+              exit 1
+          fi
+          set +e
+          "$SHAPE"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+              echo "::error::ci-pii-shape-scan failed (exit $status). See output above." >&2
+              exit "$status"
+          fi
+
       - name: Run operator-pii-scan
         if: ${{ steps.stage.outputs.count != '0' }}
         run: |
@@ -101,8 +125,23 @@ jobs:
           "$SCANNER" "${{ steps.stage.outputs.stage_dir }}"
           status=$?
           set -e
+          # Exit 2 is NOT a PR failure and NOT a pass. It means this denylist
+          # could not run, which in CI is the DESIGNED state: the inventory is
+          # Andy's real PII, so it cannot be committed, and the fallback at
+          # .github/operator-pii-inventory.toml is a blank template (every
+          # scalar empty, every array empty). Reporting that as a PII hit is a
+          # false accusation on every pull request, and a red that means
+          # nothing is one people learn to route around.
+          # The shape scan above is what gates the PR, and it always runs.
+          if [ "$status" -eq 2 ]; then
+              echo "operator-pii-scan: NOT RUN (exit 2, no usable inventory in CI)."
+              echo "  This is expected without the OPERATOR_PII_INVENTORY secret."
+              echo "  It is NOT a clean result: this denylist examined nothing."
+              echo "  PR gating is done by ci-pii-shape-scan, which ran above."
+              exit 0
+          fi
           if [ "$status" -ne 0 ]; then
               echo "::error::operator-pii-scan failed (exit $status). See output above." >&2
               exit "$status"
           fi
-          echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned)"
+          echo "operator-pii-scan: clean (${{ steps.stage.outputs.count }} files scanned against a real inventory)"
