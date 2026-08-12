@@ -75,7 +75,7 @@ gen_patch() {
     local srcdir="$1" out="$2"
     local d
     d="$(mktemp)"
-    if vlib_shared_diff "$srcdir" "$abs_vendor" "$d"; then
+    if vlib_vendor_diff "$TREE" "$srcdir" "$abs_vendor" "$d"; then
         # identical -> no patch needed
         rm -f "$d"
         [ -f "$out" ] && rm -f "$out" && echo "  no divergence: removed stale patch ${out#"$VLIB_REPO_ROOT"/}"
@@ -84,7 +84,10 @@ gen_patch() {
     if [ -s "$d" ]; then
         mkdir -p "$(dirname "$out")"
         mv "$d" "$out"
-        echo "  wrote divergence patch: ${out#"$VLIB_REPO_ROOT"/} ($(grep -cE '^--- ' "$out") shared file(s) diverge)"
+        _gp_new="$(grep -cE '^--- /dev/null$' "$out" || true)"
+        _gp_all="$(grep -cE '^--- ' "$out" || true)"
+        _gp_mod=$(( ${_gp_all:-0} - ${_gp_new:-0} ))
+        echo "  wrote divergence patch: ${out#"$VLIB_REPO_ROOT"/} (${_gp_mod} modified, ${_gp_new:-0} vendor-only new file(s))"
         return 0
     fi
     rm -f "$d"
@@ -336,6 +339,10 @@ _vo_is_excluded() {   # $1 = path relative to the vendored tree
 
 _vo_unregistered=""
 _vo_preserve=""
+_vo_via_patch=""
+# Paths the CURRENT patch creates. Read before the swap, because the swap is
+# what would lose them.
+_vo_patch_new="$(vlib_patch_new_files "$TREE")"
 while IFS= read -r _f; do
     [ -n "$_f" ] || continue
     [ -e "$tmp/$_f" ] && continue                       # upstream has it -- not vendor-only
@@ -344,6 +351,16 @@ while IFS= read -r _f; do
     _vo_preserve="${_vo_preserve}${_f}
 "
     _vo_is_excluded "$_f" && continue                   # the exclude glob is the decision
+    # A file the divergence patch CREATES already has a durable home: the swap
+    # deletes it, and source@pinned_sha + patch puts it back byte-for-byte. It
+    # does not need a VENDOR_ONLY row, and forcing one would be a false
+    # declaration -- that registry means "no upstream counterpart", and a file
+    # grafted ahead of a held pin has one, just not at the pin.
+    if printf '%s\n' "$_vo_patch_new" | grep -qxF "$_f"; then
+        _vo_via_patch="${_vo_via_patch}${_f}
+"
+        continue
+    fi
     _vo_rel_from_vendor="${abs_vendor#"$_vo_root"/}/$_f"
     if [ -f "$_vendor_only_tsv" ] && grep -qF "$_vo_rel_from_vendor" "$_vendor_only_tsv"; then
         continue
@@ -363,6 +380,11 @@ if [ -n "$_vo_preserve" ]; then
         echo "  note: the swap drops ${_vo_drop_n} file(s) absent from source@${TO_SHA} (excluded paths, or restored below if registered):"
         printf '%s' "$_vo_preserve" | sed 's/^/          /'
     fi
+fi
+
+if [ -n "$_vo_via_patch" ]; then
+    echo "  note: $(printf '%s' "$_vo_via_patch" | grep -c . || true) vendor-only file(s) are carried by the divergence patch and will be reconstructed by source@sha + patch:"
+    printf '%s' "$_vo_via_patch" | sed 's/^/          /'
 fi
 
 if [ -n "$_vo_unregistered" ]; then
