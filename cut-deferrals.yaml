@@ -33,6 +33,50 @@
 
 deferrals:
   # -------------------------------------------------------------------------
+  # v1.0.24, recorded 2026-08-13. check-orphans went RED on ONE ref, and it
+  # was right to: #606 is open, so its work is not in the shipping tree.
+  #
+  # This is a deferral, not a bypass. The gate offers exactly two answers --
+  # merge it, or record a reason here -- and merging it is not available
+  # tonight for a reason that is itself worth writing down.
+  # -------------------------------------------------------------------------
+  - ref: "CM051:#606"
+    reason: >-
+      CI tooling only. #606 adds the pbxproj-sync workflow, its self-test and
+      an xcodegen version pin. It changes NO shipped behaviour: it touches no
+      installer code, no vendored payload, no project spec and not the pbxproj
+      itself. Deferring it cannot alter a single byte of the DMG.
+
+      It is not merged because its own gate is red, and the reason took three
+      cut runs to see. The gate compares the tracked pbxproj byte-for-byte
+      against `xcodegen generate`, and xcodegen has TWO inputs: the pinned
+      generator AND the installed Xcode, which supplies the default build
+      settings (settingPresets). Only the generator was pinned. Measured
+      2026-08-13, same commit, same xcodegen 2.44.1:
+
+        build host  Xcode 26.6 (17F113)  emits COMBINE_HIDPI_IMAGES,
+                                         LD_RUNPATH_SEARCH_PATHS, SDKROOT,
+                                         ASSETCATALOG_COMPILER_APPICON_NAME
+        macos-14    Xcode 15.4 (15F31d)  omits all four
+
+      The tracked pbxproj carries the first set, so the hosted runner called a
+      perfectly in-sync project STALE. The diff contained no target, no file
+      and no bundle copy -- only injected build settings, which is a toolchain
+      signature, not drift. THE PROJECT IS NOT STALE and the v1.0.24 payload
+      is unaffected.
+
+      Fix pushed to the branch (gui/.xcode-version + mismatch is now exit 2
+      UNAVAILABLE, never exit 1 STALE, matching the version-pin doctrine, with
+      two controls asserting rc==2 and rejecting rc==1). What remains is a
+      DESIGN decision on TNM's own PR, not a bug: with the pin correct the
+      hosted runner now honestly reports "cannot run here", so the byte-exact
+      comparison either needs the workflow to select the pinned Xcode, or it
+      becomes an operator pre-tag check with a recorded receipt -- the same
+      shape as scripts/verify_cut_freshness.sh. Holding a launch DMG behind
+      that decision would be the tail wagging the dog.
+    until_cut: "v1.0.25"
+
+  # -------------------------------------------------------------------------
   # v1.0.18, recorded 2026-08-08 after check-orphans went RED on 11 refs.
   #
   # Six of the eleven were STALE LOCAL BRANCHES whose content had already
