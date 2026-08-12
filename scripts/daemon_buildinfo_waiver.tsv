@@ -1,0 +1,3 @@
+# tag	reason
+# Rows here ship an install with NO provenance record. Loud on purpose.
+# A row needs a tag AND a non-empty reason; an empty reason is refused.
