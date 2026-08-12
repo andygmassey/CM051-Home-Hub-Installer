@@ -307,13 +307,54 @@ vlib_vendor_diff() {
     # content on every materialise and quietly fight the exclude.
     local _ex
     _ex="$(vlib_excludes "$tree" 2>/dev/null || true)"
+    # MUST agree with how vlib_materialise strips excludes, because the two
+    # are the halves of one decision. The materialiser uses `find -name
+    # "<glob>"`, which matches a BASENAME at ANY depth. This predicate has to
+    # answer the same question or the pair disagrees.
+    #
+    # It used to disagree, for exactly one class of glob. The old patterns
+    # quoted the glob inside the any-depth alternative:
+    #
+    #     case "$_p" in $_g|*"/$_g") return 0 ;; esac
+    #                       ^^^^^^ quoted, so * and ? are LITERAL here
+    #
+    # In a `case` pattern a quoted expansion matches literally, so `*"/$_g"`
+    # with _g="test_*.py" is the pattern `*/test_*.py` where that inner `*` is
+    # an asterisk CHARACTER. No real path ever matches it. The bare `$_g`
+    # alternative is unquoted and does glob, but only against the whole
+    # relative path, so it only ever matched at the tree root.
+    #
+    # Net effect, and it is a nasty one because it is silent: a LITERAL exclude
+    # (README.md, tests/) worked at any depth, while a WILDCARD exclude
+    # (test_*.py, *.egg-info/) worked only at the top level. The materialiser
+    # stripped agent/test_*.py from the source tree; this predicate did not
+    # recognise them as excluded; so they looked VENDOR-ONLY and were emitted as
+    # /dev/null new-file hunks for files that exist perfectly well at the pin.
+    # `git apply` then aborts the WHOLE patch with "already exists in working
+    # directory" and the tree reconstructs nothing at all.
+    #
+    # That is the mirror of the bug the new-file support fixed: that one dropped
+    # creations, this one manufactured them out of modifications. Both end with
+    # a divergence patch that cannot rebuild the tree it describes.
     _vd_excluded() {
-        local _p="$1" _g
+        local _p="$1" _g _base
+        _base="${_p##*/}"
         while IFS= read -r _g; do
             [ -n "$_g" ] || continue
             case "$_g" in
-                */) case "$_p" in "${_g}"*|*"/${_g}"*) return 0 ;; esac ;;
-                *)  case "$_p" in $_g|*"/$_g") return 0 ;; esac ;;
+                */)
+                    # Directory glob: at the tree root, or nested at any depth.
+                    # Unquoted so a wildcard dir glob (*.egg-info/) still globs.
+                    _g="${_g%/}"
+                    case "$_p" in $_g/*|*/$_g/*) return 0 ;; esac
+                    ;;
+                *)
+                    # File glob: the whole relative path, or the basename at any
+                    # depth. The basename arm is the one that mirrors `find
+                    # -name` and the one that was missing.
+                    case "$_p" in $_g) return 0 ;; esac
+                    case "$_base" in $_g) return 0 ;; esac
+                    ;;
             esac
         done <<< "$_ex"
         return 1
