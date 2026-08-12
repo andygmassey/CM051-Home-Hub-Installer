@@ -269,10 +269,11 @@
  
  # ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
  # The Memory tab is the customer's window into what Ostler has inferred
-@@ -537,6 +576,29 @@
+@@ -536,6 +575,29 @@
+ # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
- 
++
 +# ── Recording state endpoint (CM042 → CM031 Live Activity) ───────────
 +# Source of truth for the iOS Companion's Recording Live Activity. The
 +# CM042 producer writes ~/.ostler/recording_state.json atomically
@@ -295,10 +296,9 @@
 +    "recording", "processing", "transcript_saved", "error",
 +})
 +RECORDING_VALID_CONSENT = frozenset({"one_party", "all_party"})
-+
+ 
  try:
      from zoneinfo import ZoneInfo
-     _LOCAL_TZ = ZoneInfo(TIMEZONE)
 @@ -1186,7 +1248,21 @@
  
  
@@ -306,7 +306,7 @@
 +
 +def _invoke_pwg_convo(args, timeout=900):
 +    """Invoke the pwg-convo CLI (CM048) as a subprocess.
-+
+ 
 +    Centralises the subprocess pattern so every caller within this
 +    process uses the same binary discovery + timeout + capture rules.
 +    Returns subprocess.CompletedProcess. Raises FileNotFoundError if
@@ -316,7 +316,7 @@
 +        [PWG_CONVO_BIN, *args],
 +        capture_output=True, text=True, timeout=timeout,
 +    )
- 
++
 +
  def _conversation_process_background(conversation_id, transcript, metadata):
      """Run CM048 processing in a background thread.
@@ -459,13 +459,13 @@
 +        import subscription_gate  # type: ignore[import-not-found]
 +    except ImportError as exc:
 +        return {"error": f"subscription_gate unavailable: {exc}"}, 500
-+
+ 
 +    if not isinstance(payload, dict):
 +        return {"error": "body must be a JSON object"}, 400
  
 +    receipt_b64 = payload.get("receipt_b64")
 +    expires_at = payload.get("expires_at")
- 
++
 +    if not isinstance(receipt_b64, str) or not receipt_b64.strip():
 +        return {"error": "receipt_b64 must be a non-empty string"}, 400
 +
@@ -705,36 +705,7 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -5873,6 +6217,28 @@
-     if comp is None:
-         ai["state"] = "pending"            # compiler has not started yet
-     elif comp.get("complete"):
-+        # v1018-D007: a DONE phase must carry its numbers.
-+        #
-+        # This branch used to set the state and return without touching the
-+        # counters, so `done`/`total` kept the 0/0 the initialiser above gave
-+        # them. A phase that had summarised everything therefore reported
-+        # "done, 0 of 0" -- structurally incapable of saying otherwise, on
-+        # every completed run, for every customer.
-+        #
-+        # Measured on the founder box 2026-08-11: the endpoint returned
-+        # `{state: "done", done: 0, total: 0}` while the status file it had
-+        # just read held `stage_done: 80, stage_total: 80`, and 333
-+        # summary-bearing pages sat on disk. `overall_state` was "complete",
-+        # so the customer was told the work had finished AND shown a zero.
-+        #
-+        # `count` rather than only done/total because that is the shape the
-+        # other terminal phases use (contacts, graph) and what a reader of a
-+        # finished phase actually wants: how many, not a ratio that is now
-+        # always N of N.
-+        done = int(comp.get("stage_done", 0) or 0)
-+        total = int(comp.get("stage_total", 0) or 0)
-+        ai["done"], ai["total"] = done, total
-+        ai["count"] = done
-         ai["state"] = "done"
-     else:
-         done = int(comp.get("stage_done", 0) or 0)
-@@ -6485,7 +6851,11 @@
+@@ -6507,7 +6851,11 @@
              try:
                  result = api_timeline(days=days, past_days=past_days, limit=limit)
              except Exception as exc:
@@ -747,7 +718,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -6827,6 +7197,31 @@
+@@ -6849,6 +7197,31 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -779,18 +750,10 @@
          # Conversation processing status (CM048)
          # Per-slug person enrichment for the iOS / Hub person card.
          # GET /api/v1/people/{slug}/enrichment
-@@ -7060,6 +7455,22 @@
-             self.wfile.write(json.dumps(result, indent=2).encode())
-             return
- 
-+        if parsed.path == "/api/v1/subscription/receipt":
-+            # G1 (2026-05-27): iOS Companion pushes a fresh StoreKit
-+            # receipt after every transaction success / restore + on
-+            # every app foreground. The Hub's subscription_gate (G0,
-+            # PR #190) persists the state for ongoing-intelligence
-+            # pipelines to consult via is_active_or_grace().
-+            try:
-+                result, status = api_subscription_receipt(payload)
+@@ -7074,6 +7447,22 @@
+         if parsed.path == "/api/v1/ingest/ios":
+             try:
+                 result, status = api_ingest_ios(payload)
 +            except Exception as exc:
 +                result, status = {"error": str(exc)}, 500
 +            self.send_response(status)
@@ -799,6 +762,14 @@
 +            self.wfile.write(json.dumps(result, indent=2).encode())
 +            return
 +
-         # User-asserted fact: POST /api/v1/memory/assert. Banks a fact the
-         # user stated in chat ("Jane is my wife") as an authoritative,
-         # user_asserted PersonFact in Oxigraph. Body shape:
++        if parsed.path == "/api/v1/subscription/receipt":
++            # G1 (2026-05-27): iOS Companion pushes a fresh StoreKit
++            # receipt after every transaction success / restore + on
++            # every app foreground. The Hub's subscription_gate (G0,
++            # PR #190) persists the state for ongoing-intelligence
++            # pipelines to consult via is_active_or_grace().
++            try:
++                result, status = api_subscription_receipt(payload)
+             except Exception as exc:
+                 result, status = {"error": str(exc)}, 500
+             self.send_response(status)
