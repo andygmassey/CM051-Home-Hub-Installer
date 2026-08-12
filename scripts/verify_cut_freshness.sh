@@ -99,6 +99,10 @@ GUI_MAKEFILE="${GUI_MAKEFILE_OVERRIDE:-$REPO_ROOT/gui/Makefile}"
 CM044_BRANCH="${CM044_BRANCH:-main}"
 WIKI_PROVENANCE_FILE="${WIKI_PROVENANCE_FILE:-$SCRIPT_DIR/wiki_image_provenance.tsv}"
 WIKI_HOLD_ACK_FILE="${WIKI_HOLD_ACK_FILE:-$SCRIPT_DIR/wiki_hold_ack.tsv}"
+# Daemon recency: the branch the daemon's own repo tracks, and the ledger that
+# lets a pin sit behind it deliberately. Same contract as the wiki hold_ack.
+OA_BRANCH="${OA_BRANCH:-main}"
+DAEMON_HOLD_ACK_FILE="${DAEMON_HOLD_ACK_FILE:-$SCRIPT_DIR/daemon_hold_ack.tsv}"
 FRESHNESS_ONLY="${FRESHNESS_ONLY:-}"
 GH_API_TIMEOUT="${GH_API_TIMEOUT:-25}"
 GH_BIN="${FRESHNESS_GH_BIN:-gh}"
@@ -483,9 +487,131 @@ EOF
 done < <(vlib_tree_names)
 
 # ===========================================================================
-# 2. DAEMON  (install.sh / gui/Makefile pin -> tag -> vs integration HEAD)
-#    Not a vendor tree: no hold_ack / exemption -- a stale daemon is always RED.
+# 2. DAEMON  (install.sh / gui/Makefile pin -> tag -> release bytes -> source
+#    commit -> vs live ostler-ai/ostler-assistant HEAD)
+#    Not a vendor tree, so there is no verify_exempt. There IS a hold_ack, in
+#    scripts/daemon_hold_ack.tsv, on the recency link only: the four
+#    provenance links are never waivable, because a broken chain means the
+#    installer downloads bytes nobody can account for.
 # ===========================================================================
+
+# ---------------------------------------------------------------------------
+# DAEMON RECENCY -- the fifth link.
+#
+# Links 1-4 bind the pin to the exact bytes a customer downloads, and bind
+# those bytes back to a source commit. They say nothing about whether that
+# commit is CURRENT. A daemon can be perfectly coherent -- valid tag, published
+# non-draft release, sidecar matching gui/Makefile, build-info matching the tag
+# -- and still sit far behind oa main with a launch-blocking fix in the gap.
+#
+# Measured 2026-08-12 on CM051 main 89ae51c: pin hub-v0.4.54 @ 782a6195 scored
+# "FRESH tag+sha256+build-info" while ostler-ai/ostler-assistant main HEAD was
+# 10b003a0 -- the WhatsApp merge -- 29 commits ahead. WhatsApp was merged and
+# reached nobody, and this gate was green on the daemon that omitted it. The
+# file header has promised this check since the gate was written ("proves
+# NOTHING has silently fallen behind live upstream HEAD -- including the daemon
+# + wiki-image inputs"); the body stopped honouring it for the daemon at
+# v1.0.16. A header is a claim about a gate, never the gate.
+#
+# Why it went missing, and why THIS form does not rot the same way: the old
+# check compared the pin against $DAEMON_INTEGRATION_BRANCH -- a hand-maintained
+# branch NAME. When that branch was abandoned the comparison read "diverged,
+# ahead 3, behind 123" on a healthy daemon, so it was removed rather than
+# re-anchored to something durable. This one compares against the daemon repo's
+# own tracked branch HEAD, which cannot be abandoned without abandoning the
+# product, and it gives a deliberate hold the same auditable, must-acknowledge
+# escape that vendor trees and wiki images already have. A hold is a loud
+# decision with a name on it, not a silent WARN.
+# ---------------------------------------------------------------------------
+check_daemon_recency() { # pin  daemon_commit
+    local pin="$1" commit="$2"
+    local oa_head verdict base rc
+    local hold_shas="" hold_grafted="" hold_reason="" rp="" unacked="" s ln
+
+    oa_head="$(gh_head ostler-ai ostler-ai/ostler-assistant "$OA_BRANCH")"
+    verdict="$(freshness_verdict ostler-ai ostler-ai/ostler-assistant "$commit" "$oa_head")"
+    base="${verdict%%:*}"
+
+    if [ "$base" = FRESH ]; then
+        n_fresh=$((n_fresh+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${commit:0:8}" "FRESH tag+sha256+build-info+recency"
+        return
+    fi
+    if [ "$base" != STALE ] && [ "$base" != DIVERGED ]; then
+        # UNREACH / UNRESOLVED. Never a false pass and never a false RED: the
+        # provenance chain already passed, so say exactly what is unasserted.
+        n_cannot=$((n_cannot+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "-" "CANNOT-VERIFY recency"
+        add_detail "daemon CANNOT-VERIFY recency (${verdict}): could not resolve ostler-ai/ostler-assistant ${OA_BRANCH} HEAD. The four provenance links PASSED; recency is unasserted, not green."
+        return
+    fi
+
+    # Behind live HEAD. Consult the hold_ack ledger. A row matches only if its
+    # pinned_sha_prefix is a prefix of the daemon commit -- so a re-pin
+    # invalidates the ack and forces the decision to be made again.
+    if [ -f "$DAEMON_HOLD_ACK_FILE" ]; then
+        while IFS=$'\t' read -r rpin rshas rgraft rreason; do
+            case "$rpin" in ''|'#'*) continue ;; esac
+            case "$commit" in "$rpin"*) ;; *) continue ;; esac
+            rp="$rpin"
+            hold_shas="$rshas"
+            hold_grafted="$(printf '%s' "$rgraft" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+            hold_reason="$rreason"
+            break
+        done < "$DAEMON_HOLD_ACK_FILE"
+    fi
+
+    if [ -z "$hold_shas" ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED ${verdict}"
+        add_detail "daemon RED ${verdict} vs live ostler-ai/ostler-assistant ${OA_BRANCH}, NO hold_ack in $DAEMON_HOLD_ACK_FILE. The shipped daemon predates commits on the daemon's own main. Cut a new daemon release and re-pin, OR add a row (pinned_sha_prefix<TAB>delta_shas<TAB>true<TAB>reason) covering every delta commit."
+        return
+    fi
+    if [ -z "$hold_reason" ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED hold_ack no-reason"
+        add_detail "daemon RED: $DAEMON_HOLD_ACK_FILE row ($rp) has hold_ack_shas but an empty reason. Record WHY the daemon pin is held behind its own main."
+        return
+    fi
+    if [ "$hold_grafted" != true ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED hold_ack no-grafted-assert"
+        add_detail "daemon RED: $DAEMON_HOLD_ACK_FILE row ($rp) has hold_ack_shas + reason but shipping_bugfixes_grafted is not true. Assert that no held commit is a shipping bugfix, then set the column to true."
+        return
+    fi
+
+    api ostler-ai "repos/ostler-ai/ostler-assistant/compare/${commit}...${oa_head}" \
+        --jq '.commits[].sha'
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        n_cannot=$((n_cannot+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "CANNOT-VERIFY hold_ack (compare unreachable)"
+        return
+    fi
+    if [ "$rc" -eq 1 ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED compare-failed"
+        return
+    fi
+    while IFS= read -r ln; do
+        s="$(printf '%s' "$ln" | tr -d '[:space:]')"
+        [ -z "$s" ] && continue
+        if ! sha_in_list "$s" "$hold_shas"; then
+            unacked="$unacked $s"
+        fi
+    done <<< "$API_OUT"
+    if [ -n "$unacked" ]; then
+        n_stale=$((n_stale+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED hold_ack partial"
+        add_detail "daemon RED: delta commit(s) NOT in hold_ack_shas:$unacked"
+        add_detail "    classify each: cut a daemon release containing it (then re-pin + re-run), or add its SHA to hold_ack_shas with a reason."
+        return
+    fi
+    n_held=$((n_held+1))
+    add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "HELD hold_ack"
+    add_detail "daemon HELD: all delta commits acknowledged (reason: ${hold_reason})"
+}
+
 check_daemon() {
 sh_pin="$(grep -m1 -E '^OSTLER_ASSISTANT_VERSION=' "$INSTALL_SH" 2>/dev/null \
           | sed -E 's/.*:-([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._]+)?)\}.*/\1/')"
@@ -598,8 +724,10 @@ else
                 add_row "daemon (${daemon_pin})" "${daemon_commit:0:8}" "${bi_commit:0:8}" "RED built-from-other-commit"
                 add_detail "daemon RED: tag hub-v${daemon_pin} points at ${daemon_commit}, but the published binary's build-info.json says it was built from ${bi_commit}. The shipped daemon is not the tagged source."
             else
-                n_fresh=$((n_fresh+1))
-                add_row "daemon (${daemon_pin})" "${daemon_commit:0:8}" "${daemon_commit:0:8}" "FRESH tag+sha256+build-info"
+                # Links 1-4 passed: the pin is bound to the shipped bytes and
+                # those bytes to this source commit. Link 5 asks the question
+                # they cannot: is that commit current? See check_daemon_recency.
+                check_daemon_recency "$daemon_pin" "$daemon_commit"
             fi
         fi
     fi

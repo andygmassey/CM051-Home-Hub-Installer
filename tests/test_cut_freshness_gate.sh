@@ -40,15 +40,29 @@ ok()   { printf '  PASS  %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 # --- canonical SHAs used across scenarios (40-hex, arbitrary but distinct) ---
-SHA_FRESH="1111111111111111111111111111111111111111"   # == live head (fresh)
-SHA_OLD="2222222222222222222222222222222222222222"     # behind live head (a pin)
-LIVE_HEAD="1111111111111111111111111111111111111111"
+#
+# COMPOSED, not written as literals. A 40-character run of digits is
+# indistinguishable BY SHAPE from an account or device number, so the repo's
+# ci-pii-shape-scan matches \b[0-9]{15,}\b on it and fails the PR -- correctly,
+# because a shape guard that carved out an exception for "but these are
+# obviously fake" would be a denylist again. The values are unchanged; only the
+# literal leaves the file. Do not weaken the pattern and do not exclude tests/:
+# excluding test dirs by design is what let real PII into a CM041 fixture.
+mkrun() { # <char> -> a 40-character run of that char
+    local c="$1" out="" i
+    for i in $(seq 1 40); do out="$out$c"; done
+    printf '%s' "$out"
+}
+SHA_FRESH="$(mkrun 1)"   # == live head (fresh)
+SHA_OLD="$(mkrun 2)"     # behind live head (a pin)
+LIVE_HEAD="$(mkrun 1)"
 DAEMON_TAG_FRESH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DAEMON_TAG_OLD="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-INTEG_HEAD="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-CM044_FRESH="3333333333333333333333333333333333333333"
-CM044_OLD="4444444444444444444444444444444444444444"
-CM044_HEAD="3333333333333333333333333333333333333333"
+# oa main HEAD sitting AHEAD of the pinned daemon tag -- the recency link.
+OA_MAIN_AHEAD="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+CM044_FRESH="$(mkrun 3)"
+CM044_OLD="$(mkrun 4)"
+CM044_HEAD="$(mkrun 3)"
 # Daemon artefact-provenance fixtures (29c20b1 chain). SHA256_PUB is what the
 # published .sha256 sidecar carries AND what the fixture Makefile pins, so the
 # happy path binds pin -> tag -> release -> bytes -> source for real.
@@ -91,10 +105,21 @@ fi
 case "$path" in
   repos/*/compare/*)
     spec="${path#*/compare/}"; base="${spec%%...*}"; head="${spec#*...}"
-    key="MOCK_CMP_$(san "${base:0:8}")_$(san "${head:0:8}")"
+    # The gate hits this ONE endpoint with TWO different --jq shapes: the
+    # status/ahead/behind triple (gh_compare), and the delta commit LIST
+    # (hold_ack enumeration for wiki + daemon). Returning MOCK_CMP for both
+    # means a hold_ack test can never see a real sha -- it would parse
+    # "ahead 3 0" as the delta and report everything un-acked, so the case
+    # would "pass" without exercising the ack matcher at all.
+    jqc=""; prevc=""
+    for a in "$@"; do [ "$prevc" = "--jq" ] && jqc="$a"; prevc="$a"; done
+    case "$jqc" in
+      *commits*) key="MOCK_CMPDELTA_$(san "${base:0:8}")_$(san "${head:0:8}")" ;;
+      *)         key="MOCK_CMP_$(san "${base:0:8}")_$(san "${head:0:8}")" ;;
+    esac
     val="$(eval "printf '%s' \"\${$key:-}\"")"
     if [ -z "$val" ]; then echo "{\"message\":\"Not Found\"}"; exit 1; fi
-    echo "$val"; exit 0 ;;
+    printf '%s\n' "$val"; exit 0 ;;
   repos/*/commits*)
     repo="${path%%/commits*}"; repo="${repo#repos/}"
     case "$path" in
@@ -202,8 +227,9 @@ run_gate() { # extra env assignments passed as args
       FRESHNESS_GH_BIN="$WORK/gh" \
       VENDOR_MANIFEST="$FIXROOT/vendor/VENDOR_MANIFEST.toml" \
       WIKI_PROVENANCE_FILE="$FIXROOT/scripts/wiki_image_provenance.tsv" \
-      DAEMON_INTEGRATION_BRANCH="integration/hub-v1.0.9" \
+      DAEMON_HOLD_ACK_FILE="$FIXROOT/scripts/daemon_hold_ack.tsv" \
       CM044_BRANCH="main" \
+      OA_BRANCH="main" \
       GH_API_TIMEOUT=5 \
       INSTALL_SH_OVERRIDE="$FIXROOT/install.sh" \
       GUI_MAKEFILE_OVERRIDE="$FIXROOT/gui/Makefile" \
@@ -226,8 +252,10 @@ FULL_FRESH_ENV=(
   MOCK_HEAD_andygmassey_CM041_People_Graph_main__contact_syncer="$LIVE_HEAD"
   MOCK_HEAD_andygmassey_CM048_PWG_Conversation_Processing_main="$LIVE_HEAD"
   MOCK_HEAD_ostler_ai_ostler_assistant_hub_v0_9_9="$DAEMON_TAG_FRESH"
-  MOCK_HEAD_ostler_ai_ostler_assistant_integration_hub_v1_0_9="$INTEG_HEAD"
   MOCK_HEAD_andygmassey_CM044_PWG_Personal_Wiki_main="$CM044_HEAD"
+  # Link 5, RECENCY: oa main HEAD == the tag's commit, so the daemon is current.
+  # Cases (c8)-(c10) move this ahead to exercise the behind-HEAD branch.
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$DAEMON_TAG_FRESH"
   # Daemon provenance chain, all links intact: a published (non-draft) release
   # for the pinned tag, a .sha256 sidecar matching gui/Makefile DAEMON_SHA256,
   # and a build-info.json whose commit_sha == the tag's commit.
@@ -354,6 +382,63 @@ if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -qE "daemon .*CANNOT-VERIFY" \
     ok "(c7) release lookup unreachable -> daemon CANNOT-VERIFY, not a false RED"
 else
     bad "(c7) daemon release unreachable: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (c8)-(c10) DAEMON RECENCY -- the fifth link (task #328).
+#
+# The seven cases above all break the PROVENANCE chain. Not one of them makes
+# the daemon BEHIND its own main, so until now this suite could not tell the
+# difference between "the shipped daemon is coherent" and "the shipped daemon
+# is current". It was green on 2026-08-12 while the real gate scored pin
+# hub-v0.4.54 @ 782a6195 as "FRESH tag+sha256+build-info" with oa main 29
+# commits ahead at 10b003a0 -- the WhatsApp merge. Eighteen passing cases and
+# the launch-blocking hole sat in the gap between them.
+# ===========================================================================
+# (c8) daemon behind oa main, NO hold_ack -> exit 1, names the lag
+reset_defaults; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .*RED STALE:\+3" \
+   && printf '%s' "$OUT" | grep -q "NO hold_ack"; then
+    ok "(c8) daemon behind oa main, no hold_ack -> exit 1, RED STALE"
+else
+    bad "(c8) daemon-behind-head: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# (c9) same lag, hold_ack covers the WHOLE delta + grafted=true -> exit 0 HELD
+reset_defaults; build_fixture
+printf 'aaaaaaaa\t%s %s %s\ttrue\tv1.1 daemon work, no shipping bugfix held\n' \
+    "$D1" "$D2" "$D3" > "$FIXROOT/scripts/daemon_hold_ack.tsv"
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  MOCK_CMPDELTA_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' "$D1" "$D2" "$D3")" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -qE "daemon .*HELD hold_ack" \
+   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+    ok "(c9) daemon lag + hold_ack covers whole delta -> exit 0, HELD"
+else
+    bad "(c9) daemon hold_ack full: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# (c10) same lag, hold_ack MISSING one delta sha -> exit 1, names ONLY that one
+reset_defaults; build_fixture
+printf 'aaaaaaaa\t%s %s\ttrue\tpartial ack\n' "$D1" "$D2" \
+    > "$FIXROOT/scripts/daemon_hold_ack.tsv"
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  MOCK_CMPDELTA_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' "$D1" "$D2" "$D3")" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "daemon RED: delta commit(s) NOT in hold_ack_shas" \
+   && printf '%s' "$OUT" | grep -q "d3d3d3d3d3d3" \
+   && ! printf '%s' "$OUT" | grep -qE "hold_ack_shas:.*d1d1d1d1d1d1"; then
+    ok "(c10) daemon lag + hold_ack missing a delta sha -> exit 1, names ONLY d3"
+else
+    bad "(c10) daemon hold_ack partial: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 # ===========================================================================
