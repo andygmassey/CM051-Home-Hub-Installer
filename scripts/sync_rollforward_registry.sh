@@ -60,6 +60,28 @@ FILES=(
 	"cuts/DEFECTS_ROLLFORWARD.md"
 )
 
+# cuts/<tag>/cut.env IS DELIBERATELY NOT IN THIS LIST. Do not add it.
+#
+# It is tempting, because its absence is what killed the v1.0.24 tag: the gate
+# reads cuts/<TAG>/cut.env, only OS003 had one, nothing carried it across, and
+# --cut therefore resolved for NO tag. Vendoring them here does fix that, and
+# it was tried and reverted.
+#
+# WHY IT WAS REVERTED. Those files are the operator's working record. The six
+# in OS003 run to 464 lines and carry four private box IPs and five
+# notarisation submission IDs, none of which belongs in the product repo. The
+# gate reads exactly TWO keys out of them, and the mapping is DECLARED in
+# bin/rollforward_gate.sh rather than inferred:
+#
+#     OSTLER_PIN_OA="$(_cut_pin DAEMON_COMMIT)"
+#     OSTLER_PIN_CM051="$(_cut_pin CM051)"
+#
+# So CM051 authors its own cuts/<tag>/cut.env holding those two keys, beside
+# the cut-manifests/<tag>.yaml it is paired with. The file the gate reads lives
+# in the repo the gate runs in. tests/test_rollforward_registry_pin.sh asserts
+# the newest manifest has one AND that both keys actually bind, so a cut.env
+# that exists but pins nothing cannot pass.
+
 for f in "${FILES[@]}"; do
 	[ -f "$SRC/$f" ] || die "source file missing: $SRC/$f"
 done

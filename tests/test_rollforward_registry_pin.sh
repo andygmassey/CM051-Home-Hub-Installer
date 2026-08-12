@@ -72,6 +72,57 @@ else
 	fail "pin lists $listed file(s), expected 4 -- an under-populated pin passes vacuously"
 fi
 
+# ---------------------------------------------------------------------------
+# THE NEWEST CUT MANIFEST MUST HAVE A cut.env BESIDE IT.
+#
+# THE DEFECT. cut.yml demands two files of a tag and until 2026-08-13 they
+# lived in different repos:
+#
+#   "Tag must match the in-repo cut record"  cut-manifests/<TAG>.yaml   CM051
+#   "Rollforward claims" runs --cut <TAG>    cuts/<TAG>/cut.env         OS003
+#
+# Nothing asserted the pairing and nothing carried the second across, so
+# `cuts/v*/cut.env` here matched NOTHING and --cut could not resolve for ANY
+# tag. Not a missing v1.0.24; a missing category. The v1.0.24 tag push died on
+# it, the cut job was SKIPPED, and nothing was signed.
+#
+# SCOPED TO THE NEWEST MANIFEST, AND NO WIDER. A draft of this asserted the
+# pairing for EVERY manifest and went red on 13, because CM051 keeps manifests
+# back to v1.0.11 while only six cuts ever had a cut.env. That gate would have
+# been permanently red on main, curable only by retro-filling nine dead cuts
+# with invented pins. A version nobody will cut again does not need a
+# resolvable cut.env, so demanding one is a gate stricter than the defect it
+# names -- the v1018-D011 shape.
+#
+# COMPUTED, never a remembered version list: `sort -V` picks the newest, so a
+# new manifest is covered the day it lands with nobody editing this file.
+newest="$(ls "$HERE"/cut-manifests/v*.yaml 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.yaml$//' | sort -V | tail -1)"
+if [ -z "${newest:-}" ]; then
+	# Zero manifests would make this pass by examining nothing. Say what was
+	# examined; a zero denominator reads as success.
+	fail "no cut-manifests/v*.yaml found -- this check examined nothing, which is not the same as finding nothing wrong"
+elif [ -f "$HERE/cuts/$newest/cut.env" ]; then
+	pass "newest manifest $newest has a resolvable cuts/$newest/cut.env"
+else
+	fail "cut-manifests/$newest.yaml is the newest cut but cuts/$newest/cut.env does NOT exist -- 'rollforward_gate.sh --cut $newest' dies with PARSE ERROR, preflight goes red, and the cut job is SKIPPED with nothing signed"
+fi
+
+# BOTH declared pins must actually bind. A cut.env that exists but sets
+# neither key satisfies the check above while binding nothing, which is how a
+# repo gate ends up asserting main -- the failure the runner's own header
+# describes. OS003's v1.0.24 cut.env was exactly this: 62 lines of pins, and
+# neither of the two keys the gate reads.
+if [ -n "${newest:-}" ] && [ -f "$HERE/cuts/$newest/cut.env" ]; then
+	for k in DAEMON_COMMIT CM051; do
+		v="$( set +u; . "$HERE/cuts/$newest/cut.env" >/dev/null 2>&1; eval "printf '%s' \"\${$k:-}\"" )"
+		if [ -n "$v" ]; then
+			pass "$newest binds $k=$v"
+		else
+			fail "cuts/$newest/cut.env sets no $k -- the gate binds an empty pin and every gate needing it goes CANNOT-RUN, while the cut still reads as pinned"
+		fi
+	done
+fi
+
 # The runner must be able to FIND the registry at its default path, which is
 # the exact defect that killed the v1.0.19 cut. Assert the default, not a path
 # this test supplies, or the test proves something the cut does not use.

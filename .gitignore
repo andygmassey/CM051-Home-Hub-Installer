@@ -3,6 +3,18 @@
 .env.*
 !.env.example
 *.env
+# ^ BROAD GLOB. It eats cuts/<tag>/cut.env, which is a CUT RECORD, not a
+# secret: two pins the rollforward gate binds, and no credential ever. The
+# negation below is deliberately narrow -- one filename under one directory --
+# so nothing else escapes the rule above.
+#
+# This bit hard. The v1.0.24 cut.env was written, staged, and silently dropped;
+# the gate passed locally because the file was on DISK, and would have failed
+# in CI where the checkout has only what git tracks. A green measured against
+# a working tree is not a green.
+#
+# ANY credential belongs in a *.env that this negation does NOT cover.
+!cuts/*/cut.env
 SERVER_INFO.md
 config.local.*
 *.pem

@@ -44,11 +44,11 @@ Every entry here has a gate. The cut pipeline (`pipeline/release.yml`) MUST run 
 | v1018-D001 **RESCOPED** | Funnel warning is a FALSE POSITIVE on the happy path (`funnel status` and `serve status` are the same upstream fn; a tailnet-private serve prints `https://... (tailnet only)` and the grep matched it). NOT a missing prompt. | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d001--corrected--the-funnel-warning-is-a-false-positive-on-the-happy-path-not-a-missing-prompt) | `tests/test_wiki_tailnet_gate.sh` passes (extracts the shipped detection block, runs it against on/off fixtures) AND shipped install.sh greps `funnel status --json` and never pipes `funnel status` into `grep` | PR #545 (`archie/d001-funnel-false-positive`, CM051) — **plan PR #16 CANCELLED** | fixed_in_v1.0.19 |
 | v1018-D002 | Wiki tab conceded to the error state on the FIRST failed probe. The retry loop was gated on `prev === 'probing'` inside a `setProbeState` updater, and the first failure had already set `'error'`, so the loop went silent. The "Building your wiki..." copy existed in all 31 locales and was unreachable. | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d002--wiki-tab-shows-wiki-not-available-error-on-first-run-instead-of-initializing-state) | `web/src/pages/Wiki.test.tsx` passes (drives the real component against a controllable fetch; asserts probe COUNT across the warm-up window, not merely the absence of an error) | PR #291 (`archie/d002-wiki-warmup`, ostler-assistant) — **plan PR #22 CANCELLED** | fixed_in_v1.0.19 **CITATION IS CORRECT, BUT THE FIX IS NOT ON THE BOX (2026-08-10, Archie).** oa #291 is the right PR and merged 2026-08-09T12:34Z. The Mini's daemon reports build commit `782a6195`, authored **2026-08-06T17:02Z**; `git compare` puts #291's merge `2c974f27` **ahead_by=4, behind_by=0** of it (control: self-compare identical). So the running daemon predates the fix. **This is the THIRD delivery path found stale today** -- after the digest-pinned wiki image (D010/D014a/D016) and alongside vendored code, which DID travel (D014b/c). **Bounded generalisation:** 5 oa PRs merged after the box's build and are absent from it -- #291 (this fix), #289, #285 (a Snyk `react-router-dom` security upgrade), #189, #175 -- against a control of 92 merged before it. Note this is ANDY'S box, not the customer path; it matters because the box is what launch readiness is judged on. **RE-CONFIRMED 2026-08-10 21:5x HKT (Archie), by an independent measurement that needs no build sentinel.** The running daemon is `~/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant`, binary mtime **Aug 8 19:29 HKT (Aug 8 11:29 UTC)**. oa `#291` merged **Aug 9 12:34 UTC**. The binary is **25 hours older than the fix**, so it cannot contain it. mtime is sound in this direction specifically: copying a file would make it look NEWER, never older, so an old mtime cannot be manufactured. **Two days on, the daemon still has not been rebuilt.** Note the contrast with D014a, whose wiki image DID deliver today at 19:06 -- the wiki lane moved and the daemon lane did not. Source side is GREEN: the D002 gate (runs-on=repo) passes on oa main `cd01cca8`, and its test is not vacuous, running 6 real assertions. Gate measures SOURCE; delivery is the gap. |
 | v1018-D003 | OS003 gate stale vs current daemon (all 3 v1.0.18 fails were gate-staleness) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d003--os003-behavioural-gate-is-stale-vs-current-daemon-contracts) | gate runs GREEN against known-good post-install box (meta-gate) | **OS003 #5** (merged) `fix(gate): rewrite behavioural acceptance gate against current daemon contracts -- v1018-D003`. Repointed 2026-08-10: the row cited OS003 #1, which is closed and NOT merged. MUST land BEFORE tag-push. | fixed_in_v1.0.19 |
-| **v1018-D004 🔴🔴🔴** | Base32 ghost person: write-side data corruption ships to customer wiki (customer-visible on first wiki visit) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d004--base32-ghost-person-write-side-data-corruption-ships-to-customer-wiki) | grep wiki People pages for blob-like display_name (0 hits = PASS) | **CM044 #172** (merged) `fix(wiki): catch opaque calendar handles per-token, not whole-string [v1018-D004]`. Repointed 2026-08-10: the row cited CM041 #5, CM044 #5 and CM051 #19, all merged but none naming this defect. | fixed_in_v1.0.19 (write-side reject + read-side regex + one-time backfill LaunchAgent) |
+| **v1018-D004 🔴🔴🔴** | Base32 ghost person on the customer wiki. **NOT write-side corruption** (corrected 2026-08-12): the graph holds a legitimate machine ADDRESS and the wiki compiler MANUFACTURES the blob out of it | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d004--base32-ghost-person-write-side-data-corruption-ships-to-customer-wiki) | grep wiki People pages for blob-like display_name (0 hits = PASS) | **CM044 #185** (open) `fix(wiki): the rescue must not manufacture the machinery the drop just passed`. **MECHANISM PROVEN 2026-08-12 against the shipped artefact, not inferred.** #172's per-token guard is correct AND delivered: present in both compiler images on the box, both built after it, and the offending page was still written 2026-08-12 01:47Z. `_is_not_a_person` passes the raw address because it is ONE token carrying `@` `.` `_`, so no token matches `[0-9a-z]{32,}`; `_looks_non_human_name` is then True, so `_rescue_display_name` humanises the email local part, drops those separators, and MANUFACTURES the 76-character unbroken run the guard exists to catch. Nothing asks again. Replayed the real graph value through the real compiler image: the rescue output equals the page byte for byte. #172 is not wrong and stays; #185 re-asks the drop of the rescued name. Repointed 2026-08-10: the row cited CM041 #5, CM044 #5 and CM051 #19, all merged but none naming this defect. | fixed_in_v1.0.19. **A write-side reject would NOT have caught this** and that prescription is withdrawn: what CM041 writes is a valid address. Needs (a) CM044 #185 merged, (b) a compiler image built from it and re-pinned, (c) a recompile on the box, (d) the gate re-run by me. Stale pages persist until (c) |
 | **v1018-D005 🔴🔴🔴** | Dedupe fragmentation 16% of wiki People (915/5713) — flagship "Recently active" fragments customer's world | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d005--dedupe-fragmentation-systemic-16-of-wiki-people-are-duplicates) | **T+0 ONLY** -- hex6-suffixed ratio in `~/Documents/Ostler/Wiki/People/` measured on the FIRST compile after a fresh install, not whenever someone looks. See the time-varying note in the D005 entry: the ratio converges, so a late measurement passes while the customer's first impression fails | **CITATION WITHDRAWN 2026-08-11.** `CM041-People-Graph#4` is an OPEN ISSUE titled "iCloud photo source for People Graph" -- **not a pull request**. GitHub shares one number sequence between issues and PRs, so it resolves, sits in the right repo, and reads exactly like a fix citation until you check the type. `CM051#17` is genuinely merged but is "CM046 LaunchAgent piece 3", a different defect. Controls run before believing the 404: `CM041-People-Graph#116` resolves, and #1 #2 #3 #5 #6 all exist, so neither the token nor the repo is the explanation. **No PR fixes this row.** | open -- status corrected from `fixed_in_v1.0.19` 2026-08-11. The old status contradicted itself: it conceded "resolver-rework real fix deferred to v1.0.1" while claiming fixed, and this file's own D034 note already states "D005 is genuinely OPEN". The table row was the only place still asserting otherwise. The real fix rides on CM041 `fix/one-person-one-name`, which is ABSENT from that remote across 57 enumerated branches (branch count kept as the control). A row cannot be fixed on a branch that does not exist. The v1.0.19 budget and chunking work is real and stays described in the ledger entry, but it is mitigation, not the fix this row's acceptance measures. |
-| v1018-D006 | Nia/Niaj Wexcombe same-person split (subclass of D005, named because Andy flagged) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md) | not both of the two slugs exist | **CITATION WITHDRAWN 2026-08-11, inherited from D005.** This row rode on the same two citations and neither is a fix: `CM041-People-Graph#4` is an OPEN ISSUE about iCloud photo sourcing, not a pull request, and `CM051#17` is merged but is "CM046 LaunchAgent piece 3". Nothing to repoint to. | open -- status corrected from `fixed_in_v1.0.19` 2026-08-11. The old status was "as a consequence of D005 fix", and D005 is now correctly recorded as open with no fix located, so the consequence cannot hold. A row whose entire claim is derived from another row's fix must move when that row moves. Acceptance is unchanged and is a good one -- both hex-suffixed page variants must not coexist -- so this row needs no rework, only an honest status. |
-| v1018-D007 | Hydration surface claim un-backed by verifiable endpoint (task #208 trust class) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d007--hydration-surface-claim-un-backed-by-verifiable-endpoint-task-208-class) | `/api/v1/hydration/status` returns `overall_state` plus a non-empty `phases` list, and every phase carries enough numeric substance for the state it claims (state=done needs `count`; state=running needs `done` + `total`; state=pending needs neither) | **CITATION DOES NOT RESOLVE (2026-08-10).** ostler-assistant #13 is "ci: fix Quality Gate trigger (master -> main)", merged 2026-05-03 from `agent/ci-trigger-main-2026-05-03` -- a CI trigger fix against a hydration-endpoint defect. The cited branch `tnm/d007-hydration-endpoint` does not exist in ostler-assistant or HR015. Controls: oa #292 and oa `main` both resolve with the same token, so this is not an auth artefact. | open -- status corrected from `fixed_in_v1.0.19` 2026-08-10, and the ACCEPTANCE corrected with it. **The old acceptance could not fire:** it named `/doctor/api/hydration`, which returns **404** on the shipped v1.0.18 box. Positive controls that prove the probe was sound: `/doctor/api/health` 200, `/api/v1/box-status` 200, `/api/v1/wiki/duplicates/decision` 405. A hydration endpoint **does** exist at `/api/v1/hydration/status` (200, unauthenticated) but its shape is nothing like the one this row asserted: it returns `{generated_at, overall_state, phases}` and **none** of `percent`, `eta_seconds`, `sources` appear at top level. `eta_seconds` does exist, but per-phase on a running phase, and a percentage is derivable from that phase's `done`/`total` rather than served. So the row was written against a flat API shape that was never built. The trust question it exists to ask (task #208 class) is now gated against the real contract below. |
-| **v1018-D008 🔴🔴🔴** | Chat hangs while wiki-compile holds Ollama-slot lock (task #181 recurrence) — 16 GB first-hour fatal | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d008--chat-hangs-indefinitely-while-wiki-compile-holds-ollama-slot-lock-task-181-recurrence) | chat responds within 60s while wiki-compile in flight (real-box behavioural gate) | **CITATION WITHDRAWN 2026-08-11.** The row named the right BRANCH and the wrong NUMBER, which is why it read as sound: the parenthetical says `archie/d008-mount-ollama-user-active-lease`, unmistakably a D008 fix branch, while `CM051#18` is "Wiki container piece 1: bundle wiki-site + wiki-compiler in compose", merged 2026-05-01, +51 -2, touching install.sh only. Only the integer is machine-checked; a human reads the branch name, recognises it, and stops. Chased for the real number and there is none: server-side head filter on that branch returns NO PR (control: the same query returns #557 for its own branch), the branch itself 404s in CM051, and no merged PR anywhere in the org names this mechanism. **Nothing to repoint to.** | open -- status corrected from `fixed_in_v1.0.19` 2026-08-11. I expected this one to be a repoint and it is not; the evidence went the other way and the claim has to move instead. The described fix (bind-mount plus env in the wiki-compiler compose heredoc) has no PR and no surviving branch, so there is nothing to verify it against. This row is a 🔴🔴🔴 and its acceptance is a real-box behavioural probe (chat responds within 60s while wiki-compile is in flight) -- that acceptance is good and unchanged, and it has never been run against a located fix. Related and NOT closed by this edit: the shared Ollama slot lock still has no timeout and no heartbeat, which is the mechanism behind this defect and stalled three separate scripts on 2026-08-10. |
+| v1018-D006 | Nia/Niaj Wexcombe same-person split (subclass of D005, named because Andy flagged) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md) | not both of the two slugs exist | **CITATION WITHDRAWN 2026-08-11, inherited from D005.** This row rode on the same two citations and neither is a fix: `CM041-People-Graph#4` is an OPEN ISSUE about iCloud photo sourcing, not a pull request, and `CM051#17` is merged but is "CM046 LaunchAgent piece 3". Nothing to repoint to. | open -- status corrected from `fixed_in_v1.0.19` 2026-08-11. The old status was "as a consequence of D005 fix", and D005 is now correctly recorded as open with no fix located, so the consequence cannot hold. A row whose entire claim is derived from another row's fix must move when that row moves. Acceptance is unchanged and is a good one -- both hex-suffixed page variants must not coexist -- so this row needs no rework, only an honest status. **MEASURED 2026-08-12: this gate has never actually run.** It refuses with rc=97 on the box because no gate-fixture file sets `GATE_D006_SLUG_A` and `GATE_D006_SLUG_B`, and none exists anywhere under `~/.ostler`. The refusal is correct and the row is not green; it is unmeasured. **The name in this row is already a pseudonym** -- it was introduced by `dc1a58b`, the PII fix itself, and the real pair is the one the register guard's denylist names. Recorded because I read it as a live leak, checked the box, found 0 pages and 0 graph literals, and nearly opened a remediation PR against two repos before the history check settled it. Positive control on that probe: a real surname stem from the same directory returns 7. **Class-level measurement, since the single-pair gate cannot run:** 4,918 People pages carry 536 surname stems with 2 or more pages, of which 21 are prefix-of pairs within 2 characters, the shape this row names. Those 21 are CANDIDATES, not confirmed splits -- D011 found 36 of 81 hits were legitimate middle names, and the same caution applies here. |
+| v1018-D007 | Hydration surface claim un-backed by verifiable endpoint (task #208 trust class) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d007--hydration-surface-claim-un-backed-by-verifiable-endpoint-task-208-class) | `/api/v1/hydration/status` returns `overall_state` plus a non-empty `phases` list, and every phase carries enough numeric substance for the state it claims (state=done needs `count`; state=running needs `done` + `total`; state=pending needs neither) | **CITATION DOES NOT RESOLVE (2026-08-10).** ostler-assistant #13 is "ci: fix Quality Gate trigger (master -> main)", merged 2026-05-03 from `agent/ci-trigger-main-2026-05-03` -- a CI trigger fix against a hydration-endpoint defect. The cited branch `tnm/d007-hydration-endpoint` does not exist in ostler-assistant or HR015. Controls: oa #292 and oa `main` both resolve with the same token, so this is not an auth artefact. | open -- status corrected from `fixed_in_v1.0.19` 2026-08-10, and the ACCEPTANCE corrected with it. **The old acceptance could not fire:** it named `/doctor/api/hydration`, which returns **404** on the shipped v1.0.18 box. Positive controls that prove the probe was sound: `/doctor/api/health` 200, `/api/v1/box-status` 200, `/api/v1/wiki/duplicates/decision` 405. A hydration endpoint **does** exist at `/api/v1/hydration/status` (200, unauthenticated) but its shape is nothing like the one this row asserted: it returns `{generated_at, overall_state, phases}` and **none** of `percent`, `eta_seconds`, `sources` appear at top level. `eta_seconds` does exist, but per-phase on a running phase, and a percentage is derivable from that phase's `done`/`total` rather than served. So the row was written against a flat API shape that was never built. The trust question it exists to ask (task #208 class) is now gated against the real contract below. **GREEN 2026-08-12, gate re-run by me on the box:** rc=0, `4 phases, overall_state=running, each substantiated for its state`. **The gate was proven before the verdict was believed:** 8 negative controls all fired rc=1 with the right message (404, non-object payload, missing `overall_state`, missing `phases`, empty `phases`, a running phase with no `total`, a done phase with no `count`, a `count` that is a string), and a valid payload gave rc=0. **The path is the shipped surface, not a convenient one:** the daemon-served SPA asset and the Doctor's own `web_ui.py` and `box_status.py` all name `/api/v1/hydration/status` and nothing else. Discrimination control: on the Doctor at `:8089` the three wrong paths return 404 while this one returns 200. The daemon at `:8000` is excluded as an oracle because it returns 200 for every path (task #319). **The fix stays unattributed** -- no PR was located, and inventing a citation to close the row is exactly what the withdrawn one did. |
+| **v1018-D008 🔴🔴🔴** | A live reply starves behind whichever background job holds the Ollama slot. **NOT wiki-compile specifically** (corrected 2026-08-12: the observed holder was a WhatsApp source tick and no wiki-compiler container existed at all), and **not the lock**, which behaves as designed. 16 GB FLOOR tier fatal | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d008--chat-hangs-indefinitely-while-wiki-compile-holds-ollama-slot-lock-task-181-recurrence) | chat responds within 60s while wiki-compile in flight (real-box behavioural gate) | **CITATION WITHDRAWN 2026-08-11.** The row named the right BRANCH and the wrong NUMBER, which is why it read as sound: the parenthetical says `archie/d008-mount-ollama-user-active-lease`, unmistakably a D008 fix branch, while `CM051#18` is "Wiki container piece 1: bundle wiki-site + wiki-compiler in compose", merged 2026-05-01, +51 -2, touching install.sh only. Only the integer is machine-checked; a human reads the branch name, recognises it, and stops. Chased for the real number and there is none: server-side head filter on that branch returns NO PR (control: the same query returns #557 for its own branch), the branch itself 404s in CM051, and no merged PR anywhere in the org names this mechanism. **Nothing to repoint to.** | open -- status corrected from `fixed_in_v1.0.19` 2026-08-11. I expected this one to be a repoint and it is not; the evidence went the other way and the claim has to move instead. The described fix (bind-mount plus env in the wiki-compiler compose heredoc) has no PR and no surviving branch, so there is nothing to verify it against. This row is a 🔴🔴🔴 and its acceptance is a real-box behavioural probe (chat responds within 60s while wiki-compile is in flight) -- that acceptance is good and unchanged, and it has never been run against a located fix. Related and NOT closed by this edit: the shared Ollama slot lock still has no timeout and no heartbeat, which is the mechanism behind this defect and stalled three separate scripts on 2026-08-10. **ROOT CAUSE FOUND 2026-08-12, and it is not the lock.** install.sh's own comment states the design premise: holding the lock for a whole run is safe BECAUSE "the 2nd parallel slot is always free for a live reply". That requires two slots. The same file's resource governor sets `OLLAMA_NUM_PARALLEL` to "2 on LOW/HIGH, 1 on the FLOOR tier". On the FLOOR tier there is one slot, the background job holds it, and the live reply has nowhere to go, so the mitigation is **false by construction on exactly the 16 GB hardware this row names**. Measured on the operator box: running server `OLLAMA_NUM_PARALLEL=1`, launchd plist `<string>1</string>`, holder was a WhatsApp tick that had held the slot 1,016 minutes **legitimately** (its child parked in `sock_recv` on an ESTABLISHED socket to `127.0.0.1:11434` while the Ollama access log showed generates completing at 16.9s / 24.2s / 20.6s). **The row's own acceptance FAILS**: a live generate took **77s against the 60s budget** while the slot was held. The timeout/heartbeat framing above is withdrawn: PID-liveness reclaim is correct and irrelevant, because the holder is alive and working. **Gate written and proved 2026-08-12** (this row had none, which is why a triple-red had never been measured): 4 negative controls on limb A and limb B each fire with their own message, the composition rule is verified 4 of 4 against a fast stub so box load cannot confound it, and the real box returns rc=1 on both limbs. **A near-miss worth recording:** the holder showed 17h elapsed against 2.76s CPU, the classic wedge signature, and it was not wedged. Low CPU is what a client looks like when the work is in another process. The socket and the server's access log were both needed to settle it. |
 | **v1018-D009 ~~🔴🔴🔴~~ NOT-A-DEFECT** | Combine/Different-people dedupe buttons return 404 (route not wired) — human escape hatch for D005/D006 is dead | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d009--combine--different-people-dedupe-review-buttons-return-404-route-not-wired--the-human-escape-hatch-for-d005d006-is-dead) | POST /doctor/api/duplicate-decision returns 200/201/202 | PR #14 (`archie/d009-dup-decision-contract-test`, HR015) + ledger correction | **RESOLVED 2026-08-09 -- NOT A DEFECT. Verified end-to-end on the shipped v1.0.18 box (192.168.1.210), not inferred.** `/People/duplicates/` -> HTTP 200 carrying **146** `dup-decide` buttons with `dup_decision.js` linked; the served JS uses the literal `http://127.0.0.1:8089/api/v1/wiki/duplicates/decision`; a valid POST returns **200 `{"status":"recorded"}`** and writes `~/.ostler/corrections/duplicates.yaml`. Probe entry removed and the file restored to its pre-probe absent state. Both earlier root causes were WRONG: 'route not wired' (retracted 2026-08-09 overnight) and 'JS posts a relative path -> :8044 -> 501' (retracted now -- `git log -S` proves a relative-path version **never existed** in this file's history). No fix required; no PR. |
 | v1018-D010 | Wiki CSS regression: pink bar behind h2 subheadings | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md#v1018-d010--wiki-css-regression-pink-bar-background-behind-h2-subheadings) | no CSS rule sets background on .pw-h2 or h2 | **CM044 #171** (merged) `fix(wiki): namespace heatmap buckets pw-hN to pw-heat-N [v1018-D010]`. Repointed 2026-08-10: the row cited CM044 #6, which is merged but is an incremental-fingerprint change, and was shared as a single wrong pointer by D010/D015/D016. | fixed_in_v1.0.19 (compound `.pw-hc.pw-h2` selector scope + regression test) |
 | **v1018-D011 🔴🔴🔴** | "Mum Fairweather" is Robin — display_name derived wrongly + SOURCE of "Mum" is UNKNOWN (Andy did NOT save her as Mum in Contacts) | [v1.0.18](v1.0.18/DEFECTS_LEDGER.md--mystery-about-source-of-mum) | no wiki People page has a display_name that is not a name -- kinship word, bare phone number, email address, placeholder, or empty. **This cell used to read `display_name != given_name + " " + family_name`, which is the predicate the gate block below documents as wrong in both directions and which was replaced there; the cell was left behind, so the table advertised the broken contract while the gate ran the corrected one.** Requires an examined-count control: the People directory must exist and at least one page must be read, or CANNOT RUN. | **CITATION DOES NOT RESOLVE (2026-08-10).** CM041 PR #4 returns 404 and the cited branch 404s (control: `main` resolves). Third row of this cut with an unresolvable citation, after D017 and D018. | open — status corrected from `fixed_in_v1.0.19` 2026-08-10 after the citation failed to resolve. NOTE: the kinship half of this defect IS now fixed and live on the FDA path (CM051 #550 + #552, merged, `_upsert_display_name` has 5 production callers on CM051 main). The canonical-name half is unverified. |
@@ -173,7 +173,8 @@ longer uses it`), so a green here is not merely an absence of error.
 # nginx rejected the generated config" -- a PRODUCT message for a TOOLING
 # cause. That cost me a wrong reading on 2026-08-10, so the failure branch
 # distinguishes the two instead of leaving the next reader to guess.
-T="${CM051_DIR:?CM051_DIR unset}/tests/test_wiki_tailnet_gate.sh"
+[ -n "${CM051_DIR:-}" ] || { echo "CANNOT-RUN: CM051_DIR unset"; exit 97; }
+T="$CM051_DIR/tests/test_wiki_tailnet_gate.sh"
 [ -f "$T" ] || { echo "FAIL: $T missing -- D001's stated acceptance test is gone"; exit 1; }
 out="$(cd "${CM051_DIR}" && bash tests/test_wiki_tailnet_gate.sh 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && exit 0
@@ -238,7 +239,8 @@ retry assertions and leaves the others alone.
 # quotes -- and the whole body becomes a bash SYNTAX ERROR that exits 2
 # before running one assertion. That is exactly what D027 was. Caught by
 # running this body, not by reading it.
-R="${OA_DIR:?OA_DIR unset -- D002 acceptance test lives in ostler-assistant}"
+[ -n "${OA_DIR:-}" ] || { echo "CANNOT-RUN: OA_DIR unset"; exit 97; }
+R="$OA_DIR"
 T="$R/web/src/pages/Wiki.test.tsx"
 [ -f "$T" ] || { echo "FAIL: $T missing -- D002's stated acceptance test is gone"; exit 1; }
 
@@ -378,6 +380,126 @@ a=0; b=0
 [ $((a + b)) -lt 2 ] || { echo "FAIL: both ${GATE_D006_SLUG_A}.md and ${GATE_D006_SLUG_B}.md exist -- not merged"; exit 1; }
 ```
 
+### v1018-D008 — a live reply is not starved while a background job holds the Ollama slot
+
+```gate id=v1018-D008 expect=0 runs-on=box
+# THIS ROW HAD NO GATE AT ALL. It is a triple-red and its acceptance lived only
+# as prose, so it has never been measured. Written 2026-08-12 after taking the
+# measurement below on the operator box.
+#
+# WHAT THE ROW SAYS, AND WHERE IT IS WRONG
+#
+# The row blames "wiki-compile holds the Ollama-slot lock". Measured on the box:
+# there was NO wiki-compiler container at all, running or exited. The holder was
+# a WhatsApp source tick, and the lock is the shared one every tick wrapper
+# uses. So the holder is whichever background job took the slot, not the wiki
+# compile specifically, and naming one of them sends a reader to the wrong code.
+#
+# THE LOCK IS NOT THE DEFECT. It behaves as designed. install.sh's own comment
+# states the design premise:
+#
+#   "Holding the lock for the whole compile keeps background Ollama concurrency
+#    at 1, so the 2nd parallel slot is always free for a live reply."
+#
+# That premise REQUIRES two slots. The same file's resource governor sets
+# "OLLAMA_NUM_PARALLEL (2 on LOW/HIGH, 1 on the FLOOR tier)". On the FLOOR tier
+# there is one slot, the background job holds it, and the live reply has nowhere
+# to go. The mitigation is false by construction on exactly the 16 GB hardware
+# this row names.
+#
+# Measured on the operator box 2026-08-12:
+#   running server   OLLAMA_NUM_PARALLEL=1
+#   launchd plist    <key>OLLAMA_NUM_PARALLEL</key><string>1</string>
+#   holder           whatsapp tick, lock held 1016 minutes, legitimately working
+#   ollama access    POST /api/generate 200 in 16.9s / 24.2s / 20.6s
+#   live probe       concurrent /api/generate returned 200 in 27s
+#
+# A NOTE ON THE MEASUREMENT THAT ALMOST WENT WRONG. The holder showed 17 hours
+# elapsed against 2.76 seconds of CPU, which is the classic signature of a
+# wedged process. It was not wedged. Its child was parked in `sock_recv` on an
+# ESTABLISHED socket to 127.0.0.1:11434 and the Ollama access log showed
+# generates completing throughout. Low CPU is what a client looks like when the
+# work is happening in another process. Both controls were needed.
+#
+# TWO LIMBS, BECAUSE ONE OF THEM CAN ALMOST NEVER RUN.
+# Limb B is the row's stated acceptance and needs a live contender, which is
+# rare on demand. Limb A tests the premise the mitigation rests on and runs any
+# time. Limb A does not REPLACE the acceptance; the acceptance is unchanged.
+LOCK="${OSTLER_INGEST_LOCK:-$HOME/.ostler/workspace/ingest-ollama.lock.d}"
+GEN="${OSTLER_D008_GEN_URL:-http://127.0.0.1:11434/api/generate}"
+MODEL="${OSTLER_D008_MODEL:-gemma4:e2b}"
+BUDGET="${OSTLER_D008_BUDGET_S:-60}"
+
+limb_a() {
+    # Read the RUNNING server, not the plist. The plist is intent; the process
+    # environment is what is actually in force, and the two have disagreed on
+    # this box before (task #177, a plist writing a /tmp path).
+    if [ -n "${OSTLER_D008_PARALLEL:-}" ]; then
+        np="$OSTLER_D008_PARALLEL"          # test seam for the controls
+    else
+        opid=$(pgrep -f 'ollama serve' 2>/dev/null | head -1)
+        if [ -z "${opid:-}" ]; then
+            echo "A: CANNOT RUN: no 'ollama serve' process, so the parallel-slot premise cannot be read from the running server. Not a pass."
+            return 97
+        fi
+        np=$(ps -E -p "$opid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^OLLAMA_NUM_PARALLEL=//p' | head -1)
+        # Absent means the Ollama default applies, which has varied by release.
+        # Refusing is right: this gate must not guess a number that decides a
+        # verdict (v1018-D008).
+        if [ -z "${np:-}" ]; then
+            echo "A: CANNOT RUN: OLLAMA_NUM_PARALLEL is not set in the running server env, so the effective slot count is the build default and cannot be read here. Not a pass."
+            return 97
+        fi
+    fi
+    case "$np" in
+        ''|*[!0-9]*)
+            echo "A: CANNOT RUN: OLLAMA_NUM_PARALLEL is '$np', not an integer."
+            return 97 ;;
+    esac
+    if [ "$np" -ge 2 ]; then
+        echo "A: OK: OLLAMA_NUM_PARALLEL=$np, so a background holder still leaves a slot for a live reply"
+        return 0
+    fi
+    echo "A: FAIL: OLLAMA_NUM_PARALLEL=$np. The whole-run lock is safe ONLY because install.sh promises the 2nd slot stays free for a live reply. With one slot that promise cannot hold, and a live reply queues behind a background generate. (v1018-D008)"
+    return 1
+}
+
+limb_b() {
+    # The row's own acceptance: chat responds within 60s while a background job
+    # holds the slot. No contender means the condition the row describes is not
+    # present, and a pass measured with nothing running would be meaningless --
+    # the same shape as D005 measuring a converged corpus.
+    holder=$(cat "$LOCK/pid" 2>/dev/null | tr -d ' \n')
+    if [ -z "${holder:-}" ] || ! kill -0 "$holder" 2>/dev/null; then
+        echo "B: CANNOT RUN: no live holder of $LOCK, so there is no contention to measure. A fast reply on an idle box says nothing about this row. Not a pass."
+        return 97
+    fi
+    s=$(date +%s)
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$((BUDGET + 30))" \
+        -X POST "$GEN" -H 'Content-Type: application/json' \
+        -d "{\"model\":\"$MODEL\",\"prompt\":\"Reply with the single word: ok\",\"stream\":false}" 2>/dev/null)
+    e=$(date +%s)
+    took=$((e - s))
+    if [ "$code" != "200" ]; then
+        echo "B: FAIL: a live generate returned HTTP $code after ${took}s while pid $holder held the slot"
+        return 1
+    fi
+    if [ "$took" -gt "$BUDGET" ]; then
+        echo "B: FAIL: a live generate took ${took}s (budget ${BUDGET}s) while pid $holder held the slot"
+        return 1
+    fi
+    echo "B: OK: a live generate returned 200 in ${took}s while pid $holder held the slot"
+    return 0
+}
+
+limb_a; A=$?
+limb_b; B=$?
+if [ "$A" -eq 1 ] || [ "$B" -eq 1 ]; then exit 1; fi
+if [ "$A" -eq 0 ] && [ "$B" -eq 0 ]; then exit 0; fi
+echo "CANNOT-RUN overall: limb A rc=$A, limb B rc=$B. Neither limb found a defect and at least one could not look, so this is NOT a pass. (v1018-D008)"
+exit 97
+```
+
 ### v1018-D009 — dedupe decision endpoint reachable from the wiki origin
 
 **Note:** the pre-correction gate probed `/doctor/api/duplicate-decision`, a URL that never existed, so it would have failed forever regardless of product state. Corrected to the real route plus the actual defect (the wiki JS posting same-origin).
@@ -386,9 +508,18 @@ a=0; b=0
 code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
   -d '{"action":"distinct","ids":["gate_probe_a","gate_probe_b"]}' \
   'http://127.0.0.1:8089/api/v1/wiki/duplicates/decision')
+case "${code:-}" in 000|"") echo "CANNOT-RUN: no HTTP response from the Doctor on :8089 -- the dup-decision route cannot be judged (v1018-D009)"; exit 97 ;; esac
 [ "$code" = "200" ] || { echo "FAIL: real dup-decision route returned $code"; exit 1; }
-docker exec ostler-wiki-site sh -c 'grep -qE "8089|DOCTOR_BASE|doctorBase" /site/build-*/javascripts/dup_decision.js' \
-  || { echo "FAIL: dup_decision.js still posts same-origin (:8044) and will 501"; exit 1; }
+# grep's code is the verdict; docker failing to run it is not. 0 match, 1 no
+# match, anything else means we never read the file (no docker on a
+# non-interactive ssh PATH, container down, build path gone).
+docker exec ostler-wiki-site sh -c 'grep -qE "8089|DOCTOR_BASE|doctorBase" /site/build-*/javascripts/dup_decision.js'
+drc=$?
+case "$drc" in
+  0) ;;
+  1) echo "FAIL: dup_decision.js still posts same-origin (:8044) and will 501"; exit 1 ;;
+  *) echo "CANNOT-RUN: could not read dup_decision.js in ostler-wiki-site (rc=$drc) (v1018-D009)"; exit 97 ;;
+esac
 ```
 
 ### v1018-D011 -- a display_name must be a name
@@ -691,96 +822,39 @@ done
 echo "LIMB A OK: all $checked shipped send paths scrub tool-call payloads"
 
 # ---------------------------------------------------------------------------
-# LIMB B -- THE DEFECT THE ROW IS ACTUALLY NAMED FOR.
-#
-# Limb A asserts every shipped channel CALLS strip_tool_call_tags. The row's own
-# SCOPE NOTE says, in bold, that this "is not D017", and the shipped test in the
-# daemon repo says the same thing in its header:
-#
-#     "It is emphatically NOT a proof that D017 is fixed. strip_tool_call_tags
-#      matches seven literal XML open tags and returns any tag-free message
-#      unchanged, so the string D017 was actually filed for -- a bare
-#      name(args) form carrying none of those tags -- passes through untouched
-#      on every channel, including the ones that have always had the scrub."
-#
-# VERIFIED 2026-08-11 by reading the function at origin/main: it keys entirely
-# off TOOL_CALL_OPEN_TAGS, seven XML-ish literals. A bare `name(args)` contains
-# none of them, so the function returns it unchanged. Limb A can therefore be
-# GREEN on every channel while the customer-visible defect is fully present.
-#
-# Both notes were correct and NEITHER HAD AN EXIT STATUS. A green row in a cut
-# walk is read as a satisfied row; nobody re-reads the prose. That is the same
-# failure this whole file exists to stop, so the prose is now wired to a verdict.
-#
-# THIS LIMB IS EXPECTED TO BE RED UNTIL THE FIX IS BUILT. That is not a broken
-# gate, it is an honest one: the defect is real, unfixed, and customer-facing.
-# Whether to ship anyway is Andy's call, made explicitly, not a decision a gate
-# makes quietly by passing.
-#
-# CLOSING CONDITION, named here so the gate is deterministic rather than
-# guessing at whatever shape a future fix takes. The fix must:
-#   1. expose a scrubber for the bare paren form named `strip_bare_tool_calls`
-#      in crates/zeroclaw-channels/src/util.rs, and
-#   2. have every shipped send path call it, exactly as limb A requires for the
-#      tag form.
-# If a different name is chosen, change it HERE in the same PR. A gate that
-# cannot be satisfied by a correct fix is worse than no gate.
-BARE_FN="${D017_BARE_FN:-strip_bare_tool_calls}"
-util=$(gh_owner "$OA_REPO" api "repos/$OA_REPO/contents/crates/zeroclaw-channels/src/util.rs?ref=$OA_REF" --jq '.content' 2>/dev/null | base64 -d)
-[ -n "$util" ] || { echo "CANNOT RUN: could not read util.rs at $OA_REF -- credential/path fault, NOT a finding"; exit 97; }
 
-# POSITIVE CONTROL. If the tag scrubber is not in the file we fetched, we are
-# reading the wrong file and an absence below would be manufactured.
-printf '%s\n' "$util" | grep -q 'fn strip_tool_call_tags' || {
-  echo "CANNOT RUN: util.rs at $OA_REF has no strip_tool_call_tags -- wrong file or moved; refusing to report an absence"; exit 97; }
-
-printf '%s\n' "$util" | grep -q "fn $BARE_FN" || {
-  echo "FAIL: no \`$BARE_FN\` in util.rs. strip_tool_call_tags keys off seven XML open tags"
-  echo "      only, so a bare \`name(args)\` reply reaches the customer on EVERY shipped"
-  echo "      channel, including those that already scrub. This is the defect D017 was"
-  echo "      filed for; limb A's green covers the tag form only. See the SCOPE NOTE."
-  exit 1; }
-
-# LIMB B COUNTS ITS OWN READS. It must not inherit limb A's $checked.
+# LIMB B WAS REMOVED 2026-08-12, AND THE REASON MATTERS MORE THAN THE REMOVAL.
 #
-# TNM demonstrated the hole 2026-08-11: an empty read hit `continue`, limb B
-# kept no counter, and the success line printed limb A's number -- so with every
-# read returning empty it printed "all 6 shipped send paths also scrub" having
-# examined ZERO. That is my own D004 finding one limb over, and the (b)
-# precondition on this row already warns that a wrong-account read returns empty
-# everywhere. Limb A turns that into "examined 0"; limb B turned it into green.
+# Limb B asserted a scrubber named `strip_bare_tool_calls` in util.rs, called by
+# every shipped send path, and carried the note "EXPECTED TO BE RED UNTIL THE FIX
+# IS BUILT". The fix WAS built -- and deliberately not in that shape.
 #
-# UNREADABLE is tracked separately from ABSENT, because a credential fault is
-# not a finding about the code.
-bare_missing=""
-bare_unread=""
-bare_checked=0
-for ch in $shipped; do
-  for f in $(src_files_for "$ch"); do
-    body=$(gh_owner "$OA_REPO" api "repos/$OA_REPO/contents/crates/zeroclaw-channels/src/${f}.rs?ref=$OA_REF" --jq '.content' 2>/dev/null | base64 -d)
-    [ -n "$body" ] || { bare_unread="$bare_unread $ch/$f"; continue; }
-    printf '%s\n' "$body" | grep -q "async fn send" || continue
-    bare_checked=$((bare_checked + 1))
-    printf '%s\n' "$body" | grep -q "$BARE_FN" || bare_missing="$bare_missing $ch/$f"
-  done
-done
-
-# EXAMINED-COUNT CONTROL. Zero reads is never a pass.
-[ "$bare_checked" -gt 0 ] || {
-  echo "CANNOT RUN: limb B examined 0 send paths -- it is measuring nothing"
-  [ -n "$bare_unread" ] && echo "            COULD NOT READ:$bare_unread -- credential/path fault, NOT a finding"
-  exit 97; }
-
-# The two limbs must have seen the same surface. A divergence means one of them
-# is reading a different set and neither number can be trusted.
-[ "$bare_checked" -eq "$checked" ] || {
-  echo "CANNOT RUN: limb A examined $checked send path(s), limb B examined $bare_checked."
-  echo "            The limbs disagree about the shipped surface; neither count is trustworthy."
-  [ -n "$bare_unread" ] && echo "            COULD NOT READ:$bare_unread"
-  exit 97; }
-
-[ -z "$bare_missing" ] || { echo "FAIL: \`$BARE_FN\` exists but these shipped send paths do not call it:$bare_missing"; echo "      (examined $bare_checked send paths)"; exit 1; }
-echo "LIMB B OK: all $bare_checked shipped send paths also scrub the bare paren form"
+# v1018-D038 (`ostler-ai/ostler-assistant#299`, merged 2026-08-10) closes the
+# bare `name(args)` defect by RECOGNISING the call rather than scrubbing it:
+# `parse_bare_function_call_syntax` in the parser crate, whose candidates are
+# filtered against `tools_registry` so a name only promotes to a real call when
+# it matches a registered tool and spans the whole reply. D038's row states the
+# product reason for rejecting the scrubber outright:
+#
+#     "Scrubbing alone is the wrong answer and must not be the fix. It turns a
+#      wrong answer into a blank one: the customer asked about a person, the
+#      assistant tried to look them up, and scrubbing would leave them with
+#      silence."
+#
+# So limb B demanded an artefact that a correct fix must NOT produce. Measured
+# 2026-08-12 on oa main: `strip_bare_tool_calls` 0 hits,
+# `parse_bare_function_call_syntax` 3 hits, and the D038 gate GREEN on all three
+# of its invariants. Limb B would have stayed RED forever against a working
+# product, and the `D017_BARE_FN` override could not have rescued it: the SHAPE
+# differs, not merely the name.
+#
+# Limb B's own closing note anticipated this exactly -- "If a different name is
+# chosen, change it HERE in the same PR. A gate that cannot be satisfied by a
+# correct fix is worse than no gate." This is that PR. The defect it was standing
+# guard over is not dropped: v1018-D038 owns it and has a gate that fires.
+#
+# This row is now what its own SCOPE NOTE always said it was: the channel-scrub
+# WIRING invariant, and nothing more.
 ```
 
 ### v1018-D003 -- the blocking gate must authenticate, not read 401 as absent data
@@ -806,10 +880,17 @@ that box exists rather than being approximated here.
 
 ```gate id=v1018-D003 expect=0 runs-on=box
 TP="${OSTLER_SERVICE_TOKEN_PATH:-$HOME/.ostler/secrets/service_token}"
-[ -r "$TP" ] || { echo "FAIL: service token unreadable at $TP -- cannot test the contract"; exit 1; }
+# IT SAID SO ITSELF. The old line ended "-- cannot test the contract" and then
+# exit 1, which the runner reads as "the defect is present". The English was
+# right and the exit code contradicted it, exactly as D002 did before it.
+[ -r "$TP" ] || { echo "CANNOT-RUN: service token unreadable at $TP -- cannot test the contract (v1018-D003)"; exit 97; }
 un=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://localhost:8090/api/v1/people/search?q=test" 2>/dev/null)
 au=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 -H "Authorization: Bearer $(cat "$TP")" "http://localhost:8090/api/v1/people/search?q=test" 2>/dev/null)
+# 000 is curl saying it never got an answer. A daemon that is not running has
+# not "regressed store-auth"; it has not been asked.
+case "${un:-}" in 000|"") echo "CANNOT-RUN: no HTTP response from the daemon on :8090 -- store-auth cannot be judged (v1018-D003)"; exit 97 ;; esac
 [ "$un" = "401" ] || { echo "FAIL: unauthenticated people/search returned $un, expected 401 -- store-auth has regressed"; exit 1; }
+case "${au:-}" in 000|"") echo "CANNOT-RUN: no HTTP response from the daemon on :8090 (authenticated probe) (v1018-D003)"; exit 97 ;; esac
 [ "$au" = "200" ] || { echo "FAIL: authenticated people/search returned $au, expected 200 -- the gate would read this as absent data (the D003 defect)"; exit 1; }
 ```
 
@@ -832,10 +913,47 @@ unfilled placeholders and 29 metadata-only summaries:
 metadata and no `### Narrative` prose. See CM051 #547 for why that is the real symptom.
 
 ```gate id=v1018-D014 expect=0 runs-on=box
-W="$HOME/Documents/Ostler/Wiki"
-C="$HOME/Documents/Ostler/Conversations"
-[ -d "$W" ] || { echo "FAIL: $W absent -- a gate that passes because the data is missing is not a gate"; exit 1; }
-[ -d "$C" ] || { echo "FAIL: $C absent -- conversation artefacts are a customer surface too"; exit 1; }
+# THE DIRECTORIES ARE RESOLVED, AND AN ABSENT ONE IS CANNOT-RUN, NOT A DEFECT.
+#
+# The previous body opened with
+#
+#     [ -d "$W" ] || { echo "FAIL: $W absent -- a gate that passes because the
+#                      data is missing is not a gate"; exit 1; }
+#
+# The instinct is right and the exit code is wrong. "The wiki was never
+# compiled" and "the wiki is full of LLM slop" are different claims, and this
+# row is the second one. A Hub where the compiler has not run yet, or a fresh
+# install, reported THIS row's defect. That is the same red-unearned shape
+# already fixed on D023, D003, D009 and D016 limb A, and the mirror of D010's
+# green-without-looking.
+#
+# exit 97 keeps the original intent intact: a cut still does not proceed, and
+# the message says plainly that this is not a pass. What changes is that it no
+# longer accuses the product of a defect it never measured.
+W="${OSTLER_WIKI_DIR:-$HOME/Documents/Ostler/Wiki}"
+C="${OSTLER_CONV_DIR:-$HOME/Documents/Ostler/Conversations}"
+
+[ -d "$W" ] || { echo "CANNOT-RUN: no wiki at $W -- not compiled on this box, or a fresh install. Nothing was examined, so this is NOT a pass. (v1018-D014)"; exit 97; }
+[ -d "$C" ] || { echo "CANNOT-RUN: no conversations at $C -- nothing was examined, so this is NOT a pass. (v1018-D014)"; exit 97; }
+
+# EXAMINED-COUNT CONTROLS. THIS ROW'S OWN HISTORY IS THE ARGUMENT FOR THEM:
+# the previous form reported `a=249 b=0 c=0` on a box that carried 6 files with
+# unfilled placeholders and 29 metadata-only summaries, because two of the three
+# sub-predicates were looking somewhere the defect was not. A zero from a
+# predicate that examined nothing is indistinguishable from a clean bill of
+# health -- see the "0 violations over 0 files" cases this file has hit twice.
+# So each population is counted BEFORE it is judged, and an empty one refuses.
+n_w=$(find "$W/People" -type f 2>/dev/null | wc -l | tr -d ' ')
+[ "${n_w:-0}" -gt 0 ] || { echo "CANNOT-RUN: 0 files under $W/People -- the wiki carries no person pages, so predicate (a) would report a vacuous 0. This is NOT a pass. (v1018-D014)"; exit 97; }
+
+# The CURRENT-layout population, which is the only one that can be a shipping
+# defect: cm048_pipeline/src/conversation_writer.py::_resolve_folder returns
+# `base / date_part / folder_name` unconditionally, so the shipping writer
+# CANNOT emit a top-level .md. Flat files predate it and are migration debris.
+n_c=$(find "$C" -mindepth 2 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+[ "${n_c:-0}" -gt 0 ] || { echo "CANNOT-RUN: 0 conversation artefacts in the current <date>/<slug>/ layout under $C -- predicates (b) and (c) would report a vacuous 0. This is NOT a pass. (v1018-D014)"; exit 97; }
+echo "examined: $n_w wiki person file(s), $n_c current-layout conversation artefact(s)"
+
 a=$(grep -rlE '<div class="pw-summary"><p>[0-9]+$' "$W/People/" 2>/dev/null | wc -l | tr -d ' ')
 # Split on the same axis as `c` below, and for the same reason: a
 # placeholder in a flat legacy artefact is a remnant, one in the Wiki or in
@@ -845,23 +963,6 @@ a=$(grep -rlE '<div class="pw-summary"><p>[0-9]+$' "$W/People/" 2>/dev/null | wc
 b=$(grep -rlE '\{[a-z][a-z0-9_]*\}' "$W/" 2>/dev/null | wc -l | tr -d ' ')
 b=$((b + $(find "$C" -mindepth 2 -name '*.md' -exec grep -lE '\{[a-z][a-z0-9_]*\}' {} + 2>/dev/null | wc -l | tr -d ' ')))
 b_legacy=$(find "$C" -maxdepth 1 -name '*.md' -exec grep -lE '\{[a-z][a-z0-9_]*\}' {} + 2>/dev/null | wc -l | tr -d ' ')
-# The conversation check used to be `for f in "$C"/*.md` -- ONE directory
-# level, no descent. It therefore counted only the flat top-level files and
-# never saw the artefacts the shipping writer actually produces, which live
-# at <date>/<slug>-<short-id>/. On the founder box that is 131 flat files
-# examined and 393 nested files ignored.
-#
-# The two populations are NOT the same thing, established at source:
-# cm048_pipeline/src/conversation_writer.py::_resolve_folder returns
-# `base / date_part / folder_name` unconditionally, with date_part falling
-# back to "unknown" when started_at is empty. There is no flat branch. The
-# shipping writer CANNOT emit a top-level .md, so every flat file predates
-# it and is a migration remnant, not current output.
-#
-# Counting them together let a remnant be reported as a shipping defect --
-# and hid the fact that the 393 files the current writer DID produce have
-# zero of either symptom. Counted separately now: `c` is the shipping
-# verdict and fails the gate; `legacy` is reported for cleanup and does not.
 c=0
 legacy=0
 while IFS= read -r f; do
@@ -889,8 +990,15 @@ fi
 
 ```gate id=v1018-D019 expect=0 runs-on=box
 L=com.creativemachines.ostler.whatsapp-bundle
-ec=$(launchctl print "gui/$(id -u)/$L" 2>/dev/null | grep -oE 'last exit code = [0-9]+' | grep -oE '[0-9]+$')
-[ "${ec:-0}" = "0" ] && exit 0
+# AN UNLOADED AGENT IS NOT A HEALTHY ONE. `launchctl print` fails when the
+# label is not loaded, the greps then yield nothing, and `${ec:-0}` turned that
+# empty string into "0" -- a clean exit code the service never reported. The
+# gate went GREEN on a box where the WhatsApp bundle was not installed at all.
+lp=$(launchctl print "gui/$(id -u)/$L" 2>/dev/null); lprc=$?
+[ "$lprc" -eq 0 ] || { echo "CANNOT-RUN: $L is not loaded in this user's launchd domain (launchctl rc=$lprc) -- nothing to judge (v1018-D019)"; exit 97; }
+ec=$(printf '%s\n' "$lp" | grep -oE 'last exit code = [0-9]+' | grep -oE '[0-9]+$')
+[ -n "$ec" ] || { echo "CANNOT-RUN: $L is loaded but reports no last exit code yet (v1018-D019)"; exit 97; }
+[ "$ec" = "0" ] && exit 0
 se=$(stat -f %z "$HOME/.ostler/logs/whatsapp-bundle.err" 2>/dev/null || echo 0)
 sl=$(stat -f %z "$HOME/.ostler/logs/whatsapp-bundle.log" 2>/dev/null || echo 0)
 [ "$se" -gt 0 ] || [ "$sl" -gt 0 ] \
@@ -901,7 +1009,12 @@ sl=$(stat -f %z "$HOME/.ostler/logs/whatsapp-bundle.log" 2>/dev/null || echo 0)
 
 ```gate id=v1018-D020 expect=0 runs-on=box
 L=com.creativemachines.ostler.email-bundle
-ec=$(launchctl print "gui/$(id -u)/$L" 2>/dev/null | grep -oE 'last exit code = [-0-9]+' | grep -oE '[-0-9]+$')
+# Same as D019: an unloaded label produced an empty $ec, `${ec:-0}` read it as
+# a clean 0, the case matched nothing and the body fell through to GREEN.
+lp=$(launchctl print "gui/$(id -u)/$L" 2>/dev/null); lprc=$?
+[ "$lprc" -eq 0 ] || { echo "CANNOT-RUN: $L is not loaded in this user's launchd domain (launchctl rc=$lprc) -- nothing to judge (v1018-D020)"; exit 97; }
+ec=$(printf '%s\n' "$lp" | grep -oE 'last exit code = [-0-9]+' | grep -oE '[-0-9]+$')
+[ -n "$ec" ] || { echo "CANNOT-RUN: $L is loaded but reports no last exit code yet (v1018-D020)"; exit 97; }
 case "${ec:-0}" in
   -9|137)
     grep -qE 'email-bundle.*(killed|SIGKILL|terminated)' "$HOME/.ostler/logs/"*.log 2>/dev/null \
@@ -912,8 +1025,30 @@ esac
 ### v1018-D023 — Doctor front door must not 404
 
 ```gate id=v1018-D023 expect=0 runs-on=box
-code=$(curl -sS -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8089/')
-case "$code" in 200|301|302) ;; *) echo "FAIL: Doctor / returned $code"; exit 1 ;; esac
+# "NO ANSWER" IS NOT "404". Measured 2026-08-12.
+#
+# The old body had one catch-all arm: anything that was not 200/301/302 became
+# `FAIL: Doctor / returned $code`. But curl writes %{http_code} as 000 when it
+# never got an HTTP response at all -- Doctor not running, port closed, daemon
+# mid-restart, curl missing from a non-interactive ssh PATH. Measured: nothing
+# listening gives code=000, curl rc=7, and the old case fell to the FAIL arm.
+#
+# So a Hub where the Doctor was simply DOWN reported this row's defect, which
+# is "the Doctor front door 404s". Those are different claims, and this one is
+# worse than a plain false positive: 459aee8c is the fix FOR this row, so a
+# false RED here reads as "the front-door fix did not work".
+#
+# Same shape the runner already names on D016 -- "RED always, with a product
+# message it had not earned" -- and the exact mirror of D010, which went GREEN
+# when it could not look. 000 means we did not get to ask the question, so it
+# is CANNOT-RUN (97), not a verdict.
+code=$(curl -sS -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8089/' 2>/dev/null)
+rc=$?
+case "$code" in
+  200|301|302) exit 0 ;;
+  000|"")      echo "CANNOT-RUN: no HTTP response from 127.0.0.1:8089 (curl rc=$rc) -- the Doctor is not answering, so its front door cannot be judged (v1018-D023)"; exit 97 ;;
+  *)           echo "FAIL: Doctor / returned $code"; exit 1 ;;
+esac
 ```
 
 ### v1018-D007 — the hydration surface is backed by an endpoint that substantiates it
@@ -985,13 +1120,41 @@ print("OK: %d phases, overall_state=%s, each substantiated for its state" % (len
 ### v1018-D010 — no background painted on wiki h2 headings
 
 ```gate id=v1018-D010 expect=0 runs-on=box
-docker exec ostler-wiki-site sh -c \
-  'grep -nE "^\.pw-doc \.pw-h2\{background" /site/build-*/stylesheets/extra.css' >/dev/null 2>&1 \
-  && { echo "FAIL: bare .pw-doc .pw-h2 background rule still collides with the section-heading class"; exit 1; }
-exit 0
+# THIS GATE USED TO RETURN GREEN WITHOUT LOOKING. Measured 2026-08-12.
+#
+# The old body was `docker exec ... >/dev/null 2>&1 && { echo FAIL; exit 1; }`.
+# When `docker` is not on PATH -- which is exactly what happened to every box
+# gate, because a non-interactive ssh shell does not source the login profile
+# and docker is a Homebrew binary -- the command fails, the `&&` never fires,
+# and the body falls through to `exit 0`. GREEN. It reported the defect FIXED
+# having never opened the file, and `>/dev/null 2>&1` swallowed the reason.
+#
+# Proven, not argued: running the old body with docker off PATH gives rc=0 and
+# empty output. The runner expects 0, so it printed GREEN.
+#
+# This matters more than one row: the registry cites D010 as its model negative
+# control ("pre-fix -> RED, fixed -> GREEN, shown in CM044 #171"). That control
+# was demonstrated in a shell that HAD docker. The control was real; the
+# environment it was proved in was not the one it runs in.
+#
+# grep's exit code IS the verdict, so it must not be discarded:
+#   0  -> the colliding rule is present  -> defect present, FAIL
+#   1  -> no match                       -> defect absent, PASS
+#   >1 -> grep errored, or docker could not run it (126/127, container down,
+#         build path gone) -> WE DID NOT LOOK. rc=97 is the runner's declared
+#         CANNOT-RUN vocabulary, and it is NOT a pass.
+out=$(docker exec ostler-wiki-site sh -c \
+  'grep -nE "^\.pw-doc \.pw-h2\{background" /site/build-*/stylesheets/extra.css' 2>&1)
+rc=$?
+case "$rc" in
+  0) echo "FAIL: bare .pw-doc .pw-h2 background rule still collides with the section-heading class"
+     printf '%s\n' "$out"; exit 1 ;;
+  1) exit 0 ;;
+  *) echo "CANNOT-RUN: could not evaluate the rule (rc=$rc)"; printf '%s\n' "$out"; exit 97 ;;
+esac
 ```
 
-### v1018-D016 -- type scale not inflated, on BOTH surfaces the row names
+### v1018-D016 -- type scale not inflated, and the gate was measuring the wrong bundle
 
 **SCOPE CORRECTED 2026-08-11.** The row says "Wiki body text **+ everything
 sitewide** MASSIVE" and cites task #224, which is about the **app SPA**, not the
@@ -999,69 +1162,133 @@ wiki. The gate covered only the wiki, and its own heading said so. So a PASS was
 answering half the row and being read as answering all of it. The wiki limb was
 correct and is unchanged; a second limb now measures the app surface.
 
-**WHICH SURFACE THE APP ACTUALLY RENDERS, resolved from runtime config rather
-than from `strings`.** `apps/tauri/tauri.conf.json` sets
+**PREMISE CORRECTED 2026-08-12, and this is the more serious of the two.** Limb
+B pointed at
 
-    build.frontendDist = ../../web/dist
-    build.devUrl       = http://127.0.0.1:42617/_app/
+    ~/.ostler/OstlerAssistant.app/Contents/Resources/web/dist
 
-`frontendDist` means Tauri **embeds** the built frontend and serves it from
-`tauri://localhost`. `devUrl` is dev-only, and it is where the dead `42617` port
-in the shipped binary comes from (task #170): harmless in a production build,
-because nothing reads it there. This matters because the earlier reading of this
-question was made from `strings` output alone, which showed both a
-`tauri://localhost` and a `http://127.0.0.1:8000` and could not distinguish
-them. Resolve the executing surface from the runtime config. Same lesson as
-D035.
+and its comment claimed that was the Tauri app's embedded frontend, resolved
+from `apps/tauri/tauri.conf.json` (`frontendDist = ../../web/dist`, served from
+`tauri://localhost`). **That bundle is not the app. It is the DAEMON.** Measured
+on the box:
 
-**MEASURED ON THE BOX 2026-08-11.** The shipped SPA stylesheet is
-`~/.ostler/OstlerAssistant.app/Contents/Resources/web/dist/assets/index-*.css`,
-58,668 bytes, 71 `font-size` declarations. The scale is fully tokenised:
+    CFBundleIdentifier   ai.ostler.assistant
+    LSUIElement          true            background agent, it has no window
+    linked libraries     5, none of them WebKit
+    strings              daemon config schema, gateway, provider list
+
+The `tauri://localhost` inside it is the gateway's **Host-header allowlist for
+DNS-rebind protection**, not evidence of a WebView. The row already recorded
+that reading the executing surface out of `strings` was the earlier mistake
+here; resolving it from a config file in the SOURCE repo, and then never
+checking which BUNDLE on the box that config produced, reproduced the same error
+one level up.
+
+**The GUI is a different bundle:**
+
+    /Applications/Ostler.app
+    CFBundleIdentifier   ai.creativemachines.ostler-hub
+    executable           ostler-hub, WebKit-linked
+    assets               COMPILED IN, not files on disk
+    OSTLER_HUB_BUILD_COMMIT  782a6195
+
+**THE TWO FRONTENDS ALREADY DISAGREE.** Measured the same minute:
+
+    GUI     index-BKje6gr0.js   +   index-C3vVbOBz.css
+    daemon  index-BJGHlmN_.js   +   index-C3vVbOBz.css
+
+**Same stylesheet, different script.** Vite content-hashes these filenames, so
+an equal name means equal bytes: the daemon's on-disk copy is a faithful stand
+in for the compiled-in stylesheet TODAY, which is why the old limb B's verdict
+was nonetheless correct for the surface Andy actually looks at. It was right by
+luck, not by construction. The JS shows the two payloads can and do drift, and
+nothing stopped the CSS drifting the same way, at which point the old limb would
+have reported a confident verdict about a file nothing renders.
+
+So the limb now resolves the stylesheet NAME out of the GUI binary's embedded
+asset registry and **refuses (97) unless the daemon copy carries that exact
+content hash.** Divergence becomes a loud cannot-run instead of a wrong answer.
+
+**BOTH LIMBS NOW ALWAYS RUN, WORST VERDICT WINS.** The old body ran limb A first
+and exited on its result, so a CANNOT-RUN from limb A silently deleted the
+app-surface measurement, which is the exact limb the scope correction added.
+Measured 2026-08-12: limb A returned 97 (docker is not on a non-interactive ssh
+PATH) on a box where the app surface was perfectly measurable. FAIL beats
+CANNOT-RUN beats PASS, so neither limb can launder the other.
+
+**MEASURED ON THE BOX 2026-08-12, re-run rather than inherited.** The shipped
+stylesheet is 58,668 bytes with 71 `font-size` declarations, fully tokenised:
 
     --fs-micro 10   --fs-caption 11   --fs-caption-lg 12   --fs-body-sm 13
     --fs-body  14   --fs-body-lg 16   --fs-heading-sm  18  --fs-heading-md 20
     --fs-heading-lg 24                --fs-display     28
 
-`body{font-size:var(--fs-body)}`, so body text is **14px**, and there are
-**zero** raw-px `font-size` declarations. Task #224's untokenised 10-24px scale
-is genuinely gone. Nothing here is "MASSIVE".
+`body{font-size:var(--fs-body)}`, so body text is **14px**, and no literal in
+the file renders above 16px. Task #224's untokenised 10-24px scale is genuinely
+gone. Nothing here is "MASSIVE", on either surface the row names.
 
-**WHY THE GATE ASSERTS "TOKENISED" AND NOT THE ROW'S LITERAL "no raw px text >
-24px".** Taken literally that criterion fails on `--fs-display:28px`, which is
-an ordinary display-heading size and not a defect. Fitting the threshold to make
-the current build pass would be encoding the answer into the gate. So the limb
-asserts the two things the defect was actually about: body text stays at or
-below 18px, and the scale is expressed in tokens rather than raw px. A genuine
-blow-out fails both.
+**WHY THE GATE DOES NOT USE THE ROW'S LITERAL "no raw px text > 24px".** Taken
+literally that fails on `--fs-display:28px`, an ordinary display-heading size.
+Fitting the threshold to make the current build pass would be encoding the
+answer into the gate. The limb asserts the two things the defect was actually
+about: body text at or below 18px, and nothing rendering above a 32px ceiling in
+any unit.
 
-**CONTROLS, all six run on the box before this was written:**
+**CONTROLS, all fifteen run on the box 2026-08-12 before this was written:**
 
-    shipped build                     PASS  (71 declarations examined)
-    inject `.leak{font-size:42px}`    FAIL  raw-px declaration detected
-    set --fs-body to 32px             FAIL  above the 18px body ceiling
-    delete the --fs-body token        FAIL  no body token defined
-    point at an absent directory      97    CANNOT-RUN, not a pass
-    empty stylesheet                  97    CANNOT-RUN, not a vacuous green
+| # | control | rc |
+|---|---|---|
+| 0 | shipped artefact, unmodified | **0 PASS** |
+| 1 | inject `.leak{font-size:42px}` | 1 |
+| 2 | `--fs-body` set to 32px | 1 |
+| 3 | `--fs-body` token deleted | 1 |
+| 4 | `4rem` = 64px (TNM's rem hole) | 1 |
+| 5 | `3em` = 48px | 1 |
+| 6 | `400%` = 64px | 1 |
+| 7 | `--fs-display:5rem` = 80px | 1 |
+| 8 | absent SPA dist | 97 |
+| 9 | empty stylesheet | 97 |
+| 10 | absent GUI bundle | 97 |
+| 11 | GUI binary names no stylesheet | 97 |
+| 12 | GUI binary names two stylesheets | 97 |
+| 13 | GUI and daemon stylesheets diverged | 97 |
+| 14 | limb A toolchain down | **97, and limb B still measured and reported** |
 
-The last two are the ones that matter most: `find`-shaped gates in this file
-have twice reported "0 violations" over 0 examined files.
+Controls 4 to 6 are the unit hole TNM demonstrated 2026-08-11: a stylesheet
+where everything is `4rem` is literally "everything sitewide MASSIVE" and the
+first version of this limb passed it with "raw px declarations: 0", because it
+counted NOTATION instead of measuring SIZE. Same family as this row's original
+false RED, which required a selector and its declaration on one line. Controls 8
+to 13 are the ones that matter most: `find`-shaped gates in this file have twice
+reported "0 violations" over 0 examined files, and 8 and 13 are deliberately
+distinguished so that "there is no dist" never reports as "the frontends have
+diverged".
 
-**A SEPARATE DEFECT FOUND WHILE MEASURING THIS, deliberately NOT folded into
-D016.** The daemon at `:8000` serves its SPA index but **cannot serve the SPA's
-assets**. Measured on the box over loopback, not over the LAN:
+**WHAT THIS LIMB NO LONGER CATCHES, stated rather than buried.** Moving from
+"count raw px literals" to "nothing renders above 32px" is a real loosening: raw
+px DRIFT alongside the tokens now passes. Every value in task #224's original
+scale was 24px or less, comfortably inside the ceiling, so only the total
+absence of tokens gives that defect away, and B1 catches that. Accepted
+deliberately, because this row is about things being MASSIVE and a ceiling
+measures massive. If #224 recurs, add a non-blocking raw-px count beside this so
+drift is visible without failing a cut on a 20px literal.
+
+**A SEPARATE DEFECT, deliberately NOT folded into D016, re-verified live
+2026-08-12.** The daemon at `:8000` serves its SPA index but **cannot serve the
+SPA's assets**. Measured on the box over loopback, not over the LAN:
 
     GET /                            200  text/html  508
     GET /assets/index-BJGHlmN_.js    200  text/html  508
     GET /assets/index-C3vVbOBz.css   200  text/html  508
 
 All three return the same 508-byte index page, i.e. the catch-all, although both
-asset files exist on disk under `Contents/Resources/web/dist/assets/`. A browser
-pointed at `:8000` therefore gets no CSS and no JS and renders unstyled at the
-UA default size, which looks exactly like this row's symptom. It is not this
-row's cause, because the app does not load from `:8000`. It IS a live trap for
-task #228, which wants Ostler.app to stop embedding and "ALWAYS load from daemon
-:8000": executing #228 today would migrate a working embedded frontend onto a
-broken served one. Filed separately rather than smuggled into a green.
+asset files exist on disk. A browser pointed at `:8000` therefore gets no CSS
+and no JS and renders unstyled at the UA default size, **which looks exactly
+like this row's symptom**. It is not this row's cause, because the app renders
+its own compiled-in copy. It IS a live trap for task #228, which wants Ostler.app
+to stop embedding and "ALWAYS load from daemon :8000": executing #228 today would
+migrate a working embedded frontend onto a broken served one. Tracked as task
+#319, filed separately rather than smuggled into a green.
 
 ### v1018-D016 -- wiki limb: type scale not inflated in a standalone browser
 
@@ -1102,117 +1329,173 @@ formatting accident, and it additionally holds the **unscoped** requirement that
 
 B and C are the two ways this defect can come back, and the gate catches both.
 A green here is therefore load-bearing, which the old one's green never was.
-
 ```gate id=v1018-D016 expect=0 runs-on=box
-CSS=$(docker exec ostler-wiki-site sh -c 'ls -d /site/build-*/stylesheets/extra.css 2>/dev/null | tail -1')
-[ -n "$CSS" ] || { echo "FAIL(tooling): no extra.css in ostler-wiki-site -- toolchain, not defect"; exit 1; }
-docker exec ostler-wiki-site sh -c "awk '
-  /^html[[:space:]]*\{/ { inblk=1; next }
-  inblk && /font-size:[[:space:]]*100%/ { found=1 }
-  inblk && /\}/ { inblk=0 }
-  END { exit !found }
-' $CSS" \
-  || { echo "FAIL: no UNSCOPED html{ ... font-size:100% ... } -- browser view still inherits Material 125%"; exit 1; }
-echo "LIMB A (wiki) PASS"
+# BOTH LIMBS ALWAYS RUN, AND THE WORST VERDICT WINS.
+#
+# The previous body ran limb A first and exited on its result, so a CANNOT-RUN
+# from limb A (docker down, container gone) silently removed the APP-surface
+# measurement -- the very limb the 2026-08-11 scope correction added because the
+# row names the app and the gate only covered the wiki. A toolchain outage on
+# the wiki side must not decide the app question. Measured 2026-08-12: limb A
+# returned 97 on a box where the app surface was perfectly measurable.
+#
+# FAIL beats CANNOT-RUN beats PASS, so neither limb can launder the other.
 
 # ---------------------------------------------------------------------------
-# LIMB B -- the APP SPA surface, which the row named and the gate did not cover.
-#
-# The app renders its EMBEDDED frontend (tauri.conf.json frontendDist =
-# ../../web/dist, served from tauri://localhost), so the stylesheet that governs
-# what Andy sees is the one shipped inside the app bundle, NOT anything the
-# daemon serves over :8000. Point the gate at the artefact that executes.
+# LIMB A -- the WIKI surface in a standalone browser.
 # ---------------------------------------------------------------------------
-SPA="${OSTLER_SPA_DIST:-$HOME/.ostler/OstlerAssistant.app/Contents/Resources/web/dist}"
-[ -d "$SPA/assets" ] || { echo "CANNOT RUN: no SPA assets dir at $SPA/assets. This is not a pass."; exit 97; }
-css=$(ls "$SPA"/assets/index-*.css 2>/dev/null | head -1)
-[ -n "$css" ] || { echo "CANNOT RUN: no index-*.css under $SPA/assets. This is not a pass."; exit 97; }
+limb_a() {
+	CSS=$(docker exec ostler-wiki-site sh -c 'ls -d /site/build-*/stylesheets/extra.css 2>/dev/null | tail -1')
+	[ -n "$CSS" ] || { echo "A: CANNOT-RUN: no extra.css in ostler-wiki-site -- toolchain, not defect. This is not a pass. (v1018-D016)"; return 97; }
+	# awk's exit code is the verdict (0 found, 1 not found). Anything else means
+	# docker never ran it -- no docker on a non-interactive ssh PATH, container
+	# down, path gone.
+	docker exec ostler-wiki-site sh -c "awk '
+	  /^html[[:space:]]*\{/ { inblk=1; next }
+	  inblk && /font-size:[[:space:]]*100%/ { found=1 }
+	  inblk && /\}/ { inblk=0 }
+	  END { exit !found }
+	' $CSS"
+	arc=$?
+	case "$arc" in
+		0) ;;
+		1) echo "A: FAIL: no UNSCOPED html{ ... font-size:100% ... } -- browser view still inherits Material 125%"; return 1 ;;
+		*) echo "A: CANNOT-RUN: could not evaluate $CSS in ostler-wiki-site (rc=$arc). This is not a pass. (v1018-D016)"; return 97 ;;
+	esac
+	echo "A: LIMB A (wiki) PASS"
+	return 0
+}
 
-# EXAMINED-COUNT CONTROL. A stylesheet whose format has drifted would yield zero
-# matches and report a clean bill of health over nothing examined.
-decls=$(tr '}' '\n' < "$css" | grep -cE 'font-size:')
-echo "examined: $decls font-size declaration(s) in $(basename "$css")"
-[ "${decls:-0}" -ge 20 ] || { echo "CANNOT RUN: only ${decls:-0} font-size declarations -- format drifted, gate is blind. This is not a pass."; exit 97; }
+# ---------------------------------------------------------------------------
+# LIMB B -- the APP surface.
+#
+# WHICH BUNDLE IS "THE APP", MEASURED 2026-08-12 rather than assumed.
+# The previous body pointed at
+#     ~/.ostler/OstlerAssistant.app/Contents/Resources/web/dist
+# and its comment claimed that was the Tauri app's embedded frontend. IT IS NOT.
+# That bundle is the DAEMON:
+#     CFBundleIdentifier  ai.ostler.assistant
+#     LSUIElement         true          (background agent, no window)
+#     linked libraries    5, none of them WebKit
+#     strings             daemon config schema, gateway, provider list
+# The `tauri://localhost` inside it is the gateway's Host-header ALLOWLIST for
+# DNS-rebind protection, not evidence of a WebView. Reading that string as
+# "this is the Tauri app" is the same mistake the row already recorded once.
+#
+# The GUI is a DIFFERENT bundle:
+#     /Applications/Ostler.app
+#     CFBundleIdentifier  ai.creativemachines.ostler-hub
+#     executable          ostler-hub, WebKit-linked
+#     assets              COMPILED IN (index-*.js / index-*.css, brotli, not files)
+#
+# So the stylesheet that governs what Andy sees is the one compiled into
+# /Applications/Ostler.app, and it CANNOT be read off disk. What can be read is
+# the asset NAME in the embedded registry, and Vite content-hashes that name.
+# Equal name therefore means equal bytes, which lets the on-disk daemon copy
+# stand in for the compiled-in one -- but ONLY once that equality is checked.
+#
+# THIS IS NOT THEORETICAL. On the box today the two frontends already disagree:
+#     GUI    index-BKje6gr0.js  +  index-C3vVbOBz.css
+#     daemon index-BJGHlmN_.js  +  index-C3vVbOBz.css
+# Same CSS, DIFFERENT JS. The old limb B measured the daemon's copy while
+# claiming to measure the GUI's, and it was right today only by luck. When the
+# CSS diverges the way the JS already has, this limb REFUSES instead of
+# reporting a verdict about a file nothing renders.
+# ---------------------------------------------------------------------------
+limb_b() {
+	GUI="${OSTLER_GUI_APP:-/Applications/Ostler.app}"
+	SPA="${OSTLER_SPA_DIST:-$HOME/.ostler/OstlerAssistant.app/Contents/Resources/web/dist}"
 
-# B1. Body text stays at or below 18px. This is the row's own criterion.
-fsbody=$(tr '{;' '\n\n' < "$css" | grep -oE '^[[:space:]]*--fs-body:[0-9]+px' | grep -oE '[0-9]+' | head -1)
-[ -n "$fsbody" ] || { echo "FAIL: no --fs-body px token defined -- the type scale has no body anchor"; exit 1; }
-echo "--fs-body = ${fsbody}px"
-[ "$fsbody" -le 18 ] || { echo "FAIL: --fs-body is ${fsbody}px, above the 18px body ceiling (v1018-D016)"; exit 1; }
+	[ -d "$GUI" ] || { echo "B: CANNOT RUN: no GUI bundle at $GUI -- cannot resolve the surface the customer looks at. This is not a pass."; return 97; }
+	gui_bin=$(ls "$GUI"/Contents/MacOS/* 2>/dev/null | head -1)
+	[ -n "$gui_bin" ] || { echo "B: CANNOT RUN: no executable in $GUI/Contents/MacOS. This is not a pass."; return 97; }
 
-# B2. NOTHING RENDERS ABOVE A 32px CEILING. Say what this asserts, because it is
-# not what it once asserted and not what the heading here used to claim.
-#
-# It began life as "the scale is TOKENISED" -- literally `raw px count == 0`, on
-# the reasoning that task #224 named a raw 10-24px scale with 18 distinct values
-# and no token system, so any raw px meant that scale was back. TNM's rem hole
-# (below) forced the move to a rendered-size ceiling, and that is a REAL
-# LOOSENING, stated rather than buried:
-#
-#   task #224's original defect  -- untokenised scale, no tokens at all
-#     still FAILS, but via B1 ("no --fs-body px token"), not here.
-#   tokens present, raw px scattered alongside, every value <= 32px
-#     now PASSES.  The old `raw == 0` predicate would have failed it.
-#
-# So the original defect is still caught, by the right limb. What is no longer
-# caught is DRIFT -- raw px creeping back in alongside the tokens, which is how
-# #224 arrived in the first place. Every value in #224's scale was 24px or less,
-# comfortably inside this ceiling; only the total absence of tokens gives it
-# away. Accepted deliberately: this row is about things being MASSIVE, and a
-# ceiling measures massive. If #224 recurs, add a non-blocking raw-px count
-# beside this so drift is visible without failing a cut on a 20px literal.
-#
-# The row's literal "no raw px > 24px" is still not the test, for the original
-# reason: it fails on --fs-display:28px, an ordinary display-heading size.
-# MEASURE THE RENDERED SIZE, NOT THE NOTATION.
-#
-# The first version of this limb counted `px` literals only. TNM demonstrated
-# the hole 2026-08-11: a stylesheet where every element is `4rem` -- 64px at a
-# 16px root, which IS "everything sitewide MASSIVE", the literal words of this
-# row -- passed with "raw px font-size declarations: 0", exit 0. Both controls
-# discriminated, so it was the gate and not the harness.
-#
-# That is the same family as this row's ORIGINAL false RED, which required the
-# selector and declaration on one line: a predicate pinned to one RENDERING of
-# the defect instead of the defect. Notation is not the defect. SIZE is.
-#
-# So every literal is normalised to px at a 16px root and compared to a ceiling:
-#
-#     Npx    -> N            Nrem -> N*16
-#     Nem    -> N*16         N%   -> N/100*16
-#
-# 32px, because the shipped scale tops out at --fs-display 28px and a genuine
-# blow-out is far above that. This is NOT fitted to make the current build pass:
-# the build has zero literals above 16px, so the ceiling could be 20 and still
-# pass. It is set where a heading stops being a heading.
-#
-# var(--*) values are exempt BY DESIGN -- that is the tokenised path this row
-# wants, and the token DEFINITIONS are checked by B1 plus the loop below.
-ceiling=32
-over=$(tr '}' '\n' < "$css" \
-  | grep -oE 'font-size:[[:space:]]*[0-9.]+(px|rem|em|%)' \
-  | grep -oE '[0-9.]+(px|rem|em|%)' \
-  | awk -v c="$ceiling" '
-      { n=$0+0; u=$0; sub(/^[0-9.]+/,"",u)
-        if (u=="px") v=n; else if (u=="rem"||u=="em") v=n*16; else if (u=="%") v=n/100*16; else next
-        if (v > c) print $0" = "v"px" }')
-n_over=$(printf '%s' "$over" | grep -c . || true)
-echo "font-size literals over ${ceiling}px: ${n_over:-0}"
-[ "${n_over:-1}" -eq 0 ] || {
-  echo "FAIL: ${n_over} font-size literal(s) render above ${ceiling}px -- this is the sitewide blow-out (v1018-D016)"
-  printf '%s\n' "$over" | sed 's/^/      /' | head -8
-  exit 1; }
+	# The embedded asset registry stores KEYS uncompressed even though the asset
+	# BODIES are brotli'd, so the name is readable. If a future toolchain stops
+	# emitting readable keys this yields nothing, and nothing must mean REFUSE.
+	gui_css=$(strings -a "$gui_bin" 2>/dev/null | grep -oE 'index-[A-Za-z0-9_-]+\.css' | sort -u)
+	n_css=$(printf '%s' "$gui_css" | grep -c . || true)
+	[ "${n_css:-0}" -eq 1 ] || { echo "B: CANNOT RUN: resolved ${n_css:-0} embedded stylesheet name(s) in $(basename "$gui_bin"), need exactly 1. This is not a pass."; printf '%s\n' "$gui_css" | sed 's/^/      /' | head -5; return 97; }
+	echo "B: GUI embeds $gui_css"
 
-# AND the token definitions themselves must not blow out, in any unit.
-tok_over=$(tr '{;' '\n\n' < "$css" \
-  | grep -oE '^[[:space:]]*--(fs|text)-[a-z0-9-]+:[[:space:]]*[0-9.]+(px|rem|em)' \
-  | grep -oE '[0-9.]+(px|rem|em)' \
-  | awk -v c="$ceiling" '{ n=$0+0; u=$0; sub(/^[0-9.]+/,"",u); v=(u=="px")?n:n*16; if (v>c) print $0" = "v"px" }')
-n_tok=$(printf '%s' "$tok_over" | grep -c . || true)
-echo "type-scale tokens over ${ceiling}px: ${n_tok:-0}"
-[ "${n_tok:-1}" -eq 0 ] || { echo "FAIL: ${n_tok} type-scale token(s) render above ${ceiling}px (v1018-D016)"; printf '%s\n' "$tok_over" | sed 's/^/      /' | head -8; exit 1; }
-echo "LIMB B (app SPA) PASS"
-exit 0
+	# ABSENT DIST AND DIVERGED DIST ARE DIFFERENT FAULTS AND MUST SAY SO.
+	# Without this the next check reports "the two frontends have DIVERGED" when
+	# the truth is there is no dist directory at all, sending the reader after a
+	# frontend-parity bug that does not exist.
+	[ -d "$SPA/assets" ] || { echo "B: CANNOT RUN: no SPA assets dir at $SPA/assets. This is not a pass."; return 97; }
+
+	# THE PARITY CHECK. The daemon's on-disk copy may only stand in for the
+	# compiled-in stylesheet when it IS the same content-hashed file.
+	css="$SPA/assets/$gui_css"
+	[ -f "$css" ] || { echo "B: CANNOT RUN: the GUI embeds $gui_css but the daemon dist at $SPA/assets does not carry it -- the two frontends have DIVERGED, and the GUI's stylesheet cannot be read off disk. This is not a pass. (task #228)"; return 97; }
+
+	# EXAMINED-COUNT CONTROL. A stylesheet whose format has drifted would yield
+	# zero matches and report a clean bill of health over nothing examined.
+	decls=$(tr '}' '\n' < "$css" | grep -cE 'font-size:')
+	echo "B: examined $decls font-size declaration(s) in $gui_css"
+	[ "${decls:-0}" -ge 20 ] || { echo "B: CANNOT RUN: only ${decls:-0} font-size declarations -- format drifted, gate is blind. This is not a pass."; return 97; }
+
+	# B1. Body text stays at or below 18px. This is the row's own criterion.
+	fsbody=$(tr '{;' '\n\n' < "$css" | grep -oE '^[[:space:]]*--fs-body:[0-9]+px' | grep -oE '[0-9]+' | head -1)
+	[ -n "$fsbody" ] || { echo "B: FAIL: no --fs-body px token defined -- the type scale has no body anchor"; return 1; }
+	echo "B: --fs-body = ${fsbody}px"
+	[ "$fsbody" -le 18 ] || { echo "B: FAIL: --fs-body is ${fsbody}px, above the 18px body ceiling (v1018-D016)"; return 1; }
+
+	# B2. NOTHING RENDERS ABOVE A 32px CEILING, in ANY unit.
+	#
+	# MEASURE THE RENDERED SIZE, NOT THE NOTATION. The first version counted `px`
+	# literals only; TNM demonstrated the hole 2026-08-11 with a stylesheet where
+	# everything is `4rem` (64px at a 16px root, literally "everything sitewide
+	# MASSIVE") that passed with "raw px declarations: 0". Same family as this
+	# row's ORIGINAL false RED, which required a selector and its declaration on
+	# one line: a predicate pinned to one RENDERING of the defect, not the defect.
+	#
+	#     Npx -> N        Nrem -> N*16        Nem -> N*16        N% -> N/100*16
+	#
+	# 32px because the shipped scale tops out at --fs-display 28px. NOT fitted to
+	# make the current build pass: the build's largest literal is 16px, so the
+	# ceiling could be 20 and still pass. It is set where a heading stops being a
+	# heading. var(--*) is exempt BY DESIGN -- that is the tokenised path this row
+	# wants, and the token DEFINITIONS are checked by B1 plus the loop below.
+	#
+	# WHAT THIS NO LONGER CATCHES, stated rather than buried: raw px DRIFT
+	# alongside the tokens. Every value in task #224's original scale was 24px or
+	# less, comfortably inside this ceiling, so only the total absence of tokens
+	# gives that defect away -- and B1 catches that. Accepted deliberately: this
+	# row is about things being MASSIVE, and a ceiling measures massive.
+	ceiling=32
+	over=$(tr '}' '\n' < "$css" \
+	  | grep -oE 'font-size:[[:space:]]*[0-9.]+(px|rem|em|%)' \
+	  | grep -oE '[0-9.]+(px|rem|em|%)' \
+	  | awk -v c="$ceiling" '
+	      { n=$0+0; u=$0; sub(/^[0-9.]+/,"",u)
+	        if (u=="px") v=n; else if (u=="rem"||u=="em") v=n*16; else if (u=="%") v=n/100*16; else next
+	        if (v > c) print $0" = "v"px" }')
+	n_over=$(printf '%s' "$over" | grep -c . || true)
+	echo "B: font-size literals over ${ceiling}px: ${n_over:-0}"
+	[ "${n_over:-1}" -eq 0 ] || {
+		echo "B: FAIL: ${n_over} font-size literal(s) render above ${ceiling}px -- this is the sitewide blow-out (v1018-D016)"
+		printf '%s\n' "$over" | sed 's/^/      /' | head -8
+		return 1; }
+
+	# AND the token definitions themselves must not blow out, in any unit.
+	tok_over=$(tr '{;' '\n\n' < "$css" \
+	  | grep -oE '^[[:space:]]*--(fs|text)-[a-z0-9-]+:[[:space:]]*[0-9.]+(px|rem|em)' \
+	  | grep -oE '[0-9.]+(px|rem|em)' \
+	  | awk -v c="$ceiling" '{ n=$0+0; u=$0; sub(/^[0-9.]+/,"",u); v=(u=="px")?n:n*16; if (v>c) print $0" = "v"px" }')
+	n_tok=$(printf '%s' "$tok_over" | grep -c . || true)
+	echo "B: type-scale tokens over ${ceiling}px: ${n_tok:-0}"
+	[ "${n_tok:-1}" -eq 0 ] || { echo "B: FAIL: ${n_tok} type-scale token(s) render above ${ceiling}px (v1018-D016)"; printf '%s\n' "$tok_over" | sed 's/^/      /' | head -8; return 1; }
+	echo "B: LIMB B (app SPA) PASS"
+	return 0
+}
+
+limb_a; A=$?
+limb_b; B=$?
+echo "verdicts: limbA=$A limbB=$B"
+if [ "$A" -eq 1 ] || [ "$B" -eq 1 ]; then exit 1; fi
+if [ "$A" -eq 0 ] && [ "$B" -eq 0 ]; then exit 0; fi
+exit 97
 ```
 
 ### v1018-D026 — Part 2: cuts must be tag-triggered and gate-enforced
@@ -1260,7 +1543,8 @@ which is the specific regression control for reason 3.
 # Cuts must be tag-triggered and gate-enforced. See the note above for why this
 # body resolves the pipeline BY PROPERTY rather than by filename, and why every
 # assertion runs against a comment-stripped copy.
-cd "${CM051_DIR:?CM051_DIR unset}" || exit 1
+[ -n "${CM051_DIR:-}" ] || { echo "CANNOT-RUN: CM051_DIR unset"; exit 97; }
+cd "$CM051_DIR" || { echo "CANNOT-RUN: cannot cd to CM051_DIR=$CM051_DIR"; exit 97; }
 wfdir=".github/workflows"
 [ -d "$wfdir" ] || { echo "CANNOT-RUN: no $wfdir in $PWD (v1018-D026)"; exit 97; }
 n_wf=$(ls "$wfdir"/*.yml "$wfdir"/*.yaml 2>/dev/null | wc -l | tr -d ' ')
@@ -1310,7 +1594,8 @@ exit 0
 # --sign / --force --sign / stapler staple / notarytool submit must name
 # guard-local-cut. DERIVED from the Makefile, not an allow-list, so a signing
 # target added later is caught too.
-mk="${CM051_DIR:?CM051_DIR unset}/gui/Makefile"
+[ -n "${CM051_DIR:-}" ] || { echo "CANNOT-RUN: CM051_DIR unset"; exit 97; }
+mk="$CM051_DIR/gui/Makefile"
 [ -f "$mk" ] || { echo "FAIL: no gui/Makefile at $mk"; exit 1; }
 holes=0
 for t in $(grep -oE '^[a-z][a-z0-9-]*:' "$mk" | tr -d ':' | sort -u); do
@@ -1391,7 +1676,8 @@ Demonstrated RED against `origin/main`: bare `gh api` count **5** before, **0** 
 self-test **12/18** with the new cases against the old gate, **18/18** after.
 
 ```gate id=v1018-D029 expect=0 runs-on=repo
-cd "${CM051_DIR:?CM051_DIR unset}" || exit 1
+[ -n "${CM051_DIR:-}" ] || { echo "CANNOT-RUN: CM051_DIR unset"; exit 97; }
+cd "$CM051_DIR" || { echo "CANNOT-RUN: cannot cd to CM051_DIR=$CM051_DIR"; exit 97; }
 # Every API call must go through $GH_BIN. `gh auth token` inside token_for is exempt --
 # it is short-circuited under FRESHNESS_GH_BIN. Bare `gh api` must be zero.
 bare=$(grep -cE '(^|[^_A-Za-z"$/])gh api' scripts/verify_cut_freshness.sh)
@@ -1414,7 +1700,8 @@ asserting a mechanism that does not exist is worse than silence: the next reader
 or agent, stops looking.
 
 ```gate id=v1018-D030 expect=0 runs-on=repo
-cd "${CM044_DIR:?CM044_DIR unset}" || exit 1
+[ -n "${CM044_DIR:-}" ] || { echo "CANNOT-RUN: CM044_DIR unset"; exit 97; }
+cd "$CM044_DIR" || { echo "CANNOT-RUN: cannot cd to CM044_DIR=$CM044_DIR"; exit 97; }
 missing=0
 for f in $(grep -rhoE 'tests/test_[a-z0-9_]+\.py' --include='*.py' compiler/ 2>/dev/null | sort -u); do
   [ -e "$f" ] || [ -e "compiler/$f" ] || { echo "FAIL: source comment cites a guard that does not exist: $f"; missing=$((missing+1)); }
@@ -1620,7 +1907,8 @@ Four demonstrated controls, each with its own verdict:
 #
 # AST extraction rather than import: these modules use relative imports and have no
 # parent package, so importlib raises ImportError on all four.
-cd "${CM051_DIR:?CM051_DIR unset}" || exit 1
+[ -n "${CM051_DIR:-}" ] || { echo "CANNOT-RUN: CM051_DIR unset"; exit 97; }
+cd "$CM051_DIR" || { echo "CANNOT-RUN: cannot cd to CM051_DIR=$CM051_DIR"; exit 97; }
 command -v python3 >/dev/null 2>&1 || { echo "CANNOT-RUN: python3 not on PATH (v1018-D032)"; exit 97; }
 python3 - <<'D032_PY'
 import ast, os, sys
@@ -1712,7 +2000,8 @@ entry carries a stated reason and the doc names the vendor manifest as the pin's
 ```gate id=v1018-D033 expect=0 runs-on=repo
 # A doc must not cite a pin the register does not hold, and where both hold one they
 # must agree. Empty is permitted ONLY with a stated reason on the same or prior line.
-rel="${OS003_DIR:?OS003_DIR unset}/release.toml"
+[ -n "${OS003_DIR:-}" ] || { echo "CANNOT-RUN: OS003_DIR unset"; exit 97; }
+rel="$OS003_DIR/release.toml"
 doc="${OS003_DIR}/CUT_MECHANISM_CANONICAL.md"
 [ -f "$rel" ] && [ -f "$doc" ] || { echo "FAIL: register or canonical doc missing"; exit 1; }
 bad=0
@@ -1874,7 +2163,8 @@ authoritative and cannot be checked.
 # The real invariant is not uniformity. It is that drift must be ACKNOWLEDGED: any
 # verify=full tree pinned behind its source main must carry a hold_ack_shas entry. Drift
 # nobody has looked at is the failure; drift somebody wrote a reason for is a decision.
-cd "${CM051_DIR:?CM051_DIR unset}" || exit 1
+[ -n "${CM051_DIR:-}" ] || { echo "CANNOT-RUN: CM051_DIR unset"; exit 97; }
+cd "$CM051_DIR" || { echo "CANNOT-RUN: cannot cd to CM051_DIR=$CM051_DIR"; exit 97; }
 man="vendor/VENDOR_MANIFEST.toml"
 [ -f "$man" ] || { echo "FAIL: no vendor manifest"; exit 1; }
 python3 - "$man" <<'PYGATE'
@@ -2233,14 +2523,27 @@ So the correction is not "Andy misremembered". It is:
   deliberate tested property; recall-scoping is the defect. They share a
   predicate and must be separated before either moves.
 
-**Knock-on, and it is the reason this is written here rather than left in a task.**
-`v1018-D012b`'s V1019 cell reads *"Verified as part of PR #10 D018 bisect scope
+**Knock-on, and it is the reason this was written here rather than left in a
+task. RESOLVED 2026-08-11; this paragraph is kept as the trail, not as a live
+finding.**
+
+`v1018-D012b`'s V1019 cell read *"Verified as part of PR #10 D018 bisect scope
 (same tool-binding surface); no separate PR unless bisect finds a distinct
-defect."* That row's verification is parented on a bisect that will not happen and
-a PR that does not exist -- `oa #10` is *"cron-delivery: piece E"*, merged
-2026-05-02, unrelated. **D012b is therefore unverified by a route nobody will
-walk**, and it currently claims `fixed_in_v1.0.19`. It needs its own acceptance or
-its own owner.
+defect."* That parented a verification on a bisect that will not happen and on a
+PR that has nothing to do with it: `oa #10` is *"cron-delivery: piece E"*, and
+re-checked at source 2026-08-12 it is **closed and never merged** -- this row
+previously said "merged 2026-05-02", which was wrong in both halves.
+
+**That was acted on and D012b no longer claims a fix.** Its citation now reads
+CITATION WITHDRAWN 2026-08-11 and its status is `open`, corrected from a
+CONDITIONAL that asserted fixed and not-fixed at once. Anyone arriving here from
+the D012b row should stop: there is nothing left to chase.
+
+**Left standing deliberately**, because the failure mode is worth keeping in
+front of people: a row can be parented on a verification route that is later
+cancelled, and nothing tells it. The bisect was cancelled by THIS row's finding,
+and D012b went on claiming a fix for a day on the strength of it. A register row
+must hold a state, not a plan.
 
 Acceptance for D018 is unchanged and already right: a real-box two-channel probe,
 assert on chat, query on iMessage. It is not gated here because there is still

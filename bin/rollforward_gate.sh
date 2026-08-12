@@ -9,9 +9,20 @@
 #   ...plain sh, read-only, idempotent...
 #   ```
 #   - id must resolve to a real ledger entry     -> unknown id is a PARSE ERROR
-#   - a defect section with no gate block        -> PARSE ERROR, never a skip
+#   - a row that CLAIMS fixed and has no gate    -> CLAIM ERROR, never a skip
 #   - one gate per id                            -> duplicate id is a PARSE ERROR
 #   - runs-on=repo carries the D028 freshness assertion, applied MECHANICALLY
+#
+# READ THIS BEFORE TIGHTENING LINE 12. It used to read "a defect section with no
+# gate block -> PARSE ERROR", and that is NOT what this script does, deliberately.
+# Owing a gate is decided by the ROW STATUS, not by the heading shape: a row that
+# claims fixed_in_* must carry a gate, a row that is still open may carry none.
+# The broad rule was enforced once and D018 -- an open row whose section honestly
+# explains why it is ungated -- tripped it, and because one parse error refuses
+# the whole run, writing that honest explanation disabled all 27 gates at once.
+# Measured 2026-08-11. The long comment at the /^### / branch below is the full
+# account. Tightening this back to "every ### v1018-Dxxx section owes a gate"
+# reintroduces that outage.
 #
 # WHY PARSE ERRORS RATHER THAN SKIPS. A skipped gate reports the same colour as
 # a passing one. That is how cut-freshness sat red for eight days across three
