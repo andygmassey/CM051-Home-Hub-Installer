@@ -13032,9 +13032,31 @@ _install_conversation_feed() {
     chmod 0644 "$rendered"
 
     # 6. Load via launchctl bootstrap (bootout first; not idempotent alone).
+    #
+    # GATED on the daemon binary existing, for the HR015 #217 reason. This
+    # renderer sets ProgramArguments[0] to the binary INSIDE
+    # OstlerAssistant.app (see the ingest-reroute note above), and the .app
+    # is not staged until _finalise_daemon_staging thousands of lines later.
+    # Bootstrapping now, on a fresh install, fires the RunAtLoad tick against
+    # a path that does not exist: launchd cannot exec, records
+    # last-exit-code=78 (EX_CONFIG), and writes zero-byte .log/.err because
+    # nothing ran. EX_CONFIG is not retried -- launchd parks the job -- so
+    # that 78 is permanent until a kickstart -k clears it. Exactly the fault
+    # reported as v1018-D019 against whatsapp-bundle.
+    #
+    # The deferred case is picked up by
+    # _ostler_ensure_app_binary_agents_bootstrap, which runs from
+    # _finalise_daemon_staging once a signed daemon is on disk. Upgrade
+    # installs, where the binary is already staged, still bootstrap right
+    # here so the first tick happens now rather than next login.
     local domain="gui/$(id -u)"
+    local _assistant_bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
     launchctl bootout "${domain}/${label}" 2>/dev/null || true
-    if launchctl bootstrap "$domain" "$rendered"; then
+    if [[ ! -x "$_assistant_bin" ]]; then
+        # Deliberately not a warning: on a fresh install this is the normal
+        # ordering, not a fault, and the post-staging sweep completes it.
+        info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
+    elif launchctl bootstrap "$domain" "$rendered"; then
         ok "${!k_ok_loaded}"
         info "${!k_info_tick}"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
@@ -13882,6 +13904,82 @@ _verify_daemon_signature() {
 #     previous EX_CONFIG(78) result is still parked on the job --
 #     kickstart -k forcibly restarts and clears the stale exit code).
 # Non-fatal in every branch; export-scan is enrichment, not gating.
+# ── The SAME race, for every agent that runs the daemon binary ────
+#
+# HR015 #217 diagnosed this exactly once and fixed it exactly once. The
+# diagnosis is in the comment above and it is correct: an agent whose
+# ProgramArguments[0] lives inside OstlerAssistant.app, bootstrapped before
+# the .app is staged, makes launchd fail to exec, record last-exit-code=78
+# (EX_CONFIG) and write zero-byte .log/.err -- because nothing ever ran, so
+# nothing ever wrote. The zero bytes ARE the evidence, not a mystery.
+#
+# The part that was missed: EX_CONFIG IS NOT A RETRY. launchd reads it as
+# "this job is misconfigured" and parks it. The 78 stays on the job across
+# reboots and reinstalls until something calls `launchctl kickstart -k`.
+# So the fault is not transient and does not self-heal.
+#
+# MEASURED 2026-08-12, which is why this table exists:
+#   * 10 LaunchAgents have the app binary as ProgramArguments[0];
+#   * exactly 1 of them (export-scan) gated its initial bootstrap and got a
+#     post-staging sweep. `grep -n "_ostler_ensure_.*_bootstrap()"` returned
+#     one hit, hard-coded to one label;
+#   * the other 9 -- including whatsapp-bundle, which is v1018-D019 -- get
+#     the race and no clearing kickstart, so a parked 78 is permanent.
+#
+# A guard that has only ever seen one label is green by construction for
+# every label it has not seen. This table is the class; add a row when you
+# add an agent whose ProgramArguments[0] is the daemon binary, and
+# tests/test_app_binary_agents_bootstrap.sh will tell you if you forget.
+#
+# The set is not arbitrary: it mirrors the daemon's own `run-source` Source
+# enum, because these are precisely the agents that fork the FDA-holding
+# binary rather than a standalone script.
+_OSTLER_APP_BINARY_AGENTS="\
+com.ostler.export-scan
+com.ostler.fda-rerun
+com.ostler.contact-resync
+com.ostler.aiconv-resume
+com.ostler.imessage-bridge
+com.creativemachines.ostler.imessage-bundle
+com.creativemachines.ostler.whatsapp-bundle
+com.creativemachines.ostler.spoken-bundle
+com.creativemachines.ostler.email-bundle
+com.creativemachines.ostler.email-ingest"
+
+# Bootstrap-or-rekick every agent in the table, once the signed daemon is
+# actually on disk. Same body as the export-scan helper below, applied to
+# the class instead of to one instance:
+#   * skip silently if that agent's plist was never written (its block was
+#     gated off, or the channel was declined) -- absence is not a failure;
+#   * skip entirely if the daemon binary still is not there (defensive);
+#   * bootstrap if not loaded (the fresh-install path a gated bootstrap
+#     deferred);
+#   * kickstart -k if already loaded, which is the ONLY thing that clears a
+#     parked EX_CONFIG(78) from a previous run.
+# Non-fatal in every branch: these feeds are enrichment, not gating.
+#
+# export-scan is deliberately covered TWICE -- here, and by its own #217-era
+# helper that tests/test_export_scan_plist_bootstrap_race_217.sh pins line by
+# line. kickstart -k is idempotent so the duplicate costs nothing, and it
+# means neither mechanism can be quietly deleted without the other noticing.
+_ostler_ensure_app_binary_agents_bootstrap() {
+    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+    [[ -x "$_bin" ]] || return 0
+    local _domain="gui/$(id -u)"
+    local _label _plist
+    while IFS= read -r _label; do
+        [[ -n "$_label" ]] || continue
+        _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
+        [[ -f "$_plist" ]] || continue
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        else
+            launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
+                launchctl load "$_plist" 2>/dev/null || true
+        fi
+    done <<< "$_OSTLER_APP_BINARY_AGENTS"
+}
+
 _ostler_ensure_export_scan_bootstrap() {
     local _plist="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
     local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
@@ -13960,6 +14058,10 @@ _finalise_daemon_staging() {
             # place, bootstrap (or re-kick) the agent so the first scan
             # runs against a real binary. Idempotent, non-fatal.
             _ostler_ensure_export_scan_bootstrap
+            # v1018-D019: and the same treatment for every OTHER agent that
+            # runs this binary. export-scan was never special; it was just
+            # the one the fault was reported on first.
+            _ostler_ensure_app_binary_agents_bootstrap
         else
             warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
             warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
