@@ -677,6 +677,65 @@ _IPV4_RE = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
 )
 
+# Credential-shaped values that must never leave the machine in a report the
+# customer is about to paste into an email.
+#
+# WHY THIS EXISTS, and what was actually measured rather than assumed:
+#
+# The daemon prints a live WhatsApp pair code to its own stderr, which launchd
+# writes to ``~/.ostler/logs/ostler-assistant.err``. That is the SAME directory
+# the diagnostics bundle tails from. It was raised as a possible leak, so it was
+# measured rather than argued: ``_LOG_FILENAMES`` is an explicit two-item tuple
+# (``doctor.log``, ``doctor.err``) with no globbing, and the substring
+# ``ostler-assistant.err`` appears nowhere under the Doctor tree. **The pair
+# code does not reach the bundle today.**
+#
+# So this is not a fix for a live leak. It is a guard, because the only thing
+# keeping a credential out of a support email is one two-item tuple in a
+# neighbouring function, and "collect all the logs in the logs directory" is the
+# single most natural improvement anyone will ever make to that code. The scrub
+# costs one regex and removes the class.
+#
+# Anchored on the LABEL, not on the shape of the value. An 8-character
+# alphanumeric token has no distinguishing shape: a pattern loose enough to
+# catch it would redact ordinary words out of every log line and make the whole
+# report useless, which is how a scrub gets switched off.
+#
+# GRAFTED into the vendor tree, not re-vendored (HR015 a1245dc6). CM051's doctor
+# pin is held deliberately, so reconstruction is source@pinned_sha +
+# vendor/divergences/doctor.patch. Only the guard is grafted: a1245dc6's other
+# half, agent/whatsapp_pair.py, is a NEW file, and a new file has no durable
+# home here. sync_vendor.sh regenerates this patch via gen_patch on every sync
+# and gen_patch captures only files present in BOTH trees, so a hand-authored
+# new-file hunk is stripped on the next sync; the surviving mechanism for a
+# genuinely vendor-only file is vendor/VENDOR_ONLY.tsv, and whatsapp_pair.py
+# does NOT qualify because it exists upstream, just not at the held pin. It also
+# has no caller yet: a1245dc6 states the route and panel land separately, so
+# grafting the reader would add unreachable code the tooling cannot keep. It
+# arrives natively when the pin next moves.
+# THE `bearer` HOLE, measured rather than inherited. Upstream lists `bearer` as
+# a label, but every alternative requires a `:` or `=` immediately after it, and
+# the canonical form is ``Authorization: Bearer <token>`` -- the separator sits
+# before "Bearer", not after. So the label advertised coverage the pattern could
+# not deliver and a bearer token reached the report in the clear. Caught by
+# feeding the vendored _redact_report one header per label and requiring the
+# value to disappear; 15 of 16 dropped, `bearer` did not.
+#
+# Fixed by matching on ``authorization`` (the label that DOES carry a
+# separator) and consuming an optional ``bearer`` word before the value, so the
+# token is what gets replaced rather than the scheme name.
+#
+# DELIBERATE LIMIT, stated rather than left as a silent hole: a bare
+# ``Bearer <token>`` with no ``Authorization:`` in front of it is NOT matched.
+# Catching that needs `bearer\s+\S+`, which also eats ordinary prose ("the
+# bearer of that token"), and a scrub that mangles readable log lines is one
+# people switch off. Same reasoning upstream gives for anchoring on labels.
+_SECRET_LABEL_RE = re.compile(
+    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
+    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
+    r"(?:bearer\s+)?\S+"
+)
+
 
 def _home_username() -> str | None:
     """Best-effort current username for home-path redaction.
@@ -726,6 +785,15 @@ def _redact_report(report: str) -> str:
 
     redacted = _EMAIL_RE.sub(placeholder, redacted)
     redacted = _IPV4_RE.sub(placeholder, redacted)
+
+    # Credential-shaped values last, so a token that happened to sit inside a
+    # path or beside an email is still caught after those substitutions have
+    # rewritten the text around it. Keeps the label, drops the value: support
+    # can still see THAT a pair code was in play, which is often the diagnosis,
+    # without receiving one that still works.
+    redacted = _SECRET_LABEL_RE.sub(
+        lambda m: f"{m.group(1)}: {placeholder}", redacted
+    )
 
     return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
 
