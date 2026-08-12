@@ -556,7 +556,8 @@ stage-daemon: download-daemon
 	cp -R "$$DAEMON_PAYLOAD_SRC" "$$DAEMON_PAYLOAD_DEST"; \
 	chmod +x "$$DAEMON_INNER_BIN" 2>/dev/null || true; \
 	/usr/bin/xattr -cr "$$DAEMON_PAYLOAD_DEST" 2>/dev/null || true; \
-	printf '[OK] Staged daemon v%s at %s\n' "$(DAEMON_VERSION)" "$$DAEMON_PAYLOAD_DEST"
+	printf '[OK] Staged daemon v%s at %s\n' "$(DAEMON_VERSION)" "$$DAEMON_PAYLOAD_DEST"; \
+	"$(CURDIR)/../scripts/fetch_daemon_buildinfo.sh" "$(DAEMON_RELEASE_TAG)" "$(DAEMON_REPO)" "$$SRC_DIR/build-info.json"
 
 # ---------------------------------------------------------------------------
 # (B-lite) delivery mechanism -- Component 3: payload embedding (cut-time).
