@@ -109,6 +109,16 @@ jobs:
           ./tests/test_no_local_cuts.sh
           # v1018-D024: vendor-only files must survive a re-vendor.
           ./tests/test_vendor_only_survives_sync.sh
+          # v1018-D024, second mechanism: imported SYMBOLS must resolve, not
+          # just modules. The line above asks "does web_ui_copy exist?" and
+          # waves through `from web_ui_copy import WHATSAPP_PAIR_TITLE` when the
+          # module is present and the symbol is not -- a half-applied graft. The
+          # v1.0.24 WhatsApp panel nearly shipped exactly that: 15
+          # WHATSAPP_PAIR_* constants imported and absent from the vendored
+          # copy. python3, not pytest: it is a __main__ script, and pytest
+          # collects nothing from it and says "no tests ran", which reads as a
+          # pass.
+          python3 ./tests/test_vendor_symbol_resolution.py
           # The credential guard must check ALL FIVE, not one. Runs here, on
           # ubuntu, with placeholder values only -- it asserts the guard's
           # logic, never touches a real secret, and the real secrets do not
