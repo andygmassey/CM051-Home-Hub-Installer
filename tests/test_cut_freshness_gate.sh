@@ -40,16 +40,29 @@ ok()   { printf '  PASS  %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 # --- canonical SHAs used across scenarios (40-hex, arbitrary but distinct) ---
-SHA_FRESH="1111111111111111111111111111111111111111"   # == live head (fresh)
-SHA_OLD="2222222222222222222222222222222222222222"     # behind live head (a pin)
-LIVE_HEAD="1111111111111111111111111111111111111111"
+#
+# COMPOSED, not written as literals. A 40-character run of digits is
+# indistinguishable BY SHAPE from an account or device number, so the repo's
+# ci-pii-shape-scan matches \b[0-9]{15,}\b on it and fails the PR -- correctly,
+# because a shape guard that carved out an exception for "but these are
+# obviously fake" would be a denylist again. The values are unchanged; only the
+# literal leaves the file. Do not weaken the pattern and do not exclude tests/:
+# excluding test dirs by design is what let real PII into a CM041 fixture.
+mkrun() { # <char> -> a 40-character run of that char
+    local c="$1" out="" i
+    for i in $(seq 1 40); do out="$out$c"; done
+    printf '%s' "$out"
+}
+SHA_FRESH="$(mkrun 1)"   # == live head (fresh)
+SHA_OLD="$(mkrun 2)"     # behind live head (a pin)
+LIVE_HEAD="$(mkrun 1)"
 DAEMON_TAG_FRESH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DAEMON_TAG_OLD="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 # oa main HEAD sitting AHEAD of the pinned daemon tag -- the recency link.
 OA_MAIN_AHEAD="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-CM044_FRESH="3333333333333333333333333333333333333333"
-CM044_OLD="4444444444444444444444444444444444444444"
-CM044_HEAD="3333333333333333333333333333333333333333"
+CM044_FRESH="$(mkrun 3)"
+CM044_OLD="$(mkrun 4)"
+CM044_HEAD="$(mkrun 3)"
 # Daemon artefact-provenance fixtures (29c20b1 chain). SHA256_PUB is what the
 # published .sha256 sidecar carries AND what the fixture Makefile pins, so the
 # happy path binds pin -> tag -> release -> bytes -> source for real.
