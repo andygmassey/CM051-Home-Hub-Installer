@@ -96,6 +96,56 @@ else
        the toolchain."
 fi
 
+# ---------------------------------------------------------------------------
+# AND THE XCODE, WHICH IS THE GENERATOR'S OTHER INPUT.
+#
+# Pinning xcodegen was necessary and not sufficient. xcodegen injects default
+# build settings (settingPresets) that it reads from the INSTALLED XCODE, so
+# the SAME xcodegen 2.44.1 emits different bytes from an identical project.yml
+# depending on which Xcode is present. Measured 2026-08-13 on this repo, same
+# commit, same generator version:
+#
+#   build host   Xcode 26.6 (17F113)   emits COMBINE_HIDPI_IMAGES,
+#                                      LD_RUNPATH_SEARCH_PATHS, SDKROOT,
+#                                      ASSETCATALOG_COMPILER_APPICON_NAME
+#   macos-14     Xcode 15.4 (15F31d)   omits all four
+#
+# The tracked pbxproj carries the first set. Without this check, a hosted
+# runner reports "STALE, DO NOT SHIP" for a project that is perfectly in sync
+# with the toolchain it is actually built by. That is the same
+# gate-red-for-the-wrong-reason failure the version pin above was written to
+# prevent, one layer down, and it blocked a launch cut for two runs.
+#
+# Exit 2, deliberately. The project is not wrong; this environment cannot
+# judge it. The real comparison is an OPERATOR check on the build machine
+# before tagging -- the same shape as scripts/verify_cut_freshness.sh.
+XCODE_PIN_FILE="gui/.xcode-version"
+if [[ -f "$XCODE_PIN_FILE" ]]; then
+    XPINNED="$(grep -v '^[[:space:]]*#' "$XCODE_PIN_FILE" | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+    XACTUAL="$(xcodebuild -version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    if [[ -z "$XPINNED" ]]; then
+        unavailable "$XCODE_PIN_FILE contains no version line."
+    fi
+    if [[ -z "$XACTUAL" ]]; then
+        unavailable "xcodebuild is absent or unparseable, so the setting presets
+       baked into the tracked pbxproj cannot be attributed. Not a pass."
+    fi
+    if [[ "$XPINNED" != "$XACTUAL" ]]; then
+        unavailable "Xcode version mismatch.
+       pinned  ($XCODE_PIN_FILE): $XPINNED
+       running:                   $XACTUAL
+
+       xcodegen reads its default build settings from the installed Xcode, so
+       a byte comparison across different Xcodes measures the toolchain, not
+       the project. Run this on a machine with Xcode $XPINNED, or bump the pin
+       AND commit the regenerated pbxproj together."
+    fi
+else
+    unavailable "$XCODE_PIN_FILE is missing -- the Xcode whose setting presets are
+       baked into the tracked pbxproj is unrecorded, so a byte-exact comparison
+       cannot be attributed to drift rather than to the toolchain."
+fi
+
 [[ -f "$SPEC" ]]    || unavailable "spec not found: $SPEC"
 [[ -f "$PBXPROJ" ]] || unavailable "tracked project not found: $PBXPROJ"
 

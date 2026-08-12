@@ -145,6 +145,45 @@ if [[ -f "$PIN_FILE" ]]; then
     if [[ "$rc" == 2 ]]; then ok "CONTROL: missing version pin is UNAVAILABLE (rc=2), not a pass"
     else bad "CONTROL FAILED: missing pin returned rc=$rc, expected 2"; fi
 
+    # --- CONTROL 6+7: the XCODE pin ---------------------------------------
+    # The generator has two inputs, not one. xcodegen injects default build
+    # settings it reads from the INSTALLED XCODE, so pinning the generator
+    # version alone still lets the toolchain decide the bytes. Measured
+    # 2026-08-13: same xcodegen 2.44.1, Xcode 26.6 emits COMBINE_HIDPI_IMAGES /
+    # LD_RUNPATH_SEARCH_PATHS / SDKROOT / ASSETCATALOG_COMPILER_APPICON_NAME and
+    # Xcode 15.4 omits all four. The hosted runner therefore called a
+    # perfectly in-sync project STALE and blocked a launch cut for two runs.
+    #
+    # Same doctrine as the version pin: a toolchain difference is exit 2, never
+    # exit 1. These assert that specifically, and reject rc==1.
+    XCODE_PIN="$REPO_ROOT/gui/.xcode-version"
+    if [[ -f "$XCODE_PIN" ]]; then
+        XPIN_BACKUP="$(mktemp)"
+        cp "$XCODE_PIN" "$XPIN_BACKUP"
+
+        printf '0.0-not-a-real-xcode\n' > "$XCODE_PIN"
+        rc="$(run_gate)"
+        cp "$XPIN_BACKUP" "$XCODE_PIN"
+        if [[ "$rc" == 2 ]]; then
+            ok "CONTROL: pinned Xcode != installed is UNAVAILABLE (rc=2)"
+        elif [[ "$rc" == 1 ]]; then
+            bad "CONTROL FAILED: an Xcode mismatch returned rc=1 (STALE, DO NOT SHIP).
+       That blames the project for a toolchain difference -- the exact defect
+       this pin exists to end."
+        else
+            bad "CONTROL FAILED: Xcode mismatch returned rc=$rc, expected 2"
+        fi
+
+        mv "$XCODE_PIN" "$XCODE_PIN.absent"
+        rc="$(run_gate)"
+        mv "$XCODE_PIN.absent" "$XCODE_PIN"
+        if [[ "$rc" == 2 ]]; then ok "CONTROL: missing Xcode pin is UNAVAILABLE (rc=2), not a pass"
+        else bad "CONTROL FAILED: missing Xcode pin returned rc=$rc, expected 2"; fi
+        rm -f "$XPIN_BACKUP"
+    else
+        bad "gui/.xcode-version is missing -- the generator's second input is unpinned"
+    fi
+
     # And the restore must have worked, or every case after this is void.
     #
     # THIS CHECK CANNOT DISTINGUISH TWO DIFFERENT FAULTS, and reporting it as
