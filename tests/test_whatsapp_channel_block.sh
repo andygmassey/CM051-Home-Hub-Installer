@@ -170,5 +170,135 @@ if echo "$OUTPUT_OFF" | grep -q '\[channels\.whatsapp\]'; then
 fi
 echo "PASS: emitter suppresses [channels.whatsapp] when CHANNEL_WHATSAPP_ENABLED=false"
 
+# ═══════════════════════════════════════════════════════════════
+# WEB-MODE BACKEND SELECTOR (2026-08-12)
+# ═══════════════════════════════════════════════════════════════
+#
+# Andy ruled WhatsApp non-negotiable for v1. The root cause was two
+# layers deep. The daemon shipped without the `whatsapp-web` feature
+# (ostler-assistant #304), AND install.sh wrote `enabled = true` with
+# NO backend selector, which is inert: the daemon picks its WhatsApp
+# backend by which credentials are present, and with neither
+# `session_path` nor the Cloud API trio it logs
+#
+#     WhatsApp channel enabled but not configured
+#
+# and never registers in the cron-delivery registry. Every customer
+# install since the block landed recorded a consent yes for a channel
+# that could not run.
+#
+# These assertions REUSE the $EMITTER extracted above and read the
+# TOML it actually produces. Grepping install.sh for the line would
+# not do: board #636 is a CM051 fix that shipped INERT because the
+# line was present in install.sh but sat inside a quoted heredoc, and
+# a source grep passes on exactly that defect.
+
+WA_TMP="$(mktemp -d)"
+trap 'rm -f "$EMITTER"; rm -rf "$WA_TMP"' EXIT
+
+OUTPUT_WEB="$(
+    CHANNEL_IMESSAGE_ENABLED=false \
+    CHANNEL_EMAIL_ENABLED=false \
+    CHANNEL_WHATSAPP_ENABLED=true \
+    CHANNEL_WHATSAPP_RECIPIENT="+447700900123" \
+    OSTLER_DIR="${WA_TMP}/.ostler" \
+    bash -c "$(cat "$EMITTER")" 2>&1
+)"
+
+# CONTROL: the render must have produced the block at all, or every
+# assertion below is vacuously true against empty output.
+if ! echo "$OUTPUT_WEB" | grep -q '^\[channels\.whatsapp\]$'; then
+    echo "FAIL [web-render-control]: the parameterised render produced no whatsapp block" >&2
+    echo "Output was:" >&2
+    echo "$OUTPUT_WEB" >&2
+    exit 1
+fi
+
+# ── session_path present, absolute, outside Caches ──────────────
+if ! echo "$OUTPUT_WEB" | grep -qE '^session_path = "'; then
+    echo "FAIL [whatsapp-session-path]: emitted TOML has no session_path." >&2
+    echo "  Without it the daemon refuses the channel at startup and the customer's" >&2
+    echo "  recorded consent buys them nothing. Output was:" >&2
+    echo "$OUTPUT_WEB" >&2
+    exit 1
+fi
+WA_SP="$(echo "$OUTPUT_WEB" | sed -n 's/^session_path = "\(.*\)"$/\1/p')"
+if [[ "$WA_SP" != /* ]]; then
+    echo "FAIL [whatsapp-session-path-abs]: session_path is not absolute: ${WA_SP}" >&2
+    exit 1
+fi
+if [[ "$WA_SP" == *"/Caches/"* ]]; then
+    echo "FAIL [whatsapp-session-path-caches]: session_path is under Caches, which the OS purges." >&2
+    echo "  A purged session silently unlinks the customer's WhatsApp." >&2
+    exit 1
+fi
+echo "PASS: emitted TOML carries an absolute session_path outside Caches"
+
+# ── the parent directory is created by the block ────────────────
+# wa-rs opens the file through RusqliteStore and will not mkdir for it.
+if [[ ! -d "$(dirname "$WA_SP")" ]]; then
+    echo "FAIL [whatsapp-session-dir]: $(dirname "$WA_SP") was not created by the block" >&2
+    exit 1
+fi
+echo "PASS: the session directory is created by the block itself"
+
+# ── pair_phone is DIGITS ONLY ───────────────────────────────────
+# The most likely silent failure in this change: reusing the E.164
+# value. wa-rs receives pair_phone verbatim as
+# PairCodeOptions.phone_number (whatsapp_web.rs, `phone.clone()`), so
+# a stored "+" reaches Meta unchanged and the pair code never arrives.
+# Only the internal bot_phone identity is digit-filtered.
+if ! echo "$OUTPUT_WEB" | grep -qE '^pair_phone = "'; then
+    echo "FAIL [whatsapp-pair-phone]: emitted TOML has no pair_phone." >&2
+    echo "  wa-rs then falls back to QR, and a QR printed to daemon stderr on a" >&2
+    echo "  headless Hub is not a surface a customer can use." >&2
+    exit 1
+fi
+WA_PP="$(echo "$OUTPUT_WEB" | sed -n 's/^pair_phone = "\(.*\)"$/\1/p')"
+if [[ ! "$WA_PP" =~ ^[0-9]+$ ]]; then
+    echo "FAIL [whatsapp-pair-phone-digits]: pair_phone must be digits only, got: ${WA_PP}" >&2
+    exit 1
+fi
+if [[ "$WA_PP" != "447700900123" ]]; then
+    echo "FAIL [whatsapp-pair-phone-value]: expected 447700900123, got ${WA_PP}" >&2
+    exit 1
+fi
+echo "PASS: pair_phone is digits only and derived from the wizard number"
+
+# ── allowed_numbers KEEPS its E.164 plus ────────────────────────
+# CONTROL for the assertion above. If a future edit applied the
+# digit-strip to both fields this test would still pass on pair_phone
+# while the inbound allowlist silently stopped matching. The two
+# fields want different formats and both are asserted.
+if ! echo "$OUTPUT_WEB" | grep -qF 'allowed_numbers = ["+447700900123"]'; then
+    echo "FAIL [whatsapp-allowed-numbers-e164]: allowed_numbers lost its E.164 form." >&2
+    echo "  pair_phone is digits-only; allowed_numbers is E.164 WITH the plus." >&2
+    echo "$OUTPUT_WEB" >&2
+    exit 1
+fi
+echo "PASS: allowed_numbers keeps E.164 while pair_phone is digits only"
+
+# ── consent without a number still yields a usable config ───────
+# A customer who consents but declines to give a number must still get
+# a working Web-mode backend and pair by QR. session_path must not
+# depend on the recipient, and pair_phone must not be invented.
+OUTPUT_NORECIP="$(
+    CHANNEL_IMESSAGE_ENABLED=false \
+    CHANNEL_EMAIL_ENABLED=false \
+    CHANNEL_WHATSAPP_ENABLED=true \
+    CHANNEL_WHATSAPP_RECIPIENT="" \
+    OSTLER_DIR="${WA_TMP}/.ostler-norecip" \
+    bash -c "$(cat "$EMITTER")" 2>&1
+)"
+if ! echo "$OUTPUT_NORECIP" | grep -qE '^session_path = "'; then
+    echo "FAIL [whatsapp-no-recipient-session]: session_path must not depend on the recipient" >&2
+    exit 1
+fi
+if echo "$OUTPUT_NORECIP" | grep -qE '^pair_phone = '; then
+    echo "FAIL [whatsapp-no-recipient-pair]: pair_phone emitted with no number to pair" >&2
+    exit 1
+fi
+echo "PASS: consent without a number still yields a Web-mode config, without a bogus pair_phone"
+
 echo ""
 echo "ALL WHATSAPP CHANNEL BLOCK TESTS PASSED"
