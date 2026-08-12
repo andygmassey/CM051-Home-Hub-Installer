@@ -41,14 +41,45 @@ restore_all() {
 }
 trap restore_all EXIT INT TERM
 
-run_gate() { ( "$GATE" >/dev/null 2>&1 ); echo $?; }
+# KEEP THE GATE'S OUTPUT. The first version sent it to /dev/null and returned
+# only the exit code, and that is precisely what made the CI failure
+# unreadable: the gate prints BOTH sha256s and a 40-line `git diff` on failure,
+# and every byte of it was discarded. The one run that disagreed with a local
+# run was the one run whose evidence was thrown away.
+#
+# The controls below only care about the CODE, which is right -- they assert
+# rc==1 or rc==2 and the text is noise. The BASELINE is different: an
+# unexpected rc there is an unexplained disagreement about the repo itself, and
+# the explanation is in the output.
+GATE_LOG="$(mktemp)"
+run_gate() { ( "$GATE" >"$GATE_LOG" 2>&1 ); echo $?; }
 
 echo "test_pbxproj_sync_gate"
 
 # --- baseline -------------------------------------------------------------
 rc="$(run_gate)"
+BASELINE_RC="$rc"          # the restore check at the end compares against this
 if [[ "$rc" == 0 ]]; then ok "baseline: committed tree is in sync (rc=0)"
-else bad "baseline: expected rc=0, got rc=$rc -- the committed pbxproj is stale"; fi
+else
+    bad "baseline: expected rc=0, got rc=$rc -- the committed pbxproj is stale"
+    # Everything after this is measured against a tree the gate already
+    # disagrees with, so say so once, loudly, with the evidence attached.
+    {
+        echo ""
+        echo "  ---- gate output (baseline), which the harness used to discard ----"
+        sed 's/^/  | /' "$GATE_LOG"
+        echo "  ---- end gate output ----"
+        echo ""
+        echo "  Environment, because a local run of this same gate on this same"
+        echo "  commit returns 0 and the difference has to be here:"
+        echo "    xcodegen : $(command -v xcodegen || echo '<not on PATH>')"
+        echo "    version  : $(xcodegen --version 2>&1 | head -1)"
+        echo "    pinned   : $(grep -v '^[[:space:]]*#' "$REPO_ROOT/gui/.xcodegen-version" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1)"
+        echo "    xcodebuild: $(xcodebuild -version 2>/dev/null | tr '\n' ' ')"
+        echo "    uname    : $(uname -sm)"
+        echo ""
+    } >&2
+fi
 
 # --- CONTROL 1: spec changed, project not regenerated ---------------------
 python3 - "$SPEC" <<'PY'
@@ -115,9 +146,23 @@ if [[ -f "$PIN_FILE" ]]; then
     else bad "CONTROL FAILED: missing pin returned rc=$rc, expected 2"; fi
 
     # And the restore must have worked, or every case after this is void.
+    #
+    # THIS CHECK CANNOT DISTINGUISH TWO DIFFERENT FAULTS, and reporting it as
+    # one of them sent a reader after the wrong bug. It re-runs the SAME gate
+    # on the SAME tree as the baseline, so if the baseline was already red it
+    # returns the same non-zero for the same reason, and the old wording --
+    # "the pin was NOT restored" -- asserted a fixture corruption that had not
+    # happened. Two FAIL lines, one fault.
+    #
+    # Compare against the baseline rather than against 0, so this line only
+    # ever speaks about the restore.
+    BASELINE_RC="${BASELINE_RC:-0}"
     rc="$(run_gate)"
-    if [[ "$rc" == 0 ]]; then ok "pin restored: gate is green again (rc=0)"
-    else bad "the pin was NOT restored -- rc=$rc. Later results are unreliable."; fi
+    if [[ "$rc" == "$BASELINE_RC" ]]; then
+        ok "pin restored: gate returns the baseline rc again (rc=$rc)"
+    else
+        bad "the pin was NOT restored -- rc=$rc, baseline was rc=$BASELINE_RC. Later results are unreliable."
+    fi
 else
     bad "gui/.xcodegen-version is missing. The gate cannot attribute a byte
        difference to drift rather than to the toolchain, and the two controls
