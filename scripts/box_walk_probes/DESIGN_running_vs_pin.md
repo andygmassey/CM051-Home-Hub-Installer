@@ -259,3 +259,54 @@ Do not ship 1b alone with a version-only record to "make progress". A record
 whose only field is known-unreliable manufactures false confidence at exactly
 the point where the system is currently honest about not knowing. The absence of
 a record is a true statement today; a version-only record would be a false one.
+
+## 1a fully specified: where the commit enters the cut
+
+Measured 2026-08-13. The chain is now closed end to end; what follows is a
+bounded edit, not an investigation.
+
+**The cut Makefile does not know the commit either.** `grep -E '^DAEMON_[A-Z_]+ *[:?]?=' gui/Makefile`
+yields VERSION, REPO, TARGET, TARBALL_NAME, TARBALL_CACHE, RELEASE_TAG,
+RELEASE_URL, LOCAL_CACHE_DIR. No commit. So 1a is not "write a variable we
+already have"; it is "fetch the sibling asset that carries it".
+
+**`build-info.json` is a release asset on the same tag** as the daemon tarball
+(`hub-v$(DAEMON_VERSION)` in `$(DAEMON_REPO)`), which is exactly how
+`check_daemon_recency` already reads the commit. The cut fetches the tarball
+from that release and ignores its sibling.
+
+### The edit
+
+`download-daemon` (gui/Makefile:428) acquires the tarball by THREE paths, and
+all three need the sibling or the record is missing on whichever path a given
+cut took:
+
+    1. gh release download            --pattern "$(DAEMON_TARBALL_NAME)"
+    2. curl + $GH_TOKEN               asset-id resolution via the releases API
+    3. $(DAEMON_LOCAL_CACHE_DIR)      local pre-staged tarball (+ .sha256 today)
+
+Path 3 already demonstrates the pattern: it copies `<tarball>.sha256` alongside
+the tarball when present. `build-info.json` follows the same shape.
+
+`stage-daemon` (gui/Makefile:509) then copies it into `$$SRC_DIR`
+(`../assistant-agent/`), which becomes
+`OstlerInstaller.app/Contents/Resources/assistant-agent/` in the DMG. That is
+the directory install.sh already reads the daemon from, so 1b needs no new path
+knowledge.
+
+### One decision this needs, and my call
+
+Older pins predate `build-info.json`, so a hard fail-closed on a missing sibling
+would block cutting from them. My call: **fail closed, with an explicit
+per-tag escape**, matching the hold_ack pattern the vendor trees, wiki images
+and daemon recency all already use. A silent WARN here reproduces precisely the
+defect this whole note exists to fix, and "the gate was noisy so we softened it"
+is how the previous daemon-recency check died. A loud decision with a name on it
+is the house style; a quiet default is not.
+
+### Why this was not implemented in the same pass
+
+This touches the cut's artefact-acquisition path, which is on the critical path
+to shipping a DMG, and the correct change spans three acquisition branches plus
+a fail-closed policy. It wants its own pass with room to run the cut-gate tests,
+not the tail end of one. Specified rather than half-written, deliberately.
