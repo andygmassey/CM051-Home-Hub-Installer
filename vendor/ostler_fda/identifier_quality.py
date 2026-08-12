@@ -35,8 +35,8 @@ chance to occur. The structural rule is what makes the guard universal.
 CONSERVATIVE BY CONSTRUCTION
 ============================
 Two distinct names is deliberately not the threshold for demotion on its own,
-because real people do legitimately present differently ("Andy Massey",
-"Andrew Massey", "andygmassey"). Names are normalised and compared on their
+because real people do legitimately present differently ("Andy Quillon",
+"Andrew Quillon", "andygmassey"). Names are normalised and compared on their
 word set before being counted as distinct, so nicknames and orderings do not
 trip it. It takes genuinely different humans to poison an identifier.
 
@@ -98,7 +98,7 @@ except ImportError:  # plain-script use (repair/audit on a customer box)
 
 # Two distinct HUMANS behind one identifier is the signal. Set at 2 because a
 # personal address has exactly one owner; the normalisation below is what stops
-# "Andy Massey" / "Andrew Massey" reaching that count.
+# "Andy Quillon" / "Andrew Quillon" reaching that count.
 DISTINCT_NAME_LIMIT = 2
 
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
@@ -135,7 +135,7 @@ def _is_machine_label(name: str) -> bool:
 def normalise_name(name: str) -> str:
     """A comparable form: accent-folded, punctuation-free, word-sorted.
 
-    Word-SORTED so "Massey Andy" and "Andy Massey" collapse -- name order is
+    Word-SORTED so "Quillon Andy" and "Andy Quillon" collapse -- name order is
     not consistent across sources (vCard vs mail header vs CJK convention),
     and treating an ordering difference as a different person is how a guard
     starts splitting real people.
@@ -150,8 +150,8 @@ def normalise_name(name: str) -> str:
     # well-known nickname/shortened version of the other should ALWAYS pass to
     # next merge condition."
     #
-    # Word-overlap alone only rescued "Andy Massey"/"Andrew Massey" because the
-    # SURNAME happened to collide -- "Andy" vs "Andrew Massey" still split, and
+    # Word-overlap alone only rescued "Andy Quillon"/"Andrew Quillon" because the
+    # SURNAME happened to collide -- "Andy" vs "Andrew Quillon" still split, and
     # a shortened given name is the commonest way one person appears twice.
     # Canonicalising here means the overlap test sees "andrew" on both sides.
     return " ".join(sorted(canonical_given(w) for w in n.split() if w))
@@ -163,13 +163,13 @@ def distinct_people(names: Iterable[str]) -> Set[str]:
     Two names that share any word are treated as the same person. This is the
     rule that survives contact with real data, and it is language-neutral:
 
-        Andy Massey / Andrew Massey   share "massey"  -> one person
-        Andy Massey / Massey Andy     identical       -> one person
-        Andy Massey / Andy            share "andy"    -> one person
+        Andy Quillon / Andrew Quillon   share "quillon"  -> one person
+        Andy Quillon / Quillon Andy     identical       -> one person
+        Andy Quillon / Andy            share "andy"    -> one person
         Craig Whittet / Madhu Motwani share nothing   -> TWO people
 
-    Subset-matching was tried first and was wrong: it split "Andy Massey" from
-    "Andrew Massey", because neither word set contains the other. A nickname
+    Subset-matching was tried first and was wrong: it split "Andy Quillon" from
+    "Andrew Quillon", because neither word set contains the other. A nickname
     table would fix that case and only that case -- and would be English-only,
     which is the exact failure this module exists to avoid.
 
@@ -216,10 +216,10 @@ def distinct_people(names: Iterable[str]) -> Set[str]:
         for b in ordered[i + 1:]:
             shared = wa & set(b.split())
             # A shared GIVEN name is a coincidence, not an identity: "Andrew
-            # Massey" and "Andrew Smith" are two people. A shared surname is
+            # Quillon" and "Andrew Smith" are two people. A shared surname is
             # evidence. So union only on a shared word that is not a known
             # given name -- and let the single-word rule below handle the
-            # "Andy" / "Andrew Massey" case, where the bare given name is an
+            # "Andy" / "Andrew Quillon" case, where the bare given name is an
             # incomplete record rather than a second human.
             if any(not is_known_given(w) for w in shared):
                 union(a, b)
@@ -230,8 +230,8 @@ def distinct_people(names: Iterable[str]) -> Set[str]:
     #
     # "Mum", "Home", "Work", "Achiever" are how the customer refers to someone
     # or where they work -- an alias, not another human. The live run flagged
-    # `alisonmassey@mac.com` as two people ("alison massey", "mum") and would
-    # have demoted Alison's real address, splitting his wife off her own email.
+    # `alisonmassey@mac.com` as two people ("anthony quillon", "mum") and would
+    # have demoted Anthony's real address, splitting his wife off her own email.
     #
     # A genuine second person arrives with a genuine name: "Craig Whittet" and
     # "Madhu Motwani" are both multi-word and stay two. So only clusters that
@@ -368,7 +368,7 @@ def is_learned_non_identifying(identifier: str) -> bool:
 #
 # The rules above are BLIND to this by construction. distinct_people() unions
 # names that share a word, so a family sharing a surname reads as one person --
-# the very rule that correctly rescues "Andy Massey"/"Andrew Massey" is what
+# the very rule that correctly rescues "Andy Quillon"/"Andrew Quillon" is what
 # hides the Heckses. Names alone cannot separate relatives.
 #
 # The IDENTIFIERS can, and loudly. That node carries:
@@ -380,7 +380,7 @@ def is_learned_non_identifying(identifier: str) -> bool:
 # three mailboxes, three people.
 #
 # Deliberately narrow. A single person legitimately holds andy@x.com and
-# andy.massey@x.com, so local parts that are variants of each other do not
+# andy.quillon@x.com, so local parts that are variants of each other do not
 # count. It takes genuinely unrelated local parts to call it a household.
 
 def _local_parts(identifiers: Iterable[str]) -> Dict[str, Set[str]]:
@@ -399,7 +399,7 @@ def _local_parts(identifiers: Iterable[str]) -> Dict[str, Set[str]]:
 def _locals_are_variants(a: str, b: str) -> bool:
     """True when two local parts plausibly belong to ONE person.
 
-    andy / andy.massey / amassey / a.massey -- same human with several
+    andy / andy.quillon / amassey / a.quillon -- same human with several
     aliases at one employer. Compared on the alphabetic tokens so separators
     and initials do not create false households.
     """
@@ -417,7 +417,7 @@ def _locals_are_variants(a: str, b: str) -> bool:
         return True
     if ta & tb:
         return True
-    # initial + surname vs full first + surname: a.massey / andy.massey
+    # initial + surname vs full first + surname: a.quillon / andy.quillon
     la, lb = sorted(ta), sorted(tb)
     if la[-1] == lb[-1]:
         return True
@@ -430,16 +430,16 @@ def distinct_given_names(names: Iterable[str]) -> Set[str]:
     This is the family signature and the one thing distinct_people() cannot
     see. Adena, Brian and Nigel Hecks share a surname, so the shared-word
     clustering fuses them -- correctly, for its own purpose, since that is what
-    rescues "Andy Massey"/"Andrew Massey". Different GIVEN names behind one
+    rescues "Andy Quillon"/"Andrew Quillon". Different GIVEN names behind one
     mailbox set is what says "household".
 
         Adena Hecks / Brian Hecks / Nigel Hecks  -> adena, brian, nigel  = 3
-        Alison Massey / Mum / +4478...           -> alison               = 1
-        Andy Massey / Andrew Massey              -> andrew               = 1
+        Anthony Quillon / Mum / +4478...           -> anthony               = 1
+        Andy Quillon / Andrew Quillon              -> andrew               = 1
         Ann-Sofie Virtala / Tim Clark            -> ann-sofie, tim       = 2
 
     Kinship words and machine labels are excluded first: "Mum" has no given
-    name, and counting it would split Alison from herself.
+    name, and counting it would split Anthony from herself.
     """
     out: Set[str] = set()
     for raw in names or []:
@@ -465,7 +465,7 @@ def looks_like_household(identifiers: Iterable[str], names: Iterable[str] = ()) 
       * two or more display names that are DISTINCT PEOPLE
 
     The second condition uses distinct_people(), not a raw name count. The
-    first version counted raw names and flagged Alison: her node holds
+    first version counted raw names and flagged Anthony: her node holds
     `alisonmassey@mac.com` and `alisonritchie@mac.com` -- one woman before and
     after marriage, with "Mum" and two phone numbers also on the card. Six
     labels, two mailboxes, ONE person. A maiden-name alias on the same domain

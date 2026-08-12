@@ -6,12 +6,12 @@ condition."
 
 WHY WORD-OVERLAP WAS NOT ENOUGH
 ===============================
-The clustering in identifier_quality only rescued "Andy Massey" / "Andrew
-Massey" because the SURNAME collided. It still split:
+The clustering in identifier_quality only rescued "Andy Quillon" / "Andrew
+Quillon" because the SURNAME collided. It still split:
 
-    Andy          vs  Andrew Massey     -> no shared word -> two people
+    Andy          vs  Andrew Quillon     -> no shared word -> two people
     Bob Smith     vs  Robert Smith      -> rescued (smith), by luck
-    Andy Massey   vs  Andrew M          -> split
+    Andy Quillon   vs  Andrew M          -> split
 
 A shortened given name is the single most common way one person appears twice
 in a contact graph, so leaving it to a surname coincidence is not good enough.
@@ -47,15 +47,11 @@ from typing import Dict, List, Set
 _DEFAULT_CLASSES: List[List[str]] = [
     # ONE FULL NAME PER CLASS, plus only its short forms.
     #
-    # Andy, 2026-08-08: "'allison' = NO!!! 'Alison' - two Ls is a different
-    # name". He is right, and the same error ran through the whole table:
-    # alison/allison, alexander/alexandra, catherine/katherine,
-    # geoffrey/jeffrey, stephen/steven, philip/phillip, lawrence/laurence,
-    # nathaniel/nathan were each filed as one name.
-    #
-    # alexander/alexandra was the worst: a man and a woman collapsed into one
-    # person. This table feeds a MERGE decision, so fusing two full names here
-    # merges two humans.
+    # A NEAR-IDENTICAL SPELLING IS A DIFFERENT NAME, not a variant of one.
+    # This table originally filed eight such pairs as a single name each, one
+    # doubled consonant or one vowel apart. The worst of them put a man's name
+    # and a woman's name in the same class. This table feeds a MERGE decision,
+    # so fusing two full names here merges two humans.
     #
     # A near-identical spelling is a DIFFERENT NAME. Not merging costs almost
     # nothing -- two records for one person still union on their surname -- and
@@ -108,7 +104,21 @@ _DEFAULT_CLASSES: List[List[str]] = [
     ["timothy", "timmy"],
     ["victoria", "vicky", "tori"],
     ["william", "billy", "willie"],
-    ["alison", "ali"],
+    # ONE VARIANT PAIR REMOVED HERE, and it is a real (small) functional loss.
+    #
+    # This is a generic English given-name dictionary: the neighbouring rows are
+    # ["susan", "susie"], ["thomas", "tommy"]. One row happened to collide with a
+    # name in the operator PII inventory, so the shipped-payload guard blocks any
+    # commit carrying it -- it cannot tell a dictionary from a leak.
+    #
+    # Removed rather than bypassed, because "no operator PII in the shipped
+    # payload" is non-negotiable and --no-verify is not an option. The cost is
+    # that this one short form no longer canonicalises to its full name; the
+    # ["allison", "allie"] row below is unaffected, as is every other row.
+    #
+    # THE ALTERNATIVE IS A SCOPING DECISION, NOT A CODE CHANGE: if the guard
+    # learns that a generic name dictionary is not a leak, this row comes
+    # straight back. Tracked on HR015 #335. Restoring it is a one-line revert.
     ["allison", "allie"],
     ["alexander", "xander"],
     ["alexandra", "sasha"],
@@ -154,7 +164,9 @@ def _build() -> Dict[str, str]:
         if not group:
             continue
         # The FIRST entry is the full name and the canon -- not the longest,
-        # which used to make "alison" canonicalise to "allison".
+        # which used to make a short name canonicalise to a longer, unrelated
+        # one (e.g. picking "allison" as the canon for a name that merely
+        # shares a prefix).
         canon = group[0]
         for name in group:
             if name in _AMBIGUOUS:
@@ -188,7 +200,7 @@ _ALL_GIVEN = set(_CANON) | set(_CANON.values())
 def is_known_given(word: str) -> bool:
     """True when this word is a known given name in the active locale table.
 
-    Used to stop two strangers uniting on a shared FIRST name: "Andrew Massey"
+    Used to stop two strangers uniting on a shared FIRST name: "Andrew Quillon"
     and "Andrew Smith" share "andrew" and are two people. A surname match is
     evidence; a first-name match is a coincidence.
     """
