@@ -36,10 +36,8 @@ SHELL        := /bin/bash
 # ---------------------------------------------------------------------------
 # Project parameters (rarely change)
 # ---------------------------------------------------------------------------
-# Export OSTLER_APP_PATH so xcodebuild's bundle phase (in
-# gui/project.yml) sees it as an env var and copies Ostler.app into
-# OstlerInstaller.app/Contents/Resources/ at archive time.
-export OSTLER_APP_PATH
+# OSTLER_APP_PATH is exported further down, AFTER its `?=` default.
+# That order is load-bearing -- see the block above the assignment.
 
 PROJECT       := OstlerInstaller.xcodeproj
 SCHEME        := OstlerInstaller
@@ -55,15 +53,50 @@ ARCHIVE_DIR    ?= $(HOME)/.ostler-release-artefacts
 # OSTLER_APP_PATH points at a pre-built Ostler.app (Tauri Hub desktop) that
 # `make package` will drop into the DMG window beside the installer, and
 # `make sparkle-embed` uses to locate the bundle that gets
-# Sparkle.framework + SU* keys stamped in. Default resolves to the
-# standard Tauri bundle path for Andy's local checkout of
-# ostler-ai/ostler-assistant. Override at make time or in CI to point at
-# the notarised bundle produced by a release workflow:
+# Sparkle.framework + SU* keys stamped in. Override at make time or in CI to
+# point at the notarised bundle produced by a release workflow:
 #     make OSTLER_APP_PATH=/path/to/Ostler.app ship
-# Leaving it pointing at a missing path is non-fatal: the DMG cuts without
-# Ostler.app and `make package` prints a warning. Customers who install
-# from that DMG see install.sh's "Ostler.app not found" warning at run time.
-OSTLER_APP_PATH ?= $(HOME)/Documents/Projects/ostler-assistant/target/release/bundle/macos/Ostler.app
+#
+# WHY THIS IS DERIVED AND NOT A HOME-DIRECTORY LITERAL (v1018-D668)
+#
+# The default used to be a hardcoded $(HOME)/Documents/Projects/... path. That
+# tree was superseded when the repos moved to ~/Developer, and by 2026-08-13 it
+# was a month stale AND had no bundle in it at all:
+#
+#   ~/Documents/Projects/ostler-assistant   last commit 2026-07-12, Ostler.app ABSENT
+#   ~/Developer/ostler-assistant            last commit 2026-08-12, Ostler.app PRESENT
+#
+# That matters more than a broken path usually would, because a missing
+# OSTLER_APP_PATH is deliberately NON-FATAL for `make package`: it warns and
+# cuts the DMG anyway. So the default silently produced a Hub-less DMG, and the
+# customer met it as install.sh's "Ostler.app not found" at run time. A default
+# that cannot work should not be a default.
+#
+# Derived from this checkout's location instead, so it follows the repo rather
+# than one operator's home layout: ostler-assistant is a sibling of the
+# installer repo. Works from ~/Developer, from a worktree, from CI, and carries
+# no operator path into a shipping tree.
+_CM051_ROOT      := $(abspath $(CURDIR)/..)
+OSTLER_APP_PATH  ?= $(abspath $(_CM051_ROOT)/../ostler-assistant)/target/release/bundle/macos/Ostler.app
+
+# EXPORT MUST COME AFTER THE `?=` ABOVE. THIS ORDER IS THE WHOLE BUG (D668).
+#
+# A bare `export VAR` DEFINES VAR (origin becomes "file"), and `?=` assigns only
+# when a variable is UNDEFINED. So `export OSTLER_APP_PATH` sitting above the
+# default meant the default never applied -- not once, on any version of this
+# file. Measured on GNU Make 3.81, the make macOS ships:
+#
+#   export FOO / FOO ?= default   ->  origin=file  value=[]            <- broken
+#   FOO ?= default / export FOO   ->  origin=file  value=[default]     <- works
+#
+# So the stale ~/Documents/Projects path was a red herring: it was never
+# resolved, because nothing ever resolved. `make package` treats a missing
+# OSTLER_APP_PATH as non-fatal and cuts the DMG anyway, so the visible symptom
+# was a Hub-less DMG, and the Makefile's own error text blames "a parent shell
+# exported OSTLER_APP_PATH= (empty string)" -- misdiagnosing its own bug.
+#
+# tests/test_makefile_app_path_default.sh pins the order and the value.
+export OSTLER_APP_PATH
 
 # ---------------------------------------------------------------------------
 # Derived paths
