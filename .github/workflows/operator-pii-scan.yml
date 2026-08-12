@@ -78,6 +78,16 @@ jobs:
         if: ${{ steps.stage.outputs.count == '0' }}
         run: echo "No tracked files changed in this PR; scan skipped."
 
+      # Prove the shape scan asks the right question BEFORE trusting its answer.
+      # These five cases pin its SCOPE, not its patterns: a phone added by the
+      # change is RED, a phone that merely pre-exists in a touched file is not,
+      # and a rename carrying a phone is still RED so the narrowing is not a
+      # bypass. Runs before the scan so a scope regression is named as a scope
+      # regression rather than surfacing later as an inexplicable red or, worse,
+      # an inexplicable green.
+      - name: Prove ci-pii-shape-scan scope
+        run: bash tests/test_pii_shape_scan_scope.sh
+
       # The check that CAN run here. Runs FIRST and unconditionally, because it
       # needs no inventory: it matches PII by SHAPE, and it carries its own
       # canary so it refuses to report clean when its detector loaded nothing.

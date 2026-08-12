@@ -98,7 +98,34 @@ fi
 # BASE_REF set   -> the diff against it (pull request)
 # args given     -> those paths
 # neither        -> tracked files
+#
+# IN PR MODE THIS SCANS ADDED LINES, NOT WHOLE FILES. Read this before
+# "tightening" it back, because the whole-file version is the obvious one and it
+# is the one that broke.
+#
+# v1 collected `git diff --name-only` and then scanned each named file in full.
+# MEASURED 2026-08-12 on CM051 #587: that PR changed exactly two lines of
+# install.sh, both of them a Docker image digest, and the scan failed it on
+# install.sh lines 3695 and 3746 -- two `echo "  Example: ..."` strings in
+# installer prompt copy that have been on main for months and that this PR never
+# touched. Every PR touching install.sh was therefore red, permanently, with a
+# red that said nothing about the PR.
+#
+# That is precisely the failure this file's own header warns about: "A gate
+# whose red carries no information gets routed around, which is worse than no
+# gate." It was describing the denylist and had become true of itself.
+#
+# The question a PR gate answers is "did THIS CHANGE introduce PII-shaped
+# content". Pre-existing content is an audit question, and the no-BASE_REF
+# branch below still scans the whole tree for exactly that.
+#
+# THE HOLE THAT NARROWING WOULD OTHERWISE OPEN, and how it is closed: a rename
+# can carry a file full of PII to a new path while git reports no added lines.
+# So A (added) and R/C (renamed/copied) are scanned IN FULL -- all of their
+# content is new at that path -- and only M (modified) is narrowed to its added
+# lines. Deleting PII is not a violation, so removed lines are never scanned.
 FILES=""
+ADDED_ONLY_DIR=""
 if [ "$#" -gt 0 ]; then
     FILES="$(printf '%s\n' "$@")"
     SOURCE="$# path argument(s)"
@@ -109,12 +136,28 @@ elif [ -n "${BASE_REF:-}" ]; then
         echo "  scanning nothing must not read as scanning clean." >&2
         exit 2
     fi
-    FILES="$(git diff --name-only --diff-filter=ACMR "$BASE_REF"...HEAD)"
-    SOURCE="diff vs $BASE_REF"
+    # Whole-file set: added, renamed, copied.
+    FILES="$(git diff --name-only --diff-filter=ARC "$BASE_REF"...HEAD)"
+    # Modified files: materialise ONLY their added lines, one temp file each,
+    # named after the real path so a hit still names something a human can find.
+    ADDED_ONLY_DIR="$(mktemp -d -t pii-added-XXXXXX)"
+    while IFS= read -r mf; do
+        [ -n "$mf" ] || continue
+        added="$(git diff -U0 "$BASE_REF"...HEAD -- "$mf" \
+                 | sed -n 's/^+\([^+].*\)$/\1/p; s/^+$//p')"
+        [ -n "$added" ] || continue
+        dest="$ADDED_ONLY_DIR/$mf"
+        mkdir -p "$(dirname "$dest")"
+        printf '%s\n' "$added" > "$dest"
+        FILES="$FILES
+$dest"
+    done <<< "$(git diff --name-only --diff-filter=M "$BASE_REF"...HEAD)"
+    SOURCE="diff vs $BASE_REF (added lines of modified files; whole file if added or renamed)"
 else
     FILES="$(git ls-files)"
     SOURCE="all tracked files"
 fi
+[ -z "$ADDED_ONLY_DIR" ] || trap 'rm -rf "$CANARY_DIR" "$ADDED_ONLY_DIR"' EXIT
 
 # Drop paths that no longer exist and directories.
 EXISTING=""
