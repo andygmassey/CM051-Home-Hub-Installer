@@ -214,3 +214,48 @@ as provenance/cosmetic, not functional.
 Left in the document deliberately. A refuted lead that is silently deleted gets
 re-raised by the next person who reads the same suggestive comment, and they pay
 the same investigation cost again.
+
+## Step 1 has a prerequisite of its own: the commit never reaches the installer
+
+Measured 2026-08-13, before writing the install.sh edit rather than after.
+
+    grep -E 'DAEMON_COMMIT|daemon_commit|build-info|OSTLER_ASSISTANT_COMMIT' install.sh
+        -> NO MATCHES
+
+`install.sh` has no commit variable of any kind. `build-info.json` appears only in
+`verify_cut_freshness.sh` and its test, where it is fetched as a RELEASE ASSET
+over the API. It is not in the DMG payload, so nothing in the install path can
+read it.
+
+**Consequence: install.sh cannot write a commit today. It could only write
+`OSTLER_ASSISTANT_VERSION`** -- and that is the exact field refuted above as a
+discriminator, because the box reports `0.4.1` for a binary built 2026-08-10.
+Shipping that record would produce a provenance file that cannot answer the one
+question it exists to answer. Worse than nothing, because it would look
+authoritative.
+
+### Corrected sequencing
+
+    1a. THE CUT stages the daemon commit into the DMG payload, beside
+        OstlerAssistant.app. The cut already knows it: cuts/<tag>/cut.env
+        carries DAEMON_COMMIT (e.g. v1.0.24 -> DAEMON_COMMIT=e0234e71c66d) and
+        check_daemon_recency already resolves pin -> commit. The value exists;
+        it simply is not carried across the DMG boundary.
+
+    1b. install.sh reads that payload file and writes
+        ~/.ostler/daemon-provenance.json, at the two sites already located:
+          fresh    _finalise_daemon_staging()  ~14009, success arm after verify
+          upgrade  the swap at line 455, `mv "$_UPG_APP_NEW" "$_UPG_APP"`,
+                   NOT the earlier ditto-stage at ~224
+
+    2.  the probe reads the record and applies the directional contract
+
+Step 1a is the real head of this chain and it belongs to the cut, which is my
+surface. 1b belongs to install.sh, which is TNM's.
+
+### What must NOT be done
+
+Do not ship 1b alone with a version-only record to "make progress". A record
+whose only field is known-unreliable manufactures false confidence at exactly
+the point where the system is currently honest about not knowing. The absence of
+a record is a true statement today; a version-only record would be a false one.
