@@ -257,6 +257,328 @@
 +            # fail loud rather than silently leaving the brief armed.
 +            raise ConfigError(exc.status, exc.detail)
      return read_config_view(p)
+--- /dev/null
++++ b/agent/daemon_cron.py
+@@ -0,0 +1,319 @@
++"""
++Ostler Doctor -- daemon cron pause bridge (Batch-2 review #6 F1).
++
++The Doctor Settings "Pause background work" control has two jobs:
++
++1. Pause the SHELL-layer enrichment/ingest/wiki-recompile ticks. That is
++   done by ``config_panel._write_governor_env`` writing ``OSTLER_PAUSED=1``
++   into ``governor.env``, which every ``*-tick.sh`` sources.
++
++2. Pause the ASSISTANT DAEMON'S OWN embedded cron scheduler -- the one
++   that fires the morning brief (09:00) and evening wrap (18:00). THIS
++   module does that. Without it, a Pause set at 08:45 still let the 09:00
++   brief fire, because the shell governor never reaches the Rust daemon.
++
++Why it works this way (verified against the daemon source)
++----------------------------------------------------------
++The daemon (``ostler-assistant`` / zeroclaw) reads its config from
++``~/.ostler/assistant-config/config.toml``. Two facts about the shipped
++daemon decide the mechanism:
++
++* The scheduler supervisor is only spawned when ``[cron].enabled`` is
++  true, and that is read ONCE at daemon start
++  (``crates/zeroclaw-runtime/src/daemon/mod.rs``:
++  ``if config.cron.enabled { spawn scheduler }``). The running scheduler
++  holds a *cloned* ``Config`` by value, so mutating the daemon's live
++  config over the HTTP API does NOT reach the running loop -- the change
++  only takes effect on a daemon restart, when ``sync_declarative_jobs``
++  reconciles ``[[cron.jobs]]`` (and per-job ``enabled``) into the DB and
++  the supervisor re-reads ``[cron].enabled``.
++
++* The per-tick fire query is ``WHERE enabled = 1 AND next_run <= now``.
++
++So the honest, daemon-side way to stop the fire from CM051 (which cannot
++rebuild the Rust daemon) is: set ``[cron].enabled = false`` in
++``config.toml`` and restart the daemon in place with
++``launchctl kickstart -k`` -- the same idiom ``install.sh`` already uses
++after Full-Disk-Access grants. On restart the scheduler supervisor sees
++``enabled = false`` and never starts; nothing fires until the operator
++resumes (which sets it back to true and restarts again).
++
++Fail-closed discipline
++----------------------
++Editing the daemon's live TOML is delicate -- a malformed file would
++break the daemon. So every edit is validated by re-parsing the RESULT
++with ``tomllib`` and asserting (a) it still parses, (b) ``cron.enabled``
++is the value we intended, and (c) the ``[[cron.jobs]]`` are preserved
++byte-for-byte in count. If any check fails we DO NOT write and raise,
++leaving ``config.toml`` untouched (the shell-layer pause still applies).
++If there is no daemon config, or no cron jobs to pause, this is a no-op.
++"""
++
++from __future__ import annotations
++
++import os
++import shlex
++import subprocess
++import tempfile
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Optional
++
++try:  # Python 3.11+
++    import tomllib  # type: ignore
++except ModuleNotFoundError:  # pragma: no cover - old interpreters
++    tomllib = None  # type: ignore
++
++
++# The canonical LaunchAgent label for the assistant daemon (matches
++# install.sh and assistant-agent/launchd/*.plist). Overridable for tests
++# / non-default deployments.
++DEFAULT_ASSISTANT_LABEL = "com.creativemachines.ostler.assistant"
++
++
++@dataclass
++class DaemonCronError(Exception):
++    """Raised when the daemon cron gate cannot be applied safely.
++
++    Carries an HTTP status so the FastAPI route maps cleanly, matching
++    ``config_panel.ConfigError``.
++    """
++
++    status: int
++    detail: str
++
++    def __str__(self) -> str:  # pragma: no cover - trivial
++        return self.detail
++
++
++def assistant_config_file() -> Path:
++    """Resolve the daemon's ``config.toml`` path.
++
++    ``OSTLER_ASSISTANT_CONFIG_FILE`` wins (tests / non-default installs),
++    then ``OSTLER_HOME`` (``<home>/assistant-config/config.toml``), then
++    the ``~/.ostler`` default. Kept independent of the Doctor YAML path so
++    a test that points the YAML at a tmp dir does not accidentally touch
++    the real daemon config unless it also sets this override.
++    """
++    raw = os.environ.get("OSTLER_ASSISTANT_CONFIG_FILE")
++    if raw:
++        return Path(raw)
++    home = os.environ.get("OSTLER_HOME")
++    if home:
++        return Path(home) / "assistant-config" / "config.toml"
++    return Path.home() / ".ostler" / "assistant-config" / "config.toml"
++
++
++# ── TOML edit (surgical, text-level, tomllib-validated) ──────────────
++
++
++_CRON_HEADER_RE = None  # lazily compiled below to avoid import-time cost
++
++
++def _is_table_header(line: str) -> bool:
++    s = line.strip()
++    return s.startswith("[") and not s.startswith("[[") or s.startswith("[[")
++
++
++def set_cron_enabled_text(text: str, enabled: bool) -> str:
++    """Return ``text`` with ``[cron].enabled`` set to ``enabled``.
++
++    Text-level so we never reformat the operator's file. Three cases:
++
++    * a ``[cron]`` table with an ``enabled = ...`` line -> flip the value;
++    * a ``[cron]`` table without one -> insert ``enabled`` after the header;
++    * no ``[cron]`` table but at least one ``[[cron.jobs]]`` -> insert a
++      ``[cron]`` table (with ``enabled``) immediately BEFORE the first
++      ``[[cron.jobs]]`` header, because TOML forbids defining ``[cron]``
++      after its ``cron.jobs`` array has been opened.
++
++    The caller validates the result with ``tomllib`` before writing.
++    """
++    val = "true" if enabled else "false"
++    lines = text.splitlines(keepends=True)
++
++    # Locate the [cron] table header (exact table, not [cron.something]).
++    cron_hdr_idx: Optional[int] = None
++    first_cron_jobs_idx: Optional[int] = None
++    for i, ln in enumerate(lines):
++        s = ln.strip()
++        if s == "[cron]":
++            cron_hdr_idx = i
++        if first_cron_jobs_idx is None and s == "[[cron.jobs]]":
++            first_cron_jobs_idx = i
++
++    if cron_hdr_idx is not None:
++        # Scan the [cron] table body for an `enabled` key up to the next
++        # table header.
++        j = cron_hdr_idx + 1
++        while j < len(lines):
++            s = lines[j].strip()
++            if s.startswith("[") :  # next table starts
++                break
++            if s.startswith("enabled") and "=" in s:
++                indent = lines[j][: len(lines[j]) - len(lines[j].lstrip())]
++                nl = "\n" if lines[j].endswith("\n") else ""
++                lines[j] = f"{indent}enabled = {val}{nl}"
++                return "".join(lines)
++            j += 1
++        # No `enabled` key inside [cron]: insert one right after the header.
++        hdr_nl = "\n" if lines[cron_hdr_idx].endswith("\n") else "\n"
++        lines.insert(cron_hdr_idx + 1, f"enabled = {val}{hdr_nl}")
++        return "".join(lines)
++
++    if first_cron_jobs_idx is not None:
++        # No [cron] table yet: inject a managed one before the first job.
++        block = f"[cron]\nenabled = {val}\n\n"
++        lines.insert(first_cron_jobs_idx, block)
++        return "".join(lines)
++
++    # Nothing cron-related in the file: caller treats this as a no-op.
++    return text
++
++
++# ── Daemon restart (in-place, best-effort, test-injectable) ──────────
++
++
++def _restart_daemon() -> dict:
++    """Restart the assistant daemon in place so it re-reads config.toml.
++
++    ``OSTLER_SKIP_DAEMON_RESTART=1`` skips the restart entirely (tests on
++    a box with no daemon). ``OSTLER_ASSISTANT_RESTART_CMD`` overrides the
++    command (tests capture it); it is shlex-split and run WITHOUT a shell.
++    Otherwise the canonical ``launchctl kickstart -k gui/<uid>/<label>``
++    is used -- the same call install.sh makes after an FDA grant.
++
++    Returns a small status dict; never raises (a failed restart leaves the
++    config change to take effect at the next natural daemon start, and the
++    shell-layer pause is already active).
++    """
++    if os.environ.get("OSTLER_SKIP_DAEMON_RESTART") == "1":
++        return {"restarted": False, "reason": "skipped"}
++
++    override = os.environ.get("OSTLER_ASSISTANT_RESTART_CMD")
++    if override:
++        cmd = shlex.split(override)
++    else:
++        label = os.environ.get("OSTLER_ASSISTANT_LABEL", DEFAULT_ASSISTANT_LABEL)
++        cmd = [
++            "launchctl",
++            "kickstart",
++            "-k",
++            f"gui/{os.getuid()}/{label}",
++        ]
++    try:
++        proc = subprocess.run(
++            cmd,
++            capture_output=True,
++            text=True,
++            timeout=20,
++            check=False,
++        )
++    except (OSError, subprocess.SubprocessError) as exc:
++        return {"restarted": False, "reason": f"restart failed: {exc}"}
++    if proc.returncode != 0:
++        return {
++            "restarted": False,
++            "reason": f"restart exit {proc.returncode}: {proc.stderr.strip()}",
++        }
++    return {"restarted": True, "reason": "kickstart ok"}
++
++
++def _atomic_write(path: Path, text: str) -> None:
++    fd, tmp = tempfile.mkstemp(
++        dir=str(path.parent), prefix=".config-", suffix=".toml.tmp"
++    )
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as fh:
++            fh.write(text)
++        os.replace(tmp, path)
++    except OSError as exc:
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass
++        raise DaemonCronError(500, f"Could not write daemon config: {exc}")
++
++
++# ── Public entry point ───────────────────────────────────────────────
++
++
++def apply_pause_to_cron(
++    paused: bool, *, config_path: Optional[Path] = None
++) -> dict:
++    """Reflect the operator Pause into the daemon's cron scheduler.
++
++    Sets ``[cron].enabled = false`` when ``paused`` (``= true`` when
++    resumed) in the daemon ``config.toml`` and restarts the daemon so the
++    scheduler supervisor re-reads it. A Pause set at 08:45 therefore stops
++    the 09:00 brief, which the shell-layer governor alone could not do.
++
++    No-ops (``changed=False``, no restart) when there is no daemon config,
++    no cron jobs to pause, or the gate is already in the desired state.
++    Fail-closed: an edit that would not round-trip through ``tomllib`` is
++    rejected and ``config.toml`` is left untouched.
++    """
++    p = config_path or assistant_config_file()
++    if not p.is_file():
++        return {"changed": False, "reason": "no daemon config"}
++
++    if tomllib is None:  # pragma: no cover - old interpreters
++        raise DaemonCronError(
++            500, "Python 3.11+ (tomllib) is required to gate the daemon cron."
++        )
++
++    try:
++        original_text = p.read_text(encoding="utf-8")
++    except OSError as exc:
++        raise DaemonCronError(500, f"Could not read daemon config: {exc}")
++
++    try:
++        data = tomllib.loads(original_text)
++    except tomllib.TOMLDecodeError as exc:
++        # Never edit a file we cannot parse.
++        raise DaemonCronError(500, f"Daemon config is not valid TOML: {exc}")
++
++    cron = data.get("cron")
++    jobs = cron.get("jobs", []) if isinstance(cron, dict) else []
++    has_cron_table = isinstance(cron, dict)
++    # Nothing scheduled -> nothing to pause; don't gratuitously add a
++    # [cron] table or restart the daemon.
++    if not jobs and not has_cron_table:
++        return {"changed": False, "reason": "no cron jobs"}
++
++    desired = not paused
++    current = bool(cron.get("enabled", True)) if has_cron_table else True
++    if current == desired:
++        return {"changed": False, "reason": "already in desired state"}
++
++    new_text = set_cron_enabled_text(original_text, desired)
++    if new_text == original_text:
++        return {"changed": False, "reason": "no edit applied"}
++
++    # Fail-closed validation: the result must parse, carry the intended
++    # cron.enabled, and preserve every declarative job.
++    try:
++        new_data = tomllib.loads(new_text)
++    except tomllib.TOMLDecodeError as exc:
++        raise DaemonCronError(
++            500, f"Refusing to write: edited daemon config is invalid TOML: {exc}"
++        )
++    new_cron = new_data.get("cron", {})
++    if not isinstance(new_cron, dict) or bool(new_cron.get("enabled", True)) != desired:
++        raise DaemonCronError(
++            500, "Refusing to write: cron.enabled did not take the intended value."
++        )
++    if len(new_cron.get("jobs", [])) != len(jobs):
++        raise DaemonCronError(
++            500, "Refusing to write: cron job count changed during the edit."
++        )
++
++    _atomic_write(p, new_text)
++    restart = _restart_daemon()
++    return {
++        "changed": True,
++        "paused": paused,
++        "cron_enabled": desired,
++        "config_path": str(p),
++        "restart": restart,
++    }
 --- a/agent/diagnostic_copy.py
 +++ b/agent/diagnostic_copy.py
 @@ -383,4 +383,93 @@
@@ -1264,18 +1586,89 @@
  pyyaml>=6.0,<7.0
 --- a/agent/web_ui_copy.py
 +++ b/agent/web_ui_copy.py
-@@ -209,6 +209,11 @@
+@@ -208,6 +208,11 @@
+ DASHBOARD_BTN_EMAIL_TITLE = (
      "Open your email client with the diagnostic report ready to send "
      "to support"
- )
++)
 +DASHBOARD_BTN_SETTINGS = "&#9881; Settings"
 +DASHBOARD_BTN_SETTINGS_TITLE = (
 +    "Pause or ease off background work, and adjust channels, model and "
 +    "schedule"
-+)
+ )
  
  DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
- DASHBOARD_LAST_CHECKED_PREFIX = "Last checked: "
+@@ -691,5 +696,70 @@
+     "enable the tick for Ostler (or for the assistant process). Once granted, "
+     "Ostler retries the blocked commitments on its next run and they appear "
+     "in the Reminders app."
++)
++
++
++
++
++# ── WhatsApp pairing panel ───────────────────────────────────────────
++#
++# The last gap between a customer and a linked WhatsApp account. The
++# daemon publishes a pair code to a declared contract; until this panel
++# existed the code's only exit from the process was daemon stderr, which
++# on a headless Hub is not a surface a human can use.
++#
++# The three failure states are deliberately THREE, with three different
++# next actions. "not requested" means turn it on or wait; "expired"
++# means one is coming; "unreadable" is a fault to report. Collapsing
++# them into one "no code available" tells a stuck customer nothing and
++# tells support less.
++
++WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
++WHATSAPP_PAIR_HEADING = "Link WhatsApp"
++WHATSAPP_PAIR_LEDE = (
++    "Ostler links to WhatsApp the same way WhatsApp Web does, using a "
++    "code you type into your phone. The code is shown here for a short "
++    "time only."
++)
++
++WHATSAPP_PAIR_LOADING = "Checking for a pairing code."
++
++# Deliberately names the exact phone-side path. "Pair your device" sends
++# a customer hunting through Settings; this is the literal sequence.
++WHATSAPP_PAIR_READY_INSTRUCTION = (
++    "On your phone, open WhatsApp and go to Settings, then Linked "
++    "Devices, then Link a device. Choose Link with phone number instead, "
++    "and type this code."
+ )
++WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
++WHATSAPP_PAIR_READY_HELP = (
++    "Codes are short-lived on purpose. If it runs out, Ostler asks "
++    "WhatsApp for another one."
++)
+ 
++WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
++WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
++    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
++    "If you turned WhatsApp on during setup, give it a minute. If you "
++    "did not, WhatsApp is switched off and there is nothing to link."
++)
++
++WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
++WHATSAPP_PAIR_EXPIRED_HELP = (
++    "Pairing codes last about three minutes. Ostler requests a fresh one "
++    "automatically, so wait a moment and this page will show it."
++)
++
++WHATSAPP_PAIR_UNREADABLE_TITLE = "Something is wrong with the pairing file."
++WHATSAPP_PAIR_UNREADABLE_HELP = (
++    "Ostler could not read the pairing code it wrote. This is a fault "
++    "rather than something you did. Use Copy diagnostics on the Doctor "
++    "dashboard and send it to support."
++)
++
++WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
++
++# Poll interval. Short enough that a code appearing feels immediate,
++# long enough that a customer leaving the page open is not hammering
++# the endpoint for the life of the session.
++WHATSAPP_PAIR_POLL_MS = 5000
 --- a/agent/web_ui.py
 +++ b/agent/web_ui.py
 @@ -32,9 +32,15 @@
@@ -1305,10 +1698,34 @@
      DASHBOARD_FIX_LABEL_FMT,
      DASHBOARD_FIX_NOTE,
      DASHBOARD_HEADING,
-@@ -669,7 +677,66 @@
+@@ -215,6 +223,21 @@
+     PAIR_IOS_SECTION_CODE,
+     PAIR_IOS_SUBTITLE,
+     PAIR_IOS_TITLE_TAG,
++    WHATSAPP_PAIR_BACK_LINK,
++    WHATSAPP_PAIR_COUNTDOWN_PREFIX,
++    WHATSAPP_PAIR_EXPIRED_HELP,
++    WHATSAPP_PAIR_EXPIRED_TITLE,
++    WHATSAPP_PAIR_HEADING,
++    WHATSAPP_PAIR_LEDE,
++    WHATSAPP_PAIR_LOADING,
++    WHATSAPP_PAIR_NOT_REQUESTED_HELP,
++    WHATSAPP_PAIR_NOT_REQUESTED_TITLE,
++    WHATSAPP_PAIR_POLL_MS,
++    WHATSAPP_PAIR_READY_HELP,
++    WHATSAPP_PAIR_READY_INSTRUCTION,
++    WHATSAPP_PAIR_TITLE_TAG,
++    WHATSAPP_PAIR_UNREADABLE_HELP,
++    WHATSAPP_PAIR_UNREADABLE_TITLE,
+     PORT_CONFLICT_DETAIL_FMT,
+     PORT_CONFLICT_FIX,
+     PORT_CONFLICT_FIX_COMMAND_FMT,
+@@ -667,6 +690,65 @@
+ _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+ _IPV4_RE = re.compile(
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
- )
- 
++)
++
 +# Credential-shaped values that must never leave the machine in a report the
 +# customer is about to paste into an email.
 +#
@@ -1366,13 +1783,10 @@
 +    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
 +    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
-+)
+ )
  
-+
- def _home_username() -> str | None:
-     """Best-effort current username for home-path redaction.
  
-@@ -719,6 +786,15 @@
+@@ -719,6 +801,15 @@
      redacted = _EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
  
@@ -1388,7 +1802,7 @@
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
  
-@@ -1149,6 +1225,7 @@
+@@ -1149,6 +1240,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -1396,7 +1810,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1620,7 @@
+@@ -1543,6 +1635,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -1404,7 +1818,7 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -2002,6 +2080,32 @@
+@@ -2002,8 +2095,34 @@
  
  
  # ── Endpoints ────────────────────────────────────────────────────────
@@ -1433,11 +1847,13 @@
 +    so the import moved to the parenthesised form upstream already uses.
 +    """
 +    return RedirectResponse(url="/doctor", status_code=302)
+ 
+ 
 +
- 
- 
  @app.get("/doctor", response_class=HTMLResponse)
-@@ -2292,6 +2396,104 @@
+ async def dashboard():
+     """Serve the diagnostic dashboard or first-run wizard."""
+@@ -2292,6 +2411,104 @@
      breaking-change must roll a /api/v2 instead of mutating this.
      """
      return all_observability_postures()
@@ -1542,3 +1958,410 @@
  
  
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
+@@ -3331,8 +3548,211 @@
+     </script>
+ </body>
+ </html>"""
++
++
++def _render_whatsapp_pair_page() -> str:
++    """Render the WhatsApp pair-code panel.
++
++    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
++    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
++    rather than one feeling bolted on.
+ 
++    THREE DESIGN RULES, each load-bearing:
+ 
++    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
++       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
++       worse than no countdown, because the customer trusts the one on screen.
++    2. The three error states read DIFFERENTLY, because they are different
++       problems with different next actions. Collapsing them to "no code
++       available" tells a stuck customer nothing.
++    3. The code is painted by the browser from JSON and is NEVER baked into the
++       served HTML. A pair code is credential-equivalent while it lives, so it
++       must not sit in a page a browser or a screenshot tool may cache.
++    """
++    return f"""<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <title>{WHATSAPP_PAIR_TITLE_TAG}</title>
++    <style>
++        /* PRIVACY: no webfont @import. A local-first product must not beacon
++           the customer IP+timestamp to a font CDN. Matches pair-ios. */
++        :root {{
++            --ostler-ink: #0d0b08;
++            --ostler-ink-deep: #07060a;
++            --ostler-chassis: #ECE8DD;
++            --ostler-accent: #C84545;
++            --ostler-accent-hover: #D76060;
++            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
++            --text: var(--ostler-chassis);
++            --text-secondary: rgba(236, 232, 221, 0.74);
++            --text-muted: rgba(236, 232, 221, 0.50);
++            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
++            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
++            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
++            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
++        }}
++        * {{ margin:0; padding:0; box-sizing:border-box; }}
++        body {{
++            font-family: var(--font-body);
++            font-size: 15px;
++            line-height: 1.5;
++            background: var(--ostler-ink);
++            color: var(--text);
++            min-height: 100vh;
++            padding: 2.5rem 1.75rem;
++            -webkit-font-smoothing: antialiased;
++        }}
++        a {{ color: var(--ostler-accent); text-decoration: none; }}
++        a:hover {{ color: var(--ostler-accent-hover); }}
++        .container {{ max-width: 600px; margin: 0 auto; }}
++        h1 {{
++            font-family: var(--font-display);
++            font-size: 1.7rem;
++            font-weight: 600;
++            margin-bottom: 0.6rem;
++        }}
++        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
++        .panel {{
++            background: var(--ostler-ink-deep);
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 12px;
++            padding: 1.5rem;
++            box-shadow: var(--shadow-soft);
++        }}
++        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
++        .code-frame {{
++            background: var(--ostler-ink);
++            border: 1px solid var(--ostler-hairline-soft);
++            border-radius: 10px;
++            padding: 1.1rem;
++            text-align: center;
++        }}
++        .code {{
++            font-family: var(--font-mono);
++            font-size: 2rem;
++            letter-spacing: 0.34em;
++            /* Trailing letter-spacing pushes the glyphs left of centre;
++               the matching indent pulls them back so the code sits square. */
++            text-indent: 0.34em;
++        }}
++        .countdown {{ margin-top: 0.9rem; color: var(--text-secondary); }}
++        .help {{
++            font-size: 0.82rem;
++            color: var(--text-muted);
++            margin-top: 0.55rem;
++            line-height: 1.55;
++        }}
++        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
++    </style>
++</head>
++<body>
++  <div class="container">
++    <h1>{WHATSAPP_PAIR_HEADING}</h1>
++    <p class="lede">{WHATSAPP_PAIR_LEDE}</p>
++
++    <section class="panel" aria-live="polite">
++      <div id="wa-loading" class="state">{WHATSAPP_PAIR_LOADING}</div>
++
++      <div id="wa-ready" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_READY_INSTRUCTION}</p>
++        <div class="code-frame"><span id="wa-code" class="code"></span></div>
++        <p class="countdown">{WHATSAPP_PAIR_COUNTDOWN_PREFIX}
++          <span id="wa-remaining"></span>.</p>
++        <p class="help">{WHATSAPP_PAIR_READY_HELP}</p>
++      </div>
++
++      <div id="wa-not_requested" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_NOT_REQUESTED_TITLE}</p>
++        <p class="help">{WHATSAPP_PAIR_NOT_REQUESTED_HELP}</p>
++      </div>
++
++      <div id="wa-expired" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_EXPIRED_TITLE}</p>
++        <p class="help">{WHATSAPP_PAIR_EXPIRED_HELP}</p>
++      </div>
++
++      <div id="wa-unreadable" class="state" hidden>
++        <p class="label">{WHATSAPP_PAIR_UNREADABLE_TITLE}</p>
++        <p class="help">{WHATSAPP_PAIR_UNREADABLE_HELP}</p>
++      </div>
++    </section>
++
++    <p class="back"><a href="/doctor">{WHATSAPP_PAIR_BACK_LINK}</a></p>
++  </div>
++
++  <script>
++  (function () {{
++    var POLL_MS = {WHATSAPP_PAIR_POLL_MS};
++    var STATES = ["wa-loading", "wa-ready", "wa-not_requested",
++                  "wa-expired", "wa-unreadable"];
++
++    function show(id) {{
++      STATES.forEach(function (s) {{
++        var el = document.getElementById(s);
++        if (el) {{ el.hidden = (s !== id); }}
++      }});
++    }}
++
++    function humanise(secs) {{
++      if (secs === null || secs === undefined) {{ return "a moment"; }}
++      if (secs < 60) {{ return secs + " seconds"; }}
++      var m = Math.floor(secs / 60), r = secs % 60;
++      if (r === 0) {{ return m + (m === 1 ? " minute" : " minutes"); }}
++      return m + "m " + r + "s";
++    }}
++
++    function paint(data) {{
++      if (data && data.available) {{
++        // textContent, never innerHTML: the code is untrusted-by-policy
++        // output and must not be able to introduce markup.
++        document.getElementById("wa-code").textContent = data.code;
++        document.getElementById("wa-remaining").textContent =
++            humanise(data.seconds_remaining);
++        show("wa-ready");
++        return;
++      }}
++      var kind = (data && data.error_kind) || "unreadable";
++      if (STATES.indexOf("wa-" + kind) === -1) {{ kind = "unreadable"; }}
++      show("wa-" + kind);
++    }}
++
++    function tick() {{
++      fetch("/api/v1/whatsapp/pair")
++        .then(function (r) {{ return r.json(); }})
++        .then(paint)
++        // A fetch failure is Doctor being unreachable, not a bad pairing
++        // file. Reporting it as "unreadable" would send the customer to
++        // support for a page that just needs a reload.
++        .catch(function () {{ show("wa-loading"); }});
++    }}
++
++    tick();
++    setInterval(tick, POLL_MS);
++  }})();
++  </script>
++</body>
++</html>"""
++
++
++@app.get("/whatsapp-pair", response_class=HTMLResponse)
++async def whatsapp_pair_page():
++    """Render the WhatsApp pairing panel."""
++    return HTMLResponse(_render_whatsapp_pair_page())
++
++
++@app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
++async def api_whatsapp_pair():
++    """Return the current WhatsApp pair code and its state.
++
++    Read fresh on every call rather than cached: the code is short-lived and a
++    cached copy would outlive the thing it describes.
++    """
++    from whatsapp_pair import fetch_pair_status
++    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
++
++
+ @app.get("/pair-ios", response_class=HTMLResponse)
+ async def pair_ios_page():
+     """Render the Pair iOS device panel (DFA-002)."""
+--- /dev/null
++++ b/agent/whatsapp_pair.py
+@@ -0,0 +1,192 @@
++"""Read the WhatsApp Web pair code the daemon publishes, for Doctor.
++
++WHY THIS MODULE EXISTS
++
++Andy ruled WhatsApp non-negotiable for v1. Two defects had to fall before a
++customer could link their account, and both were fixed elsewhere:
++
++  * the shipped daemon carried no ``whatsapp-web`` feature at all
++    (ostler-assistant #304);
++  * install.sh wrote ``enabled = true`` with no backend selector, which is
++    inert (CM051 #583).
++
++This is the third: even once the channel runs and requests a pair code, the
++code had exactly one exit from the process, an ``eprintln!`` to daemon stderr.
++A code on a headless Hub's stderr is not a surface a customer can use.
++
++ostler-assistant now publishes it as a state file. This module reads it.
++
++THE CONTRACT, agreed with the writer rather than reverse-engineered:
++
++    ${OSTLER_HOME}/state/whatsapp_pair.json      file 0600, dir 0700
++    {
++      "code":          "8-char string",
++      "requested_at":  unix seconds,
++      "expires_at":    unix seconds,
++      "validity_secs": integer
++    }
++
++Written temp-then-rename, so a half-written file cannot be read and a truncated
++code cannot be shown to a customer.
++
++``expires_at`` is MEASURED by the writer, not assumed here. It binds the
++``timeout`` on wa-rs's ``Event::PairingCode``, which comes from
++``PairCodeUtils::code_validity()``. Doctor must not apply its own TTL policy on
++top: a countdown that disagrees with WhatsApp's is worse than no countdown,
++because the customer trusts the one on screen.
++
++WHY THE ERROR TAXONOMY IS EXPLICIT AND NOT A BARE ``Optional``
++
++The states a customer can be in look identical from a null and are not the same
++problem at all:
++
++    no_channel     they never consented to WhatsApp
++    not_requested  channel is on, the daemon has not asked for a code yet
++    expired        there WAS a code, it aged out, ask for another
++    unreadable     the file exists and we cannot parse or open it
++
++Collapsing those into "no pair code available" tells a stuck customer nothing,
++and tells support less. ``pair_status.py`` established this shape for the iOS
++pairing panel; this mirrors it rather than inventing a second vocabulary.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Optional
++
++log = logging.getLogger(__name__)
++
++
++# The daemon's engine zone. Same root the consent gate and the channel poll
++# cursors use. NOT under the customer's data/ tree and NOT under Caches.
++_STATE_FILENAME = "whatsapp_pair.json"
++
++# A pair code that is about to die is worse than useless: the customer types it
++# and WhatsApp rejects it. Treat a code with less than this left as expired so
++# the panel says "ask for a new one" instead of showing a doomed one.
++_MIN_USEFUL_SECONDS = 5
++
++
++@dataclass
++class WhatsAppPairStatus:
++    """Structured result a Doctor route can JSON-serialise directly."""
++
++    available: bool
++    code: Optional[str]
++    expires_at: Optional[int]
++    seconds_remaining: Optional[int]
++    error: Optional[str]
++    error_kind: Optional[str]
++
++    def to_dict(self) -> dict:
++        return {
++            "available": self.available,
++            "code": self.code,
++            "expires_at": self.expires_at,
++            "seconds_remaining": self.seconds_remaining,
++            "error": self.error,
++            "error_kind": self.error_kind,
++        }
++
++
++def state_path() -> Path:
++    """Resolve the pair-code state file.
++
++    Honours ``OSTLER_HOME`` then ``OSTLER_DIR`` (the installer sets
++    ``OSTLER_DIR=~/.ostler``), falling back to ``~/.ostler``. Mirrors how the
++    rest of Doctor resolves the engine zone so the two cannot drift onto
++    different roots.
++    """
++    base = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
++    root = Path(base) if base else Path.home() / ".ostler"
++    return root / "state" / _STATE_FILENAME
++
++
++def _unavailable(kind: str, message: str) -> WhatsAppPairStatus:
++    return WhatsAppPairStatus(
++        available=False,
++        code=None,
++        expires_at=None,
++        seconds_remaining=None,
++        error=message,
++        error_kind=kind,
++    )
++
++
++def fetch_pair_status(
++    path: Optional[Path] = None,
++    now: Optional[int] = None,
++) -> WhatsAppPairStatus:
++    """Read the current pair code, if there is a usable one.
++
++    Never raises. A Doctor panel that 500s tells the customer less than a panel
++    that says "not requested yet", and this runs on the dashboard's polling
++    path where an exception would blank the whole card.
++
++    ``now`` is injectable so expiry tests do not have to sleep, and so a test
++    cannot pass merely because it ran fast.
++    """
++    target = path if path is not None else state_path()
++    current = int(time.time()) if now is None else now
++
++    try:
++        if not target.is_file():
++            # Not an error. The overwhelmingly common case is a customer who
++            # never turned WhatsApp on, and the second most common is one whose
++            # daemon has not reached the pairing step yet. The caller decides
++            # which copy to show using the channel's configured state; this
++            # module refuses to guess at it from a missing file.
++            return _unavailable(
++                "not_requested",
++                "No pair code has been requested yet.",
++            )
++        raw = target.read_text(encoding="utf-8")
++    except OSError as exc:
++        log.warning("whatsapp pair state unreadable at %s: %s", target, exc)
++        return _unavailable("unreadable", "Could not read the pairing file.")
++
++    try:
++        payload = json.loads(raw)
++    except (ValueError, TypeError) as exc:
++        # Deliberately does NOT log `raw`. A malformed file may still contain a
++        # live pair code, and this logger's output lands in doctor.err, which
++        # the support-diagnostics bundle tails.
++        log.warning("whatsapp pair state is not valid JSON at %s: %s", target, exc)
++        return _unavailable("unreadable", "The pairing file could not be read.")
++
++    if not isinstance(payload, dict):
++        return _unavailable("unreadable", "The pairing file could not be read.")
++
++    code = payload.get("code")
++    expires_at = payload.get("expires_at")
++
++    if not isinstance(code, str) or not code.strip():
++        return _unavailable("unreadable", "The pairing file has no code in it.")
++    # `bool` is an `int` subclass in Python and would sail through a naive
++    # isinstance check, so exclude it explicitly rather than trust the writer.
++    if isinstance(expires_at, bool) or not isinstance(expires_at, int):
++        return _unavailable("unreadable", "The pairing file has no expiry in it.")
++
++    remaining = expires_at - current
++    if remaining < _MIN_USEFUL_SECONDS:
++        # Report the expiry honestly rather than hand back a code that WhatsApp
++        # will reject. The customer needs "ask for another", not "try harder".
++        return _unavailable(
++            "expired",
++            "That pairing code has expired. Ask for a new one.",
++        )
++
++    return WhatsAppPairStatus(
++        available=True,
++        code=code.strip(),
++        expires_at=expires_at,
++        seconds_remaining=remaining,
++        error=None,
++        error_kind=None,
++    )
