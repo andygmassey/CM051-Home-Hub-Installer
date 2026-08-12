@@ -79,6 +79,52 @@ rc="$( ( PATH=/usr/bin:/bin "$GATE" >/dev/null 2>&1 ); echo $? )"
 if [[ "$rc" == 2 ]]; then ok "CONTROL: xcodegen absent is UNAVAILABLE (rc=2), not a pass"
 else bad "CONTROL FAILED: missing xcodegen returned rc=$rc, expected 2"; fi
 
+# --- CONTROL 4+5: the xcodegen version pin --------------------------------
+# The gate's comparison is byte-exact, so it is only meaningful against the
+# generator that produced the tracked file. A different xcodegen emitting
+# different bytes from identical input must present as "could not run", NOT as
+# "the project is stale" -- a gate that goes red for a toolchain bump is a gate
+# people learn to ignore.
+#
+# Both cases assert rc==2 specifically and reject rc==1, because the whole
+# value of the pin is which of those two answers you get.
+PIN_FILE="$REPO_ROOT/gui/.xcodegen-version"
+PIN_BACKUP="$(mktemp)"
+
+if [[ -f "$PIN_FILE" ]]; then
+    cp "$PIN_FILE" "$PIN_BACKUP"
+
+    printf '0.0.0-not-a-real-version\n' > "$PIN_FILE"
+    rc="$(run_gate)"
+    cp "$PIN_BACKUP" "$PIN_FILE"
+    if [[ "$rc" == 2 ]]; then
+        ok "CONTROL: pinned version != installed is UNAVAILABLE (rc=2)"
+    elif [[ "$rc" == 1 ]]; then
+        bad "CONTROL FAILED: a version mismatch returned rc=1 (STALE, DO NOT SHIP).
+       That blames the project for a toolchain difference."
+    else
+        bad "CONTROL FAILED: version mismatch returned rc=$rc, expected 2"
+    fi
+
+    # An absent pin must not silently fall back to "compare anyway": that is
+    # the pre-pin behaviour and it is exactly what the pin exists to end.
+    mv "$PIN_FILE" "$PIN_FILE.absent"
+    rc="$(run_gate)"
+    mv "$PIN_FILE.absent" "$PIN_FILE"
+    if [[ "$rc" == 2 ]]; then ok "CONTROL: missing version pin is UNAVAILABLE (rc=2), not a pass"
+    else bad "CONTROL FAILED: missing pin returned rc=$rc, expected 2"; fi
+
+    # And the restore must have worked, or every case after this is void.
+    rc="$(run_gate)"
+    if [[ "$rc" == 0 ]]; then ok "pin restored: gate is green again (rc=0)"
+    else bad "the pin was NOT restored -- rc=$rc. Later results are unreliable."; fi
+else
+    bad "gui/.xcodegen-version is missing. The gate cannot attribute a byte
+       difference to drift rather than to the toolchain, and the two controls
+       that prove it does are unrunnable. This is not a skip."
+fi
+rm -f "$PIN_BACKUP"
+
 # --- the gate must leave the tree exactly as it found it ------------------
 run_gate >/dev/null
 if git -C "$REPO_ROOT" diff --quiet -- "$PROJ_DIR" "$SPEC" 2>/dev/null; then

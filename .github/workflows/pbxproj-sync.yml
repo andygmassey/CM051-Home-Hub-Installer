@@ -1,0 +1,93 @@
+name: pbxproj-sync
+
+# Proves the TRACKED gui/OstlerInstaller.xcodeproj/project.pbxproj is exactly
+# what xcodegen generates from gui/project.yml.
+#
+# WHY THIS IS ITS OWN WORKFLOW (v1018-D662)
+#
+# tests/test_bundle_phase_declares_every_copy.sh runs in install-gui-contract
+# and parses gui/project.yml -- the SPEC a human edits. xcodebuild builds the
+# pbxproj. Nothing in the ship chain runs `xcodegen`, so the two can disagree
+# and the build follows the pbxproj. At the v1.0.17 cut it HAD diverged: PR #516
+# added inputFiles/outputFiles for lib/settling_progress.sh to project.yml and
+# the pbxproj was never regenerated, while the bundle-phase gate reported the
+# declarations complete. True of the YAML, false of the thing being built.
+#
+# scripts/verify_pbxproj_in_sync.sh was written to close that, and then ran
+# NOWHERE. Measured 2026-08-13, with a control so the absence was not a broken
+# search:
+#
+#     verify_pbxproj_in_sync.sh   referenced in .github/: 0 hits
+#     test_pbxproj_sync_gate.sh   referenced in .github/: 0 hits
+#     test_vendor_only_survives_sync.sh (control)        3 hits, 2 workflows
+#
+# It could not simply be added to install-gui-contract: that job is
+# ubuntu-latest, no workflow in this repo runs xcodegen, and the gate exits 2
+# (UNAVAILABLE) without it. A step that can only ever print UNAVAILABLE is not
+# a gate. Hence a separate macOS workflow with a narrow paths filter, so the
+# macOS minutes are only spent when the Xcode project or its spec actually
+# changes.
+#
+# There is no `|| true` anywhere below. Exit 2 means the gate could not run,
+# and that fails the job, because a gate that cannot run is not a pass.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/project.yml'
+      - 'gui/OstlerInstaller.xcodeproj/**'
+      # The gate scrubs the variables gui/Makefile exports before generating,
+      # so a change to that export list changes what the gate does.
+      - 'gui/Makefile'
+      - 'gui/.xcodegen-version'
+      - 'scripts/verify_pbxproj_in_sync.sh'
+      # A gate must trigger on changes to ITSELF, or it can be broken -- or
+      # quietly narrowed -- in a PR that never runs it.
+      - 'tests/test_pbxproj_sync_gate.sh'
+      - '.github/workflows/pbxproj-sync.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pbxproj-sync:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pinned, not `brew install xcodegen`. The gate's comparison is
+      # byte-exact, so brew's floating latest would eventually emit different
+      # bytes from identical input and the gate would report "STALE, DO NOT
+      # SHIP" for a toolchain bump. See gui/.xcodegen-version.
+      - name: Install pinned xcodegen
+        run: |
+          set -euo pipefail
+          PIN="$(grep -v '^[[:space:]]*#' gui/.xcodegen-version \
+                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          echo "pinned xcodegen: $PIN"
+          curl -fsSL -o /tmp/xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${PIN}/xcodegen.zip"
+          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+          BIN="$(find /tmp/xcodegen -type f -name xcodegen -perm +111 | head -1)"
+          [ -n "$BIN" ] || { echo "::error::no xcodegen binary in the release zip" >&2; exit 1; }
+          chmod +x "$BIN"
+          sudo mkdir -p /usr/local/bin
+          sudo cp "$BIN" /usr/local/bin/xcodegen
+          # Assert the thing we installed is the thing we pinned, rather than
+          # assuming the download was what its filename said.
+          GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+          echo "installed xcodegen: $GOT"
+          [ "$GOT" = "$PIN" ] || { echo "::error::installed $GOT, pinned $PIN" >&2; exit 1; }
+
+      # The gate's own self-test FIRST. It drives the gate through in-sync,
+      # out-of-sync and could-not-run and asserts the three distinct exit codes.
+      # Running it before the gate means a broken gate is reported as a broken
+      # gate, rather than as a broken project.
+      - name: Sync-gate self-test (does the gate discriminate?)
+        run: bash tests/test_pbxproj_sync_gate.sh
+
+      - name: Tracked pbxproj == xcodegen(project.yml)
+        run: bash scripts/verify_pbxproj_in_sync.sh

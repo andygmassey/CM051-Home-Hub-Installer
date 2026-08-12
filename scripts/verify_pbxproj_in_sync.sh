@@ -67,6 +67,35 @@ git rev-parse --git-dir >/dev/null 2>&1 \
 command -v xcodegen >/dev/null 2>&1 \
     || unavailable "xcodegen is not installed (brew install xcodegen)"
 
+# The comparison below is byte-exact, so it is only meaningful against the
+# generator that produced the tracked file. A different xcodegen can emit
+# different bytes from identical input, and without this check that shows up as
+# exit 1 -- "STALE, DO NOT SHIP" -- for a toolchain difference. That is a gate
+# going red for the wrong reason, which is how gates get ignored.
+#
+# Deliberately exit 2 (could not run), never exit 1 (the project is wrong).
+PIN_FILE="gui/.xcodegen-version"
+if [[ -f "$PIN_FILE" ]]; then
+    PINNED="$(grep -v '^[[:space:]]*#' "$PIN_FILE" | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+    ACTUAL="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    if [[ -z "$PINNED" ]]; then
+        unavailable "$PIN_FILE contains no version line."
+    fi
+    if [[ "$PINNED" != "$ACTUAL" ]]; then
+        unavailable "xcodegen version mismatch.
+       pinned  ($PIN_FILE): $PINNED
+       running:                  ${ACTUAL:-<unparseable>}
+
+       A byte comparison against a different generator proves nothing about
+       whether project.yml and the pbxproj agree. Install $PINNED, or bump the
+       pin AND commit the regenerated pbxproj together."
+    fi
+else
+    unavailable "$PIN_FILE is missing -- the generator version is unrecorded, so
+       a byte-exact comparison cannot be attributed to drift rather than to
+       the toolchain."
+fi
+
 [[ -f "$SPEC" ]]    || unavailable "spec not found: $SPEC"
 [[ -f "$PBXPROJ" ]] || unavailable "tracked project not found: $PBXPROJ"
 
