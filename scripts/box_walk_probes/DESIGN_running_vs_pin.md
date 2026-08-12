@@ -92,3 +92,68 @@ The probe ships with a demonstrated RED before it is believed. Andy's Mini as of
 2026-08-13 is the fixture: a binary at `2026-08-10 22:34:58 +0800` against any
 pin newer than that must exit 1. If it cannot be shown failing on that input, it
 is not a gate.
+
+---
+
+## BLOCKER found on measurement: the probe above cannot be built yet
+
+Added 2026-08-13, after measuring the box rather than assuming the artefact
+carried what the release does.
+
+The contract above assumes the installed daemon can be resolved to a commit. On
+Andy's Mini today it cannot. Measured:
+
+    ~/.ostler/OstlerAssistant.app/Contents/Info.plist
+        CFBundleShortVersionString   0.4.1
+        CFBundleVersion              0.4.1
+    ostler-assistant --version       ostler 0.4.1
+    build-info.json in the bundle    ABSENT
+    build-info.json under ~/.ostler  ABSENT  (control: 45 entries listed, probe can see)
+    only install-time record         .installer-tree-created, Aug 9 00:40, 126 bytes
+
+The binary was built 2026-08-10 22:34 while the pin was in the 0.4.5x range, so
+the version string is not tracking the build either. That is task #254 and it
+means version cannot be used as the discriminator even as a fallback.
+
+**Consequence: there is no way, on a customer box, to say which daemon is
+installed.** Not by commit, not by version. That is the actual root blocker
+under every delivery-stage failure we have been chasing one row at a time, and
+it is larger than this probe.
+
+### Why the provenance is missing, and where it belongs
+
+`check_daemon_recency` reads `build-info.json` from the RELEASE artefact. The
+install does not carry that forward, so provenance stops at the release boundary
+and the installed copy is anonymous.
+
+It must not be fixed by writing the record INSIDE the .app. A signed bundle
+cannot hold a mutable record: it drifts by construction and invalidates the
+signature. The record belongs in the writable directory of the component it
+describes, which here is `~/.ostler/`.
+
+### Prerequisite, which is now the real work
+
+`install.sh` must write the daemon's identity at install time, into a writable
+record outside the signed bundle. Minimum content:
+
+    daemon_commit    the commit the installed binary was built from
+    daemon_pin       the tag/pin it was installed from
+    installed_at     timestamp
+    source           dmg | sparkle | manual
+
+Only once that record exists can the running-vs-pin probe read it and compare.
+Until then the probe would have to return `2` (CANNOT-VERIFY) on every box,
+forever, which is not a gate.
+
+### Revised sequencing
+
+1. `install.sh` writes `~/.ostler/daemon-provenance.json`. **<- do this first**
+2. Sparkle's update path writes it too, or the record goes stale on every
+   auto-update and reintroduces exactly this defect one release later.
+3. The probe in this note reads it and applies the directional contract.
+4. Positive control: the Mini as of 2026-08-13 has NO record, so step 1 is
+   verified by the record appearing with a commit that matches the installed
+   binary, not by the installer exiting 0.
+
+Recording the measurement rather than the assumption, because the version
+string looked authoritative and was wrong twice over.
