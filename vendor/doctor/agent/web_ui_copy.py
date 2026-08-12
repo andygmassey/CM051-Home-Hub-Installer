@@ -698,3 +698,68 @@ REMINDERS_RUNTIME_REMEDIATION_DENIED = (
     "in the Reminders app."
 )
 
+
+
+
+# ── WhatsApp pairing panel ───────────────────────────────────────────
+#
+# The last gap between a customer and a linked WhatsApp account. The
+# daemon publishes a pair code to a declared contract; until this panel
+# existed the code's only exit from the process was daemon stderr, which
+# on a headless Hub is not a surface a human can use.
+#
+# The three failure states are deliberately THREE, with three different
+# next actions. "not requested" means turn it on or wait; "expired"
+# means one is coming; "unreadable" is a fault to report. Collapsing
+# them into one "no code available" tells a stuck customer nothing and
+# tells support less.
+
+WHATSAPP_PAIR_TITLE_TAG = "Ostler Doctor &ndash; Link WhatsApp"
+WHATSAPP_PAIR_HEADING = "Link WhatsApp"
+WHATSAPP_PAIR_LEDE = (
+    "Ostler links to WhatsApp the same way WhatsApp Web does, using a "
+    "code you type into your phone. The code is shown here for a short "
+    "time only."
+)
+
+WHATSAPP_PAIR_LOADING = "Checking for a pairing code."
+
+# Deliberately names the exact phone-side path. "Pair your device" sends
+# a customer hunting through Settings; this is the literal sequence.
+WHATSAPP_PAIR_READY_INSTRUCTION = (
+    "On your phone, open WhatsApp and go to Settings, then Linked "
+    "Devices, then Link a device. Choose Link with phone number instead, "
+    "and type this code."
+)
+WHATSAPP_PAIR_COUNTDOWN_PREFIX = "This code expires in"
+WHATSAPP_PAIR_READY_HELP = (
+    "Codes are short-lived on purpose. If it runs out, Ostler asks "
+    "WhatsApp for another one."
+)
+
+WHATSAPP_PAIR_NOT_REQUESTED_TITLE = "No pairing code yet."
+WHATSAPP_PAIR_NOT_REQUESTED_HELP = (
+    "Ostler asks WhatsApp for a code when the WhatsApp connector starts. "
+    "If you turned WhatsApp on during setup, give it a minute. If you "
+    "did not, WhatsApp is switched off and there is nothing to link."
+)
+
+WHATSAPP_PAIR_EXPIRED_TITLE = "That code has expired."
+WHATSAPP_PAIR_EXPIRED_HELP = (
+    "Pairing codes last about three minutes. Ostler requests a fresh one "
+    "automatically, so wait a moment and this page will show it."
+)
+
+WHATSAPP_PAIR_UNREADABLE_TITLE = "Something is wrong with the pairing file."
+WHATSAPP_PAIR_UNREADABLE_HELP = (
+    "Ostler could not read the pairing code it wrote. This is a fault "
+    "rather than something you did. Use Copy diagnostics on the Doctor "
+    "dashboard and send it to support."
+)
+
+WHATSAPP_PAIR_BACK_LINK = "Back to Doctor"
+
+# Poll interval. Short enough that a code appearing feels immediate,
+# long enough that a customer leaving the page open is not hammering
+# the endpoint for the life of the session.
+WHATSAPP_PAIR_POLL_MS = 5000

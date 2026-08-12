@@ -223,6 +223,21 @@ from web_ui_copy import (
     PAIR_IOS_SECTION_CODE,
     PAIR_IOS_SUBTITLE,
     PAIR_IOS_TITLE_TAG,
+    WHATSAPP_PAIR_BACK_LINK,
+    WHATSAPP_PAIR_COUNTDOWN_PREFIX,
+    WHATSAPP_PAIR_EXPIRED_HELP,
+    WHATSAPP_PAIR_EXPIRED_TITLE,
+    WHATSAPP_PAIR_HEADING,
+    WHATSAPP_PAIR_LEDE,
+    WHATSAPP_PAIR_LOADING,
+    WHATSAPP_PAIR_NOT_REQUESTED_HELP,
+    WHATSAPP_PAIR_NOT_REQUESTED_TITLE,
+    WHATSAPP_PAIR_POLL_MS,
+    WHATSAPP_PAIR_READY_HELP,
+    WHATSAPP_PAIR_READY_INSTRUCTION,
+    WHATSAPP_PAIR_TITLE_TAG,
+    WHATSAPP_PAIR_UNREADABLE_HELP,
+    WHATSAPP_PAIR_UNREADABLE_TITLE,
     PORT_CONFLICT_DETAIL_FMT,
     PORT_CONFLICT_FIX,
     PORT_CONFLICT_FIX_COMMAND_FMT,
@@ -3533,6 +3548,209 @@ def _render_pair_ios_page() -> str:
     </script>
 </body>
 </html>"""
+
+
+def _render_whatsapp_pair_page() -> str:
+    """Render the WhatsApp pair-code panel.
+
+    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
+    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
+    rather than one feeling bolted on.
+
+    THREE DESIGN RULES, each load-bearing:
+
+    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
+       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
+       worse than no countdown, because the customer trusts the one on screen.
+    2. The three error states read DIFFERENTLY, because they are different
+       problems with different next actions. Collapsing them to "no code
+       available" tells a stuck customer nothing.
+    3. The code is painted by the browser from JSON and is NEVER baked into the
+       served HTML. A pair code is credential-equivalent while it lives, so it
+       must not sit in a page a browser or a screenshot tool may cache.
+    """
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{WHATSAPP_PAIR_TITLE_TAG}</title>
+    <style>
+        /* PRIVACY: no webfont @import. A local-first product must not beacon
+           the customer IP+timestamp to a font CDN. Matches pair-ios. */
+        :root {{
+            --ostler-ink: #0d0b08;
+            --ostler-ink-deep: #07060a;
+            --ostler-chassis: #ECE8DD;
+            --ostler-accent: #C84545;
+            --ostler-accent-hover: #D76060;
+            --ostler-hairline-soft: rgba(236, 232, 221, 0.16);
+            --text: var(--ostler-chassis);
+            --text-secondary: rgba(236, 232, 221, 0.74);
+            --text-muted: rgba(236, 232, 221, 0.50);
+            --shadow-soft: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+        }}
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
+        body {{
+            font-family: var(--font-body);
+            font-size: 15px;
+            line-height: 1.5;
+            background: var(--ostler-ink);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2.5rem 1.75rem;
+            -webkit-font-smoothing: antialiased;
+        }}
+        a {{ color: var(--ostler-accent); text-decoration: none; }}
+        a:hover {{ color: var(--ostler-accent-hover); }}
+        .container {{ max-width: 600px; margin: 0 auto; }}
+        h1 {{
+            font-family: var(--font-display);
+            font-size: 1.7rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+        }}
+        .lede {{ color: var(--text-secondary); margin-bottom: 1.4rem; }}
+        .panel {{
+            background: var(--ostler-ink-deep);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow-soft);
+        }}
+        .label {{ margin-bottom: 1rem; line-height: 1.6; }}
+        .code-frame {{
+            background: var(--ostler-ink);
+            border: 1px solid var(--ostler-hairline-soft);
+            border-radius: 10px;
+            padding: 1.1rem;
+            text-align: center;
+        }}
+        .code {{
+            font-family: var(--font-mono);
+            font-size: 2rem;
+            letter-spacing: 0.34em;
+            /* Trailing letter-spacing pushes the glyphs left of centre;
+               the matching indent pulls them back so the code sits square. */
+            text-indent: 0.34em;
+        }}
+        .countdown {{ margin-top: 0.9rem; color: var(--text-secondary); }}
+        .help {{
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            margin-top: 0.55rem;
+            line-height: 1.55;
+        }}
+        .back {{ margin-top: 1.5rem; font-size: 0.9rem; }}
+    </style>
+</head>
+<body>
+  <div class="container">
+    <h1>{WHATSAPP_PAIR_HEADING}</h1>
+    <p class="lede">{WHATSAPP_PAIR_LEDE}</p>
+
+    <section class="panel" aria-live="polite">
+      <div id="wa-loading" class="state">{WHATSAPP_PAIR_LOADING}</div>
+
+      <div id="wa-ready" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_READY_INSTRUCTION}</p>
+        <div class="code-frame"><span id="wa-code" class="code"></span></div>
+        <p class="countdown">{WHATSAPP_PAIR_COUNTDOWN_PREFIX}
+          <span id="wa-remaining"></span>.</p>
+        <p class="help">{WHATSAPP_PAIR_READY_HELP}</p>
+      </div>
+
+      <div id="wa-not_requested" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_NOT_REQUESTED_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_NOT_REQUESTED_HELP}</p>
+      </div>
+
+      <div id="wa-expired" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_EXPIRED_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_EXPIRED_HELP}</p>
+      </div>
+
+      <div id="wa-unreadable" class="state" hidden>
+        <p class="label">{WHATSAPP_PAIR_UNREADABLE_TITLE}</p>
+        <p class="help">{WHATSAPP_PAIR_UNREADABLE_HELP}</p>
+      </div>
+    </section>
+
+    <p class="back"><a href="/doctor">{WHATSAPP_PAIR_BACK_LINK}</a></p>
+  </div>
+
+  <script>
+  (function () {{
+    var POLL_MS = {WHATSAPP_PAIR_POLL_MS};
+    var STATES = ["wa-loading", "wa-ready", "wa-not_requested",
+                  "wa-expired", "wa-unreadable"];
+
+    function show(id) {{
+      STATES.forEach(function (s) {{
+        var el = document.getElementById(s);
+        if (el) {{ el.hidden = (s !== id); }}
+      }});
+    }}
+
+    function humanise(secs) {{
+      if (secs === null || secs === undefined) {{ return "a moment"; }}
+      if (secs < 60) {{ return secs + " seconds"; }}
+      var m = Math.floor(secs / 60), r = secs % 60;
+      if (r === 0) {{ return m + (m === 1 ? " minute" : " minutes"); }}
+      return m + "m " + r + "s";
+    }}
+
+    function paint(data) {{
+      if (data && data.available) {{
+        // textContent, never innerHTML: the code is untrusted-by-policy
+        // output and must not be able to introduce markup.
+        document.getElementById("wa-code").textContent = data.code;
+        document.getElementById("wa-remaining").textContent =
+            humanise(data.seconds_remaining);
+        show("wa-ready");
+        return;
+      }}
+      var kind = (data && data.error_kind) || "unreadable";
+      if (STATES.indexOf("wa-" + kind) === -1) {{ kind = "unreadable"; }}
+      show("wa-" + kind);
+    }}
+
+    function tick() {{
+      fetch("/api/v1/whatsapp/pair")
+        .then(function (r) {{ return r.json(); }})
+        .then(paint)
+        // A fetch failure is Doctor being unreachable, not a bad pairing
+        // file. Reporting it as "unreadable" would send the customer to
+        // support for a page that just needs a reload.
+        .catch(function () {{ show("wa-loading"); }});
+    }}
+
+    tick();
+    setInterval(tick, POLL_MS);
+  }})();
+  </script>
+</body>
+</html>"""
+
+
+@app.get("/whatsapp-pair", response_class=HTMLResponse)
+async def whatsapp_pair_page():
+    """Render the WhatsApp pairing panel."""
+    return HTMLResponse(_render_whatsapp_pair_page())
+
+
+@app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
+async def api_whatsapp_pair():
+    """Return the current WhatsApp pair code and its state.
+
+    Read fresh on every call rather than cached: the code is short-lived and a
+    cached copy would outlive the thing it describes.
+    """
+    from whatsapp_pair import fetch_pair_status
+    return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 
 
 @app.get("/pair-ios", response_class=HTMLResponse)
