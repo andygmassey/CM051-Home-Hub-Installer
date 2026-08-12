@@ -79,7 +79,13 @@ METHOD=""
 # Path 3 first: a pre-staged local cache is authoritative and needs no network.
 LOCAL_CACHE_DIR="${DAEMON_LOCAL_CACHE_DIR:-$HOME/.ostler-release-artefacts}"
 LOCAL_CANDIDATE="$LOCAL_CACHE_DIR/${TAG}-build-info.json"
-if [ -f "$LOCAL_CANDIDATE" ]; then
+if [ ! -f "$LOCAL_CANDIDATE" ]; then
+    # A pre-staged cache holds the asset under its REAL published name,
+    # ostler-assistant-<target>-v<ver>.build-info.json, not our tag-prefixed
+    # convention. Measured on hub-v0.4.55 2026-08-13. Accept both.
+    LOCAL_CANDIDATE="$(ls "$LOCAL_CACHE_DIR"/*build-info.json 2>/dev/null | head -1)"
+fi
+if [ -n "$LOCAL_CANDIDATE" ] && [ -f "$LOCAL_CANDIDATE" ]; then
     cp "$LOCAL_CANDIDATE" "$TMP/build-info.json" 2>/dev/null && {
         FETCHED="$TMP/build-info.json"; METHOD="local-cache"
     }
@@ -87,9 +93,12 @@ fi
 
 # Path 1: gh CLI, when it is present AND authenticated.
 if [ -z "$FETCHED" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if gh release download "$TAG" --repo "$REPO" --pattern "build-info.json" \
-            --dir "$TMP" --clobber >/dev/null 2>&1 && [ -f "$TMP/build-info.json" ]; then
-        FETCHED="$TMP/build-info.json"; METHOD="gh"
+    if gh release download "$TAG" --repo "$REPO" --pattern "*build-info.json" \
+            --dir "$TMP" --clobber >/dev/null 2>&1; then
+        # gh writes the asset under its OWN name, which is
+        # ostler-assistant-<target>-v<ver>.build-info.json, NOT build-info.json.
+        GH_HIT="$(ls "$TMP"/*build-info.json 2>/dev/null | head -1)"
+        [ -n "$GH_HIT" ] && { FETCHED="$GH_HIT"; METHOD="gh"; }
     fi
 fi
 
@@ -104,7 +113,7 @@ try:
 except Exception:
     sys.exit(0)
 for a in d.get("assets", []):
-    if a.get("name") == "build-info.json":
+    if str(a.get("name", "")).endswith("build-info.json"):
         print(a["id"]); break' 2>/dev/null)"
     if [ -n "$ASSET_ID" ]; then
         if curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \

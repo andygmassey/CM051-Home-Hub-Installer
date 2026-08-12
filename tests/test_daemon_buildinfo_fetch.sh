@@ -87,6 +87,24 @@ rc="$(run_gate "$WORK/good-waiver.tsv")"
 if [[ "$rc" == 0 ]]; then ok "waiver with a stated reason -> rc=0"
 else bad "expected rc=0 on a reasoned waiver, got rc=$rc"; fi
 
+# --- REGRESSION: the REAL published asset name ----------------------------
+# Measured on ostler-ai/ostler-releases hub-v0.4.55 2026-08-13, the asset is
+# named ostler-assistant-aarch64-apple-darwin-v0.4.55.build-info.json -- NOT
+# build-info.json. The first cut of this script matched the bare name exactly,
+# on both the gh --pattern and the curl asset-name comparison, so it would have
+# found nothing on every real release while passing every test here. The tests
+# only exercised the local-cache path, which is how it got through.
+rm -f "$CACHE"/*build-info.json "$DEST"
+printf '{"commit_sha":"e0234e71c66d"}\n' > "$CACHE/ostler-assistant-aarch64-apple-darwin-v0.4.55.build-info.json"
+rc="$(run_gate)"
+if [[ "$rc" == 0 ]]; then ok "REGRESSION: the REAL published asset name is matched"
+else bad "REGRESSION FAILED: real asset name returned rc=$rc, expected 0. Exact-name matching is back."; fi
+if [[ -f "$DEST" ]] && grep -q 'e0234e71c66d' "$DEST" 2>/dev/null; then
+    ok "the commit reached DEST from the real-named asset"
+else
+    bad "matched the real name but the commit did not reach DEST"; fi
+rm -f "$CACHE"/*build-info.json
+
 # --- CONTROL: a waiver for a DIFFERENT tag must not apply -----------------
 printf 'hub-v0.0.1\tsome other tag entirely\n' > "$WORK/other-waiver.tsv"
 rc="$(run_gate "$WORK/other-waiver.tsv")"
