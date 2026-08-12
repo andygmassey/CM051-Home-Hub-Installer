@@ -1217,12 +1217,72 @@ exit 0
 
 ### v1018-D026 — Part 2: cuts must be tag-triggered and gate-enforced
 
+**THE PIPELINE EXISTS AND THE GATE COULD NOT SEE IT (corrected 2026-08-12).** The
+property this row asserts has been satisfied since `cut.yml` was written -- that file's
+own header opens "addresses v1018-D026 (Part 2)". The gate reported it missing for
+**three independent reasons, none of them the defect**:
+
+    1. WRONG FILENAME. It looked for `.github/workflows/release.yml`. The pipeline is
+       `cut.yml`. No file named release.yml exists in CM051 or in OS003.
+
+    2. NO `cd "${CM051_DIR}"`. Every other runs-on=repo gate cds into the repo it
+       measures. This one did not, so it grepped the OS003 checkout, which holds
+       exactly one workflow (gates.yml) and never held a cut pipeline at all.
+
+    3. AND THE SHARPEST ONE: `grep -q workflow_dispatch` matched the COMMENT that
+       documents its absence. cut.yml line 11 reads:
+
+           # There is deliberately no `workflow_dispatch`. A manually-fired
+           # pipeline is a hand-cut wearing a costume [...]
+
+       So even pointed at the right file in the right repo, the gate would have failed
+       it with "workflow_dispatch present -- a hand-cut in a costume". **It failed the
+       file for stating its own compliance.** A substring search cannot tell a trigger
+       key from prose about a trigger key.
+
+That is the fifth notation-pinned false RED in this registry (D016 twice, D028, D032,
+now this). **The corrected gate resolves the cut pipeline BY PROPERTY** -- the workflow
+whose trigger is a `v1.0.*` tag push -- and strips comments before every assertion, so
+prose can neither satisfy a requirement nor trip a prohibition.
+
+Demonstrated discrimination, five inputs, five distinct verdicts:
+
+    shipped state                        PASS, "examined 22 workflow(s)", names cut.yml
+    workflow_dispatch as a REAL key      FAIL "accepts workflow_dispatch"
+    rollforward step removed             FAIL "never runs the rollforward gate"
+    tag trigger -> pull_request          FAIL "no workflow is triggered by a v1.0.* tag push"
+    empty / absent workflows dir         CANNOT-RUN (97), not a vacuous pass
+
+The comment on line 11 is still present in the shipped file and the gate now passes it,
+which is the specific regression control for reason 3.
+
 ```gate id=v1018-D026 expect=0 runs-on=repo
-wf=".github/workflows/release.yml"
-[ -f "$wf" ] || { echo "FAIL: no release workflow"; exit 1; }
-grep -qE 'tags:|v1\.0\.\*' "$wf" || { echo "FAIL: release workflow is not tag-triggered"; exit 1; }
-grep -q 'workflow_dispatch' "$wf" && { echo "FAIL: workflow_dispatch present — a hand-cut in a costume"; exit 1; }
-grep -q 'rollforward' "$wf" || { echo "FAIL: pipeline never runs the rollforward gate"; exit 1; }
+# Cuts must be tag-triggered and gate-enforced. See the note above for why this
+# body resolves the pipeline BY PROPERTY rather than by filename, and why every
+# assertion runs against a comment-stripped copy.
+cd "${CM051_DIR:?CM051_DIR unset}" || exit 1
+wfdir=".github/workflows"
+[ -d "$wfdir" ] || { echo "CANNOT-RUN: no $wfdir in $PWD (v1018-D026)"; exit 97; }
+n_wf=$(ls "$wfdir"/*.yml "$wfdir"/*.yaml 2>/dev/null | wc -l | tr -d ' ')
+[ "${n_wf:-0}" -gt 0 ] || { echo "CANNOT-RUN: $wfdir holds no workflows (v1018-D026)"; exit 97; }
+echo "examined $n_wf workflow(s)"
+cut_wf=""
+for f in "$wfdir"/*.yml "$wfdir"/*.yaml; do
+  [ -f "$f" ] || continue
+  body=$(sed 's/#.*//' "$f")
+  printf '%s\n' "$body" | grep -qE '^[[:space:]]*tags:[[:space:]]*$' || continue
+  printf '%s\n' "$body" | grep -qE "^[[:space:]]*-[[:space:]]*'?v1\.0\.\*'?[[:space:]]*$" || continue
+  cut_wf="$f"; break
+done
+[ -n "$cut_wf" ] || { echo "FAIL: no workflow is triggered by a v1.0.* tag push -- there is no gate-enforced cut pipeline (v1018-D026)"; exit 1; }
+echo "cut pipeline: $cut_wf"
+body=$(sed 's/#.*//' "$cut_wf")
+printf '%s\n' "$body" | grep -qE '^[[:space:]]*workflow_dispatch[[:space:]]*:' && {
+  echo "FAIL: $cut_wf accepts workflow_dispatch -- a hand-cut in a costume (v1018-D026)"; exit 1; }
+printf '%s\n' "$body" | grep -q 'rollforward' || {
+  echo "FAIL: $cut_wf never runs the rollforward gate (v1018-D026)"; exit 1; }
+echo "tag-triggered, no manual dispatch, runs the rollforward gate"
+exit 0
 ```
 
 ### v1018-D027 — Part 3: `make ship` must refuse to sign outside CI
@@ -1268,9 +1328,48 @@ exit 0
 
 ### v1018-D028 — no fix spec may verify against a checkout without a freshness assertion
 
+**THE PREDICATE MEASURED ONE SPELLING, NOT THE PROPERTY (corrected 2026-08-11).**
+The original body accepted only `gh api repos/`. It reported **5 of 6 specs failing,
+and 3 of those 5 were FALSE REDS** -- they had queried the remote, in a spelling the
+regex did not recognise:
+
+    D005_D011        gh api /search/code?q=repo:...        2 queries
+    D009             gh api .../contents/...?ref=main      route confirmed at line 2298
+    D010_D015_D016   gh api repos/.../branches --paginate  the ONLY accepted form
+
+That is the same family as this registry's other notation bugs: D016's original false
+RED (selector and declaration required on one line) and its `px`-only ceiling that a
+`4rem` blow-out walked straight through. **Notation is not the property.**
+
+The three genuine failures were then verified at source rather than retro-certified,
+and each spec now carries the queries and their answers. One correction came out of it,
+recorded in `FIX_SPEC_D004_D017.md`: `contact_syncer/identifier_quality.py` DOES exist
+on CM041 `main` and DOES carry an opaque-identifier predicate (`_OPAQUE`, UUID-shaped),
+which the spec's prior-art table did not mention. Its conclusion survives -- that filter
+is reachable only from `distinct_people` and `distinct_given_names`, both dedupe
+helpers, and is **not** on the `pwg:displayName` write path -- but it survives on
+evidence now instead of on assertion.
+
 ```gate id=v1018-D028 expect=0 runs-on=repo
-hits=$(grep -rLE 'rev-list --count HEAD\.\.origin|gh api repos/' cuts/*/FIX_SPEC_*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "${hits:-0}" -eq 0 ] || { echo "FAIL: $hits fix specs verify against a checkout with no freshness assertion"; exit 1; }
+# THE PROPERTY: a fix spec's "no prior fix exists" conclusion must rest on something
+# a STALE CHECKOUT CANNOT FAKE. A tree can be 78 commits behind origin while
+# `git status` reports clean. Two forms qualify:
+#   (a) query the remote directly   -- gh api (any endpoint), git ls-remote
+#   (b) assert the checkout is current -- rev-list --count HEAD..origin
+#
+# A bare `origin/<branch>` mention does NOT qualify. A remote-tracking ref is only as
+# fresh as the last fetch, which is precisely what a stale checkout has.
+#
+# VACUITY CONTROL, which the previous body had none of: if the glob matched nothing,
+# grep errored into 2>/dev/null, wc counted 0, and the gate reported PASS having
+# examined nothing at all.
+specs=$(ls cuts/*/FIX_SPEC_*.md 2>/dev/null | wc -l | tr -d ' ')
+[ "${specs:-0}" -gt 0 ] || { echo "CANNOT-RUN: no fix specs found under cuts/*/ (v1018-D028)"; exit 97; }
+echo "examined $specs fix spec(s)"
+unverified=$(grep -rLE 'rev-list --count HEAD\.\.origin|gh api|git ls-remote' cuts/*/FIX_SPEC_*.md 2>/dev/null)
+n=$(printf '%s' "$unverified" | grep -c .)
+[ "${n:-0}" -eq 0 ] || { echo "FAIL: $n fix spec(s) reach a prior-art conclusion with no source-side query (v1018-D028):"; printf '%s\n' "$unverified" | sed 's/^/  /'; exit 1; }
+exit 0
 ```
 
 ### v1018-D029 -- the freshness gate must be mockable, timed, and self-tested green
@@ -1389,16 +1488,74 @@ dispatch runs at all.
 The gate must assert COMPLETION. A gate that accepts rc=75 would go green on exactly the
 state this entry exists to describe.
 
+**DIAGNOSED ON THE BOX 2026-08-12 (Archie). THIS ROW IS REAL, AND ITS GATE WAS ALSO
+MISWRITTEN -- both at once, which is why fixing the gate does NOT turn it green.**
+
+Measured directly, `~/.ostler/logs/email-bundle.err`, last 615 lines:
+
+    Dispatching            595
+    pwg-convo completed      0
+    pwg-convo failed         4
+    TIMED OUT                0
+
+**591 dispatches with no recorded outcome of any kind.** Every dispatch must leave
+through exactly one of three logging branches -- `TIMED OUT` (D020 ceiling), `pwg-convo
+failed ... rc=`, or `pwg-convo completed ... in Ns` (the D021 line, added precisely
+because success timing was being discarded). 595 in, 4 accounted for. The other 591
+produced no line at all, which means the parent is not reaching ANY branch: it is dying
+mid-`subprocess.run` and being restarted, appending a fresh run of `Dispatching` lines
+each time.
+
+**No email dispatch has succeeded anywhere in the retained window.**
+
+TWO INSTRUMENT FAULTS FOUND ALONGSIDE THE REAL ONE:
+
+1. **The gate read the wrong file.** `email-bundle.log` is 3 KB and 16 hours stale and
+   contains nothing but 34 identical "another LLM job (pid 82437) holds the model slot;
+   yielding this tick" lines. The live output is in `email-bundle.err` (102 KB, written
+   within the last minute). Same err-not-log shape as the pair-flow logs.
+
+2. **The gate's completion pattern does not match the program's vocabulary.** It looks
+   for `dispatch (complete|ok).*bulk` or `classified.*bulk.*-> (stored|done)`. The
+   dispatcher emits `pwg-convo completed <id> in <N>s`. **A genuine success would not
+   have turned this gate green.** Corrected below -- and the row stays RED, honestly,
+   because there are no successes to find.
+
+NOT ESTABLISHED, and deliberately not guessed: WHY the parent dies mid-dispatch. The
+591 missing outcomes are the diagnosis target, not the conclusion. Candidates worth
+separating before anyone builds: watchdog/launchd kill (cf. task #257's watchdog
+killing dedupe mid-run), OOM under the 16 GB tier, or the parent exiting on its own
+tick boundary while a child is still running. **D032's tail fix is now merged but not
+yet installed; once it is, a killed dispatch will carry the last thing it did rather
+than its startup chatter, which is the instrument this diagnosis needs next.**
+
+A caution recorded because it nearly cost a wrong finding here: a frequency-sorted
+`uniq -c | head -20` census of this log shows ZERO completion lines, because unique
+per-document durations sort to count=1 and fall below the cut. The absence was real
+but the census could not have proven it. Direct `grep -c` per branch is the control.
+
 ```gate id=v1018-D031 expect=0 runs-on=box
-# A bulk/marketing document must finish, not time out. rc=75 is the D020 ceiling
-# firing, which means this defect is still live -- treat it as RED, not as a pass.
-log="$HOME/.ostler/logs/email-bundle.log"
-[ -f "$log" ] || { echo "FAIL: no email-bundle.log to judge"; exit 1; }
-tail -2000 "$log" | grep -qE 'dispatch (complete|ok).*bulk|classified.*bulk.*-> (stored|done)' \
-  || { echo "FAIL: no completed bulk/marketing dispatch in the last 2000 lines"; exit 1; }
-if tail -2000 "$log" | grep -qE 'rc=75|EX_TEMPFAIL|TimeoutExpired'; then
-  echo "FAIL: dispatch ceiling fired -- document still never completes (v1018-D031)"; exit 1
-fi
+# A bulk/marketing document must finish, not time out, and every dispatch must leave
+# through a logged branch. rc=75 is the D020 ceiling firing, which means this defect
+# is still live -- treat it as RED, not as a pass.
+#
+# READS .err, NOT .log. The live dispatcher output goes to email-bundle.err;
+# email-bundle.log holds only slot-yield ticks and went stale 2026-08-11 07:18.
+# ASSERTS THE PROGRAM'S OWN VOCABULARY: the success line is "pwg-convo completed",
+# not "dispatch complete". The previous pattern could not have matched a real success.
+log="$HOME/.ostler/logs/email-bundle.err"
+[ -f "$log" ] || { echo "CANNOT-RUN: no $log to judge (v1018-D031)"; exit 97; }
+win=$(tail -2000 "$log")
+n_disp=$(printf '%s\n' "$win" | grep -c 'Dispatching' || true)
+[ "${n_disp:-0}" -gt 0 ] || { echo "CANNOT-RUN: no dispatch attempts in the window -- nothing to judge (v1018-D031)"; exit 97; }
+n_done=$(printf '%s\n' "$win" | grep -c 'pwg-convo completed' || true)
+n_fail=$(printf '%s\n' "$win" | grep -c 'pwg-convo failed' || true)
+n_to=$(printf '%s\n' "$win" | grep -cE 'TIMED OUT|rc=75|EX_TEMPFAIL|TimeoutExpired' || true)
+echo "dispatched=${n_disp} completed=${n_done} failed=${n_fail} timed_out=${n_to}"
+[ "${n_done:-0}" -gt 0 ] || { echo "FAIL: ${n_disp} dispatch(es), ZERO completions -- no document finishes (v1018-D031)"; exit 1; }
+[ "${n_to:-0}" -eq 0 ] || { echo "FAIL: dispatch ceiling fired ${n_to} time(s) -- document still never completes (v1018-D031)"; exit 1; }
+unaccounted=$(( n_disp - n_done - n_fail - n_to ))
+[ "$unaccounted" -le 0 ] || { echo "FAIL: ${unaccounted} dispatch(es) left through NO logged branch -- the parent is dying mid-dispatch (v1018-D031)"; exit 1; }
 exit 0
 ```
 
@@ -1421,21 +1578,86 @@ every dispatch failure on every feed, not just the bulk/marketing document.
 Fix is `[-500:]` plus an explicit truncation marker so the next reader knows the window
 was clipped and from which end. Landing in TNM's D031 branch.
 
+**DELIVERED, AND THE GATE WAS A FALSE RED (2026-08-11, Archie).** The fix is present in
+all four pipelines and is BETTER than the shape specced above: a named
+`_stderr_excerpt()` helper with a **2000**-char default (not 500), configurable at
+runtime via `OSTLER_DISPATCH_STDERR_CHARS`, a dropped-count marker, and distinct
+returns for absent vs empty stderr.
+
+The old gate reported all four FAILING, for **two independent notation reasons**, and
+neither was the defect:
+
+    grep -qE 'stderr[^\n]*\[-[0-9]+:\]'
+                        ^^^^^^^^^         the slice is text[-limit:] -- a VARIABLE,
+                                          not a digit literal
+            ^^^^^^                        and it lives in a helper, on a line that
+                                          does not contain the word "stderr"
+
+That is the third notation-pinned false RED in this registry, after D016's
+selector-on-one-line and its `px`-only ceiling. **A grep for a slice cannot tell a
+refactor from a regression.**
+
+**The gate now EXECUTES the helper** rather than pattern-matching its source: it
+AST-extracts `_stderr_excerpt` from each pipeline (a plain import fails -- these modules
+use relative imports and have no parent package), runs it against a long synthetic
+stream, and asserts the tail survives and the clip is announced. Presence is not
+behaviour; this measures behaviour.
+
+Four demonstrated controls, each with its own verdict:
+
+    shipped state                        PASS, "examined 4 pipeline(s)"
+    text[-limit:] -> text[:limit]        FAIL "discards the TAIL of stderr"
+    truncation marker removed            FAIL "clips without saying it clipped"
+    helper deleted                       FAIL "has no _stderr_excerpt helper"
+
 ```gate id=v1018-D032 expect=0 runs-on=repo
 # The dispatch stderr capture must keep the TAIL, and must say it truncated.
+#
+# THIS RUNS THE FUNCTION. The previous body grepped for a slice literal and reported
+# all four pipelines failing when the fix was present and correct -- the slice is
+# text[-limit:] (a variable, not a digit) inside a helper (on a line with no "stderr").
+# A grep for notation cannot tell a refactor from a regression.
+#
+# AST extraction rather than import: these modules use relative imports and have no
+# parent package, so importlib raises ImportError on all four.
 cd "${CM051_DIR:?CM051_DIR unset}" || exit 1
-bad=0
-for f in vendor/email_source/pipeline.py vendor/whatsapp_source/pipeline.py \
-         vendor/imessage_source/pipeline.py vendor/spoken_source/pipeline.py; do
-  [ -f "$f" ] || { echo "FAIL: missing $f"; bad=$((bad+1)); continue; }
-  if grep -qE 'stderr[^\n]*\[:[0-9]+\]' "$f"; then
-    echo "FAIL: $f keeps the HEAD of stderr -- a hang needs the tail (v1018-D032)"; bad=$((bad+1))
-  fi
-  grep -qE 'stderr[^\n]*\[-[0-9]+:\]' "$f" \
-    || { echo "FAIL: $f does not keep a stderr tail at all"; bad=$((bad+1)); }
-done
-[ "$bad" -eq 0 ] || exit 1
-exit 0
+command -v python3 >/dev/null 2>&1 || { echo "CANNOT-RUN: python3 not on PATH (v1018-D032)"; exit 97; }
+python3 - <<'D032_PY'
+import ast, os, sys
+FILES = ["vendor/email_source/pipeline.py", "vendor/whatsapp_source/pipeline.py",
+         "vendor/imessage_source/pipeline.py", "vendor/spoken_source/pipeline.py"]
+HEAD, TAIL = "STARTUP-CHATTER-" * 400, "LAST-THING-BEFORE-WEDGE"
+bad = 0
+for f in FILES:
+    if not os.path.isfile(f):
+        print("FAIL: missing %s" % f); bad += 1; continue
+    tree = ast.parse(open(f, encoding="utf-8").read())
+    fn = next((n for n in tree.body
+               if isinstance(n, ast.FunctionDef) and n.name == "_stderr_excerpt"), None)
+    if fn is None:
+        print("FAIL: %s has no _stderr_excerpt helper" % f); bad += 1; continue
+    ns = {"os": os}
+    for c in tree.body:
+        if isinstance(c, ast.Assign) and any(
+                getattr(t, "id", "") == "_STDERR_EXCERPT_DEFAULT_CHARS" for t in c.targets):
+            exec(compile(ast.Module(body=[c], type_ignores=[]), f, "exec"), ns)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), f, "exec"), ns)
+    g = ns["_stderr_excerpt"]
+    try:
+        out = g(HEAD + TAIL)
+    except Exception as e:
+        print("FAIL: %s _stderr_excerpt raised %s" % (f, type(e).__name__)); bad += 1; continue
+    if TAIL not in out:
+        print("FAIL: %s discards the TAIL of stderr -- a hang needs the tail (v1018-D032)" % f); bad += 1
+    elif "dropped" not in out:
+        print("FAIL: %s clips without saying it clipped (v1018-D032)" % f); bad += 1
+    elif g(None) != "<no stderr captured>" or g("") != "<stderr empty>":
+        print("FAIL: %s does not distinguish absent from empty stderr" % f); bad += 1
+    else:
+        print("  ok  %s" % f)
+print("examined %d pipeline(s)" % len(FILES))
+sys.exit(1 if bad else 0)
+D032_PY
 ```
 
 ### v1018-D033 -- the canonical cut doc points at a pin the register does not hold
