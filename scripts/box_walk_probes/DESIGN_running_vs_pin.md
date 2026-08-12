@@ -193,3 +193,24 @@ precise skew this gate was written to catch, which would make it an ingest
 defect and not only a provenance one. I have NOT confirmed the daemon rejects
 `run-source` on that box, so this is a lead, not a finding. Confirm before
 acting on it.
+
+### The run-source lead above is REFUTED. Do not chase it.
+
+Tested on the box the same day it was raised, with controls on both sides:
+
+    ostler-assistant run-source --help              rc=0, prints full help
+    ostler-assistant setup --help                   rc=0   <- known-good control
+    ostler-assistant <bogus-subcommand> --help      rc=2   <- known-bad control
+
+Both controls behaved, so the probe discriminates and the rc=0 is real: clap on
+the installed daemon KNOWS `run-source`. The v0.4.34/v0.4.1 pin-skew failure
+described in the `_finalise_daemon_staging` comment is NOT present on this box.
+
+Consequence, and it narrows an open task: `0.4.1` here is a LABELLING defect
+(task #254, version string not tracking the build), not a capability defect.
+Ingest ticks are not silently no-oping for this reason. Task #254 should be read
+as provenance/cosmetic, not functional.
+
+Left in the document deliberately. A refuted lead that is silently deleted gets
+re-raised by the next person who reads the same suggestive comment, and they pay
+the same investigation cost again.
