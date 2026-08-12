@@ -110,7 +110,7 @@ while IFS= read -r tree; do
     # Compare ONLY files present in BOTH source@sha+patch and the vendored
     # tree. Source-only files (tests/, un-vendored src/) and vendor-only files
     # (grafts) are out of scope -- "stale" means a shared file has drifted.
-    if vlib_shared_diff "$tmp" "$abs_vendor" "$tmp.diff"; then
+    if vlib_vendor_diff "$tree" "$tmp" "$abs_vendor" "$tmp.diff"; then
         content_ok=1
     else
         content_ok=0

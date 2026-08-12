@@ -289,28 +289,93 @@ vlib_materialise() {
 # like subscription_gate.py). "Stale" means: a file present in BOTH source and
 # vendor has DRIFTED. Source-only and vendor-only files are out of scope.
 #
-# vlib_shared_diff <srcdir> <vendordir> <outfile>
-#   writes a unified diff of only the intersecting files to <outfile>;
+# vlib_vendor_diff <tree> <srcdir> <vendordir> <outfile>
+#   writes a unified diff to <outfile> covering BOTH files that differ and
+#   files present only in the vendored tree (emitted as new-file hunks, unless
+#   an exclude glob says the tree deliberately does not carry them);
 #   exit 0 = identical, 1 = drift. The diff is rooted so `git apply` (run from
 #   the source tree) reproduces the vendor's version of each shared file.
 # ---------------------------------------------------------------------------
 
-vlib_shared_diff() {
-    local src="$1" ven="$2" out="$3"
+vlib_vendor_diff() {
+    local tree="$1" src="$2" ven="$3" out="$4"
     : > "$out"
     local drift=0 rel
-    # Iterate files present in BOTH trees.
+
+    # Exclude globs for this tree, read once. A file the tree deliberately does
+    # not vendor must NOT get a new-file hunk: that would resurrect excluded
+    # content on every materialise and quietly fight the exclude.
+    local _ex
+    _ex="$(vlib_excludes "$tree" 2>/dev/null || true)"
+    _vd_excluded() {
+        local _p="$1" _g
+        while IFS= read -r _g; do
+            [ -n "$_g" ] || continue
+            case "$_g" in
+                */) case "$_p" in "${_g}"*|*"/${_g}"*) return 0 ;; esac ;;
+                *)  case "$_p" in $_g|*"/$_g") return 0 ;; esac ;;
+            esac
+        done <<< "$_ex"
+        return 1
+    }
+
     while IFS= read -r rel; do
         rel="${rel#./}"
-        if [ -f "$src/$rel" ] && [ -f "$ven/$rel" ]; then
+        [ -f "$ven/$rel" ] || continue
+        if [ -f "$src/$rel" ]; then
+            # Present in BOTH: ordinary modification hunk.
             if ! diff -q "$src/$rel" "$ven/$rel" >/dev/null 2>&1; then
                 drift=1
                 # Emit a git-applyable hunk: a/<rel> (source) -> b/<rel> (vendor).
                 diff -u --label "a/$rel" --label "b/$rel" "$src/$rel" "$ven/$rel" >> "$out" 2>/dev/null || true
             fi
+            continue
         fi
-    done < <(cd "$ven" && find . -type f | sort)
+
+        # VENDOR-ONLY: present here, absent from source@pinned_sha.
+        #
+        # THIS IS THE CASE THAT USED TO BE SILENTLY DROPPED, and dropping it is
+        # what made a grafted new file undeliverable. The old function iterated
+        # the same list and simply skipped anything the source lacked, so a
+        # hand-authored new-file hunk was stripped by the next --regen-patch and
+        # the file had no durable home in the patch at all. That is why the old
+        # daemon_cron.py hunks are gone.
+        #
+        # A file absent BY INSTRUCTION (exclude glob) is a different thing from
+        # one absent because the pin predates it, so the excludes are honoured.
+        _vd_excluded "$rel" && continue
+
+        drift=1
+        # git's new-file shape: /dev/null -> b/<rel>. `git apply` creates it.
+        diff -u --label /dev/null --label "b/$rel" /dev/null "$ven/$rel" >> "$out" 2>/dev/null || true
+    done < <(cd "$ven" && find . -type f -not -path '*/__pycache__/*' | sort)
+
+    unset -f _vd_excluded
     return "$drift"
+}
+
+# vlib_patch_new_files <tree>
+#   Print each path the tree's declared divergence patch CREATES (its new-file
+#   hunks), one per line. Empty when there is no patch.
+#
+#   Used by sync_vendor.sh to tell a vendor-only file that already has a
+#   durable home in the patch from one that would be lost by the swap.
+vlib_patch_new_files() {
+    local tree="$1" patch abs
+    patch="$(vlib_field "$tree" divergence_patch)"
+    [ -z "$patch" ] && return 0
+    abs="$VLIB_REPO_ROOT/$patch"
+    [ -f "$abs" ] || return 0
+    # A new-file hunk is `--- /dev/null` immediately followed by `+++ b/<path>`.
+    # Matching the +++ line alone would name every file in the patch.
+    awk '
+        /^--- \/dev\/null$/ { pending = 1; next }
+        /^\+\+\+ b\// {
+            if (pending) { sub(/^\+\+\+ b\//, ""); print }
+            pending = 0; next
+        }
+        { pending = 0 }
+    ' "$abs"
 }
 
 # Apply a divergence patch (source -> vendor transform) inside <dest>.
