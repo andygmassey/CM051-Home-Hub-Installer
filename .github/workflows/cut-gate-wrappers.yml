@@ -62,11 +62,23 @@ jobs:
           set -e
           # Structural backstop for the case the self-test cannot see: someone
           # deletes a whole target, so its controls never run and the suite is
-          # green because it asked nothing. Count the branches, not the words.
-          n=$(grep -c 'COULD NOT RUN (exit' gui/Makefile || true)
-          if [ "$n" -ne 6 ]; then
-            echo "expected 6 cannot-run branches in gui/Makefile, found $n" >&2
+          # green because it asked nothing.
+          #
+          # COUNT THE BRANCH, NOT THE SENTENCE. The first version of this step
+          # grepped for the prose 'COULD NOT RUN (exit'. When check-freshness
+          # was added as the seventh with slightly different wording -- "COULD
+          # NOT RUN for at least one input (exit ...)" -- the count stayed at 6
+          # and this guard was blind to the wrapper it was supposed to be
+          # counting. It even made a REVERT look like it had applied when the
+          # number did not move, which nearly turned a demonstrated red into a
+          # meaningless one. Same trap as the cut-freshness.yml grep this PR
+          # removes: a predicate tied to a rendering, not to the behaviour.
+          #
+          # The rc-2-or-3 test is the behaviour. Prose can be reworded freely.
+          n=$(grep -c 'rc" -eq 2 \] || \[ "\$\$rc" -eq 3' gui/Makefile || true)
+          if [ "$n" -ne 7 ]; then
+            echo "expected 7 cannot-run branches in gui/Makefile, found $n" >&2
             echo "a wrapper has lost its exit-2/3 branch, or one was added without a test" >&2
             exit 1
           fi
-          echo "OK: 6 cannot-run branches present"
+          echo "OK: 7 cannot-run branches present"

@@ -494,6 +494,17 @@ reset_defaults; build_fixture
 OUT="$(run_gate MOCK_UNREACH=1 2>&1)"; RC=$?
 if [ "$RC" -eq 3 ] && printf '%s' "$OUT" | grep -q "GATE: CANNOT VERIFY"; then
     ok "(e) github unreachable -> exit 3 CANNOT-VERIFY (no false pass)"
+    # ...and it must say NETWORK, not credentials. (e) and (m) share an exit
+    # code and must not share an explanation: if both print the same remedy the
+    # cause-naming added for run 31685172775 is decorative, and the operator is
+    # sent at the wrong thing exactly as before.
+    if printf '%s' "$OUT" | grep -q "Restore network" \
+       && ! printf '%s' "$OUT" | grep -q "SOURCE REPO could not be read"; then
+        ok "(e2) unreachable names the NETWORK, not a credential -- (e) and (m) discriminate"
+    else
+        bad "(e2) unreachable and unreadable print the same explanation"
+        printf '%s\n' "$OUT" | sed 's/^/      /'
+    fi
 else
     bad "(e) unreachable: rc=$RC (expected 3)"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
@@ -643,6 +654,21 @@ if [ "$RC" -eq 3 ] \
     ok "(m) unreadable source repo -> exit 3 CANNOT-VERIFY, no RED against the pin"
 else
     bad "(m) unreadable-source: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# The SUMMARY line must name the right CAUSE, not just the right exit code.
+# It used to say "(unreachable)" and "Restore network + re-run" for every
+# cannot-verify. On cut run 31685172775 fifteen trees landed here for want of
+# a credential, and were told to fix the network -- an accurate exit code
+# wearing the wrong explanation, which sends the operator at the wrong thing.
+# Reuses $OUT from (m): same run, different assertion.
+if printf '%s' "$OUT" | grep -q "SOURCE REPO could not be read" \
+   && printf '%s' "$OUT" | grep -q "Do NOT re-pin them" \
+   && ! printf '%s' "$OUT" | grep -q "Restore network"; then
+    ok "(m2) the exit-3 SUMMARY names the credential cause, not the network"
+else
+    bad "(m2) summary names the wrong cause for an unreadable repo"
+    printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 # ===========================================================================
