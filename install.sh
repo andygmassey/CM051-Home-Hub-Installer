@@ -5016,7 +5016,10 @@ cat > "${HOME}/.ostler/lib/ostler-resource-tier.sh" <<'OSTLER_RESOURCE_TIER_EOF'
 #                               high tier (use the model default)
 #   OSTLER_RAM_GB               detected RAM in whole GB (diagnostics)
 #   OSTLER_CPU_CORES            detected total cores (diagnostics)
-#   OSTLER_PERF_CORES           detected performance cores (diagnostics)
+#   OSTLER_PERF_CORES           detected performance cores. DIAGNOSTIC ONLY:
+#                               it does NOT select the tier. Every base
+#                               Apple Silicon chip reports 4, so it cannot
+#                               discriminate on the hardware we ship to.
 #
 # Fail-safe: every probe degrades to the CONSERVATIVE (floor) tier if it
 # cannot read the hardware, so a sysctl quirk can never accidentally
@@ -5217,16 +5220,32 @@ ostler_resource_tier_detect() {
             # 16GB is the installer's hard floor (ERR-02-PREREQ-RAM-LOW),
             # so the LOWEST supported machine sits at LOW, not floor:
             # concurrency 2, qwen3.5:9b. The "floor" tier below is reserved
-            # for the sub-16GB / <=4 P-core case (e.g. an 8GB Air, were the
+            # for the sub-16GB / <=4 TOTAL-core case (e.g. an 8GB Air, were the
             # prereq ever lowered) and the detection-failure fallback.
             tier="low"
         else
             tier="floor"
         fi
-        # Core-count override: <=4 performance cores is a floor machine
-        # even if it somehow reports plenty of RAM (e.g. an 8GB Air, were
-        # the 16GB prereq ever lowered).
-        if [ "${OSTLER_PERF_CORES:-0}" -gt 0 ] && [ "${OSTLER_PERF_CORES}" -le 4 ]; then
+        # Core-count override: a machine that reports plenty of RAM but
+        # cannot actually do concurrent work is demoted one step.
+        #
+        # THIS TESTS TOTAL CORES, NOT P-CORES, AND THAT IS THE WHOLE POINT.
+        # It used to read OSTLER_PERF_CORES against the same <=4 threshold.
+        # Every base Apple Silicon chip has exactly FOUR performance cores
+        # (M1/M2/M3 are 4P+4E, the base M4 is 4P+6E), so on the commonest
+        # hardware we ship to, the override fired on EVERY machine and
+        # silently overrode the RAM ladder it sits under. Measured on a
+        # Mac16,10 / Apple M4 / 16GB: perflevel0.physicalcpu=4, ncpu=10,
+        # tier=floor, OLLAMA_NUM_PARALLEL=1. A 24GB base M4 landed on the
+        # same floor, and no base M-series chip could reach HIGH at any RAM
+        # size at all. The rule's own comment said it was for "an 8GB Air,
+        # were the 16GB prereq ever lowered" -- an edge case. It was the
+        # modal case.
+        #
+        # Total cores is what the rule always meant: every Apple Silicon Mac
+        # has at least 8, so none is caught, while a 2-core or 4-core Intel
+        # Mac or a pinched VM still is. The threshold is unchanged.
+        if [ "${OSTLER_CPU_CORES:-0}" -gt 0 ] && [ "${OSTLER_CPU_CORES}" -le 4 ]; then
             if [ "$tier" = "high" ]; then
                 tier="low"
             else
@@ -7178,7 +7197,7 @@ else
 
     # Resource-tier governor (v1.0.3): OLLAMA_NUM_PARALLEL scales to the
     # hardware tier. A second decode slot reserves chat headroom against
-    # background enrichment, but on the FLOOR tier (sub-16GB / <=4 P-core)
+    # background enrichment, but on the FLOOR tier (sub-16GB / <=4 total cores)
     # the extra KV cache is RAM the machine cannot spare, so it drops to 1
     # (chat queues briefly behind a background decode rather than swapping).
     # LOW (16GB floor that ships today) and HIGH keep 2. Fail-safe: if the
@@ -18452,8 +18471,23 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         # WhatsApp / email replies -- all go through the daemon's /api/chat)
         # starves: measured 277s + truncated under load vs 1.5s idle on the
         # .149 box. Holding the lock for the whole compile keeps background
-        # Ollama concurrency at 1, so the 2nd parallel slot is always free for
-        # a live reply.
+        # Ollama concurrency at 1.
+        #
+        # WHAT THAT DOES AND DOES NOT GUARANTEE. The lock bounds BACKGROUND
+        # concurrency to one decode. Whether that leaves a slot free for a
+        # live reply depends on the tier: OLLAMA_NUM_PARALLEL is 2 on LOW and
+        # HIGH, so there the second slot is genuinely reserved. On the FLOOR
+        # tier it is 1, so there is no second slot and a live reply queues
+        # behind the one background decode in flight. The lock still helps
+        # there -- it bounds the wait to a single decode instead of a queue of
+        # them -- but it cannot make chat concurrent on a one-slot machine.
+        #
+        # This comment used to claim the second slot was "always free". It was
+        # not, and until the tier fix in this change it was false on the modal
+        # customer machine: a 16GB base M4 was scored FLOOR on P-core count, so
+        # OLLAMA_NUM_PARALLEL was 1 and the sentence described hardware nobody
+        # had. Stating a guarantee the code cannot deliver is worse than
+        # stating none, because the next reader stops looking.
         #
         # Blocking acquire with PID-LIVENESS reclaim (NOT a time-based steal):
         # a real summary compile legitimately runs for hours, so any time
