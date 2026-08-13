@@ -12253,6 +12253,18 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              three /api/v1/memory* paths future-proof the Memory tab (hidden in
              v1.0 via showMemoryTab, flips on in v1.0.1) so it isn't dead on
              arrival. -->
+        <!-- v1018-D024 (2026-08-14): DO NOT add /api/v1/pause,
+             /api/v1/resume or /api/v1/governor-status to the list above.
+             They are DOCTOR-NATIVE handlers (vendor/doctor/agent/web_ui.py,
+             backed by pause_control.py) and the assistant API on :8090 that
+             DOCTOR_GATEWAY_URL points at implements none of them, so an entry
+             here would forward a working route straight into a 404. This is
+             written down because the symptom that brought anyone here was a
+             404 from the Doctor, and "the Doctor 404s it, so add it to the
+             proxy list" is the repair that looks right and is wrong -- the
+             real cause was that the held vendor pin predated the routes, so
+             the shipped payload never registered them at all.
+             Guard: tests/test_doctor_governor_routes_vendored.sh limb F. -->
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
         <!-- P0-α (2026-07-26): the Doctor's paired-bearer oracle

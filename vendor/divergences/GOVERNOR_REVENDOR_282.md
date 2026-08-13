@@ -1,7 +1,38 @@
 # Doctor governor re-vendor recipe (HR015 #282)
 
-**Status:** staged for ORM cut-time execution. **DO NOT run until HR015 `#282` is MERGED to `main`.**
+**Status:** staged for ORM cut-time execution. `#282` has since MERGED (`6639c79`), but the re-vendor below is **still not done** and the pin is still `b0b3831`.
 **Guard:** `scripts/verify_doctor_governor_revendor.sh` (run AFTER re-vendor; fails loud if the vendor-only bridge was dropped).
+
+> **2026-08-14 -- half of `#282` was grafted ahead of this recipe (v1018-D024).** The
+> customer-facing half could not wait for the re-vendor: the Hub sidebar renders
+> Governor with `show: true`, its Pause button calls `GET /api/v1/governor-status`,
+> `GET`+`POST /api/v1/pause` and `POST /api/v1/resume`, and the shipped Doctor payload
+> registered **none** of them, so every install answered `404` and the UI said
+> "Could not pause".
+>
+> **What is now in `vendor/doctor/agent`:** `pause_control.py` byte-identical to
+> `6639c79`, plus the four route handlers appended verbatim to `web_ui.py` before
+> `register_proxy_routes(app)`. Both are carried by `doctor.patch` (a `/dev/null`
+> new-file hunk and a regenerated `web_ui.py` section), and `source@b0b3831` +
+> `doctor.patch` still reconstructs all 30 examined vendored files byte-identical.
+>
+> **What is still owed to this recipe:** `#282`'s `config_panel.py` rework
+> (`build_env_map` / `sync_env_file`, the compose `.env` bridge). That is the one
+> remaining `FAIL` in the guard and it is deliberate, not an oversight.
+>
+> **Why a graft and not the re-pin.** Measured, not assumed: `doctor.patch` applies to
+> `source@b0b3831` with `rc=0` and fails on **9 of 11 files** against `source@origin/main`
+> (`config_panel`, `diagnostic_copy`, `diagnostic_rules`, `import_evernote`,
+> `import_evernote_runner`, `proxy`, `requirements`, `web_ui_copy`, `web_ui`). The
+> re-pin is a reconciliation project across the customer copy catalogue and the
+> bearer-oracle proxy, and it would additionally assert `51957f4` (Pro vault writer
+> SPA + LOCK-3 schema, 1,817 lines of v1.1 Pro-tier surface) into a v1.0 DMG.
+>
+> **When you do run the recipe:** step 3 must now also drop the `pause_control.py`
+> new-file hunk and the governor-route hunks from `doctor.patch`, because both go
+> native at the new pin. `tests/test_doctor_governor_routes_vendored.sh` is
+> pin-agnostic -- it asserts the routes are in the shipped payload however they got
+> there, so it stays valid across the re-pin and will catch a half-applied one.
 
 ## Why the doctor re-vendor is NOT a plain drop-in
 
