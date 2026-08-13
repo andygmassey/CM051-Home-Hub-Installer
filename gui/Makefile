@@ -234,6 +234,43 @@ DAEMON_RELEASE_URL   := https://github.com/$(DAEMON_REPO)/releases/download/$(DA
 # evaluated at recipe-run time so $$HOME expands correctly.
 DAEMON_LOCAL_CACHE_DIR := $$HOME/.ostler-release-artefacts
 
+# ---------------------------------------------------------------------------
+# HUB APP (Ostler.app, the Tauri desktop wrapper) -- task #332
+#
+# WHY THIS BLOCK EXISTS. Ostler.app was built only on the operator's Mac and
+# published nowhere, so OSTLER_APP_PATH's sibling-checkout default is a path
+# that CANNOT exist on a hosted runner. Every tagged cut since 2026-08-08 died
+# on exactly that, eight runs across v1.0.23/24/25:
+#
+#   ERROR: OSTLER_APP_PATH points at a path that does not exist:
+#     /Users/runner/work/CM051-Home-Hub-Installer/ostler-assistant/...
+#   make: *** [check-ostler-app] Error 1
+#
+# check-ostler-app failing there is CORRECT and must stay a hard failure: a
+# missing Hub app used to be non-fatal and shipped a silently Hub-less DMG
+# (v1018-D668). The defect was never the gate, it was that the artefact the
+# gate demands had no published home. So this fetches it rather than
+# loosening the check.
+#
+# The tag is shared with the daemon deliberately. Both artefacts are built
+# from ONE commit and published to ONE release, which is what makes the
+# existing verify-commit-parity check meaningful; a separate hub tag would let
+# the pair drift apart again (the #225 defect).
+#
+# Staleness is NOT this target's job. When the operator already has a local
+# bundle it is used as-is and verify-commit-parity is what catches it being
+# from the wrong commit. Two gates for one property is how a gate ends up
+# trusted and wrong.
+# ---------------------------------------------------------------------------
+HUB_APP_REPO         ?= ostler-ai/ostler-assistant
+HUB_APP_TARBALL_NAME := ostler-hub-app-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
+HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
+# SHA-256 of the published hub app tarball. Verified fail-closed, exactly as
+# DAEMON_SHA256 is: a mismatch deletes the file and aborts the cut, so an
+# unverified or wrong-version Ostler.app can never reach the DMG. Bump in
+# lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
+HUB_APP_SHA256       ?= e074d6fd9647aa325b2c98a5c61540c209e2b03937286e3f22309f03cc2f62bf
+
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: help all debug release package notarise notarise-app notarise-dmg \
@@ -244,7 +281,7 @@ STEP          := @printf '\n[STEP] %s\n'
         check-orphans \
         check-pr-age \
         verify-commit-parity \
-        download-python sign-python-bundle download-daemon stage-daemon \
+        download-python sign-python-bundle download-daemon download-hub-app stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
 
 # The default goal is deliberately INERT.
@@ -502,6 +539,102 @@ download-daemon:
 	    exit 1; \
 	fi; \
 	printf '[OK] ostler-assistant v%s cached + SHA-256 verified at %s\n' "$(DAEMON_VERSION)" "$(DAEMON_TARBALL_CACHE)"
+
+# ---------------------------------------------------------------------------
+# Task #332: obtain Ostler.app when this machine does not already have one.
+#
+# Materialises the bundle AT $(OSTLER_APP_PATH) rather than somewhere else and
+# then repointing the variable. That keeps one path in play instead of two, and
+# keeps tests/test_makefile_app_path_default.sh's "derived from this checkout"
+# assertion true -- a default that resolves into /tmp on CI and beside the repo
+# locally is two different defaults wearing one name.
+#
+# NO-OP WHEN THE BUNDLE IS ALREADY THERE. On the operator's Mac the sibling
+# ostler-assistant checkout has a freshly built Ostler.app and that is the one
+# that should ship; re-downloading over it would replace the artefact being
+# tested with a different one mid-cut.
+# ---------------------------------------------------------------------------
+download-hub-app:
+	@if [ -d "$(OSTLER_APP_PATH)" ]; then \
+	    printf '[STEP] Ostler.app already present: %s\n' "$(OSTLER_APP_PATH)"; \
+	    printf '[STEP] using it as-is; verify-commit-parity checks it is the right commit\n'; \
+	    exit 0; \
+	fi; \
+	mkdir -p "$(BUILD_DIR)"; \
+	printf '\n[STEP] Ostler.app absent -- fetching %s from %s %s\n' \
+	    "$(HUB_APP_TARBALL_NAME)" "$(HUB_APP_REPO)" "$(DAEMON_RELEASE_TAG)"; \
+	if [ -f "$(HUB_APP_TARBALL_CACHE)" ]; then \
+	    printf '[STEP] hub app cache hit: %s\n' "$(HUB_APP_TARBALL_CACHE)"; \
+	elif [ -f "$(DAEMON_LOCAL_CACHE_DIR)/$(HUB_APP_TARBALL_NAME)" ]; then \
+	    printf '[STEP] hub app local-cache hit\n'; \
+	    cp "$(DAEMON_LOCAL_CACHE_DIR)/$(HUB_APP_TARBALL_NAME)" "$(HUB_APP_TARBALL_CACHE)"; \
+	elif [ -n "$$OSTLER_RELEASES_TOKEN" ]; then \
+	    printf '[STEP] using OSTLER_RELEASES_TOKEN (cross-org read)\n'; \
+	    GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(DAEMON_RELEASE_TAG)" \
+	            --repo "$(HUB_APP_REPO)" \
+	            --pattern "$(HUB_APP_TARBALL_NAME)" \
+	            --dir "$(BUILD_DIR)" \
+	            --clobber || { \
+	        echo "" >&2; \
+	        echo "ERROR: could not read $(HUB_APP_REPO) $(DAEMON_RELEASE_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
+	        echo "  The token IS set, so this is a scope problem, not a missing credential." >&2; \
+	        echo "  $(HUB_APP_REPO) is a DIFFERENT repository from the daemon's" >&2; \
+	        echo "  $(DAEMON_REPO), and a fine-grained token scoped to one cannot read" >&2; \
+	        echo "  the other. Add $(HUB_APP_REPO) to the token's repository list with" >&2; \
+	        echo "  Contents: Read, or publish the hub app tarball alongside the daemon" >&2; \
+	        echo "  and set HUB_APP_REPO=$(DAEMON_REPO)." >&2; \
+	        echo "  NOT falling back to GITHUB_TOKEN: it cannot read another org either," >&2; \
+	        echo "  so the fallback would fail later and blame the wrong component." >&2; \
+	        exit 1; \
+	    }; \
+	elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
+	    gh release download "$(DAEMON_RELEASE_TAG)" \
+	            --repo "$(HUB_APP_REPO)" \
+	            --pattern "$(HUB_APP_TARBALL_NAME)" \
+	            --dir "$(BUILD_DIR)" \
+	            --clobber || { \
+	        echo "ERROR: gh release download failed for $(HUB_APP_TARBALL_NAME)." >&2; \
+	        echo "  Confirm it is published at:" >&2; \
+	        echo "    https://github.com/$(HUB_APP_REPO)/releases/tag/$(DAEMON_RELEASE_TAG)" >&2; \
+	        echo "  and that the active gh account can read that repo." >&2; \
+	        exit 1; \
+	    }; \
+	else \
+	    echo "ERROR: no way to obtain Ostler.app." >&2; \
+	    echo "  Build it in the sibling ostler-assistant checkout, or stage the" >&2; \
+	    echo "  tarball at $(DAEMON_LOCAL_CACHE_DIR)/$(HUB_APP_TARBALL_NAME)," >&2; \
+	    echo "  or export OSTLER_RELEASES_TOKEN / run \`gh auth login\`." >&2; \
+	    exit 1; \
+	fi; \
+	if [ ! -s "$(HUB_APP_TARBALL_CACHE)" ]; then \
+	    echo "ERROR: $(HUB_APP_TARBALL_CACHE) is missing or empty after download." >&2; \
+	    rm -f "$(HUB_APP_TARBALL_CACHE)"; \
+	    exit 1; \
+	fi; \
+	EXPECTED="$(HUB_APP_SHA256)"; \
+	ACTUAL="$$(shasum -a 256 "$(HUB_APP_TARBALL_CACHE)" | awk '{print $$1}')"; \
+	if [ "$$ACTUAL" != "$$EXPECTED" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: Ostler.app tarball SHA-256 mismatch (fail-closed)." >&2; \
+	    echo "  expected: $$EXPECTED" >&2; \
+	    echo "  actual:   $$ACTUAL" >&2; \
+	    echo "  file:     $(HUB_APP_TARBALL_CACHE)" >&2; \
+	    echo "  This blocks shipping an unverified or wrong-version Hub app. If you" >&2; \
+	    echo "  intentionally bumped DAEMON_VERSION, update HUB_APP_SHA256 from the" >&2; \
+	    echo "  new release's published .sha256 sidecar and retry." >&2; \
+	    rm -f "$(HUB_APP_TARBALL_CACHE)"; \
+	    exit 1; \
+	fi; \
+	DEST="$(dir $(OSTLER_APP_PATH))"; \
+	mkdir -p "$$DEST"; \
+	tar -xzf "$(HUB_APP_TARBALL_CACHE)" -C "$$DEST"; \
+	if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
+	    echo "ERROR: tarball extracted but $(OSTLER_APP_PATH) still does not exist." >&2; \
+	    echo "  The tarball must contain Ostler.app at its TOP LEVEL." >&2; \
+	    echo "  Extracted into: $$DEST" >&2; \
+	    exit 1; \
+	fi; \
+	printf '[OK] Ostler.app v%s fetched + SHA-256 verified at %s\n' "$(DAEMON_VERSION)" "$(OSTLER_APP_PATH)"
 
 # ---------------------------------------------------------------------------
 # CX-88 (DMG #48g): extract the cached daemon tarball into
@@ -1760,7 +1893,7 @@ guard-local-cut:
 	    exit 1; \
 	fi
 
-ship: guard-local-cut check-orphans check-pr-age check-ostler-app download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
