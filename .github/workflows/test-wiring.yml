@@ -300,3 +300,47 @@ jobs:
         run: /bin/bash tests/test_whatsapp_channel_block.sh
       - name: wiki recompile after late hydration
         run: /bin/bash tests/test_wiki_recompile_after_late_hydration.sh
+
+  # v1018-D675. These exercise VENDORED python, so they need what the vendored
+  # components declare in their own requirements.txt -- nothing invented here.
+  #
+  # All 9 originally reported ModuleNotFoundError and exited 1, so a missing
+  # dependency read as a finding. Installing aiofiles/nameparser/rapidfuzz/click
+  # then surfaced pydantic_settings/httpx/pytest underneath: a cascade, which is
+  # why the requirements FILES are installed rather than a hand-listed set.
+  # With the declared deps present 7 of the 9 pass and are wired below. The
+  # other two fail on real assertions, not imports, and stay UNCLASSIFIED.
+  python-contract-tests:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the vendored components' declared requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest \
+            -r vendor/cm019_preferences/requirements.txt \
+            -r vendor/cm041/identity_resolver/requirements.txt \
+            -r vendor/cm041/contact_syncer/requirements.txt \
+            -r vendor/cm024_knowledge/requirements.txt
+      # Fail loudly if a dependency vanishes, rather than letting the tests
+      # below report an import error as an assertion failure the way they did
+      # before this job existed.
+      - name: Assert the imports the tests actually need
+        run: python -c "import aiofiles, nameparser, rapidfuzz, click, httpx, pydantic_settings, pytest; print('deps ok')"
+      - name: amazon extracted-dir parse
+        run: python tests/test_amazon_extracted_dir_parse.py
+      - name: appletv parser
+        run: python tests/test_appletv_parser.py
+      - name: browsing ingest ensures its collection
+        run: python tests/test_browsing_ingest_ensures_collection.py
+      - name: pinterest parser
+        run: python tests/test_pinterest_parser.py
+      - name: preference noise source cap
+        run: python tests/test_pref_noise_source_cap.py
+      - name: resolver robustness
+        run: python tests/test_resolver_robustness.py
+      - name: vendor knowledge embed contract
+        run: python tests/test_vendor_knowledge_embed_contract.py

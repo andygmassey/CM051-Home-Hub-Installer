@@ -113,9 +113,9 @@ test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 # ---- UNCLASSIFIED -- each needs a WIRED or MANUAL ruling ----
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/test-wiring.yml
-test_amazon_extracted_dir_parse.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_amazon_extracted_dir_parse.py	WIRED	.github/workflows/test-wiring.yml
 test_app_binary_agents_bootstrap.sh	WIRED	.github/workflows/test-wiring.yml
-test_appletv_parser.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_appletv_parser.py	WIRED	.github/workflows/test-wiring.yml
 test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/test-wiring.yml
 test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_assistant_identity_belt.sh	WIRED	.github/workflows/test-wiring.yml
@@ -123,8 +123,8 @@ test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/test-wiring.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/test-wiring.yml
 test_brew_install_fail_loud.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: 2 silent-bail axis violation(s) in install.sh.
-test_browsing_ingest_ensures_collection.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'nameparser'
-test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'nameparser'
+test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/test-wiring.yml
+test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	FAILS rc=1 with deps installed (2026-08-13): AttributeError on ostler_fda.pwg_ingest -- REAL assertion failure, not a dependency gap
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/test-wiring.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/test-wiring.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/test-wiring.yml
@@ -178,7 +178,7 @@ test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13):
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
-test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'rapidfuzz'
+test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	FAILS rc=1 with deps installed (2026-08-13): all-persons candidate query issued 0 times -- REAL assertion failure, not a dependency gap
 test_imessage_fda_probe.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_tcc_posture.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [shim-run-granted-and-working]: probe block exited non-zero under
@@ -202,11 +202,11 @@ test_ollama_formula_swap.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL:
 test_orphan_gate_cannot_verify.sh	UNCLASSIFIED	FAILS rc=2 when run (2026-08-13): tests/test_orphan_gate_cannot_verify.sh: line 181: syntax error: unexp
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/test-wiring.yml
 test_pinned_images_are_pullable.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): tests/test_pinned_images_are_pullable.sh: line 93: PINS[@]: unbound va
-test_pinterest_parser.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_pinterest_parser.py	WIRED	.github/workflows/test-wiring.yml
 test_placeholder_strip.sh	WIRED	.github/workflows/test-wiring.yml
-test_pref_noise_source_cap.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_pref_noise_source_cap.py	WIRED	.github/workflows/test-wiring.yml
 test_preferences_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
-test_resolver_robustness.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'rapidfuzz'
+test_resolver_robustness.py	WIRED	.github/workflows/test-wiring.yml
 test_resource_tier_governor.sh	WIRED	.github/workflows/test-wiring.yml
 test_settling_progress_writer.sh	WIRED	.github/workflows/test-wiring.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/test-wiring.yml
@@ -235,7 +235,7 @@ test_vane_bundle.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [phase-4
 test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_doctor_knowledge_embed_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_exclude_glob_depth.sh	WIRED	.github/workflows/test-wiring.yml
-test_vendor_knowledge_embed_contract.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): Skipped: could not import 'click': No module named 'click'
+test_vendor_knowledge_embed_contract.py	WIRED	.github/workflows/test-wiring.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/test-wiring.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/test-wiring.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/test-wiring.yml
