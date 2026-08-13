@@ -748,10 +748,13 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 # hand against any bundle, idempotent on re-run.
 #
 # OSTLER_APP_PATH must point at a Tauri-built Ostler.app at the
-# top-level Cargo bundle output (e.g.,
-# ~/Documents/Projects/ostler-assistant/target/release/bundle/macos/
-# Ostler.app). The script verifies the bundle is present before
-# any modification.
+# top-level Cargo bundle output: in the ostler-assistant checkout that
+# sits BESIDE this repo, at
+# target/release/bundle/macos/Ostler.app -- which is what the derived
+# default above resolves to. Stated relative to the checkout rather than
+# as a home literal, because the home literal is what went stale in
+# v1018-D668. The script verifies the bundle is present before any
+# modification.
 #
 # Override Sparkle source / Info.plist values via the script's
 # environment variables: SPARKLE_VERSION, SPARKLE_SHA256,
