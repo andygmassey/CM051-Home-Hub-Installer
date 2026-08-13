@@ -48,6 +48,7 @@ test_context_refresh_wired.sh	UNWIRED	-
 test_conversation_bundle_user_id_wired.sh	UNWIRED	-
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_conversations_ingest_wiring.sh	UNWIRED	-
+test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
 test_cut_deferrals_no_duplicate_keys.sh	UNWIRED	-
 test_cut_freshness_gate.sh	WIRED	.github/workflows/cut-freshness.yml
 test_cut_gate_wrappers.sh	WIRED	.github/workflows/cut-freshness.yml
