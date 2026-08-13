@@ -1296,14 +1296,22 @@ check-manifest:
 	    CM044_DIR="$${CM044_DIR:-$(CURDIR)/../../CM044 - PWG Personal Wiki}" \
 	    OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
 	    HR015_DIR="$${HR015_DIR:-$(CURDIR)/../../HR015 - Gaming PC}" \
-	    ../scripts/verify_cut_manifest.sh --app-path "$(APP_PATH)" $(if $(CUT_MANIFEST_VERSION),--version "$(CUT_MANIFEST_VERSION)") || { \
+	    ../scripts/verify_cut_manifest.sh --app-path "$(APP_PATH)" $(if $(CUT_MANIFEST_VERSION),--version "$(CUT_MANIFEST_VERSION)") || rc=$$?; \
+	if [ "$${rc:-0}" -eq 2 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the cut-manifest gate COULD NOT RUN. It has NOT found a fix" >&2; \
+	    echo "       missing -- it failed to look. See the reason above (usually:" >&2; \
+	    echo "       python3 absent, or PyYAML uninstallable on this machine)." >&2; \
+	    echo "       Resolve it and re-run. DO NOT SHIP." >&2; \
+	    exit 2; \
+	elif [ "$${rc:-0}" -ne 0 ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: cut-manifest preflight FAILED -- a required fix is missing from the built .app." >&2; \
 	    echo "Read the RED rows above. For each: either the fix isn't in the merged source, or the daemon/vendored artefact needs re-pinning + rebuild. Then re-cut. DO NOT SHIP." >&2; \
 	    echo "" >&2; \
 	    echo "Docs: cut-manifests/README.md" >&2; \
 	    exit 1; \
-	}
+	fi
 
 package: guard-local-cut check-tools check-identity check-version check-create-dmg check-freshness check-provenance check-provenance-content
 	@if [ ! -d "$(APP_PATH)" ]; then \
