@@ -156,7 +156,7 @@ test_dedupe_heartbeat.sh	WIRED	.github/workflows/test-wiring.yml
 test_dmg_contains_bundled_python.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/test-wiring.yml
-test_doctor_repo_fallback.sh	UNCLASSIFIED	LIKELY SYSTEMIC CAUSE IDENTIFIED (v1018-D675): asserts LITERAL user-facing English in install.sh. The i18n migration moved every such string into MSG_* catalogue keys, so all tests of this shape went stale simultaneously and silently, because none of them ran. Fix = assert the MSG_* key is emitted on the path, plus that the key resolves in the catalogue -- stronger than matching one hard-coded sentence. Worked example: test_knowledge_repo_wiring.sh, now WIRED with 3 controls. Measured failure: clone failure does not mention PWG_DOCTOR_REPO override. NOT yet confirmed for this file -- check before assuming.
+test_doctor_repo_fallback.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_folder_prompt.sh	UNCLASSIFIED	LIKELY SYSTEMIC CAUSE IDENTIFIED (v1018-D675): asserts LITERAL user-facing English in install.sh. The i18n migration moved every such string into MSG_* catalogue keys, so all tests of this shape went stale simultaneously and silently, because none of them ran. Fix = assert the MSG_* key is emitted on the path, plus that the key resolves in the catalogue -- stronger than matching one hard-coded sentence. Worked example: test_knowledge_repo_wiring.sh, now WIRED with 3 controls. Measured failure: 'Folder/label [Ostler]:' prompt not found. NOT yet confirmed for this file -- check before assuming.
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/test-wiring.yml
@@ -231,7 +231,7 @@ test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_store_front_proxy.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1_sweep_install_gating.sh	WIRED	.github/workflows/test-wiring.yml
-test_vane_bundle.sh	UNCLASSIFIED	LIKELY SYSTEMIC CAUSE IDENTIFIED (v1018-D675): asserts LITERAL user-facing English in install.sh. The i18n migration moved every such string into MSG_* catalogue keys, so all tests of this shape went stale simultaneously and silently, because none of them ran. Fix = assert the MSG_* key is emitted on the path, plus that the key resolves in the catalogue -- stronger than matching one hard-coded sentence. Worked example: test_knowledge_repo_wiring.sh, now WIRED with 3 controls. Measured failure: phase-4 health check does not surface Vane. NOT yet confirmed for this file -- check before assuming.
+test_vane_bundle.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_doctor_knowledge_embed_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_exclude_glob_depth.sh	WIRED	.github/workflows/test-wiring.yml

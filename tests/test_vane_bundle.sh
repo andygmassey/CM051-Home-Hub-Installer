@@ -206,7 +206,9 @@ echo "PASS: install.sh pre-checks port 3000 for conflicts"
 # the human-readable label "Vane healthy" so a refactor that
 # replaces the curl with a different probe still has to update
 # the user-facing wording.
-if ! grep -q 'Vane healthy' "$INSTALL_SCRIPT"; then
+# v1018-D675 (systemic i18n): 'Vane healthy' and 'Local web search:' are now
+# one catalogue key, MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH.
+if ! grep -q 'MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH' "$INSTALL_SCRIPT"; then
     echo "FAIL [phase-4-health]: phase-4 health check does not surface Vane" >&2
     exit 1
 fi
@@ -245,7 +247,7 @@ echo "PASS: uninstaller container list includes ostler-vane"
 # Show "your local web search at :3000" only when Vane actually
 # came up. Hard-coding the URL would lie when the image pull
 # failed and the user is staring at a "what's running?" list.
-if ! grep -q 'Local web search:' "$INSTALL_SCRIPT"; then
+if ! grep -q 'MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH' "$INSTALL_SCRIPT"; then
     echo "FAIL [next-steps-vane]: next-steps banner does not surface 'Local web search:'" >&2
     exit 1
 fi

@@ -95,7 +95,9 @@ echo "PASS: clone branch verifies \$DOCTOR_TMP/doctor/agent before copying"
 #   - the repo URL
 #   - a "to install later" recipe
 #   - a hint about PWG_DOCTOR_REPO override
-if ! grep -q 'Override the source repo with PWG_DOCTOR_REPO' "$INSTALL_SCRIPT"; then
+# v1018-D675 (systemic i18n): install.sh no longer holds literal user-facing
+# English; the strings moved into MSG_* catalogue keys. Assert the key.
+if ! grep -q 'MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR' "$INSTALL_SCRIPT"; then
     echo "FAIL [diag-override]: clone failure does not mention PWG_DOCTOR_REPO override" >&2
     exit 1
 fi

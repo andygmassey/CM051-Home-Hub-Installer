@@ -123,6 +123,10 @@ jobs:
       # Retargeted off literal English onto MSG_* keys (v1018-D675 systemic).
       - name: knowledge repo wiring
         run: /bin/bash tests/test_knowledge_repo_wiring.sh
+      - name: doctor repo fallback diagnostics
+        run: /bin/bash tests/test_doctor_repo_fallback.sh
+      - name: vane bundle + phase-4 health
+        run: /bin/bash tests/test_vane_bundle.sh
 
   # v1018-D675 contract tests. Every one of these ran NOWHERE before this
   # workflow and every one was MEASURED passing on 2026-08-13 before being
