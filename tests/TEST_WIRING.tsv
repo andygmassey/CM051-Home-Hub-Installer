@@ -174,7 +174,7 @@ test_governor_pause_throttle.sh	WIRED	.github/workflows/test-wiring.yml
 test_graph_db_pull_retry.sh	WIRED	.github/workflows/test-wiring.yml
 test_grep_c_arith_safety.sh	WIRED	.github/workflows/test-wiring.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/test-wiring.yml
-test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	REAL, NOT test rot: catalog/strings/hook all PASS, but vendor/ostler_fda/universal_import.py:963 _dispatch_apple_notes still carries the DEFERRED-persistence stub -- it writes a staged apple_notes.json and returns status ok WITHOUT persisting to the knowledge store. The installer advertises the step and reports success while nothing reaches Knowledge. vendor/ = Archie to fix; finding established here.
+test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	THE TEST IS RIGHT, THE PRODUCT IS WRONG (v1018-D681). Checks 1-3 PASS (StepCatalog, MSG_* strings, OSTLER_APPLE_NOTES_KNOWLEDGE hook) so the installer advertises and 'completes' the step. Check 7 fails: measured 'DEFERRED persistence' vendor=1 upstream=0, '"--source", "apple_notes"' vendor=0 upstream=0. So the vendor is STALE (comment removed upstream, not re-vendored) AND the un-deferral was never completed in EITHER tree -- _dispatch_apple_notes stages apple_notes.json, returns status ok, and never persists to Knowledge. Ships-dark with a green light. Third true defect in this sweep after #679 and #680. DO NOT fix the test. Row -> WIRED when #681 lands.
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
