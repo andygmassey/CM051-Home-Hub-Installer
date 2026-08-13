@@ -116,9 +116,14 @@ jobs:
         # nginx gate admitting that Tailscale login, empty is fail-closed. It
         # is an inline python3 -c block inside install.sh, so the test EXTRACTS
         # the shipped block rather than testing a copy that could drift.
+        #
+        # stdlib unittest, NOT pytest: this runner has no pip install step, so
+        # `python3 -m pytest` exits 1 with "No module named pytest" before any
+        # assertion runs. A security gate that is red for an infrastructure
+        # reason teaches people to read its red as noise.
         run: |
           set -euo pipefail
-          python3 -m pytest tests/test_tailnet_owner_parser.py -q
+          python3 -m unittest tests.test_tailnet_owner_parser -v
 
       - name: Run app-bundle byte-by-byte regression
         # Per locked memory feedback_silent_bail_regression_test_shape.
