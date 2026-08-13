@@ -324,6 +324,96 @@ def _dispatch_to_cm048(
         return proc.returncode
 
 
+def _seed_all(
+    pending: list[tuple[str, dict]],
+    *,
+    pwg_convo_cmd: list[str],
+) -> int:
+    """v1018-D021 pass 1: make every new thread browseable, with no model.
+
+    Writes one JSONL manifest and hands the whole batch to a single
+    ``pwg-convo seed``. Batched on purpose: a seed is milliseconds of real
+    work, so one interpreter start per thread would cost more than the
+    seeding does.
+
+    Returns the number of threads the seeder reported writing. Never
+    raises: pass 2 is the durable path and must run whatever happens here.
+    """
+    if not pending:
+        return 0
+    with tempfile.TemporaryDirectory(prefix="hr015_email_seed_") as tmp:
+        tdir = Path(tmp)
+        manifest = tdir / "manifest.jsonl"
+        lines: list[str] = []
+        for idx, (transcript, metadata) in enumerate(pending):
+            tpath = tdir / f"{idx:06d}.md"
+            mpath = tdir / f"{idx:06d}.json"
+            tpath.write_text(transcript, encoding="utf-8")
+            mpath.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            lines.append(json.dumps(
+                {"transcript": str(tpath), "metadata": str(mpath)}
+            ))
+        manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        cmd = list(pwg_convo_cmd) + ["seed", str(manifest)]
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=_seed_timeout_secs(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            logger.error(
+                "Seed pass timed out after %ss for %d thread(s); continuing "
+                "to enrichment. Last output: %s",
+                exc.timeout, len(pending), _stderr_excerpt(exc.stderr),
+            )
+            return 0
+        except OSError as exc:
+            logger.error(
+                "Seed pass could not run (%s); continuing to enrichment.",
+                type(exc).__name__,
+            )
+            return 0
+        elapsed = time.monotonic() - started
+        if proc.returncode != 0:
+            logger.error(
+                "Seed pass failed for %d thread(s) after %.1fs (rc=%d): %s",
+                len(pending), elapsed, proc.returncode,
+                _stderr_excerpt(proc.stderr),
+            )
+            return 0
+        seeded = 0
+        try:
+            seeded = int(json.loads(proc.stdout.strip()).get("seeded", 0))
+        except (ValueError, AttributeError):
+            logger.warning("Seed pass gave no parseable count; assuming 0.")
+        logger.info(
+            "Seeded %d of %d thread(s) in %.1fs with no model call; "
+            "enrichment follows.",
+            seeded, len(pending), elapsed,
+        )
+        return seeded
+
+
+def _seed_timeout_secs():
+    """Wall-clock ceiling for the whole seed batch.
+
+    Generous relative to the work (a seed is file I/O and string
+    handling) but bounded, because this pass holds the shared ingest lock
+    exactly as the enrichment pass does -- the D020 lesson applied to the
+    new limb rather than rediscovered on a customer's box.
+    """
+    raw = os.environ.get("OSTLER_SEED_TIMEOUT_SECS")
+    if raw is None or not raw.strip():
+        return 300.0
+    try:
+        secs = float(raw)
+    except ValueError:
+        return 300.0
+    return None if secs <= 0 else secs
+
+
 def process_email(
     *,
     mail_dir: Optional[Path] = None,
@@ -338,8 +428,23 @@ def process_email(
 ) -> dict:
     """Read Apple Mail, thread, and dispatch new/updated threads to CM048.
 
-    Returns a summary dict: threads scanned, threads dispatched,
-    threads skipped (no new message since last bundle), failures.
+    Two passes, in this order (v1018-D021):
+
+      1. SEED -- every new thread gets its four artefacts written with no
+         model call, so it is browseable in the wiki on this tick.
+      2. ENRICH -- the full CM048 pipeline runs per thread, newest first,
+         and rewrites the same folder with the model's summary.
+
+    The order is the whole point. The full pipeline costs six serialised
+    model calls per thread on one decode slot, and the artefact the
+    customer reads is produced by the last of them, so before this split a
+    thread was invisible until every step had finished. Time to a
+    browseable wiki was the same as time to a complete graph. Now it is a
+    tick.
+
+    Returns a summary dict: threads scanned, threads seeded, threads
+    dispatched, threads skipped (no new message since last bundle),
+    failures.
     """
     pwg_convo_cmd = pwg_convo_cmd or _resolve_pwg_convo_cmd()
     state_file = state_path or _state_path()
@@ -354,6 +459,7 @@ def process_email(
     threads = thread_messages(messages, min_thread_messages=min_thread_messages)
 
     scanned = dispatched = skipped = failed = 0
+    work: list[tuple[object, list[str], set, str, dict]] = []
     for thread in threads:
         scanned += 1
         current_ids = [m.message_id for m in thread.messages]
@@ -381,6 +487,23 @@ def process_email(
             name_for_address=name_for_address,
             privacy_level=level,
         )
+        work.append((thread, current_ids, seen_ids, transcript, metadata))
+
+    # Enrich the most recent correspondence first. The backlog drains at
+    # the same rate either way, but what the customer looks at on day one
+    # is this month's mail, not the oldest thread the reader happened to
+    # walk first.
+    work.sort(key=lambda w: str(w[4].get("ended_at") or ""), reverse=True)
+
+    # ── Pass 1: seed ──────────────────────────────────────────────────
+    seeded = 0
+    if not dry_run and _seed_enabled():
+        seeded = _seed_all(
+            [(w[3], w[4]) for w in work], pwg_convo_cmd=pwg_convo_cmd
+        )
+
+    # ── Pass 2: enrich ────────────────────────────────────────────────
+    for thread, current_ids, seen_ids, transcript, metadata in work:
         rc = _dispatch_to_cm048(
             transcript,
             metadata,
@@ -395,6 +518,13 @@ def process_email(
                 thread_state[thread.thread_id] = sorted(
                     seen_ids.union(current_ids)
                 )
+                # Persist as we go. Before the seed pass existed a crash
+                # mid-tick lost nothing that mattered, because nothing was
+                # visible until the tick's work landed anyway. Now a tick
+                # can be minutes of enrichment on top of an already-useful
+                # wiki, and re-running finished documents on the next tick
+                # would push the backlog further out, not closer.
+                _save_state(state_file, state)
         else:
             failed += 1
             # Leave the watermark untouched so the next tick retries.
@@ -404,12 +534,23 @@ def process_email(
 
     summary = {
         "threads_scanned": scanned,
+        "threads_seeded": seeded,
         "threads_dispatched": dispatched,
         "threads_skipped": skipped,
         "threads_failed": failed,
     }
     logger.info("email source tick complete: %s", summary)
     return summary
+
+
+def _seed_enabled() -> bool:
+    """``OSTLER_SEED_FIRST=0`` restores the enrich-only tick.
+
+    An escape hatch, not a feature flag: if seeding ever misbehaves on a
+    customer's box the operator can turn it off without waiting for a
+    release, and the feed returns to exactly its previous behaviour.
+    """
+    return (os.environ.get("OSTLER_SEED_FIRST") or "1").strip() != "0"
 
 
 def _resolve_pwg_convo_cmd() -> list[str]:
