@@ -33,48 +33,37 @@
 
 deferrals:
   # -------------------------------------------------------------------------
-  # v1.0.24, recorded 2026-08-13. check-orphans went RED on ONE ref, and it
-  # was right to: #606 is open, so its work is not in the shipping tree.
+  # REMOVED 2026-08-13: the "CM051:#606" deferral. #606 is MERGED (3f921cbf).
   #
-  # This is a deferral, not a bypass. The gate offers exactly two answers --
-  # merge it, or record a reason here -- and merging it is not available
-  # tonight for a reason that is itself worth writing down.
+  # A deferral outliving its subject is not harmless here. is_deferred() is
+  # consulted BEFORE branch_landed(), so a leftover row makes check-orphans
+  # print "DEFERRED" for work that is actually shipping. The register would
+  # then be lying in the safe-looking direction, which is the harder one to
+  # notice.
+  #
+  # Rule: when a deferred ref merges, delete its row in the same pass. The
+  # history lives in `git log cut-deferrals.yaml`, which is the whole reason
+  # this file is tracked.
+  #
+  # Worth preserving from that row, because it cost three cut runs: the gate
+  # compares the tracked pbxproj byte-for-byte against `xcodegen generate`,
+  # and xcodegen has TWO inputs, the pinned generator AND the Xcode that
+  # supplies default build settings. On macos-14 (Xcode 15.4) four settings
+  # were omitted and a perfectly in-sync project was called STALE.
+  #
+  # TNM then measured a SECOND cause and corrected its own first answer: with
+  # the runner moved to macos-26, both runner and build host were 26.6/17F113
+  # and the bytes STILL differed. Not Xcode at all. The xcodegen release zip
+  # is bin/xcodegen PLUS share/xcodegen/SettingPresets, resolved relative to
+  # the binary; installing the binary alone makes xcodegen emit a project with
+  # every default setting missing, silently, exit 0. The gate was fed a broken
+  # generator and blamed the project.
+  #
+  # The superseded claim is deliberately left in gui/.xcode-version as a
+  # recorded correction rather than rewritten. Verified before merge: 13
+  # controls, 0 failed, including "xcodegen without SettingPresets is
+  # UNAVAILABLE (rc=2)" -- cannot-run never reads as a pass.
   # -------------------------------------------------------------------------
-  - ref: "CM051:#606"
-    reason: >-
-      CI tooling only. #606 adds the pbxproj-sync workflow, its self-test and
-      an xcodegen version pin. It changes NO shipped behaviour: it touches no
-      installer code, no vendored payload, no project spec and not the pbxproj
-      itself. Deferring it cannot alter a single byte of the DMG.
-
-      It is not merged because its own gate is red, and the reason took three
-      cut runs to see. The gate compares the tracked pbxproj byte-for-byte
-      against `xcodegen generate`, and xcodegen has TWO inputs: the pinned
-      generator AND the installed Xcode, which supplies the default build
-      settings (settingPresets). Only the generator was pinned. Measured
-      2026-08-13, same commit, same xcodegen 2.44.1:
-
-        build host  Xcode 26.6 (17F113)  emits COMBINE_HIDPI_IMAGES,
-                                         LD_RUNPATH_SEARCH_PATHS, SDKROOT,
-                                         ASSETCATALOG_COMPILER_APPICON_NAME
-        macos-14    Xcode 15.4 (15F31d)  omits all four
-
-      The tracked pbxproj carries the first set, so the hosted runner called a
-      perfectly in-sync project STALE. The diff contained no target, no file
-      and no bundle copy -- only injected build settings, which is a toolchain
-      signature, not drift. THE PROJECT IS NOT STALE and the v1.0.24 payload
-      is unaffected.
-
-      Fix pushed to the branch (gui/.xcode-version + mismatch is now exit 2
-      UNAVAILABLE, never exit 1 STALE, matching the version-pin doctrine, with
-      two controls asserting rc==2 and rejecting rc==1). What remains is a
-      DESIGN decision on TNM's own PR, not a bug: with the pin correct the
-      hosted runner now honestly reports "cannot run here", so the byte-exact
-      comparison either needs the workflow to select the pinned Xcode, or it
-      becomes an operator pre-tag check with a recorded receipt -- the same
-      shape as scripts/verify_cut_freshness.sh. Holding a launch DMG behind
-      that decision would be the tail wagging the dog.
-    until_cut: "v1.0.25"
 
   # -------------------------------------------------------------------------
   # v1.0.18, recorded 2026-08-08 after check-orphans went RED on 11 refs.
