@@ -266,6 +266,41 @@ if [ -f "$abs_patch" ]; then
     fi
 fi
 
+# PRE-FLIGHT, and it must stay OUTSIDE the vendor-only stash/restore region.
+#
+# The guard is checked for existence HERE, not at its call site below,
+# because by the time the call site is reached the tree has already been
+# rm -rf'd and untarred. Refusing there would mean refusing on top of a
+# tree that had already been overwritten -- a caught defect turned into a
+# worse one. Refuse before destroying anything.
+#
+# AND IT SITS ABOVE THE STASH/RESTORE REGION ON PURPOSE.
+# tests/test_vendor_only_survives_sync.sh LIFTS that region (between the
+# "Preserve vendor-only files" comment and the _vo_stash cleanup) and runs
+# it standalone against a fixture. An `exit 2` inside it terminates the
+# lifted region before the swap, so every vendor-only file trivially
+# "survives" and the test correctly reports CANNOT RUN. Placing this check
+# above the region keeps the two concerns independent: guard presence is
+# not a vendor-only question, and the region stays liftable.
+#
+# An absent guard is a COULD-NOT-RUN, and a could-not-run is not a pass.
+# This check used to be a WARNING at the call site that vendored anyway:
+# a line of yellow text, the tree overwritten unguarded, and the run
+# reporting success. A warning nobody blocks on is indistinguishable from
+# no guard, which is how the doctor tree lost three shipping cards the
+# first time (HR015 12ac405).
+_symguard="${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}/verify_no_symbol_regression.sh"
+if [ ! -x "$_symguard" ]; then
+    echo "" >&2
+    echo "REFUSING TO VENDOR: the symbol-regression guard could not be run." >&2
+    echo "    expected executable: $_symguard" >&2
+    echo "" >&2
+    echo "Nothing was compared and NOTHING ON DISK HAS BEEN TOUCHED. The swap" >&2
+    echo "is rm -rf + untar, so vendoring unguarded can silently delete" >&2
+    echo "shipping code (v1018-D684). Restore the guard, then re-run." >&2
+    exit 2
+fi
+
 # Preserve vendor-only files across the swap (v1018-D024).
 #
 # The swap below is a wholesale replace: rm -rf the vendored tree, untar the
@@ -437,32 +472,6 @@ fi
 # The swap is `rm -rf` + untar: it OVERWRITES, it does not merge. That is
 # why a vendored tree which is AHEAD of upstream loses code silently, and
 # why the guard has to run here rather than in review.
-# PRE-FLIGHT, and it must stay BEFORE the snapshot and the swap.
-#
-# The guard is checked for existence HERE, not at its call site below,
-# because by the time the call site is reached the tree has already been
-# rm -rf'd and untarred. Refusing there would mean refusing on top of a
-# tree that had already been overwritten -- a caught defect turned into a
-# worse one. Refuse before destroying anything.
-#
-# An absent guard is a COULD-NOT-RUN, and a could-not-run is not a pass.
-# This check used to be a WARNING at the call site that vendored anyway:
-# a line of yellow text, the tree overwritten unguarded, and the run
-# reporting success. A warning nobody blocks on is indistinguishable from
-# no guard, which is how the doctor tree lost three shipping cards the
-# first time (HR015 12ac405).
-_symguard="${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}/verify_no_symbol_regression.sh"
-if [ ! -x "$_symguard" ]; then
-    echo "" >&2
-    echo "REFUSING TO VENDOR: the symbol-regression guard could not be run." >&2
-    echo "    expected executable: $_symguard" >&2
-    echo "" >&2
-    echo "Nothing was compared and NOTHING ON DISK HAS BEEN TOUCHED. The swap" >&2
-    echo "is rm -rf + untar, so vendoring unguarded can silently delete" >&2
-    echo "shipping code (v1018-D684). Restore the guard, then re-run." >&2
-    exit 2
-fi
-
 _symguard_before="$(mktemp -d)"
 if [ -d "$abs_vendor" ]; then
     ( cd "$abs_vendor" && tar -cf - . ) | ( cd "$_symguard_before" && tar -xf - )
