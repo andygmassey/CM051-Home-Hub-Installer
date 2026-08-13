@@ -120,6 +120,10 @@ jobs:
       - name: pinned ghcr.io images are anonymously pullable
         run: /bin/bash tests/test_pinned_images_are_pullable.sh
 
+      # Retargeted off literal English onto MSG_* keys (v1018-D675 systemic).
+      - name: knowledge repo wiring
+        run: /bin/bash tests/test_knowledge_repo_wiring.sh
+
   # v1018-D675 contract tests. Every one of these ran NOWHERE before this
   # workflow and every one was MEASURED passing on 2026-08-13 before being
   # listed here -- no test is wired on the assumption that it works.

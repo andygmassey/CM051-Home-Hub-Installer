@@ -56,9 +56,24 @@ if ! grep -qE 'KNOWLEDGE_DIR="\$\{OSTLER_DIR\}/services/knowledge"' "$INSTALL_SC
 fi
 echo "PASS: install location is ~/.ostler/services/knowledge/"
 
-# ── Empty KNOWLEDGE_REPO branch warns and skips ─────────────────
-if ! grep -qE 'if \[\[ -z "\$KNOWLEDGE_REPO" \]\]; then' "$INSTALL_SCRIPT"; then
-    echo "FAIL [empty-branch]: no '[[ -z \"\$KNOWLEDGE_REPO\" ]]' warn-and-skip branch" >&2
+# ── No KNOWLEDGE_REPO and no bundle: must inform, not silently skip ──
+#
+# v1018-D675: this used to require a literal `if [[ -z "$KNOWLEDGE_REPO" ]]`
+# branch. install.sh now resolves the knowledge service through a three-way
+# chain -- bundled copy first, then $KNOWLEDGE_REPO, then an else that tells
+# the operator the service is not installed and how to get it. An empty
+# KNOWLEDGE_REPO therefore falls through to `bundled` on a normal install,
+# which is why the -z branch went away. The coverage the test cares about is
+# intact; only its spelling was stale, and it had never run so nobody noticed.
+#
+# Assert the STRUCTURE (all three arms exist) and that the neither-arm is not
+# silent, rather than one way of writing the condition.
+if ! grep -qE '^elif \[\[ -n "\$KNOWLEDGE_REPO" \]\]; then' "$INSTALL_SCRIPT"; then
+    echo "FAIL [chain]: no 'elif [[ -n \"\$KNOWLEDGE_REPO\" ]]' arm -- the knowledge resolution chain moved; retarget this check rather than assuming the branch is gone" >&2
+    exit 1
+fi
+if ! grep -q 'MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE' "$INSTALL_SCRIPT"; then
+    echo "FAIL [empty-branch]: neither a bundle nor \$KNOWLEDGE_REPO leaves the operator with NO message. A silently absent knowledge service is indistinguishable from a working one until they look for their notes." >&2
     exit 1
 fi
 echo "PASS: empty KNOWLEDGE_REPO branch warns and skips"
@@ -75,8 +90,14 @@ if ! grep -qE 'KNOWLEDGE_VENV="\$\{KNOWLEDGE_DIR\}/\.venv"' "$INSTALL_SCRIPT"; t
     echo "FAIL [venv-path]: venv path not at \$KNOWLEDGE_DIR/.venv" >&2
     exit 1
 fi
-if ! grep -qE 'python3 -m venv "\$KNOWLEDGE_VENV"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [venv-create]: 'python3 -m venv \$KNOWLEDGE_VENV' missing" >&2
+# v1018-D675: this demanded a bare `python3 -m venv`. install.sh builds the
+# knowledge venv with "$PYTHON3_BIN" -- the interpreter resolved earlier, which
+# is the entire point of the bundled-python selection. A bare `python3` here
+# would BYPASS that selection and build the venv against whatever python
+# happens to be on PATH, so the original assertion was not just stale, it
+# demanded the weaker thing. Assert the resolved interpreter.
+if ! grep -qE '"\$PYTHON3_BIN" -m venv "\$KNOWLEDGE_VENV"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [venv-create]: knowledge venv is not created with \"\$PYTHON3_BIN\" -m venv \"\$KNOWLEDGE_VENV\". A bare python3 would bypass the bundled-python selection." >&2
     exit 1
 fi
 echo "PASS: venv created at \$KNOWLEDGE_DIR/.venv"
@@ -118,8 +139,15 @@ fi
 echo "PASS: knowledge-staging dir at ~/.ostler/data/knowledge-staging/"
 
 # ── Clone failure produces useful diagnostics ───────────────────
-if ! grep -q 'Override the source repo with PWG_KNOWLEDGE_REPO' "$INSTALL_SCRIPT"; then
-    echo "FAIL [diag-override]: clone failure does not mention PWG_KNOWLEDGE_REPO override" >&2
+# v1018-D675, and this is the SYSTEMIC one. install.sh no longer contains
+# literal user-facing English: the i18n work moved every such string into
+# MSG_* catalogue keys. So a test that greps install.sh for the sentence a
+# customer reads went stale the moment that migration landed -- for ALL such
+# tests at once, silently, because none of them ran. Assert the KEY is emitted
+# on the failure path, and separately that the key resolves in the catalogue,
+# which is a stronger pair than matching one hard-coded sentence.
+if ! grep -q 'MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE' "$INSTALL_SCRIPT"; then
+    echo "FAIL [diag-override]: clone failure does not emit MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE -- the operator is not told they can override the source repo" >&2
     exit 1
 fi
 echo "PASS: clone failure surfaces PWG_KNOWLEDGE_REPO override hint"
