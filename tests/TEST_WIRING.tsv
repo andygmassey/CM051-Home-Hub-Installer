@@ -144,12 +144,12 @@ test_cx130_mail_populate_phase2.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q19_consent_third_party_legal_note_separation.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q20_consent_install_body_shape.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q7_channel_choice_labels_match_install_sh.sh	WIRED	.github/workflows/test-wiring.yml
-test_cx30_33_python_library_validation_entitlement.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_cx30_33_python_library_validation_entitlement.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx453_no_osascript_contacts.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx95_venv_shebang_promote.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx98_channel_vars_unbound.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx98_previous_install_detection.sh	WIRED	.github/workflows/test-wiring.yml
-test_daemon_fda_app_bundle_path.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/test-wiring.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/test-wiring.yml
 test_dedupe_defer_background.sh	WIRED	.github/workflows/test-wiring.yml
 test_dedupe_heartbeat.sh	WIRED	.github/workflows/test-wiring.yml

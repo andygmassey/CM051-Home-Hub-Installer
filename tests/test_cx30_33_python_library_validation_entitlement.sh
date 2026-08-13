@@ -110,7 +110,18 @@ echo "PASS [case-3]: $ENTITLEMENTS has disable-library-validation = true"
 # with --entitlements. CX-33 found that a deep re-sign without
 # --entitlements strips CX-30's fix from the inner python3.11 binary.
 # The Makefile target's re-sign line is the recurrence vector.
-MAKEFILE_RESIGN_LINE=$(awk '/sign-python-bundle:/,/^$/' "$MAKEFILE" | grep -E 'codesign --force --deep --sign' || true)
+# v1018-D675: the range was `awk '/sign-python-bundle:/,/^$/'`, which stops at
+# the FIRST BLANK LINE. Make recipes contain blank lines, so the window closed
+# long before the outer re-sign at the end of the target and the test reported
+# a missing line that is right there. Range to the next target instead.
+#
+# It also required --deep on that line. The outer re-sign deliberately does NOT
+# use --deep: gui/Makefile's own comment records that a --force --deep re-sign
+# STRIPS disable-library-validation from the nested python3.11, which is the
+# exact failure this file exists to prevent. The old assertion demanded the
+# thing that breaks it.
+MAKEFILE_RESIGN_LINE=$(awk '/^sign-python-bundle:/{f=1;next} /^[a-zA-Z0-9_.-]+:/{f=0} f' "$MAKEFILE" \
+    | grep -E 'codesign --force --sign .* --entitlements' || true)
 if [[ -z "$MAKEFILE_RESIGN_LINE" ]]; then
     echo "FAIL [case-4a]: gui/Makefile sign-python-bundle target has no outer --force --deep re-sign line"
     exit 1

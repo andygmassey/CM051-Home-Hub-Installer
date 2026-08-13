@@ -122,7 +122,11 @@ fi
 echo "PASS [case-5]: ${WRAP_BUNDLE_ID_COUNT} CFBundleIdentifier sites write ai.ostler.assistant"
 
 # Case 6: TCC pre-probe SELECT references BOTH the bundle ID and the legacy binary path
-if ! grep -qE "client IN \('ai\.ostler\.assistant', '\\\$\{ASSISTANT_BINARY_LEGACY\}'\)" "$INSTALL_SH"; then
+# v1018-D675: install.sh hardened the SQL to ${ASSISTANT_BINARY_LEGACY:-none}
+# so an unset legacy path cannot inject an empty string into the IN clause.
+# The old pattern required the bare ${ASSISTANT_BINARY_LEGACY} and so missed
+# the safer form. Accept either; both check BOTH clients, which is the point.
+if ! grep -qE "client IN \('ai\.ostler\.assistant', '\\\$\{ASSISTANT_BINARY_LEGACY(:-none)?\}'\)" "$INSTALL_SH"; then
     echo "FAIL [case-6]: TCC pre-probe SQL does not check both bundle ID and \${ASSISTANT_BINARY_LEGACY}"
     echo "   without the legacy path, an upgrade from v0.4.1's bare-bin layout silently loses the FDA grant"
     grep -nE 'client IN' "$INSTALL_SH" | head -3
