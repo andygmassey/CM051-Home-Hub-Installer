@@ -323,6 +323,8 @@ jobs:
         run: /bin/bash tests/test_vendor_exclude_glob_depth.sh
       - name: whatsapp channel block
         run: /bin/bash tests/test_whatsapp_channel_block.sh
+      - name: install daily briefs
+        run: /bin/bash tests/test_install_daily_briefs.sh
       - name: wiki baseline background
         run: /bin/bash tests/test_wiki_baseline_background.sh
       - name: wiki recompile after late hydration

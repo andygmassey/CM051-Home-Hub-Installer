@@ -8212,14 +8212,51 @@ TOMLPREAMBLE
     # so we do not have to spell out "look at yesterday's data"
     # twice. Customers can edit the prompt after install by hand
     # in ${OSTLER_DIR}/assistant-config/config.toml.
+    # v1018-D679. Both jobs used to sit inside a bare
+    #     [[ $CHANNEL_IMESSAGE_ENABLED == true && -n $CHANNEL_IMESSAGE_ALLOWED ]]
+    # so a customer who chose WhatsApp and not iMessage got NO morning brief
+    # and NO evening wrap. Silently: the TOML is valid, the daemon loads it,
+    # and there is simply nothing scheduled. Nothing in Doctor says a brief was
+    # expected, because from the daemon's side none was ever configured.
+    #
+    # That gate was CORRECT when CX-68 wrote it on 2026-05-25 (see the note
+    # above): the WhatsApp block shipped `enabled = true` with no backend
+    # selector, so WhatsAppConfig::backend_type() defaulted to "cloud",
+    # is_cloud_config() returned false for want of Cloud API creds, and the
+    # channel never registered in the cron-delivery registry. Delivering a
+    # brief there would have failed nightly.
+    #
+    # It stopped being correct on 2026-08-12, when the block above started
+    # writing `session_path` unconditionally (and `pair_phone` when the wizard
+    # captured a number). The channel now has a backend selector, so it
+    # registers. The gate outlived its reason by a day short of a cut.
+    #
+    # Choose a delivery channel instead of hard-coding one. iMessage stays
+    # FIRST because it is the only one proven end-to-end on a fresh install
+    # once FDA is granted (CX-60 + CX-66); WhatsApp is the fallback so a
+    # WhatsApp-only customer gets briefs rather than silence.
+    _brief_channel=""
+    _brief_recipient=""
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && -n "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
         # Pick the first allowed contact as the brief recipient.
         # The allowed_contacts list is comma-separated; trim
         # whitespace around the first entry.
-        _imsg_brief_recipient="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
-        _imsg_brief_recipient="${_imsg_brief_recipient# }"
-        _imsg_brief_recipient="${_imsg_brief_recipient% }"
-        _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
+        _brief_channel="imessage"
+        _brief_recipient="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
+        _brief_recipient="${_brief_recipient# }"
+        _brief_recipient="${_brief_recipient% }"
+    elif [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+        # E.164 as captured by the wizard, matching allowed_numbers in the
+        # [channels.whatsapp] block above. NOT the digit-stripped pair_phone
+        # form: that one exists only because wa-rs hands pair_phone to Meta
+        # verbatim, and it is not an address the delivery path resolves.
+        _brief_channel="whatsapp"
+        _brief_recipient="$CHANNEL_WHATSAPP_RECIPIENT"
+    fi
+
+    if [[ -n "$_brief_channel" ]]; then
+        _brief_recipient_esc="${_brief_recipient//\"/\\\"}"
+        _brief_channel_esc="${_brief_channel//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
         _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
         _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
@@ -8232,7 +8269,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_morning_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_recipient_esc}\", best_effort = false }"
         echo
         echo "[[cron.jobs]]"
         echo "id = \"evening-wrap\""
@@ -8240,7 +8277,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_evening_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_recipient_esc}\", best_effort = false }"
     fi
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
