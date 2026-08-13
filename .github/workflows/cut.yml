@@ -371,6 +371,47 @@ jobs:
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
 
+      # THE PROVENANCE GATE NEEDS A CHECKOUT TO LOOK AT.
+      #
+      # verify_cut_provenance.sh proves daemon-side fixes are present in the
+      # TAG the daemon tarball was built from, by reading them out of a git
+      # checkout of ostler-assistant. Its default location is a SIBLING
+      # directory: correct on the operator's Mac, impossible here. On run
+      # 31693253364 that absence was reported as
+      #   "assistant_tag_grep ... :: ostler-assistant not at .../gui/../../ostler-assistant"
+      # and walled the cut as STALE DAEMON SOURCE -- a cannot-run wearing a
+      # defect's clothes, the same shape as the OSTLER_APP_PATH default that
+      # blocked eight cuts. The gate now says CANNOT-RUN instead; this step is
+      # what lets it return a real verdict.
+      #
+      # FULL clone, deliberately not --depth 1: the daemon_tag check runs
+      # `git merge-base --is-ancestor`, which needs history. A shallow clone
+      # would make every ancestry test fail and reintroduce a false STALE.
+      #
+      # The token is the one the cut already carries. That it can read
+      # ostler-assistant is MEASURED, not assumed: on the same run the
+      # freshness gate printed "daemon: STALE:+1 vs ostler-ai/ostler-assistant
+      # main", which it could not have produced without read access.
+      - name: Fetch ostler-assistant so the provenance gate can RUN
+        env:
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OSTLER_RELEASES_TOKEN:-}" ]; then
+            echo "::error::no credential to fetch ostler-assistant. The provenance gate will exit 2 (could not run) rather than pass, which is correct, but the cut cannot proceed." >&2
+            exit 1
+          fi
+          DEST="${RUNNER_TEMP}/ostler-assistant"
+          git clone --quiet "https://x-access-token:${OSTLER_RELEASES_TOKEN}@github.com/ostler-ai/ostler-assistant.git" "$DEST" 2>/dev/null
+          # Assert the clone is USABLE for what the gate does, rather than that
+          # the command exited 0: a tagless or historyless clone would send
+          # every ancestry check to a false STALE.
+          N_TAGS="$(git -C "$DEST" tag | wc -l | tr -d ' ')"
+          echo "ostler-assistant: $(git -C "$DEST" rev-parse --short HEAD), ${N_TAGS} tags"
+          [ "$N_TAGS" -gt 0 ] || { echo "::error::clone carries no tags; every daemon_tag check would report a false STALE" >&2; exit 1; }
+          git -C "$DEST" rev-parse HEAD~5 >/dev/null 2>&1 || { echo "::error::clone has no history; merge-base --is-ancestor cannot work" >&2; exit 1; }
+          echo "OSTLER_ASSISTANT_DIR=$DEST" >> "$GITHUB_ENV"
+
       - name: Build, sign, notarise, staple
         env:
           NOTARY_PROFILE: ostler-ci
