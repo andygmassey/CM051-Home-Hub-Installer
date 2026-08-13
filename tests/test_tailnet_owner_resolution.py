@@ -256,5 +256,168 @@ class TestPositiveControl(unittest.TestCase):
                          "here, so the assertNoOwner checks are meaningful")
 
 
+# ---------------------------------------------------------------------------
+# TYPE CONFUSION BELOW THE TOP LEVEL
+#
+# TestNoStderr above records an earlier fix: bare `null` and `[]` reached
+# d.get() and raised, closed with `if not isinstance(d, dict)`. That guard is
+# correct and it is only one level deep. Every lookup UNDER it was still
+# unguarded:
+#
+#     uid  = (d.get("Self") or {}).get("UserID")        <- Self must be a dict
+#     user = (d.get("User") or {}).get(str(uid)) or {}  <- User must be a dict
+#     login = (user.get("LoginName") or "").strip()     <- and so must the entry
+#
+# `x or {}` only substitutes when x is FALSY. A truthy non-dict -- a string, a
+# number, a non-empty list -- passes straight through to .get() and raises
+# AttributeError. Measured 2026-08-13 against the then-shipped parser: 11 of 12
+# such shapes raised.
+#
+# test_no_stderr_on_any_input did not catch it because all six of its payloads
+# are well-formed BELOW the top level: it varies the root and holds the nested
+# shape fixed, which is the axis the defect does not live on.
+#
+# Severity, stated plainly: each call site redirects `2>/dev/null` and appends
+# `|| true`, so stdout stayed empty and the traceback was discarded. Nothing
+# reached a customer. This is hardening of a parser whose output is an
+# authorisation input, and removal of the dependency on a call-site redirect --
+# not the repair of a live fault.
+# ---------------------------------------------------------------------------
+
+# The second inline parser, which resolves the MagicDNS name. It had no tests
+# at all, and carried the identical `(d.get("Self") or {})` shape.
+DNS_START = re.compile(r'OSTLER_WIKI_TAILNET_URL="https://\$\(.*python3 -c \x27\s*$')
+
+
+def extract_dns_parser() -> str:
+    lines = INSTALL_SH.read_text().splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if DNS_START.search(line):
+            start = i + 1
+            break
+    if start is None:
+        raise AssertionError(
+            "could not find the OSTLER_WIKI_TAILNET_URL python3 block in "
+            "install.sh. Fix this extraction -- do NOT paste in a copy of the "
+            "parser, or this test starts proving things about a file nobody ships."
+        )
+    for j in range(start, len(lines)):
+        if END.match(lines[j]):
+            return "\n".join(lines[start:j])
+    raise AssertionError("found the DNSName parser start in install.sh but not its end")
+
+
+DNS_PARSER = extract_dns_parser()
+
+
+def run_parser(body: str, payload: str):
+    """Return (stdout, stderr, returncode) for a parser body over raw stdin."""
+    p = subprocess.run([sys.executable, "-c", body],
+                       input=payload, capture_output=True, text=True)
+    return p.stdout.strip(), p.stderr.strip(), p.returncode
+
+
+# Each entry is a shape that is valid JSON and structurally wrong. Every one
+# must produce EMPTY output and EMPTY stderr, because for the owner parser
+# empty is the fail-closed answer.
+OWNER_TYPE_CONFUSION = [
+    ("Self is a non-empty list", '{"Self": ["a"], "User": {}}'),
+    ("Self is a string",         '{"Self": "x", "User": {}}'),
+    ("Self is a number",         '{"Self": 5, "User": {}}'),
+    ("User is a string",         '{"Self": {"UserID": 1}, "User": "x"}'),
+    ("User is a non-empty list", '{"Self": {"UserID": 1}, "User": ["a"]}'),
+    ("User is a number",         '{"Self": {"UserID": 1}, "User": 7}'),
+    ("user entry is a string",   '{"Self": {"UserID": 1}, "User": {"1": "x"}}'),
+    ("user entry is a list",     '{"Self": {"UserID": 1}, "User": {"1": ["a"]}}'),
+    ("LoginName is a number",    '{"Self": {"UserID": 1}, "User": {"1": {"LoginName": 5}}}'),
+    ("LoginName is a list",      '{"Self": {"UserID": 1}, "User": {"1": {"LoginName": ["a"]}}}'),
+    ("LoginName is a dict",      '{"Self": {"UserID": 1}, "User": {"1": {"LoginName": {"a": 1}}}}'),
+]
+
+
+class TestOwnerParserTypeConfusion(unittest.TestCase):
+
+    def test_every_shape_is_empty_and_silent(self):
+        for label, payload in OWNER_TYPE_CONFUSION:
+            with self.subTest(label):
+                out, err, rc = run_parser(PARSER, payload)
+                self.assertEqual(out, "", f"{label}: returned an owner, must fail closed")
+                self.assertNotIn("Traceback", err, f"{label}: raised\n{err}")
+                self.assertEqual(err, "", f"{label}: wrote to stderr\n{err}")
+                self.assertEqual(rc, 0, f"{label}: non-zero exit")
+
+    def test_the_valid_case_still_resolves(self):
+        """Hardening that also broke the happy path would pass every check above."""
+        self.assertEqual(resolve(status()), "owner@example.com")
+
+    def test_a_tagged_node_is_still_refused(self):
+        self.assertEqual(
+            resolve(status(users={"1": {"ID": 1, "LoginName": "tagged-devices"}})), "",
+            "the tagged-devices rule must survive the type guards",
+        )
+
+
+class TestDNSNameParserTypeConfusion(unittest.TestCase):
+    """The DNSName parser had zero coverage. Its output builds the wiki URL."""
+
+    def test_extraction_found_real_code(self):
+        self.assertIn("DNSName", DNS_PARSER)
+        self.assertIn(DNS_PARSER.strip().splitlines()[0], INSTALL_SH.read_text())
+
+    def test_resolves_a_valid_dns_name(self):
+        out, err, _ = run_parser(DNS_PARSER, '{"Self": {"DNSName": "hub.tail.ts.net."}}')
+        self.assertEqual(out, "hub.tail.ts.net", "trailing dot must be stripped")
+        self.assertEqual(err, "")
+
+    def test_type_confusion_is_empty_and_silent(self):
+        for label, payload in [
+            ("Self is a string",   '{"Self": "x"}'),
+            ("Self is a list",     '{"Self": ["a"]}'),
+            ("DNSName is a number", '{"Self": {"DNSName": 5}}'),
+            ("DNSName is a list",  '{"Self": {"DNSName": ["a"]}}'),
+            ("DNSName is null",    '{"Self": {"DNSName": null}}'),
+            ("no Self",            '{}'),
+            ("bare null",          'null'),
+            ("bare list",          '[]'),
+            ("malformed",          '{oh no'),
+        ]:
+            with self.subTest(label):
+                out, err, rc = run_parser(DNS_PARSER, payload)
+                self.assertEqual(out, "", f"{label}: produced a hostname")
+                self.assertNotIn("Traceback", err, f"{label}: raised\n{err}")
+                self.assertEqual(rc, 0, f"{label}: non-zero exit")
+
+
+class TestTypeGuardsAreWhatIsBeingTested(unittest.TestCase):
+    """NEGATIVE CONTROL.
+
+    The assertions above would pass just as happily against a parser that
+    printed nothing ever. Neuter one type guard and the suite must go red --
+    otherwise it is not testing the guards, it is testing that Python is quiet.
+    """
+
+    def test_removing_a_guard_reintroduces_the_crash(self):
+        neutered = PARSER.replace(
+            'if not isinstance(users, dict):', 'if False:')
+        self.assertNotEqual(neutered, PARSER,
+                            "could not neuter the User guard; this control is inert")
+        _, err, _ = run_parser(neutered, '{"Self": {"UserID": 1}, "User": "x"}')
+        self.assertIn(
+            "Traceback", err,
+            "removing the isinstance guard did NOT reintroduce the crash, so "
+            "TestOwnerParserTypeConfusion is not testing that guard at all",
+        )
+
+    def test_removing_the_dns_guard_reintroduces_the_crash(self):
+        neutered = DNS_PARSER.replace(
+            'if not isinstance(name, str):', 'if False:')
+        self.assertNotEqual(neutered, DNS_PARSER,
+                            "could not neuter the DNSName guard; control is inert")
+        _, err, _ = run_parser(neutered, '{"Self": {"DNSName": 5}}')
+        self.assertIn("Traceback", err,
+                      "the DNSName type assertions are not testing the guard")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

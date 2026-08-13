@@ -15970,11 +15970,22 @@ except Exception:
     raise SystemExit(0)
 if not isinstance(d, dict):
     raise SystemExit(0)
-uid = (d.get("Self") or {}).get("UserID")
+self_block = d.get("Self")
+if not isinstance(self_block, dict):
+    raise SystemExit(0)
+uid = self_block.get("UserID")
 if uid is None:
     raise SystemExit(0)
-user = (d.get("User") or {}).get(str(uid)) or {}
-login = (user.get("LoginName") or "").strip()
+users = d.get("User")
+if not isinstance(users, dict):
+    raise SystemExit(0)
+user = users.get(str(uid))
+if not isinstance(user, dict):
+    raise SystemExit(0)
+login = user.get("LoginName")
+if not isinstance(login, str):
+    raise SystemExit(0)
+login = login.strip()
 if login and not login.startswith("tagged-devices"):
     print(login)
 ' 2>/dev/null || true)"
@@ -16005,7 +16016,13 @@ except Exception:
     raise SystemExit(0)
 if not isinstance(d, dict):
     raise SystemExit(0)
-name = ((d.get("Self") or {}).get("DNSName") or "").rstrip(".")
+self_block = d.get("Self")
+if not isinstance(self_block, dict):
+    raise SystemExit(0)
+name = self_block.get("DNSName")
+if not isinstance(name, str):
+    raise SystemExit(0)
+name = name.rstrip(".")
 if name:
     print(name)
 ' 2>/dev/null || true)"
