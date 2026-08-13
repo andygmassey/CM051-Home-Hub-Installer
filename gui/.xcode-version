@@ -1,21 +1,36 @@
 # gui/.xcode-version -- the Xcode whose build-setting presets are baked into
 # the tracked project.pbxproj.
 #
-# WHY THIS EXISTS, MEASURED 2026-08-13.
+# FORMAT: marketing version, then the build version, whitespace separated.
+# The BUILD is the operative one. See below.
+#
+# WHY THE BUILD AND NOT JUST THE MARKETING VERSION, MEASURED 2026-08-13.
+#
 # gui/.xcodegen-version pins the GENERATOR. It does not pin the generator's
-# other input. xcodegen injects default build settings (settingPresets) that
-# it reads from the INSTALLED XCODE, so the same xcodegen 2.44.1 emits
-# different bytes on different Xcodes from an identical project.yml:
+# other input: xcodegen injects default build settings (settingPresets) that it
+# reads from the SELECTED Xcode, so identical xcodegen + identical project.yml
+# still emit different bytes on different Xcodes.
 #
-#   build host  Xcode 26.6 (17F113)  emits COMBINE_HIDPI_IMAGES,
-#                                    LD_RUNPATH_SEARCH_PATHS, SDKROOT,
-#                                    ASSETCATALOG_COMPILER_APPICON_NAME
-#   macos-14    Xcode 15.4 (15F31d)  omits all four
+# The first version of this file pinned the marketing version, 26.6, on the
+# theory that 26.6 emits COMBINE_HIDPI_IMAGES / LD_RUNPATH_SEARCH_PATHS /
+# SDKROOT and older Xcodes omit them. That theory is FALSE, and the run that
+# disproved it is worth keeping:
 #
-# The tracked pbxproj carries the first set, so a byte-exact comparison on a
-# hosted runner reported STALE for a toolchain difference -- the exact
-# 'gate goes red for the wrong reason' failure the version pin was added to
-# prevent, reappearing one layer down.
+#   this Mac         xcodegen 2.44.1  Xcode 26.6 (17F113)  gate rc=0, PASS
+#   macos-26 runner  xcodegen 2.44.1  Xcode 26.6 (?)       gate rc=1, three
+#                                                          settings ABSENT
+#
+# Same generator. Same marketing version. Different bytes. So "26.6" does not
+# identify a toolchain closely enough for a byte-exact comparison, and a gate
+# pinned to it reports STALE for a difference the pin cannot see. That is the
+# same defect the pin was added to prevent, one layer down, for the second
+# time in this file.
 #
 # A mismatch here is UNAVAILABLE (exit 2), never STALE (exit 1).
-26.6
+#
+# IF A RUNNER CANNOT SUPPLY THIS BUILD, that is the answer, not a failure to
+# work around: a byte-exact comparison is only meaningful where the toolchain
+# matches the machine that cuts the DMG. Do not relax the pin to make CI green.
+# Move the byte comparison to the cut machine and give CI a check that does not
+# depend on the toolchain.
+26.6 17F113

@@ -76,25 +76,33 @@ jobs:
       - name: Select the pinned Xcode
         run: |
           set -euo pipefail
-          PIN="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
-                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          LINE="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
+                  | grep -v '^[[:space:]]*$' | head -1)"
+          PIN="$(awk '{print $1}' <<<"$LINE")"
+          PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
           [ -n "$PIN" ] || { echo "::error::gui/.xcode-version is empty" >&2; exit 1; }
-          echo "pinned Xcode: $PIN"
+          [ -n "$PIN_BUILD" ] || { echo "::error::gui/.xcode-version has no build version; marketing version alone is not a sufficient pin" >&2; exit 1; }
+          echo "pinned Xcode: $PIN ($PIN_BUILD)"
 
+          # Matched on BUILD, not marketing version. Measured 2026-08-13: this
+          # runner and the build host both reported 26.6 with xcodegen 2.44.1
+          # and emitted different bytes, so marketing version does not identify
+          # the setting presets that go into the comparison.
           FOUND=""
-          echo "installed Xcodes on this runner:"
+          echo "installed Xcodes on this runner (marketing / build):"
           for APP in /Applications/Xcode*.app; do
             [ -d "$APP" ] || continue
             V="$(/usr/bin/defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo '?')"
-            echo "  $V  $APP"
-            if [ "$V" = "$PIN" ] && [ -z "$FOUND" ]; then
+            B="$(/usr/bin/defaults read "$APP/Contents/version.plist" ProductBuildVersion 2>/dev/null || echo '?')"
+            echo "  $V  $B  $APP"
+            if [ "$V" = "$PIN" ] && [ "$B" = "$PIN_BUILD" ] && [ -z "$FOUND" ]; then
               FOUND="$APP"
             fi
           done
 
           if [ -z "$FOUND" ]; then
-            echo "::error::no Xcode $PIN on this runner. Listed above are the ones that ARE here." >&2
-            echo "::error::Either move to an image that carries $PIN, or bump gui/.xcode-version AND commit the regenerated pbxproj in the same change." >&2
+            echo "::error::no Xcode $PIN build $PIN_BUILD on this runner. Every Xcode that IS here is listed above, with its build." >&2
+            echo "::error::Do NOT relax the pin to make this green. If no hosted runner can supply the build the DMG is cut with, then a byte-exact comparison does not belong in CI: keep it as a pre-cut check on the cut machine and give CI a toolchain-independent check instead." >&2
             exit 1
           fi
 
@@ -107,14 +115,17 @@ jobs:
         # that will actually be used.
         run: |
           set -euo pipefail
-          PIN="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
-                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          LINE="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
+                  | grep -v '^[[:space:]]*$' | head -1)"
+          PIN="$(awk '{print $1}' <<<"$LINE")"
+          PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
           GOT="$(xcodebuild -version | head -1 | awk '{print $2}')"
-          echo "xcodebuild reports: $GOT   (pin: $PIN)"
-          [ "$GOT" = "$PIN" ] || {
-            echo "::error::DEVELOPER_DIR did not take: xcodebuild is $GOT, pin is $PIN" >&2
+          GOT_BUILD="$(xcodebuild -version | sed -n '2p' | awk '{print $3}')"
+          echo "xcodebuild reports: $GOT ($GOT_BUILD)   pin: $PIN ($PIN_BUILD)"
+          if [ "$GOT" != "$PIN" ] || [ "$GOT_BUILD" != "$PIN_BUILD" ]; then
+            echo "::error::DEVELOPER_DIR did not take: xcodebuild is $GOT ($GOT_BUILD), pin is $PIN ($PIN_BUILD)" >&2
             exit 1
-          }
+          fi
 
       # Pinned, not `brew install xcodegen`. The gate's comparison is
       # byte-exact, so brew's floating latest would eventually emit different

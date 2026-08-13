@@ -121,24 +121,42 @@ fi
 # before tagging -- the same shape as scripts/verify_cut_freshness.sh.
 XCODE_PIN_FILE="gui/.xcode-version"
 if [[ -f "$XCODE_PIN_FILE" ]]; then
-    XPINNED="$(grep -v '^[[:space:]]*#' "$XCODE_PIN_FILE" | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+    # Two fields: marketing version, then BUILD. The build is the operative
+    # one -- measured 2026-08-13, two machines both reporting 26.6 with the
+    # same xcodegen produced different bytes. Marketing version alone does not
+    # identify the setting presets. See the comment in gui/.xcode-version.
+    XPIN_LINE="$(grep -v '^[[:space:]]*#' "$XCODE_PIN_FILE" | grep -v '^[[:space:]]*$' | head -1)"
+    XPINNED="$(awk '{print $1}' <<<"$XPIN_LINE")"
+    XPINNED_BUILD="$(awk '{print $2}' <<<"$XPIN_LINE")"
     XACTUAL="$(xcodebuild -version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    XACTUAL_BUILD="$(xcodebuild -version 2>/dev/null | sed -n '2p' | awk '{print $3}')"
     if [[ -z "$XPINNED" ]]; then
         unavailable "$XCODE_PIN_FILE contains no version line."
     fi
-    if [[ -z "$XACTUAL" ]]; then
+    if [[ -z "$XPINNED_BUILD" ]]; then
+        unavailable "$XCODE_PIN_FILE pins '$XPINNED' with no build version.
+       The marketing version alone does not identify the setting presets:
+       two Xcode 26.6 installs with the same xcodegen emitted different bytes
+       on 2026-08-13. Record it as '<marketing> <build>', e.g. '26.6 17F113'."
+    fi
+    if [[ -z "$XACTUAL" || -z "$XACTUAL_BUILD" ]]; then
         unavailable "xcodebuild is absent or unparseable, so the setting presets
        baked into the tracked pbxproj cannot be attributed. Not a pass."
     fi
-    if [[ "$XPINNED" != "$XACTUAL" ]]; then
-        unavailable "Xcode version mismatch.
-       pinned  ($XCODE_PIN_FILE): $XPINNED
-       running:                   $XACTUAL
+    if [[ "$XPINNED" != "$XACTUAL" || "$XPINNED_BUILD" != "$XACTUAL_BUILD" ]]; then
+        unavailable "Xcode mismatch.
+       pinned  ($XCODE_PIN_FILE): $XPINNED ($XPINNED_BUILD)
+       running:                   $XACTUAL ($XACTUAL_BUILD)
 
-       xcodegen reads its default build settings from the installed Xcode, so
-       a byte comparison across different Xcodes measures the toolchain, not
-       the project. Run this on a machine with Xcode $XPINNED, or bump the pin
-       AND commit the regenerated pbxproj together."
+       xcodegen reads its default build settings from the selected Xcode, so a
+       byte comparison across different Xcodes measures the toolchain, not the
+       project. The BUILD must match too: 26.6/17F113 and another 26.6 emit
+       different bytes.
+
+       Run this on a machine with Xcode $XPINNED ($XPINNED_BUILD), or bump the
+       pin AND commit the regenerated pbxproj together. Do NOT relax the pin to
+       make a runner green -- that reinstates exactly the blindness this check
+       exists to remove."
     fi
 else
     unavailable "$XCODE_PIN_FILE is missing -- the Xcode whose setting presets are

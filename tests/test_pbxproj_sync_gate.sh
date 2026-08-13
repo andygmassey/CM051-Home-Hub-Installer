@@ -174,6 +174,37 @@ if [[ -f "$PIN_FILE" ]]; then
             bad "CONTROL FAILED: Xcode mismatch returned rc=$rc, expected 2"
         fi
 
+        # The BUILD is a separate axis from the marketing version, and it is the
+        # one that actually decides the bytes. Measured 2026-08-13: a macos-26
+        # runner and this build host BOTH reported Xcode 26.6, both ran xcodegen
+        # 2.44.1, and the generated pbxproj differed by three build settings.
+        #
+        # The control above mutates the marketing version, so it would still
+        # pass if the build field were dropped entirely. Without this case the
+        # build pin is unguarded, which is how the marketing-only pin got
+        # written in the first place.
+        XMARKET="$(grep -v '^[[:space:]]*#' "$XPIN_BACKUP" | grep -v '^[[:space:]]*$' | head -1 | awk '{print $1}')"
+        printf '%s 00X000-not-a-real-build\n' "$XMARKET" > "$XCODE_PIN"
+        rc="$(run_gate)"
+        cp "$XPIN_BACKUP" "$XCODE_PIN"
+        if [[ "$rc" == 2 ]]; then
+            ok "CONTROL: right marketing version, WRONG build is UNAVAILABLE (rc=2)"
+        elif [[ "$rc" == 0 ]]; then
+            bad "CONTROL FAILED: a wrong Xcode BUILD passed (rc=0). The gate is
+       reading only the marketing version, so two different 26.6 toolchains are
+       indistinguishable to it -- the exact blindness measured on 2026-08-13."
+        else
+            bad "CONTROL FAILED: wrong Xcode build returned rc=$rc, expected 2"
+        fi
+
+        # A pin with no build field at all must also be UNAVAILABLE, not a pass:
+        # it cannot attribute the bytes to a toolchain.
+        printf '%s\n' "$XMARKET" > "$XCODE_PIN"
+        rc="$(run_gate)"
+        cp "$XPIN_BACKUP" "$XCODE_PIN"
+        if [[ "$rc" == 2 ]]; then ok "CONTROL: marketing version with no build is UNAVAILABLE (rc=2)"
+        else bad "CONTROL FAILED: a build-less pin returned rc=$rc, expected 2"; fi
+
         mv "$XCODE_PIN" "$XCODE_PIN.absent"
         rc="$(run_gate)"
         mv "$XCODE_PIN.absent" "$XCODE_PIN"
