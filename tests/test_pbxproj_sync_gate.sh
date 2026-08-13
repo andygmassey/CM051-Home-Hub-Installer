@@ -110,6 +110,45 @@ rc="$( ( PATH=/usr/bin:/bin "$GATE" >/dev/null 2>&1 ); echo $? )"
 if [[ "$rc" == 2 ]]; then ok "CONTROL: xcodegen absent is UNAVAILABLE (rc=2), not a pass"
 else bad "CONTROL FAILED: missing xcodegen returned rc=$rc, expected 2"; fi
 
+# --- CONTROL 3b: xcodegen PRESENT but missing its SettingPresets ------------
+# The failure that cost this gate two wrong diagnoses on 2026-08-13.
+#
+# The release zip is bin/xcodegen plus share/xcodegen/SettingPresets, and
+# xcodegen resolves the presets relative to its own location. Install only the
+# binary and it emits a project with every default build setting missing,
+# silently, exit 0:
+#
+#   binary alone   COMBINE_HIDPI_IMAGES occurrences: 0
+#   binary + share COMBINE_HIDPI_IMAGES occurrences: 4
+#
+# Byte-compared against a correctly generated pbxproj that reads as STALE. The
+# gate blames the project for a fault in its own toolchain, which is the one
+# answer it must never give. "Present on PATH" is not "working".
+PRESETLESS="$(mktemp -d)"
+mkdir -p "$PRESETLESS/bin"
+if XCG_SRC="$(command -v xcodegen 2>/dev/null)" && [[ -n "$XCG_SRC" ]]; then
+    cp "$XCG_SRC" "$PRESETLESS/bin/xcodegen" 2>/dev/null || true
+    if [[ -x "$PRESETLESS/bin/xcodegen" ]] && [[ ! -d "$PRESETLESS/share/xcodegen/SettingPresets" ]]; then
+        rc="$( ( PATH="$PRESETLESS/bin:/usr/bin:/bin" "$GATE" >/dev/null 2>&1 ); echo $? )"
+        if [[ "$rc" == 2 ]]; then
+            ok "CONTROL: xcodegen without SettingPresets is UNAVAILABLE (rc=2)"
+        elif [[ "$rc" == 1 ]]; then
+            bad "CONTROL FAILED: a preset-less xcodegen returned rc=1 (STALE).
+       The gate is blaming the PROJECT for a broken generator install -- the
+       exact misdiagnosis of 2026-08-13."
+        else
+            bad "CONTROL FAILED: preset-less xcodegen returned rc=$rc, expected 2"
+        fi
+    else
+        bad "CONTROL INERT: could not stage a preset-less xcodegen, so the
+       SettingPresets guard is unproven. Not a pass."
+    fi
+else
+    bad "CONTROL INERT: xcodegen not on PATH, so the SettingPresets guard
+       could not be exercised. Not a pass."
+fi
+rm -rf "$PRESETLESS"
+
 # --- CONTROL 4+5: the xcodegen version pin --------------------------------
 # The gate's comparison is byte-exact, so it is only meaningful against the
 # generator that produced the tracked file. A different xcodegen emitting
@@ -174,15 +213,15 @@ if [[ -f "$PIN_FILE" ]]; then
             bad "CONTROL FAILED: Xcode mismatch returned rc=$rc, expected 2"
         fi
 
-        # The BUILD is a separate axis from the marketing version, and it is the
-        # one that actually decides the bytes. Measured 2026-08-13: a macos-26
-        # runner and this build host BOTH reported Xcode 26.6, both ran xcodegen
-        # 2.44.1, and the generated pbxproj differed by three build settings.
+        # The BUILD is a separate axis from the marketing version. The control
+        # above mutates only the marketing version, so it would still pass if
+        # the build field were dropped entirely, and the pin would quietly
+        # become less precise than the file claims.
         #
-        # The control above mutates the marketing version, so it would still
-        # pass if the build field were dropped entirely. Without this case the
-        # build pin is unguarded, which is how the marketing-only pin got
-        # written in the first place.
+        # For anyone reading the history: the 2026-08-13 CI divergence was NOT
+        # an Xcode difference. Both machines were 26.6 (17F113). The CI step had
+        # installed xcodegen without its SettingPresets. See the correction at
+        # the top of gui/.xcode-version, and the preset control below.
         XMARKET="$(grep -v '^[[:space:]]*#' "$XPIN_BACKUP" | grep -v '^[[:space:]]*$' | head -1 | awk '{print $1}')"
         printf '%s 00X000-not-a-real-build\n' "$XMARKET" > "$XCODE_PIN"
         rc="$(run_gate)"

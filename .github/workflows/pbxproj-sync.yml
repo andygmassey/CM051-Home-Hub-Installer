@@ -140,11 +140,44 @@ jobs:
           curl -fsSL -o /tmp/xcodegen.zip \
             "https://github.com/yonaskolb/XcodeGen/releases/download/${PIN}/xcodegen.zip"
           unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
-          BIN="$(find /tmp/xcodegen -type f -name xcodegen -perm +111 | head -1)"
-          [ -n "$BIN" ] || { echo "::error::no xcodegen binary in the release zip" >&2; exit 1; }
-          chmod +x "$BIN"
-          sudo mkdir -p /usr/local/bin
-          sudo cp "$BIN" /usr/local/bin/xcodegen
+
+          # Install the WHOLE prefix, not just the binary.
+          #
+          # The release zip is bin/xcodegen PLUS share/xcodegen/SettingPresets,
+          # and xcodegen resolves those presets relative to its own location.
+          # Copying only the binary leaves them behind, and xcodegen then emits
+          # a project with every default build setting MISSING -- silently, exit
+          # 0, no warning.
+          #
+          # That is what produced the 2026-08-13 failure, and it cost two wrong
+          # diagnoses before it was measured. Both this runner and the build
+          # host had Xcode 26.6 (17F113) and xcodegen 2.44.1, and the bytes
+          # still differed, so the cause was blamed on Xcode twice. Measured
+          # directly:
+          #
+          #   binary only          COMBINE_HIDPI_IMAGES occurrences: 0
+          #   binary + share/      COMBINE_HIDPI_IMAGES occurrences: 4
+          #   tracked pbxproj      COMBINE_HIDPI_IMAGES occurrences: 4
+          #
+          # A byte-exact gate fed a crippled generator reports the PROJECT as
+          # stale. It blames the thing it is watching for a fault in the thing
+          # it is holding.
+          SRC="$(dirname "$(dirname "$(find /tmp/xcodegen -type f -name xcodegen -perm +111 | head -1)")")"
+          [ -n "$SRC" ] && [ -x "$SRC/bin/xcodegen" ] \
+            || { echo "::error::no bin/xcodegen in the release zip" >&2; exit 1; }
+          [ -d "$SRC/share/xcodegen/SettingPresets" ] \
+            || { echo "::error::the zip has no share/xcodegen/SettingPresets; the layout changed and installing it would produce a preset-less generator" >&2; exit 1; }
+          sudo mkdir -p /usr/local/bin /usr/local/share
+          sudo cp "$SRC/bin/xcodegen" /usr/local/bin/xcodegen
+          sudo rm -rf /usr/local/share/xcodegen
+          sudo cp -R "$SRC/share/xcodegen" /usr/local/share/xcodegen
+          sudo chmod +x /usr/local/bin/xcodegen
+
+          # Assert the presets are where the INSTALLED binary will look, rather
+          # than where they were unpacked.
+          [ -d /usr/local/share/xcodegen/SettingPresets ] \
+            || { echo "::error::SettingPresets did not land beside the installed binary" >&2; exit 1; }
+          echo "SettingPresets installed: $(find /usr/local/share/xcodegen/SettingPresets -type f | wc -l | tr -d ' ') files"
           # Assert the thing we installed is the thing we pinned, rather than
           # assuming the download was what its filename said.
           GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"

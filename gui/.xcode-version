@@ -1,36 +1,35 @@
-# gui/.xcode-version -- the Xcode whose build-setting presets are baked into
-# the tracked project.pbxproj.
+# gui/.xcode-version -- the Xcode the tracked project.pbxproj was generated on.
 #
 # FORMAT: marketing version, then the build version, whitespace separated.
-# The BUILD is the operative one. See below.
 #
-# WHY THE BUILD AND NOT JUST THE MARKETING VERSION, MEASURED 2026-08-13.
+# CORRECTION, 2026-08-13. Read this before trusting the pin.
 #
-# gui/.xcodegen-version pins the GENERATOR. It does not pin the generator's
-# other input: xcodegen injects default build settings (settingPresets) that it
-# reads from the SELECTED Xcode, so identical xcodegen + identical project.yml
-# still emit different bytes on different Xcodes.
+# An earlier revision of this file claimed, as a measurement, that two Xcode
+# 26.6 installs with the same xcodegen produced different bytes, and used that
+# to argue the build version was the operative variable. THAT CLAIM WAS WRONG
+# and it is recorded here rather than quietly deleted, because it was wrong in
+# the way that matters: it was an inference presented as a measurement.
 #
-# The first version of this file pinned the marketing version, 26.6, on the
-# theory that 26.6 emits COMBINE_HIDPI_IMAGES / LD_RUNPATH_SEARCH_PATHS /
-# SDKROOT and older Xcodes omit them. That theory is FALSE, and the run that
-# disproved it is worth keeping:
+# Both machines were Xcode 26.6 build 17F113. Identical. The real cause was the
+# CI step that installed xcodegen: it copied bin/xcodegen out of the release
+# zip and left share/xcodegen/SettingPresets behind. xcodegen resolves those
+# presets relative to its own location, so it silently emitted a project with
+# every default build setting missing, and exited 0. Measured:
 #
-#   this Mac         xcodegen 2.44.1  Xcode 26.6 (17F113)  gate rc=0, PASS
-#   macos-26 runner  xcodegen 2.44.1  Xcode 26.6 (?)       gate rc=1, three
-#                                                          settings ABSENT
+#   xcodegen binary alone   COMBINE_HIDPI_IMAGES occurrences: 0
+#   binary + share/         COMBINE_HIDPI_IMAGES occurrences: 4
+#   tracked pbxproj         COMBINE_HIDPI_IMAGES occurrences: 4
 #
-# Same generator. Same marketing version. Different bytes. So "26.6" does not
-# identify a toolchain closely enough for a byte-exact comparison, and a gate
-# pinned to it reports STALE for a difference the pin cannot see. That is the
-# same defect the pin was added to prevent, one layer down, for the second
-# time in this file.
+# So the toolchain was blamed twice, first the Xcode version and then the Xcode
+# build, for a fault in how the gate installed its own generator. The gate was
+# reading a broken instrument and reporting the project.
+#
+# WHY THE PIN STAYS, AND WHY IT KEEPS THE BUILD FIELD
+#
+# xcodegen does still take defaults that vary with the toolchain, so the Xcode
+# that generated the tracked pbxproj is worth recording. The build version is
+# kept because it identifies an Xcode exactly and costs nothing, NOT because a
+# marketing-version collision was ever observed. It has not been.
 #
 # A mismatch here is UNAVAILABLE (exit 2), never STALE (exit 1).
-#
-# IF A RUNNER CANNOT SUPPLY THIS BUILD, that is the answer, not a failure to
-# work around: a byte-exact comparison is only meaningful where the toolchain
-# matches the machine that cuts the DMG. Do not relax the pin to make CI green.
-# Move the byte comparison to the cut machine and give CI a check that does not
-# depend on the toolchain.
 26.6 17F113

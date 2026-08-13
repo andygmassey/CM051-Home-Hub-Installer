@@ -119,6 +119,39 @@ fi
 # Exit 2, deliberately. The project is not wrong; this environment cannot
 # judge it. The real comparison is an OPERATOR check on the build machine
 # before tagging -- the same shape as scripts/verify_cut_freshness.sh.
+# A generator that cannot find its SettingPresets emits a project with every
+# default build setting missing, silently, exit 0. Compared byte-for-byte
+# against a correctly generated pbxproj that reads as STALE -- the gate blames
+# the project for a fault in its own toolchain. Measured 2026-08-13:
+#
+#   xcodegen binary alone   COMBINE_HIDPI_IMAGES occurrences: 0
+#   binary + share/         COMBINE_HIDPI_IMAGES occurrences: 4
+#
+# xcodegen resolves the presets at <prefix>/share/xcodegen/SettingPresets,
+# where prefix is the parent of the directory holding the binary.
+XCG_BIN="$(command -v xcodegen 2>/dev/null || true)"
+if [[ -n "$XCG_BIN" ]]; then
+    XCG_REAL="$XCG_BIN"
+    while [[ -L "$XCG_REAL" ]]; do
+        XCG_LINK="$(readlink "$XCG_REAL")"
+        case "$XCG_LINK" in
+            /*) XCG_REAL="$XCG_LINK" ;;
+            *)  XCG_REAL="$(cd "$(dirname "$XCG_REAL")" && cd "$(dirname "$XCG_LINK")" && pwd)/$(basename "$XCG_LINK")" ;;
+        esac
+    done
+    XCG_PREFIX="$(dirname "$(dirname "$XCG_REAL")")"
+    if [[ ! -d "$XCG_PREFIX/share/xcodegen/SettingPresets" ]]; then
+        unavailable "xcodegen cannot reach its SettingPresets.
+       binary:   $XCG_REAL
+       expected: $XCG_PREFIX/share/xcodegen/SettingPresets
+
+       Without them xcodegen omits every default build setting and still exits
+       0, so a byte comparison would report the PROJECT stale for a broken
+       generator install. Install the whole release prefix (bin/ AND share/),
+       not just the binary."
+    fi
+fi
+
 XCODE_PIN_FILE="gui/.xcode-version"
 if [[ -f "$XCODE_PIN_FILE" ]]; then
     # Two fields: marketing version, then BUILD. The build is the operative
