@@ -188,15 +188,31 @@ jobs:
           WANT="$(grep -v '^#' gui/.xcodegen-version | tr -d '[:space:]')"
           [ -n "$WANT" ] || { echo "::error::gui/.xcodegen-version is empty" >&2; exit 1; }
           echo "pinned xcodegen: $WANT"
-          brew install xcodegen
-          GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+
+          # DOWNLOADED AT THE PINNED VERSION, NOT `brew install`.
+          #
+          # Measured 2026-08-13, and it is why this is not a brew step: brew
+          # served 2.45.4 to this runner and 2.46.0 to the operator's Mac within
+          # the same hour. The gate compares BYTES, so "install latest, then
+          # check the version" can never converge -- it just relocates the
+          # failure to whenever the formula moves. A pin has to be INSTALLED,
+          # not asserted after the fact.
+          #
+          # XcodeGen publishes a prebuilt artefact per tag, so the pin resolves
+          # to exactly one download and CI reproduces the operator's bytes.
+          URL="https://github.com/yonaskolb/XcodeGen/releases/download/${WANT}/xcodegen.zip"
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "$URL"
+          unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          BIN="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm +111 | head -1)"
+          [ -n "$BIN" ] || { echo "::error::no xcodegen binary in $URL" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/bin"
+          cp "$BIN" "$RUNNER_TEMP/bin/xcodegen"
+          chmod +x "$RUNNER_TEMP/bin/xcodegen"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+          GOT="$("$RUNNER_TEMP/bin/xcodegen" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           echo "installed xcodegen: $GOT"
-          if [ "$GOT" != "$WANT" ]; then
-            echo "::error::xcodegen $GOT installed but $WANT is pinned." >&2
-            echo "Bump gui/.xcodegen-version deliberately, with the regenerated" >&2
-            echo "pbxproj in the same commit, or pin brew to the wanted version." >&2
-            exit 1
-          fi
+          [ "$GOT" = "$WANT" ] || { echo "::error::downloaded $GOT but $WANT is pinned" >&2; exit 1; }
 
       - name: Verify signing credentials are present
         env:
