@@ -24,7 +24,17 @@ from identity_resolver.models import PersonIdentity  # noqa: E402
 from identity_resolver.resolver import IdentityResolver  # noqa: E402
 
 # Substring unique to the all-persons fuzzy-candidate SELECT.
-FUZZY_SIG = "?person ?name ?org ?linkedinUrl WHERE"
+#
+# v1018-D675: this was "?person ?name ?org ?linkedinUrl WHERE", a SINGLE
+# combined SELECT. resolver.py:755 records the split -- the candidate load is
+# now "(1) person+name+org SELECT and (2) a flat person->linkedin_url SELECT".
+# So the old signature matched neither query, the counter stayed at 0, and the
+# test reported "the O(n^2) is NOT fixed" about a cache that is present and
+# working (see resolver.py:60, 632, 742). A probe pinned to one rendering of
+# the query went blind the moment the query was reshaped.
+#
+# Hook the CANDIDATE LOAD itself, which is the thing that must happen once.
+FUZZY_SIG = "SELECT ?person ?name ?org WHERE"
 
 
 def fail(msg: str) -> None:

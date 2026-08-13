@@ -369,3 +369,5 @@ jobs:
         run: python tests/test_resolver_robustness.py
       - name: vendor knowledge embed contract
         run: python tests/test_vendor_knowledge_embed_contract.py
+      - name: identity-resolver fuzzy candidate cache is O(n)
+        run: python tests/test_identity_resolver_fuzzy_cache.py

@@ -178,7 +178,7 @@ test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	REAL, NOT test rot: catalog/strin
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
-test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	REAL (deps present): 'all-persons candidate query issued 0 times'. The fuzzy-cache path is not issuing the query the test expects -- possibly a cache short-circuit. Needs root-cause in vendor/cm041/identity_resolver.
+test_identity_resolver_fuzzy_cache.py	WIRED	.github/workflows/test-wiring.yml
 test_imessage_fda_probe.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_tcc_posture.sh	WIRED	.github/workflows/test-wiring.yml
