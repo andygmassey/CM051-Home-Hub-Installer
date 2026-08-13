@@ -181,7 +181,7 @@ test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	REAL (deps present): 'all-persons candidate query issued 0 times'. The fuzzy-cache path is not issuing the query the test expects -- possibly a cache short-circuit. Needs root-cause in vendor/cm041/identity_resolver.
 test_imessage_fda_probe.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/test-wiring.yml
-test_imessage_tcc_posture.sh	UNCLASSIFIED	Fails at [shim-run-granted-and-working]: the probe block exits non-zero under the granted-and-working shim. Three status buckets ARE present (that assertion passes), so this is the shim contract, not missing code. Likely the same class as the off-peak throttle fix (a newly-added guard the shim does not satisfy) -- verify before assuming.
+test_imessage_tcc_posture.sh	WIRED	.github/workflows/test-wiring.yml
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/test-wiring.yml
 test_install_daily_briefs.sh	UNCLASSIFIED	THE TEST IS RIGHT, THE PRODUCT IS WRONG (v1018-D679): both [[cron.jobs]] emits sit inside ONE guard, `CHANNEL_IMESSAGE_ENABLED == true && -n CHANNEL_IMESSAGE_ALLOWED`. No cron emit is gated on WhatsApp, so a WhatsApp-only customer gets NO morning brief and NO evening wrap -- silently, valid TOML, daemon loads, nothing scheduled. First failure in this whole sweep that is a live defect rather than a stale assertion. DO NOT fix the test. Row -> WIRED when #679 lands.
 test_install_first_month_free.sh	WIRED	.github/workflows/test-wiring.yml

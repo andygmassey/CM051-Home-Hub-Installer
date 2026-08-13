@@ -211,6 +211,17 @@ set -euo pipefail
 info() { :; }
 ok()   { :; }
 warn() { :; }
+# v1018-D675: the runner used to stub only info/ok/warn. The probe block now
+# emits i18n catalogue keys (MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_
+# READ_ONLY and friends), so under `set -u` the very first message killed the
+# block with "unbound variable" and the test reported "probe block exited
+# non-zero" -- which reads as a broken probe rather than a missing catalogue.
+# Source the real catalogue: it is what install.sh itself does, and it means a
+# key deleted from the catalogue now fails here too.
+CATALOGUE="$4"
+[ -r "$CATALOGUE" ] || { echo "runner: strings catalogue not readable: $CATALOGUE" >&2; exit 2; }
+# shellcheck disable=SC1090
+source "$CATALOGUE"
 CHANNEL_IMESSAGE_ENABLED=true
 OSTLER_DIR="$1"
 PWG_IMESSAGE_PROBE_OUTCOME="$2"
@@ -221,7 +232,8 @@ chmod +x "$PROBE_RUNNER"
 for outcome in granted-and-working tcc-denied check-failed; do
     SHIM_OSTLER="$SHIM_TMPDIR/ostler-$outcome"
     mkdir -p "$SHIM_OSTLER"
-    if ! "$PROBE_RUNNER" "$SHIM_OSTLER" "$outcome" "$PROBE_BLOCK"; then
+    if ! "$PROBE_RUNNER" "$SHIM_OSTLER" "$outcome" "$PROBE_BLOCK" \
+            "$(dirname "$INSTALL_SCRIPT")/install.sh.strings.en-GB.sh"; then
         echo "FAIL [shim-run-$outcome]: probe block exited non-zero under shim '$outcome'" >&2
         exit 1
     fi
@@ -250,10 +262,12 @@ done
 # ── Re-run shim test: timestamp updates on second invocation ────
 SECOND_OSTLER="$SHIM_TMPDIR/ostler-rerun"
 mkdir -p "$SECOND_OSTLER"
-"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK"
+"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK" \
+    "$(dirname "$INSTALL_SCRIPT")/install.sh.strings.en-GB.sh"
 TS1=$(grep '^Captured at:' "$SECOND_OSTLER/imessage-posture/state.md")
 sleep 1.1
-"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK"
+"$PROBE_RUNNER" "$SECOND_OSTLER" "granted-and-working" "$PROBE_BLOCK" \
+    "$(dirname "$INSTALL_SCRIPT")/install.sh.strings.en-GB.sh"
 TS2=$(grep '^Captured at:' "$SECOND_OSTLER/imessage-posture/state.md")
 if [[ "$TS1" == "$TS2" ]]; then
     echo "FAIL [shim-rerun]: re-running probe did not update 'Captured at' timestamp" >&2

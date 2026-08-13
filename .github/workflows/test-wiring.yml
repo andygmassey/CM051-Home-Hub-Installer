@@ -135,6 +135,8 @@ jobs:
         run: /bin/bash tests/test_ingest_offpeak_throttle.sh
       - name: install.sh prefers the bundled python
         run: /bin/bash tests/test_install_sh_prefers_bundled_python.sh
+      - name: iMessage TCC posture probe + marker
+        run: /bin/bash tests/test_imessage_tcc_posture.sh
 
   # v1018-D675 contract tests. Every one of these ran NOWHERE before this
   # workflow and every one was MEASURED passing on 2026-08-13 before being
