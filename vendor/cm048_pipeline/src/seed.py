@@ -143,6 +143,22 @@ def seed_conversation(
         )
         return None
 
+    # Privacy level. The seed keeps the two DETERMINISTIC arms of the
+    # ladder -- the operator's explicit ``metadata['privacy_level']`` and
+    # the email-domain rules -- because it can evaluate both exactly as
+    # well as the full pass can. It cannot evaluate the third arm: a
+    # classifier escalation to sensitive / highly-sensitive is a read of
+    # the body, and reading the body is the thing a seed does not do.
+    #
+    # So a thread the classifier WOULD have escalated sits at the
+    # ladder's answer (L2 by default) until enrichment reaches it, rather
+    # than at L3. It is never lower than the full pass would give for a
+    # ``normal`` verdict, and the seed writes no gist arm at all -- no
+    # Qdrant point, no triple -- so nothing crosses into the graph early.
+    # The exposure is that the local wiki may render a sensitive thread
+    # at L2 for the gap. ``enrichment_pending: true`` is in the
+    # frontmatter precisely so a level-aware renderer can choose to
+    # withhold a provisional bundle rather than trust its level.
     classification = _provisional_classification(metadata)
     extraction = deterministic_extraction(transcript, metadata)
     seeded_metadata = dict(metadata)
