@@ -37,7 +37,10 @@ PIN_FILE="$REPO_ROOT/gui/.xcode-version"
 
 [ -f "$PIN_FILE" ] || { echo "::error::$PIN_FILE not found" >&2; exit 1; }
 
-LINE="$(grep -v '^[[:space:]]*#' "$PIN_FILE" | grep -v '^[[:space:]]*$' | head -1)"
+# awk reads the FILE, so its early `exit` closes nothing that another process
+# is still writing to. See the note above the xcodebuild call below for why
+# `grep ... | head -1` is not used anywhere in this script.
+LINE="$(awk '!/^[[:space:]]*#/ && NF { print; exit }' "$PIN_FILE")"
 PIN="$(awk '{print $1}' <<<"$LINE")"
 PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
 
@@ -72,8 +75,37 @@ echo "selected: $FOUND"
 # ASSERT THE SELECTION TOOK EFFECT. Setting DEVELOPER_DIR and assuming it
 # applied is the same class of error one layer down, so read it back from the
 # tool that will actually be used.
-GOT="$(xcodebuild -version | head -1 | awk '{print $2}')"
-GOT_BUILD="$(xcodebuild -version | sed -n '2p' | awk '{print $3}')"
+# ONE invocation, FULLY consumed, then parsed from the variable.
+#
+# `xcodebuild -version | head -1` is a race, and this script lost it on run
+# 31686875225 (pbxproj-sync, main, 2026-08-13) after it had ALREADY selected
+# the correct Xcode:
+#
+#     selected: /Applications/Xcode_26.6.0.app
+#     *** NSFileHandleOperationException ... writeData:: Broken pipe
+#     4  xcodebuild  -[XcodebuildPreIDEHandler handleVersionWithArguments:]
+#     Process completed with exit code 134
+#
+# head exits after line 1 and closes the read end. If xcodebuild has not yet
+# finished writing line 2 it gets EPIPE, and its Foundation file handle raises
+# an UNCAUGHT NSException instead of taking SIGPIPE quietly -- so it aborts
+# (134) rather than dying silently. `set -o pipefail` promotes that to the
+# pipeline's status and `set -e` kills the script.
+#
+# Measured under /bin/bash 3.2, the shell this runs under:
+#
+#     set -euo pipefail; V="$( { echo a; sleep 0.4; echo b; } | head -1 )"
+#       -> rc=141, the next line never executes
+#     same without pipefail                     -> rc=0
+#     one capture, no early-exit consumer       -> rc=0, both fields parsed
+#
+# It reproduced 0 times in 40 on the build host and 7 times in 12 on the
+# runner. That asymmetry IS the finding: it is a race, so a green on one
+# machine is not evidence, and the fix has to remove the pipe rather than
+# retry the command.
+XCB_VERSION="$(xcodebuild -version)"
+GOT="$(awk 'NR == 1 { print $2 }' <<<"$XCB_VERSION")"
+GOT_BUILD="$(awk 'NR == 2 { print $3 }' <<<"$XCB_VERSION")"
 echo "xcodebuild reports: $GOT ($GOT_BUILD)   pin: $PIN ($PIN_BUILD)"
 if [ "$GOT" != "$PIN" ] || [ "$GOT_BUILD" != "$PIN_BUILD" ]; then
     echo "::error::DEVELOPER_DIR did not take: xcodebuild is $GOT ($GOT_BUILD), pin is $PIN ($PIN_BUILD)" >&2

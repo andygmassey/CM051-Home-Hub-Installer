@@ -158,11 +158,24 @@ if [[ -f "$XCODE_PIN_FILE" ]]; then
     # one -- measured 2026-08-13, two machines both reporting 26.6 with the
     # same xcodegen produced different bytes. Marketing version alone does not
     # identify the setting presets. See the comment in gui/.xcode-version.
-    XPIN_LINE="$(grep -v '^[[:space:]]*#' "$XCODE_PIN_FILE" | grep -v '^[[:space:]]*$' | head -1)"
+    # awk reads the FILE directly, so its early `exit` closes no pipe.
+    XPIN_LINE="$(awk '!/^[[:space:]]*#/ && NF { print; exit }' "$XCODE_PIN_FILE")"
     XPINNED="$(awk '{print $1}' <<<"$XPIN_LINE")"
     XPINNED_BUILD="$(awk '{print $2}' <<<"$XPIN_LINE")"
-    XACTUAL="$(xcodebuild -version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
-    XACTUAL_BUILD="$(xcodebuild -version 2>/dev/null | sed -n '2p' | awk '{print $3}')"
+    # ONE invocation, fully consumed. The `| head -1` this replaces made
+    # xcodebuild abort on EPIPE (see the long note in
+    # scripts/select_pinned_xcode.sh, and run 31686875225).
+    #
+    # Here the consequence was WORSE than a crash, because this script runs
+    # `set -uo pipefail` with no `-e`: the abort did not stop anything, it just
+    # left XACTUAL empty, and the very next block reports
+    # "xcodebuild is absent or unparseable" about an xcodebuild that is present
+    # and working. A gate that misattributes its own plumbing failure to the
+    # thing it is measuring is the exact defect class this cut has been
+    # clearing all day.
+    XCB_VERSION="$(xcodebuild -version 2>/dev/null)"
+    XACTUAL="$(awk 'NR == 1 { print $2 }' <<<"$XCB_VERSION")"
+    XACTUAL_BUILD="$(awk 'NR == 2 { print $3 }' <<<"$XCB_VERSION")"
     if [[ -z "$XPINNED" ]]; then
         unavailable "$XCODE_PIN_FILE contains no version line."
     fi

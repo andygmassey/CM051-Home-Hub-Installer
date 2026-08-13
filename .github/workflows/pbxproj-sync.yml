@@ -40,10 +40,18 @@ on:
       # so a change to that export list changes what the gate does.
       - 'gui/Makefile'
       - 'gui/.xcodegen-version'
+      # The Xcode pin itself. It was missing, so editing the one file that
+      # decides which toolchain this gate compares against did not run the
+      # gate.
+      - 'gui/.xcode-version'
       - 'scripts/verify_pbxproj_in_sync.sh'
+      # Shared with cut.yml. Also missing until 2026-08-13, so a change to the
+      # script that BOTH this job and the cut depend on ran neither of them.
+      - 'scripts/select_pinned_xcode.sh'
       # A gate must trigger on changes to ITSELF, or it can be broken -- or
       # quietly narrowed -- in a PR that never runs it.
       - 'tests/test_pbxproj_sync_gate.sh'
+      - 'tests/test_no_xcodebuild_pipe_into_early_exit.sh'
       - '.github/workflows/pbxproj-sync.yml'
   push:
     branches: [main]
@@ -75,6 +83,13 @@ jobs:
       # Shared with the `cut` job in cut.yml. It was inline here and ABSENT
       # there, so cut.yml ran on macos-14 against a 26.6 pin and hit the same
       # UNAVAILABLE this workflow had already diagnosed. One body, two callers.
+      # BEFORE the step it protects, and it needs no toolchain: it is a text
+      # scan. Running it first means a reintroduced EPIPE race is reported as
+      # what it is, rather than as an Xcode selection failure two seconds
+      # later with a Foundation stack trace attached.
+      - name: No xcodebuild piped into an early-exiting consumer
+        run: bash tests/test_no_xcodebuild_pipe_into_early_exit.sh
+
       - name: Select the pinned Xcode
         run: scripts/select_pinned_xcode.sh
 
