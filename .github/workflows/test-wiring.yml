@@ -1,0 +1,65 @@
+name: test-wiring
+
+# v1018-D675. 131 of 171 test files in this repo are referenced nowhere
+# executable. This workflow does two things:
+#
+#   1. runs the wiring manifest gate, so the number cannot quietly grow
+#   2. runs the tests it accounts for, BY NAME
+#
+# EVERY TEST IS NAMED EXPLICITLY AND THAT IS DELIBERATE.
+# A `for f in tests/*.sh` loop here would take the gate green in one commit
+# while telling nobody which of the 131 actually pass. That is the same defect
+# as bulk-converting the manifest to MANUAL, wearing a runner's clothes. One of
+# the controls behind the 131 count was that no such glob exists in this repo;
+# adding one to fix the count would destroy the measurement.
+#
+# THIS CHECK IS EXPECTED TO BE RED until the classification pass finishes.
+# It is red because 132 files are unruled, and it names them every run. It is
+# not warn-only: an advisory gate that exits 0 is how the OS001 i18n lint went
+# green while it was overwriting live translations.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  wiring:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      # The gate's own controls come first. If they do not pass, the gate's
+      # verdict on everything below is worthless, and a green verdict from a
+      # broken instrument is worse than no verdict.
+      - name: Gate self-test (17 controls)
+        run: /bin/bash tests/test_verify_test_wiring.sh
+
+      # Both files must parse under the shell they actually run under. bash 3.2
+      # tracks quoting THROUGH $( ) and does not stop at #, so an apostrophe in
+      # a comment inside a command substitution makes a whole file unparseable
+      # while homebrew bash 5.x parses it happily. Cost us a live gate once.
+      - name: Both files parse under /bin/bash (3.2)
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/verify_test_wiring.sh
+          /bin/bash -n tests/test_verify_test_wiring.sh
+
+      - name: Manifest matches the tree
+        run: /bin/bash tests/verify_test_wiring.sh
+
+  # Tests this workflow is the declared runner for. Named, one step each, so a
+  # failure says which test failed without anyone opening a log.
+  named-tests:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      # v1018-D668. Pins that gui/Makefile's OSTLER_APP_PATH default actually
+      # applies. Shipped as a guard on 2026-08-09 and had never run: its only
+      # mention anywhere outside tests/ was a COMMENT in gui/Makefile, which is
+      # why the first version of the wiring manifest wrongly recorded it WIRED.
+      # Runs on macOS because it pins GNU Make 3.81 ordering semantics, which is
+      # the make the cut machine has.
+      - name: gui/Makefile OSTLER_APP_PATH default applies
+        run: /bin/bash tests/test_makefile_app_path_default.sh

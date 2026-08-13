@@ -23,9 +23,11 @@
 #
 #   WIRED         runs automatically. Third column names the runner, and that
 #                 column is MEASURED by tests/verify_test_wiring.sh, not typed.
-#   MANUAL        deliberately not automated. Third column MUST give the reason
-#                 (needs a device / a real install / an operator secret). A
-#                 MANUAL row with no reason is rejected.
+#   MANUAL        deliberately not automated. Columns 3-5 are REQUIRED:
+#                 <reason>  <who declared it>  <review-by YYYY-MM-DD>
+#                 A MANUAL row with no reason, no declarer, no date, or a date
+#                 in the past is rejected. A MANUAL row that something DOES run
+#                 is rejected too: the declaration has gone stale.
 #   UNCLASSIFIED  not yet decided. The gate FAILS on these. They are listed
 #                 rather than omitted so the backlog is visible and finite.
 #
@@ -33,9 +35,37 @@
 # each row is ruled. Do not bulk-convert them to MANUAL to go green: that
 # converts this file into the defect it exists to record.
 #
+# WHY MANUAL EXPIRES (Archie, 2026-08-13). CM051 cut-deferrals.yaml still
+# carried a deferral for #606 after #606 had merged, and is_deferred() ran
+# before branch_landed(), so the gate printed DEFERRED over shipping work. A
+# permanent opt-out with a reason field and no review date is that same bug
+# with better manners. Every MANUAL row comes up for re-confirmation.
+#
 # generated 2026-08-13 -- WIRED rows measured, others need a human call.
+#
+# CORRECTED 2026-08-13, twice, and both corrections are the point.
+#
+# (a) test_makefile_app_path_default.sh was recorded WIRED. Its only mention
+#     outside tests/ was a COMMENT in gui/Makefile. I counted a comment as CI
+#     wiring in a manifest whose entire purpose is to stop exactly that, on the
+#     same day I recorded doing it to a different gate. It is now genuinely
+#     wired, by .github/workflows/test-wiring.yml, rather than relabelled.
+#
+#     THE HEADLINE NUMBER ABOVE INHERITED THAT ERROR. "40 referenced, 131 ran
+#     nowhere" counted this file as referenced. Measured coverage at discovery
+#     was 38 of 171 (22%), not 40 of 171 (23%) -- the error ran in the
+#     direction of over-stating coverage, which is the direction that matters.
+#     The prose above is left as first written so the drift is legible.
+#
+# (b) The gate matched the extensionless STEM, so test_install_gui_contract.py
+#     was satisfied by a reference to test_install_gui_contract_negatives.py.
+#     Both are referenced today, so nothing was mis-reported -- but delete one
+#     runner and the row would still have read as covered. Matching is now on
+#     the stem with an identifier boundary on both sides, which also catches
+#     the legitimate `python3 -m unittest tests.test_foo` form that a
+#     filename-only match had wrongly demoted.
 
-# ---- WIRED (39) ----
+# ---- WIRED (40) ----
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml,.github/workflows/pbxproj-sync.yml,scripts/run_all_cut_gates.sh
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
@@ -55,7 +85,7 @@ test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contr
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml,gui/Makefile
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
-test_makefile_app_path_default.sh	WIRED	gui/Makefile
+test_makefile_app_path_default.sh	WIRED	.github/workflows/test-wiring.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml,scripts/verify_vendor_fresh.sh
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
@@ -73,6 +103,7 @@ test_vendor_import_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_manifest_is_valid_toml.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml,.github/workflows/pbxproj-sync.yml,.github/workflows/vendor-integrity.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml,.github/workflows/vendor-integrity.yml
+test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 
