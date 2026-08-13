@@ -92,6 +92,7 @@ jobs:
       # reason reaches the log, that a real fault is not retried, and that a
       # persistent timestamp failure is bounded and still fails closed.
       - name: sign-python-bundle reports WHY it failed
+        if: always()
         run: bash tests/test_sign_python_bundle_reports_why.sh
 
       # provenance_gate.sh accused three healthy CM044 wiki images of being
@@ -107,4 +108,5 @@ jobs:
       # marker are still RED. The teeth cases pass against the pre-fix gate too,
       # which is what proves the fix narrowed nothing.
       - name: provenance gate -- cannot-run is never reported as stale
+        if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh

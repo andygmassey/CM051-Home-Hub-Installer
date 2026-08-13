@@ -151,6 +151,7 @@ jobs:
       # Running it before the gate means a broken gate is reported as a broken
       # gate, rather than as a broken project.
       - name: Sync-gate self-test (does the gate discriminate?)
+        if: always()
         run: bash tests/test_pbxproj_sync_gate.sh
 
       - name: Tracked pbxproj == xcodegen(project.yml)
