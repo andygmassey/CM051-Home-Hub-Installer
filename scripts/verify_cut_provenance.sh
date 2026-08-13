@@ -32,8 +32,19 @@ ASSISTANT_DIR="${OSTLER_ASSISTANT_DIR:-${CM051_DIR}/../ostler-assistant}"
 
 PASS=0
 FAIL=0
+CANNOT=0
 green() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 red()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); }
+# A check whose INPUT is absent has observed nothing. Saying FAIL there claims
+# a merged fix is stale, which is a defect this gate did not see. The script
+# already made exactly this argument for a missing manifest (see the exit-2
+# comment below); it simply never carried it to the missing-checkout branches,
+# and on 2026-08-13 run 31693253364 that walled the cut with
+#   "assistant_tag_grep ... :: ostler-assistant not at .../gui/../../ostler-assistant"
+# -- a hosted runner reporting the absence of a sibling checkout as STALE
+# DAEMON SOURCE. Same shape as the OSTLER_APP_PATH default that blocked eight
+# cuts.
+cannot(){ printf '  \033[33mCANNOT\033[0m %s\n' "$1"; CANNOT=$((CANNOT+1)); }
 info()  { printf '        %s\n' "$1"; }
 
 echo "=== Cut-provenance preflight (CM051) ==="
@@ -88,7 +99,7 @@ while IFS='|' read -r kind target pattern desc; do
         red "daemon_tag ${sha} :: could not read daemon pin -- cannot verify"; continue
       fi
       if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
-        red "daemon_tag ${sha} :: ostler-assistant not found at ${ASSISTANT_DIR} (set OSTLER_ASSISTANT_DIR)"; continue
+        cannot "daemon_tag ${sha} :: ostler-assistant checkout absent at ${ASSISTANT_DIR} -- NOT a stale daemon, this check observed nothing (set OSTLER_ASSISTANT_DIR)"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
         red "daemon_tag ${sha} :: no tag for pin '${DAEMON_PIN}' in ostler-assistant (${desc})"
@@ -129,7 +140,7 @@ while IFS='|' read -r kind target pattern desc; do
       # from source at cut time. `target` = path inside ostler-assistant;
       # `pattern` = regex that must appear in that file at the pinned tag.
       if ! git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
-        red "assistant_tag_grep ${target} :: ostler-assistant not at ${ASSISTANT_DIR} (${desc})"; continue
+        cannot "assistant_tag_grep ${target} :: ostler-assistant checkout absent at ${ASSISTANT_DIR} -- NOT stale daemon source, this check observed nothing (${desc})"; continue
       fi
       if [[ -z "${DAEMON_TAG}" ]]; then
         red "assistant_tag_grep ${target} :: no tag for pin '${DAEMON_PIN}' to inspect (${desc})"; continue
@@ -221,12 +232,22 @@ done < "${MANIFEST}"
 
 echo
 echo "=== Verdict ==="
-echo "  ${PASS} pass / ${FAIL} fail"
-if [[ "${FAIL}" -eq 0 ]]; then
-  echo "  PROVENANCE GREEN -- every merged fix is present. Safe to cut."
-  exit 0
-else
+echo "  ${PASS} pass / ${FAIL} fail / ${CANNOT} could-not-run"
+# THREE outcomes, and the order matters. A real FAIL outranks a cannot-run,
+# because a fix proven stale is worse news than a check that did not execute.
+if [[ "${FAIL}" -gt 0 ]]; then
   echo "  PROVENANCE RED -- ${FAIL} stale/missing component(s). DO NOT CUT."
   echo "  Fix each FAIL (graft vendor / re-tag daemon), re-run, ship only on green."
   exit 1
 fi
+if [[ "${CANNOT}" -gt 0 ]]; then
+  echo "  PROVENANCE COULD NOT RUN -- ${CANNOT} check(s) had no input to examine."
+  echo "  This is NOT a stale component. Nothing has been shown to be wrong; the"
+  echo "  gate was simply unable to look, so it refuses to certify. Fail-closed,"
+  echo "  exit 2, distinct from the exit 1 that names a defect."
+  echo "  On a hosted runner this usually means the ostler-assistant checkout is"
+  echo "  absent: supply it and set OSTLER_ASSISTANT_DIR."
+  exit 2
+fi
+echo "  PROVENANCE GREEN -- every merged fix is present. Safe to cut."
+exit 0
