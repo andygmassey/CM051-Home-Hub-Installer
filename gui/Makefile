@@ -1294,15 +1294,40 @@ check-pr-age:
 	    exit 1; \
 	fi
 
+# The SEVENTH sibling of the six wrappers fixed in #644, and the one whose
+# collapse was hardest to see, because its old message HEDGED: "a shippable
+# input lags live upstream HEAD (or could not be verified against GitHub)".
+# That sentence is never wrong, and therefore never tells you which of the two
+# happened. It reads as a stale-pin finding, so on cut run 31685172775 -- where
+# ~15 trees were CANNOT-VERIFY for want of a credential and only 3 were
+# genuinely stale -- the operator's remedy ("re-pin / re-vendor / rebuild each
+# RED input") was wrong for 15 of the 18 and impossible for all 15.
+#
+# A hedge is not honesty. Naming both outcomes in one sentence costs the reader
+# the same information as naming neither. Exit 1 and exit 3 are different
+# answers with different remedies, and the recipe now says which.
+FRESHNESS_SH ?= $(CURDIR)/../scripts/verify_cut_freshness.sh
 check-freshness:
 	$(STEP) "Cut-freshness preflight (live GitHub HEAD)"
-	@../scripts/verify_cut_freshness.sh || { \
+	@rc=0; bash "$(FRESHNESS_SH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
 	    echo "" >&2; \
-	    echo "ERROR: cut-freshness preflight FAILED -- a shippable input lags live upstream HEAD" >&2; \
-	    echo "       (or could not be verified against GitHub). Re-pin / re-vendor / rebuild each" >&2; \
-	    echo "       RED input to current HEAD, then re-cut. DO NOT SHIP." >&2; \
+	    echo "ERROR: the cut-freshness gate COULD NOT RUN for at least one input (exit $$rc)." >&2; \
+	    echo "       Nothing above says those inputs are stale -- they were NOT compared." >&2; \
+	    echo "       Remedy is access, not a re-pin: grant the running token read" >&2; \
+	    echo "       access to the source repo(s) named above (a private repo answers" >&2; \
+	    echo "       404 exactly like a missing one), or restore network, then re-run." >&2; \
+	    echo "       Re-pinning here would change a pin nobody has shown to be stale." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: cut-freshness preflight FAILED -- a shippable input lags live upstream HEAD." >&2; \
+	    echo "       Re-pin / re-vendor / rebuild each RED input to current HEAD, then" >&2; \
+	    echo "       re-cut. A hold_ack is for a DELIBERATE hold with a written reason;" >&2; \
+	    echo "       it is not a way to make this green. DO NOT SHIP." >&2; \
 	    exit 1; \
-	}
+	fi
 
 # ---------------------------------------------------------------------------
 # Content-provenance preflight -- UNBYPASSABLE gate on the DMG.

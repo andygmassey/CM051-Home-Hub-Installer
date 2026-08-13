@@ -112,7 +112,13 @@ n_fresh=0
 n_stale=0        # RED  -- behind live HEAD w/o hold_ack, or exempt w/o reason
 n_held=0         # behind but FULLY acknowledged via hold_ack -- non-fatal
 n_exempt=0       # genuinely-unverifiable source, exempt WITH a reason -- non-fatal
-n_cannot=0       # GitHub unreachable -- fail-closed, distinct exit
+n_cannot=0       # could not be checked at all -- fail-closed, distinct exit
+# Subset of n_cannot whose cause is "cannot READ the source repo" rather than
+# "GitHub unreachable". Tracked separately because the remedies differ: one is
+# a credential grant, the other is the network. Initialised here rather than
+# on first use -- set -u is on, and an unset read in the verdict block would
+# abort the script AFTER all the work, printing nothing.
+n_unreadable=0
 
 # Rows for the final table:  input \t pinned \t live \t status
 ROWS_FILE="$(mktemp)"
@@ -500,6 +506,7 @@ while IFS= read -r tree; do
     # a real reason, not a shrug.
     if [ "$(repo_readable "$acct" "$owner")" = "NO" ]; then
         n_cannot=$((n_cannot+1))
+        n_unreadable=$((n_unreadable+1))
         add_row "vendor:$tree" "$pinned" "-" "CANNOT-VERIFY unreadable-source"
         add_detail "vendor:$tree CANNOT-VERIFY: cannot read $owner with the '$acct' account -- the repo is private or this token lacks scope for it. The pin was NOT evaluated; this says nothing about whether it is fresh. Grant the runner's token read access to $owner, then re-run."
         continue
@@ -973,8 +980,22 @@ if [ "$n_stale" -gt 0 ]; then
     exit 1
 fi
 if [ "$n_cannot" -gt 0 ]; then
-    echo "GATE: CANNOT VERIFY -- $n_cannot input(s) could not be checked against GitHub (unreachable)." >&2
-    echo "      This is fail-closed: the cut must NOT proceed on an unverified input. Restore network + re-run." >&2
+    echo "GATE: CANNOT VERIFY -- $n_cannot input(s) could not be checked against GitHub." >&2
+    # Name the CAUSE, because the two causes have different remedies and only
+    # one of them is "restore network". On cut run 31685172775 fifteen trees
+    # landed here for want of a credential while this line said "unreachable"
+    # and advised restoring the network -- an accurate exit code wearing the
+    # wrong explanation, which sends the operator at the wrong thing.
+    if [ "$n_unreadable" -gt 0 ]; then
+        echo "      $n_unreadable of them: the SOURCE REPO could not be read with the account the gate" >&2
+        echo "      used. GitHub answers 404 for a private repo exactly as for a missing one, so this" >&2
+        echo "      says nothing about the pin. Grant that token read access to the repos named above." >&2
+        echo "      Do NOT re-pin them: no evidence has been produced that they are stale." >&2
+    fi
+    if [ "$n_cannot" -gt "$n_unreadable" ]; then
+        echo "      $((n_cannot - n_unreadable)) of them: GitHub was unreachable (network or timeout). Restore network + re-run." >&2
+    fi
+    echo "      This is fail-closed: the cut must NOT proceed on an unverified input." >&2
     exit 3
 fi
 extra=""

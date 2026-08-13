@@ -33,7 +33,7 @@
 # goes unmentioned. That is strictly worse than silence, because it looks like
 # a finding.
 #
-# WHAT THIS ASSERTS, for each of the six wrappers:
+# WHAT THIS ASSERTS, for each of the seven wrappers:
 #   * exit 2 from the script  -> recipe says CANNOT RUN and propagates 2
 #   * exit 3 from the script  -> same (3 is the gh-backed scripts' cannot-run)
 #   * exit 1 from the script  -> recipe names the DEFECT and exits 1
@@ -80,8 +80,8 @@ mk_stub() { # <rc>
 # Held as three parallel arrays rather than an associative array: /bin/bash on
 # the cut host is 3.2, which has no `declare -A`. The gates this file tests
 # run on that host, so the test must too.
-TARGETS=(check-provenance check-orphans check-pr-age check-provenance-content verify-stapling verify-commit-parity)
-VARS=(PROVENANCE_SH ORPHANS_SH PR_AGE_SH PROVENANCE_CONTENT_SH STAPLING_SH COMMIT_PARITY_SH)
+TARGETS=(check-provenance check-orphans check-pr-age check-provenance-content verify-stapling verify-commit-parity check-freshness)
+VARS=(PROVENANCE_SH ORPHANS_SH PR_AGE_SH PROVENANCE_CONTENT_SH STAPLING_SH COMMIT_PARITY_SH FRESHNESS_SH)
 DEFECTS=(
   "a merged fix is stale/missing"
   "work exists that is NOT in what you are about to ship"
@@ -89,6 +89,11 @@ DEFECTS=(
   "a required fix is NOT baked into a shipped artifact"
   "carries no notarisation ticket"
   "embed DIFFERENT"
+  # The SEVENTH, added after the six. Its old text HEDGED -- "lags live
+  # upstream HEAD (or could not be verified against GitHub)" -- which is never
+  # wrong and never informative. The defect string asserted here is the
+  # un-hedged half, so a return to the hedge fails this control.
+  "lags live upstream HEAD."
 )
 
 # The two post-cut gates guard on a DMG existing before they run anything, so
