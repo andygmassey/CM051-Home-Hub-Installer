@@ -879,11 +879,38 @@ def _repo_owner(source_repo: str) -> str:
 
 
 def _gh_token_for(owner: str) -> str | None:
-    """Resolve a gh token for `owner` via `gh auth token --user <owner>`.
+    """Resolve a gh token for `owner`, from the environment or `gh auth`.
 
-    Returns None on failure. Caller decides whether the missing token is fatal
-    (typical: FAIL) or advisory (rare).
+    ENVIRONMENT FIRST, AND THAT ORDER IS THE FIX. `gh auth token --user X`
+    resolves only where a human has logged three accounts in, which is the
+    operator's Mac and never a hosted runner. Measured on the v1.0.26 cut: both
+    freshness rows reported
+
+        FAIL  pinned daemon tarball must contain all merged crates/* changes
+              could not resolve gh token for owner 'ostler-ai'
+
+    which is not a finding about the daemon at all -- it is the checker saying
+    it could not authenticate, rendered as though it had looked and found the
+    artefact stale. The gate has never once run in CI, and its verdict there
+    was worse than useless because it was confidently wrong.
+
+    OSTLER_RELEASES_TOKEN is the cross-org credential the cut already carries
+    for exactly this owner, so the check can genuinely run. The generic
+    OSTLER_GH_TOKEN_<OWNER> form is there so a second owner does not need a
+    code change.
+
+    Returns None only when nothing resolves. Callers must treat that as
+    CANNOT-RUN, never as a defect in the artefact.
     """
+    env_names = [
+        "OSTLER_GH_TOKEN_" + owner.upper().replace("-", "_"),
+    ]
+    if owner == "ostler-ai":
+        env_names.append("OSTLER_RELEASES_TOKEN")
+    for name in env_names:
+        tok = os.environ.get(name, "").strip()
+        if tok:
+            return tok
     try:
         r = subprocess.run(
             ["gh", "auth", "token", "--user", owner],
@@ -1297,10 +1324,13 @@ def check_verify_build_info_sidecar_present(entry: dict, ctx: dict) -> Result:
     owner = _repo_owner(source_repo)
     token = _gh_token_for(owner)
     if token is None:
-        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
-                      "FAIL",
-                      f"could not resolve gh token for owner {owner!r} "
-                      f"(need `gh auth login --user {owner}`)",
+        # CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
+        # stale when all that happened is that no credential resolved.
+        return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present", "SKIP",
+                      f"NOT CHECKED: no gh token for owner {owner!r}. "
+                      f"Set OSTLER_RELEASES_TOKEN (CI) or "
+                      f"`gh auth login --user {owner}` (operator). "
+                      f"This row was not evaluated either way.",
                       entry.get("source_pr", ""))
 
     sidecar, src, err = _fetch_build_info_sidecar(
@@ -1394,9 +1424,13 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
     owner = _repo_owner(source_repo)
     token = _gh_token_for(owner)
     if token is None:
-        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
-                      f"could not resolve gh token for owner {owner!r} "
-                      f"(need `gh auth login --user {owner}`)",
+        # CANNOT-RUN, NOT A DEFECT. Saying FAIL here claims the artefact is
+        # stale when all that happened is that no credential resolved.
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "SKIP",
+                      f"NOT CHECKED: no gh token for owner {owner!r}. "
+                      f"Set OSTLER_RELEASES_TOKEN (CI) or "
+                      f"`gh auth login --user {owner}` (operator). "
+                      f"This row was not evaluated either way.",
                       entry.get("source_pr", ""))
 
     pin_sha, err = _resolve_pin_commit(source_repo, tag, token)
