@@ -72,65 +72,12 @@ jobs:
       # If the pinned Xcode is absent this FAILS and prints every version that
       # is present. It must never fall back to whatever is default: that is the
       # silent wrong-toolchain run this whole file exists to prevent, and the
-      # enumeration is what makes the next failure diagnosable in one read.
+      # Shared with the `cut` job in cut.yml. It was inline here and ABSENT
+      # there, so cut.yml ran on macos-14 against a 26.6 pin and hit the same
+      # UNAVAILABLE this workflow had already diagnosed. One body, two callers.
       - name: Select the pinned Xcode
-        run: |
-          set -euo pipefail
-          LINE="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
-                  | grep -v '^[[:space:]]*$' | head -1)"
-          PIN="$(awk '{print $1}' <<<"$LINE")"
-          PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
-          [ -n "$PIN" ] || { echo "::error::gui/.xcode-version is empty" >&2; exit 1; }
-          [ -n "$PIN_BUILD" ] || { echo "::error::gui/.xcode-version has no build version; marketing version alone is not a sufficient pin" >&2; exit 1; }
-          echo "pinned Xcode: $PIN ($PIN_BUILD)"
+        run: scripts/select_pinned_xcode.sh
 
-          # Matched on BUILD, not marketing version. Measured 2026-08-13: this
-          # runner and the build host both reported 26.6 with xcodegen 2.44.1
-          # and emitted different bytes, so marketing version does not identify
-          # the setting presets that go into the comparison.
-          FOUND=""
-          echo "installed Xcodes on this runner (marketing / build):"
-          for APP in /Applications/Xcode*.app; do
-            [ -d "$APP" ] || continue
-            V="$(/usr/bin/defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo '?')"
-            B="$(/usr/bin/defaults read "$APP/Contents/version.plist" ProductBuildVersion 2>/dev/null || echo '?')"
-            echo "  $V  $B  $APP"
-            if [ "$V" = "$PIN" ] && [ "$B" = "$PIN_BUILD" ] && [ -z "$FOUND" ]; then
-              FOUND="$APP"
-            fi
-          done
-
-          if [ -z "$FOUND" ]; then
-            echo "::error::no Xcode $PIN build $PIN_BUILD on this runner. Every Xcode that IS here is listed above, with its build." >&2
-            echo "::error::Do NOT relax the pin to make this green. If no hosted runner can supply the build the DMG is cut with, then a byte-exact comparison does not belong in CI: keep it as a pre-cut check on the cut machine and give CI a toolchain-independent check instead." >&2
-            exit 1
-          fi
-
-          echo "DEVELOPER_DIR=$FOUND/Contents/Developer" >> "$GITHUB_ENV"
-          echo "selected: $FOUND"
-
-      - name: Assert the selection took effect
-        # Setting DEVELOPER_DIR and assuming it applied is the same class of
-        # error as the one above, one layer down. Read it back from the tool
-        # that will actually be used.
-        run: |
-          set -euo pipefail
-          LINE="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
-                  | grep -v '^[[:space:]]*$' | head -1)"
-          PIN="$(awk '{print $1}' <<<"$LINE")"
-          PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
-          GOT="$(xcodebuild -version | head -1 | awk '{print $2}')"
-          GOT_BUILD="$(xcodebuild -version | sed -n '2p' | awk '{print $3}')"
-          echo "xcodebuild reports: $GOT ($GOT_BUILD)   pin: $PIN ($PIN_BUILD)"
-          if [ "$GOT" != "$PIN" ] || [ "$GOT_BUILD" != "$PIN_BUILD" ]; then
-            echo "::error::DEVELOPER_DIR did not take: xcodebuild is $GOT ($GOT_BUILD), pin is $PIN ($PIN_BUILD)" >&2
-            exit 1
-          fi
-
-      # Pinned, not `brew install xcodegen`. The gate's comparison is
-      # byte-exact, so brew's floating latest would eventually emit different
-      # bytes from identical input and the gate would report "STALE, DO NOT
-      # SHIP" for a toolchain bump. See gui/.xcodegen-version.
       - name: Install pinned xcodegen
         run: |
           set -euo pipefail

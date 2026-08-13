@@ -141,7 +141,11 @@ jobs:
   # ---------------------------------------------------------------------
   cut:
     needs: preflight
-    runs-on: macos-14
+    # macos-26, NOT macos-14. macos-14 carries Xcode 15.4 and gui/.xcode-version
+    # pins 26.6 (17F113), so check-pbxproj-sync could only ever report
+    # UNAVAILABLE on that image -- measured on the v1.0.26 cut. The DMG should
+    # be built with the Xcode the project is defined against anyway.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
         with:
@@ -231,6 +235,12 @@ jobs:
           GOT="$("$PREFIX/bin/xcodegen" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           echo "installed xcodegen: $GOT"
           [ "$GOT" = "$WANT" ] || { echo "::error::downloaded $GOT but $WANT is pinned" >&2; exit 1; }
+
+      # Same script the pbxproj-sync workflow uses. Selecting by BUILD, not
+      # marketing version, and asserting the selection took. Fails loudly and
+      # enumerates what IS present rather than falling back to the default.
+      - name: Select the pinned Xcode
+        run: scripts/select_pinned_xcode.sh
 
       - name: Verify signing credentials are present
         env:
