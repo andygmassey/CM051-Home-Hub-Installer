@@ -593,6 +593,84 @@ done < <(vlib_tree_names)
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
+# DAEMON RECENCY: docs-only delta suppression (v1018-D621f, Andy 2026-08-13)
+#
+# The daemon recency check compares the pinned commit against ostler-assistant
+# main WHOLE-REPO, unlike every vendor tree, which is path-scoped. On the
+# 2026-08-13 cut that made a two-file markdown commit -- aa488a4d, editing
+# .github/workflows/README.md and master-branch-flow.md -- a cut blocker
+# demanding a fresh signed + notarised daemon release that could not differ by
+# one byte.
+#
+# DENYLIST, NOT AN INCLUSION LIST. Andy's ruling, and the reason matters: an
+# inclusion list ("only crates/** counts") fails in the WRONG DIRECTION. Add a
+# new shipping directory, forget to list it, and the gate goes quietly green on
+# a genuinely stale daemon. A denylist fails closed both ways -- anything not
+# explicitly known-inert keeps the daemon RED.
+#
+# EVERY ENTRY CARRIES ITS REASON:
+#
+#   .github/**   CI configuration and workflow documentation. Not compiled, not
+#                in the release tarball. The tarball is OstlerAssistant.app
+#                wrapping the Mach-O; .github/ never reaches a customer.
+#
+#   *.md         Documentation. VERIFIED, not assumed: all 10 include_str! /
+#                include_bytes! sites in ostler-assistant embed .txt or .rs and
+#                none embeds a .md. The one that would have mattered is
+#                crates/ostler-consent-gate/src/wording.rs -- consent text is
+#                legally significant -- and it embeds wording_data/*.txt, so a
+#                consent change moves a .txt and stays RED. If markdown is ever
+#                include_str!'d, DELETE THIS ENTRY.
+#
+#   docs/**      Documentation tree. Same argument as *.md, by location rather
+#                than extension, so a non-.md asset under docs/ is covered too.
+#
+# NOT denylisted on purpose, though it is tempting: tests/**. A test change can
+# encode a behaviour change, and the daemon's own test suite is part of how we
+# know the binary is sound. Silence there would be the inclusion-list failure
+# wearing different clothes.
+#
+# FAIL CLOSED ON DOUBT. UNKNOWN (API error, or a file list at the 300-entry cap
+# where the un-listed remainder could contain anything) is treated exactly like
+# NO. The only path to suppression is a positive, complete answer.
+# ---------------------------------------------------------------------------
+path_is_inert() { # <path> -> 0 if denylisted (cannot affect the shipped daemon)
+    case "$1" in
+        .github/*)  return 0 ;;
+        docs/*)     return 0 ;;
+        *.md)       return 0 ;;
+        *)          return 1 ;;
+    esac
+}
+
+# delta_is_docs_only <acct> <owner/repo> <base> <head>
+#   Echoes: YES | NO | UNKNOWN
+delta_is_docs_only() {
+    local acct="$1" repo="$2" base="$3" head="$4" rc files n
+    # One call: compare's files[] is the UNION of changed files across the whole
+    # range, so this does not scale with the number of commits.
+    api "$acct" "repos/$repo/compare/${base}...${head}" --jq '.files[].filename'
+    rc=$?
+    [ "$rc" -ne 0 ] && { echo "UNKNOWN"; return; }
+    files="$API_OUT"
+    # An EMPTY file list with a non-empty commit range is not "no changes" -- it
+    # is an answer we do not understand. Do not read it as docs-only.
+    [ -z "$files" ] && { echo "UNKNOWN"; return; }
+    n="$(printf '%s
+' "$files" | grep -c .)"
+    # GitHub caps compare files[] at 300. At the cap the list is potentially
+    # truncated and the unseen remainder could be anything at all.
+    [ "$n" -ge 300 ] && { echo "UNKNOWN"; return; }
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        path_is_inert "$f" || { echo "NO"; return; }
+    done <<EOF
+$files
+EOF
+    echo "YES"
+}
+
+# ---------------------------------------------------------------------------
 # DAEMON RECENCY -- the fifth link.
 #
 # Links 1-4 bind the pin to the exact bytes a customer downloads, and bind
@@ -658,10 +736,25 @@ check_daemon_recency() { # pin  daemon_commit
         done < "$DAEMON_HOLD_ACK_FILE"
     fi
 
+    # Before calling a lag a defect, ask whether the delta can affect the
+    # shipped daemon at all. Suppression here is NOT a hold: a hold is a
+    # deliberate decision to ship known-stale code and needs a written reason.
+    # This is the narrower claim that nothing in the delta reaches the binary.
+    local docsonly; docsonly="$(delta_is_docs_only ostler-ai ostler-ai/ostler-assistant "$commit" "$oa_head")"
+    if [ "$docsonly" = "YES" ]; then
+        n_fresh=$((n_fresh+1))
+        add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "FRESH docs-only-delta"
+        add_detail "daemon: ${verdict} vs ostler-ai/ostler-assistant ${OA_BRANCH}, but EVERY file in the delta is documentation (.github/**, docs/**, *.md). None of it is compiled or shipped, so a re-cut could not change one byte. Not a hold_ack -- no stale code is being shipped. Any non-doc file in the delta returns this to RED."
+        return
+    fi
+
     if [ -z "$hold_shas" ]; then
         n_stale=$((n_stale+1))
         add_row "daemon (${pin})" "${commit:0:8}" "${oa_head:0:8}" "RED ${verdict}"
         add_detail "daemon RED ${verdict} vs live ostler-ai/ostler-assistant ${OA_BRANCH}, NO hold_ack in $DAEMON_HOLD_ACK_FILE. The shipped daemon predates commits on the daemon's own main. Cut a new daemon release and re-pin, OR add a row (pinned_sha_prefix<TAB>delta_shas<TAB>true<TAB>reason) covering every delta commit."
+        if [ "$docsonly" = "UNKNOWN" ]; then
+            add_detail "    (the docs-only check could not complete, so it did not suppress anything -- this RED stands on the delta itself)"
+        fi
         return
     fi
     if [ -z "$hold_reason" ]; then

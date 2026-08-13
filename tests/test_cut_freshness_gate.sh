@@ -129,6 +129,11 @@ case "$path" in
     jqc=""; prevc=""
     for a in "$@"; do [ "$prevc" = "--jq" ] && jqc="$a"; prevc="$a"; done
     case "$jqc" in
+      # THREE shapes now hit this one endpoint. files[].filename is the
+      # docs-only denylist probe; giving it MOCK_CMP would hand it the string
+      # "ahead 3 0", which is not a path, is not denylisted, and would score
+      # NO -- a control that passes for the wrong reason.
+      *files*)   key="MOCK_FILES_$(san "${base:0:8}")_$(san "${head:0:8}")" ;;
       *commits*) key="MOCK_CMPDELTA_$(san "${base:0:8}")_$(san "${head:0:8}")" ;;
       *)         key="MOCK_CMP_$(san "${base:0:8}")_$(san "${head:0:8}")" ;;
     esac
@@ -694,6 +699,83 @@ if [ "$RC" -eq 1 ] \
     ok "(n) readable repo + absent SHA -> STILL exit 1 RED, not reclassified"
 else
     bad "(n) absent-sha-still-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+
+# ===========================================================================
+# (n1)-(n4) DAEMON DOCS-ONLY DELTA  (v1018-D621f)
+#
+# The daemon recency check compares WHOLE-REPO while every vendor tree is
+# path-scoped, so on 2026-08-13 a two-file markdown commit (aa488a4d, editing
+# .github/workflows/README.md + master-branch-flow.md) became a cut blocker
+# demanding a signed + notarised daemon release that could not differ by one
+# byte.
+#
+# DENYLIST, not an inclusion list: an inclusion list goes quietly GREEN on a
+# genuinely stale daemon the first time someone adds a shipping directory and
+# forgets to list it. These four controls exist to prove the suppression is
+# narrow and fails closed. (n2) is the one that matters.
+# ===========================================================================
+
+# (n1) delta is ONLY documentation -> daemon FRESH, gate GREEN
+reset_defaults; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  MOCK_FILES_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' '.github/workflows/README.md' 'docs/architecture.md' 'README.md')" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "FRESH docs-only-delta" \
+   && printf '%s' "$OUT" | grep -q "GATE: GREEN"; then
+    ok "(n1) daemon delta is docs-only -> FRESH, gate GREEN"
+else
+    bad "(n1) docs-only-delta: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# (n2) THE POSITIVE CONTROL. One crates/ file among the docs -> STILL RED.
+# If this ever passes, the denylist has stopped discriminating and a stale
+# daemon ships. Mirrors the LIVE check run against hub-v0.4.54..hub-v0.4.55
+# (60 files, 33 under crates/) which returned NO.
+reset_defaults; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  MOCK_FILES_aaaaaaaa_eeeeeeee="$(printf '%s\n%s\n%s' '.github/workflows/README.md' 'crates/zeroclaw-channels/src/imessage.rs' 'docs/architecture.md')" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .*RED STALE:\+3" \
+   && ! printf '%s' "$OUT" | grep -q "docs-only-delta"; then
+    ok "(n2) POSITIVE CONTROL: one crates/ file among docs -> STILL RED"
+else
+    bad "(n2) crates-file-must-stay-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# (n3) the file list is UNAVAILABLE -> UNKNOWN -> RED, never suppressed.
+# No MOCK_FILES_* is set, so the mock 404s that query.
+reset_defaults; build_fixture
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -qE "daemon .*RED STALE:\+3" \
+   && printf '%s' "$OUT" | grep -q "docs-only check could not complete"; then
+    ok "(n3) file list unavailable -> RED, and SAYS the check did not complete"
+else
+    bad "(n3) unknown-must-stay-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# (n4) a file list AT THE 300 CAP is potentially truncated -> RED.
+# All 300 entries are .md, so a cap-blind implementation would say docs-only
+# and suppress -- while the unseen remainder could be the entire kernel.
+reset_defaults; build_fixture
+_capped="$(i=1; while [ "$i" -le 300 ]; do echo "docs/page$i.md"; i=$((i+1)); done)"
+OUT="$(run_gate "${FULL_FRESH_ENV[@]}" \
+  MOCK_HEAD_ostler_ai_ostler_assistant_main="$OA_MAIN_AHEAD" \
+  MOCK_CMP_aaaaaaaa_eeeeeeee="ahead 3 0" \
+  MOCK_FILES_aaaaaaaa_eeeeeeee="$_capped" \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && ! printf '%s' "$OUT" | grep -q "docs-only-delta"; then
+    ok "(n4) 300-file cap (possible truncation) -> RED, not suppressed"
+else
+    bad "(n4) truncation-must-stay-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 echo
