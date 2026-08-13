@@ -80,12 +80,51 @@ while IFS= read -r -d '' f; do
         # at runtime on the customer Mac. Entitlements are only effective on
         # main executables (python3.11), not libraries, but passing them
         # on every codesign call is harmless and keeps the signing flow uniform.
-        if codesign --force --sign "$CODESIGN_ID" --options runtime --timestamp --entitlements "$ENTITLEMENTS" "$f" >/dev/null 2>&1; then
-            SIGNED=$((SIGNED + 1))
-        else
+        # WHY THE STDERR IS CAPTURED AND PRINTED (2026-08-13).
+        #
+        # This line used to end `>/dev/null 2>&1`, so a failure printed
+        # "FAIL: codesign <path>" and NOTHING ELSE. Run 31692208160 died here
+        # on two files out of twelve and the cause was unknowable from the log,
+        # because the script had thrown the only evidence away. A gate that
+        # reports a verdict while destroying the reason is the defect class
+        # this cut has spent the day clearing; it does not get an exception for
+        # being ours.
+        #
+        # WHY THE RETRY IS NARROW.
+        #
+        # `--timestamp` contacts Apple's timestamp authority over the network.
+        # That is the one part of this command that can fail for reasons having
+        # nothing to do with the artefact, and the timings on 31692208160 fit:
+        # ten files signed in well under a second each, the two failures took
+        # 34s and 15s. That is the shape of a network timeout, not a bad
+        # binary. It is a HYPOTHESIS -- the evidence to confirm it was
+        # discarded -- and the next failure will now print the actual message
+        # and settle it.
+        #
+        # So the retry matches ONLY the timestamp-service message. Any other
+        # failure fails closed on the first attempt, exactly as before: a
+        # malformed Mach-O, a missing identity or a bad entitlements file must
+        # never be retried into looking transient.
+        attempt=1
+        err=""
+        while :; do
+            if err="$(codesign --force --sign "$CODESIGN_ID" --options runtime \
+                        --timestamp --entitlements "$ENTITLEMENTS" "$f" 2>&1)"; then
+                SIGNED=$((SIGNED + 1))
+                [ "$attempt" -gt 1 ] && echo "  (signed on attempt $attempt: $f)"
+                break
+            fi
+            if [ "$attempt" -lt 3 ] && printf '%s' "$err" | grep -qiE "timestamp (service|server).*(not available|unavailable)|The timestamp service is not available"; then
+                echo "  timestamp service unavailable, retry $attempt/2: $(basename "$f")" >&2
+                attempt=$((attempt + 1))
+                sleep $((attempt * 5))
+                continue
+            fi
             echo "FAIL: codesign $f" >&2
+            printf '%s\n' "$err" | sed 's/^/      codesign: /' >&2
             FAILED=$((FAILED + 1))
-        fi
+            break
+        done
     fi
 done < <(find "$PYTHON_DIR" -type f -print0)
 

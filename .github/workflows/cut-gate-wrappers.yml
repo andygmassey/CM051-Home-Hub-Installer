@@ -32,6 +32,8 @@ on:
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
       - 'scripts/verify_commit_parity.sh'
+      - 'gui/scripts/sign-python-bundle.sh'
+      - 'tests/test_sign_python_bundle_reports_why.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -82,3 +84,11 @@ jobs:
             exit 1
           fi
           echo "OK: 7 cannot-run branches present"
+
+      # sign-python-bundle used to swallow codesign's stderr, so run
+      # 31692208160 could say WHICH files failed and never why. This drives the
+      # script with a stubbed codesign through four modes and asserts the
+      # reason reaches the log, that a real fault is not retried, and that a
+      # persistent timestamp failure is bounded and still fails closed.
+      - name: sign-python-bundle reports WHY it failed
+        run: bash tests/test_sign_python_bundle_reports_why.sh
