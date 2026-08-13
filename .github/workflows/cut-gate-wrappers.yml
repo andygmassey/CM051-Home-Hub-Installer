@@ -34,6 +34,7 @@ on:
       - 'scripts/verify_commit_parity.sh'
       - 'gui/scripts/sign-python-bundle.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
+      - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
   push:
     branches: [main]
@@ -92,3 +93,18 @@ jobs:
       # persistent timestamp failure is bounded and still fails closed.
       - name: sign-python-bundle reports WHY it failed
         run: bash tests/test_sign_python_bundle_reports_why.sh
+
+      # provenance_gate.sh accused three healthy CM044 wiki images of being
+      # stale on run 31696154993, because `gh api` prints its error body to
+      # stdout on a non-2xx and the old `[[ -z "$out" ]]` test therefore could
+      # never see an auth failure. Every unauthorised lookup returned "not an
+      # ancestor" and the gate printed a rebuild instruction for an artefact it
+      # had never read.
+      #
+      # This drives the real gate with a stubbed gh and docker and asserts the
+      # DECISION, not the wording: an unusable credential and an absent docker
+      # are cannot-run, while a genuine non-ancestor and a genuinely missing
+      # marker are still RED. The teeth cases pass against the pre-fix gate too,
+      # which is what proves the fix narrowed nothing.
+      - name: provenance gate -- cannot-run is never reported as stale
+        run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh

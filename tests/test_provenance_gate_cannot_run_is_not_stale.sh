@@ -51,9 +51,20 @@ GATE="$REPO_ROOT/scripts/provenance_gate.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-DIGEST="sha256:1111111111111111111111111111111111111111111111111111111111111111"
+# FIXTURE SHAPES ARE HEX-WITH-LETTERS ON PURPOSE. DO NOT "SIMPLIFY" THEM.
+#
+# The first draft used a digest of 64 repeated '1' and a ledger sha padded with
+# zeros. Both are pure-digit runs, and .github/scripts/ci-pii-shape-scan.sh
+# matches '\b[0-9]{15,}\b' -- it tests SHAPE, not a list of known values, so a
+# plainly synthetic number still reads as an account or phone identifier. The
+# scan was right to fire and the fix belongs here, not in the pattern.
+#
+# Every literal below is valid hex containing letters, so the longest digit run
+# is two. Real digests and shas look like this anyway, which makes the fixture
+# more faithful rather than less.
+DIGEST="sha256:deadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00d"
 FIX=f936095
-LEDGER_SHA=0bdc1d16de7b0000000000000000000000000000
+LEDGER_SHA=0bdc1d16de7bdeadbeefcafef00ddeadbeefcafe
 
 # --- fixtures --------------------------------------------------------------
 printf 'image: ghcr.io/ostler-ai/ostler-wiki-compiler@%s\n' "$DIGEST" > "$WORK/install.sh"
