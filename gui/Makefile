@@ -1182,15 +1182,31 @@ STEP_INLINE := printf '\n[STEP] %s\n'
 # stale-vendored Doctor cannot ship again: package depends on this, so a RED
 # provenance check aborts the cut. Ledger: ../scripts/cut_markers.manifest.
 # ---------------------------------------------------------------------------
+# Script path is a variable so the wrapper's OWN branching can be self-tested
+# against a stub that exits 2 (see ../tests/test_cut_gate_wrappers.sh). A
+# wrapper whose cannot-run branch has never been executed is a claim, not a
+# gate.
+PROVENANCE_SH ?= $(CURDIR)/../scripts/verify_cut_provenance.sh
 check-provenance:
 	$(STEP) "Cut-provenance preflight (DMG)"
-	@OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
-	    ../scripts/verify_cut_provenance.sh || { \
+	@rc=0; OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
+	    bash "$(PROVENANCE_SH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the cut-provenance gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT found a fix to be stale or missing -- it failed to" >&2; \
+	    echo "       LOOK. Treating that as a clean run, or as a named defect, are" >&2; \
+	    echo "       both wrong: one ships unverified, the other sends you hunting" >&2; \
+	    echo "       a bug that was never detected. See the reason printed above" >&2; \
+	    echo "       (usually a missing manifest or an unresolvable repo checkout)." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: cut-provenance preflight FAILED -- a merged fix is stale/missing." >&2; \
 	    echo "Fix the FAILs above (graft vendor / re-tag daemon), then re-cut. DO NOT SHIP." >&2; \
 	    exit 1; \
-	}
+	fi
 
 # ---------------------------------------------------------------------------
 # Cut-freshness preflight (DMG). Compares EVERY shippable input (vendor pins,
@@ -1211,16 +1227,32 @@ check-provenance:
 # defects that were already fixed and never merged, including a green DRAFT PR
 # four days old. Deliberate deferrals go in cut-deferrals.yaml with a reason.
 # ---------------------------------------------------------------------------
+# LIVE MISREPORT until now: verify_no_orphaned_fixes.sh already exits 3 with
+# "CANNOT VERIFY: no repo checkouts resolved" when it resolves ZERO checkouts.
+# The old wrapper collapsed that into "work exists that is NOT in what you are
+# about to ship" -- an accusation manufactured from a run that examined
+# nothing. Zero-checkouts is the single most likely failure on a fresh cut
+# machine, so the wrong message was the one you would actually see.
+ORPHANS_SH ?= $(CURDIR)/../scripts/verify_no_orphaned_fixes.sh
 check-orphans:
 	$(STEP) "Orphaned-fix preflight (is any written fix missing from this cut?)"
-	@../scripts/verify_no_orphaned_fixes.sh || { \
+	@rc=0; bash "$(ORPHANS_SH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the orphaned-fix gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT found orphaned work -- it failed to look, almost" >&2; \
+	    echo "       always because no repo checkout resolved. Nothing about this" >&2; \
+	    echo "       run says the cut is complete. Fix the checkouts and re-run." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: work exists that is NOT in what you are about to ship." >&2; \
 	    echo "       Merge it, or record a deliberate deferral with a reason in" >&2; \
 	    echo "       cut-deferrals.yaml. Do NOT bypass -- bypassing is the habit" >&2; \
 	    echo "       this gate exists to stop. DO NOT SHIP." >&2; \
 	    exit 1; \
-	}
+	fi
 
 # ---------------------------------------------------------------------------
 # PR AGE GATE (rule effective 2026-08-06)
@@ -1237,15 +1269,30 @@ check-orphans:
 # phased sweep, and failing on them would leave this permanently red, which is
 # how a gate becomes something people route around.
 # ---------------------------------------------------------------------------
+# LIVE MISREPORT until now, same shape as check-orphans: verify_pr_age.sh
+# exits 3 at TWO sites ("could not parse RULE_EFFECTIVE_DATE", "no repo
+# produced a PR listing"), and the second is what an expired `gh` token
+# produces. The old wrapper announced "PRs have outstayed the 48h limit" --
+# naming a backlog it never saw, from a listing it never got.
+PR_AGE_SH ?= $(CURDIR)/../scripts/verify_pr_age.sh
 check-pr-age:
 	$(STEP) "PR age preflight (merge or close within 48h)"
-	@../scripts/verify_pr_age.sh || { \
+	@rc=0; bash "$(PR_AGE_SH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the PR-age gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT found overdue PRs -- it failed to look. Usually" >&2; \
+	    echo "       no repo produced a PR listing (expired gh token / no network)" >&2; \
+	    echo "       or RULE_EFFECTIVE_DATE would not parse. Restore access and" >&2; \
+	    echo "       re-run. DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: PRs have outstayed the 48h limit." >&2; \
 	    echo "       Merge, close, or record an exemption with a reason under" >&2; \
 	    echo "       pr_exemptions: in cut-deferrals.yaml. DO NOT SHIP." >&2; \
 	    exit 1; \
-	}
+	fi
 
 check-freshness:
 	$(STEP) "Cut-freshness preflight (live GitHub HEAD)"
@@ -1266,16 +1313,27 @@ check-freshness:
 # is bound to a source sha by a hand-recorded ledger row, and the image carries
 # no CM044 revision label to confirm it. Ledger: ../scripts/required_fixes.tsv.
 # ---------------------------------------------------------------------------
+PROVENANCE_CONTENT_SH ?= $(CURDIR)/../scripts/provenance_gate.sh
 check-provenance-content:
 	$(STEP) "Content-provenance preflight (fix baked into artifact)"
-	@CM044_DIR="$${CM044_DIR:-$(CURDIR)/../../CM044 - PWG Personal Wiki}" \
+	@rc=0; CM044_DIR="$${CM044_DIR:-$(CURDIR)/../../CM044 - PWG Personal Wiki}" \
 	    OSTLER_ASSISTANT_DIR="$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" \
-	    ../scripts/provenance_gate.sh || { \
+	    bash "$(PROVENANCE_CONTENT_SH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the content-provenance gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT found a fix to be missing from an artifact -- it" >&2; \
+	    echo "       failed to look, usually because the required-fixes ledger or" >&2; \
+	    echo "       a source checkout is absent. This gate greps INSIDE shipped" >&2; \
+	    echo "       artifacts; when it cannot, nothing is known about them." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: content-provenance preflight FAILED -- a required fix is NOT baked into a shipped artifact." >&2; \
 	    echo "Rebuild + re-pin the RED artifact(s), fix the ledger row, then re-cut. DO NOT SHIP." >&2; \
 	    exit 1; \
-	}
+	fi
 
 # ---------------------------------------------------------------------------
 # Cut-manifest gate -- UNBYPASSABLE gate on the built .app.
@@ -1858,13 +1916,30 @@ verify-dmg-contents:
 # feedback_gate_must_prove_it_fires_not_just_compile, silent no-op gates
 # are worse than no gate.
 # ---------------------------------------------------------------------------
+STAPLING_SH ?= $(CURDIR)/../scripts/verify_stapling.sh
 verify-stapling:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
-	    echo "ERROR: $(DMG_PATH) not found. Run 'make ship' first." >&2; \
-	    exit 1; \
+	    echo "ERROR: the stapling gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \
+	    echo "       No ticket has been found missing; there is no DMG to check." >&2; \
+	    echo "       Run 'make ship' first. DO NOT SHIP." >&2; \
+	    exit 2; \
 	fi
 	$(STEP) "Post-cut stapling gate -- every .app + DMG wrapper must carry a ticket (#221)"
-	@bash "$(CURDIR)/../scripts/verify_stapling.sh" "$(DMG_PATH)"
+	@rc=0; bash "$(STAPLING_SH)" "$(DMG_PATH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the stapling gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT found an unstapled artifact -- it failed to look" >&2; \
+	    echo "       (bad arguments, unmountable DMG, or stapler unavailable)." >&2; \
+	    echo "       A cut whose staples were never checked is not a checked cut." >&2; \
+	    echo "       DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: stapling gate FAILED -- an artifact carries no notarisation ticket (#221)." >&2; \
+	    echo "       Re-staple the named artifact(s) and re-run. DO NOT SHIP." >&2; \
+	    exit 1; \
+	fi
 
 # ---------------------------------------------------------------------------
 # verify-commit-parity: post-cut integrity gate asserting the Tauri wrapper
@@ -1896,13 +1971,31 @@ verify-stapling:
 # feedback_gate_must_prove_it_fires_not_just_compile, silent no-op gates
 # are worse than no gate.
 # ---------------------------------------------------------------------------
+COMMIT_PARITY_SH ?= $(CURDIR)/../scripts/verify_commit_parity.sh
 verify-commit-parity:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
-	    echo "ERROR: $(DMG_PATH) not found. Run 'make ship' first." >&2; \
-	    exit 1; \
+	    echo "ERROR: the commit-parity gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \
+	    echo "       No drift has been found; there is no DMG to check." >&2; \
+	    echo "       Run 'make ship' first. DO NOT SHIP." >&2; \
+	    exit 2; \
 	fi
 	$(STEP) "Post-cut commit-parity gate -- daemon + wrapper must embed the same web/dist (HR015 #225 / #226)"
-	@bash "$(CURDIR)/../scripts/verify_commit_parity.sh" "$(DMG_PATH)"
+	@rc=0; bash "$(COMMIT_PARITY_SH)" "$(DMG_PATH)" || rc=$$?; \
+	if [ "$$rc" -eq 2 ] || [ "$$rc" -eq 3 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the commit-parity gate COULD NOT RUN (exit $$rc)." >&2; \
+	    echo "       It has NOT found the daemon and wrapper to disagree -- it" >&2; \
+	    echo "       failed to look (unmountable DMG, or 'strings' unavailable)." >&2; \
+	    echo "       This is the exact gate that would have caught the v1.0.13" >&2; \
+	    echo "       stale wrapper, and it has just told you nothing. DO NOT SHIP." >&2; \
+	    exit "$$rc"; \
+	elif [ "$$rc" -ne 0 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: commit-parity gate FAILED -- daemon and Tauri wrapper embed DIFFERENT" >&2; \
+	    echo "       web/dist commits, or a marker is absent (HR015 #225 / #226)." >&2; \
+	    echo "       Rebuild both from one commit and re-cut. DO NOT SHIP." >&2; \
+	    exit 1; \
+	fi
 
 # ---------------------------------------------------------------------------
 # One-shot: validate → build → notarise-app → staple-apps → package
