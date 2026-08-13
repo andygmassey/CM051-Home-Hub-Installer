@@ -163,13 +163,50 @@ run_to() {
 # ---------------------------------------------------------------------------
 # bash 3.2 on the macOS cut host has no associative arrays -- memoise into
 # per-account plain variables (_TOK_<account-with-dashes-as-underscores>).
+#
+# ENVIRONMENT FIRST, AND THAT ORDER IS THE FIX (v1018-D621d).
+#
+# `gh auth token --user X` is a MULTI-ACCOUNT gh CLI concept. It resolves only
+# where a human has logged several accounts in, which is the operator's Mac and
+# never a hosted runner. On a runner it returns empty, `api()` then runs with
+# GH_TOKEN="" and every request 404s.
+#
+# That is what produced fifteen byte-identical rows on cut run 31682172040:
+#
+#   vendor:cm041/assistant_api RED: pinned SHA could not be resolved ...
+#   vendor:cm048_pipeline      RED: pinned SHA could not be resolved ...
+#   ... 13 more, same string
+#
+# CONTROLLED before writing this. All 24 pins in VENDOR_MANIFEST.toml resolve
+# against live GitHub with an account that HAS access -- 24 of 24, zero bad
+# pins -- and all eight source repos report `private=true`. So the pins are
+# fine and the checker could not authenticate. #642 made that report HONEST
+# (CANNOT-VERIFY rather than "bad pin"); this makes the check RUN.
+#
+# Same shape, same remedy, as `_gh_token_for` in scripts/verify_cut_manifest.py:
+# env first, `gh auth` second, and returning empty is CANNOT-RUN for the caller
+# rather than a verdict about the artefact.
+#
+# The generic OSTLER_GH_TOKEN_<ACCOUNT> form means a third account needs a
+# secret, not a code change. OSTLER_RELEASES_TOKEN stays wired for ostler-ai
+# because the cut already carries it for exactly that owner.
 token_for() {
     local acct="$1"
     [ -n "${FRESHNESS_GH_BIN:-}" ] && { printf 'mock-token'; return 0; }
     local key="_TOK_$(printf '%s' "$acct" | tr -c 'A-Za-z0-9' '_')"
     local cur; eval "cur=\${$key:-}"
     if [ -z "$cur" ]; then
-        cur="$(gh auth token --user "$acct" 2>/dev/null)"
+        # 1. Per-account environment secret. Works on a runner AND on the Mac.
+        local envname="OSTLER_GH_TOKEN_$(printf '%s' "$acct" | tr 'a-z-' 'A-Z_')"
+        eval "cur=\${$envname:-}"
+        # 2. The credential the cut already carries for the daemon's owner.
+        if [ -z "$cur" ] && [ "$acct" = "ostler-ai" ]; then
+            cur="${OSTLER_RELEASES_TOKEN:-}"
+        fi
+        # 3. Operator's Mac: the multi-account gh CLI. Absent on runners.
+        if [ -z "$cur" ]; then
+            cur="$(gh auth token --user "$acct" 2>/dev/null)"
+        fi
         eval "$key=\$cur"
     fi
     printf '%s' "$cur"
