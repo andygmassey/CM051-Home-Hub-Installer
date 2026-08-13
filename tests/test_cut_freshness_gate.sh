@@ -94,6 +94,21 @@ path=""
 for a in "$@"; do case "$a" in --*|-*) ;; *) path="$a"; break ;; esac; done
 san() { printf '%s' "$1" | tr -c 'A-Za-z0-9' '_'; }
 
+# UNREADABLE repo: 404 EVERY endpoint under it, not just the bare repo probe.
+# GitHub cannot be in the state "I will not show you this repo, but I will
+# happily resolve commits inside it" -- and a mock that allows it lets a
+# control pass while modelling a situation that cannot occur. Applying it
+# here, before the endpoint dispatch, is what makes (m) reproduce the actual
+# production symptom (RED unresolved) against the unpatched gate rather than
+# a false GREEN.
+case "$path" in
+  repos/*)
+    _r="${path#repos/}"; _owner="${_r%%/*}"; _rest="${_r#*/}"; _name="${_rest%%/*}"
+    if [ "$(eval "printf '%s' \"\${MOCK_UNREADABLE_$(san "$_owner/$_name"):-}\"")" = "1" ]; then
+      echo "{\"message\":\"Not Found\"}"; exit 1
+    fi ;;
+esac
+
 # Unreachable for the RELEASE endpoints only, so a test can fail the daemon
 # artefact lookup while the tag lookup still succeeds. Global MOCK_UNREACH
 # fails the tag first and never reaches the release chain at all -- a test
@@ -167,6 +182,24 @@ case "$path" in
       BIID)  printf '{"commit_sha": "%s"}\n' "${MOCK_ASSET_BUILDINFO:-}"; exit 0 ;;
     esac
     echo "{\"message\":\"Not Found\"}"; exit 1 ;;
+  repos/*)
+    # BARE repo endpoint `repos/<owner>/<repo>` -- what repo_readable() probes
+    # to separate "I cannot SEE that repo" from "that SHA is not IN it".
+    # GitHub answers 404 for both, so the gate asks the two questions
+    # separately (v1018-D621c).
+    #
+    # READABLE BY DEFAULT. Every pre-existing scenario above pins a repo it can
+    # read, and making them opt IN would have quietly rewritten what twelve
+    # controls mean. A test opts a single repo OUT with
+    # MOCK_UNREADABLE_<sanitised-owner-repo>=1.
+    rest="${path#repos/}"
+    case "$rest" in
+      */*/*) ;;   # deeper endpoint we do not model -- fall through to unmatched
+      */*)
+        # Unreadable is handled globally above, so reaching here means
+        # readable: answer with .full_name, which is what the gate --jq's.
+        printf '%s\n' "$rest"; exit 0 ;;
+    esac ;;
 esac
 echo "{\"message\":\"unmatched: $path\"}"; exit 1
 MOCK
@@ -574,6 +607,67 @@ if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "no-grafted-assert"; then
     ok "(l) hold_ack without shipping_bugfixes_grafted=true -> exit 1"
 else
     bad "(l) grafted-assert: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (m) SOURCE REPO UNREADABLE -> exit 3 CANNOT-VERIFY, and specifically NOT a
+#     RED that accuses the pin.  (v1018-D621c)
+#
+# Cut run 31682172040 printed fifteen vendor trees as "RED unresolved" --
+# byte-identical, which is the shape of a broken probe, not fifteen
+# independently broken pins. Every one of those pins resolved by hand with an
+# account that HAS access. The gate was reading a permissions 404 on the
+# COMMITS endpoint and asserting "bad pin" from evidence that says only "I
+# cannot see that repo".
+#
+# This control pins the DISTINCTION, not the wording: unreadable must land in
+# the cannot-verify bucket AND must not claim the pin is bad. Asserting only
+# "says CANNOT-VERIFY" would still pass if the gate ALSO emitted a RED row.
+# ===========================================================================
+reset_defaults
+build_fixture
+# NOTE the deliberate absence of a MOCK_HEAD_* for this repo. An unreadable
+# repo 404s on the commits endpoint too -- that is the whole reason the two
+# states were indistinguishable. Supplying a working commit lookup alongside
+# an unreadable repo would model a state GitHub cannot be in, and this control
+# would then have passed against the UNPATCHED gate (verified: it scored a
+# false GREEN, exit 0, instead of the production symptom).
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" \
+  MOCK_UNREADABLE_andygmassey_CM041_People_Graph=1 \
+  2>&1)"; RC=$?
+if [ "$RC" -eq 3 ] \
+   && printf '%s' "$OUT" | grep -q "CANNOT-VERIFY unreadable-source" \
+   && printf '%s' "$OUT" | grep -q "andygmassey/CM041-People-Graph" \
+   && printf '%s' "$OUT" | grep -q "stale/RED=0" \
+   && ! printf '%s' "$OUT" | grep -q "RED unresolved"; then
+    ok "(m) unreadable source repo -> exit 3 CANNOT-VERIFY, no RED against the pin"
+else
+    bad "(m) unreadable-source: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
+fi
+
+# ===========================================================================
+# (n) READABLE repo, pinned SHA genuinely ABSENT -> STILL exit 1 RED.
+#
+# The other direction, and the one that actually matters. Andy's constraint on
+# this fix: "a fix that turns a real bad pin into CANNOT-VERIFY is worse than
+# the bug." A cannot-verify bucket that quietly swallows real bad pins is the
+# warn-bucket-is-not-a-safe-bucket move -- the cut would go out on a pin that
+# does not exist, and the gate would report it as merely unchecked.
+#
+# Same fixture as (m) with ONE variable changed: the repo is readable, and the
+# commit lookup 404s. If (m) and (n) ever print the same verdict the probe has
+# stopped discriminating, which is exactly the failure being fixed here.
+# ===========================================================================
+reset_defaults; T1_PIN="$SHA_OLD"
+build_fixture
+OUT="$(run_gate FRESHNESS_ONLY="cm041/contact_syncer" 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] \
+   && printf '%s' "$OUT" | grep -q "RED unresolved" \
+   && printf '%s' "$OUT" | grep -q "the source repo IS readable" \
+   && ! printf '%s' "$OUT" | grep -q "CANNOT-VERIFY"; then
+    ok "(n) readable repo + absent SHA -> STILL exit 1 RED, not reclassified"
+else
+    bad "(n) absent-sha-still-red: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'
 fi
 
 echo
