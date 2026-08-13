@@ -1847,7 +1847,7 @@ deferrals:
     until_cut: "v1.0.20 -- arrives with the next cm041 re-pin, no separate action needed"
   - ref: "CM051:fix/v1018-d031-stderr-tail"
     reason: "v1018-D032, the dispatch stderr TAIL fix. Two genuinely unmerged commits (80ce018, ca65a11) confirmed by patch-id; the third on the branch, 5e4aa7e for D021, is already in main. PR #542 was CLOSED without merging, so this is real abandoned work and the gate is right to name it. DO NOT MERGE THIS BRANCH. Measured 2026-08-11: a two-dot diff against main is 66 files, 91 insertions, 8885 DELETIONS -- the branch predates a large amount of main and merging it would revert repair_placeholder_names.py (378 lines), gut pwg_ingest.py (252), processor.py (180) and enrichment_validation.py (155). A three-dot diff shows a plausible-looking 643 insertions and hides all of that, which is exactly how this would have been merged by mistake. The fix itself is good and wanted: it is logging-only, it changes the failure path of four vendor pipelines to keep the last 2000 chars of a child's stderr instead of the first 500, and it addresses the diagnosis failure behind the open 14.5h CM048 hang. It must be RE-CUT as a fresh branch off current main, not merged from here. Deferred for this cut on risk, not merit: landing new code in four shipped ingest pipelines during the cut that is finally reaching the signing stage is not a trade worth making for failure-path logging."
-    until_cut: "v1.0.24 -- re-cut off main first, the existing branch must be deleted not merged"
+    until_cut: "v1.0.27 -- re-cut off main first, the existing branch must be deleted not merged"
 
 
   # =========================================================================
@@ -1924,7 +1924,7 @@ deferrals:
       new scope, push through". Landing a 17-file identity change into a launch
       DMG hours before a box-walk is how the last two cuts went wrong. It also
       needs Archie's review, which it has not had.
-    until_cut: "v1.0.19"
+    until_cut: "v1.0.27"
 
   - ref: "CM041:#109"
     reason: >-
@@ -1932,7 +1932,7 @@ deferrals:
       Deferred for the same reason; kept open, not closed, because the work is
       wanted -- it is the fix for the "raw phone/email stays as a person's name
       forever" defect on the board.
-    until_cut: "v1.0.19"
+    until_cut: "v1.0.27"
 
   - ref: "CM051:fix/cut-freshness-selftest-release-mock"
     reason: >-
@@ -1943,7 +1943,7 @@ deferrals:
       DMG; landing a half-finished gate self-test mid-cut could only make the
       cut's own tooling less predictable. Tracked on the board as the
       "cut-freshness self-test: 2 dead controls" item, which is the real fix.
-    until_cut: "v1.0.19"
+    until_cut: "v1.0.27"
 
   - ref: "daemon:#287"
     reason: >-
@@ -1954,7 +1954,7 @@ deferrals:
       dropped 149 commits. Merging this changes nothing in the shipped artefact
       because the artefact is not built from main. Land it with the next daemon
       rebuild, alongside the Snyk bump (#285) already queued for that.
-    until_cut: "v1.0.19"
+    until_cut: "v1.0.27"
 
   - ref: "daemon:#286"
     reason: >-
@@ -1963,7 +1963,7 @@ deferrals:
       rebuilt in this cut, so this cannot reach the DMG either way. This one is
       a published advisory fix, so it is FIRST in the queue for the next daemon
       rebuild, not merely batched with it.
-    until_cut: "v1.0.19"
+    until_cut: "v1.0.27"
 
 # ---------------------------------------------------------------------------
 # PR AGE EXEMPTIONS (scripts/verify_pr_age.sh)
