@@ -137,6 +137,8 @@ jobs:
         run: /bin/bash tests/test_install_sh_prefers_bundled_python.sh
       - name: iMessage TCC posture probe + marker
         run: /bin/bash tests/test_imessage_tcc_posture.sh
+      - name: email folder is hardcoded and never the inbox
+        run: /bin/bash tests/test_email_folder_prompt.sh
 
   # v1018-D675 contract tests. Every one of these ran NOWHERE before this
   # workflow and every one was MEASURED passing on 2026-08-13 before being

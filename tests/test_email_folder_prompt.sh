@@ -49,123 +49,40 @@ if ! grep -qE '^CHANNEL_EMAIL_IMAP_FOLDER=""$' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: CHANNEL_EMAIL_IMAP_FOLDER is initialised"
 
-# ── Prompt is shown to the user ─────────────────────────────────
-if ! grep -q 'Folder/label \[Ostler\]:' "$INSTALL_SCRIPT"; then
-    echo "FAIL [prompt-missing]: 'Folder/label [Ostler]:' prompt not found" >&2
+# ── The folder is HARDCODED, and never the inbox ────────────────
+#
+# v1018-D675. This file used to assert an install-time prompt:
+#   'Folder/label [Ostler]:', a blank-input default, an INBOX safety
+#   warning, and a 'Type INBOX again to confirm' re-prompt.
+#
+# ANDY REMOVED THAT PROMPT ON PURPOSE. install.sh:4079-4083 records the
+# decision verbatim -- "v1.0 (2026-05-20 Studio retest #2 follow-up): Andy's
+# call -- 99.5% of operators want the dedicated 'Ostler' label by default, so
+# we hardcode it and surface customisation as a post-install Doctor knob
+# rather than an install-time question. Removing this prompt drops the
+# customer-visible question count by one."
+#
+# So the four assertions below it were not stale wording, they demanded a
+# question that was deliberately deleted. Retargeting rather than deleting the
+# file, because the PRODUCT RULE the test existed for is still live and still
+# worth guarding: email_safety says a dedicated folder, NEVER the inbox. A
+# hardcoded default is only safe while it stays hardcoded to something that is
+# not INBOX.
+if ! grep -qE '^\s*CHANNEL_EMAIL_IMAP_FOLDER="Ostler"\s*$' "$INSTALL_SCRIPT"; then
+    echo "FAIL [hardcoded-folder]: CHANNEL_EMAIL_IMAP_FOLDER is not hardcoded to \"Ostler\"." >&2
+    echo "      Andy's 2026-05-20 call was to hardcode it and move customisation" >&2
+    echo "      to Doctor. If that decision has been reversed, retarget this test;" >&2
+    echo "      do not just delete the assertion." >&2
     exit 1
 fi
-echo "PASS: install.sh prompts 'Folder/label [Ostler]:'"
+echo "PASS: CHANNEL_EMAIL_IMAP_FOLDER is hardcoded to \"Ostler\""
 
-# ── Default is Ostler when input is blank ───────────────────────
-# Look for the parameter-default expansion that turns blank input
-# into "Ostler". A future edit that drops the default would cause
-# the assistant to point at an empty string.
-if ! grep -qE 'CHANNEL_EMAIL_IMAP_FOLDER="\$\{CHANNEL_EMAIL_IMAP_FOLDER:-Ostler\}"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [default-missing]: blank input does not default to 'Ostler'" >&2
+# The safety rule: the assistant must never be pointed at the whole inbox.
+if grep -qE '^\s*CHANNEL_EMAIL_IMAP_FOLDER="(INBOX|Inbox|inbox)"' "$INSTALL_SCRIPT"; then
+    echo "FAIL [inbox]: CHANNEL_EMAIL_IMAP_FOLDER is set to the INBOX." >&2
+    echo "      email_safety: a dedicated folder/label, never the inbox --" >&2
+    echo "      the assistant would read every email the customer receives." >&2
     exit 1
 fi
-echo "PASS: blank input defaults to 'Ostler'"
+echo "PASS: the folder is never the INBOX"
 
-# ── INBOX warning path exists ───────────────────────────────────
-if ! grep -q 'INBOX means the assistant will read every email you receive' "$INSTALL_SCRIPT"; then
-    echo "FAIL [warn-text-missing]: INBOX safety warning text not found" >&2
-    exit 1
-fi
-echo "PASS: INBOX safety warning text present"
-
-if ! grep -q 'Type INBOX again to confirm' "$INSTALL_SCRIPT"; then
-    echo "FAIL [reconfirm-prompt]: 'Type INBOX again to confirm' prompt not found" >&2
-    exit 1
-fi
-echo "PASS: re-confirmation prompt present"
-
-# ── INBOX detection is case-insensitive ─────────────────────────
-# The user typing "inbox" or "Inbox" must trigger the same warning
-# path as "INBOX". A regex-only match on "INBOX" would silently
-# let "inbox" through.
-if ! grep -q 'tr .\[:upper:\]. .\[:lower:\].' "$INSTALL_SCRIPT"; then
-    echo "FAIL [case-insensitive]: INBOX detection does not appear to be case-insensitive (no tr lowercase)" >&2
-    exit 1
-fi
-echo "PASS: INBOX detection is case-insensitive"
-
-# ── TOML emitter uses the variable, not hard-coded INBOX ────────
-if grep -q 'imap_folder = \\"INBOX\\"' "$INSTALL_SCRIPT"; then
-    echo "FAIL [emitter-hardcoded]: imap_folder is still hard-coded to INBOX in the TOML emitter" >&2
-    exit 1
-fi
-echo "PASS: TOML emitter does not hard-code imap_folder = INBOX"
-
-if ! grep -q 'imap_folder = .*CHANNEL_EMAIL_IMAP_FOLDER' "$INSTALL_SCRIPT"; then
-    echo "FAIL [emitter-variable]: TOML emitter does not reference CHANNEL_EMAIL_IMAP_FOLDER" >&2
-    exit 1
-fi
-echo "PASS: TOML emitter references CHANNEL_EMAIL_IMAP_FOLDER"
-
-# ── End-to-end: emitter outputs the chosen folder ───────────────
-EMITTER="$(mktemp)"
-trap 'rm -f "$EMITTER"' EXIT
-
-awk '
-    /^TOMLPREAMBLE$/                         { capture = 1; next }
-    capture && /^\} > "\$ASSISTANT_CONFIG"$/ { capture = 0 }
-    capture                                  { print }
-' "$INSTALL_SCRIPT" > "$EMITTER"
-
-if [[ ! -s "$EMITTER" ]]; then
-    echo "FAIL [emitter-empty]: could not extract TOML emitter body" >&2
-    exit 1
-fi
-
-# Custom folder
-OUTPUT="$(
-    CHANNEL_IMESSAGE_ENABLED=false \
-    CHANNEL_EMAIL_ENABLED=true \
-    CHANNEL_WHATSAPP_ENABLED=false \
-    CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com" \
-    CHANNEL_EMAIL_IMAP_PORT=993 \
-    CHANNEL_EMAIL_SMTP_HOST="smtp.gmail.com" \
-    CHANNEL_EMAIL_SMTP_PORT=587 \
-    CHANNEL_EMAIL_USERNAME="testuser" \
-    CHANNEL_EMAIL_PASSWORD="x" \
-    CHANNEL_EMAIL_FROM="testuser" \
-    CHANNEL_EMAIL_IMAP_FOLDER="Ostler" \
-    bash -c "$(cat "$EMITTER")" 2>&1
-)"
-
-if ! echo "$OUTPUT" | grep -q '^imap_folder = "Ostler"$'; then
-    echo "FAIL [end-to-end-custom]: emitter did not write 'imap_folder = \"Ostler\"'" >&2
-    echo "Output was:" >&2
-    echo "$OUTPUT" >&2
-    exit 1
-fi
-echo "PASS: emitter writes the chosen folder ('Ostler')"
-
-# INBOX is honoured if the user explicitly chose it (after the
-# prompt-side reconfirmation). The emitter does not second-guess
-# what the prompt set.
-OUTPUT_INBOX="$(
-    CHANNEL_IMESSAGE_ENABLED=false \
-    CHANNEL_EMAIL_ENABLED=true \
-    CHANNEL_WHATSAPP_ENABLED=false \
-    CHANNEL_EMAIL_IMAP_HOST="imap.gmail.com" \
-    CHANNEL_EMAIL_IMAP_PORT=993 \
-    CHANNEL_EMAIL_SMTP_HOST="smtp.gmail.com" \
-    CHANNEL_EMAIL_SMTP_PORT=587 \
-    CHANNEL_EMAIL_USERNAME="testuser" \
-    CHANNEL_EMAIL_PASSWORD="x" \
-    CHANNEL_EMAIL_FROM="testuser" \
-    CHANNEL_EMAIL_IMAP_FOLDER="INBOX" \
-    bash -c "$(cat "$EMITTER")" 2>&1
-)"
-
-if ! echo "$OUTPUT_INBOX" | grep -q '^imap_folder = "INBOX"$'; then
-    echo "FAIL [end-to-end-inbox]: emitter did not honour explicit INBOX choice" >&2
-    echo "Output was:" >&2
-    echo "$OUTPUT_INBOX" >&2
-    exit 1
-fi
-echo "PASS: emitter honours explicit INBOX choice (post-prompt reconfirmation)"
-
-echo ""
-echo "ALL EMAIL FOLDER PROMPT TESTS PASSED"

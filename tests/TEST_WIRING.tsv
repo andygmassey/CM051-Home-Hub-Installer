@@ -157,7 +157,7 @@ test_dmg_contains_bundled_python.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/test-wiring.yml
-test_email_folder_prompt.sh	UNCLASSIFIED	NOT the i18n cause (checked): no MSG_* key matches 'Folder/label [Ostler]:'; the FOLDER keys that exist are MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE / _PREWARM_* / MSG_OK_EMAIL_CHANNEL_FOLDER. install.sh:7963 mentions Folder/label only in a comment. Either the prompt was removed or it is rendered from a key with a different name -- read the email-channel question block before ruling.
+test_email_folder_prompt.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_venv_wired.sh	WIRED	.github/workflows/test-wiring.yml
