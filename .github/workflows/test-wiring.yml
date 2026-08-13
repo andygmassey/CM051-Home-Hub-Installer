@@ -107,6 +107,14 @@ jobs:
       - name: store-proxy Host/Origin allowlist
         run: /bin/bash tests/test_v1010_store_front_proxy.sh
 
+      # Retargeted onto _INGEST_DISPATCH (v1018-D675). Both were phantom
+      # failures: the writers were registered all along, the tests were
+      # grepping ingest_all's body after dispatch moved to a table.
+      - name: bookmarks ingester is dispatched
+        run: /bin/bash tests/test_bookmarks_ingest_wired.sh
+      - name: social ingester is dispatched
+        run: /bin/bash tests/test_social_ingest_wired.sh
+
   # v1018-D675 contract tests. Every one of these ran NOWHERE before this
   # workflow and every one was MEASURED passing on 2026-08-13 before being
   # listed here -- no test is wired on the assumption that it works.

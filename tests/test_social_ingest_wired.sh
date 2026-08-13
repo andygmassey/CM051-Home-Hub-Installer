@@ -28,13 +28,23 @@ if ! grep -qE "^def ingest_social" "$VENDORED"; then
 fi
 echo "vendor check: ingest_social defined in vendored pwg_ingest"
 
-# 2. The vendored module must register ingest_social in ingest_all so a
-#    bare `ingest_all` run (the email-ingest tick) also populates Social.
-if ! grep -q '("social", ingest_social)' "$VENDORED"; then
-    echo "FAIL: $VENDORED ingest_all does not register ingest_social" >&2
+# 2. The vendored module must register ingest_social for dispatch so a bare
+#    `ingest_all` run (the email-ingest tick) also populates Social.
+#
+# v1018-D675: see the matching note in test_bookmarks_ingest_wired.sh.
+# Registration moved to the module-level _INGEST_DISPATCH table, whose
+# entries are STRING names resolved with getattr, so ("social", ingest_social)
+# became ("social", "ingest_social"). The writer was registered throughout;
+# the test had never run, so the phantom failure went unseen.
+if ! grep -q '^_INGEST_DISPATCH = (' "$VENDORED"; then
+    echo "FAIL: $VENDORED has no _INGEST_DISPATCH table -- the dispatch mechanism moved; this test needs retargeting, the writer is probably fine" >&2
     exit 1
 fi
-echo "vendor check: ingest_social registered in ingest_all"
+if ! grep -Eq '\("social",[[:space:]]*"?ingest_social"?\)' "$VENDORED"; then
+    echo "FAIL: $VENDORED _INGEST_DISPATCH does not register ingest_social" >&2
+    exit 1
+fi
+echo "vendor check: ingest_social registered in _INGEST_DISPATCH"
 
 # 3. install.sh must actually import + call it (no ship-dark).
 if ! grep -q "ingest_social" "$INSTALL"; then

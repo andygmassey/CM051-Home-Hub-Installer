@@ -30,14 +30,31 @@ if ! grep -qE "^def ingest_bookmarks" "$VENDORED"; then
 fi
 echo "vendor check: ingest_bookmarks defined in vendored pwg_ingest"
 
-# 2. The vendored module must register ingest_bookmarks in ingest_all so
-#    a bare `ingest_all` run (the email-ingest tick) also populates the
+# 2. The vendored module must register ingest_bookmarks for dispatch so a
+#    bare `ingest_all` run (the email-ingest tick) also populates the
 #    Reading page on later runs.
-if ! grep -q '("bookmarks", ingest_bookmarks)' "$VENDORED"; then
-    echo "FAIL: $VENDORED ingest_all does not register ingest_bookmarks" >&2
+#
+# v1018-D675: this used to grep for ("bookmarks", ingest_bookmarks) inside
+# ingest_all. Registration moved to the module-level _INGEST_DISPATCH table,
+# whose entries are STRING names resolved with getattr -- so the pair is now
+# ("bookmarks", "ingest_bookmarks") and the old literal stopped matching.
+# The writer WAS registered the whole time; the test was reading the right
+# file on the wrong axis, and it had never run, so nobody found out. The
+# pattern below tolerates either quoting so the next refactor of that detail
+# does not produce another phantom failure.
+#
+# Guard the table itself first: if _INGEST_DISPATCH is renamed, say THAT
+# rather than reporting an unregistered writer, which would send the next
+# reader hunting a bug that is not there.
+if ! grep -q '^_INGEST_DISPATCH = (' "$VENDORED"; then
+    echo "FAIL: $VENDORED has no _INGEST_DISPATCH table -- the dispatch mechanism moved; this test needs retargeting, the writer is probably fine" >&2
     exit 1
 fi
-echo "vendor check: ingest_bookmarks registered in ingest_all"
+if ! grep -Eq '\("bookmarks",[[:space:]]*"?ingest_bookmarks"?\)' "$VENDORED"; then
+    echo "FAIL: $VENDORED _INGEST_DISPATCH does not register ingest_bookmarks" >&2
+    exit 1
+fi
+echo "vendor check: ingest_bookmarks registered in _INGEST_DISPATCH"
 
 # 3. install.sh must actually import + call it (no ship-dark).
 if ! grep -q "ingest_bookmarks" "$INSTALL"; then

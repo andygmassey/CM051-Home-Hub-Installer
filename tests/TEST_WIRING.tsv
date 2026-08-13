@@ -120,7 +120,7 @@ test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/test-wiring.
 test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_assistant_identity_belt.sh	WIRED	.github/workflows/test-wiring.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/test-wiring.yml
-test_bookmarks_ingest_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: vendor/ostler_fda/pwg_ingest.py ingest_all does not register ing
+test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/test-wiring.yml
 test_brew_install_fail_loud.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: 2 silent-bail axis violation(s) in install.sh.
 test_browsing_ingest_ensures_collection.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'nameparser'
@@ -209,7 +209,7 @@ test_preferences_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_resolver_robustness.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'rapidfuzz'
 test_resource_tier_governor.sh	WIRED	.github/workflows/test-wiring.yml
 test_settling_progress_writer.sh	WIRED	.github/workflows/test-wiring.yml
-test_social_ingest_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: vendor/ostler_fda/pwg_ingest.py ingest_all does not register ing
+test_social_ingest_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_subscription_activation_path.sh	WIRED	.github/workflows/test-wiring.yml
 test_sync_vendor_pin_untouched_on_abort.sh	WIRED	.github/workflows/test-wiring.yml
 test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/test-wiring.yml
