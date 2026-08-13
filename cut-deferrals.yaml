@@ -59,6 +59,36 @@ pr_exemptions:
     review_by: "2026-08-20"
 
 deferrals:
+  # -------------------------------------------------------------------------
+  # ADDED 2026-08-13 for the v1.0.26 cut. The orphan gate named exactly three
+  # RED refs -- #621, #622, #623 -- all open PRs with work not in main.
+  #
+  # #623 was mine, CLEAN and green, so it was MERGED rather than deferred.
+  # Unmerged equals not shipped, and merging is always the preferred answer.
+  # These two cannot be, and the reasons are specific rather than "not now".
+  # -------------------------------------------------------------------------
+  - ref: "CM051:#621"
+    reason: >-
+      Wires the orphan gate's three proof scripts into CI. I have an OPEN
+      BLOCKING FINDING on it, re-measured at the branch head today: the proofs
+      sit in preflight (ubuntu-latest, bash 5.x) while make ship and the gate
+      itself run in cut (macos-14, /bin/bash 3.2). The 3.2-only parse failure
+      this PR exists to fix would still pass that step, so merging it would land
+      a proof that cannot see its own defect. The fix is a move, not a rewrite.
+      Deferred until the proofs run on the runner they certify.
+    until_cut: "v1.0.27"
+  - ref: "CM051:#622"
+    reason: >-
+      The test-wiring manifest and gate for #675 (131 of 171 test files ran in
+      no workflow). Genuinely wanted and actively in flight: 163 of 172 wired
+      with nine left, and two of the nine turned out to be real product defects
+      rather than test rot (#679 daily briefs gated on iMessage, #680 calendar
+      Person nodes written with zero identifier triples). contract-tests and
+      wiring were both RED at the head I read. Deferred on state, not merit: a
+      moving branch with red checks must not land in the cut that is finally
+      reaching the signing stage.
+    until_cut: "v1.0.27"
+
 
   # ==========================================================================
   # v1.0.16 LAUNCH CANDIDATE -- 2026-08-07
