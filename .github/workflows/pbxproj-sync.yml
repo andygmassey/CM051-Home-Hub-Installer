@@ -53,10 +53,68 @@ permissions:
 
 jobs:
   pbxproj-sync:
-    runs-on: macos-14
+    # macos-14 carries Xcode 15.4 and the pin is 26.6, so every run on that
+    # image reported UNAVAILABLE and the gate never once executed. Measured on
+    # run 31618148018. The image label is chosen to be able to satisfy the pin;
+    # whether it actually does is asserted below rather than assumed, because
+    # the runner-images catalogue is not a contract and the label to image
+    # mapping has changed under us before.
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # The gate compares bytes, and xcodegen reads its default build settings
+      # from the SELECTED Xcode, so the selection is an input to the comparison
+      # and has to be explicit. Leaving it to the image default is how this
+      # gate came to run on 15.4 against a 26.6 pin.
+      #
+      # If the pinned Xcode is absent this FAILS and prints every version that
+      # is present. It must never fall back to whatever is default: that is the
+      # silent wrong-toolchain run this whole file exists to prevent, and the
+      # enumeration is what makes the next failure diagnosable in one read.
+      - name: Select the pinned Xcode
+        run: |
+          set -euo pipefail
+          PIN="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
+                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          [ -n "$PIN" ] || { echo "::error::gui/.xcode-version is empty" >&2; exit 1; }
+          echo "pinned Xcode: $PIN"
+
+          FOUND=""
+          echo "installed Xcodes on this runner:"
+          for APP in /Applications/Xcode*.app; do
+            [ -d "$APP" ] || continue
+            V="$(/usr/bin/defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo '?')"
+            echo "  $V  $APP"
+            if [ "$V" = "$PIN" ] && [ -z "$FOUND" ]; then
+              FOUND="$APP"
+            fi
+          done
+
+          if [ -z "$FOUND" ]; then
+            echo "::error::no Xcode $PIN on this runner. Listed above are the ones that ARE here." >&2
+            echo "::error::Either move to an image that carries $PIN, or bump gui/.xcode-version AND commit the regenerated pbxproj in the same change." >&2
+            exit 1
+          fi
+
+          echo "DEVELOPER_DIR=$FOUND/Contents/Developer" >> "$GITHUB_ENV"
+          echo "selected: $FOUND"
+
+      - name: Assert the selection took effect
+        # Setting DEVELOPER_DIR and assuming it applied is the same class of
+        # error as the one above, one layer down. Read it back from the tool
+        # that will actually be used.
+        run: |
+          set -euo pipefail
+          PIN="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
+                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          GOT="$(xcodebuild -version | head -1 | awk '{print $2}')"
+          echo "xcodebuild reports: $GOT   (pin: $PIN)"
+          [ "$GOT" = "$PIN" ] || {
+            echo "::error::DEVELOPER_DIR did not take: xcodebuild is $GOT, pin is $PIN" >&2
+            exit 1
+          }
 
       # Pinned, not `brew install xcodegen`. The gate's comparison is
       # byte-exact, so brew's floating latest would eventually emit different
