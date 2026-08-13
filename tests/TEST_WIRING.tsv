@@ -77,6 +77,30 @@
 #     Rule earned: a row may only be retired against the code that implements
 #     it, never against prose describing a different phase of it.
 
+# WIRED MEANS "RUNS", NOT "PASSES" -- and 3 rows are RED in CI (2026-08-13).
+#
+# This gate measures whether a runner exists, which is the defect it was built
+# for. It says nothing about the verdict. Three WIRED rows pass on this Mac and
+# FAIL on macos-26:
+#
+#     test_composite_cleanup.sh
+#     test_context_refresh_wired.sh
+#     test_governor_pause_throttle.sh
+#
+# Local green is not evidence for them. They are recorded here rather than in a
+# side note because a red test nobody has written down is one release from
+# being assumed green.
+#
+# Two of those three were INVISIBLE until v1018-D683. GitHub Actions stops a
+# job at its first failing step, so the first run of this suite reported ONE
+# failure and silently skipped 71 further steps (measured: 1 failure, 20
+# success, 71 skipped on run 31676437879). A row saying WIRED asserted the test
+# runs on every PR; in a fail-fast job it ran only until something ahead of it
+# went red. Every test step now carries `if: always()`, and the same suite then
+# reported 3 failures against 89 passes with nothing skipped. "Wired into CI"
+# and "runs in CI" are different claims -- count EXECUTED steps in a real run,
+# never read the workflow file and infer.
+
 # ---- WIRED -- runner MEASURED on every gate run, never trusted ----
 # No count here on purpose: a hand-maintained total in a comment rots in
 # the same direction as everything else this file records. Run
