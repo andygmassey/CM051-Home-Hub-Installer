@@ -61,6 +61,32 @@ jobs:
       - name: Vendored rollforward gate matches its OS003 pin
         run: ./tests/test_rollforward_registry_pin.sh
 
+      # The orphan gate is the reason the v1.0.15 box-walk findings cannot
+      # recur: it fails the cut when a fix EXISTS but is not in it. It runs
+      # from gui/Makefile:989 inside `make ship`, so it IS enforced.
+      #
+      # Its THREE proof scripts were not. Measured 2026-08-13 with controls:
+      #
+      #   orphan_gate_selftest.sh            .github=0  Makefile=0
+      #   test_no_orphaned_fixes_gate.sh     .github=0  Makefile=0
+      #   test_orphan_gate_cannot_verify.sh  .github=0  Makefile=0
+      #   test_rollforward_registry_pin.sh   .github=1   <- control
+      #   test_pbxproj_sync_gate.sh          .github=2   <- control
+      #
+      # So the gate ran and nothing checked that it still FIRES. A gate can go
+      # quiet without going missing -- a swallowed error, a ref that stops
+      # matching, an env var that skips every repo -- and the failure mode is
+      # silent: `make ship` keeps passing and the cut keeps shipping orphaned
+      # fixes, which is exactly the state the gate was written to end.
+      #
+      # These run BEFORE the gate is relied on, and cost ~4s combined.
+      - name: Orphan gate still FIRES (self-test + both harnesses)
+        run: |
+          set -euo pipefail
+          ./scripts/orphan_gate_selftest.sh
+          ./tests/test_no_orphaned_fixes_gate.sh
+          ./tests/test_orphan_gate_cannot_verify.sh
+
       - name: Rollforward claims -- no row may claim a fix with no gate
         run: |
           set -euo pipefail
@@ -283,6 +309,37 @@ jobs:
             --key-id "$NOTARY_KEY_ID" \
             --issuer "$NOTARY_ISSUER"
           rm -f "$RUNNER_TEMP/notary.p8"
+
+      # ── v1018-D621: the proofs must run on the SHELL THAT SHIPS ─────
+      #
+      # The same three scripts run in `preflight` on ubuntu-latest. That copy
+      # is kept as a fast-fail -- it costs seconds and catches ordinary
+      # breakage before a macOS runner is spent. But it CANNOT catch the
+      # defect this PR exists to fix.
+      #
+      # Measured 2026-08-13 on the pre-fix blob (main 08476b6):
+      #     bash 5.3.15 -n  ->  PARSES
+      #     bash 3.2.57 -n  ->  FAILS, line 175, unexpected EOF looking for `'`
+      #
+      # ubuntu-latest ships bash 5.x. /bin/bash on this macOS runner, and on
+      # the cut machine, is 3.2 -- which tracks quoting THROUGH $( ) and does
+      # not stop at `#`. So a proof that only ever ran on ubuntu would have
+      # gone green on a file that cannot execute where it ships. The gate
+      # would have been present, passing, and blind.
+      #
+      # Placed BEFORE `make ship` deliberately: after the build, a failure
+      # here costs a full archive and still lets the artefact exist. The
+      # orphan gate's own harnesses have to be proven working before the
+      # build they are supposed to guard.
+      - name: Orphan gate still FIRES (3 proofs, on /bin/bash 3.2)
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n ./scripts/orphan_gate_selftest.sh
+          /bin/bash -n ./tests/test_no_orphaned_fixes_gate.sh
+          /bin/bash -n ./tests/test_orphan_gate_cannot_verify.sh
+          ./scripts/orphan_gate_selftest.sh
+          ./tests/test_no_orphaned_fixes_gate.sh
+          ./tests/test_orphan_gate_cannot_verify.sh
 
       - name: Build, sign, notarise, staple
         env:

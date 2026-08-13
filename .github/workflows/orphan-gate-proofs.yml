@@ -1,0 +1,125 @@
+name: orphan-gate-proofs
+
+# Runs the orphan gate's three proof scripts ON PULL REQUESTS.
+#
+# WHY THIS EXISTS SEPARATELY FROM cut.yml
+#
+# cut.yml triggers ONLY on `v1.0.*` tags. Wiring the proof scripts there (which
+# this repo now also does, in preflight) means they first execute DURING a cut.
+# That is the worst moment to discover that a proof script is broken: the tag is
+# already pushed, and the choice becomes "debug the harness now" or "cut without
+# the evidence". Neither is a good option at that point.
+#
+# So the same three scripts also run here, on any PR that touches them or the
+# gate they prove. Breakage surfaces while it is still cheap.
+#
+# WHAT THEY PROVE, and why it is worth two workflows:
+#
+# scripts/verify_no_orphaned_fixes.sh fails the cut when a FIX EXISTS but is not
+# in it. It was written after the v1.0.15 box-walk (2026-08-06) found nine
+# defects of which SIX were already fixed and had simply never reached main.
+# The gate is enforced from gui/Makefile:989 inside `make ship`. Until
+# 2026-08-13 NONE of its three proof scripts ran anywhere -- measured 0
+# references against controls at 1 and 2. A gate can go quiet without going
+# missing, and the failure is silent.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_no_orphaned_fixes.sh'
+      - 'scripts/orphan_gate_selftest.sh'
+      - 'tests/test_no_orphaned_fixes_gate.sh'
+      - 'tests/test_orphan_gate_cannot_verify.sh'
+      # A proof must re-run when the thing that INVOKES the gate changes: a
+      # Makefile edit can unhook it without touching the gate itself.
+      - 'gui/Makefile'
+      # And when this workflow changes, or it could be quietly narrowed in a PR
+      # that never runs it.
+      - '.github/workflows/orphan-gate-proofs.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  proofs:
+    # macOS to match the cut machine. These are bash + git only, but the gate
+    # they exercise is invoked from a macOS build, and a proof that passes on a
+    # different platform from the thing it proves is a weaker claim than it looks.
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The gate reasons about branches and merge-bases. A shallow clone
+          # would make it answer a question about a history it cannot see.
+          fetch-depth: 0
+
+      - name: Gate is present and executable
+        # If the gate itself is missing, the proofs below would exercise
+        # nothing and could still print green.
+        run: |
+          set -euo pipefail
+          for f in scripts/verify_no_orphaned_fixes.sh \
+                   scripts/orphan_gate_selftest.sh \
+                   tests/test_no_orphaned_fixes_gate.sh \
+                   tests/test_orphan_gate_cannot_verify.sh; do
+            [ -x "$f" ] || { echo "::error::$f missing or not executable" >&2; exit 1; }
+            echo "  ok $f"
+          done
+
+      - name: Gate is still INVOKED by the build
+        # The proofs show the gate works. This shows something still calls it.
+        # Both are needed: a working gate nobody runs is the state this whole
+        # workflow exists to make visible.
+        run: |
+          set -euo pipefail
+          n="$(grep -cF 'verify_no_orphaned_fixes.sh' gui/Makefile || true)"
+          if [ "${n:-0}" -lt 1 ]; then
+            echo "::error::gui/Makefile no longer invokes verify_no_orphaned_fixes.sh." >&2
+            echo "The gate is unhooked. It cannot fail a cut it never runs in." >&2
+            exit 1
+          fi
+          echo "  gui/Makefile invokes the gate ($n reference(s))"
+
+      # Parse under /bin/bash EXPLICITLY, which on macOS is bash 3.2.
+      #
+      # These scripts run via `#!/usr/bin/env bash`, so the shell they get is
+      # whatever is first on PATH. In a dev shell that is often homebrew bash
+      # 5.x; on a stock Mac and on this runner it is /bin/bash 3.2. The two do
+      # not agree: bash 3.2 tracks quoting THROUGH a command substitution and
+      # does not stop at a hash, so one apostrophe in a comment inside $( )
+      # makes the whole file unparseable -- while 5.x parses it fine.
+      #
+      # test_orphan_gate_cannot_verify.sh shipped in exactly that state and was
+      # found by this workflow on its first run, 2026-08-13: GREEN locally under
+      # 5.3, exit 2 on the runner under 3.2. A syntax error is not a test
+      # failure, it is the test never running, so it must be caught as its own
+      # thing rather than as a mysterious rc=2 in the middle of a suite.
+      - name: Every proof parses under /bin/bash (3.2 on macOS)
+        run: |
+          set -euo pipefail
+          echo "  /bin/bash is: $(/bin/bash --version | head -1)"
+          for f in scripts/verify_no_orphaned_fixes.sh \
+                   scripts/orphan_gate_selftest.sh \
+                   tests/test_no_orphaned_fixes_gate.sh \
+                   tests/test_orphan_gate_cannot_verify.sh; do
+            if /bin/bash -n "$f"; then
+              echo "  ok $f"
+            else
+              echo "::error::$f does not PARSE under /bin/bash (bash 3.2)." >&2
+              echo "A script that cannot parse never runs. Common cause: an" >&2
+              echo "apostrophe or backtick in a comment inside a \$( ) block." >&2
+              exit 1
+            fi
+          done
+
+      - name: Orphan gate self-test
+        run: ./scripts/orphan_gate_selftest.sh
+
+      - name: Orphan gate harness
+        run: ./tests/test_no_orphaned_fixes_gate.sh
+
+      - name: Orphan gate cannot-verify semantics
+        run: ./tests/test_orphan_gate_cannot_verify.sh
