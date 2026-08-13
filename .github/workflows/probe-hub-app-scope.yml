@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# TEMPORARY MEASUREMENT. Delete this file once the answer is recorded.
+#
+# The question: can CM051_RELEASES_READ read ostler-ai/ostler-assistant?
+#
+# gui/Makefile's own comment says the token is "fine-grained and scoped to
+# ostler-ai/ostler-releases with Contents:Read only". That is a COMMENT, which
+# is a claim about a credential, not a measurement of one. The hub app tarball
+# exists ONLY on the private ostler-assistant release, so the whole cut wire
+# turns on whether that claim is currently true.
+#
+# Guessing wrong costs a tag push and a failed cut. This costs one run.
+#
+# push-triggered, not workflow_dispatch: dispatch only works for workflows
+# already on the default branch, and this one deliberately never lands there.
+#
+# NO TOKEN VALUE IS EVER PRINTED. Only the outcome of the read.
+# ---------------------------------------------------------------------------
+name: probe-hub-app-token
+
+on:
+  push:
+    branches:
+      - 'probe/**'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Can the cut's token read each repo?
+        env:
+          RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${RELEASES_TOKEN:-}" ]; then
+            echo "CANNOT RUN: CM051_RELEASES_READ is not set in this repo." >&2
+            echo "That is itself the answer, but it is a different answer." >&2
+            exit 2
+          fi
+
+          probe() {
+            repo="$1"; want="$2"
+            out="$(GH_TOKEN="$RELEASES_TOKEN" gh release view hub-v0.4.55 \
+                     --repo "$repo" --json assets \
+                     --jq '.assets[].name' 2>&1)" && rc=0 || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "READ OK    $repo"
+              echo "$out" | sed 's/^/             /'
+            else
+              echo "READ FAIL  $repo  (rc=$rc)"
+              echo "$out" | sed 's/^/             /'
+            fi
+            echo "           expectation was: $want"
+            echo
+          }
+
+          # POSITIVE CONTROL FIRST. If the public repo also fails, the token is
+          # expired or absent and the private-repo result says nothing about
+          # scope. A probe whose control fails has not measured anything.
+          probe ostler-ai/ostler-releases  "READ OK -- this is the documented scope"
+          probe ostler-ai/ostler-assistant "unknown -- THIS is the question"
+
+          echo "Read the control line before the answer line."
