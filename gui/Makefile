@@ -381,7 +381,16 @@ check-version:
 # ---------------------------------------------------------------------------
 check-pbxproj-sync:
 	$(STEP) "Xcode project-sync preflight (pbxproj == xcodegen(project.yml))"
-	@bash "$(CURDIR)/../scripts/verify_pbxproj_in_sync.sh" || { \
+	@rc=0; bash "$(CURDIR)/../scripts/verify_pbxproj_in_sync.sh" || rc=$$?; \
+	if [ "$$rc" -eq 2 ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: the project-sync gate COULD NOT RUN. It has NOT found the" >&2; \
+	    echo "       project to be in sync -- it failed to look. See the reason" >&2; \
+	    echo "       printed above (usually: xcodegen absent, or a version other" >&2; \
+	    echo "       than the pin in gui/.xcodegen-version)." >&2; \
+	    echo "       Install the pinned xcodegen and re-run. DO NOT SHIP." >&2; \
+	    exit 2; \
+	elif [ "$$rc" -ne 0 ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: the tracked Xcode project does not match gui/project.yml." >&2; \
 	    echo "       xcodebuild builds the pbxproj, so anything project.yml adds" >&2; \
@@ -389,7 +398,7 @@ check-pbxproj-sync:
 	    echo "       Fix:  cd gui && xcodegen generate && git add -A && commit" >&2; \
 	    echo "       DO NOT SHIP." >&2; \
 	    exit 1; \
-	}
+	fi
 
 # ---------------------------------------------------------------------------
 # Debug build – fast, ad-hoc signed, opens the .app
