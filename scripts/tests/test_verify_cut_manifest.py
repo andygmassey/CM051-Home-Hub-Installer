@@ -1195,7 +1195,27 @@ def test_freshness_fail_when_source_repo_unreachable_is_not_silent_pass(tmp_path
     assert "connection reset" in result.detail
 
 
-def test_freshness_fail_when_missing_token(tmp_path):
+def test_freshness_SKIPS_when_missing_token(tmp_path, monkeypatch):
+    """No credential is CANNOT-RUN, not a stale artefact.
+
+    This test previously asserted FAIL, and that assertion was the defect
+    rather than the guard. Measured on the v1.0.26 cut: with no ostler-ai
+    token on the runner, the row rendered as
+
+        FAIL  permanent-daemon-freshness
+              pinned daemon tarball must contain all merged crates/* changes
+              could not resolve gh token for owner 'ostler-ai'
+
+    -- a headline asserting the daemon is stale, sitting above a detail saying
+    the checker could not log in. Only one of those was true, and the false one
+    is the one a reader acts on. Every CI cut that reached this row hit it.
+
+    The token env vars are cleared explicitly: the fallback added alongside
+    this change reads OSTLER_RELEASES_TOKEN, so a developer with it exported
+    would otherwise see this test pass for the wrong reason.
+    """
+    monkeypatch.delenv("OSTLER_RELEASES_TOKEN", raising=False)
+    monkeypatch.delenv("OSTLER_GH_TOKEN_OSTLER_AI", raising=False)
     cm051 = tmp_path / "cm051"
     cm051.mkdir()
     _write_daemon_pin_makefile(cm051, "0.4.39")
@@ -1204,8 +1224,29 @@ def test_freshness_fail_when_missing_token(tmp_path):
     fake.install(mod)
     result = mod.check_pinned_artefact_freshness(_daemon_entry(),
                                                  {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
-    assert result.status == "FAIL"
+    assert result.status == "SKIP", (
+        "a missing credential must not be reported as a stale artefact")
+    assert "NOT CHECKED" in result.detail
+    assert "not evaluated either way" in result.detail
+    # Both remedies named: CI and operator. A cannot-run that does not say how
+    # to make it runnable is only half an honest answer.
+    assert "OSTLER_RELEASES_TOKEN" in result.detail
     assert "gh auth login --user ostler-ai" in result.detail
+
+
+def test_freshness_RUNS_when_token_comes_from_the_environment(tmp_path, monkeypatch):
+    """The env fallback is why this gate can work in CI at all.
+
+    Without it _gh_token_for resolves only via `gh auth token --user`, which
+    needs a human-logged account and therefore never resolves on a runner.
+    """
+    monkeypatch.setenv("OSTLER_RELEASES_TOKEN", "test-token-not-a-real-secret")
+    mod = _load_module()
+    assert mod._gh_token_for("ostler-ai") == "test-token-not-a-real-secret"
+    # CONTROL: the fallback is scoped to the owner it was issued for, so an
+    # unrelated owner must NOT silently borrow it.
+    monkeypatch.delenv("OSTLER_GH_TOKEN_SOME_OTHER_OWNER", raising=False)
+    assert mod._gh_token_for("some-other-owner") != "test-token-not-a-real-secret"
 
 
 def test_freshness_fail_when_pin_source_missing(tmp_path):
