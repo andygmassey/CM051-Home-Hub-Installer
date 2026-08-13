@@ -26,6 +26,16 @@ the real block from install.sh at run time, so the thing under test is the
 thing that ships. `test_the_extraction_found_real_code` guards the extraction
 itself, because an extractor that silently returned "" would make every case
 below pass by running nothing.
+
+WHY STDLIB unittest AND NOT pytest
+
+The `contract` workflow runs on a bare hosted runner with no pip install step,
+so `python3 -m pytest` there fails with "No module named pytest" BEFORE a
+single assertion executes. That is the worst failure mode for a security test:
+the gate is wired, the step is red for an infrastructure reason, and the
+temptation is to read the red as noise. Every other suite in this repo is
+invoked as `python3 -m unittest tests.<module> -v`; this one matches, so the
+gate depends on nothing that has to be fetched over the network.
 """
 from __future__ import annotations
 
@@ -33,9 +43,8 @@ import json
 import re
 import subprocess
 import sys
+import unittest
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO_ROOT / "install.sh"
@@ -73,21 +82,6 @@ def _run(stdin_text: str) -> str:
     return p.stdout.strip()
 
 
-def test_the_extraction_found_real_code():
-    """Without this, an empty PARSER would make every case below vacuously pass."""
-    assert PARSER, (
-        "could not extract the owner parser from install.sh -- the anchors "
-        "changed. Every test in this file would otherwise pass by running an "
-        "empty program."
-    )
-    assert "LoginName" in PARSER, "extracted block does not look like the owner parser"
-    assert "tagged-devices" in PARSER, (
-        "extracted block has no tagged-devices guard; either the wrong block "
-        "was captured or the fail-closed rule was removed"
-    )
-    assert len(PARSER.splitlines()) >= 8, f"suspiciously short: {PARSER!r}"
-
-
 def _status(uid=1, users=None, self_extra=None):
     self_obj = {"UserID": uid}
     if self_extra:
@@ -95,29 +89,10 @@ def _status(uid=1, users=None, self_extra=None):
     return json.dumps({"Self": self_obj, "User": users if users is not None else {}})
 
 
-# --------------------------------------------------------------------------
-# The ONE case that must return a login. Empty here = the wiki is never
-# served off-box, so a false negative is a real (if safe) regression.
-# --------------------------------------------------------------------------
-def test_resolves_the_owner_login():
-    out = _run(_status(uid=42, users={"42": {"LoginName": "person@example.com"}}))
-    assert out == "person@example.com"
-
-
-def test_uid_is_looked_up_as_a_string_key():
-    """Tailscale's User map is keyed by STRING uid while Self.UserID is an int.
-
-    If the lookup ever stops coercing, this silently returns empty and the
-    wiki quietly stops being served -- a failure with no error message.
-    """
-    assert _run(_status(uid=7, users={"7": {"LoginName": "a@b.example"}})) == "a@b.example"
-
-
-# --------------------------------------------------------------------------
-# Everything below MUST be empty. A non-empty answer here writes an nginx gate
-# that admits an identity, so these are the security-relevant cases.
-# --------------------------------------------------------------------------
-@pytest.mark.parametrize("label,payload", [
+# Everything in this list MUST resolve to empty. A non-empty answer here writes
+# an nginx gate that admits an identity, so these are the security-relevant
+# cases. Built at module scope so the table stays readable as a table.
+FAIL_CLOSED_CASES = [
     ("tagged node (no human owner)",
      _status(uid=1, users={"1": {"LoginName": "tagged-devices"}})),
     ("tagged node with suffix",
@@ -135,45 +110,95 @@ def test_uid_is_looked_up_as_a_string_key():
     ("JSON is a string",         '"hello"'),
     ("JSON is null",             "null"),
     ("User is not a dict",       json.dumps({"Self": {"UserID": 1}, "User": []})),
-])
-def test_returns_empty_and_fails_closed(label, payload):
-    out = _run(payload)
-    assert out == "", (
-        f"{label}: parser returned {out!r}. A non-empty owner writes an nginx "
-        f"gate that admits that identity, so anything ambiguous must be empty."
-    )
+]
 
 
-def test_never_crashes_the_installer():
-    """The call site is inside a command substitution during install.
+class TailnetOwnerParserTests(unittest.TestCase):
 
-    An uncaught traceback on stderr would land in the customer's install log
-    looking like a failure even though `|| true` swallows the status.
-    """
-    for payload in ("{not json", "", "[]", "null"):
-        p = subprocess.run([sys.executable, "-c", PARSER],
-                           input=payload, capture_output=True, text=True)
-        assert "Traceback" not in p.stderr, (
-            f"parser raised on {payload!r}:\n{p.stderr}"
+    def test_the_extraction_found_real_code(self):
+        """Without this, an empty PARSER would make every case below vacuously pass."""
+        self.assertTrue(PARSER, (
+            "could not extract the owner parser from install.sh -- the anchors "
+            "changed. Every test in this file would otherwise pass by running an "
+            "empty program."
+        ))
+        self.assertIn("LoginName", PARSER,
+                      "extracted block does not look like the owner parser")
+        self.assertIn("tagged-devices", PARSER, (
+            "extracted block has no tagged-devices guard; either the wrong block "
+            "was captured or the fail-closed rule was removed"
+        ))
+        self.assertGreaterEqual(len(PARSER.splitlines()), 8,
+                                f"suspiciously short: {PARSER!r}")
+
+    # ----------------------------------------------------------------------
+    # The ONE case that must return a login. Empty here = the wiki is never
+    # served off-box, so a false negative is a real (if safe) regression.
+    # ----------------------------------------------------------------------
+    def test_resolves_the_owner_login(self):
+        out = _run(_status(uid=42, users={"42": {"LoginName": "person@example.com"}}))
+        self.assertEqual(out, "person@example.com")
+
+    def test_uid_is_looked_up_as_a_string_key(self):
+        """Tailscale's User map is keyed by STRING uid while Self.UserID is an int.
+
+        If the lookup ever stops coercing, this silently returns empty and the
+        wiki quietly stops being served -- a failure with no error message.
+        """
+        self.assertEqual(
+            _run(_status(uid=7, users={"7": {"LoginName": "a@b.example"}})),
+            "a@b.example",
         )
 
+    # ----------------------------------------------------------------------
+    # subTest so ONE red case does not mask the fourteen after it. A plain
+    # loop would stop at the first failure and report a single defect where
+    # there might be several, which is how a partial fix reads as a full one.
+    # ----------------------------------------------------------------------
+    def test_returns_empty_and_fails_closed(self):
+        for label, payload in FAIL_CLOSED_CASES:
+            with self.subTest(case=label):
+                out = _run(payload)
+                self.assertEqual(out, "", (
+                    f"{label}: parser returned {out!r}. A non-empty owner writes an "
+                    f"nginx gate that admits that identity, so anything ambiguous "
+                    f"must be empty."
+                ))
 
-def test_the_suite_discriminates():
-    """NEGATIVE CONTROL.
+    def test_never_crashes_the_installer(self):
+        """The call site is inside a command substitution during install.
 
-    Strip the tagged-devices guard and the tagged-node case MUST start
-    returning a login. Without this, a parser that returned "" for absolutely
-    everything would pass every fail-closed case above while also being
-    completely broken.
-    """
-    neutered = PARSER.replace('not login.startswith("tagged-devices")', "True")
-    assert neutered != PARSER, "could not neuter the guard; control is inert"
-    p = subprocess.run(
-        [sys.executable, "-c", neutered],
-        input=_status(uid=1, users={"1": {"LoginName": "tagged-devices"}}),
-        capture_output=True, text=True,
-    )
-    assert p.stdout.strip() == "tagged-devices", (
-        "removing the tagged-devices guard did NOT change the outcome, so the "
-        "fail-closed assertions above are not testing that guard at all"
-    )
+        An uncaught traceback on stderr would land in the customer's install log
+        looking like a failure even though `|| true` swallows the status.
+        """
+        for payload in ("{not json", "", "[]", "null"):
+            with self.subTest(payload=payload):
+                p = subprocess.run([sys.executable, "-c", PARSER],
+                                   input=payload, capture_output=True, text=True)
+                self.assertNotIn("Traceback", p.stderr,
+                                 f"parser raised on {payload!r}:\n{p.stderr}")
+
+    def test_the_suite_discriminates(self):
+        """NEGATIVE CONTROL.
+
+        Strip the tagged-devices guard and the tagged-node case MUST start
+        returning a login. Without this, a parser that returned "" for absolutely
+        everything would pass every fail-closed case above while also being
+        completely broken.
+        """
+        neutered = PARSER.replace('not login.startswith("tagged-devices")', "True")
+        self.assertNotEqual(neutered, PARSER,
+                            "could not neuter the guard; control is inert")
+        p = subprocess.run(
+            [sys.executable, "-c", neutered],
+            input=_status(uid=1, users={"1": {"LoginName": "tagged-devices"}}),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(p.stdout.strip(), "tagged-devices", (
+            "removing the tagged-devices guard did NOT change the outcome, so the "
+            "fail-closed assertions above are not testing that guard at all"
+        ))
+
+
+if __name__ == "__main__":
+    unittest.main()
