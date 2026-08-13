@@ -95,17 +95,48 @@ origin_guards="$(grep -c 'if (\$ostler_store_origin_ok = 0) { return 403; }' "$N
 echo "PASS [structure]: store-proxy fronts 6333+7878, stores no longer publish them, Host allowlist + Origin(CSRF) allowlist + 403 + transparent passthrough present."
 
 # ── Part 2: behaviour (docker) ───────────────────────────────────
+#
+# EXIT STATES, and this test used to conflate all three (v1018-D677):
+#   0  structural checks passed; behaviour proved, or explicitly declared
+#      NOT RUN with the coverage gap named
+#   1  an assertion FAILED -- the proxy really does the wrong thing
+#   2  the behavioural half was attempted and the ENVIRONMENT broke
+#
+# It previously exited 0 when docker was absent, so on any box without docker
+# the behavioural half silently did not run and the exit code said PASS --
+# cannot-verify presented as verified. And it exited 1 when the mock failed to
+# come up, presenting a could-not-run as a finding. Both directions, one file.
+unavailable() { echo "UNAVAILABLE [behaviour]: $*" >&2
+                echo "  This is NOT a pass and NOT a finding: the behavioural half could not run." >&2
+                exit 2; }
+
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-    echo "SKIP [behaviour]: docker not available -- structural checks passed."
+    # Deliberate 0, not 2: the structural half is the part CI wires (hosted
+    # macOS runners have no docker daemon), and it genuinely passed. The
+    # coverage gap is named on the way out rather than swallowed.
+    echo "PASS [structure only]: docker unavailable, so Host-allowlist BEHAVIOUR was NOT PROVED."
+    echo "  Run this on a box with docker to exercise the 403/200 matrix."
     exit 0
 fi
 
 WORK="$(mktemp -d)"
 NET="ostler-sp-selftest-$$"
 IMG="ostler-storeproxy-selftest-$$"
+MOCK="sp-qdrant-$$"
 PORT=16433
+# THE CLEANUP USED TO FORCE-REMOVE A CONTAINER LITERALLY NAMED `qdrant`.
+# Every other resource here is $$-namespaced; the one that was not is the name
+# of this project's production vector store. On the Hub Mac -- THE machine --
+# this trap deleted the live Qdrant holding the operator's vectors, and the
+# name collision also stopped the mock being created in the first place, which
+# is how it surfaced ("proxy/mock never became ready").
+#
+# The mock must ANSWER to the hostname qdrant, because the generated nginx
+# upstream says http://qdrant:80. That is what --network-alias is for: the
+# alias is scoped to this throwaway network, the container name is not shared.
+# Nothing here now removes a container it did not create.
 bcleanup() {
-    docker rm -f "sp-proxy-$$" "qdrant" >/dev/null 2>&1 || true
+    docker rm -f "sp-proxy-$$" "$MOCK" >/dev/null 2>&1 || true
     docker network rm "$NET" >/dev/null 2>&1 || true
     docker rmi -f "$IMG" >/dev/null 2>&1 || true
     rm -rf "$WORK"
@@ -116,12 +147,38 @@ trap 'bcleanup; rm -f "$COMPOSE" "$NGCONF"' EXIT
 # identical regardless of upstream port; the mock just proves
 # passthrough reaches an upstream).
 sed 's#http://qdrant:6333#http://qdrant:80#; s#http://oxigraph:7878#http://oxigraph:80#' "$NGCONF" > "$WORK/nginx.conf"
-printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\n' > "$WORK/Dockerfile"
-docker build -q -t "$IMG" "$WORK" >/dev/null 2>&1 || { echo "SKIP [behaviour]: docker build failed (offline?)."; exit 0; }
 
-docker network create "$NET" >/dev/null 2>&1
-docker run -d --name qdrant --network "$NET" nginx:1.27-alpine >/dev/null 2>&1
-docker run -d --name "sp-proxy-$$" --network "$NET" -p "127.0.0.1:${PORT}:6333" "$IMG" >/dev/null 2>&1
+# The store-proxy config ends with `include /etc/nginx/ostler-wiki-gate.conf;`
+# (wiki tailnet gate, v1.0.17). Without that file nginx refuses to start, so
+# the mock never came up and the run died at the readiness loop -- the second
+# reason this test could not pass. The include landed after the test was
+# written and nobody found out, because the test has never run.
+#
+# Extract the REAL shipped placeholder rather than touching an empty file:
+# install.sh writes it fail-closed (comments only, nothing listening) until
+# Tailscale resolves an owner, so it is both faithful and inert here.
+awk '/ostler-wiki-gate.conf" <<'"'"'NGINXWIKIEOF'"'"'/{c=1;next} /^NGINXWIKIEOF$/{c=0} c' \
+    "$INSTALL_SCRIPT" > "$WORK/wikigate.conf"
+[[ -s "$WORK/wikigate.conf" ]] \
+    || unavailable "could not extract the ostler-wiki-gate.conf placeholder (NGINXWIKIEOF heredoc moved?)"
+if grep -qvE '^[[:space:]]*(#|$)' "$WORK/wikigate.conf"; then
+    fail "the shipped ostler-wiki-gate.conf placeholder is NOT comments-only -- it should be fail-closed until an owner is resolved"
+fi
+
+printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\nCOPY wikigate.conf /etc/nginx/ostler-wiki-gate.conf\n' > "$WORK/Dockerfile"
+docker build -q -t "$IMG" "$WORK" >/dev/null 2>&1 \
+    || unavailable "docker build failed (offline? no nginx:1.27-alpine?)"
+
+docker network create "$NET" >/dev/null 2>&1 \
+    || unavailable "could not create throwaway network $NET"
+# --network-alias, not --name: the upstream resolves `qdrant` on this network
+# without the container claiming that name globally. See the cleanup note.
+docker run -d --name "$MOCK" --network "$NET" --network-alias qdrant \
+    nginx:1.27-alpine >/dev/null 2>&1 \
+    || unavailable "could not start the upstream mock $MOCK"
+docker run -d --name "sp-proxy-$$" --network "$NET" \
+    -p "127.0.0.1:${PORT}:6333" "$IMG" >/dev/null 2>&1 \
+    || unavailable "could not start the proxy container"
 
 ready=false
 for _ in $(seq 1 30); do
@@ -130,7 +187,9 @@ for _ in $(seq 1 30); do
     fi
     sleep 0.5
 done
-[[ "$ready" == true ]] || fail "proxy/mock never became ready"
+# Never became ready = the harness did not come up. That is an environment
+# failure, not evidence the proxy allowlist is wrong, so it is 2 and not 1.
+[[ "$ready" == true ]] || unavailable "proxy/mock never became ready after 15s"
 
 check() { # $1 = Host, $2 = expected code, $3 = label
     local got; got="$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $1" "http://127.0.0.1:${PORT}/")"

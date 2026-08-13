@@ -63,3 +63,46 @@ jobs:
       # the make the cut machine has.
       - name: gui/Makefile OSTLER_APP_PATH default applies
         run: /bin/bash tests/test_makefile_app_path_default.sh
+
+      # v1018-D675 security cluster. All ran NOWHERE before this workflow.
+      # Each is a pure-shell assertion over install.sh / the generated configs;
+      # none needs a device, a secret, or a real install.
+      - name: consent A7+A8 assertions
+        run: /bin/bash tests/test_consent_a7_a8.sh
+      - name: Q19 consent third-party legal-note separation
+        run: /bin/bash tests/test_cx18_q19_consent_third_party_legal_note_separation.sh
+      - name: Q20 consent install body shape
+        run: /bin/bash tests/test_cx18_q20_consent_install_body_shape.sh
+      - name: GDPR folder-access-denied handling
+        run: /bin/bash tests/test_gdpr_folder_access_denied.sh
+      - name: GDPR scan pre-warning
+        run: /bin/bash tests/test_gdpr_scan_prewarn.sh
+      - name: third-party data consent
+        run: /bin/bash tests/test_third_party_data_consent.sh
+      - name: at-rest exclusions
+        run: /bin/bash tests/test_v1010_at_rest_exclusions.sh
+      # Had never run once, and it gates codesign+spctl on every daemon staging.
+      - name: daemon signature gate
+        run: /bin/bash tests/test_v1010_daemon_signature_gate.sh
+      - name: ical-server + Doctor service auth
+        run: /bin/bash tests/test_v1010_ical_doctor_service_auth.sh
+      - name: ingest reroute plists
+        run: /bin/bash tests/test_v1010_ingest_reroute_plists.sh
+      - name: redteam3 supply-chain image pins
+        run: /bin/bash tests/test_v1010_redteam3_supply_chain_pins.sh
+      - name: stores are loopback-only and auth-ready
+        run: /bin/bash tests/test_v1010_store_auth_loopback.sh
+      - name: wiki is NOT tailscale-served
+        run: /bin/bash tests/test_v1010_wiki_not_tailscale_served.sh
+      - name: vendored register carries no operator PII
+        run: /bin/bash tests/test_vendored_register_pii.sh
+      - name: walk-away phase-2 input leak
+        run: /bin/bash tests/test_walkaway_no_phase2_input_leak.sh
+      - name: PIPELINE_SIGNALS writer
+        run: /bin/bash tests/test_write_pipeline_signals.sh
+
+      # Structural half runs everywhere; the behavioural half needs docker and
+      # says so rather than exiting 0 over an unproved claim. Exit 2 (could not
+      # run) is a CI failure here on purpose -- see the test's header.
+      - name: store-proxy Host/Origin allowlist
+        run: /bin/bash tests/test_v1010_store_front_proxy.sh

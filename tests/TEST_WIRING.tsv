@@ -65,7 +65,10 @@
 #     the legitimate `python3 -m unittest tests.test_foo` form that a
 #     filename-only match had wrongly demoted.
 
-# ---- WIRED (40) ----
+# ---- WIRED -- runner MEASURED on every gate run, never trusted ----
+# No count here on purpose: a hand-maintained total in a comment rots in
+# the same direction as everything else this file records. Run
+# tests/verify_test_wiring.sh for the measured figure.
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_bundle_phase_declares_every_copy.sh	WIRED	.github/workflows/install-gui-contract.yml,.github/workflows/pbxproj-sync.yml,scripts/run_all_cut_gates.sh
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
@@ -107,7 +110,7 @@ test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 
-# ---- UNCLASSIFIED (132) -- each needs a WIRED or MANUAL ruling ----
+# ---- UNCLASSIFIED -- each needs a WIRED or MANUAL ruling ----
 test_ai_conversations_leg_wired.sh	UNCLASSIFIED	
 test_aiconv_hydrate_honesty.sh	UNCLASSIFIED	
 test_amazon_extracted_dir_parse.py	UNCLASSIFIED	
@@ -127,7 +130,7 @@ test_cm048_prompts_packaged.sh	UNCLASSIFIED
 test_cm048_settings_models_wired.sh	UNCLASSIFIED	
 test_colima_start_retry.sh	UNCLASSIFIED	
 test_composite_cleanup.sh	UNCLASSIFIED	
-test_consent_a7_a8.sh	UNCLASSIFIED	
+test_consent_a7_a8.sh	WIRED	.github/workflows/test-wiring.yml
 test_contact_card_prefill.sh	UNCLASSIFIED	
 test_contact_email_coverage_guard.sh	UNCLASSIFIED	
 test_contact_resync_scheduled.sh	UNCLASSIFIED	
@@ -138,8 +141,8 @@ test_cx100_mail_accounts_detection.sh	UNCLASSIFIED
 test_cx101_calendar_hydrate_path.sh	UNCLASSIFIED	
 test_cx101_prelaunch_gate_population.sh	UNCLASSIFIED	
 test_cx130_mail_populate_phase2.sh	UNCLASSIFIED	
-test_cx18_q19_consent_third_party_legal_note_separation.sh	UNCLASSIFIED	
-test_cx18_q20_consent_install_body_shape.sh	UNCLASSIFIED	
+test_cx18_q19_consent_third_party_legal_note_separation.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx18_q20_consent_install_body_shape.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q7_channel_choice_labels_match_install_sh.sh	UNCLASSIFIED	
 test_cx30_33_python_library_validation_entitlement.sh	UNCLASSIFIED	
 test_cx453_no_osascript_contacts.sh	UNCLASSIFIED	
@@ -164,8 +167,8 @@ test_every_launchagent_is_torn_down.sh	UNCLASSIFIED
 test_fda_assist_ordering.sh	UNCLASSIFIED	
 test_fda_prewarm_no_early_messages_popup.sh	UNCLASSIFIED	
 test_final_summary_nounset_safe.sh	UNCLASSIFIED	
-test_gdpr_folder_access_denied.sh	UNCLASSIFIED	
-test_gdpr_scan_prewarn.sh	UNCLASSIFIED	
+test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/test-wiring.yml
+test_gdpr_scan_prewarn.sh	WIRED	.github/workflows/test-wiring.yml
 test_gen_patch_new_files.sh	UNCLASSIFIED	
 test_governor_pause_throttle.sh	UNCLASSIFIED	
 test_graph_db_pull_retry.sh	UNCLASSIFIED	
@@ -211,32 +214,32 @@ test_subscription_activation_path.sh	UNCLASSIFIED
 test_sync_vendor_pin_untouched_on_abort.sh	UNCLASSIFIED	
 test_tailscale_recovery_wrapper.sh	UNCLASSIFIED	
 test_takeout_split_zip_no_abort.sh	UNCLASSIFIED	
-test_third_party_data_consent.sh	UNCLASSIFIED	
+test_third_party_data_consent.sh	WIRED	.github/workflows/test-wiring.yml
 test_total_steps_dynamic.sh	UNCLASSIFIED	
 test_uninstaller_keep_prompt.sh	UNCLASSIFIED	
 test_universal_import_leg_wired.sh	UNCLASSIFIED	
 test_upgrade_mode_invariants.sh	UNCLASSIFIED	
 test_user_facing_tree.sh	UNCLASSIFIED	
 test_usr_local_bin_symlinks_gui_safe.sh	UNCLASSIFIED	
-test_v1010_at_rest_exclusions.sh	UNCLASSIFIED	
-test_v1010_daemon_signature_gate.sh	UNCLASSIFIED	
-test_v1010_ical_doctor_service_auth.sh	UNCLASSIFIED	
-test_v1010_ingest_reroute_plists.sh	UNCLASSIFIED	
-test_v1010_redteam3_supply_chain_pins.sh	UNCLASSIFIED	
-test_v1010_redteam3_teamid_pin.sh	UNCLASSIFIED	
-test_v1010_store_auth_loopback.sh	UNCLASSIFIED	
-test_v1010_store_front_proxy.sh	UNCLASSIFIED	
-test_v1010_wiki_not_tailscale_served.sh	UNCLASSIFIED	
+test_v1010_at_rest_exclusions.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_daemon_signature_gate.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_ical_doctor_service_auth.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_ingest_reroute_plists.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_redteam3_supply_chain_pins.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_redteam3_teamid_pin.sh	UNCLASSIFIED	BLOCKED v1018-D676: sections 0-2 PASS (Team-ID -R on all 3 staging gates). Section 3 demands the REPLACE_AT_RELEASE_TIME sentinel in source; main has carried a real hex since the SAME commit that added this test (f9f4f8e). Cut policy = Archie. Not rewritten: that would be editing a gate to pass.
+test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_store_front_proxy.sh	WIRED	.github/workflows/test-wiring.yml
+test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1_sweep_install_gating.sh	UNCLASSIFIED	
 test_vane_bundle.sh	UNCLASSIFIED	
 test_vendor_cm052_ai_conversations.sh	UNCLASSIFIED	
 test_vendor_doctor_knowledge_embed_wiring.sh	UNCLASSIFIED	
 test_vendor_exclude_glob_depth.sh	UNCLASSIFIED	
 test_vendor_knowledge_embed_contract.py	UNCLASSIFIED	
-test_vendored_register_pii.sh	UNCLASSIFIED	
-test_walkaway_no_phase2_input_leak.sh	UNCLASSIFIED	
+test_vendored_register_pii.sh	WIRED	.github/workflows/test-wiring.yml
+test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/test-wiring.yml
 test_whatsapp_channel_block.sh	UNCLASSIFIED	
 test_wiki_baseline_background.sh	UNCLASSIFIED	
 test_wiki_compose_paths.sh	UNCLASSIFIED	
 test_wiki_recompile_after_late_hydration.sh	UNCLASSIFIED	
-test_write_pipeline_signals.sh	UNCLASSIFIED	
+test_write_pipeline_signals.sh	WIRED	.github/workflows/test-wiring.yml
