@@ -1,0 +1,195 @@
+name: pbxproj-sync
+
+# Proves the TRACKED gui/OstlerInstaller.xcodeproj/project.pbxproj is exactly
+# what xcodegen generates from gui/project.yml.
+#
+# WHY THIS IS ITS OWN WORKFLOW (v1018-D662)
+#
+# tests/test_bundle_phase_declares_every_copy.sh runs in install-gui-contract
+# and parses gui/project.yml -- the SPEC a human edits. xcodebuild builds the
+# pbxproj. Nothing in the ship chain runs `xcodegen`, so the two can disagree
+# and the build follows the pbxproj. At the v1.0.17 cut it HAD diverged: PR #516
+# added inputFiles/outputFiles for lib/settling_progress.sh to project.yml and
+# the pbxproj was never regenerated, while the bundle-phase gate reported the
+# declarations complete. True of the YAML, false of the thing being built.
+#
+# scripts/verify_pbxproj_in_sync.sh was written to close that, and then ran
+# NOWHERE. Measured 2026-08-13, with a control so the absence was not a broken
+# search:
+#
+#     verify_pbxproj_in_sync.sh   referenced in .github/: 0 hits
+#     test_pbxproj_sync_gate.sh   referenced in .github/: 0 hits
+#     test_vendor_only_survives_sync.sh (control)        3 hits, 2 workflows
+#
+# It could not simply be added to install-gui-contract: that job is
+# ubuntu-latest, no workflow in this repo runs xcodegen, and the gate exits 2
+# (UNAVAILABLE) without it. A step that can only ever print UNAVAILABLE is not
+# a gate. Hence a separate macOS workflow with a narrow paths filter, so the
+# macOS minutes are only spent when the Xcode project or its spec actually
+# changes.
+#
+# There is no `|| true` anywhere below. Exit 2 means the gate could not run,
+# and that fails the job, because a gate that cannot run is not a pass.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/project.yml'
+      - 'gui/OstlerInstaller.xcodeproj/**'
+      # The gate scrubs the variables gui/Makefile exports before generating,
+      # so a change to that export list changes what the gate does.
+      - 'gui/Makefile'
+      - 'gui/.xcodegen-version'
+      - 'scripts/verify_pbxproj_in_sync.sh'
+      # A gate must trigger on changes to ITSELF, or it can be broken -- or
+      # quietly narrowed -- in a PR that never runs it.
+      - 'tests/test_pbxproj_sync_gate.sh'
+      - '.github/workflows/pbxproj-sync.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pbxproj-sync:
+    # macos-14 carries Xcode 15.4 and the pin is 26.6, so every run on that
+    # image reported UNAVAILABLE and the gate never once executed. Measured on
+    # run 31618148018. The image label is chosen to be able to satisfy the pin;
+    # whether it actually does is asserted below rather than assumed, because
+    # the runner-images catalogue is not a contract and the label to image
+    # mapping has changed under us before.
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The gate compares bytes, and xcodegen reads its default build settings
+      # from the SELECTED Xcode, so the selection is an input to the comparison
+      # and has to be explicit. Leaving it to the image default is how this
+      # gate came to run on 15.4 against a 26.6 pin.
+      #
+      # If the pinned Xcode is absent this FAILS and prints every version that
+      # is present. It must never fall back to whatever is default: that is the
+      # silent wrong-toolchain run this whole file exists to prevent, and the
+      # enumeration is what makes the next failure diagnosable in one read.
+      - name: Select the pinned Xcode
+        run: |
+          set -euo pipefail
+          LINE="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
+                  | grep -v '^[[:space:]]*$' | head -1)"
+          PIN="$(awk '{print $1}' <<<"$LINE")"
+          PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
+          [ -n "$PIN" ] || { echo "::error::gui/.xcode-version is empty" >&2; exit 1; }
+          [ -n "$PIN_BUILD" ] || { echo "::error::gui/.xcode-version has no build version; marketing version alone is not a sufficient pin" >&2; exit 1; }
+          echo "pinned Xcode: $PIN ($PIN_BUILD)"
+
+          # Matched on BUILD, not marketing version. Measured 2026-08-13: this
+          # runner and the build host both reported 26.6 with xcodegen 2.44.1
+          # and emitted different bytes, so marketing version does not identify
+          # the setting presets that go into the comparison.
+          FOUND=""
+          echo "installed Xcodes on this runner (marketing / build):"
+          for APP in /Applications/Xcode*.app; do
+            [ -d "$APP" ] || continue
+            V="$(/usr/bin/defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo '?')"
+            B="$(/usr/bin/defaults read "$APP/Contents/version.plist" ProductBuildVersion 2>/dev/null || echo '?')"
+            echo "  $V  $B  $APP"
+            if [ "$V" = "$PIN" ] && [ "$B" = "$PIN_BUILD" ] && [ -z "$FOUND" ]; then
+              FOUND="$APP"
+            fi
+          done
+
+          if [ -z "$FOUND" ]; then
+            echo "::error::no Xcode $PIN build $PIN_BUILD on this runner. Every Xcode that IS here is listed above, with its build." >&2
+            echo "::error::Do NOT relax the pin to make this green. If no hosted runner can supply the build the DMG is cut with, then a byte-exact comparison does not belong in CI: keep it as a pre-cut check on the cut machine and give CI a toolchain-independent check instead." >&2
+            exit 1
+          fi
+
+          echo "DEVELOPER_DIR=$FOUND/Contents/Developer" >> "$GITHUB_ENV"
+          echo "selected: $FOUND"
+
+      - name: Assert the selection took effect
+        # Setting DEVELOPER_DIR and assuming it applied is the same class of
+        # error as the one above, one layer down. Read it back from the tool
+        # that will actually be used.
+        run: |
+          set -euo pipefail
+          LINE="$(grep -v '^[[:space:]]*#' gui/.xcode-version \
+                  | grep -v '^[[:space:]]*$' | head -1)"
+          PIN="$(awk '{print $1}' <<<"$LINE")"
+          PIN_BUILD="$(awk '{print $2}' <<<"$LINE")"
+          GOT="$(xcodebuild -version | head -1 | awk '{print $2}')"
+          GOT_BUILD="$(xcodebuild -version | sed -n '2p' | awk '{print $3}')"
+          echo "xcodebuild reports: $GOT ($GOT_BUILD)   pin: $PIN ($PIN_BUILD)"
+          if [ "$GOT" != "$PIN" ] || [ "$GOT_BUILD" != "$PIN_BUILD" ]; then
+            echo "::error::DEVELOPER_DIR did not take: xcodebuild is $GOT ($GOT_BUILD), pin is $PIN ($PIN_BUILD)" >&2
+            exit 1
+          fi
+
+      # Pinned, not `brew install xcodegen`. The gate's comparison is
+      # byte-exact, so brew's floating latest would eventually emit different
+      # bytes from identical input and the gate would report "STALE, DO NOT
+      # SHIP" for a toolchain bump. See gui/.xcodegen-version.
+      - name: Install pinned xcodegen
+        run: |
+          set -euo pipefail
+          PIN="$(grep -v '^[[:space:]]*#' gui/.xcodegen-version \
+                 | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+          echo "pinned xcodegen: $PIN"
+          curl -fsSL -o /tmp/xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${PIN}/xcodegen.zip"
+          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+
+          # Install the WHOLE prefix, not just the binary.
+          #
+          # The release zip is bin/xcodegen PLUS share/xcodegen/SettingPresets,
+          # and xcodegen resolves those presets relative to its own location.
+          # Copying only the binary leaves them behind, and xcodegen then emits
+          # a project with every default build setting MISSING -- silently, exit
+          # 0, no warning.
+          #
+          # That is what produced the 2026-08-13 failure, and it cost two wrong
+          # diagnoses before it was measured. Both this runner and the build
+          # host had Xcode 26.6 (17F113) and xcodegen 2.44.1, and the bytes
+          # still differed, so the cause was blamed on Xcode twice. Measured
+          # directly:
+          #
+          #   binary only          COMBINE_HIDPI_IMAGES occurrences: 0
+          #   binary + share/      COMBINE_HIDPI_IMAGES occurrences: 4
+          #   tracked pbxproj      COMBINE_HIDPI_IMAGES occurrences: 4
+          #
+          # A byte-exact gate fed a crippled generator reports the PROJECT as
+          # stale. It blames the thing it is watching for a fault in the thing
+          # it is holding.
+          SRC="$(dirname "$(dirname "$(find /tmp/xcodegen -type f -name xcodegen -perm +111 | head -1)")")"
+          [ -n "$SRC" ] && [ -x "$SRC/bin/xcodegen" ] \
+            || { echo "::error::no bin/xcodegen in the release zip" >&2; exit 1; }
+          [ -d "$SRC/share/xcodegen/SettingPresets" ] \
+            || { echo "::error::the zip has no share/xcodegen/SettingPresets; the layout changed and installing it would produce a preset-less generator" >&2; exit 1; }
+          sudo mkdir -p /usr/local/bin /usr/local/share
+          sudo cp "$SRC/bin/xcodegen" /usr/local/bin/xcodegen
+          sudo rm -rf /usr/local/share/xcodegen
+          sudo cp -R "$SRC/share/xcodegen" /usr/local/share/xcodegen
+          sudo chmod +x /usr/local/bin/xcodegen
+
+          # Assert the presets are where the INSTALLED binary will look, rather
+          # than where they were unpacked.
+          [ -d /usr/local/share/xcodegen/SettingPresets ] \
+            || { echo "::error::SettingPresets did not land beside the installed binary" >&2; exit 1; }
+          echo "SettingPresets installed: $(find /usr/local/share/xcodegen/SettingPresets -type f | wc -l | tr -d ' ') files"
+          # Assert the thing we installed is the thing we pinned, rather than
+          # assuming the download was what its filename said.
+          GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+          echo "installed xcodegen: $GOT"
+          [ "$GOT" = "$PIN" ] || { echo "::error::installed $GOT, pinned $PIN" >&2; exit 1; }
+
+      # The gate's own self-test FIRST. It drives the gate through in-sync,
+      # out-of-sync and could-not-run and asserts the three distinct exit codes.
+      # Running it before the gate means a broken gate is reported as a broken
+      # gate, rather than as a broken project.
+      - name: Sync-gate self-test (does the gate discriminate?)
+        run: bash tests/test_pbxproj_sync_gate.sh
+
+      - name: Tracked pbxproj == xcodegen(project.yml)
+        run: bash scripts/verify_pbxproj_in_sync.sh

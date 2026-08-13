@@ -67,6 +67,136 @@ git rev-parse --git-dir >/dev/null 2>&1 \
 command -v xcodegen >/dev/null 2>&1 \
     || unavailable "xcodegen is not installed (brew install xcodegen)"
 
+# The comparison below is byte-exact, so it is only meaningful against the
+# generator that produced the tracked file. A different xcodegen can emit
+# different bytes from identical input, and without this check that shows up as
+# exit 1 -- "STALE, DO NOT SHIP" -- for a toolchain difference. That is a gate
+# going red for the wrong reason, which is how gates get ignored.
+#
+# Deliberately exit 2 (could not run), never exit 1 (the project is wrong).
+PIN_FILE="gui/.xcodegen-version"
+if [[ -f "$PIN_FILE" ]]; then
+    PINNED="$(grep -v '^[[:space:]]*#' "$PIN_FILE" | grep -v '^[[:space:]]*$' | head -1 | tr -d '[:space:]')"
+    ACTUAL="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    if [[ -z "$PINNED" ]]; then
+        unavailable "$PIN_FILE contains no version line."
+    fi
+    if [[ "$PINNED" != "$ACTUAL" ]]; then
+        unavailable "xcodegen version mismatch.
+       pinned  ($PIN_FILE): $PINNED
+       running:                  ${ACTUAL:-<unparseable>}
+
+       A byte comparison against a different generator proves nothing about
+       whether project.yml and the pbxproj agree. Install $PINNED, or bump the
+       pin AND commit the regenerated pbxproj together."
+    fi
+else
+    unavailable "$PIN_FILE is missing -- the generator version is unrecorded, so
+       a byte-exact comparison cannot be attributed to drift rather than to
+       the toolchain."
+fi
+
+# ---------------------------------------------------------------------------
+# AND THE XCODE, WHICH IS THE GENERATOR'S OTHER INPUT.
+#
+# Pinning xcodegen was necessary and not sufficient. xcodegen injects default
+# build settings (settingPresets) that it reads from the INSTALLED XCODE, so
+# the SAME xcodegen 2.44.1 emits different bytes from an identical project.yml
+# depending on which Xcode is present. Measured 2026-08-13 on this repo, same
+# commit, same generator version:
+#
+#   build host   Xcode 26.6 (17F113)   emits COMBINE_HIDPI_IMAGES,
+#                                      LD_RUNPATH_SEARCH_PATHS, SDKROOT,
+#                                      ASSETCATALOG_COMPILER_APPICON_NAME
+#   macos-14     Xcode 15.4 (15F31d)   omits all four
+#
+# The tracked pbxproj carries the first set. Without this check, a hosted
+# runner reports "STALE, DO NOT SHIP" for a project that is perfectly in sync
+# with the toolchain it is actually built by. That is the same
+# gate-red-for-the-wrong-reason failure the version pin above was written to
+# prevent, one layer down, and it blocked a launch cut for two runs.
+#
+# Exit 2, deliberately. The project is not wrong; this environment cannot
+# judge it. The real comparison is an OPERATOR check on the build machine
+# before tagging -- the same shape as scripts/verify_cut_freshness.sh.
+# A generator that cannot find its SettingPresets emits a project with every
+# default build setting missing, silently, exit 0. Compared byte-for-byte
+# against a correctly generated pbxproj that reads as STALE -- the gate blames
+# the project for a fault in its own toolchain. Measured 2026-08-13:
+#
+#   xcodegen binary alone   COMBINE_HIDPI_IMAGES occurrences: 0
+#   binary + share/         COMBINE_HIDPI_IMAGES occurrences: 4
+#
+# xcodegen resolves the presets at <prefix>/share/xcodegen/SettingPresets,
+# where prefix is the parent of the directory holding the binary.
+XCG_BIN="$(command -v xcodegen 2>/dev/null || true)"
+if [[ -n "$XCG_BIN" ]]; then
+    XCG_REAL="$XCG_BIN"
+    while [[ -L "$XCG_REAL" ]]; do
+        XCG_LINK="$(readlink "$XCG_REAL")"
+        case "$XCG_LINK" in
+            /*) XCG_REAL="$XCG_LINK" ;;
+            *)  XCG_REAL="$(cd "$(dirname "$XCG_REAL")" && cd "$(dirname "$XCG_LINK")" && pwd)/$(basename "$XCG_LINK")" ;;
+        esac
+    done
+    XCG_PREFIX="$(dirname "$(dirname "$XCG_REAL")")"
+    if [[ ! -d "$XCG_PREFIX/share/xcodegen/SettingPresets" ]]; then
+        unavailable "xcodegen cannot reach its SettingPresets.
+       binary:   $XCG_REAL
+       expected: $XCG_PREFIX/share/xcodegen/SettingPresets
+
+       Without them xcodegen omits every default build setting and still exits
+       0, so a byte comparison would report the PROJECT stale for a broken
+       generator install. Install the whole release prefix (bin/ AND share/),
+       not just the binary."
+    fi
+fi
+
+XCODE_PIN_FILE="gui/.xcode-version"
+if [[ -f "$XCODE_PIN_FILE" ]]; then
+    # Two fields: marketing version, then BUILD. The build is the operative
+    # one -- measured 2026-08-13, two machines both reporting 26.6 with the
+    # same xcodegen produced different bytes. Marketing version alone does not
+    # identify the setting presets. See the comment in gui/.xcode-version.
+    XPIN_LINE="$(grep -v '^[[:space:]]*#' "$XCODE_PIN_FILE" | grep -v '^[[:space:]]*$' | head -1)"
+    XPINNED="$(awk '{print $1}' <<<"$XPIN_LINE")"
+    XPINNED_BUILD="$(awk '{print $2}' <<<"$XPIN_LINE")"
+    XACTUAL="$(xcodebuild -version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+    XACTUAL_BUILD="$(xcodebuild -version 2>/dev/null | sed -n '2p' | awk '{print $3}')"
+    if [[ -z "$XPINNED" ]]; then
+        unavailable "$XCODE_PIN_FILE contains no version line."
+    fi
+    if [[ -z "$XPINNED_BUILD" ]]; then
+        unavailable "$XCODE_PIN_FILE pins '$XPINNED' with no build version.
+       The marketing version alone does not identify the setting presets:
+       two Xcode 26.6 installs with the same xcodegen emitted different bytes
+       on 2026-08-13. Record it as '<marketing> <build>', e.g. '26.6 17F113'."
+    fi
+    if [[ -z "$XACTUAL" || -z "$XACTUAL_BUILD" ]]; then
+        unavailable "xcodebuild is absent or unparseable, so the setting presets
+       baked into the tracked pbxproj cannot be attributed. Not a pass."
+    fi
+    if [[ "$XPINNED" != "$XACTUAL" || "$XPINNED_BUILD" != "$XACTUAL_BUILD" ]]; then
+        unavailable "Xcode mismatch.
+       pinned  ($XCODE_PIN_FILE): $XPINNED ($XPINNED_BUILD)
+       running:                   $XACTUAL ($XACTUAL_BUILD)
+
+       xcodegen reads its default build settings from the selected Xcode, so a
+       byte comparison across different Xcodes measures the toolchain, not the
+       project. The BUILD must match too: 26.6/17F113 and another 26.6 emit
+       different bytes.
+
+       Run this on a machine with Xcode $XPINNED ($XPINNED_BUILD), or bump the
+       pin AND commit the regenerated pbxproj together. Do NOT relax the pin to
+       make a runner green -- that reinstates exactly the blindness this check
+       exists to remove."
+    fi
+else
+    unavailable "$XCODE_PIN_FILE is missing -- the Xcode whose setting presets are
+       baked into the tracked pbxproj is unrecorded, so a byte-exact comparison
+       cannot be attributed to drift rather than to the toolchain."
+fi
+
 [[ -f "$SPEC" ]]    || unavailable "spec not found: $SPEC"
 [[ -f "$PBXPROJ" ]] || unavailable "tracked project not found: $PBXPROJ"
 

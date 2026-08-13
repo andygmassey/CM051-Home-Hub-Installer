@@ -95,6 +95,13 @@ jobs:
         # copy -- green build, stale artefact, and the symptom ("my edit did
         # nothing") points at the edited file rather than the build system.
         # lib/settling_progress.sh shipped in exactly that state on 2026-08-07.
+        #
+        # SCOPE, STATED HERE BECAUSE MISREADING IT IS WHAT WENT WRONG (D662):
+        # this parses gui/project.yml and ONLY gui/project.yml. It proves the
+        # SPEC declares every copy. It cannot prove the tracked pbxproj -- the
+        # file xcodebuild actually reads -- matches that spec. That comparison
+        # needs xcodegen, so it lives in .github/workflows/pbxproj-sync.yml on
+        # a macOS runner. Neither gate substitutes for the other.
         run: |
           set -euo pipefail
           bash tests/test_bundle_phase_declares_every_copy.sh

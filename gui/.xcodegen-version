@@ -1,0 +1,29 @@
+# The xcodegen version that generates the tracked project.pbxproj.
+#
+# WHY THIS IS PINNED
+#
+# scripts/verify_pbxproj_in_sync.sh proves the tracked pbxproj is byte-identical
+# to what xcodegen produces from gui/project.yml. That comparison is only
+# meaningful against a FIXED generator: two xcodegen versions can emit different
+# bytes from identical input, and the gate would then report exit 1 -- "the
+# tracked Xcode project is STALE, DO NOT SHIP" -- for a toolchain difference
+# rather than a real drift.
+#
+# A gate that goes red for the wrong reason gets ignored, and an ignored gate is
+# the thing this whole file exists to prevent.
+#
+# So a version mismatch is exit 2 (UNAVAILABLE -- the gate could not run), never
+# exit 1 (the project is wrong). Those two must never look the same.
+#
+# WHAT IS MEASURED, AND WHAT IS NOT
+#
+# Measured 2026-08-13: 2.44.1 reproduces the tracked pbxproj byte-for-byte.
+# NOT measured: that any other version fails to. This is pinned because the
+# reproduction is only demonstrated for 2.44.1, not because a specific other
+# version is known to break.
+#
+# TO BUMP: install the new version, `cd gui && xcodegen generate`, commit the
+# regenerated pbxproj AND this file in the same commit. If the pbxproj does not
+# change, the bump is free; if it does, that diff is the toolchain's, and it
+# needs to land deliberately rather than inside an unrelated PR.
+2.44.1
