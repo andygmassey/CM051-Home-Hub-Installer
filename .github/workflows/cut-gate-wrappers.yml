@@ -1,0 +1,72 @@
+name: cut-gate-wrappers
+
+# Guards the SIX cut-gate wrappers in gui/Makefile -- the recipes that sit
+# between a gate script and the operator and decide what to say about its exit
+# code.
+#
+# The gate scripts have their own suites. Nothing tested the wrappers, and the
+# wrappers were where the reporting broke: `script || { echo "ERROR: <specific
+# defect>"; exit 1; }` collapses a could-not-run into an accusation. Two were
+# live misreports -- verify_no_orphaned_fixes.sh exits 3 "no repo checkouts
+# resolved" and the wrapper announced orphaned work; verify_pr_age.sh exits 3
+# when no repo yields a PR listing (an expired gh token does this) and the
+# wrapper announced overdue PRs. Both send the operator hunting a defect that
+# was never detected while the real fault -- the gate is blind -- goes unsaid.
+#
+# A separate workflow rather than a step appended to cut-freshness: GitHub
+# stops a job at its first failing step, so bolting this on would mean a
+# freshness failure silently skips the wrapper proofs. Different question,
+# different job.
+#
+# Registering it here means the wrappers cannot rot back: any change to
+# gui/Makefile, to a gate script, or to the test itself re-runs the proofs.
+
+on:
+  pull_request:
+    paths:
+      - 'gui/Makefile'
+      - 'tests/test_cut_gate_wrappers.sh'
+      - 'scripts/verify_cut_provenance.sh'
+      - 'scripts/verify_no_orphaned_fixes.sh'
+      - 'scripts/verify_pr_age.sh'
+      - 'scripts/provenance_gate.sh'
+      - 'scripts/verify_stapling.sh'
+      - 'scripts/verify_commit_parity.sh'
+      - '.github/workflows/cut-gate-wrappers.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cut-gate-wrappers:
+    runs-on: macos-latest   # the cut host is macOS; bash 3.2 quoting differs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wrapper trichotomy self-test (stubbed gate scripts)
+        run: /bin/bash tests/test_cut_gate_wrappers.sh
+
+      - name: Test parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_cut_gate_wrappers.sh
+          echo "OK: parses under the shell the cut actually uses"
+
+      - name: Every wrapper still HAS a cannot-run branch
+        if: always()
+        run: |
+          set -e
+          # Structural backstop for the case the self-test cannot see: someone
+          # deletes a whole target, so its controls never run and the suite is
+          # green because it asked nothing. Count the branches, not the words.
+          n=$(grep -c 'COULD NOT RUN (exit' gui/Makefile || true)
+          if [ "$n" -ne 6 ]; then
+            echo "expected 6 cannot-run branches in gui/Makefile, found $n" >&2
+            echo "a wrapper has lost its exit-2/3 branch, or one was added without a test" >&2
+            exit 1
+          fi
+          echo "OK: 6 cannot-run branches present"
