@@ -6614,6 +6614,86 @@ else
     fi
 fi
 
+# ── 3.0-bis Keep the Hub awake AFTER the installer exits ───────────
+#
+# Section 3.0 above only covers the INSTALL WINDOW, and on the GUI
+# path it covers nothing persistent at all. Both mechanisms it can
+# use are process-scoped or install-scoped:
+#
+#   - GUI: the parent .app's `caffeinate -dimsu` (CaffeinateManager
+#     .swift). That assertion is released when the .app quits, which
+#     is by design and correct for what it was built for.
+#   - CLI: `sudo pmset` does persist, so the CLI path was fine.
+#
+# CaffeinateManager.swift's header justifies dropping pmset under GUI
+# with "the post-install LaunchAgent + Hub idle-power policy already
+# cover the running case". MEASURED 2026-08-13 on a v1.0.13.3 GUI
+# install: that coverage does not exist. There is no such agent among
+# the 23 Ostler LaunchAgents on the box, and the hub-power agent that
+# sentence refers to PAUSES DOCKER AND OLLAMA ON BATTERY (see the
+# 3.0a comment below and line ~2342) -- it has never held a power
+# assertion and was never a sleep-prevention mechanism.
+#
+# The consequence was the launch blocker: `pmset -g custom` still read
+# `sleep 1` on AC, the Mac slept roughly every 100 seconds, and
+# 1430 of its 1439 wakes were DARK wakes. launchd does not schedule
+# user agents in dark wake, so the assistant's iMessage poll never
+# ran. Every self-handle message that arrived during a dark wake was
+# never seen, answered, or written to memory, silently. Six-for-six
+# separation against the power log: the three processed on 10 Aug
+# arrived in a window with ZERO power events, the two missed arrived
+# mid-dark-wake, the one processed on 13 Aug arrived 35 s after
+# "DarkWake to FullWake".
+#
+# WHY A LAUNCHAGENT AND NOT `sudo pmset` ON THE GUI PATH. install.sh
+# under OSTLER_GUI=1 must need no sudo at all. Its prompt fires on a
+# pty the log drawer does not render, so it wedges invisibly -- that
+# is Studio retest #5 and the 2026-05-22 00:42 HKT failure, and it is
+# the reason section 3.0 branches in the first place. Re-adding sudo
+# there would reintroduce a closed launch blocker to fix this one.
+#
+# `caffeinate -s` needs no root: it takes a user-level IOPMAssertion.
+# Run from a KeepAlive LaunchAgent it lasts as long as the user is
+# logged in, survives the installer exiting, and is removed when
+# Ostler is uninstalled. It mutates no system-wide power policy, so
+# the customer's own Energy Saver settings are left as they found
+# them -- which `pmset -a sleep 0` cannot say for itself.
+#
+# `-s` ONLY, deliberately. It is documented as valid only on AC, so a
+# MacBook Hub on battery still sleeps normally and hands over to the
+# hub-power agent exactly as section 3.0's battery-aware branch
+# intends. `-i` would prevent idle sleep on battery too and flatten a
+# laptop; `-d` would hold the display on all night. Neither is wanted.
+#
+# Installed on BOTH paths on purpose. The CLI path already sets
+# `pmset sleep 0`, so this is redundant there -- but two paths with
+# one behaviour is worth more than a saved assertion, and it means the
+# box-walk gate asserts the same thing however the Hub was installed.
+mkdir -p "${HOME}/Library/LaunchAgents"
+STAY_AWAKE_PLIST="${HOME}/Library/LaunchAgents/com.ostler.stay-awake.plist"
+cat > "$STAY_AWAKE_PLIST" <<'STAYAWAKEEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.stay-awake</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+STAYAWAKEEOF
+launchctl bootstrap "gui/$(id -u)" "$STAY_AWAKE_PLIST" 2>/dev/null || \
+    launchctl load "$STAY_AWAKE_PLIST" 2>/dev/null || true
+ok "$MSG_OK_STAY_AWAKE_AGENT_INSTALLED"
+
 # ── 3.0a Phase 3 battery watcher ───────────────────────────────────
 # The hub-power LaunchAgent that pauses Docker / Ollama on battery is
 # not installed until step 3.14, so during Phase 3 itself the user is
