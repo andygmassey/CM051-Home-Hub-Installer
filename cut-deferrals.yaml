@@ -147,7 +147,32 @@ deferrals:
 #
 # The gate PRINTS every exemption on each run, so one cannot fade quietly into
 # the background the way the last 176 did.
-pr_exemptions: []
+pr_exemptions:
+
+  # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
+  # merging them to clear this gate would be shipping a failing PR to satisfy a
+  # process check -- the exact move this file exists to prevent.
+  #
+  # They cannot reach this DMG either way. The cut consumes the daemon as a
+  # PINNED tarball (DAEMON_VERSION 0.4.55, SHA-256 verified fail-closed), so
+  # oa/main moving does not change one byte of what ships. Merging them the day
+  # of a cut would only break the daemon/Hub-app commit parity that
+  # verify-commit-parity asserts (#225 class).
+  #
+  # Queue: land them on the FIRST daemon rebuild after v1.0.26, #286 first
+  # because it is a published advisory fix.
+  - ref: "ostler-assistant#287"
+    reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
+    review_by: "2026-08-20"
+  - ref: "ostler-assistant#286"
+    reason: "RED on Lint; nanoid advisory fix, FIRST in the queue for the next daemon rebuild. Cannot reach this DMG."
+    review_by: "2026-08-20"
+  - ref: "ostler-assistant#284"
+    reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
+    review_by: "2026-08-20"
+  - ref: "ostler-assistant#283"
+    reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
+    review_by: "2026-08-20"
 
 deferrals:
 
