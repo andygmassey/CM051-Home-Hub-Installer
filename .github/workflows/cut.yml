@@ -61,6 +61,32 @@ jobs:
       - name: Vendored rollforward gate matches its OS003 pin
         run: ./tests/test_rollforward_registry_pin.sh
 
+      # The orphan gate is the reason the v1.0.15 box-walk findings cannot
+      # recur: it fails the cut when a fix EXISTS but is not in it. It runs
+      # from gui/Makefile:989 inside `make ship`, so it IS enforced.
+      #
+      # Its THREE proof scripts were not. Measured 2026-08-13 with controls:
+      #
+      #   orphan_gate_selftest.sh            .github=0  Makefile=0
+      #   test_no_orphaned_fixes_gate.sh     .github=0  Makefile=0
+      #   test_orphan_gate_cannot_verify.sh  .github=0  Makefile=0
+      #   test_rollforward_registry_pin.sh   .github=1   <- control
+      #   test_pbxproj_sync_gate.sh          .github=2   <- control
+      #
+      # So the gate ran and nothing checked that it still FIRES. A gate can go
+      # quiet without going missing -- a swallowed error, a ref that stops
+      # matching, an env var that skips every repo -- and the failure mode is
+      # silent: `make ship` keeps passing and the cut keeps shipping orphaned
+      # fixes, which is exactly the state the gate was written to end.
+      #
+      # These run BEFORE the gate is relied on, and cost ~4s combined.
+      - name: Orphan gate still FIRES (self-test + both harnesses)
+        run: |
+          set -euo pipefail
+          ./scripts/orphan_gate_selftest.sh
+          ./tests/test_no_orphaned_fixes_gate.sh
+          ./tests/test_orphan_gate_cannot_verify.sh
+
       - name: Rollforward claims -- no row may claim a fix with no gate
         run: |
           set -euo pipefail
