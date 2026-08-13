@@ -438,6 +438,12 @@ jobs:
       - name: whatsapp channel block
         if: always()
         run: /bin/bash tests/test_whatsapp_channel_block.sh
+      - name: ollama install path
+        if: always()
+        run: /bin/bash tests/test_ollama_formula_swap.sh
+      - name: wiki compose paths
+        if: always()
+        run: /bin/bash tests/test_wiki_compose_paths.sh
       - name: install daily briefs
         if: always()
         run: /bin/bash tests/test_install_daily_briefs.sh

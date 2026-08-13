@@ -587,27 +587,6 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo ""
     echo "Environment variables (advanced - override before running):"
     echo ""
-    echo "  OSTLER_INSTALLER_TARBALL_URL"
-    echo "    Where install.sh fetches the installer tarball when invoked"
-    echo "    via curl|bash. The single install.sh script does not contain"
-    echo "    the bundled assets it needs to install (ostler_security,"
-    echo "    ostler_fda, contact_syncer, hub-power, doctor, third-party"
-    echo "    notices); under curl|bash we download the tarball, extract"
-    echo "    it, and re-exec from inside."
-    echo "    Default: https://github.com/ostler-ai/ostler-releases/releases/latest/download/install.tar.gz"
-    echo ""
-    echo "  OSTLER_INSTALLER_TARBALL_SHA256"
-    echo "    Expected SHA-256 (hex) of the install tarball. The download"
-    echo "    is verified against this digest before extraction; a"
-    echo "    mismatch fails the install closed (no tar -xzf, no exec)."
-    echo "    Two-key trust model: an attacker would need to compromise"
-    echo "    BOTH the tarball at OSTLER_INSTALLER_TARBALL_URL AND this"
-    echo "    install.sh on Cloudflare to bypass it."
-    echo "    Empty string skips verification (dev-mode escape, not for"
-    echo "    production). Required when overriding TARBALL_URL to a"
-    echo "    self-staged tarball."
-    echo "    Default: pinned to the most recent ostler-installer release."
-    echo ""
     echo "  PWG_PIPELINE_REPO"
     echo "    Source repo for the import pipeline (People Graph)."
     echo "    Default: empty (productised tarball bundles the pipeline)."
@@ -1346,167 +1325,49 @@ export INSTALL_LOG
 #      and re-exec; otherwise we fail with an actionable message
 #      pointing the user at the tarball download flow.
 #
-# Override the tarball URL with OSTLER_INSTALLER_TARBALL_URL.
-# The default points at the GitHub Release artifact on the public
-# ostler-ai/ostler-releases mirror (versioned, signed, free, standard
-# pattern). Customer-shipping releases were consolidated under
-# ostler-ai/ostler-releases on 2026-05-29; see CX-88. Cloudflare
-# Pages serving a static tarball was considered but loses versioning
-# + signing; GitHub Release is the long-term home.
-DEFAULT_INSTALLER_TARBALL_URL="https://github.com/ostler-ai/ostler-releases/releases/latest/download/install.tar.gz"
-INSTALLER_TARBALL_URL="${OSTLER_INSTALLER_TARBALL_URL:-${DEFAULT_INSTALLER_TARBALL_URL}}"
 
-# SHA-256 of the bootstrap tarball. Updated at release time alongside
-# the ostler-installer release artefact -- see the release ceremony
-# script (release.sh) and RELEASE.md. If you are setting
-# OSTLER_INSTALLER_TARBALL_URL to a self-staged tarball, also export
-# OSTLER_INSTALLER_TARBALL_SHA256 to its hex digest; an empty string
-# means "skip verification" and is reserved for dev-mode use only.
-# The sentinel REPLACE_AT_RELEASE_TIME also skips verification (with
-# a warning) so pre-release / unconfigured builds do not fail closed
-# in dev. release.sh patches this line on the repo-root install.sh
-# after building the tarball, so the next release commit pins the
-# FINAL SHA of the artefact customers will actually download. The
-# inner install.sh inside the tarball stays at the sentinel by
-# design (see RELEASE.md "What gets pinned where").
-DEFAULT_INSTALLER_TARBALL_SHA256="10a6e8a688a465e1355387e34ed435760104e0ffb06f2e5070dacc8e40fd4e6e"
-INSTALLER_TARBALL_SHA256="${OSTLER_INSTALLER_TARBALL_SHA256:-${DEFAULT_INSTALLER_TARBALL_SHA256}}"
-
-if [[ -n "${OSTLER_BOOTSTRAP_SCRIPT_DIR:-}" ]]; then
-    # Re-entry from a curl|bash bootstrap. The outer invocation
-    # extracted a tarball and exec'd us with this env var pointing at
-    # the extracted directory.
-    SCRIPT_DIR="${OSTLER_BOOTSTRAP_SCRIPT_DIR}"
-elif [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
-    # Tarball or dev mode.
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    # Tarball or dev mode. This is the only supported shape.
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 else
-    # curl|bash mode. Try to bootstrap.
-    BOOTSTRAP_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/ostler-installer-XXXXXX")"
-    trap 'rm -rf "${BOOTSTRAP_TMPDIR:-}"' EXIT INT TERM
-
-    # Pre-flight: github.com reachable from this Mac? A 5s probe saves
-    # 30s of pointless retries when the issue is network-side (Tailscale
-    # exit-node, corporate VPN, DNS, no internet) and surfaces it with a
-    # remediation message instead of a cryptic curl error.
-    if ! curl --fail --silent --show-error --location \
-            --connect-timeout 5 --max-time 8 \
-            --output /dev/null https://github.com \
-            2>"${BOOTSTRAP_TMPDIR}/preflight.err"; then
-        echo
-        echo "ERROR: Cannot reach github.com from this Mac."
-        echo
-        echo "  Detail: $(cat "${BOOTSTRAP_TMPDIR}/preflight.err" 2>/dev/null || echo unknown)"
-        echo
-        echo "Common causes:"
-        echo "  - Tailscale exit-node routing       (try: tailscale down, then re-run)"
-        echo "  - Corporate VPN blocking github.com (try: VPN off, then re-run)"
-        echo "  - DNS resolver issue                (try: dig +short github.com)"
-        echo "  - No internet"
-        echo
-        echo "Fix the network reach, then re-run the installer."
-        exit 1
-    fi
-
-    echo "==> Bootstrapping installer tarball from ${INSTALLER_TARBALL_URL}"
-
-    # Retry the tarball fetch up to 3 times with exponential backoff.
-    # Today's failure mode (Mac Studio, fresh setup, GitHub CDN flake)
-    # was 100% recoverable with a single retry. The single-shot version
-    # exited with a cryptic curl-56 from the bash side and burned a
-    # demo. Catch transient failures here.
-    fetch_ok=0
-    for attempt in 1 2 3; do
-        if curl --fail --silent --show-error --location \
-                --retry-connrefused --retry-all-errors \
-                --connect-timeout 10 --max-time 120 \
-                --output "${BOOTSTRAP_TMPDIR}/install.tar.gz" \
-                "${INSTALLER_TARBALL_URL}" \
-                2>"${BOOTSTRAP_TMPDIR}/curl.err"; then
-            fetch_ok=1
-            break
-        fi
-        if [[ $attempt -lt 3 ]]; then
-            backoff=$((attempt * 2))
-            echo "    Attempt ${attempt}/3 failed; retrying in ${backoff}s..."
-            sleep "${backoff}"
-        fi
-    done
-
-    if [[ $fetch_ok -eq 0 ]]; then
-        echo
-        echo "ERROR: Could not download the installer tarball after 3 attempts."
-        echo
-        echo "  URL:    ${INSTALLER_TARBALL_URL}"
-        echo "  Reason: $(cat "${BOOTSTRAP_TMPDIR}/curl.err" 2>/dev/null || echo unknown)"
-        echo
-        echo "Recovery (single line, paste in terminal):"
-        echo
-        echo "  curl -fL ${INSTALLER_TARBALL_URL} -o /tmp/install.tar.gz && OSTLER_INSTALLER_TARBALL_URL=file:///tmp/install.tar.gz bash <(curl -fsSL https://ostler.ai/install.sh)"
-        echo
-        echo "If that fetch also fails, the issue is GitHub reachability."
-        echo "Other options:"
-        echo
-        echo "  1. Wait until the installer tarball is published. We are tracking"
-        echo "     this at https://ostler.ai/launch."
-        echo
-        echo "  2. Override the tarball URL with one staged elsewhere:"
-        echo "       curl -fsSL https://ostler.ai/install.sh | OSTLER_INSTALLER_TARBALL_URL=https://your-host/install.tar.gz bash"
-        echo
-        echo "  3. Clone the installer repo and run ./install.sh from your"
-        echo "     checkout (dev mode), with PWG_PIPELINE_REPO + PWG_HUB_POWER_REPO"
-        echo "     set to source repos you have access to."
-        echo
-        exit 1
-    fi
-
-    # Verify SHA-256 of the downloaded tarball before extraction. This is
-    # the supply-chain guard: an attacker who replaces the GitHub release
-    # artefact must also compromise this install.sh (served via Cloudflare
-    # or the OS001 Pages _redirects 302) to match the embedded digest.
-    # Fail closed on mismatch. Skip (with WARNING) when the constant is
-    # the unconfigured sentinel or the operator has set an empty override
-    # (dev-mode escape for self-staged tarballs).
-    if [[ -n "${INSTALLER_TARBALL_SHA256}" && "${INSTALLER_TARBALL_SHA256}" != "REPLACE_AT_RELEASE_TIME" ]]; then
-        echo "==> Verifying tarball integrity"
-        actual_sha=$(shasum -a 256 "${BOOTSTRAP_TMPDIR}/install.tar.gz" | awk '{print $1}')
-        if [[ "${actual_sha}" != "${INSTALLER_TARBALL_SHA256}" ]]; then
-            echo
-            echo "ERROR: Tarball SHA-256 mismatch. Refusing to extract."
-            echo
-            echo "  Expected: ${INSTALLER_TARBALL_SHA256}"
-            echo "  Got:      ${actual_sha}"
-            echo "  URL:      ${INSTALLER_TARBALL_URL}"
-            echo
-            echo "This usually means one of:"
-            echo "  - You are running an old install.sh against a new release. Re-fetch:"
-            echo "      curl -fsSL https://ostler.ai/install.sh | bash"
-            echo "  - The tarball is corrupted. Retry the install in a few minutes."
-            echo "  - The tarball does not match what the publisher signed. Stop, do"
-            echo "    not extract, and report to security@creativemachines.ai."
-            echo
-            exit 1
-        fi
-    else
-        echo "==> WARNING: tarball SHA-256 verification skipped (dev mode or pre-release build)"
-    fi
-
-    if ! tar -xzf "${BOOTSTRAP_TMPDIR}/install.tar.gz" -C "${BOOTSTRAP_TMPDIR}"; then
-        echo "ERROR: Downloaded tarball did not extract cleanly. Aborting."
-        exit 1
-    fi
-
-    BOOTSTRAP_SCRIPT="$(find "${BOOTSTRAP_TMPDIR}" -maxdepth 3 -name install.sh -type f -print -quit)"
-    if [[ -z "${BOOTSTRAP_SCRIPT}" ]]; then
-        echo "ERROR: Tarball did not contain install.sh. Aborting."
-        exit 1
-    fi
-
-    BOOTSTRAP_DIR="$(cd "$(dirname "${BOOTSTRAP_SCRIPT}")" && pwd)"
-    export OSTLER_BOOTSTRAP_SCRIPT_DIR="${BOOTSTRAP_DIR}"
-    # Drop the cleanup trap before exec so the extracted tree survives.
-    trap - EXIT INT TERM
-    exec bash "${BOOTSTRAP_SCRIPT}" "$@"
+    # curl|bash mode. NOT SUPPORTED, and no longer attempted.
+    #
+    # v1018-D682. This branch used to download an installer tarball and
+    # re-exec from it. It could not have worked for a long time:
+    #
+    #   * the default URL pointed at ostler-ai/ostler-releases, which has
+    #     never published install.tar.gz -- 0 of 30 releases, verified
+    #     anonymously with a positive control on the same release;
+    #   * DEFAULT_INSTALLER_TARBALL_SHA256 hashed to ostler-installer
+    #     v0.3.0's tarball, a DIFFERENT repo and not even that repo's
+    #     latest, so the digest could never have matched the download;
+    #   * the two-key trust model the --help text described was therefore
+    #     inoperative -- it failed closed, which is the safe direction,
+    #     but the property it claimed was fiction.
+    #
+    # Nobody hit it, because https://ostler.ai/install.sh already serves a
+    # stub that refuses curl|bash and points at the signed DMG. Reviving
+    # the path would mean publishing a tarball to a second repo and
+    # maintaining a second trust root forever, for an install shape the
+    # product deliberately retired. Andy ruled: delete it (2026-08-13).
+    #
+    # Failing loudly here is the point. A bundled asset lookup under
+    # curl|bash would silently miss every ${SCRIPT_DIR}/<asset> and the
+    # customer would get a half-installed Hub.
+    echo
+    echo "ERROR: Ostler cannot be installed with curl | bash."
+    echo
+    echo "This script needs the files that ship alongside it (the ingest"
+    echo "pipeline, the Doctor, the security helpers). Piped into a shell on"
+    echo "its own it has none of them."
+    echo
+    echo "Install Ostler from the signed app instead:"
+    echo
+    echo "  1. Go to https://ostler.ai and buy the Ostler Hub."
+    echo "  2. Open the download link in your welcome email."
+    echo "  3. Open the .dmg and drag Ostler to Applications."
+    echo
+    exit 1
 fi
 
 # ── Strings catalogue (Rule 0.9) ──────────────────────────────────
@@ -13817,8 +13678,14 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # DIFFERENT origin (ostler.ai/install.sh via the CM055 edge worker,
 # or the notarised DMG), so a tampered release cannot satisfy it.
 # The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 to the notarised
-# tarball's sha256 at cut time -- same discipline as the installer
-# tarball pin (DEFAULT_INSTALLER_TARBALL_SHA256) and the GWS pins.
+# tarball's sha256 at cut time -- same discipline as the GWS pins.
+#
+# This used to also cite DEFAULT_INSTALLER_TARBALL_SHA256 as a sibling
+# example. That constant is gone (v1018-D682): its URL and its digest
+# named different repos, so the two-key model it advertised could never
+# verify, and the whole curl|bash bootstrap it served was deleted. Cited
+# here only so the next reader does not go hunting for it -- the pattern
+# below is sound, the dead example was not.
 #
 # ┌─ ORM CUT-TIME ACTION REQUIRED (v1.0.10 red-team-3 lockdown) ──┐
 # │ The sentinel below MUST be replaced with the real 64-hex     │
