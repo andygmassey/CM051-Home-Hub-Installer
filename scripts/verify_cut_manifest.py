@@ -994,6 +994,54 @@ def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[str | None, 
     return m.group(1), ""
 
 
+def _repo_is_readable(source_repo: str, token: str | None) -> tuple[bool, str]:
+    """Can this token READ `source_repo` at all?
+
+    The GitHub API answers 404 for a private repository the caller cannot
+    see, and 404 for a repository or tag that does not exist. Byte-identical
+    responses, opposite meanings. Without separating them, the freshness row
+    reported
+
+        FAIL  permanent-remotecapture-freshness
+              resolving tag 'remote-capture-v0.1.3' ... HTTP 404
+
+    -- a headline asserting the pinned RemoteCapture is STALE, from evidence
+    that says only "I cannot read that repo". Measured 2026-08-13: under the
+    cut token that tag 404s; with the ostler-ai account the repo resolves
+    (PRIVATE) and the tag resolves to 5f9ddf32. Same URL, two answers,
+    differing only in scope.
+
+    This is the same shape as the missing-token SKIP above it, one level in:
+    there the credential was absent, here it is present but insufficient.
+
+    Deliberately NOT "map 404 to SKIP". That would swallow a genuinely
+    missing tag -- a real staleness defect quietly reclassified as
+    not-checked, which is the warn-bucket-is-not-a-safe-bucket move. Probing
+    the repo first keeps BOTH verdicts reachable:
+
+        repo unreadable        -> CANNOT-RUN, SKIP
+        repo readable, tag 404 -> genuine FAIL, the tag really is absent
+
+    Returns (readable, why_not).
+    """
+    data, err = _gh_api_json(f"repos/{source_repo}", token)
+    if err:
+        # NARROW ON PURPOSE. Only the permissions/absence shape (404/403) is
+        # treated as unreadable. A connection reset, a timeout or malformed
+        # JSON is a DIFFERENT cannot-run, and this repo already fails those
+        # closed -- see test_freshness_fail_when_source_repo_unreachable_is_
+        # not_silent_pass. Widening this to "any error" would quietly move
+        # transient failures into the not-checked bucket, which is the same
+        # warn-bucket-is-not-a-safe-bucket move this fix exists to avoid.
+        # Two cannot-run causes, deliberately not merged.
+        if "HTTP 404" in err or "HTTP 403" in err:
+            return False, err
+        return True, ""   # a different failure; let the caller fail closed
+    if not isinstance(data, dict):
+        return True, ""   # shape problem, not a permissions problem
+    return True, ""
+
+
 def _resolve_pin_commit(source_repo: str, tag: str, token: str | None) -> tuple[str | None, str]:
     """Resolve a tag to a commit SHA in `source_repo`.
 
@@ -1433,10 +1481,25 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                       f"This row was not evaluated either way.",
                       entry.get("source_pr", ""))
 
+    # Probe the REPO before the TAG. A 404 on a private repo is
+    # indistinguishable from a 404 on a missing tag, so establishing
+    # readability first is what gives the NEXT 404 its meaning.
+    readable, why = _repo_is_readable(source_repo, token)
+    if not readable:
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "SKIP",
+                      f"NOT CHECKED: cannot read {source_repo} with the {owner!r} "
+                      f"token ({why}). The repo is private or the token lacks "
+                      f"scope for it. This row was not evaluated either way -- it "
+                      f"says nothing about whether the pin is fresh.",
+                      entry.get("source_pr", ""))
+
     pin_sha, err = _resolve_pin_commit(source_repo, tag, token)
     if err:
+        # Reachable only once the repo above READ successfully, so a 404 here
+        # is a genuinely absent tag rather than a permissions artefact.
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
-                      f"resolving tag {tag!r} in {source_repo}: {err}",
+                      f"resolving tag {tag!r} in {source_repo}: {err} "
+                      f"(repo IS readable, so the tag is genuinely absent)",
                       entry.get("source_pr", ""))
 
     # v1.0.14 opt-in: sidecar cross-check runs immediately after pin_sha is

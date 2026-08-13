@@ -930,6 +930,7 @@ class _FakeGh:
                  tag_target_sha: str | None = None,
                  token: str | None = "fake-token",
                  tag_error: str = "",
+                 repo_error: str = "",
                  source_repo: str = "ostler-ai/ostler-assistant",
                  tag: str = "hub-v0.4.39"):
         self.tag_sha = tag_sha
@@ -942,6 +943,7 @@ class _FakeGh:
         self.tag_target_sha = tag_target_sha or tag_sha
         self.token = token
         self.tag_error = tag_error
+        self.repo_error = repo_error
         self.source_repo = source_repo
         self.tag = tag
         self.calls: list[str] = []
@@ -958,6 +960,8 @@ class _FakeGh:
         if path == f"repos/{self.source_repo}/git/tags/{self.tag_sha}":
             return {"object": {"sha": self.tag_target_sha, "type": "commit"}}, ""
         if path == f"repos/{self.source_repo}":
+            if self.repo_error:
+                return None, self.repo_error
             return {"default_branch": self.default_branch}, ""
         if path == f"repos/{self.source_repo}/branches/{self.default_branch}":
             return {"commit": {"sha": self.head_sha}}, ""
@@ -1232,6 +1236,71 @@ def test_freshness_SKIPS_when_missing_token(tmp_path, monkeypatch):
     # to make it runnable is only half an honest answer.
     assert "OSTLER_RELEASES_TOKEN" in result.detail
     assert "gh auth login --user ostler-ai" in result.detail
+
+
+def test_freshness_SKIPS_when_the_repo_itself_cannot_be_READ(tmp_path):
+    """A 404 on a private repo is CANNOT-RUN, not a stale artefact.
+
+    Measured on the v1.0.26 cut: permanent-remotecapture-freshness rendered
+
+        FAIL  permanent-remotecapture-freshness
+              resolving tag 'remote-capture-v0.1.3' ... HTTP 404
+
+    -- a headline asserting the pinned RemoteCapture is STALE. Controlled with
+    the ostler-ai account, the repo resolves (PRIVATE) and that same tag
+    resolves to 5f9ddf32. Nothing was stale; the token could not see the repo.
+    GitHub answers 404 for "not found" and for "not yours" identically, so the
+    checker was reading a permissions signal as an artefact verdict.
+
+    Sibling of test_freshness_SKIPS_when_missing_token one level in: there the
+    credential was absent, here it is present but lacks scope.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   repo_error="gh api repos/... exit=1: HTTP 404: Not Found")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _daemon_entry(), {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "SKIP", (
+        "an unreadable repo must not be reported as a stale artefact")
+    assert "NOT CHECKED" in result.detail
+    assert "cannot read" in result.detail
+    assert "not evaluated either way" in result.detail
+
+    # The REPO is probed BEFORE the tag. If the order ever flips, the tag 404
+    # lands first and the row goes back to asserting staleness from a
+    # permissions signal -- which is the entire defect.
+    assert f"repos/{fake.source_repo}" in fake.calls
+    assert f"repos/{fake.source_repo}/git/refs/tags/{fake.tag}" not in fake.calls, (
+        "the tag must not be queried once the repo has proved unreadable")
+
+
+def test_freshness_FAILS_when_repo_readable_but_tag_genuinely_absent(tmp_path):
+    """The other half, and the reason this is not just 'map 404 to SKIP'.
+
+    Mapping every 404 to SKIP would swallow a real missing tag: a genuine
+    staleness defect silently reclassified as not-checked. Both verdicts have
+    to stay reachable, distinguished by evidence -- so with the repo READABLE
+    and only the tag missing, this must still be a hard FAIL.
+    """
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _write_daemon_pin_makefile(cm051, "0.4.39")
+    mod = _load_module()
+    fake = _FakeGh(tag_sha="a" * 40, head_sha="b" * 40,
+                   tag_error="gh api ... exit=1: HTTP 404: Not Found")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _daemon_entry(), {"cm051_dir": cm051, "app_path": tmp_path / "no-app"})
+    assert result.status == "FAIL", (
+        "a readable repo with a missing tag is a REAL defect and must not be "
+        "downgraded to SKIP by the private-repo fix")
+    assert "genuinely absent" in result.detail
+    # And it did prove readability first, rather than guessing.
+    assert f"repos/{fake.source_repo}" in fake.calls
 
 
 def test_freshness_RUNS_when_token_comes_from_the_environment(tmp_path, monkeypatch):
