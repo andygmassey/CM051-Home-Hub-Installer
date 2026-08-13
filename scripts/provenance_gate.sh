@@ -71,11 +71,25 @@ OSTLER_ASSISTANT_DIR="${OSTLER_ASSISTANT_DIR:-${CM051_DIR}/../ostler-assistant}"
 PROV_GATE_ALLOW_PULL="${PROV_GATE_ALLOW_PULL:-1}"
 PROV_IMAGE_OVERRIDE="${PROV_IMAGE_OVERRIDE:-}"
 
-PASS=0; FAIL=0; WARN=0
+PASS=0; FAIL=0; WARN=0; CANNOT=0; SKIPPED=0
 green() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 red()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); }
 warn()  { printf '  \033[33mWARN\033[0m  %s\n' "$1"; WARN=$((WARN+1)); }
 info()  { printf '          %s\n' "$1"; }
+# A CHECK THAT COULD NOT RUN IS NOT A DEFECT (2026-08-13).
+#
+# Every RED this gate emitted on run 31696154993 was a check that never looked.
+# Four CM044 rows reported "ledger sha 0bdc1d16de7b does NOT contain <fix> --
+# STALE BINDING" -- a specific, actionable, WRONG accusation that sends whoever
+# reads it off to rebuild and re-pin three perfectly good wiki images. The
+# images were fine; the gate could not read the repo.
+#
+# `cannot` keeps the gate fail-closed -- the cut still stops -- while saying the
+# true thing: nothing is known about this artefact. Rebuilding is the wrong
+# remedy for a missing credential, and a gate that names the wrong remedy is
+# worse than one that stays silent, because it gets obeyed.
+cannot() { printf '  \033[33mCANNOT-RUN\033[0m  %s\n' "$1"; CANNOT=$((CANNOT+1)); }
+skipped() { printf '  \033[36mSKIP\033[0m  %s\n' "$1"; SKIPPED=$((SKIPPED+1)); }
 
 echo "=== Content-provenance gate (CM051) ==="
 echo "required fixes:  ${REQUIRED_FIXES_FILE}"
@@ -113,7 +127,64 @@ repo_gh_for() {
   esac
 }
 
+# Resolve a GitHub credential for one account. Same shape, same remedy, as
+# token_for() in verify_cut_freshness.sh -- env secret first (the only form that
+# works on a hosted runner), then the account token the cut already carries for
+# ostler-ai, then the operator's multi-account gh CLI.
+#
+# `gh auth token --user X` is a LOCAL gh concept. It resolves on Andy's Mac and
+# NEVER on a runner, which is precisely how this gate came to run its GitHub
+# fallback with whatever GH_TOKEN the workflow happened to export -- see the
+# note on is_ancestor below.
+token_for() {
+  local acct="$1" envname cur key
+  key="_PROVTOK_$(printf '%s' "$acct" | tr -c 'A-Za-z0-9' '_')"
+  eval "cur=\${$key:-}"
+  if [[ -z "$cur" ]]; then
+    envname="OSTLER_GH_TOKEN_$(printf '%s' "$acct" | tr 'a-z-' 'A-Z_')"
+    eval "cur=\${$envname:-}"
+    if [[ -z "$cur" && "$acct" == "ostler-ai" ]]; then cur="${OSTLER_RELEASES_TOKEN:-}"; fi
+    if [[ -z "$cur" ]]; then cur="$(gh auth token --user "$acct" 2>/dev/null)"; fi
+    eval "$key=\$cur"
+  fi
+  printf '%s' "$cur"
+}
+
 # ancestor? <repo> <fix_commit> <candidate_sha>  -> 0 yes / 1 no / 2 cannot-check
+#
+# WHY THE ANSWER IS PARSED AS A NUMBER, AND WHY THE TOKEN IS CHOSEN (2026-08-13).
+#
+# This function produced FOUR false REDs on run 31696154993, and the reason is
+# worth stating exactly because it has now bitten three times in one day.
+#
+# It used to end:
+#
+#     out="$(gh api ... --jq '.behind_by' 2>/dev/null)"
+#     [[ -z "$out" ]] && return 2        # "unauthorised gives empty" -- FALSE
+#     [[ "$out" == "0" ]] && return 0
+#     return 1                           # <- every auth failure landed here
+#
+# `gh api` DOES NOT APPLY --jq TO A NON-2XX RESPONSE. It prints the raw error
+# body to STDOUT:
+#
+#     {"message":"Bad credentials","documentation_url":"...","status":"401"}
+#
+# That is 112 bytes, so `-z` is false, so `return 2` was UNREACHABLE on any HTTP
+# error, and every unauthorised lookup returned 1 -- "does NOT contain" -- which
+# the caller renders as "STALE BINDING". The gate accused three CM044 images of
+# being stale because it could not read the repository. Measured, with a control
+# on a repo that genuinely does not exist: both emit a JSON body, never empty.
+#
+# Same mechanism as `--jq '.size'` reporting absent files as present earlier
+# today. The lesson generalises: an error body is not empty, so emptiness can
+# never be the test for "the call failed". Parse the ANSWER SHAPE instead -- a
+# behind_by is a non-negative integer and nothing else is an answer.
+#
+# The credential half: the cut step exports GH_TOKEN=secrets.GITHUB_TOKEN, which
+# is scoped to CM051 and cannot read andygmassey/CM044-PWG-Personal-Wiki. A bare
+# `gh api` inherits it and 404s. OSTLER_GH_TOKEN_ANDYGMASSEY is already mapped
+# into that step for the freshness gate, so the credential was present and this
+# gate simply never asked for it.
 is_ancestor() {
   local repo="$1" fix="$2" cand="$3" dir gh
   dir="$(repo_dir_for "$repo")"
@@ -125,15 +196,24 @@ is_ancestor() {
     fi
   fi
   # Fallback: live GitHub compare (base=fix, head=cand). behind_by==0 => cand
-  # contains fix. Requires the `gh` andygmassey/ostler-ai account to be usable.
+  # contains fix.
   gh="$(repo_gh_for "$repo")"
   [[ -z "$gh" ]] && return 2
   local acct=andygmassey
   case "$repo" in ostler-assistant) acct=ostler-ai ;; esac
-  local out
-  out="$(HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
-        gh api --hostname github.com -H "Accept: application/vnd.github+json" \
-        "repos/${gh}/compare/${fix}...${cand}" --jq '.behind_by' 2>/dev/null)"
+  local tok out attempt
+  tok="$(token_for "$acct")"
+  [[ -z "$tok" ]] && return 2          # no credential -> cannot look, not "stale"
+  for attempt in 1 2; do               # one retry for a transient 5xx / rate blip
+    out="$(HTTP_PROXY= HTTPS_PROXY= ALL_PROXY= http_proxy= https_proxy= all_proxy= \
+          GH_TOKEN="$tok" GH_HOST=github.com \
+          gh api --hostname github.com -H "Accept: application/vnd.github+json" \
+          "repos/${gh}/compare/${fix}...${cand}" --jq '.behind_by' 2>/dev/null)"
+    # ONLY a bare non-negative integer is an answer. An error body, an empty
+    # string, a jq `null`, or anything else means the question was not answered.
+    [[ "$out" =~ ^[0-9]+$ ]] && break
+    out=""
+  done
   [[ -z "$out" ]] && return 2
   [[ "$out" == "0" ]] && return 0
   return 1
@@ -256,6 +336,30 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
   fix="${fix// /}"; artifact="${artifact// /}"
   label="${repo} ${fix:0:7} -> ${artifact} (${desc})"
 
+  # SPLIT THE GATE BY WHAT EACH ENVIRONMENT CAN HONESTLY PROVE.
+  #
+  # The wiki classes open the pinned image, which needs docker. The cut job is
+  # macos-26 and has none; the preflight job is ubuntu-latest and does. Before
+  # this filter existed the only way to run the gate was to run every class
+  # everywhere, so the macos job reported the wiki rows as unverifiable and the
+  # cut stopped on an environment limitation dressed as an artefact fault.
+  #
+  # Every class still runs exactly once -- it runs where it can look. Skips are
+  # COUNTED and NAMED in the verdict, so a narrowed run can never read as a
+  # complete one. Same split, same reasoning, as OSTLER_PROVENANCE_ONLY_KINDS in
+  # verify_cut_provenance.sh; the vocabulary differs because the axis differs
+  # (artifact class here, manifest kind there).
+  class="${artifact%%:*}"
+  case "$class" in wiki-compiler|wiki-site) class=wiki ;; esac
+  if [[ -n "${PROV_GATE_ONLY_CLASSES:-}" ]] \
+     && ! printf '%s' ",${PROV_GATE_ONLY_CLASSES}," | grep -q ",${class},"; then
+    skipped "${label} :: class '${class}' not selected by PROV_GATE_ONLY_CLASSES"; continue
+  fi
+  if [[ -n "${PROV_GATE_SKIP_CLASSES:-}" ]] \
+     && printf '%s' ",${PROV_GATE_SKIP_CLASSES}," | grep -q ",${class},"; then
+    skipped "${label} :: class '${class}' deliberately skipped here -- verified in another job"; continue
+  fi
+
   case "$artifact" in
     wiki-compiler|wiki-site)
       # SPLIT WITHOUT COLLAPSING EMPTY FIELDS. `IFS=$'\t' read -r a b c` looks
@@ -287,14 +391,19 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
         info "rebuild the ${artifact} image from a CM044 sha that includes ${fix:0:7}, re-pin + update the ledger row"
         continue
       elif [[ $anc -eq 2 ]]; then
-        red "${label} :: cannot verify ancestry of ${fix:0:7} in ledger sha (no CM044 checkout + GitHub unreachable) -- fail-closed"
+        cannot "${label} :: could not establish ancestry of ${fix:0:7} in ledger sha ${ledger_sha:0:12} -- no ${repo} checkout AND no usable GitHub credential for that repo"
+        info "this says NOTHING about the artefact. Do NOT rebuild or re-pin on the strength of it."
+        info "on a runner, export OSTLER_GH_TOKEN_<ACCOUNT> (Contents:Read); locally, gh auth login as that account"
         continue
       fi
       # 2) CONTENT: is the fix actually baked into the pinned image?
       res="$(image_has_marker "$ref" "$marker" "$mpath")"
       case "$res" in
-        NODOCKER) red "${label} :: docker unavailable -- cannot verify image content (fail-closed)"; continue ;;
-        NOIMAGE)  red "${label} :: pinned image ${digest:7:12} not present locally and could not be pulled -- fail-closed"; continue ;;
+        NODOCKER) cannot "${label} :: docker unavailable here -- the image was never opened, so its content is unknown"
+                  info "run this class where docker exists (see PROV_GATE_ONLY_CLASSES) rather than treating it as a defect"
+                  continue ;;
+        NOIMAGE)  cannot "${label} :: pinned image ${digest:7:12} is not local and could not be pulled -- registry/network, not the artefact"
+                  continue ;;
         MISSING)
           red "${label} :: image ${digest:7:12} does NOT contain /${marker}/ under ${mpath} -- STALE IMAGE (ledger claims ${ledger_sha:0:12} but ${fix:0:7} content is absent)"
           info "the digest was NOT built from source containing ${fix:0:7}; rebuild the ${artifact} image from current CM044 main + re-pin + fix the ledger row"
@@ -316,13 +425,29 @@ while IFS=$'\t' read -r repo fix artifact marker mpath desc; do
     daemon)
       tag_sha="$(daemon_tag_sha)"
       if [[ -z "$tag_sha" ]]; then
-        red "${label} :: could not resolve daemon pin -> ostler-assistant tag sha (need a local checkout) -- fail-closed"; continue
+        cannot "${label} :: could not resolve the daemon pin to an ostler-assistant tag sha -- needs a local checkout (OSTLER_ASSISTANT_DIR)"
+        continue
       fi
       is_ancestor "$repo" "$fix" "$tag_sha"; anc=$?
-      if [[ $anc -ne 0 ]]; then
+      # `-ne 0` collapsed "proven absent" and "could not look" into one RED that
+      # named the daemon stale. Split them: only 1 is a finding about the daemon.
+      if [[ $anc -eq 1 ]]; then
         red "${label} :: daemon tag ${tag_sha:0:12} does NOT contain ${fix:0:7} -- STALE DAEMON"; continue
+      elif [[ $anc -eq 2 ]]; then
+        cannot "${label} :: could not establish ancestry of ${fix:0:7} in daemon tag ${tag_sha:0:12} -- no ostler-assistant checkout AND no usable credential"
+        continue
       fi
       dir="$(repo_dir_for ostler-assistant)"
+      # Ancestry can be settled over the API with no checkout at all, so this
+      # content grep must prove it CAN read the tree before it reports on it.
+      # Without the guard an absent checkout makes `git show` fail and the else
+      # branch announces STALE DAEMON SOURCE -- a fabricated finding about a
+      # file the gate never opened.
+      if ! git -C "$dir" cat-file -e "${tag_sha}:${mpath}" 2>/dev/null; then
+        cannot "${label} :: no ostler-assistant checkout holding ${tag_sha:0:12}:${mpath} -- content not read"
+        info "set OSTLER_ASSISTANT_DIR to a checkout fetched deep enough to contain that tag"
+        continue
+      fi
       if git -C "$dir" show "${tag_sha}:${mpath}" 2>/dev/null | grep -qE -- "${marker}"; then
         green "${label} :: ${fix:0:7} present in daemon tag ${tag_sha:0:12} (${mpath})"
       else
@@ -351,17 +476,34 @@ done < "${REQUIRED_FIXES_FILE}"
 
 echo
 echo "=== Verdict ==="
-echo "  ${PASS} pass / ${FAIL} fail / ${WARN} warn"
+echo "  ${PASS} pass / ${FAIL} fail / ${CANNOT} cannot-run / ${WARN} warn / ${SKIPPED} not-run-here"
 if [[ "${WARN}" -gt 0 ]]; then
   echo "  ${WARN} advisory WARN(s): a shipped fix is content-proven present but its"
   echo "  source binding is unverifiable from image metadata. Close with the build-time"
   echo "  revision-label stamp (PROVENANCE_GATE.md) so the binding is enforceable."
 fi
-if [[ "${FAIL}" -eq 0 ]]; then
+if [[ "${SKIPPED}" -gt 0 ]]; then
+  echo "  ${SKIPPED} check(s) NOT RUN HERE by explicit selection -- named above. This run is"
+  echo "  a NARROWED one; it is only complete alongside the job that runs those classes."
+fi
+# THREE-STATE, AND FAIL OUTRANKS CANNOT-RUN.
+#
+# Both stop the cut -- fail-closed is not negotiable -- but they demand opposite
+# actions from whoever reads the log. A FAIL means rebuild and re-pin the
+# artefact. A CANNOT-RUN means fix the environment and look again; rebuilding on
+# the strength of one is wasted work aimed at a healthy artefact. Run
+# 31696154993 spent the day proving how expensive that confusion is.
+if [[ "${FAIL}" -gt 0 ]]; then
+  echo "  CONTENT-PROVENANCE RED -- ${FAIL} artifact(s) miss a required fix."
+  echo "  Rebuild + re-pin the RED artifact(s), fix the ledger row, then re-run. DO NOT CUT."
+  exit 1
+elif [[ "${CANNOT}" -gt 0 ]]; then
+  echo "  CONTENT-PROVENANCE COULD NOT RUN -- ${CANNOT} check(s) never looked at their artifact."
+  echo "  NOTHING has been found wrong with any artifact. Do NOT rebuild or re-pin on the"
+  echo "  strength of this run: fix the credential / checkout / docker availability named"
+  echo "  above and re-run. DO NOT CUT on an unproven artifact either."
+  exit 2
+else
   echo "  CONTENT-PROVENANCE GREEN -- every required fix is proven baked into its artifact."
   exit 0
-else
-  echo "  CONTENT-PROVENANCE RED -- ${FAIL} artifact(s) miss a required fix, or cannot be"
-  echo "  verified. Rebuild + re-pin the RED artifact(s), then re-run. DO NOT CUT."
-  exit 1
 fi
