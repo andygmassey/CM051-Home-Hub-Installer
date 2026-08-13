@@ -271,6 +271,40 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
 HUB_APP_SHA256       ?= e074d6fd9647aa325b2c98a5c61540c209e2b03937286e3f22309f03cc2f62bf
 
+# ---------------------------------------------------------------------------
+# SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
+#
+# The v1.0.26 cut got all the way into xcodebuild archive and died at:
+#
+#   error: vendor/extensions/OstlerSafariExtension.app.zip is missing.
+#          W8 / F6: ORM must build + sign + notarise + stage the Safari
+#          extension before the .app build.
+#
+# Exactly the Hub app problem one artefact later: a payload that only ever
+# existed on the operator's Mac, so a hosted runner has nothing to bundle.
+# Same remedy, deliberately: fetch the published artefact, verify SHA-256
+# fail-closed, and no-op when the operator has already staged one.
+#
+# NOT REBUILT HERE, and that is a decision rather than an omission. The
+# extension is signed AND notarised with the Developer ID; rebuilding it in the
+# cut would need CM020 source (absent from the build Mac) and would re-sign an
+# artefact that Apple has already notarised. Fetching the notarised bytes is
+# the honest move; the ship chain re-staples nested apps in two rounds anyway
+# (see staple-apps).
+#
+# TWO KNOWN DEFECTS IN THE ARTEFACT, recorded so neither is discovered twice:
+#   * the inner bundle is SafariHistoryExt.app / com.creativemachines.
+#     SafariHistoryExt -- the PRE-REBRAND name, and it is customer-visible in
+#     Safari's extension list. Same class as #263 (zeroclaw-desktop). Needs a
+#     CM020 rebuild, which is its own cycle.
+#   * it carries no stapled ticket on its own. Expected for a pre-cut input.
+# Publishing the artefact the last good cut used makes neither worse.
+# ---------------------------------------------------------------------------
+SAFARI_EXT_REPO    ?= $(HUB_APP_REPO)
+SAFARI_EXT_NAME    := OstlerSafariExtension.app.zip
+SAFARI_EXT_DEST    := $(_CM051_ROOT)/vendor/extensions/$(SAFARI_EXT_NAME)
+SAFARI_EXT_SHA256  ?= 87f82a29eb4a4c1e13ddc694335747163f0f76fb4e055717b76219351534c69a
+
 STEP          := @printf '\n[STEP] %s\n'
 
 .PHONY: help all debug release package notarise notarise-app notarise-dmg \
@@ -281,7 +315,8 @@ STEP          := @printf '\n[STEP] %s\n'
         check-orphans \
         check-pr-age \
         verify-commit-parity \
-        download-python sign-python-bundle download-daemon download-hub-app stage-daemon \
+        download-python sign-python-bundle download-daemon download-hub-app \
+        download-safari-extension stage-daemon \
         check-provenance check-freshness check-provenance-content check-manifest
 
 # The default goal is deliberately INERT.
@@ -644,6 +679,51 @@ download-hub-app:
 	    exit 1; \
 	fi; \
 	printf '[OK] Ostler.app v%s fetched + SHA-256 verified at %s\n' "$(DAEMON_VERSION)" "$(OSTLER_APP_PATH)"
+
+# ---------------------------------------------------------------------------
+# Task #332 sibling: obtain the Safari extension when this machine has none.
+# ---------------------------------------------------------------------------
+download-safari-extension:
+	@if [ -s "$(SAFARI_EXT_DEST)" ]; then \
+	    printf '[STEP] Safari extension already staged: %s\n' "$(SAFARI_EXT_DEST)"; \
+	    exit 0; \
+	fi; \
+	mkdir -p "$(dir $(SAFARI_EXT_DEST))"; \
+	printf '\n[STEP] Safari extension absent -- fetching %s from %s %s\n' \
+	    "$(SAFARI_EXT_NAME)" "$(SAFARI_EXT_REPO)" "$(DAEMON_RELEASE_TAG)"; \
+	if [ -n "$$OSTLER_RELEASES_TOKEN" ]; then \
+	    GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(DAEMON_RELEASE_TAG)" \
+	            --repo "$(SAFARI_EXT_REPO)" --pattern "$(SAFARI_EXT_NAME)" \
+	            --dir "$(dir $(SAFARI_EXT_DEST))" --clobber || { \
+	        echo "ERROR: could not read $(SAFARI_EXT_REPO) $(DAEMON_RELEASE_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
+	        echo "  The token IS set, so this is a scope problem, not a missing credential." >&2; \
+	        exit 1; \
+	    }; \
+	elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
+	    gh release download "$(DAEMON_RELEASE_TAG)" --repo "$(SAFARI_EXT_REPO)" \
+	            --pattern "$(SAFARI_EXT_NAME)" --dir "$(dir $(SAFARI_EXT_DEST))" --clobber || { \
+	        echo "ERROR: gh release download failed for $(SAFARI_EXT_NAME)." >&2; \
+	        exit 1; \
+	    }; \
+	else \
+	    echo "ERROR: no way to obtain the Safari extension." >&2; \
+	    echo "  Stage it at $(SAFARI_EXT_DEST), or export OSTLER_RELEASES_TOKEN." >&2; \
+	    exit 1; \
+	fi; \
+	EXPECTED="$(SAFARI_EXT_SHA256)"; \
+	ACTUAL="$$(shasum -a 256 "$(SAFARI_EXT_DEST)" | awk '{print $$1}')"; \
+	if [ "$$ACTUAL" != "$$EXPECTED" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: Safari extension SHA-256 mismatch (fail-closed)." >&2; \
+	    echo "  expected: $$EXPECTED" >&2; \
+	    echo "  actual:   $$ACTUAL" >&2; \
+	    echo "  A digest of e3b0c442...b855 means the file read as EMPTY, not that it" >&2; \
+	    echo "  differs -- that is the sha256 of the empty string, and on this build" >&2; \
+	    echo "  Mac it means iCloud evicted the source. Fault it in and retry." >&2; \
+	    rm -f "$(SAFARI_EXT_DEST)"; \
+	    exit 1; \
+	fi; \
+	printf '[OK] Safari extension fetched + SHA-256 verified at %s\n' "$(SAFARI_EXT_DEST)"
 
 # ---------------------------------------------------------------------------
 # CX-88 (DMG #48g): extract the cached daemon tarball into
@@ -1907,7 +1987,7 @@ guard-local-cut:
 	    exit 1; \
 	fi
 
-ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
+ship: guard-local-cut check-orphans check-pr-age download-hub-app check-ostler-app download-safari-extension download-python stage-daemon stage-payload sparkle-embed notarise-hub release sign-python-bundle check-manifest notarise-app staple-apps package notarise-dmg verify-dmg-contents verify-stapling verify-commit-parity archive
 	@echo ""
 	@echo "Shipped:  $(DMG_PATH)"
 	@echo "Archived: $(ARCHIVE_DIR)/"
