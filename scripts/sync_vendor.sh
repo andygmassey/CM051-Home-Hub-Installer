@@ -430,6 +430,44 @@ if [ -f "$_vendor_only_tsv" ]; then
     done < "$_vendor_only_tsv"
 fi
 
+# v1018-D684. Snapshot the tree we are about to destroy, so the symbol
+# guard below has a "before" to compare against and so a refusal can roll
+# back rather than leaving a half-vendored tree on disk.
+#
+# The swap is `rm -rf` + untar: it OVERWRITES, it does not merge. That is
+# why a vendored tree which is AHEAD of upstream loses code silently, and
+# why the guard has to run here rather than in review.
+# PRE-FLIGHT, and it must stay BEFORE the snapshot and the swap.
+#
+# The guard is checked for existence HERE, not at its call site below,
+# because by the time the call site is reached the tree has already been
+# rm -rf'd and untarred. Refusing there would mean refusing on top of a
+# tree that had already been overwritten -- a caught defect turned into a
+# worse one. Refuse before destroying anything.
+#
+# An absent guard is a COULD-NOT-RUN, and a could-not-run is not a pass.
+# This check used to be a WARNING at the call site that vendored anyway:
+# a line of yellow text, the tree overwritten unguarded, and the run
+# reporting success. A warning nobody blocks on is indistinguishable from
+# no guard, which is how the doctor tree lost three shipping cards the
+# first time (HR015 12ac405).
+_symguard="${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}/verify_no_symbol_regression.sh"
+if [ ! -x "$_symguard" ]; then
+    echo "" >&2
+    echo "REFUSING TO VENDOR: the symbol-regression guard could not be run." >&2
+    echo "    expected executable: $_symguard" >&2
+    echo "" >&2
+    echo "Nothing was compared and NOTHING ON DISK HAS BEEN TOUCHED. The swap" >&2
+    echo "is rm -rf + untar, so vendoring unguarded can silently delete" >&2
+    echo "shipping code (v1018-D684). Restore the guard, then re-run." >&2
+    exit 2
+fi
+
+_symguard_before="$(mktemp -d)"
+if [ -d "$abs_vendor" ]; then
+    ( cd "$abs_vendor" && tar -cf - . ) | ( cd "$_symguard_before" && tar -xf - )
+fi
+
 # Swap the vendored tree.
 rm -rf "$abs_vendor"
 mkdir -p "$abs_vendor"
@@ -445,6 +483,38 @@ if [ -n "$_vo_stash" ] && [ "$_vo_kept" -gt 0 ]; then
     echo "  restored $_vo_kept vendor-only file(s) (see vendor/VENDOR_ONLY.tsv)"
 fi
 [ -n "$_vo_stash" ] && rm -rf "$_vo_stash"
+
+# ── v1018-D684 symbol-regression guard ───────────────────────────────
+# Runs AFTER the vendor-only restore on purpose: files declared in
+# VENDOR_ONLY.tsv are back by now, so they are not reported as losses and
+# the guard only fires on symbols that genuinely vanished.
+#
+# Andy's ruling 2026-08-13: a re-vendor must FAIL if it would reduce the
+# set of functions defined in the target file. Measured that day: the
+# vendored doctor tree was a strict SUPERSET of HR015's -- 8 functions
+# existed only in vendor, none only upstream -- so a re-vendor would have
+# deleted three shipping Doctor cards. It had already happened once
+# (HR015 12ac405 "restore iMessage chat.db FDA reminder card dropped in
+# re-vendor"). This makes a third occurrence impossible.
+#
+# On refusal we ROLL BACK. Leaving a half-vendored tree behind would turn
+# a caught defect into a worse one.
+# $_symguard was proven executable in the pre-flight above, before the tree
+# was touched. No existence branch here: a second check would be a second
+# opinion on a question already settled, and its failure path would have to
+# unwind a swap that has already happened.
+if true; then
+    if ! "$_symguard" "$_symguard_before" "$abs_vendor"; then
+        echo "" >&2
+        echo "ROLLING BACK the vendored tree; nothing on disk has changed." >&2
+        rm -rf "$abs_vendor"
+        mkdir -p "$abs_vendor"
+        ( cd "$_symguard_before" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )
+        rm -rf "$_symguard_before"
+        exit 1
+    fi
+fi
+rm -rf "$_symguard_before"
 
 # Regenerate the patch from clean source@to_sha -> new vendor and bump sha.
 tmp2="$(mktemp -d)"
