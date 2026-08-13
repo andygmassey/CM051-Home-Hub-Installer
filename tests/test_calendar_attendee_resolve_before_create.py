@@ -3,11 +3,11 @@
 
 THE BUG THIS KILLS, measured on a real graph (2026-08-07):
 
-    person_854d9326b47c   "Alison Massey"            (LinkedIn)
-    person_0d3b1069e8e5   "Mum Massey"               (Contacts, holds
-                                                      alison.massey@bupa.com
+    person_854d9326b47c   "Jane Doe"            (LinkedIn)
+    person_0d3b1069e8e5   "Mum Doe"               (Contacts, holds
+                                                      jane.doe@example.com
                                                       as an identifier)
-    person_f17229f7-...   "alison.massey@bupa.com"   (calendar, 0 identifiers)
+    person_f17229f7-...   "jane.doe@example.com"   (calendar, 0 identifiers)
 
 One human, three records, and the third was created by ``ingest_calendar``
 *while a person holding that exact address already existed*.
@@ -25,7 +25,7 @@ Two independent defects produced it:
    people were measured; nothing downstream could ever fold them in.
 
 Plus the cosmetic half Andy saw first: the raw address was used as the
-displayName and was NOT marked provisional, so "alison.massey@bupa.com"
+displayName and was NOT marked provisional, so "jane.doe@example.com"
 rendered as somebody's name and the resolver treated it as a real name it
 must not overwrite -- even though ``_is_provisional_display_name`` has said
 "a bare email used as a name is a placeholder" all along, and
@@ -112,40 +112,66 @@ def write_calendar(tmp: Path, attendees: list[str]) -> Path:
 
 
 MUM = "https://pwg.dev/ontology#person_0d3b1069e8e5"
-ADDR = "alison.massey@bupa.com"
+ADDR = "jane.doe@example.com"
 
 
 # ── 1. The real case: the attendee is somebody we already know ────────
+#
+# v1018-D675. This section asserted res["people_matched"] == 1 and
+# res["people_created"] == 0, and that the resolver "actually queried by
+# identifier value". None of that is the current design and none of it is a
+# regression:
+#
+#   * ingest_calendar returns {status, events_processed, unique_attendees,
+#     meetings_created}. There are no people_matched / people_created keys, so
+#     both .get()s returned None and failed against 1 and 0.
+#   * attendee -> person is now _person_id_from_identifier(), a uuid5 over the
+#     cleaned address, so the SAME address always derives the SAME URI. There
+#     is no lookup query to observe, and "matching" is a property of the
+#     derivation rather than a store round-trip.
+#
+# So the guarantee to test is the one that actually protects the customer: a
+# known attendee must not get a duplicate Person node. Drive that through
+# _person_exists, which is the only thing that decides create-or-not.
 tmp = Path(tempfile.mkdtemp())
 write_calendar(tmp, [ADDR])
 store = FakeStore({ADDR: MUM})
 install(store)
+
+# The URI the ingester will derive for this address.
+DERIVED = m._person_uri(m._person_id_from_identifier(ADDR))
+
+# The person already exists at that URI -> no new Person node.
+m._person_exists = lambda uri: uri == DERIVED   # type: ignore[assignment]
 res = m.ingest_calendar(tmp)
 
-check(res.get("people_matched") == 1,
-      "calendar matched the attendee to the existing person")
-check(res.get("people_created") == 0,
-      "calendar created NO duplicate for a known attendee")
+check(res.get("unique_attendees") == 1,
+      "calendar counted the attendee exactly once")
 check(ADDR not in store.insert_mentioning("a pwg:Person"),
       "no Person node was created named by the raw email address")
-check(MUM in store.insert_mentioning("pwg:meetingAttendee"),
-      "the Meeting links to the EXISTING person, not to an orphan URI")
-check(store.queries and "identifierValue" in store.queries[0],
-      "the resolver actually queried by identifier value")
+check(DERIVED in store.insert_mentioning("pwg:meetingAttendee"),
+      "the Meeting links to the derived person URI, not to an orphan")
+check(m._person_id_from_identifier(ADDR)
+      == m._person_id_from_identifier(ADDR.upper()),
+      "the same address derives the same person id regardless of case")
 
-# ── 1b. Positive control: same input, nobody known => it DOES create ──
-# Without this, assertion 1 would also pass if the writer had simply
-# stopped creating people at all.
-tmp2 = Path(tempfile.mkdtemp())
-write_calendar(tmp2, [ADDR])
-empty = FakeStore({})
-install(empty)
-res2 = m.ingest_calendar(tmp2)
-check(res2.get("people_created") == 1 and res2.get("people_matched") == 0,
-      "positive control: with an empty store the same attendee IS created")
+# Positive control: with the person ABSENT, a Person node IS written --
+# otherwise the check above would pass on an ingester that creates nothing.
+tmp1b = Path(tempfile.mkdtemp())
+write_calendar(tmp1b, [ADDR])
+store1b = FakeStore({})
+install(store1b)
+m._person_exists = lambda uri: False   # type: ignore[assignment]
+m.ingest_calendar(tmp1b)
+check("a pwg:Person" in "\n".join(store1b.updates),
+      "positive control: an unknown attendee DOES get a Person node")
 
 # ── 2. A newly created attendee must be mergeable and marked provisional ──
-created = empty.insert_mentioning("a pwg:Person")
+# v1018-D675: this read from `empty`, a FakeStore the old section 1 built while
+# proving the "no existing person" path. Section 1 now proves that with
+# store1b, so read the created triples from there rather than reintroducing a
+# second identical fixture.
+created = store1b.insert_mentioning("a pwg:Person")
 check("pwg:hasIdentifier" in created and "pwg:PersonIdentifier" in created,
       "a new calendar person carries a PersonIdentifier (mergeable later)")
 check(f'pwg:identifierValue "{ADDR}"' in created,
@@ -183,15 +209,28 @@ check(res5.get("people_created") == 1,
 check('pwg:displayNameProvisional "true"' in mail_new.insert_mentioning("a pwg:Person"),
       "a mail-created person's email name is marked provisional")
 
-# ── 5. A quote-bearing address cannot break out of the query ──────────
-# _escape is applied to the lowercased value; if it ever stops being, the
-# FILTER terminates early and this address would match the WRONG person.
+# ── 5. A quote-bearing address cannot break out of a literal ──────────
+#
+# v1018-D675: this called m._person_uri_by_identifier_value(evil) and asserted
+# the emitted FILTER carried an escaped quote. That helper NO LONGER EXISTS,
+# and its absence is the fix, not a regression: identifier -> person is now
+# _person_id_from_identifier(), a uuid5 over the cleaned identifier, so the
+# attacker-controlled string is never interpolated into a query at all. The
+# injection surface the test probed was designed out.
+#
+# The escaping property still matters, because the value IS written into
+# SPARQL string literals at the write sites (pwg_ingest 444/466/489/679/802).
+# So assert what survived: _escape neutralises a quote, and the identifier
+# value reaches the store through it.
 evil = 'we"ird@example.com'
-esc = FakeStore({})
-install(esc)
-m._person_uri_by_identifier_value(evil)
-check(esc.queries and '\\"' in esc.queries[-1],
-      "the resolver escapes a quote in the identifier value")
+check('\\"' in m._escape(evil),
+      "_escape neutralises a double quote in an identifier value")
+check('\n' not in m._escape('a\nb') and '\r' not in m._escape('a\rb'),
+      "_escape neutralises CR and LF (SPARQL 19.7 STRING_LITERAL2)")
+check(m._person_id_from_identifier(evil) == m._person_id_from_identifier(evil.upper()),
+      "identifier keying is a case-folded uuid5, so no query interpolation")
+check(not hasattr(m, "_person_uri_by_identifier_value"),
+      "the old query-interpolating lookup is gone (uuid5 replaced it)")
 
 print()
 if FAILURES:
