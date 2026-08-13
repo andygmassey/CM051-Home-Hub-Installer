@@ -30,9 +30,23 @@ CM051_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MANIFEST="${CUT_MARKER_MANIFEST:-${SCRIPT_DIR}/cut_markers.manifest}"
 ASSISTANT_DIR="${OSTLER_ASSISTANT_DIR:-${CM051_DIR}/../ostler-assistant}"
 
+# WHICH KINDS TO RUN. Empty = all, which is the operator default.
+#
+# The wiki_image_* kinds need docker + registry access. The `cut` job is
+# macos-26 and has neither, so on run 31694278038 all ELEVEN of them reported
+# "docker unavailable" and the gate announced "11 stale/missing component(s)"
+# having examined none. The preflight job is ubuntu-latest and HAS docker.
+#
+# So the work is split by what each environment can honestly prove, exactly as
+# cut.yml already splits the rollforward gate. Every check still runs; it runs
+# where it can actually look.
+ONLY_KINDS="${OSTLER_PROVENANCE_ONLY_KINDS:-}"
+SKIP_KINDS="${OSTLER_PROVENANCE_SKIP_KINDS:-}"
+
 PASS=0
 FAIL=0
 CANNOT=0
+SKIPPED=0
 green() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 red()   { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); }
 # A check whose INPUT is absent has observed nothing. Saying FAIL there claims
@@ -92,6 +106,15 @@ fi
 while IFS='|' read -r kind target pattern desc; do
   [[ -z "${kind:-}" || "${kind}" == \#* ]] && continue
   kind="$(echo "${kind}" | tr -d ' ')"
+  # Filter BEFORE dispatch. Skips are counted and named at the end -- a check
+  # that did not run must never be invisible, or the verdict silently narrows.
+  if [[ -n "${ONLY_KINDS}" && ",${ONLY_KINDS}," != *",${kind},"* ]]; then
+    SKIPPED=$((SKIPPED+1)); continue
+  fi
+  if [[ -n "${SKIP_KINDS}" && ",${SKIP_KINDS}," == *",${kind},"* ]]; then
+    SKIPPED=$((SKIPPED+1)); continue
+  fi
+
   case "${kind}" in
     daemon_tag)
       sha="${target// /}"
@@ -158,8 +181,9 @@ while IFS='|' read -r kind target pattern desc; do
       # the hole that made wiki staleness a manual grep: the gate pulls the
       # exact digest and greps inside it. target = `<image-key>:<path-in-image>`
       # where image-key is wiki-site or wiki-compiler; pattern = regex to find.
-      # FAIL-CLOSED: if docker is unavailable or the pull fails, this is RED, so
-      # a cut host that cannot verify the image cannot pass.
+      # FAIL-CLOSED, but as CANNOT-RUN rather than RED: a host that cannot
+      # verify the image still cannot pass, and it no longer claims the image
+      # is stale. Those are different facts and only one of them was observed.
       img_key="${target%%:*}"; img_path="${target#*:}"
       # NAMESPACE-AGNOSTIC ON PURPOSE. This grep was pinned to
       # "ghcr.io/ostler-ai/", but install.sh ships
@@ -180,11 +204,23 @@ while IFS='|' read -r kind target pattern desc; do
         red "wiki_image_grep ${img_key} :: no pinned digest in install.sh (${desc})"; continue
       fi
       if ! command -v docker >/dev/null 2>&1; then
-        red "wiki_image_grep ${img_key} :: docker unavailable -- cannot verify image (${desc})"
+        cannot "wiki_image_grep ${img_key} :: docker unavailable -- this check examined nothing, it did NOT find the image stale (${desc})"
         info "run the preflight on the cut host (docker + registry access required)"
         continue
       fi
-      docker pull -q "${ref}" >/dev/null 2>&1
+      # THE PULL RESULT IS A VERDICT INPUT, NOT NOISE.
+      #
+      # This was `docker pull -q "${ref}" >/dev/null 2>&1` with the status
+      # discarded. A pull that fails for registry auth, a rate limit or a
+      # network blip then fell through to `docker run` failing, and the else
+      # branch below announced "NOT FOUND -- STALE WIKI IMAGE" about an image
+      # it had never opened. Fail-closed is correct; naming a defect that was
+      # never observed is not.
+      if ! pull_err="$(docker pull -q "${ref}" 2>&1)"; then
+        cannot "wiki_image_grep ${img_key} :: cannot pull ${ref##*@} -- this check examined nothing (${desc})"
+        printf '%s\n' "$pull_err" | sed 's/^/        docker: /'
+        continue
+      fi
       if docker run --rm --entrypoint sh "${ref}" -c "grep -rq -- '${pattern}' '${img_path}' 2>/dev/null"; then
         green "wiki_image_grep ${img_key}@${ref##*@} :${img_path} ~ /${pattern}/ (${desc})"
       else
@@ -213,10 +249,22 @@ while IFS='|' read -r kind target pattern desc; do
         red "wiki_image_absent ${img_key} :: no pinned digest in install.sh (${desc})"; continue
       fi
       if ! command -v docker >/dev/null 2>&1; then
-        red "wiki_image_absent ${img_key} :: docker unavailable -- cannot verify image (${desc})"
+        cannot "wiki_image_absent ${img_key} :: docker unavailable -- this check examined nothing, it did NOT find the pattern present (${desc})"
         continue
       fi
-      docker pull -q "${ref}" >/dev/null 2>&1
+      # THE PULL RESULT IS A VERDICT INPUT, NOT NOISE.
+      #
+      # This was `docker pull -q "${ref}" >/dev/null 2>&1` with the status
+      # discarded. A pull that fails for registry auth, a rate limit or a
+      # network blip then fell through to `docker run` failing, and the else
+      # branch below announced "NOT FOUND -- STALE WIKI IMAGE" about an image
+      # it had never opened. Fail-closed is correct; naming a defect that was
+      # never observed is not.
+      if ! pull_err="$(docker pull -q "${ref}" 2>&1)"; then
+        cannot "wiki_image_absent ${img_key} :: cannot pull ${ref##*@} -- this check examined nothing (${desc})"
+        printf '%s\n' "$pull_err" | sed 's/^/        docker: /'
+        continue
+      fi
       if docker run --rm --entrypoint sh "${ref}" -c "grep -rq -- '${pattern}' '${img_path}' 2>/dev/null"; then
         red "wiki_image_absent ${img_key} :${img_path} ~ /${pattern}/ IS PRESENT -- a deliberately removed component came back (${desc})"
         info "this pattern was deleted on purpose; find what reintroduced it before cutting"
@@ -232,7 +280,12 @@ done < "${MANIFEST}"
 
 echo
 echo "=== Verdict ==="
-echo "  ${PASS} pass / ${FAIL} fail / ${CANNOT} could-not-run"
+echo "  ${PASS} pass / ${FAIL} fail / ${CANNOT} could-not-run / ${SKIPPED} not-run-here"
+if [[ "${SKIPPED}" -gt 0 ]]; then
+  echo "  ${SKIPPED} check(s) were filtered out of THIS invocation"
+  echo "    only=${ONLY_KINDS:-<all>}  skip=${SKIP_KINDS:-<none>}"
+  echo "  They are not verified by this run. Another invocation must cover them."
+fi
 # THREE outcomes, and the order matters. A real FAIL outranks a cannot-run,
 # because a fix proven stale is worse news than a check that did not execute.
 if [[ "${FAIL}" -gt 0 ]]; then

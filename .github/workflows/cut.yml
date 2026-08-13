@@ -127,6 +127,28 @@ jobs:
           # here cannot be read as "the defects are fixed".
           "$RUNNER" --verify-claims --cut "${GITHUB_REF_NAME}"
 
+      # THE WIKI-IMAGE CHECKS RUN HERE, NOT IN THE CUT JOB.
+      #
+      # wiki_image_grep / wiki_image_absent pull the pinned digest and grep
+      # inside it. That needs docker. This job is ubuntu-latest and has it; the
+      # cut job is macos-26 and does not. On run 31694278038 all ELEVEN wiki
+      # rows reported "docker unavailable" and the gate announced "11
+      # stale/missing component(s)" having opened none of them.
+      #
+      # So the gate is split by what each environment can honestly prove, the
+      # same way this workflow already splits the rollforward gate. Every check
+      # still runs exactly once; it runs where it can actually look. The cut job
+      # skips these kinds and says so in its own verdict line.
+      #
+      # No registry credential: the pinned digests are anonymously pullable,
+      # measured 2026-08-13 (ghcr manifest HTTP 200 with an anonymous token).
+      # If that ever changes, a failed pull is now CANNOT-RUN, not a false
+      # STALE WIKI IMAGE.
+      - name: Provenance -- wiki image contents (needs docker, hence here)
+        env:
+          OSTLER_PROVENANCE_ONLY_KINDS: wiki_image_grep,wiki_image_absent
+        run: bash scripts/verify_cut_provenance.sh
+
       - name: Repo-side gates
         run: |
           set -euo pipefail
@@ -469,6 +491,12 @@ jobs:
           # reintroduces the v1.0.22 failure from one side or the other. Three
           # credentials, three jobs, each failing where its own cause is.
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          #
+          # The wiki-image kinds need docker, which macos-26 does not have.
+          # They are verified in the preflight job on ubuntu instead -- see the
+          # step there. Skipped checks are counted and named in this gate's own
+          # verdict line, so the narrowing is visible rather than silent.
+          OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
           #
           # The five sibling repos CANNOT be checked from here, and saying so
           # is the honest option rather than the convenient one.
