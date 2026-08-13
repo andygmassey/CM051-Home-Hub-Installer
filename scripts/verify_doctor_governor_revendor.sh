@@ -8,6 +8,19 @@
 #
 # Recipe + rationale: vendor/divergences/GOVERNOR_REVENDOR_282.md
 #
+# SCOPE, read this before reading a FAIL (2026-08-14, v1018-D024). This script
+# asserts a FULL #282 re-vendor, and that re-vendor HAS NOT HAPPENED. The pin
+# is still b0b3831. What did happen is a narrow graft of #282's customer-facing
+# half -- pause_control.py plus the four governor route handlers -- because the
+# Hub Governor page's Pause button was 404ing on every install. So check 4's
+# pause_control.py line now passes by GRAFT, not by re-pin, and check 4's
+# build_env_map line still FAILS because the config_panel.py half of #282 was
+# deliberately not adopted (task #633, the open v1.0 governor scope decision).
+# That single FAIL is the honest state of the tree, not a regression: this
+# script reported THREE before the graft and reports ONE after. Do not silence
+# it to get a green; when the pin finally moves, the recipe closes it properly.
+# The graft itself is gated by tests/test_doctor_governor_routes_vendored.sh.
+#
 # The failure it prevents: without daemon_cron.py the Doctor Settings Pause
 # toggle raises ModuleNotFoundError -> HTTP 500 while governor.env is already
 # written "paused" -- ticks look paused but the 09:00 brief / 18:00 wrap still
@@ -52,8 +65,8 @@ done
 
 # 4. #282 native pieces must have landed
 [ -s "$AGENT/pause_control.py" ] \
-  && ok "pause_control.py present (native from #282)" \
-  || bad "pause_control.py MISSING -- #282 re-vendor did not land the pause backend"
+  && ok "pause_control.py present (grafted ahead of pin from #282, v1018-D024; native once the pin moves)" \
+  || bad "pause_control.py MISSING -- the pause backend is gone, so the Governor Pause button 404s (v1018-D024)"
 
 grep -q 'def build_env_map' "$AGENT/config_panel.py" 2>/dev/null \
   && ok "config-env-bridge (build_env_map) present (from #282)" \
@@ -66,7 +79,11 @@ grep -q 'daemon_cron.py' "$PATCH" 2>/dev/null \
 
 say ""
 if [ "$fail" -ne 0 ]; then
-  say "RESULT: FAIL -- do NOT ship this re-vendor. See vendor/divergences/GOVERNOR_REVENDOR_282.md"
+  say "RESULT: FAIL -- do NOT ship a #282 RE-VENDOR in this state."
+  say "        If the pin is still b0b3831 no re-vendor has been attempted, and the"
+  say "        expected residue is exactly ONE fail (config-env-bridge / build_env_map),"
+  say "        which is the deliberately un-adopted half. See the SCOPE note at the top"
+  say "        and vendor/divergences/GOVERNOR_REVENDOR_282.md."
   exit 1
 fi
 say "RESULT: PASS -- governor re-vendor preserved the vendor-only bridge and adopted #282 native pieces."

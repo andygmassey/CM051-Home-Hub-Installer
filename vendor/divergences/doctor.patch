@@ -1720,12 +1720,10 @@
      PORT_CONFLICT_DETAIL_FMT,
      PORT_CONFLICT_FIX,
      PORT_CONFLICT_FIX_COMMAND_FMT,
-@@ -667,6 +690,65 @@
- _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
- _IPV4_RE = re.compile(
+@@ -669,7 +692,66 @@
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
-+)
-+
+ )
+ 
 +# Credential-shaped values that must never leave the machine in a report the
 +# customer is about to paste into an email.
 +#
@@ -1783,13 +1781,17 @@
 +    r"(?i)\b(pair[\s_-]?code|pairing[\s_-]?code|access[\s_-]?token|api[\s_-]?key"
 +    r"|verify[\s_-]?token|app[\s_-]?secret|authorization|bearer)\b\s*[:=]\s*"
 +    r"(?:bearer\s+)?\S+"
- )
++)
  
++
+ def _home_username() -> str | None:
+     """Best-effort current username for home-path redaction.
  
-@@ -719,6 +801,15 @@
+@@ -718,6 +800,15 @@
+ 
      redacted = _EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
- 
++
 +    # Credential-shaped values last, so a token that happened to sit inside a
 +    # path or beside an email is still caught after those substitutions have
 +    # rewritten the text around it. Keeps the label, drops the value: support
@@ -1798,9 +1800,8 @@
 +    redacted = _SECRET_LABEL_RE.sub(
 +        lambda m: f"{m.group(1)}: {placeholder}", redacted
 +    )
-+
-     return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
+     return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
 @@ -1149,6 +1240,7 @@
              display: inline-flex;
@@ -1818,12 +1819,10 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -2002,8 +2095,34 @@
- 
- 
+@@ -2004,6 +2097,32 @@
  # ── Endpoints ────────────────────────────────────────────────────────
-+
-+
+ 
+ 
 +@app.get("/")
 +async def front_door():
 +    """Send the bare root to the dashboard. v1018-D023.
@@ -1847,13 +1846,13 @@
 +    so the import moved to the parenthesised form upstream already uses.
 +    """
 +    return RedirectResponse(url="/doctor", status_code=302)
- 
- 
++
++
 +
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2292,6 +2411,104 @@
+@@ -2292,8 +2411,222 @@
      breaking-change must roll a /api/v2 instead of mutating this.
      """
      return all_observability_postures()
@@ -1955,10 +1954,128 @@
 +        status_code=upstream.status_code,
 +        media_type=upstream.headers.get("content-type", "application/json"),
 +    )
++
++
++# ── Governor: pause / resume / status (Doctor-owned control surface) ──
++#
++# CM051 GRAFT NOTE (v1018-D024). Taken verbatim from HR015 6639c79 (#282),
++# which lands AFTER the held doctor pinned_sha b0b3831, so this block does not
++# arrive from source and is carried by vendor/divergences/doctor.patch until
++# the pin next moves. Its backend, agent/pause_control.py, is grafted the same
++# way (a /dev/null new-file hunk in that patch). Without both, the Hub Governor
++# page's Pause button 404s -- which is exactly what shipped.
++# Gate: tests/test_doctor_governor_routes_vendored.sh
++#
++# The Hub Governor page + header status chip drive background-work Pause,
++# Resume and a live governor-status read against the Doctor (:8089) -- the
++# SAME origin as ``/api/v1/box-status`` and ``/api/v1/config``. These three
++# routes delegate to ``pause_control.py``, which reads/writes the
++# ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` keys in ``governor.env`` -- the
++# same file the shipped background engine (``ostler-resource-tier.sh``)
++# already consumes, so a pause here is honoured by every ``*-bundle-tick.sh``,
++# the wiki recompile tick and the daemon cron with NO new consumer wiring.
++# Live interactive chat is never gated by this.
++#
++# Registered BEFORE ``register_proxy_routes(app)`` (below) so these explicit
++# handlers win over the proxy catch-all (Starlette matches in registration
++# order). Without it, ``GET /api/v1/governor-status`` / ``/api/v1/pause`` fall
++# through to the gateway proxy and return SPA HTML and the POSTs 405.
++
++
++@app.get("/api/v1/governor-status", response_class=JSONResponse)
++async def api_governor_status():
++    """Live governor tier for the Governor page + acceptance gate.
++
++    Shape ``{enabled, tier, deferring}``: ``enabled`` reflects the
++    ``governor_enabled`` config, ``tier`` is the detected hardware tier
++    (``floor`` / ``low`` / ``high``, or ``null`` if the tier lib is
++    unreadable) and ``deferring`` is whether the governor is currently
++    holding non-essential work back. Reuses the exact helper
++    ``GET /api/v1/box-status`` uses so the two can never disagree. Fail-soft
++    to a minimal unknown payload -- never 500 the poll.
++    """
++    try:
++        from box_status import _governor
++
++        return _governor()
++    except Exception:
++        return {"enabled": True, "tier": None, "deferring": None}
++
++
++@app.get("/api/v1/pause", response_class=JSONResponse)
++async def api_pause_get():
++    """Current pause state read from ``governor.env``.
  
++    Shape ``{paused, expiry, indefinite, expiry_human, scope}``. Fail-soft to
++    "not paused" -- the same posture ``box_status._pause`` takes.
++    """
++    try:
++        from pause_control import read_state
  
++        return read_state()
++    except Exception:
++        return {"paused": False, "expiry": None, "indefinite": False,
++                "expiry_human": "", "scope": None}
++
++
++@app.post("/api/v1/pause", response_class=JSONResponse)
++async def api_pause_post(request: Request):
++    """Pause background work for a scope.
++
++    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
++    body defaults to an indefinite pause). Same cross-site guard as
++    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
++    not same-origin. Returns the fresh pause state.
++    """
++    sec_fetch_site = request.headers.get("sec-fetch-site")
++    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
++        return JSONResponse(
++            {"error": "Cross-site request refused"}, status_code=403
++        )
++
++    from pause_control import PauseError as _PauseError, set_pause
++
++    scope = "indefinite"
++    try:
++        body = await request.json()
++        if isinstance(body, dict) and body.get("scope") is not None:
++            scope = str(body.get("scope"))
++    except Exception:
++        scope = "indefinite"  # no/blank body -> indefinite pause
++
++    try:
++        state = set_pause(scope)
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++    return JSONResponse(state, status_code=200)
++
++
++@app.post("/api/v1/resume", response_class=JSONResponse)
++async def api_resume_post(request: Request):
++    """Resume background work (clear the pause). Idempotent.
++
++    Same cross-site guard as ``/api/v1/pause``. Returns the fresh
++    (not-paused) state.
++    """
++    sec_fetch_site = request.headers.get("sec-fetch-site")
++    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
++        return JSONResponse(
++            {"error": "Cross-site request refused"}, status_code=403
++        )
++
++    from pause_control import PauseError as _PauseError, resume
++
++    try:
++        state = resume()
++    except _PauseError as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++    return JSONResponse(state, status_code=200)
++
++
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
-@@ -3331,8 +3548,211 @@
+ #
+ # Forwards iOS-initiated CM019 paths to the local gateway over
+@@ -3331,8 +3664,211 @@
      </script>
  </body>
  </html>"""
@@ -1966,13 +2083,13 @@
 +
 +def _render_whatsapp_pair_page() -> str:
 +    """Render the WhatsApp pair-code panel.
-+
+ 
 +    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
 +    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
 +    rather than one feeling bolted on.
  
 +    THREE DESIGN RULES, each load-bearing:
- 
++
 +    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
 +       applies no TTL of its own. A countdown that disagrees with WhatsApp's is
 +       worse than no countdown, because the customer trusts the one on screen.
@@ -2365,3 +2482,573 @@
 +        error=None,
 +        error_kind=None,
 +    )
+--- a/agent/box_status.py
++++ b/agent/box_status.py
+@@ -29,11 +29,17 @@
+ from __future__ import annotations
+ 
+ import json
++import logging
+ import os
+ import re
+ import subprocess
+ import urllib.request
+ from typing import Any, Optional
++
++# Fail-soft probes must still be able to SAY they failed. The Doctor is started
++# by launchd with StandardErrorPath -> ~/.ostler/logs/doctor.err, so anything
++# logged here lands in the support bundle.
++logger = logging.getLogger(__name__)
+ 
+ # Ollama endpoint - same env var the rest of the Doctor uses.
+ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+@@ -452,16 +458,66 @@
+         except Exception:
+             pass
+     return {"enabled": enabled, "tier": tier, "deferring": deferring}
++
++
++# A guard that swallows its own failure is a defect in its own right, so this
++# module records whether the pause backend has ever failed to load. The
++# box-status poll runs every few seconds; logging on every call would bury the
++# report in its own noise, so each distinct failure is reported ONCE per
++# process and the fallback payload carries the admission from then on.
++_PAUSE_BACKEND_REPORTED: set[str] = set()
+ 
++
++def _report_pause_backend_failure(exc: BaseException) -> str:
++    """Log a pause-backend failure the first time each distinct one is seen.
+ 
++    Returns the short reason string that goes into the payload.
++    """
++    if isinstance(exc, ImportError):
++        # The build is missing agent/pause_control.py. That is a PACKAGING
++        # defect, not a runtime condition: the module is stdlib-only and always
++        # ships beside this one. This is v1018-D024 -- for as long as it was
++        # swallowed, a Doctor with no pause backend and a genuinely running box
++        # produced byte-identical output, so nothing on the box could tell them
++        # apart and the Governor page 404'd with no trace here.
++        reason = "backend-missing"
++        message = (
++            "pause_control could not be imported, so pause state cannot be "
++            "read. This build is incomplete: agent/pause_control.py is "
++            "expected beside box_status.py. Reporting pause state as "
++            "UNAVAILABLE rather than 'not paused' (%s)" % exc
++        )
++    else:
++        reason = "backend-error"
++        message = (
++            "pause_control raised while reading pause state; reporting "
++            "UNAVAILABLE rather than 'not paused' (%s: %s)"
++            % (exc.__class__.__name__, exc)
++        )
++    if reason not in _PAUSE_BACKEND_REPORTED:
++        _PAUSE_BACKEND_REPORTED.add(reason)
++        logger.error(message, exc_info=not isinstance(exc, ImportError))
++    return reason
++
++
+ def _pause() -> dict[str, Any]:
++    """Current pause state, or an HONEST unavailable payload.
++
++    Fail-soft is deliberate -- this runs on the box-status poll and must never
++    500 it -- but fail-soft is not the same as fail-silent. When the backend
++    cannot answer, the payload says ``paused: False, pause_unavailable: True``
++    so a caller can tell "the box is running" apart from "nobody knows", and
++    the reason is logged once per process.
++    """
+     try:
+         from pause_control import read_state  # type: ignore
+ 
+         return read_state()
+-    except Exception:
++    except Exception as exc:  # noqa: BLE001 - reported, then degraded
++        reason = _report_pause_backend_failure(exc)
+         return {"paused": False, "expiry": None, "indefinite": False,
+-                "expiry_human": ""}
++                "expiry_human": "", "scope": None,
++                "pause_unavailable": True, "pause_error": reason}
+ 
+ 
+ def _derive_state(load: Optional[dict], memory: Optional[dict],
+@@ -529,6 +585,9 @@
+             "paused": paused,
+             "expiry_human": pause.get("expiry_human", ""),
+             "indefinite": bool(pause.get("indefinite")),
++            # Carried through so "not paused" and "cannot tell" are
++            # distinguishable at the API surface, not only in the log.
++            "unavailable": bool(pause.get("pause_unavailable")),
+         },
+         "settling": settling,
+         "running": _running(governor, settling),
+--- /dev/null
++++ b/agent/pause_control.py
+@@ -0,0 +1,468 @@
++"""
++Ostler Doctor -- background-work Pause control (governor.env backend).
++
++This is the module ``box_status.py`` already imports (``from pause_control
++import read_state``) and the three Doctor routes ``GET /api/v1/pause``,
++``POST /api/v1/pause`` and ``POST /api/v1/resume`` delegate to. Before it
++existed that import fail-softed to a permanent ``paused: False``, so the Hub
++header status chip and Governor page could never reflect a real pause even
++though the shell engine was already honouring one. See
++``docs/SPEC_governor_status_indicator.md``.
++
++Mechanism -- reuse the SHIPPED, TESTED reader path
++--------------------------------------------------
++The five ``*-bundle-tick.sh`` wrappers, the wiki recompile tick and the CM059
++editor tick all call ``ostler_resource_tier_is_paused`` in
++``~/.ostler/lib/ostler-resource-tier.sh``, which reads exactly two keys from
++``governor.env``:
++
++* ``OSTLER_PAUSED``       -- ``1`` == paused, anything else == running.
++* ``OSTLER_PAUSE_UNTIL``  -- optional epoch-seconds soft self-expiry.
++
++So this module reads and writes those same two keys. Pausing here is honoured
++by every background surface with ZERO new consumer wiring -- we deliberately do
++NOT introduce a second ``processing.paused`` sentinel (which nothing reads) and
++we do NOT bootout the LaunchAgents (racy, not self-expiring, misses the wiki
++recompile + daemon cron). Live interactive chat is NEVER gated by this -- pause
++only stops the background enrichment / ingest / recompile storm.
++
++Expiry semantics mirror ``ostler-resource-tier.sh::ostler_resource_tier_is_paused``
++EXACTLY, so the Python reader (chip / Governor page) and the shell reader
++(every tick) can never disagree:
++
++* ``OSTLER_PAUSED != "1"``           -> not paused.
++* empty / ``forever`` ``PAUSE_UNTIL`` -> paused until an explicit resume.
++* non-numeric ``PAUSE_UNTIL``        -> FAIL OPEN (not paused) so a bad value
++                                         can never wedge background work off.
++* numeric ``PAUSE_UNTIL``            -> paused while ``now < until``, else the
++                                         window has elapsed -> auto-resumed.
++
++Scope -> expiry map (what the Governor page Pause button offers):
++
++* ``"hour"``       -> ``now + 3600``.
++* ``"tonight"``    -> the next local 01:00 (start of the overnight off-peak
++                      window the ticks drain their backlog in).
++* ``"indefinite"`` -> no ``PAUSE_UNTIL`` (paused until the operator resumes).
++
++The write is atomic (temp file + ``os.replace``, same primitive as
++``config_panel._write_governor_env``) and KEY-PRESERVING: it rewrites only the
++two pause keys and leaves ``OSTLER_THROTTLE_LEVEL`` (and any other operator
++setting in the file) untouched, so a Governor-page pause never clobbers the
++Settings-panel throttle choice.
++
++British English throughout. Deliberately dependency-free at import time
++(no yaml / fastapi / tomllib) so ``read_state`` on the ~1 Hz box-status poll
++path can never fail on a missing optional dependency. The Settings-panel and
++daemon-cron coherence mirrors are best-effort, lazily imported, and never
++allowed to break the load-bearing ``governor.env`` write.
++"""
++
++from __future__ import annotations
++
++import os
++import tempfile
++import time
++from dataclasses import dataclass
++from datetime import datetime, timedelta
++from pathlib import Path
++from typing import Any, Optional
++
++
++# -- Default paths ----------------------------------------------------
++
++DEFAULT_OSTLER_DIR = Path.home() / ".ostler"
++DEFAULT_GOVERNOR_ENV = DEFAULT_OSTLER_DIR / "config" / "governor.env"
++
++# The two keys the shell engine honours. Kept as constants so the writer,
++# the reader and the tests never drift on a typo.
++KEY_PAUSED = "OSTLER_PAUSED"
++KEY_PAUSE_UNTIL = "OSTLER_PAUSE_UNTIL"
++
++# Valid pause scopes the Governor page may request (plus a handful of
++# forgiving aliases so a client typo does not 400 a pause).
++SCOPE_HOUR = "hour"
++SCOPE_TONIGHT = "tonight"
++SCOPE_INDEFINITE = "indefinite"
++
++_SCOPE_ALIASES = {
++    "hour": SCOPE_HOUR,
++    "1h": SCOPE_HOUR,
++    "1hour": SCOPE_HOUR,
++    "60m": SCOPE_HOUR,
++    "an_hour": SCOPE_HOUR,
++    "tonight": SCOPE_TONIGHT,
++    "until_tonight": SCOPE_TONIGHT,
++    "until-tonight": SCOPE_TONIGHT,
++    "off_peak": SCOPE_TONIGHT,
++    "indefinite": SCOPE_INDEFINITE,
++    "forever": SCOPE_INDEFINITE,
++    "until_resume": SCOPE_INDEFINITE,
++    "": SCOPE_INDEFINITE,
++}
++
++# The local hour the "until tonight" scope targets: the start of the overnight
++# off-peak window the tick wrappers drain their full backlog in. Matches the
++# 01:00 off-peak start the ingest ticks assume.
++_TONIGHT_HOUR = 1
++
++
++@dataclass
++class PauseError(Exception):
++    """Carries an HTTP status so the FastAPI handler maps cleanly.
++
++    Mirrors ``config_panel.ConfigError`` so the web route can reuse the same
++    ``except PauseError as exc: JSONResponse({"error": exc.detail}, exc.status)``
++    shape.
++
++    * 400 -- unknown / unusable pause scope.
++    * 500 -- filesystem error writing the governor bridge file.
++    """
++
++    status: int
++    detail: str
++
++    def __str__(self) -> str:  # pragma: no cover - trivial
++        return self.detail
++
++
++# -- Path resolution --------------------------------------------------
++
++
++def governor_env_path() -> Path:
++    """Resolve the governor bridge file both the Settings panel and the shell
++    engine use.
++
++    Resolution order keeps all three writers/readers (``config_panel`` writer,
++    ``ostler-resource-tier.sh`` reader, this module) pointing at the SAME file
++    on a real install, while letting a test relocate it:
++
++    1. ``OSTLER_GOVERNOR_ENV_FILE`` -- exact file (matches ``config_panel``).
++    2. ``OSTLER_GOVERNOR_SETTINGS`` -- exact file (matches the shell lib).
++    3. ``OSTLER_CONFIG_FILE``       -- sibling ``governor.env`` (matches
++       ``config_panel``'s default of placing it beside ``config.yaml``).
++    4. ``OSTLER_HOME``              -- ``<home>/config/governor.env``.
++    5. default                      -- ``~/.ostler/config/governor.env``.
++    """
++    raw = os.environ.get("OSTLER_GOVERNOR_ENV_FILE")
++    if raw:
++        return Path(raw)
++    raw = os.environ.get("OSTLER_GOVERNOR_SETTINGS")
++    if raw:
++        return Path(raw)
++    cfg = os.environ.get("OSTLER_CONFIG_FILE")
++    if cfg:
++        return Path(cfg).parent / "governor.env"
++    home = os.environ.get("OSTLER_HOME")
++    if home:
++        return Path(home) / "config" / "governor.env"
++    return DEFAULT_GOVERNOR_ENV
++
++
++# -- governor.env parsing (mirrors the shell lib's defensive parser) ---
++
++
++def _strip_export(line: str) -> str:
++    """Strip a leading ``export `` from a KEY=VALUE line (shell parity)."""
++    stripped = line.lstrip()
++    if stripped.startswith("export "):
++        return stripped[len("export ") :]
++    return stripped
++
++
++def _is_pause_key_line(line: str) -> bool:
++    """True iff ``line`` assigns one of the two pause keys we own.
++
++    Used by the key-preserving writer to drop existing pause assignments (so we
++    never leave a duplicate) while keeping every other line -- throttle,
++    comments, blanks, foreign keys.
++    """
++    body = _strip_export(line)
++    return body.startswith(KEY_PAUSED + "=") or body.startswith(
++        KEY_PAUSE_UNTIL + "="
++    )
++
++
++def _parse_values(text: str) -> dict[str, str]:
++    """Parse the OSTLER_* assignments the same way the shell lib does.
++
++    Only ``OSTLER_<A-Z0-9_>*=value`` lines are honoured; a leading ``export``
++    is stripped and a single pair of matching surrounding quotes is removed.
++    FIRST occurrence of a key wins, matching the shell's fill-if-unset loop.
++    """
++    values: dict[str, str] = {}
++    for raw_line in text.splitlines():
++        body = _strip_export(raw_line)
++        if not body or body.startswith("#"):
++            continue
++        if "=" not in body:
++            continue
++        key, _, val = body.partition("=")
++        # Only OSTLER_* uppercase/digit/underscore keys.
++        if not key or not key.startswith("OSTLER_"):
++            continue
++        if not all(c.isupper() or c.isdigit() or c == "_" for c in key):
++            continue
++        # Strip a single pair of matching surrounding quotes.
++        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
++            val = val[1:-1]
++        if key not in values:  # first wins (shell parity)
++            values[key] = val
++    return values
++
++
++# -- Reading ----------------------------------------------------------
++
++
++def _human(epoch: int) -> str:
++    """Render an expiry epoch as a short local time for the UI."""
++    if epoch <= 0:
++        return ""
++    dt = datetime.fromtimestamp(epoch)
++    if dt.date() == datetime.now().date():
++        return dt.strftime("%H:%M")
++    return dt.strftime("%a %H:%M")
++
++
++def _not_paused(path: Path) -> dict[str, Any]:
++    return {
++        "paused": False,
++        "expiry": None,
++        "indefinite": False,
++        "expiry_human": "",
++        "scope": None,
++        "governor_env_path": str(path),
++    }
++
++
++def read_state(path: Optional[Path] = None) -> dict[str, Any]:
++    """Return the current pause state for the chip / Governor page.
++
++    Shape (a superset of the fallback ``box_status._pause`` returns, so the
++    header chip keeps working)::
++
++        {"paused": bool, "expiry": int|None, "indefinite": bool,
++         "expiry_human": str, "scope": str|None, "governor_env_path": str}
++
++    Never raises and never writes: this runs on the ~1 Hz box-status poll, so a
++    missing file, an unreadable file or a malformed value all degrade to a
++    well-formed "not paused" payload (fail open -- the exact posture the shell
++    lib takes) rather than 500-ing the poll or self-healing on the read path.
++    """
++    p = path or governor_env_path()
++    try:
++        if not p.is_file():
++            return _not_paused(p)
++        text = p.read_text(encoding="utf-8")
++    except OSError:
++        return _not_paused(p)
++
++    values = _parse_values(text)
++    if values.get(KEY_PAUSED, "0") != "1":
++        return _not_paused(p)
++
++    until_raw = values.get(KEY_PAUSE_UNTIL, "").strip()
++    # Empty or "forever" -> paused until an explicit resume.
++    if until_raw in ("", "forever"):
++        return {
++            "paused": True,
++            "expiry": None,
++            "indefinite": True,
++            "expiry_human": "",
++            "scope": SCOPE_INDEFINITE,
++            "governor_env_path": str(p),
++        }
++    # Non-numeric -> fail open (never wedge background work off forever).
++    if not until_raw.isdigit():
++        return _not_paused(p)
++
++    until = int(until_raw)
++    if time.time() >= until:
++        # Window elapsed -> auto-resumed. Report resumed; do NOT rewrite the
++        # file here (this is the hot read path and the file also carries the
++        # throttle choice). The next set_pause/resume tidies the stale line.
++        return _not_paused(p)
++
++    return {
++        "paused": True,
++        "expiry": until,
++        "indefinite": False,
++        "expiry_human": _human(until),
++        "scope": SCOPE_HOUR if (until - time.time()) <= 3600 + 1 else SCOPE_TONIGHT,
++        "governor_env_path": str(p),
++    }
++
++
++# -- Scope -> expiry --------------------------------------------------
++
++
++def _next_tonight_epoch(now: Optional[float] = None) -> int:
++    """Epoch of the next local ``_TONIGHT_HOUR``:00 (today if still ahead)."""
++    base = datetime.now() if now is None else datetime.fromtimestamp(now)
++    target = base.replace(hour=_TONIGHT_HOUR, minute=0, second=0, microsecond=0)
++    if base >= target:
++        target = target + timedelta(days=1)
++    return int(target.timestamp())
++
++
++def normalise_scope(scope: Optional[str]) -> str:
++    """Map a client-supplied scope (or alias) to a canonical scope."""
++    key = (scope or "").strip().lower()
++    canonical = _SCOPE_ALIASES.get(key)
++    if canonical is None:
++        raise PauseError(400, f"Unknown pause scope: {scope!r}.")
++    return canonical
++
++
++def compute_expiry(scope: str, now: Optional[float] = None) -> Optional[int]:
++    """Return the ``OSTLER_PAUSE_UNTIL`` epoch for a scope, or ``None`` for an
++    indefinite pause (no expiry line)."""
++    canonical = normalise_scope(scope)
++    if canonical == SCOPE_INDEFINITE:
++        return None
++    if canonical == SCOPE_HOUR:
++        base = time.time() if now is None else now
++        return int(base) + 3600
++    return _next_tonight_epoch(now)
++
++
++# -- Writing (atomic + key-preserving) --------------------------------
++
++
++_HEADER = (
++    "# Ostler background-work settings.\n"
++    "# OSTLER_PAUSED / OSTLER_PAUSE_UNTIL written by the Doctor Governor\n"
++    "# controls; read by ~/.ostler/lib/ostler-resource-tier.sh on the next\n"
++    "# background tick. Do not hand-edit while the Doctor is open.\n"
++)
++
++
++def _render_merged(existing: str, paused: bool, until: Optional[int]) -> str:
++    """Rewrite only the two pause keys, preserving every other line.
++
++    Existing ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` assignments are dropped
++    (so we never leave a stale or duplicate line that the first-wins shell
++    parser would honour over ours); throttle, comments and foreign keys survive
++    untouched. Both keys are then appended exactly once.
++    """
++    kept: list[str] = []
++    for line in existing.splitlines():
++        if _is_pause_key_line(line):
++            continue
++        kept.append(line)
++
++    body = "\n".join(kept).rstrip("\n")
++    if not body.strip():
++        body = _HEADER.rstrip("\n")
++
++    until_val = "" if until is None else str(int(until))
++    tail = (
++        f"export {KEY_PAUSED}={'1' if paused else '0'}\n"
++        f"export {KEY_PAUSE_UNTIL}={until_val}\n"
++    )
++    return body + "\n" + tail
++
++
++def _atomic_write_text(path: Path, text: str) -> None:
++    """Atomically replace ``path`` with ``text`` (temp file + os.replace)."""
++    try:
++        path.parent.mkdir(parents=True, exist_ok=True)
++        fd, tmp = tempfile.mkstemp(
++            dir=str(path.parent), prefix=".governor-", suffix=".env.tmp"
++        )
++        try:
++            with os.fdopen(fd, "w", encoding="utf-8") as fh:
++                fh.write(text)
++            os.replace(tmp, path)
++        except OSError:
++            try:
++                os.unlink(tmp)
++            except OSError:
++                pass
++            raise
++    except OSError as exc:
++        raise PauseError(500, f"Could not write governor settings file: {exc}")
++
++
++def _mirror_settings_panel(paused: bool) -> None:
++    """Best-effort: keep the Settings-panel checkbox + daemon cron coherent.
++
++    A Governor-page pause should also (a) show as ticked on the Settings panel
++    and (b) suppress the daemon-embedded 09:00 brief / 18:00 wrap, exactly like
++    a Settings-panel pause does. Both are best-effort and LAZILY imported:
++
++    * ``config_panel``'s governor.env writer graft is not upstreamed to the
++      Doctor source repo, and ``daemon_cron`` is a vendor-only module -- either
++      import can legitimately be absent (e.g. running from the source tree). A
++      failure here must NEVER break the load-bearing ``governor.env`` write
++      above, so everything is swallowed.
++
++    We mirror ``background_paused`` into ``config.yaml`` DIRECTLY (via
++    ``config_panel``'s own ``_load_raw`` + ``_atomic_write``) rather than
++    through ``write_config`` -- ``write_config`` would rewrite ``governor.env``
++    from scratch and drop the ``OSTLER_PAUSE_UNTIL`` we just wrote.
++
++    ``OSTLER_PAUSE_SKIP_MIRROR=1`` disables both mirrors -- used by the unit
++    tests so they exercise the governor.env write in isolation without
++    touching ``config.yaml`` or invoking ``launchctl`` via ``daemon_cron``.
++    """
++    if os.environ.get("OSTLER_PAUSE_SKIP_MIRROR", "").strip() in ("1", "true", "yes"):
++        return
++    try:  # config.yaml checkbox coherence
++        import config_panel as _cp  # type: ignore
++
++        cfg_path = _cp._config_file()
++        current = _cp._load_raw(cfg_path)
++        if bool(current.get("background_paused", False)) != paused:
++            current["background_paused"] = paused
++            _cp._atomic_write(cfg_path, current)
++    except Exception:
++        pass
++
++    try:  # daemon brief / wrap coherence
++        from daemon_cron import apply_pause_to_cron  # type: ignore
++
++        apply_pause_to_cron(paused)
++    except Exception:
++        pass
++
++
++def set_pause(
++    scope: str, path: Optional[Path] = None, now: Optional[float] = None
++) -> dict[str, Any]:
++    """Pause background work for ``scope`` and return the fresh state."""
++    until = compute_expiry(scope, now=now)  # raises PauseError(400) on bad scope
++    p = path or governor_env_path()
++    existing = ""
++    try:
++        if p.is_file():
++            existing = p.read_text(encoding="utf-8")
++    except OSError:
++        existing = ""
++    _atomic_write_text(p, _render_merged(existing, paused=True, until=until))
++    _mirror_settings_panel(True)
++    return read_state(p)
++
++
++def resume(path: Optional[Path] = None) -> dict[str, Any]:
++    """Resume background work (clear the pause) and return the fresh state.
++
++    Idempotent: resuming when not paused is a no-op that still returns the
++    correct not-paused state. Writes ``OSTLER_PAUSED=0`` and clears
++    ``OSTLER_PAUSE_UNTIL`` while preserving the throttle choice.
++    """
++    p = path or governor_env_path()
++    existing = ""
++    try:
++        if p.is_file():
++            existing = p.read_text(encoding="utf-8")
++    except OSError:
++        existing = ""
++    _atomic_write_text(p, _render_merged(existing, paused=False, until=None))
++    _mirror_settings_panel(False)
++    return read_state(p)
++
++
++if __name__ == "__main__":  # function-verification entrypoint
++    import json
++
++    print(json.dumps(read_state(), indent=2))

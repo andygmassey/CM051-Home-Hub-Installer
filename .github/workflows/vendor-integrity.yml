@@ -37,6 +37,13 @@ on:
       - 'tests/test_vendor_only_survives_sync.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
+      # v1018-D024, customer-visible half. Listed here AND run below, for the
+      # reason recorded above: a path entry only makes the workflow trigger.
+      # The gate also reads lib/ostler-resource-tier.sh and install.sh, so both
+      # are watched -- a change to the shell pause reader can break the
+      # Python/shell contract without touching vendor/ at all.
+      - 'tests/test_doctor_governor_routes_vendored.sh'
+      - 'lib/ostler-resource-tier.sh'
       - 'tests/vendor_import_resolution_baseline.txt'
       - '.github/workflows/vendor-integrity.yml'
   push:
@@ -156,6 +163,19 @@ jobs:
       - name: Imported symbols resolve, not just modules (D024)
         if: always()
         run: python3 tests/test_vendor_symbol_resolution.py
+
+      # v1018-D024, the customer-visible half. The two D024 steps above ask
+      # whether the vendored tree is INTERNALLY coherent. Neither can ask
+      # whether it still serves the surface the Hub actually calls, and that is
+      # what broke: the Governor page's Pause button called three routes the
+      # held pin predates, so every install 404'd. This step asserts the four
+      # handlers are registered in the SHIPPED payload, that their backend
+      # works, that the Python writer and the shell tick reader agree on
+      # governor.env, and that both grafts have a durable home in doctor.patch
+      # so the next re-vendor cannot quietly drop them again.
+      - name: Governor control surface reaches the shipped Doctor (D024)
+        if: always()
+        run: bash tests/test_doctor_governor_routes_vendored.sh
 
       - name: Browser-history vendor regression
         if: always()
