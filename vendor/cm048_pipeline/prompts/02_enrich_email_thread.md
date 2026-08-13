@@ -70,7 +70,7 @@ Final structure of this section:
 ## Summary
 
 ### Participants
-- {user_name} (user, {user_email})
+- Jordan Reyes (user, jordan@example.test)
 - Alice Lim (work contact, alice@example.test)
 - Carol Mendez (work contact, carol@example.test)
 
@@ -127,7 +127,7 @@ reminders_candidates:
   - action: "Send Carol the kickoff brief by EOD Friday"
     deadline: 2026-04-19
     priority: medium
-    source_conversation_id: {conversation_id}
+    source_conversation_id: conv_01j8x4k2m9p3
 ```
 
 Include only actions where the user is the owner.
@@ -254,9 +254,9 @@ email_thread:
     - "<reply4@example.test>"
 participants:
   - id: user
-    display: {user_display_name}
+    display: Jordan Reyes
     role: user
-    email: {user_email}
+    email: jordan@example.test
   - id: alice_lim
     display: Alice Lim
     role: other

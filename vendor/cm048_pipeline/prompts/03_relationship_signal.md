@@ -44,7 +44,7 @@ the structured signal. Schema:
   "warmth": {
     "score": "warm",
     "confidence": 0.9,
-    "evidence": "Extended, relaxed exchange. Personal health anecdote from {user} early in call. No tension or wariness. First-name terms throughout."
+    "evidence": "Extended, relaxed exchange. Personal health anecdote from Jordan Reyes early in call. No tension or wariness. First-name terms throughout."
   },
 
   "reciprocity": {
@@ -52,14 +52,14 @@ the structured signal. Schema:
     "other_talk_share": 0.45,
     "balance": "roughly_balanced",
     "confidence": 0.75,
-    "evidence": "Rough estimate — {user} carried the PWG explanation section (~8 mins continuous), {other} drove client-work logistics discussion."
+    "evidence": "Rough estimate — Jordan Reyes carried the PWG explanation section (~8 mins continuous), Alex Chen drove client-work logistics discussion."
   },
 
   "energy": {
     "level": "high",
     "valence": "positive",
     "confidence": 0.85,
-    "evidence": "Both parties engaged throughout. Laughter multiple times. {other} proactively suggested intros (Diana, vetting-committee friend)."
+    "evidence": "Both parties engaged throughout. Laughter multiple times. Alex Chen proactively suggested intros (Diana, vetting-committee friend)."
   },
 
   "power_dynamic": {
@@ -77,17 +77,17 @@ the structured signal. Schema:
 
   "communication_style_observed": {
     "style_tags": ["collaborative", "practical", "question-driven"],
-    "notes": "Asks short clarifying questions rather than monologuing. Pulls {user} back to practical implementation when talk drifts abstract."
+    "notes": "Asks short clarifying questions rather than monologuing. Pulls Jordan Reyes back to practical implementation when talk drifts abstract."
   },
 
   "notable_moments": [
-    "Delegated three active client projects ({project_A}, {project_B}, {project_C}) during the call — consistent with a pattern {user} may already be tracking."
+    "Delegated three active client projects (Northwind rebrand, Ferrylane audit, Beacon CMS migration) during the call — consistent with a pattern Jordan Reyes may already be tracking."
   ],
 
   "trust_and_rapport": {
     "signal": "stable_high",
     "confidence": 0.85,
-    "notes": "No tests of trust in this conversation — but rapport is comfortable. {other} shared frustrations about the previous manager openly, consistent with prior conversations (per metadata)."
+    "notes": "No tests of trust in this conversation — but rapport is comfortable. Alex Chen shared frustrations about the previous manager openly, consistent with prior conversations (per metadata)."
   },
 
   "initiative": {
@@ -290,6 +290,12 @@ but excluded from the rollup.
 
 ## Input the LLM receives
 
+<!-- prompt-input-block: this fence DESCRIBES the input the pipeline assembles
+     and hands to the model. Its {placeholders} are slots processor.py fills
+     with real values before the request is sent; they are NOT text the model
+     is being asked to reproduce. Contrast the OUTPUT examples above, where a
+     placeholder is copied verbatim into a fact or a Participants line and
+     reaches a customer's wiki page (v1018-D014c). -->
 ```
 --- CLASSIFICATION ---
 {classifier_json_output}
