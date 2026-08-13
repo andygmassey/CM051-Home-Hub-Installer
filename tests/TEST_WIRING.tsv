@@ -111,116 +111,116 @@ test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 
 # ---- UNCLASSIFIED -- each needs a WIRED or MANUAL ruling ----
-test_ai_conversations_leg_wired.sh	UNCLASSIFIED	
-test_aiconv_hydrate_honesty.sh	UNCLASSIFIED	
-test_amazon_extracted_dir_parse.py	UNCLASSIFIED	
-test_app_binary_agents_bootstrap.sh	UNCLASSIFIED	
-test_appletv_parser.py	UNCLASSIFIED	
-test_assistant_config_reasoning_disabled.sh	UNCLASSIFIED	
-test_assistant_config_vane_wiring.sh	UNCLASSIFIED	
-test_assistant_identity_belt.sh	UNCLASSIFIED	
-test_assistant_ollama_num_ctx.sh	UNCLASSIFIED	
-test_bookmarks_ingest_wired.sh	UNCLASSIFIED	
-test_bootstrap_prelude.sh	UNCLASSIFIED	
-test_brew_install_fail_loud.sh	UNCLASSIFIED	
-test_browsing_ingest_ensures_collection.py	UNCLASSIFIED	
-test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	
-test_calendar_hydrate_venv.sh	UNCLASSIFIED	
-test_cm048_prompts_packaged.sh	UNCLASSIFIED	
-test_cm048_settings_models_wired.sh	UNCLASSIFIED	
-test_colima_start_retry.sh	UNCLASSIFIED	
-test_composite_cleanup.sh	UNCLASSIFIED	
+test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/test-wiring.yml
+test_amazon_extracted_dir_parse.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_app_binary_agents_bootstrap.sh	WIRED	.github/workflows/test-wiring.yml
+test_appletv_parser.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_assistant_config_reasoning_disabled.sh	WIRED	.github/workflows/test-wiring.yml
+test_assistant_config_vane_wiring.sh	WIRED	.github/workflows/test-wiring.yml
+test_assistant_identity_belt.sh	WIRED	.github/workflows/test-wiring.yml
+test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/test-wiring.yml
+test_bookmarks_ingest_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: vendor/ostler_fda/pwg_ingest.py ingest_all does not register ing
+test_bootstrap_prelude.sh	WIRED	.github/workflows/test-wiring.yml
+test_brew_install_fail_loud.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: 2 silent-bail axis violation(s) in install.sh.
+test_browsing_ingest_ensures_collection.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'nameparser'
+test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'nameparser'
+test_calendar_hydrate_venv.sh	WIRED	.github/workflows/test-wiring.yml
+test_cm048_prompts_packaged.sh	WIRED	.github/workflows/test-wiring.yml
+test_cm048_settings_models_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_colima_start_retry.sh	WIRED	.github/workflows/test-wiring.yml
+test_composite_cleanup.sh	WIRED	.github/workflows/test-wiring.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/test-wiring.yml
-test_contact_card_prefill.sh	UNCLASSIFIED	
-test_contact_email_coverage_guard.sh	UNCLASSIFIED	
-test_contact_resync_scheduled.sh	UNCLASSIFIED	
-test_context_refresh_wired.sh	UNCLASSIFIED	
-test_conversation_bundle_user_id_wired.sh	UNCLASSIFIED	
-test_conversations_ingest_wiring.sh	UNCLASSIFIED	
-test_cx100_mail_accounts_detection.sh	UNCLASSIFIED	
-test_cx101_calendar_hydrate_path.sh	UNCLASSIFIED	
-test_cx101_prelaunch_gate_population.sh	UNCLASSIFIED	
-test_cx130_mail_populate_phase2.sh	UNCLASSIFIED	
+test_contact_card_prefill.sh	WIRED	.github/workflows/test-wiring.yml
+test_contact_email_coverage_guard.sh	WIRED	.github/workflows/test-wiring.yml
+test_contact_resync_scheduled.sh	WIRED	.github/workflows/test-wiring.yml
+test_context_refresh_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_conversation_bundle_user_id_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_conversations_ingest_wiring.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx100_mail_accounts_detection.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx101_calendar_hydrate_path.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx101_prelaunch_gate_population.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx130_mail_populate_phase2.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q19_consent_third_party_legal_note_separation.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q20_consent_install_body_shape.sh	WIRED	.github/workflows/test-wiring.yml
-test_cx18_q7_channel_choice_labels_match_install_sh.sh	UNCLASSIFIED	
-test_cx30_33_python_library_validation_entitlement.sh	UNCLASSIFIED	
-test_cx453_no_osascript_contacts.sh	UNCLASSIFIED	
-test_cx95_venv_shebang_promote.sh	UNCLASSIFIED	
-test_cx98_channel_vars_unbound.sh	UNCLASSIFIED	
-test_cx98_previous_install_detection.sh	UNCLASSIFIED	
-test_daemon_fda_app_bundle_path.sh	UNCLASSIFIED	
-test_daemon_pins_agree.sh	UNCLASSIFIED	
-test_dedupe_defer_background.sh	UNCLASSIFIED	
-test_dedupe_heartbeat.sh	UNCLASSIFIED	
-test_dmg_contains_bundled_python.sh	UNCLASSIFIED	
-test_doctor_probe_errtrap_regression.sh	UNCLASSIFIED	
-test_doctor_probe_non_fatal.sh	UNCLASSIFIED	
-test_doctor_repo_fallback.sh	UNCLASSIFIED	
-test_email_folder_prompt.sh	UNCLASSIFIED	
-test_email_ingest_bootstrap_guard.sh	UNCLASSIFIED	
-test_email_ingest_loud_guard.sh	UNCLASSIFIED	
-test_email_ingest_venv_wired.sh	UNCLASSIFIED	
-test_err_trap_emits_done_fail.sh	UNCLASSIFIED	
-test_every_fail_call_has_error_code.sh	UNCLASSIFIED	
-test_every_launchagent_is_torn_down.sh	UNCLASSIFIED	
-test_fda_assist_ordering.sh	UNCLASSIFIED	
-test_fda_prewarm_no_early_messages_popup.sh	UNCLASSIFIED	
-test_final_summary_nounset_safe.sh	UNCLASSIFIED	
+test_cx18_q7_channel_choice_labels_match_install_sh.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx30_33_python_library_validation_entitlement.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [case-4a]: gui/Makefile sign-python-bundle target has no outer --
+test_cx453_no_osascript_contacts.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx95_venv_shebang_promote.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx98_channel_vars_unbound.sh	WIRED	.github/workflows/test-wiring.yml
+test_cx98_previous_install_detection.sh	WIRED	.github/workflows/test-wiring.yml
+test_daemon_fda_app_bundle_path.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): 14687:                "SELECT 1 FROM access WHERE service='kTCCService
+test_daemon_pins_agree.sh	WIRED	.github/workflows/test-wiring.yml
+test_dedupe_defer_background.sh	WIRED	.github/workflows/test-wiring.yml
+test_dedupe_heartbeat.sh	WIRED	.github/workflows/test-wiring.yml
+test_dmg_contains_bundled_python.sh	WIRED	.github/workflows/test-wiring.yml
+test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/test-wiring.yml
+test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/test-wiring.yml
+test_doctor_repo_fallback.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [diag-override]: clone failure does not mention PWG_DOCTOR_REPO o
+test_email_folder_prompt.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [prompt-missing]: 'Folder/label [Ostler]:' prompt not found
+test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/test-wiring.yml
+test_email_ingest_loud_guard.sh	WIRED	.github/workflows/test-wiring.yml
+test_email_ingest_venv_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_err_trap_emits_done_fail.sh	WIRED	.github/workflows/test-wiring.yml
+test_every_fail_call_has_error_code.sh	WIRED	.github/workflows/test-wiring.yml
+test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/test-wiring.yml
+test_fda_assist_ordering.sh	WIRED	.github/workflows/test-wiring.yml
+test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/test-wiring.yml
+test_final_summary_nounset_safe.sh	WIRED	.github/workflows/test-wiring.yml
 test_gdpr_folder_access_denied.sh	WIRED	.github/workflows/test-wiring.yml
 test_gdpr_scan_prewarn.sh	WIRED	.github/workflows/test-wiring.yml
-test_gen_patch_new_files.sh	UNCLASSIFIED	
-test_governor_pause_throttle.sh	UNCLASSIFIED	
-test_graph_db_pull_retry.sh	UNCLASSIFIED	
-test_grep_c_arith_safety.sh	UNCLASSIFIED	
-test_gui_progress_emitter.sh	UNCLASSIFIED	
-test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	
-test_hydrate_email_preferences_wired.sh	UNCLASSIFIED	
-test_hydrate_people_wired.sh	UNCLASSIFIED	
-test_ical_server_vendor_wired.sh	UNCLASSIFIED	
-test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	
-test_imessage_fda_probe.sh	UNCLASSIFIED	
-test_imessage_self_handles_fallback.sh	UNCLASSIFIED	
-test_imessage_tcc_posture.sh	UNCLASSIFIED	
-test_ingest_offpeak_throttle.sh	UNCLASSIFIED	
-test_install_daily_briefs.sh	UNCLASSIFIED	
-test_install_first_month_free.sh	UNCLASSIFIED	
-test_install_sh_prefers_bundled_python.sh	UNCLASSIFIED	
-test_knowledge_repo_wiring.sh	UNCLASSIFIED	
-test_linkedin_export_detect.sh	UNCLASSIFIED	
-test_mail_content_probe.sh	UNCLASSIFIED	
-test_mail_onboarding_259_260.sh	UNCLASSIFIED	
-test_mailbox_ingest_leg_wired.sh	UNCLASSIFIED	
-test_meeting_brief_sender.sh	UNCLASSIFIED	
-test_migration_marker_guard_fresh_install.py	UNCLASSIFIED	
-test_model_fit.sh	UNCLASSIFIED	
-test_no_internal_codenames_in_customer_strings.sh	UNCLASSIFIED	
-test_no_literal_backslash_n_in_strings.sh	UNCLASSIFIED	
-test_no_orphaned_fixes_gate.sh	UNCLASSIFIED	
-test_no_undefined_msg_refs_in_install_sh.sh	UNCLASSIFIED	
-test_ollama_formula_swap.sh	UNCLASSIFIED	
-test_orphan_gate_cannot_verify.sh	UNCLASSIFIED	
-test_ostler_gui_sudo_gates.sh	UNCLASSIFIED	
-test_pinned_images_are_pullable.sh	UNCLASSIFIED	
-test_pinterest_parser.py	UNCLASSIFIED	
-test_placeholder_strip.sh	UNCLASSIFIED	
-test_pref_noise_source_cap.py	UNCLASSIFIED	
-test_preferences_vendor_wired.sh	UNCLASSIFIED	
-test_resolver_robustness.py	UNCLASSIFIED	
-test_resource_tier_governor.sh	UNCLASSIFIED	
-test_settling_progress_writer.sh	UNCLASSIFIED	
-test_social_ingest_wired.sh	UNCLASSIFIED	
-test_subscription_activation_path.sh	UNCLASSIFIED	
-test_sync_vendor_pin_untouched_on_abort.sh	UNCLASSIFIED	
-test_tailscale_recovery_wrapper.sh	UNCLASSIFIED	
-test_takeout_split_zip_no_abort.sh	UNCLASSIFIED	
+test_gen_patch_new_files.sh	WIRED	.github/workflows/test-wiring.yml
+test_governor_pause_throttle.sh	WIRED	.github/workflows/test-wiring.yml
+test_graph_db_pull_retry.sh	WIRED	.github/workflows/test-wiring.yml
+test_grep_c_arith_safety.sh	WIRED	.github/workflows/test-wiring.yml
+test_gui_progress_emitter.sh	WIRED	.github/workflows/test-wiring.yml
+test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: vendor/ostler_fda/universal_import.py still carries the old 'DEF
+test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_hydrate_people_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'rapidfuzz'
+test_imessage_fda_probe.sh	WIRED	.github/workflows/test-wiring.yml
+test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/test-wiring.yml
+test_imessage_tcc_posture.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [shim-run-granted-and-working]: probe block exited non-zero under
+test_ingest_offpeak_throttle.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): RESULT: FAIL
+test_install_daily_briefs.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): vane_url = "http://localhost:3000"
+test_install_first_month_free.sh	WIRED	.github/workflows/test-wiring.yml
+test_install_sh_prefers_bundled_python.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13):       python branch is the FIRST python-resolution attempt.
+test_knowledge_repo_wiring.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [empty-branch]: no '[[ -z "$KNOWLEDGE_REPO" ]]' warn-and-skip bra
+test_linkedin_export_detect.sh	WIRED	.github/workflows/test-wiring.yml
+test_mail_content_probe.sh	WIRED	.github/workflows/test-wiring.yml
+test_mail_onboarding_259_260.sh	WIRED	.github/workflows/test-wiring.yml
+test_mailbox_ingest_leg_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_meeting_brief_sender.sh	WIRED	.github/workflows/test-wiring.yml
+test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/test-wiring.yml
+test_model_fit.sh	WIRED	.github/workflows/test-wiring.yml
+test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/test-wiring.yml
+test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/test-wiring.yml
+test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/test-wiring.yml
+test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/test-wiring.yml
+test_ollama_formula_swap.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: install.sh contains a 'brew install --cask ollama' invocation. C
+test_orphan_gate_cannot_verify.sh	UNCLASSIFIED	FAILS rc=2 when run (2026-08-13): tests/test_orphan_gate_cannot_verify.sh: line 181: syntax error: unexp
+test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/test-wiring.yml
+test_pinned_images_are_pullable.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): tests/test_pinned_images_are_pullable.sh: line 93: PINS[@]: unbound va
+test_pinterest_parser.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_placeholder_strip.sh	WIRED	.github/workflows/test-wiring.yml
+test_pref_noise_source_cap.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'aiofiles'
+test_preferences_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_resolver_robustness.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): ModuleNotFoundError: No module named 'rapidfuzz'
+test_resource_tier_governor.sh	WIRED	.github/workflows/test-wiring.yml
+test_settling_progress_writer.sh	WIRED	.github/workflows/test-wiring.yml
+test_social_ingest_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: vendor/ostler_fda/pwg_ingest.py ingest_all does not register ing
+test_subscription_activation_path.sh	WIRED	.github/workflows/test-wiring.yml
+test_sync_vendor_pin_untouched_on_abort.sh	WIRED	.github/workflows/test-wiring.yml
+test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/test-wiring.yml
+test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/test-wiring.yml
 test_third_party_data_consent.sh	WIRED	.github/workflows/test-wiring.yml
-test_total_steps_dynamic.sh	UNCLASSIFIED	
-test_uninstaller_keep_prompt.sh	UNCLASSIFIED	
-test_universal_import_leg_wired.sh	UNCLASSIFIED	
-test_upgrade_mode_invariants.sh	UNCLASSIFIED	
-test_user_facing_tree.sh	UNCLASSIFIED	
-test_usr_local_bin_symlinks_gui_safe.sh	UNCLASSIFIED	
+test_total_steps_dynamic.sh	WIRED	.github/workflows/test-wiring.yml
+test_uninstaller_keep_prompt.sh	WIRED	.github/workflows/test-wiring.yml
+test_universal_import_leg_wired.sh	WIRED	.github/workflows/test-wiring.yml
+test_upgrade_mode_invariants.sh	WIRED	.github/workflows/test-wiring.yml
+test_user_facing_tree.sh	WIRED	.github/workflows/test-wiring.yml
+test_usr_local_bin_symlinks_gui_safe.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_at_rest_exclusions.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_daemon_signature_gate.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_ical_doctor_service_auth.sh	WIRED	.github/workflows/test-wiring.yml
@@ -230,16 +230,16 @@ test_v1010_redteam3_teamid_pin.sh	UNCLASSIFIED	BLOCKED v1018-D676: sections 0-2 
 test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_store_front_proxy.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/test-wiring.yml
-test_v1_sweep_install_gating.sh	UNCLASSIFIED	
-test_vane_bundle.sh	UNCLASSIFIED	
-test_vendor_cm052_ai_conversations.sh	UNCLASSIFIED	
-test_vendor_doctor_knowledge_embed_wiring.sh	UNCLASSIFIED	
-test_vendor_exclude_glob_depth.sh	UNCLASSIFIED	
-test_vendor_knowledge_embed_contract.py	UNCLASSIFIED	
+test_v1_sweep_install_gating.sh	WIRED	.github/workflows/test-wiring.yml
+test_vane_bundle.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [phase-4-health]: phase-4 health check does not surface Vane
+test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/test-wiring.yml
+test_vendor_doctor_knowledge_embed_wiring.sh	WIRED	.github/workflows/test-wiring.yml
+test_vendor_exclude_glob_depth.sh	WIRED	.github/workflows/test-wiring.yml
+test_vendor_knowledge_embed_contract.py	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): Skipped: could not import 'click': No module named 'click'
 test_vendored_register_pii.sh	WIRED	.github/workflows/test-wiring.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/test-wiring.yml
-test_whatsapp_channel_block.sh	UNCLASSIFIED	
-test_wiki_baseline_background.sh	UNCLASSIFIED	
-test_wiki_compose_paths.sh	UNCLASSIFIED	
-test_wiki_recompile_after_late_hydration.sh	UNCLASSIFIED	
+test_whatsapp_channel_block.sh	WIRED	.github/workflows/test-wiring.yml
+test_wiki_baseline_background.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): test_wiki_baseline_background: FAILED
+test_wiki_compose_paths.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the 
+test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/test-wiring.yml

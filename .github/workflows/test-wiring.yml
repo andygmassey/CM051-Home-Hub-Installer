@@ -106,3 +106,189 @@ jobs:
       # run) is a CI failure here on purpose -- see the test's header.
       - name: store-proxy Host/Origin allowlist
         run: /bin/bash tests/test_v1010_store_front_proxy.sh
+
+  # v1018-D675 contract tests. Every one of these ran NOWHERE before this
+  # workflow and every one was MEASURED passing on 2026-08-13 before being
+  # listed here -- no test is wired on the assumption that it works.
+  #
+  # NAMED ONE BY ONE, DELIBERATELY. A `for f in tests/*.sh` loop would take the
+  # coverage number green in a single commit while telling nobody which tests
+  # actually pass, which is the same defect as bulk-converting the manifest to
+  # MANUAL. One of the controls behind the original 131 count was that no such
+  # glob exists in this repo.
+  contract-tests:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: ai conversations leg wired
+        run: /bin/bash tests/test_ai_conversations_leg_wired.sh
+      - name: aiconv hydrate honesty
+        run: /bin/bash tests/test_aiconv_hydrate_honesty.sh
+      - name: app binary agents bootstrap
+        run: /bin/bash tests/test_app_binary_agents_bootstrap.sh
+      - name: assistant config reasoning disabled
+        run: /bin/bash tests/test_assistant_config_reasoning_disabled.sh
+      - name: assistant config vane wiring
+        run: /bin/bash tests/test_assistant_config_vane_wiring.sh
+      - name: assistant identity belt
+        run: /bin/bash tests/test_assistant_identity_belt.sh
+      - name: assistant ollama num ctx
+        run: /bin/bash tests/test_assistant_ollama_num_ctx.sh
+      - name: bootstrap prelude
+        run: /bin/bash tests/test_bootstrap_prelude.sh
+      - name: calendar hydrate venv
+        run: /bin/bash tests/test_calendar_hydrate_venv.sh
+      - name: cm048 prompts packaged
+        run: /bin/bash tests/test_cm048_prompts_packaged.sh
+      - name: cm048 settings models wired
+        run: /bin/bash tests/test_cm048_settings_models_wired.sh
+      - name: colima start retry
+        run: /bin/bash tests/test_colima_start_retry.sh
+      - name: composite cleanup
+        run: /bin/bash tests/test_composite_cleanup.sh
+      - name: contact card prefill
+        run: /bin/bash tests/test_contact_card_prefill.sh
+      - name: contact email coverage guard
+        run: /bin/bash tests/test_contact_email_coverage_guard.sh
+      - name: contact resync scheduled
+        run: /bin/bash tests/test_contact_resync_scheduled.sh
+      - name: context refresh wired
+        run: /bin/bash tests/test_context_refresh_wired.sh
+      - name: conversation bundle user id wired
+        run: /bin/bash tests/test_conversation_bundle_user_id_wired.sh
+      - name: conversations ingest wiring
+        run: /bin/bash tests/test_conversations_ingest_wiring.sh
+      - name: cx100 mail accounts detection
+        run: /bin/bash tests/test_cx100_mail_accounts_detection.sh
+      - name: cx101 calendar hydrate path
+        run: /bin/bash tests/test_cx101_calendar_hydrate_path.sh
+      - name: cx101 prelaunch gate population
+        run: /bin/bash tests/test_cx101_prelaunch_gate_population.sh
+      - name: cx130 mail populate phase2
+        run: /bin/bash tests/test_cx130_mail_populate_phase2.sh
+      - name: cx18 q7 channel choice labels match install sh
+        run: /bin/bash tests/test_cx18_q7_channel_choice_labels_match_install_sh.sh
+      - name: cx453 no osascript contacts
+        run: /bin/bash tests/test_cx453_no_osascript_contacts.sh
+      - name: cx95 venv shebang promote
+        run: /bin/bash tests/test_cx95_venv_shebang_promote.sh
+      - name: cx98 channel vars unbound
+        run: /bin/bash tests/test_cx98_channel_vars_unbound.sh
+      - name: cx98 previous install detection
+        run: /bin/bash tests/test_cx98_previous_install_detection.sh
+      - name: daemon pins agree
+        run: /bin/bash tests/test_daemon_pins_agree.sh
+      - name: dedupe defer background
+        run: /bin/bash tests/test_dedupe_defer_background.sh
+      - name: dedupe heartbeat
+        run: /bin/bash tests/test_dedupe_heartbeat.sh
+      - name: dmg contains bundled python
+        run: /bin/bash tests/test_dmg_contains_bundled_python.sh
+      - name: doctor probe errtrap regression
+        run: /bin/bash tests/test_doctor_probe_errtrap_regression.sh
+      - name: doctor probe non fatal
+        run: /bin/bash tests/test_doctor_probe_non_fatal.sh
+      - name: email ingest bootstrap guard
+        run: /bin/bash tests/test_email_ingest_bootstrap_guard.sh
+      - name: email ingest loud guard
+        run: /bin/bash tests/test_email_ingest_loud_guard.sh
+      - name: email ingest venv wired
+        run: /bin/bash tests/test_email_ingest_venv_wired.sh
+      - name: err trap emits done fail
+        run: /bin/bash tests/test_err_trap_emits_done_fail.sh
+      - name: every fail call has error code
+        run: /bin/bash tests/test_every_fail_call_has_error_code.sh
+      - name: every launchagent is torn down
+        run: /bin/bash tests/test_every_launchagent_is_torn_down.sh
+      - name: fda assist ordering
+        run: /bin/bash tests/test_fda_assist_ordering.sh
+      - name: fda prewarm no early messages popup
+        run: /bin/bash tests/test_fda_prewarm_no_early_messages_popup.sh
+      - name: final summary nounset safe
+        run: /bin/bash tests/test_final_summary_nounset_safe.sh
+      - name: gen patch new files
+        run: /bin/bash tests/test_gen_patch_new_files.sh
+      - name: governor pause throttle
+        run: /bin/bash tests/test_governor_pause_throttle.sh
+      - name: graph db pull retry
+        run: /bin/bash tests/test_graph_db_pull_retry.sh
+      - name: grep c arith safety
+        run: /bin/bash tests/test_grep_c_arith_safety.sh
+      - name: gui progress emitter
+        run: /bin/bash tests/test_gui_progress_emitter.sh
+      - name: hydrate email preferences wired
+        run: /bin/bash tests/test_hydrate_email_preferences_wired.sh
+      - name: hydrate people wired
+        run: /bin/bash tests/test_hydrate_people_wired.sh
+      - name: ical server vendor wired
+        run: /bin/bash tests/test_ical_server_vendor_wired.sh
+      - name: imessage fda probe
+        run: /bin/bash tests/test_imessage_fda_probe.sh
+      - name: imessage self handles fallback
+        run: /bin/bash tests/test_imessage_self_handles_fallback.sh
+      - name: install first month free
+        run: /bin/bash tests/test_install_first_month_free.sh
+      - name: linkedin export detect
+        run: /bin/bash tests/test_linkedin_export_detect.sh
+      - name: mail content probe
+        run: /bin/bash tests/test_mail_content_probe.sh
+      - name: mail onboarding 259 260
+        run: /bin/bash tests/test_mail_onboarding_259_260.sh
+      - name: mailbox ingest leg wired
+        run: /bin/bash tests/test_mailbox_ingest_leg_wired.sh
+      - name: meeting brief sender
+        run: /bin/bash tests/test_meeting_brief_sender.sh
+      - name: migration marker guard fresh install
+        run: python3 tests/test_migration_marker_guard_fresh_install.py
+      - name: model fit
+        run: /bin/bash tests/test_model_fit.sh
+      - name: no internal codenames in customer strings
+        run: /bin/bash tests/test_no_internal_codenames_in_customer_strings.sh
+      - name: no literal backslash n in strings
+        run: /bin/bash tests/test_no_literal_backslash_n_in_strings.sh
+      - name: no orphaned fixes gate
+        run: /bin/bash tests/test_no_orphaned_fixes_gate.sh
+      - name: no undefined msg refs in install sh
+        run: /bin/bash tests/test_no_undefined_msg_refs_in_install_sh.sh
+      - name: ostler gui sudo gates
+        run: /bin/bash tests/test_ostler_gui_sudo_gates.sh
+      - name: placeholder strip
+        run: /bin/bash tests/test_placeholder_strip.sh
+      - name: preferences vendor wired
+        run: /bin/bash tests/test_preferences_vendor_wired.sh
+      - name: resource tier governor
+        run: /bin/bash tests/test_resource_tier_governor.sh
+      - name: settling progress writer
+        run: /bin/bash tests/test_settling_progress_writer.sh
+      - name: subscription activation path
+        run: /bin/bash tests/test_subscription_activation_path.sh
+      - name: sync vendor pin untouched on abort
+        run: /bin/bash tests/test_sync_vendor_pin_untouched_on_abort.sh
+      - name: tailscale recovery wrapper
+        run: /bin/bash tests/test_tailscale_recovery_wrapper.sh
+      - name: takeout split zip no abort
+        run: /bin/bash tests/test_takeout_split_zip_no_abort.sh
+      - name: total steps dynamic
+        run: /bin/bash tests/test_total_steps_dynamic.sh
+      - name: uninstaller keep prompt
+        run: /bin/bash tests/test_uninstaller_keep_prompt.sh
+      - name: universal import leg wired
+        run: /bin/bash tests/test_universal_import_leg_wired.sh
+      - name: upgrade mode invariants
+        run: /bin/bash tests/test_upgrade_mode_invariants.sh
+      - name: user facing tree
+        run: /bin/bash tests/test_user_facing_tree.sh
+      - name: usr local bin symlinks gui safe
+        run: /bin/bash tests/test_usr_local_bin_symlinks_gui_safe.sh
+      - name: v1 sweep install gating
+        run: /bin/bash tests/test_v1_sweep_install_gating.sh
+      - name: vendor cm052 ai conversations
+        run: /bin/bash tests/test_vendor_cm052_ai_conversations.sh
+      - name: vendor doctor knowledge embed wiring
+        run: /bin/bash tests/test_vendor_doctor_knowledge_embed_wiring.sh
+      - name: vendor exclude glob depth
+        run: /bin/bash tests/test_vendor_exclude_glob_depth.sh
+      - name: whatsapp channel block
+        run: /bin/bash tests/test_whatsapp_channel_block.sh
+      - name: wiki recompile after late hydration
+        run: /bin/bash tests/test_wiki_recompile_after_late_hydration.sh
