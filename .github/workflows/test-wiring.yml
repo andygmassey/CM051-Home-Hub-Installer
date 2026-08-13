@@ -1,0 +1,67 @@
+name: test-wiring
+
+# THE READER FOR "WHICH TESTS ACTUALLY RUN?"
+#
+# On 2026-08-13 that question had no answer on main: no manifest, no
+# glob-runner, no enumerating target. A test executed if and only if some
+# workflow named it by hand. Measured that day -- 174 test files, 46 reachable,
+# 128 running NOWHERE. 128 files that look like coverage and assert nothing.
+#
+# This workflow keeps the number honest and stops it growing.
+#
+# ALWAYS RUNS. No `paths:` filter, deliberately. A path filter would mean the
+# gate skips on exactly the PR that adds an unwired test somewhere it did not
+# think to watch -- and "skipped" renders as a grey tick that reads like a
+# pass. The job is seconds long; there is no budget argument for making it
+# conditional. Same reasoning as the orphan-gate proofs.
+#
+# Every step carries `if: always()` so a failure in one does not silently skip
+# the rest: GitHub stops a job at its first failing step, and a skipped proof
+# is indistinguishable from a proof that passed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-wiring:
+    runs-on: macos-latest   # the cut host is macOS; /bin/bash is 3.2 there
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: The wiring gate discriminates (10 controls, incl. 4 x exit 2)
+        run: /bin/bash tests/test_verify_test_wiring.sh
+
+      - name: No test file is newly unwired
+        if: always()
+        run: /bin/bash scripts/verify_test_wiring.sh
+
+      - name: Manifest is in sync with the tree
+        if: always()
+        run: |
+          set -e
+          # --regenerate must be a no-op on a correct tree. If it rewrites the
+          # file, the committed manifest had drifted and the run above was
+          # comparing against fiction.
+          cp tests/TEST_WIRING.tsv /tmp/wiring.before
+          /bin/bash scripts/verify_test_wiring.sh --regenerate >/dev/null
+          if ! diff -q /tmp/wiring.before tests/TEST_WIRING.tsv >/dev/null; then
+            echo "tests/TEST_WIRING.tsv is stale -- regenerating it changed the file." >&2
+            echo "Run: bash scripts/verify_test_wiring.sh --regenerate  and commit." >&2
+            diff /tmp/wiring.before tests/TEST_WIRING.tsv | head -40 >&2
+            exit 1
+          fi
+          echo "OK: manifest matches the tree"
+
+      - name: Both files parse under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n scripts/verify_test_wiring.sh
+          /bin/bash -n tests/test_verify_test_wiring.sh
+          echo "OK: parses under the shell the cut actually uses"
