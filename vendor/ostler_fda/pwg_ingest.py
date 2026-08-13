@@ -252,6 +252,57 @@ def _is_provisional_display_name(value: str) -> bool:
     # which covers BOTH the phone placeholder and the email stand-in.
     return _display_name_tier(value) < _NAME_TIER_NAME
 
+
+def _creation_name_triples(person_uri: str, value: str) -> list:
+    """The displayName triples for a person node being CREATED.
+
+    v1018-D011. ``_upsert_display_name`` below holds the whole name rule,
+    and every source calls it -- but it was never the only writer. Each
+    source ALSO emitted its own ``pwg:displayName`` inside its
+    ``if not _person_exists(uri)`` creation ``INSERT DATA``, and that write
+    went nowhere near the tier. On a FRESH INSTALL nothing exists, so the
+    creation branch is the branch every customer takes, and the guarded
+    upsert that runs immediately afterwards could only ever look at a value
+    it had already lost the argument about. Two consequences, both measured
+    on a real box before this was written:
+
+    * **A refused label was written anyway.** A Photos face label and a
+      calendar attendee name are free text off a contact card, so either can
+      be a relationship word. The creation INSERT wrote "Mum"; the upsert
+      then declined to write "Mum"; the node kept "Mum". v1018-D659 was
+      enforced on the path that runs SECOND.
+
+    * **A handle was written un-flagged, so it became permanent.** Only
+      iMessage and WhatsApp appended ``displayNameProvisional``; calendar,
+      photos and mail did not. The tier-2 upgrade guard is
+      ``!BOUND(?old) || BOUND(?prov)``, so with a name bound and no flag
+      BOTH disjuncts are false and a real name arriving later can never
+      land. On the founder box that is 30 of the 33 people whose name is an
+      email address -- every one of them stuck with it for good.
+
+    One helper, five call sites, and the rule stays in
+    ``_display_name_tier`` rather than being restated here.
+
+    A REFUSED value yields the flag and NO name. That is deliberate and it
+    is the conservative direction: the node is still created, still carries
+    its identifiers, and is still eligible for the first real name any
+    source offers, because ``!BOUND(?old)`` holds. The alternative -- keep
+    writing the relationship word -- is the defect this row is named for.
+    """
+    tier = _display_name_tier(value)
+    flag = f'<{person_uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
+    if tier < _NAME_TIER_PLACEHOLDER:
+        logger.debug(
+            "Refused %r as a displayName for %s at creation: it is a "
+            "relationship, not a name (v1018-D659)", value, person_uri,
+        )
+        return [flag]
+    triples = [f'<{person_uri}> pwg:displayName "{_escape(value)}"']
+    if tier < _NAME_TIER_NAME:
+        triples.append(flag)
+    return triples
+
+
 def _sparql_update(sparql: str) -> None:
     """Execute a SPARQL UPDATE against Oxigraph."""
     transport = httpx.HTTPTransport(proxy=None)
@@ -441,21 +492,18 @@ def ingest_imessage(fda_dir: Path) -> dict:
 
                 triples = [
                     f"<{uri}> a pwg:Person",
-                    f'<{uri}> pwg:displayName "{_escape(participant)}"',
                     f'<{uri}> pwg:contactType "person"',
                     f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                     f'<{uri}> pwg:source "imessage_fda"',
                 ]
 
-                # #576: the iMessage participant is a raw handle (phone or
-                # email) used as the displayName. Flag the phone/email-only
-                # case as provisional so the resolver may overwrite it with a
-                # Contacts name and surfaces can suppress the bare-number leak.
-                if _is_provisional_display_name(participant):
-                    triples.append(
-                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
-                    )
+                # #576 / v1018-D011: the iMessage participant is a raw handle
+                # (phone or email) used as the displayName. The helper emits
+                # the name AND the provisional flag together, so the resolver
+                # may overwrite it with a Contacts name and surfaces can
+                # suppress the bare-number leak.
+                triples.extend(_creation_name_triples(uri, participant))
 
                 # Add identifier
                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_imessage"
@@ -790,28 +838,34 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             uri = _person_uri(person_id)
             exists = _person_exists(uri)
 
+            # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
+            # E.164 number. Present it as a `+`-prefixed phone so the
+            # placeholder reads as a phone contact rather than a bare
+            # "random number" (BW-4); real names arrive later from
+            # contact_syncer / CM046 email signatures.
+            #
+            # v1018-D011: bound HERE, not inside the not-exists branch. It is
+            # read by the upsert below, which runs for new and existing
+            # alike, so an already-existing FIRST participant used to raise
+            # UnboundLocalError and kill the whole WhatsApp ingest -- and on
+            # any later iteration it still held the PREVIOUS participant's
+            # handle, which the tier-0 guard would write onto any node that
+            # had no name yet: one person's page titled with another
+            # person's phone number.
+            display = _whatsapp_display_name(participant)
+
             if not exists:
-                # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is
-                # an E.164 number. Present it as a `+`-prefixed phone so the
-                # placeholder reads as a phone contact rather than a bare
-                # "random number" (BW-4); real names arrive later from
-                # contact_syncer / CM046 email signatures.
-                display = _whatsapp_display_name(participant)
                 triples = [
                     f"<{uri}> a pwg:Person",
-                    f'<{uri}> pwg:displayName "{_escape(display)}"',
                     f'<{uri}> pwg:contactType "person"',
                     f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                     f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                     f'<{uri}> pwg:source "whatsapp_fda"',
                 ]
 
-                # #576: flag the bare-number placeholder so the resolver
-                # may overwrite it and surfaces can suppress it as a name.
-                if _is_provisional_display_name(display):
-                    triples.append(
-                        f'<{uri}> pwg:displayNameProvisional "true"^^xsd:boolean'
-                    )
+                # #576: the helper flags the bare-number placeholder so the
+                # resolver may overwrite it and surfaces can suppress it.
+                triples.extend(_creation_name_triples(uri, display))
                 id_uri = f"https://pwg.dev/ontology#id_{person_id}_whatsapp"
                 triples.extend([
                     f"<{uri}> pwg:hasIdentifier <{id_uri}>",
@@ -942,12 +996,16 @@ def ingest_calendar(fda_dir: Path) -> dict:
                 if not _person_exists(uri):
                     triples = [
                         f"<{uri}> a pwg:Person",
-                        f'<{uri}> pwg:displayName "{_escape(attendee)}"',
                         f'<{uri}> pwg:contactType "person"',
                         f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                         f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                         f'<{uri}> pwg:source "calendar_fda"',
                     ]
+                    # v1018-D011. An attendee display name comes off a
+                    # contact card, so it can be a relationship word; and an
+                    # attendee is very often a bare address. Un-flagged, that
+                    # address became the person's permanent name.
+                    triples.extend(_creation_name_triples(uri, attendee))
                     sparql = (
                         "PREFIX pwg: <https://pwg.dev/ontology#>\n"
                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
@@ -1053,12 +1111,16 @@ def ingest_photos_people(fda_dir: Path) -> dict:
 
             triples = [
                 f"<{uri}> a pwg:Person",
-                f'<{uri}> pwg:displayName "{_escape(name)}"',
                 f'<{uri}> pwg:contactType "person"',
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                 f'<{uri}> pwg:source "photos_fda"',
                 f'<{uri}> pwg:photoCount "{photo_count}"^^xsd:integer',
             ]
+            # v1018-D011. A face label is free text the user typed into
+            # Photos, and "Mum" is one of the commonest things anybody types
+            # there. It is a relationship, not a name, and it must not become
+            # one just because this write happened to run before the guard.
+            triples.extend(_creation_name_triples(uri, name))
 
             if first_seen:
                 triples.append(
@@ -1121,11 +1183,14 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         if not _person_exists(uri):
             triples = [
                 f"<{uri}> a pwg:Person",
-                f'<{uri}> pwg:displayName "{_escape(email)}"',
                 f'<{uri}> pwg:contactType "person"',
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
                 f'<{uri}> pwg:source "apple_mail_fda"',
             ]
+            # v1018-D011. This source names people after their address by
+            # construction, and it never flagged one. Every person it created
+            # was stuck with an email address as their name for good.
+            triples.extend(_creation_name_triples(uri, email))
 
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_mail"
             triples.extend([
