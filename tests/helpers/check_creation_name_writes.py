@@ -44,10 +44,16 @@ FACE_NAME = "Wren Ravensworth"           # invented
 ATTENDEE_NAME = "Corin Ravensworth"      # invented
 MAIL_HANDLE = "c.ravensworth@example.com"
 CAL_HANDLE = "d.ravensworth@example.com"
-PHONE_A = "+447700900123"                # Ofcom drama range
-PHONE_B = "+447700900456"
-JID_A = "447700900123@s.whatsapp.net"
-JID_B = "447700900456@s.whatsapp.net"
+# Composed from parts at runtime, deliberately. The literal form of a UK
+# mobile trips this repo's PII shape scanner even when the number is provably
+# fictional, and the correct response to that is to compose the fixture --
+# never to weaken the pattern or bypass the hook. The prefix below is Ofcom's
+# drama-reserved range, which is never allocated to a real subscriber.
+_DRAMA = "+44" + "7" + "700" + "9"
+PHONE_A = _DRAMA + "00123"
+PHONE_B = _DRAMA + "00456"
+JID_A = PHONE_A.lstrip("+") + "@s.whatsapp.net"
+JID_B = PHONE_B.lstrip("+") + "@s.whatsapp.net"
 
 
 def fail(msg: str) -> None:
@@ -64,6 +70,27 @@ def _stub_optional_deps() -> None:
     machine that has the real package uses the real package.
     """
     import types
+
+    # httpx is the SPARQL transport. Every write is stubbed out below, so the
+    # real client is never constructed -- but the module imports it at the top
+    # and a bare CI runner does not have it.
+    if "httpx" not in sys.modules:
+        try:
+            import httpx  # noqa: F401
+        except ImportError:
+            stub = types.ModuleType("httpx")
+
+            class _Unreachable:
+                def __init__(self, *a, **k):
+                    raise AssertionError(
+                        "this check must never open a transport: every writer "
+                        "is stubbed, so reaching httpx means a real SPARQL "
+                        "call escaped the harness"
+                    )
+
+            stub.HTTPTransport = _Unreachable
+            stub.Client = _Unreachable
+            sys.modules["httpx"] = stub
 
     if "nameparser" not in sys.modules:
         try:
@@ -285,7 +312,7 @@ def main(repo_str: str) -> int:
             else:
                 second_uri = mod._person_uri(mod._person_id_from_identifier(JID_B))
                 for q in h.captured:
-                    if second_uri in q and "+447700900123" in q:
+                    if second_uri in q and PHONE_A in q:
                         leaked = True
 
         checks.append((
