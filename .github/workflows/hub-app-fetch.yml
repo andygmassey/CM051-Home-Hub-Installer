@@ -54,4 +54,5 @@ jobs:
         run: /bin/bash tests/test_hub_app_fetch_wired.sh
 
       - name: OSTLER_APP_PATH default still resolves beside this checkout
+        if: always()
         run: /bin/bash tests/test_makefile_app_path_default.sh

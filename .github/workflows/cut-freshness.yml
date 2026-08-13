@@ -43,6 +43,7 @@ jobs:
         run: bash tests/test_cut_freshness_gate.sh
 
       - name: Gate is wired fail-closed into both cut paths
+        if: always()
         run: |
           set -e
           # gui/Makefile: package must depend on check-freshness AND the target

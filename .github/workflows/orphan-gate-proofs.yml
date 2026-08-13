@@ -98,6 +98,7 @@ jobs:
       # failure, it is the test never running, so it must be caught as its own
       # thing rather than as a mysterious rc=2 in the middle of a suite.
       - name: Every proof parses under /bin/bash (3.2 on macOS)
+        if: always()
         run: |
           set -euo pipefail
           echo "  /bin/bash is: $(/bin/bash --version | head -1)"
@@ -119,7 +120,9 @@ jobs:
         run: ./scripts/orphan_gate_selftest.sh
 
       - name: Orphan gate harness
+        if: always()
         run: ./tests/test_no_orphaned_fixes_gate.sh
 
       - name: Orphan gate cannot-verify semantics
+        if: always()
         run: ./tests/test_orphan_gate_cannot_verify.sh

@@ -81,6 +81,7 @@ jobs:
       #
       # These run BEFORE the gate is relied on, and cost ~4s combined.
       - name: Orphan gate still FIRES (self-test + both harnesses)
+        if: always()
         run: |
           set -euo pipefail
           ./scripts/orphan_gate_selftest.sh
@@ -170,6 +171,7 @@ jobs:
         run: bash scripts/provenance_gate.sh
 
       - name: Repo-side gates
+        if: always()
         run: |
           set -euo pipefail
           # v1018-D027: local cutting must be impossible. Asserted here too, so

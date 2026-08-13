@@ -1,0 +1,60 @@
+name: ci-maskless
+
+# No test in CI may be silenced by an earlier test in the same job (#683).
+#
+# WHY THIS EXISTS. A GitHub Actions job stops at its first failing step, and
+# every later step is reported as "skipped" -- grey, not red. Measured on this
+# repo on 2026-08-13: 26 of 55 test-running steps sat behind another test with
+# no `if: always()`. vendor-integrity alone had 10. So on any red run, a third
+# of the suite silently did not execute, and the run still looked like it had
+# been fully examined.
+#
+# WHY THE WIRING MANIFEST CANNOT CATCH IT. tests/TEST_WIRING.tsv records a test
+# as WIRED when a starter names it. That is a fact about the FILE and it stays
+# true when the step never runs. "WIRED" and "ran" therefore diverge exactly on
+# the runs where coverage matters, and the manifest keeps reporting the
+# reassuring one. #648 measured which tests run nowhere; this measures which of
+# the rest stop running the moment anything is wrong.
+#
+# THE SECOND-ORDER COST. Two independent breakages in one job surface one at a
+# time: fix, push, wait, discover the next. Serial discovery of facts that were
+# available in parallel, at one CI round-trip each.
+#
+# This workflow runs on EVERY pull request with no paths filter, deliberately.
+# A workflow that only runs when its own files change cannot see a violation
+# introduced anywhere else, which is the only way this defect ever arrives.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci-maskless:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      # The gate discriminates -- proven in both directions on fixtures,
+      # including that it does NOT fire on build/deploy steps or on a job's
+      # first test. A gate that flags the innocent gets switched off.
+      - name: The gate discriminates (15 controls)
+        run: /bin/bash tests/test_verify_ci_steps_are_maskless.sh
+
+      # Dogfooding: this step carries always() because it is a test step that
+      # follows another test step, which is the rule it enforces.
+      - name: No test step is maskable in this repo
+        if: always()
+        run: python3 scripts/verify_ci_steps_are_maskless.py

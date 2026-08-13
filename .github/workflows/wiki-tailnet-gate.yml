@@ -30,6 +30,7 @@ jobs:
         run: bash tests/test_wiki_tailnet_gate.sh
 
       - name: Owner-resolution parser
+        if: always()
         # The gate guard above proves nginx rejects the wrong user. It stays
         # green when the owner was never resolved at all, because a gate with
         # no owner rejects everyone -- correct, and indistinguishable from

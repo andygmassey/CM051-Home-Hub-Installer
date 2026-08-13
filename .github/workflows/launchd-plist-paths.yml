@@ -38,4 +38,5 @@ jobs:
         run: bash tests/test_launchd_plist_no_tmp.sh
 
       - name: Assert com.ostler.export-scan bootstrap is race-safe (HR015 #217)
+        if: always()
         run: bash tests/test_export_scan_plist_bootstrap_race_217.sh

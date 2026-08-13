@@ -65,12 +65,14 @@ jobs:
         run: python3 tests/test_vendor_manifest_is_valid_toml.py
 
       - name: Divergent non-shipping twin guard (legacy, intra-repo only)
+        if: always()
         run: bash tests/test_no_divergent_vendor_twin.sh
 
       # context-refresh/ holds a grafted vendored copy outside vendor/, so the
       # freshness gate below never sees it. This pins it to the SHA recorded
       # in its VENDOR.md so a patch that rots the provenance record fails CI.
       - name: context-refresh vendored-file SHA guard
+        if: always()
         run: bash tests/test_context_refresh_vendor_sha.sh
 
       # Cross-repo vendor-freshness gate. The old twin guard above is BLIND to
@@ -90,6 +92,7 @@ jobs:
       # The REAL cross-repo gate (all source repos present, VENDOR_FRESH_STRICT=1)
       # runs as a blocking step in the HR015 cut -- see WORKSTREAM A follow-up.
       - name: Vendor-freshness gate self-test
+        if: always()
         run: bash tests/test_vendor_fresh_gate.sh
 
       - name: Vendor-freshness gate (degraded -- source repos absent on CI)
@@ -102,12 +105,15 @@ jobs:
       # conversation is silently dropped. Catches a re-vendor that loses the
       # graft even if source and vendor regress together.
       - name: Conversation-process metadata conversation_id guard
+        if: always()
         run: bash tests/test_conversation_process_metadata_conversation_id.sh
 
       - name: Vendor import-resolution guard
+        if: always()
         run: python3 tests/test_vendor_import_resolution.py
 
       - name: Vendor entrypoint-resolution guard
+        if: always()
         run: python3 tests/test_vendor_entrypoint_resolution.py
 
       # Symbol-level guard: web_ui.py imports a batch of CONFIG_* string
@@ -117,6 +123,7 @@ jobs:
       # through and crash-looped Doctor on the .154 walk -> Hub
       # People/Timeline LOAD FAILED. This closes that gap.
       - name: Doctor web_ui string-catalogue completeness guard
+        if: always()
         run: python3 -m unittest tests.test_doctor_web_ui_strings_complete -v
 
       # v1018-D024. This ran ONLY in cut.yml, which means a change to vendor/
@@ -124,6 +131,7 @@ jobs:
       # discoverable only at cut time. It was in fact broken on main for a
       # while and nobody saw it until the cut needed it (CM051 #565).
       - name: Vendor-only files survive a re-vendor (D024)
+        if: always()
         run: bash tests/test_vendor_only_survives_sync.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
@@ -146,9 +154,11 @@ jobs:
       # guard, and pytest correctly collects nothing from it. Invoking it wrong
       # reports "no tests ran", which is indistinguishable from a pass.
       - name: Imported symbols resolve, not just modules (D024)
+        if: always()
         run: python3 tests/test_vendor_symbol_resolution.py
 
       - name: Browser-history vendor regression
+        if: always()
         run: bash vendor/ostler_fda/test_vendor_browser_history.sh
 
       # Doctor pairing-panel vendor regression step removed 2026-07-30:

@@ -73,6 +73,7 @@ jobs:
           python3 -m unittest tests.test_install_gui_contract -v
 
       - name: Run contract test (negative-path self-tests)
+        if: always()
         run: |
           set -euo pipefail
           python3 -m unittest tests.test_install_gui_contract_negatives -v
@@ -88,6 +89,7 @@ jobs:
           python3 scripts/check_install_sh_script_dir_coverage.py --mode ci
 
       - name: Check bundling phases declare every file they copy
+        if: always()
         # The ${SCRIPT_DIR}/X gate above proves a file IS copied. It does not
         # prove Xcode knows about the copy. A file absent from a phase's
         # inputFiles/outputFiles is untracked for incremental builds, so
@@ -107,6 +109,7 @@ jobs:
           bash tests/test_bundle_phase_declares_every_copy.sh
 
       - name: AI_MODEL writer/reader contract (#259 / D636)
+        if: always()
         # install.sh picks a model per RAM tier and pulls THAT model; the
         # wiki-compiler container asks Ollama for OLLAMA_MODEL. They are joined
         # by writer -> ${AI_MODEL} reference -> QUOTED heredoc. Break any link
@@ -118,6 +121,7 @@ jobs:
           bash tests/test_ai_model_env_contract.sh
 
       - name: Run app-bundle byte-by-byte regression
+        if: always()
         # Per locked memory feedback_silent_bail_regression_test_shape.
         # Each per-finding assertion pins the EXACT failure shape the
         # 2026-05-22 audit flagged so a regression is caught at CI rather
