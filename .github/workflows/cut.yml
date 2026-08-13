@@ -203,14 +203,32 @@ jobs:
           URL="https://github.com/yonaskolb/XcodeGen/releases/download/${WANT}/xcodegen.zip"
           curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "$URL"
           unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
+          # THE WHOLE RELEASE PREFIX, bin/ AND share/, not just the binary.
+          #
+          # Measured 2026-08-13: copying only the binary made the verifier
+          # report UNAVAILABLE with a message that had clearly seen this
+          # before -- "xcodegen cannot reach its SettingPresets ... without
+          # them xcodegen omits every default build setting and STILL EXITS 0,
+          # so a byte comparison would report the PROJECT stale for a broken
+          # generator install."
+          #
+          # That is the same failure shape as everything else in this cut: a
+          # tool that answers confidently while unable to do its job. The
+          # verifier refuses rather than answering, which is why this was a
+          # named cause and not a mystery diff.
           BIN="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm +111 | head -1)"
           [ -n "$BIN" ] || { echo "::error::no xcodegen binary in $URL" >&2; exit 1; }
-          mkdir -p "$RUNNER_TEMP/bin"
-          cp "$BIN" "$RUNNER_TEMP/bin/xcodegen"
-          chmod +x "$RUNNER_TEMP/bin/xcodegen"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          PREFIX="$(cd "$(dirname "$BIN")/.." && pwd)"
+          [ -d "$PREFIX/share/xcodegen/SettingPresets" ] || {
+            echo "::error::$URL has no share/xcodegen/SettingPresets under $PREFIX" >&2
+            find "$RUNNER_TEMP/xcodegen" -maxdepth 3 -type d >&2
+            exit 1
+          }
+          echo "release prefix: $PREFIX"
+          chmod +x "$PREFIX/bin/xcodegen"
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
 
-          GOT="$("$RUNNER_TEMP/bin/xcodegen" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          GOT="$("$PREFIX/bin/xcodegen" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           echo "installed xcodegen: $GOT"
           [ "$GOT" = "$WANT" ] || { echo "::error::downloaded $GOT but $WANT is pinned" >&2; exit 1; }
 
