@@ -122,9 +122,9 @@ test_assistant_identity_belt.sh	WIRED	.github/workflows/test-wiring.yml
 test_assistant_ollama_num_ctx.sh	WIRED	.github/workflows/test-wiring.yml
 test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/test-wiring.yml
-test_brew_install_fail_loud.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: 2 silent-bail axis violation(s) in install.sh.
+test_brew_install_fail_loud.sh	UNCLASSIFIED	PARTIALLY FIXED: log-redirect assertion retargeted (tee cmd is now selected into $_OSTLER_TEE_CMD because stdbuf is GNU, absent on stock macOS) -- violations 2->1, negative control passes. REMAINING: demands `--cask tailscale` + fail_with_code ERR-15; code uses the FORMULA + a warn that sets OSTLER_TAILSCALE_SKIPPED=1, which is WRITE-ONLY (1 occurrence repo-wide, control INSTALL_LOG=29). See v1018-D678: Andy rules hard-fail vs surfaced-warn.
 test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/test-wiring.yml
-test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	FAILS rc=1 with deps installed (2026-08-13): AttributeError on ostler_fda.pwg_ingest -- REAL assertion failure, not a dependency gap
+test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	SUPERSEDED API: calls pwg_ingest._person_uri_by_identifier_value, which no longer exists. Keying moved to _person_id_from_identifier (uuid5 over a cleaned identifier, so no interpolation surface) + _person_uri. The injection-prone helper the test probed was designed out; the live guard is the #659 role-address refusal. Retarget at uuid5 keying + role refusal.
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/test-wiring.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/test-wiring.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/test-wiring.yml
@@ -144,20 +144,20 @@ test_cx130_mail_populate_phase2.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q19_consent_third_party_legal_note_separation.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q20_consent_install_body_shape.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx18_q7_channel_choice_labels_match_install_sh.sh	WIRED	.github/workflows/test-wiring.yml
-test_cx30_33_python_library_validation_entitlement.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [case-4a]: gui/Makefile sign-python-bundle target has no outer --
+test_cx30_33_python_library_validation_entitlement.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_cx453_no_osascript_contacts.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx95_venv_shebang_promote.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx98_channel_vars_unbound.sh	WIRED	.github/workflows/test-wiring.yml
 test_cx98_previous_install_detection.sh	WIRED	.github/workflows/test-wiring.yml
-test_daemon_fda_app_bundle_path.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): 14687:                "SELECT 1 FROM access WHERE service='kTCCService
+test_daemon_fda_app_bundle_path.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_daemon_pins_agree.sh	WIRED	.github/workflows/test-wiring.yml
 test_dedupe_defer_background.sh	WIRED	.github/workflows/test-wiring.yml
 test_dedupe_heartbeat.sh	WIRED	.github/workflows/test-wiring.yml
 test_dmg_contains_bundled_python.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/test-wiring.yml
-test_doctor_repo_fallback.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [diag-override]: clone failure does not mention PWG_DOCTOR_REPO o
-test_email_folder_prompt.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [prompt-missing]: 'Folder/label [Ostler]:' prompt not found
+test_doctor_repo_fallback.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_email_folder_prompt.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_venv_wired.sh	WIRED	.github/workflows/test-wiring.yml
@@ -174,19 +174,19 @@ test_governor_pause_throttle.sh	WIRED	.github/workflows/test-wiring.yml
 test_graph_db_pull_retry.sh	WIRED	.github/workflows/test-wiring.yml
 test_grep_c_arith_safety.sh	WIRED	.github/workflows/test-wiring.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/test-wiring.yml
-test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: vendor/ostler_fda/universal_import.py still carries the old 'DEF
+test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
-test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	FAILS rc=1 with deps installed (2026-08-13): all-persons candidate query issued 0 times -- REAL assertion failure, not a dependency gap
+test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	REAL (deps present): 'all-persons candidate query issued 0 times' -- the fuzzy-cache path is not issuing the query the test expects. Needs root-cause against vendor/cm041/identity_resolver; could be a cache short-circuit that skips the query, which would be a behaviour change worth knowing about.
 test_imessage_fda_probe.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/test-wiring.yml
-test_imessage_tcc_posture.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [shim-run-granted-and-working]: probe block exited non-zero under
-test_ingest_offpeak_throttle.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): RESULT: FAIL
-test_install_daily_briefs.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): vane_url = "http://localhost:3000"
+test_imessage_tcc_posture.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_ingest_offpeak_throttle.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_install_daily_briefs.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_install_first_month_free.sh	WIRED	.github/workflows/test-wiring.yml
-test_install_sh_prefers_bundled_python.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13):       python branch is the FIRST python-resolution attempt.
-test_knowledge_repo_wiring.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [empty-branch]: no '[[ -z "$KNOWLEDGE_REPO" ]]' warn-and-skip bra
+test_install_sh_prefers_bundled_python.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_knowledge_repo_wiring.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_linkedin_export_detect.sh	WIRED	.github/workflows/test-wiring.yml
 test_mail_content_probe.sh	WIRED	.github/workflows/test-wiring.yml
 test_mail_onboarding_259_260.sh	WIRED	.github/workflows/test-wiring.yml
@@ -199,7 +199,7 @@ test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/test-wiring.ym
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/test-wiring.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/test-wiring.yml
 test_ollama_formula_swap.sh	UNCLASSIFIED	ANDY'S CALL (v1018-D678): test forbids `brew install --cask ollama`; install.sh:7069 uses `--cask ollama-app` AND neutralises the Gatekeeper concern the test cites (xattr -dr com.apple.quarantine on the next line) and tears down the shadowing formula first. Deliberate later decision, not a regression -- but the test says 'talk to Andy first', so Andy rules.
-test_orphan_gate_cannot_verify.sh	UNCLASSIFIED	FAILS rc=2 when run (2026-08-13): tests/test_orphan_gate_cannot_verify.sh: line 181: syntax error: unexp
+test_orphan_gate_cannot_verify.sh	UNCLASSIFIED	BLOCKED on PR #621: this file does NOT PARSE under /bin/bash 3.2 on origin/main today (blob 08476b6, verified by parsing both refs). The parse fix AND its runner (orphan-gate-proofs.yml) are both on branch ci/wire-orphan-gate-selftests = PR #621, MERGEABLE, awaiting Archie. This branch is cut from main so carries neither. Row -> WIRED once #621 lands.
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/test-wiring.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/test-wiring.yml
 test_pinterest_parser.py	WIRED	.github/workflows/test-wiring.yml
@@ -231,7 +231,7 @@ test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_store_front_proxy.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/test-wiring.yml
 test_v1_sweep_install_gating.sh	WIRED	.github/workflows/test-wiring.yml
-test_vane_bundle.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [phase-4-health]: phase-4 health check does not surface Vane
+test_vane_bundle.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
 test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_doctor_knowledge_embed_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_vendor_exclude_glob_depth.sh	WIRED	.github/workflows/test-wiring.yml

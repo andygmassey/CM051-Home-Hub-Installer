@@ -129,8 +129,21 @@ fi
 # Verify the actual tee redirection is in place. The exact pattern
 # is `exec > >(stdbuf -oL tee -a "${INSTALL_LOG}") 2>&1` -- both the
 # stdout AND stderr arms must be redirected.
-if ! grep -qE 'exec > >\(stdbuf -oL tee -a "\$\{INSTALL_LOG\}"\) 2>&1' "$INSTALL_SH"; then
-    fail_test "install.sh must redirect stdout+stderr through 'exec > >(stdbuf -oL tee -a \"\${INSTALL_LOG}\") 2>&1'. Without it, the GUI's progress lines never reach disk."
+# v1018-D675: this used to demand the LITERAL `stdbuf -oL tee`. The tee command
+# is now chosen at runtime by _ostler_select_tee_cmd() into $_OSTLER_TEE_CMD,
+# because stdbuf is GNU coreutils and is NOT on a stock Mac -- hard-coding it
+# would have made the redirect fail on the machines that matter. The redirect
+# is present and always was (two call sites: the writable-LOGS_DIR path and
+# the /tmp fallback). This test had never run, so the phantom went unseen.
+#
+# Assert the PROPERTY -- stdout+stderr are teed to $INSTALL_LOG -- rather than
+# one spelling of the command, and assert the selector exists so a silent
+# removal of the line still fails.
+if ! grep -q '_OSTLER_TEE_CMD="$(_ostler_select_tee_cmd)"' "$INSTALL_SH"; then
+    fail_test "install.sh no longer selects a tee command via _ostler_select_tee_cmd. If the mechanism moved, retarget this check; do not assume the redirect is gone."
+fi
+if ! grep -qE 'exec > >\((\$\{_OSTLER_TEE_CMD\}|stdbuf -oL tee) -a "\$\{INSTALL_LOG\}"\) 2>&1' "$INSTALL_SH"; then
+    fail_test "install.sh must redirect stdout+stderr to \${INSTALL_LOG} via 'exec > >(... -a \"\${INSTALL_LOG}\") 2>&1'. Without it, the GUI's progress lines never reach disk."
 else
     ok "install.log tee redirection in place (exec > >(tee -a ...) 2>&1)."
 fi
