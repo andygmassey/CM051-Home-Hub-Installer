@@ -908,8 +908,10 @@ check-ostler-app:
 	    echo "ERROR: OSTLER_APP_PATH points at a path that does not exist:" >&2; \
 	    echo "  $(OSTLER_APP_PATH)" >&2; \
 	    echo "" >&2; \
-	    echo "  Build the Tauri Hub desktop first:" >&2; \
-	    echo "    cd ~/Documents/Projects/ostler-assistant" >&2; \
+	    echo "  Build the Tauri Hub desktop first, in the ostler-assistant checkout" >&2; \
+	    echo "  that sits BESIDE this one -- that is where the path above is derived" >&2; \
+	    echo "  from, so this is always the tree that matters, not a home literal:" >&2; \
+	    echo "    cd $(abspath $(_CM051_ROOT)/../ostler-assistant)" >&2; \
 	    echo "    cargo tauri build" >&2; \
 	    echo "" >&2; \
 	    echo "  Or point at an existing build:" >&2; \
