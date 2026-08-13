@@ -399,6 +399,36 @@ jobs:
           # component. Fail where the cause is.
           OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
           #
+          # The NINE andygmassey source repos the freshness gate compares the
+          # vendored trees against:
+          #
+          #   CM041-People-Graph              CM048-PWG-Conversation-Processing
+          #   personal-world-graph (CM019)    CM052
+          #   email-intelligence   (CM021)    evernote-knowledge (CM024)
+          #   CM059-Ostler-Editor             CM044-PWG-Personal-Wiki
+          #   HR015-Gaming-PC
+          #
+          # #643 taught the gate to resolve OSTLER_GH_TOKEN_<ACCOUNT> from the
+          # environment, because `gh auth token --user X` is a multi-account gh
+          # CLI concept that resolves on the operator's Mac and NEVER on a
+          # hosted runner. But an Actions secret is not an environment variable
+          # until something maps it, and nothing did. So the gate gained the
+          # ABILITY to authenticate and still had no credential: ~15 vendor
+          # trees reported CANNOT-VERIFY and it exited 3.
+          #
+          # Mapping it here is inert until the secret exists. An undefined
+          # secret expands to the empty string, token_for() falls through, and
+          # the verdict stays CANNOT-VERIFY -- identical to today, no
+          # regression, no false green. The moment the secret is added this
+          # works with no further code change.
+          #
+          # DELIBERATELY not GH_TOKEN and not OSTLER_RELEASES_TOKEN. Those two
+          # are scoped to THIS repo's PRs and to ostler-ai/ostler-releases
+          # respectively, and the comments above explain why collapsing them
+          # reintroduces the v1.0.22 failure from one side or the other. Three
+          # credentials, three jobs, each failing where its own cause is.
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          #
           # The five sibling repos CANNOT be checked from here, and saying so
           # is the honest option rather than the convenient one.
           #
