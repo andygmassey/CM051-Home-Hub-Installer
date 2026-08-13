@@ -132,13 +132,21 @@ run_tick() {
         OSTLER_SOURCE_DIR="$TMP/src" \
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
+        OSTLER_USER_ID="tnm-test-user" \
         "$@" \
-        bash "$IMSG" >/dev/null 2>&1 || true
+        bash "$IMSG" >"$TMP/tick.log" 2>&1 || true
 }
+
+# v1018-D675: run_tick used to send the wrapper's output to /dev/null, so when
+# it began refusing to run without OSTLER_USER_ID (EX_CONFIG 78, the #217
+# scoped-ingest guard) the test reported "--since-days ... got ''" and gave no
+# hint why. The reason was one redirect away the whole time. Keep the log and
+# print it when an assertion about the rendered args fails.
+_tick_log() { [ -s "$TMP/tick.log" ] && sed 's/^/      tick: /' "$TMP/tick.log" >&2; }
 
 since_days_was() {
     # Echo the --since-days value from the recorded args, or empty.
-    [ -f "$TMP/out.txt" ] || { echo ""; return; }
+    [ -f "$TMP/out.txt" ] || { _tick_log; echo ""; return; }
     awk '/^--since-days$/{getline; print; exit}' "$TMP/out.txt"
 }
 
@@ -213,8 +221,9 @@ run_tick_marker() {
         OSTLER_IMESSAGE_SINCE_DAYS=30 \
         OSTLER_INGEST_LOCK="$LOCK" \
         OSTLER_INTERACTIVE_MARKER="$IMARKER" \
+        OSTLER_USER_ID="tnm-test-user" \
         "$@" \
-        bash "$IMSG" >/dev/null 2>&1 || true
+        bash "$IMSG" >"$TMP/tick.log" 2>&1 || true
 }
 
 # 2g-i. A FRESH marker (just touched) makes the tick yield -- python never
