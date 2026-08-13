@@ -170,6 +170,34 @@ jobs:
       # message is directly actionable.
       #
       # Values are never echoed -- only names. The check is emptiness only.
+      # The project-sync gate needs xcodegen, and this runner had none.
+      #
+      # Measured on the v1.0.26 cut: scripts/verify_pbxproj_in_sync.sh printed
+      # "UNAVAILABLE: xcodegen is not installed" and exited 2, meaning it FAILED
+      # TO LOOK -- but `make ship` reported "the tracked Xcode project does not
+      # match gui/project.yml", which is a different and much more alarming
+      # claim. Both halves are fixed: the Makefile now preserves exit 2, and
+      # this step means the gate can actually run.
+      #
+      # PINNED, from gui/.xcodegen-version, because the gate compares BYTES and
+      # two xcodegen versions can emit different bytes from identical input. An
+      # unpinned install would turn a toolchain difference into "DO NOT SHIP".
+      - name: Install the pinned xcodegen
+        run: |
+          set -euo pipefail
+          WANT="$(grep -v '^#' gui/.xcodegen-version | tr -d '[:space:]')"
+          [ -n "$WANT" ] || { echo "::error::gui/.xcodegen-version is empty" >&2; exit 1; }
+          echo "pinned xcodegen: $WANT"
+          brew install xcodegen
+          GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          echo "installed xcodegen: $GOT"
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error::xcodegen $GOT installed but $WANT is pinned." >&2
+            echo "Bump gui/.xcodegen-version deliberately, with the regenerated" >&2
+            echo "pbxproj in the same commit, or pin brew to the wanted version." >&2
+            exit 1
+          fi
+
       - name: Verify signing credentials are present
         env:
           OSTLER_SIGNING_CERT_P12:      ${{ secrets.OSTLER_SIGNING_CERT_P12 }}
