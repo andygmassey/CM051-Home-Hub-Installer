@@ -69,8 +69,34 @@ fi
 
 A_LINE=$(grep -nE '^\s*if\s+\[\[\s+-x\s+"\$BUNDLED_PYTHON"' "$INSTALL_SH" \
          | head -1 | cut -d: -f1 || true)
-B_LINE=$(grep -nE 'command -v python3' "$INSTALL_SH" \
+# v1018-D675: this took the FIRST textual `command -v python3` anywhere in the
+# file. Three sites make that meaningless, and all three are CORRECT code:
+#
+#   ~152   inside _upg_resolve_python3()'s BODY -- upgrade-only (called at
+#          344/363/397), and a body line does not execute at its definition
+#          line, so ordering it against a fresh-install assignment compares
+#          two things that never run in that sequence;
+#   ~1192  a last-resort `elif` whose chain already prefers
+#          ${SCRIPT_DIR}/python/bin/python3.11 six lines earlier;
+#   ~11082 a generated TICK SCRIPT heredoc, not the installer path: it prefers
+#          $OSTLER_PYTHON then the venv then system python3, which is right.
+#
+# The property that protects the customer is CONTAINMENT, not file order: the
+# system-python discovery that assigns PYTHON3_BIN must sit inside the ELSE of
+# the bundled-python check, so it is only reached when no bundle exists. Assert
+# that, and that the bundled branch assigns PYTHON3_BIN itself.
+B_LINE=$(grep -nE '^\s*PYTHON3_BIN="\$\(command -v python3\)"' "$INSTALL_SH" \
          | head -1 | cut -d: -f1 || true)
+if [[ -z "$B_LINE" ]]; then
+    echo "FAIL: no 'PYTHON3_BIN=\"\$(command -v python3)\"' system-python discovery found;" >&2
+    echo "      the resolution shape changed -- retarget this check." >&2
+    exit 1
+fi
+if ! grep -qE '^\s*PYTHON3_BIN="\$BUNDLED_PYTHON"' "$INSTALL_SH"; then
+    echo "FAIL: the bundled-python branch does not assign PYTHON3_BIN=\"\$BUNDLED_PYTHON\"." >&2
+    echo "      The bundle would be detected and then not used (CX-19)." >&2
+    exit 1
+fi
 # Anchor on the actual invocation (not a comment) — the call lives inside
 # an `if ! brew install python@3.11; then` line in the dev-mode fallback.
 C_LINE=$(grep -nE '^\s*if !\s*brew install python@3\.11' "$INSTALL_SH" \
