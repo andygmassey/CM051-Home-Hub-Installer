@@ -2014,3 +2014,146 @@ deferrals:
 #
 # The gate PRINTS every exemption on each run, so one cannot fade quietly into
 # the background the way the last 176 did.
+  # -------------------------------------------------------------------------
+  # ADDED 2026-08-14 for the v1.0.26 tag. scripts/verify_no_orphaned_fixes.sh
+  # run LOCALLY on the build machine (CI downgrades it to GREEN, PARTIAL by
+  # construction -- a repo-scoped token cannot read sibling repos, so the
+  # cross-repo limbs only ever run here) named ELEVEN RED refs.
+  #
+  # BEFORE deferring anything, every LOCAL-ONLY branch was PUSHED to its
+  # origin. The gate's complaint about that class is "one rm -rf from gone",
+  # and a deferral does not answer it -- only a remote ref does. Six branches
+  # were pushed (five CM051, one CM044). CM044:pr193 needed no push: its commit
+  # 790a657 is already contained in origin/fix/v1018-d005-person-fold, verified
+  # with git branch -r --contains, so the work was never at risk.
+  #
+  # NOTHING BELOW TOUCHES SHIPPED PAYLOAD. Every CM051 entry is a test, a CI
+  # workflow or a throwaway probe; none edits install.sh, vendor/ or gui/.
+  # -------------------------------------------------------------------------
+
+  - ref: "CM051:archie/revive-d659-repair"
+    reason: >-
+      Revives the D659 name-repair pass that was closed unmerged and never
+      replaced. Touches one file, tests/helpers/check_repair_guards.py, and
+      nothing that ships. PUSHED to origin so it is no longer one rm -rf from
+      gone. Deferred on scope rather than merit: v1.0.26 exists to prove a DMG
+      can be produced at all after eight consecutive failed cuts, and its
+      manifest asserts exactly two things. Reviving a guard belongs to the cut
+      that can review it.
+    until_cut: "v1.0.27"
+
+  - ref: "CM051:backup/617-rebased"
+    reason: >-
+      A rebased duplicate of CM051:test/tailscale-owner-parser -- same two
+      commits, same 219 added lines, different SHAs. Adds
+      tests/test_tailnet_owner_parser.py plus an install-gui-contract.yml step.
+      Its PR #617 is CLOSED UNMERGED and the file is absent from main, checked
+      by CONTENT rather than ancestry because a squash-merge can never show as
+      an ancestor. So this is real orphaned work, not a stale pointer. PUSHED
+      to origin. Deferred, not merged: main already carries
+      tests/test_tailnet_owner_resolution.py covering the same surface, so
+      landing a second parser test the night of a cut risks a duplicate-gate
+      conflict for no shipping benefit. Reconcile the two deliberately.
+    until_cut: "v1.0.27"
+
+  - ref: "CM051:test/tailscale-owner-parser"
+    reason: >-
+      The other half of the duplicate pair described under
+      CM051:backup/617-rebased -- identical content, pre-rebase SHAs. PUSHED to
+      origin. Deferred for the same reason, and the two should be collapsed to
+      one branch when the parser tests are reconciled rather than both being
+      carried forward.
+    until_cut: "v1.0.27"
+
+  - ref: "CM051:probe/hub-app-token-scope"
+    reason: >-
+      A throwaway CI probe workflow (probe-hub-app-scope.yml, 67 lines) written
+      to measure whether CM051_RELEASES_READ could read the private assistant
+      repo. It is an instrument, not a fix, and its answer has already been
+      consumed by #624's download-hub-app wire. PUSHED to origin so the
+      measurement is not lost. It should be DELETED rather than merged once
+      #624 is confirmed on a real cut -- recording that here so the decision is
+      made rather than inherited.
+    until_cut: "v1.0.27"
+
+  - ref: "CM051:probe/hub-app-scope-2"
+    reason: >-
+      The second run of the same probe, re-measuring token scope after the
+      CM051_RELEASES_READ secret was widened. Same disposition as
+      CM051:probe/hub-app-token-scope: an instrument, PUSHED to origin, to be
+      deleted rather than merged.
+    until_cut: "v1.0.27"
+
+  - ref: "CM051:#664"
+    reason: >-
+      Open PR, fix(ingest) for v1018-D011 -- the creation write bypassed the
+      name rule the upgrade path enforces. A genuine shipping fix and NOT
+      dismissed: it is deferred on cut scope and review state, not merit. It
+      landed after this cut's content was assembled and its behaviour is on the
+      identity-write path, which is precisely the surface that needs a box-walk
+      rather than a same-night merge. v1.0.26's manifest asserts only that
+      Ostler.app reaches the artefact and that the version stamp reads 1.0.26;
+      D011 is not in its scope. First candidate for v1.0.27.
+    until_cut: "v1.0.27"
+
+  - ref: "CM051:#662"
+    reason: >-
+      Open PR, feat(email) for v1018-D021 -- seed the wiki before enriching it
+      so a mailbox is readable on day one. Deferred on the same basis as #664:
+      real work, out of this cut's asserted scope, and it changes ingest
+      ordering, which is a box-walk-shaped change rather than a tag-night one.
+      Note D021's register row is explicit that the throughput floor still
+      needs calibration on a real mailbox, so this wants measurement before it
+      ships, not just a merge.
+    until_cut: "v1.0.27"
+
+  - ref: "CM044:#193"
+    reason: >-
+      DELIBERATELY HELD OPEN, and this row exists so that decision is written
+      down rather than assumed. The person-fold work for v1018-D005 conflates
+      two distinct real people three ways and lands on founder family data. If
+      it merged before the wiki-image rebuild it would go straight into the
+      SHIPPED compiler, because the compiler image is built from a CM044 tag.
+      The v1.0.26 rebuild was therefore tagged against the immutable SHA
+      562b2ad7 rather than against the branch, so even a later merge cannot
+      retroactively enter this build. Do not merge to clear a gate. It needs
+      the over-merge guard (the D035 shape: zero collisions is also what
+      over-merging produces) before it is safe.
+    until_cut: "v1.0.27"
+
+  - ref: "CM044:pr193"
+    reason: >-
+      A local pointer at the same commit as CM044:#193's head. Verified NOT at
+      risk before deferring: 790a657 is contained in
+      origin/fix/v1018-d005-person-fold (git branch -r --contains), so nothing
+      needed pushing and nothing can be lost. Held for exactly the reasons in
+      the CM044:#193 row above. The stale local branch should be deleted once
+      #193 is resolved either way.
+    until_cut: "v1.0.27"
+
+  - ref: "CM044:fix/v1018-d013-orphan-ratio"
+    reason: >-
+      Three commits for v1018-D013 -- every page a section mints must be linked
+      by that section, the lint report reclassified as an operator artefact,
+      and a CI fix for two suites that were not running. This was LOCAL-ONLY
+      and is the most valuable thing this gate caught tonight: real compiler and
+      mkdocs work existing on exactly one disk. PUSHED to origin. Deferred from
+      v1.0.26 because it changes the wiki render path, and the compiler image
+      for this cut is already built and content-verified at 562b2ad7; taking it
+      would mean re-tagging CM044 and rebuilding both images on cut night.
+      Should go into the next wiki rebuild.
+    until_cut: "v1.0.27"
+
+  - ref: "CM041:#119"
+    reason: >-
+      Open PR, test(identity) -- predicates must be CALLED, with the
+      denominator printed, and one is not. A test-completeness gate in a FEATURE
+      repo, which the ORM consumes at a pinned SHA and never edits. It is also
+      the zero-denominator shape the ledger already names: a suite reporting 0
+      failures over 0 executed predicates reads identically to a clean run.
+      Wanted, and not this cut's to merge. Deferring it additionally protects a
+      GREEN freshness state: cm041/identity_resolver is pinned at dcfb7a3e and
+      merging to CM041 main would put that pin behind upstream and force a
+      re-pin of a shipped ingest tree on cut night, which is the same argument
+      already recorded for CM041:#117.
+    until_cut: "v1.0.27"
