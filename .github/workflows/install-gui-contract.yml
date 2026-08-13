@@ -35,6 +35,7 @@ on:
       # quietly narrowed) in a PR that never runs it.
       - 'tests/test_bundle_phase_declares_every_copy.sh'
       - 'tests/test_ai_model_env_contract.sh'
+      - 'tests/test_tailnet_owner_parser.py'
       - 'vendor/legal/**'
       - 'vendor/LICENSES/**'
       - 'vendor/THIRD_PARTY_NOTICES.md'
@@ -109,6 +110,15 @@ jobs:
         run: |
           set -euo pipefail
           bash tests/test_ai_model_env_contract.sh
+
+      - name: Tailnet owner-resolution parser (#512 / D660)
+        # The parser's output is an AUTHORISATION input: non-empty writes an
+        # nginx gate admitting that Tailscale login, empty is fail-closed. It
+        # is an inline python3 -c block inside install.sh, so the test EXTRACTS
+        # the shipped block rather than testing a copy that could drift.
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/test_tailnet_owner_parser.py -q
 
       - name: Run app-bundle byte-by-byte regression
         # Per locked memory feedback_silent_bail_regression_test_shape.
