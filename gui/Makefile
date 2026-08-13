@@ -881,10 +881,13 @@ release: guard-local-cut check-tools check-identity check-version check-pbxproj-
 # hand against any bundle, idempotent on re-run.
 #
 # OSTLER_APP_PATH must point at a Tauri-built Ostler.app at the
-# top-level Cargo bundle output (e.g.,
-# ~/Documents/Projects/ostler-assistant/target/release/bundle/macos/
-# Ostler.app). The script verifies the bundle is present before
-# any modification.
+# top-level Cargo bundle output: in the ostler-assistant checkout that
+# sits BESIDE this repo, at
+# target/release/bundle/macos/Ostler.app -- which is what the derived
+# default above resolves to. Stated relative to the checkout rather than
+# as a home literal, because the home literal is what went stale in
+# v1018-D668. The script verifies the bundle is present before any
+# modification.
 #
 # Override Sparkle source / Info.plist values via the script's
 # environment variables: SPARKLE_VERSION, SPARKLE_SHA256,
@@ -1041,8 +1044,10 @@ check-ostler-app:
 	    echo "ERROR: OSTLER_APP_PATH points at a path that does not exist:" >&2; \
 	    echo "  $(OSTLER_APP_PATH)" >&2; \
 	    echo "" >&2; \
-	    echo "  Build the Tauri Hub desktop first:" >&2; \
-	    echo "    cd ~/Documents/Projects/ostler-assistant" >&2; \
+	    echo "  Build the Tauri Hub desktop first, in the ostler-assistant checkout" >&2; \
+	    echo "  that sits BESIDE this one -- that is where the path above is derived" >&2; \
+	    echo "  from, so this is always the tree that matters, not a home literal:" >&2; \
+	    echo "    cd $(abspath $(_CM051_ROOT)/../ostler-assistant)" >&2; \
 	    echo "    cargo tauri build" >&2; \
 	    echo "" >&2; \
 	    echo "  Or point at an existing build:" >&2; \
