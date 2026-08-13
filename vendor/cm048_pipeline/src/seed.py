@@ -155,10 +155,15 @@ def seed_conversation(
     # than at L3. It is never lower than the full pass would give for a
     # ``normal`` verdict, and the seed writes no gist arm at all -- no
     # Qdrant point, no triple -- so nothing crosses into the graph early.
-    # The exposure is that the local wiki may render a sensitive thread
-    # at L2 for the gap. ``enrichment_pending: true`` is in the
-    # frontmatter precisely so a level-aware renderer can choose to
-    # withhold a provisional bundle rather than trust its level.
+    # Bounding the residual exposure rather than hand-waving it: CM044's
+    # L3 suppression is BROADCAST-ONLY (bundle_conversation_pages.py --
+    # ``level == "L3" and broadcast_redact()``), so on the customer's own
+    # local wiki an L3 bundle renders in full regardless. The gap is
+    # therefore visible only in broadcast/redact mode, only for a thread
+    # the classifier would have escalated, and only until enrichment
+    # reaches it. ``enrichment_pending: true`` is in the frontmatter
+    # precisely so a level-aware renderer can withhold a provisional
+    # bundle rather than trust its level.
     classification = _provisional_classification(metadata)
     extraction = deterministic_extraction(transcript, metadata)
     seeded_metadata = dict(metadata)
