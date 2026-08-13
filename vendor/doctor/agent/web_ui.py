@@ -2511,6 +2511,122 @@ async def api_hydration_status() -> Response:
     )
 
 
+# ── Governor: pause / resume / status (Doctor-owned control surface) ──
+#
+# CM051 GRAFT NOTE (v1018-D024). Taken verbatim from HR015 6639c79 (#282),
+# which lands AFTER the held doctor pinned_sha b0b3831, so this block does not
+# arrive from source and is carried by vendor/divergences/doctor.patch until
+# the pin next moves. Its backend, agent/pause_control.py, is grafted the same
+# way (a /dev/null new-file hunk in that patch). Without both, the Hub Governor
+# page's Pause button 404s -- which is exactly what shipped.
+# Gate: tests/test_doctor_governor_routes_vendored.sh
+#
+# The Hub Governor page + header status chip drive background-work Pause,
+# Resume and a live governor-status read against the Doctor (:8089) -- the
+# SAME origin as ``/api/v1/box-status`` and ``/api/v1/config``. These three
+# routes delegate to ``pause_control.py``, which reads/writes the
+# ``OSTLER_PAUSED`` / ``OSTLER_PAUSE_UNTIL`` keys in ``governor.env`` -- the
+# same file the shipped background engine (``ostler-resource-tier.sh``)
+# already consumes, so a pause here is honoured by every ``*-bundle-tick.sh``,
+# the wiki recompile tick and the daemon cron with NO new consumer wiring.
+# Live interactive chat is never gated by this.
+#
+# Registered BEFORE ``register_proxy_routes(app)`` (below) so these explicit
+# handlers win over the proxy catch-all (Starlette matches in registration
+# order). Without it, ``GET /api/v1/governor-status`` / ``/api/v1/pause`` fall
+# through to the gateway proxy and return SPA HTML and the POSTs 405.
+
+
+@app.get("/api/v1/governor-status", response_class=JSONResponse)
+async def api_governor_status():
+    """Live governor tier for the Governor page + acceptance gate.
+
+    Shape ``{enabled, tier, deferring}``: ``enabled`` reflects the
+    ``governor_enabled`` config, ``tier`` is the detected hardware tier
+    (``floor`` / ``low`` / ``high``, or ``null`` if the tier lib is
+    unreadable) and ``deferring`` is whether the governor is currently
+    holding non-essential work back. Reuses the exact helper
+    ``GET /api/v1/box-status`` uses so the two can never disagree. Fail-soft
+    to a minimal unknown payload -- never 500 the poll.
+    """
+    try:
+        from box_status import _governor
+
+        return _governor()
+    except Exception:
+        return {"enabled": True, "tier": None, "deferring": None}
+
+
+@app.get("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_get():
+    """Current pause state read from ``governor.env``.
+
+    Shape ``{paused, expiry, indefinite, expiry_human, scope}``. Fail-soft to
+    "not paused" -- the same posture ``box_status._pause`` takes.
+    """
+    try:
+        from pause_control import read_state
+
+        return read_state()
+    except Exception:
+        return {"paused": False, "expiry": None, "indefinite": False,
+                "expiry_human": "", "scope": None}
+
+
+@app.post("/api/v1/pause", response_class=JSONResponse)
+async def api_pause_post(request: Request):
+    """Pause background work for a scope.
+
+    Body: ``{"scope": "hour" | "tonight" | "indefinite"}`` (a missing/blank
+    body defaults to an indefinite pause). Same cross-site guard as
+    ``/api/v1/config``: reject a POST whose ``Sec-Fetch-Site`` is present and
+    not same-origin. Returns the fresh pause state.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403
+        )
+
+    from pause_control import PauseError as _PauseError, set_pause
+
+    scope = "indefinite"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("scope") is not None:
+            scope = str(body.get("scope"))
+    except Exception:
+        scope = "indefinite"  # no/blank body -> indefinite pause
+
+    try:
+        state = set_pause(scope)
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
+
+
+@app.post("/api/v1/resume", response_class=JSONResponse)
+async def api_resume_post(request: Request):
+    """Resume background work (clear the pause). Idempotent.
+
+    Same cross-site guard as ``/api/v1/pause``. Returns the fresh
+    (not-paused) state.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse(
+            {"error": "Cross-site request refused"}, status_code=403
+        )
+
+    from pause_control import PauseError as _PauseError, resume
+
+    try:
+        state = resume()
+    except _PauseError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
+
+
 # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
 #
 # Forwards iOS-initiated CM019 paths to the local gateway over

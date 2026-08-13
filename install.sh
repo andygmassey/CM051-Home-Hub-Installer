@@ -9569,7 +9569,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:14f68bd10d0982084ab6ce8c1c5e290a73f1bf31e50c967f9629ade9c9282482
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:36de411b2a649f77df6079416ccdb06ce043c30b94b248058f581afd97aec92b
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -9604,7 +9604,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:4d62a6428352b7031458316d2b8ba94929319cbe9d347a62c17886743836e5bc
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:b92760e141078b1572c0d531aa1e7654cdd57880e3119c453c46434bb523f408
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -12253,6 +12253,18 @@ if [[ -f "${DOCTOR_DIR}/requirements.txt" ]]; then
              three /api/v1/memory* paths future-proof the Memory tab (hidden in
              v1.0 via showMemoryTab, flips on in v1.0.1) so it isn't dead on
              arrival. -->
+        <!-- v1018-D024 (2026-08-14): DO NOT add /api/v1/pause,
+             /api/v1/resume or /api/v1/governor-status to the list above.
+             They are DOCTOR-NATIVE handlers (vendor/doctor/agent/web_ui.py,
+             backed by pause_control.py) and the assistant API on :8090 that
+             DOCTOR_GATEWAY_URL points at implements none of them, so an entry
+             here would forward a working route straight into a 404. This is
+             written down because the symptom that brought anyone here was a
+             404 from the Doctor, and "the Doctor 404s it, so add it to the
+             proxy list" is the repair that looks right and is wrong -- the
+             real cause was that the held vendor pin predated the routes, so
+             the shipped payload never registered them at all.
+             Guard: tests/test_doctor_governor_routes_vendored.sh limb F. -->
         <key>DOCTOR_GATEWAY_URL</key>
         <string>http://127.0.0.1:8090</string>
         <!-- P0-α (2026-07-26): the Doctor's paired-bearer oracle

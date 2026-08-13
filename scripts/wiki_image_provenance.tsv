@@ -82,3 +82,33 @@ wiki-compiler	sha256:00d1602fc56ef42a9c790aa6f375eaeac1dadf2ef004091704315ed5727
 wiki-site	sha256:fd8b89c490e5f60889febf7f7dd5a34ccbc79ae20c5bb9fe07c0ee3a58ec2941	a8d423af753f7847791723ef8860a46f4453c913
 wiki-compiler	sha256:4d62a6428352b7031458316d2b8ba94929319cbe9d347a62c17886743836e5bc	0bdc1d16de7b173323c73a9cde937be0ed588a3a
 wiki-site	sha256:14f68bd10d0982084ab6ce8c1c5e290a73f1bf31e50c967f9629ade9c9282482	0bdc1d16de7b173323c73a9cde937be0ed588a3a
+# v1.0.26 (2026-08-14 ORM): both images rebuilt by CM044 CI from tag v0.1.14 =
+# main HEAD 562b2ad7, superseding the 0bdc1d16 (v0.1.13) pins. The delta is
+# exactly two commits and both are shipping fixes, which is why this was a
+# REBUILD and not a wiki_hold_ack row -- an ack here would have asserted
+# shipping_bugfixes_grafted = true, and that would have been FALSE:
+#   1642ec7a (#191) no unfilled template token may reach a rendered page
+#                   (v1018-D014), and the register already records that defect
+#                   missing a cut once through this exact delivery path
+#   562b2ad7 (#192) a dry run must not clear and repopulate the customer's
+#                   visible vault
+# CM044 #193 (person-fold, v1018-D005) was deliberately EXCLUDED and remains
+# open: it conflates two real people three ways on founder family data, and it
+# would have gone straight into the shipped compiler. The tag was created
+# against the exact SHA 562b2ad7 so a later merge of #193 cannot retroactively
+# enter this build.
+#
+# The digest -> 562b2ad7 binding was verified BY CONTENT before being recorded,
+# not taken from the publishing job's claim -- that workflow has reported green
+# while pushing nothing before (the CM_AI_GHCR_PAT "denied: denied" window that
+# silently stranded v0.1.2):
+#   compiler  /app/compiler/placeholder_strip.py  sha256 a7613c03, byte-identical
+#             to git 562b2ad7; ABSENT from the superseded 4d62a642 image
+#             (negative control, with a 56-file population control so the probe
+#             could not be returning a false zero)
+#   compiler  /app/compiler/compile.py            sha256 bc59ee00, identical to git
+#   site      /docs/compiler/html_sanitise.py     sha256 e28fbd07, identical to git
+# Both digests are OCI image-index digests, the same schema as the pins they
+# supersede (confirmed by inspecting 4d62a642).
+wiki-compiler	sha256:b92760e141078b1572c0d531aa1e7654cdd57880e3119c453c46434bb523f408	562b2ad7a764d51ba0593be29bd722204344bb4b
+wiki-site	sha256:36de411b2a649f77df6079416ccdb06ce043c30b94b248058f581afd97aec92b	562b2ad7a764d51ba0593be29bd722204344bb4b
