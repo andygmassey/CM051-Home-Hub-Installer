@@ -311,7 +311,7 @@ STEP          := @printf '\n[STEP] %s\n'
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         check-pbxproj-sync \
-        print-version dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
+        print-version print-dmg-path dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
         check-pr-age \
         verify-commit-parity \
@@ -375,6 +375,27 @@ check-create-dmg:
 
 print-version:
 	@echo "version: $(VERSION)"
+
+# print-dmg-path -- where `ship` ACTUALLY leaves the DMG.
+#
+# WHY THIS EXISTS (v1.0.26, 2026-08-14). cut.yml's verify step did
+# `find dist -name '*.dmg'` and upload-artifact read `dist/*.dmg`, but DIST_DIR
+# defaults to /tmp/ostler-installer-dist-$(USER) and nothing ever created
+# `dist`. So on the first run in which notarise, staple and create-dmg ALL
+# succeeded, the very next step died with:
+#
+#     find: dist: No such file or directory
+#
+# and upload-artifact was skipped, so a fully notarised and stapled DMG was
+# thrown away with the runner. The build was correct; the two steps that READ
+# it were looking somewhere the build never writes.
+#
+# Hardcoding the /tmp path into the workflow would fix today and drift again
+# the first time DIST_DIR moves. Asking make removes the second copy of the
+# truth: there is now ONE definition of where the DMG is, and the workflow
+# derives it instead of restating it.
+print-dmg-path:
+	@echo "$(DMG_PATH)"
 
 # ---------------------------------------------------------------------------
 # Version-consistency preflight (CM051 #171). Fail-closed guard that the
