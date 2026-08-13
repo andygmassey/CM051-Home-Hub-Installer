@@ -244,3 +244,32 @@ entries:
   # `pinned_container_freshness` primitive can be added later if the same
   # class of drift bites us on the wiki image; the risk profile is lower
   # because the wiki image is rebuilt on every CM044 release cycle already.
+
+  # ==========================================================================
+  # People seed-and-retrieval round-trip. THE customer-visible invariant: after
+  # a fresh install a person lands in the graph and the assistant can get them
+  # back. No static gate can see this, which is why it is a runtime probe.
+  #
+  # Why it lives HERE rather than in a per-cut manifest: this entry was
+  # originally registered in v1.0.12.yaml alone, so it protected exactly one
+  # cut and was absent from every manifest from v1.0.13 through v1.0.26. It was
+  # doubly dead, because the probe body it named was a stub that exited 0
+  # unconditionally, so even the single cut it was registered for measured
+  # nothing. permanent.yaml is the only place a gate like this cannot be lost
+  # by omission.
+  #
+  # SKIPs when OSTLER_BOX_HOST is unset, so CI and offline dev stay green; on
+  # the Studio box it MUST pass. The probe proves it can fire, against a
+  # controllable fake box: scripts/tests/test_people_seed_and_retrieval_probe.sh
+  # asserts 1 green and 11 distinct reds, and runs on macOS so it exercises the
+  # same bash 3.2 the cut host uses.
+  # ==========================================================================
+  - id: box-walk-people-seed-and-retrieval
+    title: a synthetic person must seed and be retrievable via people/context + people/search
+    incident: >-
+      v1.0.12 to v1.0.26; the probe body was a stub that could not return
+      non-zero, and the manifest entry was dropped after v1.0.12, so fourteen
+      cuts reported this gate as passed while measuring nothing
+    proof:
+      kind: box_walk_probe
+      probe: "people_seed_and_retrieval"
