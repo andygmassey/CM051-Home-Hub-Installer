@@ -181,14 +181,77 @@ if ! grep -qE '^err\(\)' "$INSTALL_SCRIPT"; then
 fi
 echo "PASS: err() function defined alongside info / ok / warn"
 
-# ── DEFAULT_INSTALLER_TARBALL_URL points at the canonical ostler-ai mirror ──
-# (Org-block on ostler-ai cleared 2026-05-08; canonical release URL is the
-#  ostler-ai/ostler-installer GitHub Releases tarball.)
-if ! grep -q "DEFAULT_INSTALLER_TARBALL_URL=\"https://github.com/ostler-ai/ostler-installer/" "$INSTALL_SCRIPT"; then
-    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the ostler-ai/ostler-installer mirror" >&2
+# ── the bootstrap URL and the bootstrap SHA must describe the SAME repo ──
+#
+# v1018-D682. This used to assert a REPO NAME: the URL must point at
+# ostler-ai/ostler-installer, per a 2026-05-08 policy. CX-88 moved it to
+# ostler-ai/ostler-releases on 2026-05-29 (install.sh:1351-1355), so the
+# assertion was stale. But flipping the repo name to match main would have
+# been the wrong repair, because BOTH sides are wrong in different ways:
+#
+#   * ostler-releases has 30 releases and has NEVER carried install.tar.gz.
+#     `latest` is hub-v0.4.55, assistant tarballs only. The URL 404s.
+#   * DEFAULT_INSTALLER_TARBALL_SHA256 hashes EXACTLY to ostler-installer's
+#     v0.3.0 install.tar.gz -- a different repo, and not even that repo's
+#     most recent release.
+#   * install.sh's own --help says both things: :597 names ostler-releases,
+#     :609 says the SHA is pinned to the most recent ostler-installer release.
+#
+# So the invariant worth holding is not WHICH repo, which is a product
+# decision, but that the URL and the digest agree about which artefact they
+# describe. A URL and a SHA pointing at different repos makes the two-key
+# trust model documented at install.sh:603-605 inoperative: verification can
+# never succeed, and the failure surfaces as a 404 that the github.com
+# preflight at :1392 will mis-attribute to the customer's network.
+#
+# This is RED today, deliberately, and it is the product that is wrong.
+# Do not repair it by editing this test. See #682 for the two options.
+# Extract with grep -o, NOT sed 's///': a sed substitution that does not match
+# prints the input line UNCHANGED, so a non-GitHub URL would yield the whole
+# assignment line -- non-empty, so an emptiness guard never fires, and the
+# mismatch below would report that line as if it were a repo name. Caught by a
+# control that replaced the URL with a CDN host. grep -o yields nothing when
+# there is no match, which is the honest answer.
+# `|| true` on every extraction: this file runs under `set -euo pipefail`, so a
+# grep that matches nothing exits 1 and kills the script THERE -- before the
+# diagnostic branches below can say what was missing. Without these the
+# "not a github.com URL" and "not assigned at all" messages are unreachable
+# code, and the run dies at exit 1 with no explanation: a could-not-run
+# wearing the costume of a finding. Both were caught by controls that removed
+# the thing the greps look for.
+_url_line="$(grep -m1 '^DEFAULT_INSTALLER_TARBALL_URL=' "$INSTALL_SCRIPT" || true)"
+_url_repo="$(printf '%s\n' "$_url_line" \
+    | grep -oE 'github\.com/[^/]+/[^/]+' | head -1 | cut -d/ -f2- || true)"
+_sha_repo="$(grep -m1 'Default: pinned to the most recent' "$INSTALL_SCRIPT" \
+    | grep -oE 'most recent [A-Za-z0-9._-]+ release' \
+    | sed -E 's#most recent (.*) release#\1#' || true)"
+
+if [[ -z "$_url_line" ]]; then
+    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL is not assigned at all. The bootstrap mechanism moved; retarget this check rather than assuming the pin is consistent." >&2
     exit 1
 fi
-echo "PASS: DEFAULT_INSTALLER_TARBALL_URL points at the ostler-ai/ostler-installer mirror"
+if [[ -z "$_url_repo" ]]; then
+    echo "FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL is not a github.com URL, so its artefact cannot be matched against the SHA pin's stated GitHub provenance." >&2
+    echo "  URL line: ${_url_line}" >&2
+    echo "  If the bootstrap deliberately moved off GitHub Releases, retarget this check and re-state where the digest comes from. See #682." >&2
+    exit 1
+fi
+if [[ -z "$_sha_repo" ]]; then
+    echo "FAIL [tarball-url]: could not read the SHA pin's stated provenance from --help. If that line was reworded, retarget this check." >&2
+    exit 1
+fi
+# _url_repo is owner/name, _sha_repo is the bare repo name from the help text.
+if [[ "${_url_repo##*/}" != "$_sha_repo" ]]; then
+    echo "FAIL [tarball-url]: the bootstrap URL and the bootstrap SHA describe DIFFERENT repos." >&2
+    echo "  URL repo (install.sh:1356): ${_url_repo}" >&2
+    echo "  SHA repo (--help, :609):    ${_sha_repo}" >&2
+    echo "  Measured: ostler-releases has never published install.tar.gz (0 of 30 releases)," >&2
+    echo "  and the pinned digest hashes to ostler-installer v0.3.0. The download can never" >&2
+    echo "  verify, so the two-key trust model at install.sh:603-605 does not operate." >&2
+    echo "  This is #682. Fix the product, not this test." >&2
+    exit 1
+fi
+echo "PASS: bootstrap URL repo and SHA-pin repo agree (${_sha_repo})"
 
 echo ""
 echo "All wiki-compose / hardening tests passed."
