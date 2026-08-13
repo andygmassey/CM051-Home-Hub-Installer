@@ -83,7 +83,13 @@ echo "wiki ledger:     ${WIKI_PROVENANCE_FILE}"
 echo "install.sh:      ${INSTALL_SH}"
 echo
 
-[[ -f "${REQUIRED_FIXES_FILE}" ]] || { echo "FATAL: required-fixes file not found at ${REQUIRED_FIXES_FILE}" >&2; exit 1; }
+# exit 2, NOT 1 -- see the sibling note in verify_cut_provenance.sh. Without
+# the ledger there is no list of fixes to look for, so no artifact has been
+# found wanting. The wrapper (check-provenance-content) branches on 2.
+[[ -f "${REQUIRED_FIXES_FILE}" ]] || {
+  echo "CANNOT RUN: required-fixes file not found at ${REQUIRED_FIXES_FILE} -- nothing was checked." >&2
+  exit 2
+}
 
 # --- helpers ---------------------------------------------------------------
 

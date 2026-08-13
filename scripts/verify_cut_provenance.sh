@@ -25,7 +25,9 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CM051_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MANIFEST="${SCRIPT_DIR}/cut_markers.manifest"
+# Overridable so the cannot-run path can be exercised by the wrapper self-test
+# (tests/test_cut_gate_wrappers.sh). Default is unchanged.
+MANIFEST="${CUT_MARKER_MANIFEST:-${SCRIPT_DIR}/cut_markers.manifest}"
 ASSISTANT_DIR="${OSTLER_ASSISTANT_DIR:-${CM051_DIR}/../ostler-assistant}"
 
 PASS=0
@@ -39,7 +41,13 @@ echo "CM051:     ${CM051_DIR}"
 echo "assistant: ${ASSISTANT_DIR}"
 echo "manifest:  ${MANIFEST}"
 
-[[ -f "${MANIFEST}" ]] || { echo "FATAL: manifest not found at ${MANIFEST}" >&2; exit 1; }
+# exit 2, NOT 1. An absent manifest means this gate examined nothing; exit 1
+# would tell the caller a merged fix is stale, which is a defect the gate
+# never looked for. The wrapper (gui/Makefile check-provenance) branches on 2.
+[[ -f "${MANIFEST}" ]] || {
+  echo "CANNOT RUN: manifest not found at ${MANIFEST} -- nothing was checked." >&2
+  exit 2
+}
 
 # --- read the daemon pin the cut will actually ship ---
 # The DMG fetches the daemon via gui/Makefile DAEMON_VERSION; the curl|bash
