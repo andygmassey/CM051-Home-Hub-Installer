@@ -203,6 +203,47 @@ api() {
     return 2                                            # non-zero, no body -> transport failure
 }
 
+# repo_readable <acct> <owner/repo>
+#   Echoes: YES | NO
+#
+#   v1018-D621c. GitHub answers 404 for a repo that does not exist AND for a
+#   private repo the caller cannot see. api() classifies any JSON {"message":..}
+#   body as rc=1 -> "reachable, no such thing" (line ~202), so a permissions 404
+#   on the COMMITS endpoint became NONE -> UNRESOLVED -> "bad pin, or pin absent
+#   from the source repo". Fifteen vendor trees reported that at once on cut run
+#   31682172040 -- byte-identical, which is the shape of a broken probe rather
+#   than fifteen independently broken pins.
+#
+#   CONTROLLED before writing this (Andy's instruction: do not take the
+#   diagnosis as the finding). Five pins resolved by hand with the andygmassey
+#   account, which HAS access:
+#       cm041/assistant_api  f83d5aee1953  rc=0
+#       cm041/ostler_hygiene 11ad1246286e  rc=0
+#       cm048_pipeline       2133786a4532  rc=0
+#       cm021                e1eefb3d3bd9  rc=0
+#       ostler_fda           ab63b7be732d  rc=0
+#   Every pin is GOOD. Had one failed to resolve, that pin would be a real
+#   defect needing a re-pin -- reclassifying it as CANNOT-VERIFY would have
+#   been worse than the bug. They did not, so it is the probe.
+#
+#   Corroboration from the same control, worth recording: on the commits
+#   endpoint GitHub returns 422 "No commit found for SHA" for a readable repo
+#   with an absent SHA, and 404 "Not Found" when it cannot show you the repo.
+#   Different codes -- but that is not what this relies on, because a 404 can
+#   also mean a missing REF. The repo probe is the primary discriminator; the
+#   422 is only a sanity check that the two states are distinguishable at all.
+repo_readable() {
+    local acct="$1" repo="$2" rc
+    api "$acct" "repos/$repo" --jq '.full_name'
+    rc=$?
+    # ONLY the unreadable shape short-circuits. rc=2 (timeout / transport) is a
+    # DIFFERENT cannot-run and the callers below already handle it as UNREACH;
+    # sweeping it in here would widen the not-checked bucket, which is the
+    # warn-bucket-is-not-a-safe-bucket move. Deliberately narrow.
+    if [ "$rc" -eq 1 ]; then echo "NO"; return; fi
+    echo "YES"
+}
+
 # gh_head <acct> <owner/repo> <ref> [path]
 #   Echoes: <sha> | NONE (reachable, no such commit/path) | UNREACH
 gh_head() {
@@ -415,6 +456,18 @@ while IFS= read -r tree; do
         continue
     fi
 
+    # v1018-D621c. Establish that we can READ the source repo before asking any
+    # question about the pin. Without this a permissions 404 is indistinguishable
+    # from an absent commit, and the row asserts "bad pin" from evidence that
+    # says only "I cannot see that repo". Voice matches the EXEMPT rows below:
+    # a real reason, not a shrug.
+    if [ "$(repo_readable "$acct" "$owner")" = "NO" ]; then
+        n_cannot=$((n_cannot+1))
+        add_row "vendor:$tree" "$pinned" "-" "CANNOT-VERIFY unreadable-source"
+        add_detail "vendor:$tree CANNOT-VERIFY: cannot read $owner with the '$acct' account -- the repo is private or this token lacks scope for it. The pin was NOT evaluated; this says nothing about whether it is fresh. Grant the runner's token read access to $owner, then re-run."
+        continue
+    fi
+
     gpath="$(join_path "$prefix" "$subpath")"
     live="$(gh_head "$acct" "$owner" "main" "$gpath")"
     verdict="$(freshness_verdict "$acct" "$owner" "$pinned" "$live")"
@@ -482,7 +535,7 @@ EOF
         *) # UNRESOLVED
             n_stale=$((n_stale+1))
             add_row "vendor:$tree" "$pinned" "$live" "RED unresolved"
-            add_detail "vendor:$tree RED: pinned SHA could not be resolved against live GitHub (bad pin, or pin absent from the source repo). Re-pin, or mark verify_exempt + reason if the source is genuinely unverifiable." ;;
+            add_detail "vendor:$tree RED: the source repo IS readable, but the pinned SHA does not resolve in it -- the pin is genuinely bad or the commit is absent from that repo. Re-pin, or mark verify_exempt + reason if the source is genuinely unverifiable." ;;
     esac
 done < <(vlib_tree_names)
 
