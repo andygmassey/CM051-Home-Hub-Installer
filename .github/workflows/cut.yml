@@ -225,6 +225,21 @@ jobs:
           # with the empty string. Fixed alongside, in gh_as().
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           #
+          # Cross-org daemon fetch. DELIBERATELY a separate variable, NOT a
+          # replacement for GH_TOKEN above. This token is fine-grained and scoped
+          # to ostler-ai/ostler-releases with Contents:Read only, so it cannot read
+          # THIS repo's PRs. check-orphans needs GH_TOKEN for exactly that, and its
+          # lookups fail CLOSED as "no PR exists" -- a RED naming a branch for a
+          # missing credential. That is the v1.0.22 failure described above
+          # (run 31478119136); swapping the token would reintroduce it from the
+          # other direction.
+          #
+          # gui/Makefile download-daemon prefers this when set and REFUSES rather
+          # than falling back to GITHUB_TOKEN: a repo-scoped token cannot read
+          # another org, so the fallback would fail later and blame the wrong
+          # component. Fail where the cause is.
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+          #
           # The five sibling repos CANNOT be checked from here, and saying so
           # is the honest option rather than the convenient one.
           #
