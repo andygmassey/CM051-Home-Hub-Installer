@@ -15676,6 +15676,24 @@ exec tailscale --socket="$OSTLER_TS_SOCK" "$@"
 OSTLER_TS_WRAPPER
     chmod 0755 "${OSTLER_DIR}/bin/ostler-tailscale"
 
+    # v1018-D678. Andy ruled 2026-08-13: SURFACED-WARN, not hard-fail.
+    # Tailscale is optional remote access, and aborting an otherwise-good
+    # install over it is the wrong trade. The exit code stays as it was.
+    #
+    # The real defect was that OSTLER_TAILSCALE_SKIPPED was WRITE-ONLY: one
+    # occurrence in the entire repo, the assignment below. A flag nothing
+    # reads is the same shape as a gate that cannot fire, and this sweep
+    # found five of those in a day. The customer would have discovered that
+    # remote access never worked whenever they first needed it.
+    #
+    # So the flag is now READ: recorded into pipeline_signals.json, the
+    # established install -> Doctor channel, for rendering as a
+    # degraded-capability line. Initialised here rather than only in the
+    # failure branch, because this file runs under `set -u` and an unset
+    # read would abort the install -- turning a surfaced warning into
+    # exactly the hard failure Andy ruled against.
+    OSTLER_TAILSCALE_SKIPPED=0
+
     if ! command -v tailscale &>/dev/null; then
         info "$MSG_INFO_INSTALLING_TAILSCALE"
         if brew install tailscale 2>&1; then
@@ -15686,6 +15704,28 @@ OSTLER_TS_WRAPPER
         fi
     else
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
+    fi
+
+    # Record the capability state for Doctor. A SECOND writer invocation is
+    # correct here, not a duplicate: the first one runs in Phase 4, long
+    # before this block, and write_pipeline_signals.py merges into the
+    # existing JSON rather than replacing it (see _load_existing), so the
+    # mail + iMessage halves written earlier survive untouched.
+    #
+    # Non-fatal by construction: `|| true` plus the -n guard. A sidecar we
+    # could not write must never abort an install that otherwise succeeded,
+    # which is the same rule the Phase 4 call follows.
+    if [[ -n "${_pipeline_writer:-}" && -f "${_pipeline_writer}" ]]; then
+        if [[ "$OSTLER_TAILSCALE_SKIPPED" == "1" ]]; then
+            _ts_skipped_json="true"
+        else
+            _ts_skipped_json="false"
+        fi
+        python3 "$_pipeline_writer" \
+            --output "${PIPELINE_SIGNALS_FILE}" \
+            --tailscale-skipped "$_ts_skipped_json" >/dev/null 2>&1 \
+            || info "could not record Tailscale capability state for Doctor"
+        unset _ts_skipped_json
     fi
 
     TS_CLI="$(command -v tailscale || true)"

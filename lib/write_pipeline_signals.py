@@ -76,6 +76,7 @@ def build_payload(
     install_ts: int,
     existing: dict[str, Any],
     imessage_fda_needed: bool | None = None,
+    tailscale_skipped: bool | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "install_completed_ts": install_ts,
@@ -107,6 +108,23 @@ def build_payload(
         prior_imessage = existing.get("imessage_chat_db_fda_needed")
         if isinstance(prior_imessage, bool):
             payload["imessage_chat_db_fda_needed"] = prior_imessage
+
+    # Tailscale half (v1018-D678). install.sh sets OSTLER_TAILSCALE_SKIPPED=1
+    # when `brew install tailscale` fails. Andy ruled 2026-08-13 that the
+    # install must NOT hard-fail over it -- Tailscale is optional remote
+    # access and aborting an otherwise-good install is the wrong trade -- but
+    # that the flag must be READ. It was write-only: one occurrence in the
+    # whole repo, the assignment. A flag nothing reads is the same shape as a
+    # gate that cannot fire, and this sweep found five of those in one day.
+    #
+    # Recorded here so Doctor can render a degraded-capability line instead of
+    # the customer discovering months later that remote access never worked.
+    if tailscale_skipped is not None:
+        payload["tailscale_install_skipped"] = tailscale_skipped
+    else:
+        prior_ts = existing.get("tailscale_install_skipped")
+        if isinstance(prior_ts, bool):
+            payload["tailscale_install_skipped"] = prior_ts
 
     return payload
 
@@ -157,6 +175,15 @@ def main(argv: list[str]) -> int:
         ),
     )
     parser.add_argument(
+        "--tailscale-skipped",
+        default=None,
+        help=(
+            '"true" or "false" -- did `brew install tailscale` fail during '
+            "install? Surfaced by Doctor as a degraded capability (remote "
+            "access unavailable); never a hard install failure."
+        ),
+    )
+    parser.add_argument(
         "--install-ts",
         default="",
         help="Override install timestamp (epoch seconds). Defaults to now.",
@@ -199,6 +226,18 @@ def main(argv: list[str]) -> int:
             return 2
         imessage_fda_needed = raw == "true"
 
+    tailscale_skipped: bool | None = None
+    if args.tailscale_skipped is not None:
+        raw_ts = args.tailscale_skipped.strip().lower()
+        if raw_ts not in ("true", "false"):
+            print(
+                f"write_pipeline_signals: --tailscale-skipped must be "
+                f"'true' or 'false', got {args.tailscale_skipped!r}",
+                file=sys.stderr,
+            )
+            return 2
+        tailscale_skipped = raw_ts == "true"
+
     if args.install_ts:
         try:
             install_ts = int(args.install_ts)
@@ -218,6 +257,7 @@ def main(argv: list[str]) -> int:
         install_ts,
         existing,
         imessage_fda_needed=imessage_fda_needed,
+        tailscale_skipped=tailscale_skipped,
     )
 
     try:
