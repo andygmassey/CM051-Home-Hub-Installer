@@ -58,20 +58,64 @@ fi
 
 # Axis 3: a FULL summary compile must be kicked in the BACKGROUND (full
 # mode -- no skip flag) and detached so it survives install.sh.
-if ! grep -q 'nohup docker compose --profile compile run --rm -T wiki-compiler' "$INSTALL_SH"; then
-    failure "no detached background full compile -- summaries would never land"
-fi
-# The background invocation must NOT carry the skip flag (it is the FULL
-# pass). Assert the nohup line has no OSTLER_WIKI_SKIP_LLM on it.
-if grep 'nohup docker compose --profile compile run --rm -T wiki-compiler' "$INSTALL_SH" | grep -q 'OSTLER_WIKI_SKIP_LLM'; then
-    failure "the background compile carries OSTLER_WIKI_SKIP_LLM -- it would skip the very summaries it exists to generate"
-fi
-# It must be backgrounded (&) and disowned so its exit code can't gate.
-if ! grep -Eq '</dev/null >"\$WIKI_BG_LOG" 2>&1 &' "$INSTALL_SH"; then
-    failure "background compile is not detached with & -- install would wait on it"
-fi
-if ! grep -q 'disown' "$INSTALL_SH"; then
-    failure "background compile is not disowned -- its lifecycle is tied to the shell"
+#
+# v1018-D675: these assertions demanded ONE SPELLING of the invocation --
+# `nohup docker compose ... wiki-compiler` on a single line, and the exact
+# byte sequence `</dev/null >"$WIKI_BG_LOG" 2>&1 &`. Both stopped matching
+# when the v1.0.0 chat-saturation fix wrapped the compile in
+# `nohup bash -c '<slot-lock acquire>; docker compose ...' ... &`, which
+# moved `</dev/null` inside the wrapper (onto the compose run) and left the
+# outer line as `' _ "$_wiki_slot" "$OSTLER_DIR" >"$WIKI_BG_LOG" 2>&1 &`.
+# Every property this axis exists to protect was still true; the test had
+# never run, so the phantom went unseen.
+#
+# The first note on this row also called the whole design SUPERSEDED, from
+# the comment at install.sh:9883 ("wiki-compiler is profile-gated so it
+# never starts at all here") -- but that comment scopes the DATA-SERVICES
+# phase, and the same sentence points forward to Phase 3.16, which is where
+# the baseline + background split actually lives. Evidence adjacent to the
+# claim, not the mechanism.
+#
+# Assert the PROPERTIES on the block itself, delimited by CONTAINMENT (the
+# WIKI_BG_LOG assignment through the disown that releases the job) rather
+# than by proximity, so a wrapper growing another few lines cannot silently
+# push the compile out of a fixed-size window. Comment lines are stripped:
+# line 18363 is a comment that names nohup/</dev/null/disown, and reading it
+# as code would let all three vanish from the real block while this stays
+# green.
+BG_BLOCK="$(awk '/WIKI_BG_LOG=/{inblk=1} inblk{print} inblk && /disown/{exit}' \
+    "$INSTALL_SH" | sed 's/^[[:space:]]*//' | grep -v '^#')"
+
+if [[ -z "$BG_BLOCK" ]]; then
+    failure "no WIKI_BG_LOG..disown block found -- the detached background compile is gone, or the mechanism moved. If it moved, retarget this axis; do not assume the compile is still detached."
+else
+    if ! grep -q 'nohup' <<<"$BG_BLOCK"; then
+        failure "background compile block has no nohup -- it would die with install.sh's terminal"
+    fi
+    # Deliberately NOT pinned to `--rm -T wiki-compiler` adjacency: adding a
+    # legitimate `-e FOO=1` between them would break a literal match and
+    # report the compile as missing when it is right there. Assert the two
+    # facts that matter -- the compile profile, and the service -- on the
+    # same line, independent of what sits between them.
+    if ! grep -Eq 'docker compose .*--profile compile run .*wiki-compiler' <<<"$BG_BLOCK"; then
+        failure "background compile block never runs wiki-compiler -- summaries would never land"
+    fi
+    # It is the FULL pass: the skip flag must not appear anywhere in it.
+    if grep -q 'OSTLER_WIKI_SKIP_LLM' <<<"$BG_BLOCK"; then
+        failure "the background compile carries OSTLER_WIKI_SKIP_LLM -- it would skip the very summaries it exists to generate"
+    fi
+    # Backgrounded with & and its output sent to the log, so install.sh
+    # neither waits on it nor loses its diagnostics.
+    if ! grep -Eq '>"\$WIKI_BG_LOG" 2>&1[[:space:]]*&[[:space:]]*$' <<<"$BG_BLOCK"; then
+        failure "background compile is not backgrounded into \$WIKI_BG_LOG with '>\"\$WIKI_BG_LOG\" 2>&1 &' -- install would wait on it, or its output would be lost"
+    fi
+    # stdin detached: `compose run --rm` without it is the exit-hang.
+    if ! grep -q '</dev/null' <<<"$BG_BLOCK"; then
+        failure "background compile does not detach stdin (</dev/null) -- compose run --rm can hang on exit"
+    fi
+    if ! grep -q 'disown' <<<"$BG_BLOCK"; then
+        failure "background compile is not disowned -- its lifecycle is tied to the shell"
+    fi
 fi
 
 # Axis 4: the background job must NOT be wrapped in an exit-code gate. The

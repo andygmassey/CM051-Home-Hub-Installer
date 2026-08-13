@@ -43,7 +43,7 @@
 #
 # generated 2026-08-13 -- WIRED rows measured, others need a human call.
 #
-# CORRECTED 2026-08-13, twice, and both corrections are the point.
+# CORRECTED 2026-08-13, three times, and all three corrections are the point.
 #
 # (a) test_makefile_app_path_default.sh was recorded WIRED. Its only mention
 #     outside tests/ was a COMMENT in gui/Makefile. I counted a comment as CI
@@ -64,6 +64,18 @@
 #     the stem with an identifier boundary on both sides, which also catches
 #     the legitimate `python3 -m unittest tests.test_foo` form that a
 #     filename-only match had wrongly demoted.
+#
+# (c) test_wiki_baseline_background.sh was ruled SUPERSEDED DESIGN -- that the
+#     install-time baseline + detached background compile had been replaced by
+#     a daily LaunchAgent. It had not. The ruling came from a COMMENT at
+#     install.sh:9883 which scopes the data-services phase, and whose very next
+#     clause points forward to Phase 3.16, where the mechanism actually lives
+#     (install.sh:18320-18416, still there, still doing both halves). Had that
+#     ruling stood, a live install-time guarantee would have been retired on
+#     the authority of a sentence read out of scope. Same shape as (a):
+#     evidence ADJACENT to the claim standing in for the mechanism itself.
+#     Rule earned: a row may only be retired against the code that implements
+#     it, never against prose describing a different phase of it.
 
 # ---- WIRED -- runner MEASURED on every gate run, never trusted ----
 # No count here on purpose: a hand-maintained total in a comment rots in
@@ -239,7 +251,7 @@ test_vendor_knowledge_embed_contract.py	WIRED	.github/workflows/test-wiring.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/test-wiring.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/test-wiring.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/test-wiring.yml
-test_wiki_baseline_background.sh	UNCLASSIFIED	SUPERSEDED DESIGN (v1018-D680): test requires a detached `nohup docker compose --profile compile run wiki-compiler` at install time. install.sh:9883 says wiki-compiler is profile-gated so it never starts during install, and :13431 runs it from a daily LaunchAgent instead -- which is why the 'still settling in (~N days)' panel exists. Confirm the design, then retarget the test at the LaunchAgent.
+test_wiki_baseline_background.sh	WIRED	contract-tests. Axis 3 was pinned to ONE SPELLING: `nohup docker compose ... wiki-compiler` on a single line, and the byte sequence `</dev/null >"$WIKI_BG_LOG" 2>&1 &`. The v1.0.0 chat-saturation fix wrapped the compile in `nohup bash -c '<slot-lock>; docker compose ...' ... &`, moving `</dev/null` onto the inner compose run -- every property still held. Retargeted onto the WIKI_BG_LOG..disown block, delimited by CONTAINMENT not proximity, comments stripped. 6 controls (drop nohup / compile / skip-flag / & / </dev/null / disown) each redden their own assertion against a GREEN control 0.
 test_wiki_compose_paths.sh	UNCLASSIFIED	ARCHIE (v1018-D679): BOTH sides are wrong. Test demands ostler-ai/ostler-installer; install.sh uses ostler-ai/ostler-releases. Measured via authenticated gh: install.tar.gz exists ONLY in ostler-installer v0.1.0/v0.2.0/v0.3.0; its latest (v0.4.1) dropped it, and ostler-releases has never carried it in 30 releases. So DEFAULT_INSTALLER_TARBALL_URL 404s today. Release-asset question, not a test bug.
 test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/test-wiring.yml
