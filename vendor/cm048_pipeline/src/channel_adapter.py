@@ -828,6 +828,16 @@ def _build_extra_metadata(
         reason = metadata.get("non_relational_reason")
         if isinstance(reason, str) and reason.strip():
             extra["non_relational_reason"] = reason.strip()
+    # v1018-D021. Set by ``seed.seed_conversation`` on a bundle written
+    # WITHOUT a model call, so the page is browseable on the tick the
+    # thread arrives instead of weeks later. It must reach the frontmatter:
+    # CM044 renders from these artefacts and has no other way to tell a
+    # placeholder summary from a real one, and a reader has no way to tell
+    # "the assistant read this and this is what it said" from "nothing has
+    # read this yet". The full pass rewrites the same folder and, because
+    # it never sets the flag, clears it.
+    if metadata.get("enrichment_pending"):
+        extra["enrichment_pending"] = True
     return extra
 
 
