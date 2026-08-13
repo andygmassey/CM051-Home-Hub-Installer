@@ -149,6 +149,26 @@ jobs:
           OSTLER_PROVENANCE_ONLY_KINDS: wiki_image_grep,wiki_image_absent
         run: bash scripts/verify_cut_provenance.sh
 
+      # SAME SPLIT, SIBLING GATE. check-provenance-content opens the pinned wiki
+      # image too, so it needs docker for exactly the same reason and belongs in
+      # exactly the same job. It runs from `make package` in the macos cut job,
+      # where it reported all four CM044 rows as "STALE BINDING" on run
+      # 31696154993 -- see the note in is_ancestor(). Two independent causes,
+      # both cleared here:
+      #
+      #   ancestry  needs a credential that can read andygmassey/CM044. The cut
+      #             job exports a CM051-scoped GH_TOKEN, so the compare 404'd and
+      #             the gate read the error body as "not an ancestor".
+      #   content   needs docker to grep inside the digest. macos-26 has none.
+      #
+      # The wiki digests are anonymously pullable (measured 2026-08-13), so no
+      # registry credential is needed -- only the GitHub read for ancestry.
+      - name: Provenance -- wiki image CONTENT vs required fixes (needs docker)
+        env:
+          PROV_GATE_ONLY_CLASSES: wiki
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+        run: bash scripts/provenance_gate.sh
+
       - name: Repo-side gates
         run: |
           set -euo pipefail
@@ -497,6 +517,18 @@ jobs:
           # step there. Skipped checks are counted and named in this gate's own
           # verdict line, so the narrowing is visible rather than silent.
           OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
+          #
+          # And the same narrowing for the sibling content gate, for the same
+          # reason: its wiki class opens the pinned image and macos-26 has no
+          # docker. Verified in the preflight job on ubuntu instead. The skip is
+          # counted and named in this gate's own verdict, and its verdict line
+          # says the run was NARROWED, so a partial run can never be misread as
+          # a complete one.
+          #
+          # The daemon and vendor classes DO still run here -- they read a git
+          # tree and the vendored files inside this checkout, which is exactly
+          # what this job has and the ubuntu job does not.
+          PROV_GATE_SKIP_CLASSES: wiki
           #
           # The five sibling repos CANNOT be checked from here, and saying so
           # is the honest option rather than the convenient one.

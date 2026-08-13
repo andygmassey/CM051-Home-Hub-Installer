@@ -142,6 +142,7 @@ test_pinterest_parser.py	UNWIRED	-
 test_placeholder_strip.sh	UNWIRED	-
 test_pref_noise_source_cap.py	UNWIRED	-
 test_preferences_vendor_wired.sh	UNWIRED	-
+test_provenance_gate_cannot_run_is_not_stale.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_resolver_robustness.py	UNWIRED	-
 test_resource_tier_governor.sh	UNWIRED	-
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut.yml
