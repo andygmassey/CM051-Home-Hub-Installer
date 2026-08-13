@@ -124,7 +124,7 @@ test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_bootstrap_prelude.sh	WIRED	.github/workflows/test-wiring.yml
 test_brew_install_fail_loud.sh	UNCLASSIFIED	PARTIALLY FIXED: log-redirect assertion retargeted (tee cmd is now selected into $_OSTLER_TEE_CMD because stdbuf is GNU, absent on stock macOS) -- violations 2->1, negative control passes. REMAINING: demands `--cask tailscale` + fail_with_code ERR-15; code uses the FORMULA + a warn that sets OSTLER_TAILSCALE_SKIPPED=1, which is WRITE-ONLY (1 occurrence repo-wide, control INSTALL_LOG=29). See v1018-D678: Andy rules hard-fail vs surfaced-warn.
 test_browsing_ingest_ensures_collection.py	WIRED	.github/workflows/test-wiring.yml
-test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	SUPERSEDED API: calls pwg_ingest._person_uri_by_identifier_value, which no longer exists. Keying moved to _person_id_from_identifier (uuid5 over a cleaned identifier, so no interpolation surface) + _person_uri. The injection-prone helper the test probed was designed out; the live guard is the #659 role-address refusal. Retarget at uuid5 keying + role refusal.
+test_calendar_attendee_resolve_before_create.py	UNCLASSIFIED	SUPERSEDED API: calls pwg_ingest._person_uri_by_identifier_value, removed. Keying is now _person_id_from_identifier (uuid5 over a cleaned identifier -- no interpolation surface) + _person_uri, with the #659 role-address refusal as the live guard. Retarget at uuid5 keying + role refusal.
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/test-wiring.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/test-wiring.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/test-wiring.yml
@@ -157,7 +157,7 @@ test_dmg_contains_bundled_python.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_errtrap_regression.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_probe_non_fatal.sh	WIRED	.github/workflows/test-wiring.yml
 test_doctor_repo_fallback.sh	WIRED	.github/workflows/test-wiring.yml
-test_email_folder_prompt.sh	UNCLASSIFIED	LIKELY SYSTEMIC CAUSE IDENTIFIED (v1018-D675): asserts LITERAL user-facing English in install.sh. The i18n migration moved every such string into MSG_* catalogue keys, so all tests of this shape went stale simultaneously and silently, because none of them ran. Fix = assert the MSG_* key is emitted on the path, plus that the key resolves in the catalogue -- stronger than matching one hard-coded sentence. Worked example: test_knowledge_repo_wiring.sh, now WIRED with 3 controls. Measured failure: 'Folder/label [Ostler]:' prompt not found. NOT yet confirmed for this file -- check before assuming.
+test_email_folder_prompt.sh	UNCLASSIFIED	NOT the i18n cause (checked): no MSG_* key matches 'Folder/label [Ostler]:'; the FOLDER keys that exist are MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE / _PREWARM_* / MSG_OK_EMAIL_CHANNEL_FOLDER. install.sh:7963 mentions Folder/label only in a comment. Either the prompt was removed or it is rendered from a key with a different name -- read the email-channel question block before ruling.
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/test-wiring.yml
 test_email_ingest_venv_wired.sh	WIRED	.github/workflows/test-wiring.yml
@@ -174,18 +174,18 @@ test_governor_pause_throttle.sh	WIRED	.github/workflows/test-wiring.yml
 test_graph_db_pull_retry.sh	WIRED	.github/workflows/test-wiring.yml
 test_grep_c_arith_safety.sh	WIRED	.github/workflows/test-wiring.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/test-wiring.yml
-test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_hydrate_apple_notes_wired.sh	UNCLASSIFIED	REAL, NOT test rot: catalog/strings/hook all PASS, but vendor/ostler_fda/universal_import.py:963 _dispatch_apple_notes still carries the DEFERRED-persistence stub -- it writes a staged apple_notes.json and returns status ok WITHOUT persisting to the knowledge store. The installer advertises the step and reports success while nothing reaches Knowledge. vendor/ = Archie to fix; finding established here.
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/test-wiring.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/test-wiring.yml
-test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	REAL (deps present): 'all-persons candidate query issued 0 times' -- the fuzzy-cache path is not issuing the query the test expects. Needs root-cause against vendor/cm041/identity_resolver; could be a cache short-circuit that skips the query, which would be a behaviour change worth knowing about.
+test_identity_resolver_fuzzy_cache.py	UNCLASSIFIED	REAL (deps present): 'all-persons candidate query issued 0 times'. The fuzzy-cache path is not issuing the query the test expects -- possibly a cache short-circuit. Needs root-cause in vendor/cm041/identity_resolver.
 test_imessage_fda_probe.sh	WIRED	.github/workflows/test-wiring.yml
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/test-wiring.yml
-test_imessage_tcc_posture.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_imessage_tcc_posture.sh	UNCLASSIFIED	Fails at [shim-run-granted-and-working]: the probe block exits non-zero under the granted-and-working shim. Three status buckets ARE present (that assertion passes), so this is the shim contract, not missing code. Likely the same class as the off-peak throttle fix (a newly-added guard the shim does not satisfy) -- verify before assuming.
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/test-wiring.yml
-test_install_daily_briefs.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_install_daily_briefs.sh	UNCLASSIFIED	Fails at [emitter-morning-id]: expects the emitter to write id = "morning-brief". Reaches that assertion after passing the fail-loud/best_effort checks, so the harness runs; the emitted id differs or is not emitted. Needs the emitter output read, not a grep.
 test_install_first_month_free.sh	WIRED	.github/workflows/test-wiring.yml
-test_install_sh_prefers_bundled_python.sh	UNCLASSIFIED	TRIAGED, NOT ROOT-CAUSED: fails against the current tree (measured 2026-08-13). Every failure examined so far in this cluster has been a test encoding a SUPERSEDED design rather than a live defect -- but that is a pattern, not a verdict, and each still needs the which-side-is-stale check individually. Do NOT assume stale-test and delete.
+test_install_sh_prefers_bundled_python.sh	UNCLASSIFIED	PARTLY DIAGNOSED, test reverted: its A<B line-order model is provably the wrong instrument -- hit 1 (~152) is inside _upg_resolve_python3()'s BODY (upgrade-only path, called at 344/363/397, and a body line does not execute at its definition line); hit 2 (~1192) is a last-resort elif whose chain already prefers ${SCRIPT_DIR}/python/bin/python3.11 at 1186. A per-site replacement (bundled preference within 12 lines of each `command -v python3`) flags 152, 4391, 11082. 4391 and 11082 are UNVERIFIED and could be real. Do not ship either version until those two are read.
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/test-wiring.yml
 test_mail_content_probe.sh	WIRED	.github/workflows/test-wiring.yml
