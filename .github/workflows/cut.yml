@@ -559,15 +559,29 @@ jobs:
       - name: Verify the artefact, not the build log
         run: |
           set -euo pipefail
-          DMG="$(find dist -name '*.dmg' -maxdepth 2 | head -1)"
-          [ -n "$DMG" ] || { echo "::error::no DMG produced" >&2; exit 1; }
+          # ASK make WHERE IT PUT THE DMG. Do not guess, and do not restate the
+          # path here. v1.0.26 ran `find dist -name '*.dmg'` while DIST_DIR
+          # defaults to /tmp/ostler-installer-dist-$USER, so on the first run
+          # where notarise + staple + create-dmg ALL succeeded this step died on
+          #     find: dist: No such file or directory
+          # and upload-artifact was skipped -- a fully notarised, stapled DMG
+          # discarded with the runner because two steps read a path the build
+          # never writes.
+          DMG="$(make -C gui --no-print-directory print-dmg-path)"
+          [ -n "$DMG" ] || { echo "::error::make could not name the DMG path" >&2; exit 1; }
+          [ -f "$DMG" ] || { echo "::error::no DMG produced at $DMG" >&2; exit 1; }
           echo "dmg: $DMG"
           # notarytool exits 0 on `Invalid`, so parse the status rather than $?.
           xcrun stapler validate "$DMG"
           spctl -a -vvv -t install "$DMG" 2>&1 | tee /tmp/spctl.txt
           grep -q 'source=Notarized Developer ID' /tmp/spctl.txt || {
             echo "::error::DMG is not Notarized Developer ID" >&2; exit 1; }
-          shasum -a 256 "$DMG" | tee dist/SHA256SUMS
+          # Stage into dist/ so the upload globs have a stable, workspace-local
+          # home regardless of where DIST_DIR points.
+          mkdir -p dist
+          cp "$DMG" dist/
+          ( cd dist && shasum -a 256 "$(basename "$DMG")" | tee SHA256SUMS )
+          ls -la dist/
 
       - uses: actions/upload-artifact@v4
         with:
