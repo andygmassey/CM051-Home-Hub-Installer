@@ -268,6 +268,36 @@ jobs:
       - name: Select the pinned Xcode
         run: scripts/select_pinned_xcode.sh
 
+      # create-dmg WRITES THE ARTEFACT. Without it there is no DMG.
+      #
+      # Measured on run 31681624343: every gate in the chain went green -- the
+      # orphan gate, the manifest gate at 10 PASS / 0 FAIL / 1 SKIP, the archive
+      # built, signed, notarised and stapled -- and then:
+      #
+      #   ERROR: create-dmg not installed.
+      #   make: *** [check-create-dmg] Error 1
+      #
+      # It is a hosted-runner tooling gap of exactly the same shape as the
+      # missing xcodegen above: the tool exists on the operator's Mac, so the
+      # dependency was invisible until a cut actually ran somewhere else. This
+      # is the last one in the chain, which is why it surfaced last -- each
+      # earlier blocker hid the one behind it.
+      #
+      # NOT pinned, unlike xcodegen, and the difference is deliberate. xcodegen
+      # feeds a BYTE-EXACT comparison, so its version is an input to a verdict
+      # and an unpinned install would turn a toolchain difference into DO NOT
+      # SHIP. create-dmg only lays out a disk image; nothing downstream compares
+      # its bytes, and every payload inside is separately hash-verified by
+      # download-daemon / download-hub-app / download-safari-extension and then
+      # asserted present by the manifest gate. If a future gate ever compares
+      # DMG bytes, pin this the same way.
+      - name: Install create-dmg (writes the DMG itself)
+        run: |
+          set -euo pipefail
+          brew install create-dmg
+          command -v create-dmg || { echo "::error::create-dmg still not on PATH after install" >&2; exit 1; }
+          create-dmg --version || true
+
       - name: Verify signing credentials are present
         env:
           OSTLER_SIGNING_CERT_P12:      ${{ secrets.OSTLER_SIGNING_CERT_P12 }}
