@@ -83,6 +83,38 @@ jobs:
           fi
           echo "  gui/Makefile invokes the gate ($n reference(s))"
 
+      # Parse under /bin/bash EXPLICITLY, which on macOS is bash 3.2.
+      #
+      # These scripts run via `#!/usr/bin/env bash`, so the shell they get is
+      # whatever is first on PATH. In a dev shell that is often homebrew bash
+      # 5.x; on a stock Mac and on this runner it is /bin/bash 3.2. The two do
+      # not agree: bash 3.2 tracks quoting THROUGH a command substitution and
+      # does not stop at a hash, so one apostrophe in a comment inside $( )
+      # makes the whole file unparseable -- while 5.x parses it fine.
+      #
+      # test_orphan_gate_cannot_verify.sh shipped in exactly that state and was
+      # found by this workflow on its first run, 2026-08-13: GREEN locally under
+      # 5.3, exit 2 on the runner under 3.2. A syntax error is not a test
+      # failure, it is the test never running, so it must be caught as its own
+      # thing rather than as a mysterious rc=2 in the middle of a suite.
+      - name: Every proof parses under /bin/bash (3.2 on macOS)
+        run: |
+          set -euo pipefail
+          echo "  /bin/bash is: $(/bin/bash --version | head -1)"
+          for f in scripts/verify_no_orphaned_fixes.sh \
+                   scripts/orphan_gate_selftest.sh \
+                   tests/test_no_orphaned_fixes_gate.sh \
+                   tests/test_orphan_gate_cannot_verify.sh; do
+            if /bin/bash -n "$f"; then
+              echo "  ok $f"
+            else
+              echo "::error::$f does not PARSE under /bin/bash (bash 3.2)." >&2
+              echo "A script that cannot parse never runs. Common cause: an" >&2
+              echo "apostrophe or backtick in a comment inside a \$( ) block." >&2
+              exit 1
+            fi
+          done
+
       - name: Orphan gate self-test
         run: ./scripts/orphan_gate_selftest.sh
 

@@ -155,7 +155,22 @@ SH
 )"
 got_empty="$(
 	eval "$probe"
-	# Mirror gh_as's body rather than sourcing the gate, which would run it.
+	# Mirror the gh_as body rather than sourcing the gate, which would run it.
+	#
+	# NO APOSTROPHES AND NO BACKTICKS IN COMMENTS INSIDE THIS COMMAND
+	# SUBSTITUTION. bash 3.2 -- what /bin/bash is on every stock Mac, including
+	# the cut machine and the macOS runners -- tracks quoting THROUGH a command
+	# substitution and does not stop at a hash. One stray quote character in a
+	# comment here opens a quote that never closes, and the WHOLE FILE fails to
+	# parse, reporting a line number roughly 15 further down than the cause.
+	#
+	# Measured 2026-08-13. It hid because bash 5.3 (homebrew, first on PATH in
+	# a dev shell) parses it happily: the script passed locally and exited 2 on
+	# the runner. Testing a shell script with plain "bash foo.sh" in your own
+	# shell does not test the shell it ships under. Use /bin/bash explicitly.
+	#
+	# The first attempt at this very comment reintroduced the bug while
+	# describing it, by quoting the error message verbatim.
 	gh_as() { local t="$1"; shift; if [[ -n "$t" ]]; then GH_TOKEN="$t" gh "$@"; else gh "$@"; fi; }
 	GH_TOKEN=ambient-token gh_as "" pr list
 )"
