@@ -91,6 +91,10 @@ from diagnostic_copy import (
     IMESSAGE_FDA_FIX,
     IMESSAGE_FDA_FIX_COMMAND,
     IMESSAGE_FDA_RESTART_HINT,
+    TAILSCALE_SKIPPED_TITLE,
+    TAILSCALE_SKIPPED_DETAIL,
+    TAILSCALE_SKIPPED_FIX,
+    TAILSCALE_SKIPPED_FIX_COMMAND,
     IMESSAGE_FDA_TITLE,
     IMPORT_BLOCKED_EMBED_DETAIL,
     IMPORT_BLOCKED_EMBED_FIX,
@@ -1281,6 +1285,71 @@ def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _tailscale_cli_present() -> bool:
+    """Is a `tailscale` binary on PATH now?
+
+    The auto-dismiss path. The install-time signal records what happened
+    ONCE, during install; if the customer has since installed Tailscale
+    themselves the signal is stale and the card must not linger. Mirrors
+    the live re-probe in :func:`check_imessage_fda`.
+    """
+    import shutil
+
+    return shutil.which("tailscale") is not None
+
+
+def check_tailscale_skipped(snapshot: Any) -> list[dict]:
+    """v1018-D678 Doctor card: Tailscale was not installed, so remote
+    access is unavailable.
+
+    Fires when ALL of:
+
+    1. The installer recorded ``tailscale_install_skipped=True`` in
+       pipeline_signals.json (i.e. ``brew install tailscale`` failed).
+    2. No ``tailscale`` binary is on PATH right now -- the auto-dismiss
+       path, so the card clears once the customer installs it.
+
+    ``None`` means the install predates this signal; stay quiet rather
+    than firing a false card on every legacy install. That quiet-on-legacy
+    posture is deliberate and mirrors :func:`check_imessage_fda`.
+
+    WHY THIS EXISTS. ``OSTLER_TAILSCALE_SKIPPED`` was set by install.sh and
+    read by nothing -- one occurrence in the entire repo, the assignment.
+    The customer would have found out that remote access never worked at
+    the moment they first needed it, with nothing anywhere explaining why.
+    Andy ruled surfaced-warn over hard-fail on 2026-08-13; this is the
+    surface that ruling depends on. Without it the flag is still write-only
+    and the ruling is unimplemented.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    """
+    findings: list[dict] = []
+
+    signals = getattr(snapshot, "pipeline_signals", None)
+    if signals is None:
+        return findings
+
+    skipped = getattr(signals, "tailscale_install_skipped", None)
+    if skipped is not True:
+        # None (legacy install / no signal) or False (installed fine).
+        return findings
+
+    if _tailscale_cli_present():
+        # Installed since. The install-time signal is stale.
+        return findings
+
+    findings.append({
+        "severity": "warning",
+        "title": TAILSCALE_SKIPPED_TITLE,
+        "detail": TAILSCALE_SKIPPED_DETAIL,
+        "fix": TAILSCALE_SKIPPED_FIX,
+        "fix_command": TAILSCALE_SKIPPED_FIX_COMMAND,
+        "risk": "low",
+        "category": "installation",
+    })
+    return findings
+
+
 ALL_RULES = [
     check_first_install,
     check_container_health,
@@ -1302,6 +1371,7 @@ ALL_RULES = [
     check_last_upgrade,
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
+    check_tailscale_skipped,
 ]
 
 

@@ -142,6 +142,7 @@ test_vendor_import_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_manifest_is_valid_toml.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml,.github/workflows/pbxproj-sync.yml,.github/workflows/vendor-integrity.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml,.github/workflows/vendor-integrity.yml
+test_verify_no_symbol_regression.sh	WIRED	.github/workflows/test-wiring.yml,scripts/sync_vendor.sh. v1018-D684 guard self-test: a re-vendor must FAIL if it would REDUCE the set of symbols defined in the target file. 12 controls, both directions -- quiet for additions / body rewrites / a `def` inside a string, RED for a deleted def, a deleted class, a deleted async def (a `^def ` grep would miss that, which is why it parses with ast), and a whole file vanishing; exit 2 for missing dir, empty scan and unparseable input, because a scan that compared nothing must never report a pass.
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml

@@ -175,6 +175,18 @@ class PipelineSignalsInfo:
     # ``diagnostic_rules.check_imessage_fda``). ``None`` = legacy install
     # / no probe yet; ``False`` = probe found the daemon already healthy.
     imessage_chat_db_fda_needed: bool | None = None
+    # v1018-D678 install-time Tailscale capability. ``True`` means
+    # `brew install tailscale` failed during install, so remote access is
+    # unavailable until the customer installs it themselves. Andy ruled
+    # 2026-08-13 that this is a SURFACED WARNING, never a failed install:
+    # Tailscale is optional and aborting an otherwise-good install over it
+    # is the wrong trade. Doctor renders it as a degraded capability (see
+    # ``diagnostic_rules.check_tailscale_skipped``). ``None`` = legacy
+    # install / installer predates the signal; ``False`` = installed fine.
+    #
+    # The flag was WRITE-ONLY in install.sh for its whole life -- one
+    # occurrence repo-wide, the assignment. This field is the read side.
+    tailscale_install_skipped: bool | None = None
 
 
 @dataclass
@@ -560,6 +572,9 @@ def collect_pipeline_signals() -> PipelineSignalsInfo | None:
         ),
         imessage_chat_db_fda_needed=_safe_bool(
             data.get("imessage_chat_db_fda_needed"),
+        ),
+        tailscale_install_skipped=_safe_bool(
+            data.get("tailscale_install_skipped"),
         ),
     )
 

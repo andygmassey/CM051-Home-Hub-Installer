@@ -386,6 +386,29 @@ IMESSAGE_FDA_RESTART_HINT = (
 )
 
 
+# ── check_tailscale_skipped ──────────────────────────────────────────
+#
+# v1018-D678. `brew install tailscale` failed during install. Andy ruled
+# 2026-08-13 that this is a SURFACED WARNING and never a failed install:
+# Tailscale is optional remote access, and aborting an otherwise-good
+# install over it is the wrong trade. Everything else about the Hub works.
+#
+# Severity is "warning", not "critical": nothing is broken, one optional
+# capability is absent. Copy says what the customer LOST, not what the
+# installer did, because "OSTLER_TAILSCALE_SKIPPED=1" means nothing to them.
+
+TAILSCALE_SKIPPED_TITLE = "Remote access is not set up"
+TAILSCALE_SKIPPED_DETAIL = (
+    "Tailscale could not be installed while Ostler was setting up, so you "
+    "can only reach your Hub from this network for now. Everything else "
+    "works normally. Installing Tailscale yourself is enough to fix it -- "
+    "Ostler picks it up the next time it starts, and this card clears on "
+    "its own."
+)
+TAILSCALE_SKIPPED_FIX = "Install Tailscale with Homebrew"
+TAILSCALE_SKIPPED_FIX_COMMAND = "brew install tailscale"
+
+
 # ── check_imessage_capture_stalled ───────────────────────────────────
 #
 # Distinct from check_imessage_fda: that rule fires on the install-time

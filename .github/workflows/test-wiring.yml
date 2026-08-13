@@ -35,6 +35,11 @@ jobs:
       - name: Gate self-test (17 controls)
         run: /bin/bash tests/test_verify_test_wiring.sh
 
+      # v1018-D684. Guards the re-vendor path: refuses a sync that would
+      # delete symbols the vendored tree already defines.
+      - name: Symbol-regression guard self-test (12 controls)
+        run: /bin/bash tests/test_verify_no_symbol_regression.sh
+
       # Both files must parse under the shell they actually run under. bash 3.2
       # tracks quoting THROUGH $( ) and does not stop at #, so an apostrophe in
       # a comment inside a command substitution makes a whole file unparseable
