@@ -18,8 +18,10 @@ on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
       - 'tests/test_launchd_plist_no_tmp.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
+      - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - '.github/workflows/launchd-plist-paths.yml'
   push:
     branches: [main]
@@ -40,3 +42,19 @@ jobs:
       - name: Assert com.ostler.export-scan bootstrap is race-safe (HR015 #217)
         if: always()
         run: bash tests/test_export_scan_plist_bootstrap_race_217.sh
+
+      # Task #338. The GUI install left the Mac's own sleep policy untouched,
+      # so the Hub slept every ~100 s and spent 1430 of 1439 wakes in DARK
+      # wake, where launchd does not schedule user agents. The assistant's
+      # iMessage poll never ran and inbound messages were silently never seen.
+      # This asserts the com.ostler.stay-awake agent is installed on BOTH the
+      # GUI and CLI paths, and that it carries `caffeinate -s` and NOT -i/-d,
+      # which would flatten a MacBook Hub's battery or hold its display on.
+      #
+      # `if: always()` for the same reason as the step above: a failure in an
+      # earlier step must not delete this measurement. That exact shape --
+      # one limb's cannot-run silently removing another limb's answer -- is
+      # what CM051 #656 fixed across 26 steps.
+      - name: Assert the Hub stays awake after the installer exits (#338)
+        if: always()
+        run: bash tests/test_stay_awake_agent_survives_installer_exit.sh

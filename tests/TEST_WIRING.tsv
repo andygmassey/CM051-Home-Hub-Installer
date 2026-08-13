@@ -151,6 +151,7 @@ test_settling_progress_writer.sh	UNWIRED	-
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
 test_social_ingest_wired.sh	UNWIRED	-
+test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_subscription_activation_path.sh	UNWIRED	-
 test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
