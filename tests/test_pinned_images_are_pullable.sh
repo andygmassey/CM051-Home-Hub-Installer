@@ -54,8 +54,22 @@ if ! curl -s --max-time 10 -o /dev/null https://ghcr.io/v2/ 2>/dev/null; then
 fi
 
 # Collect every `image: <host>/<path>@sha256:<digest>` pin.
-mapfile -t PINS < <(grep -oE 'image:[[:space:]]+ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}' "$INSTALL" \
-                    | sed -E 's/^image:[[:space:]]+//' | sort -u)
+#
+# v1018-D675: this used `mapfile -t`, which is a bash 4 builtin. /bin/bash on
+# macOS is 3.2, so the collection step printed "mapfile: command not found",
+# PINS was never set, and the run died on an unbound variable. The test could
+# not execute at all under the shell it ships under, and it had never run
+# anywhere, so nobody found out.
+#
+# Note what set -u bought here: WITHOUT it an unset PINS makes ${#PINS[@]}
+# evaluate to 0, and this gate would have reported "no digest-pinned images
+# found" -- a false zero in a supply-chain check, on a tree that has several.
+# The read loop below is bash 3.2 clean and preserves that arithmetic.
+PINS=()
+while IFS= read -r _pin; do
+    [ -n "$_pin" ] && PINS+=("$_pin")
+done < <(grep -oE 'image:[[:space:]]+ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}' "$INSTALL" \
+         | sed -E 's/^image:[[:space:]]+//' | sort -u)
 
 if [[ "${#PINS[@]}" -eq 0 ]]; then
     bad "no digest-pinned ghcr.io images found in install.sh -- did the pin format change?"

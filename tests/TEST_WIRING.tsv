@@ -198,10 +198,10 @@ test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/test-w
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/test-wiring.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/test-wiring.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/test-wiring.yml
-test_ollama_formula_swap.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL: install.sh contains a 'brew install --cask ollama' invocation. C
+test_ollama_formula_swap.sh	UNCLASSIFIED	ANDY'S CALL (v1018-D678): test forbids `brew install --cask ollama`; install.sh:7069 uses `--cask ollama-app` AND neutralises the Gatekeeper concern the test cites (xattr -dr com.apple.quarantine on the next line) and tears down the shadowing formula first. Deliberate later decision, not a regression -- but the test says 'talk to Andy first', so Andy rules.
 test_orphan_gate_cannot_verify.sh	UNCLASSIFIED	FAILS rc=2 when run (2026-08-13): tests/test_orphan_gate_cannot_verify.sh: line 181: syntax error: unexp
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/test-wiring.yml
-test_pinned_images_are_pullable.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): tests/test_pinned_images_are_pullable.sh: line 93: PINS[@]: unbound va
+test_pinned_images_are_pullable.sh	WIRED	.github/workflows/test-wiring.yml
 test_pinterest_parser.py	WIRED	.github/workflows/test-wiring.yml
 test_placeholder_strip.sh	WIRED	.github/workflows/test-wiring.yml
 test_pref_noise_source_cap.py	WIRED	.github/workflows/test-wiring.yml
@@ -239,7 +239,7 @@ test_vendor_knowledge_embed_contract.py	WIRED	.github/workflows/test-wiring.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/test-wiring.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/test-wiring.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/test-wiring.yml
-test_wiki_baseline_background.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): test_wiki_baseline_background: FAILED
-test_wiki_compose_paths.sh	UNCLASSIFIED	FAILS rc=1 when run (2026-08-13): FAIL [tarball-url]: DEFAULT_INSTALLER_TARBALL_URL not pointing at the 
+test_wiki_baseline_background.sh	UNCLASSIFIED	SUPERSEDED DESIGN (v1018-D680): test requires a detached `nohup docker compose --profile compile run wiki-compiler` at install time. install.sh:9883 says wiki-compiler is profile-gated so it never starts during install, and :13431 runs it from a daily LaunchAgent instead -- which is why the 'still settling in (~N days)' panel exists. Confirm the design, then retarget the test at the LaunchAgent.
+test_wiki_compose_paths.sh	UNCLASSIFIED	ARCHIE (v1018-D679): BOTH sides are wrong. Test demands ostler-ai/ostler-installer; install.sh uses ostler-ai/ostler-releases. Measured via authenticated gh: install.tar.gz exists ONLY in ostler-installer v0.1.0/v0.2.0/v0.3.0; its latest (v0.4.1) dropped it, and ostler-releases has never carried it in 30 releases. So DEFAULT_INSTALLER_TARBALL_URL 404s today. Release-asset question, not a test bug.
 test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/test-wiring.yml
 test_write_pipeline_signals.sh	WIRED	.github/workflows/test-wiring.yml
