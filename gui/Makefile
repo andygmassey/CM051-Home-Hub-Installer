@@ -437,7 +437,21 @@ download-daemon:
 	    fi; \
 	else \
 	    printf '\n[STEP] Fetching ostler-assistant %s from %s\n' "$(DAEMON_RELEASE_TAG)" "$(DAEMON_REPO)"; \
-	    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
+	    if [ -n "$$OSTLER_RELEASES_TOKEN" ]; then \
+	        printf '[STEP] using OSTLER_RELEASES_TOKEN (cross-org read)\n'; \
+	        GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(DAEMON_RELEASE_TAG)" \
+	                --repo "$(DAEMON_REPO)" \
+	                --pattern "$(DAEMON_TARBALL_NAME)" \
+	                --dir "$(BUILD_DIR)" \
+	                --clobber || { \
+	            echo "ERROR: cross-org fetch FAILED with OSTLER_RELEASES_TOKEN set." >&2; \
+	            echo "  The token is present but could not read $(DAEMON_REPO) $(DAEMON_RELEASE_TAG)." >&2; \
+	            echo "  Check it is fine-grained, scoped to that repo, Contents: Read, and not expired." >&2; \
+	            echo "  NOT falling back to GITHUB_TOKEN -- a repo-scoped token cannot read another org," >&2; \
+	            echo "  so a fallback would just fail later and blame the wrong thing." >&2; \
+	            exit 1; \
+	        }; \
+	    elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
 	        if ! gh release download "$(DAEMON_RELEASE_TAG)" \
 	                --repo "$(DAEMON_REPO)" \
 	                --pattern "$(DAEMON_TARBALL_NAME)" \
