@@ -1,0 +1,75 @@
+name: symbol-regression
+
+# Guards the re-vendor symbol-regression gate (v1018-D684).
+#
+# WHY THE GATE EXISTS. Vendoring assumes upstream leads and vendor follows. On
+# 2026-08-13 the reverse was measured: vendor/doctor/agent/diagnostic_rules.py
+# was 1329 lines against HR015's 996, a strict SUPERSET -- 8 functions existed
+# only in the vendored copy and none only upstream. sync_vendor.sh swaps with
+# rm -rf + untar, so a re-vendor would have silently deleted three shipping
+# Doctor cards.
+#
+# It had already happened once. HR015 12ac405: "restore iMessage chat.db FDA
+# reminder card (CX-60) dropped in re-vendor (#259)". This makes a third
+# occurrence impossible.
+#
+# WHY THIS WORKFLOW EXISTS. The gate is invoked by scripts/sync_vendor.sh, on
+# an operator's machine, at re-vendor time -- which is exactly when nobody is
+# watching it. Without CI it is a gate whose own correctness is never checked,
+# and #648 measured what that leads to: 128 test files that run nowhere.
+#
+# Every step carries `if: always()`: a job stops at its first failing step, and
+# a skipped proof is indistinguishable from a proof that passed.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_no_symbol_regression.sh'
+      - 'tests/test_verify_no_symbol_regression.sh'
+      - 'scripts/sync_vendor.sh'
+      - '.github/workflows/symbol-regression.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  symbol-regression:
+    runs-on: macos-latest   # the re-vendor happens on macOS; /bin/bash is 3.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: The guard discriminates (12 controls + the ordering invariant)
+        run: /bin/bash tests/test_verify_no_symbol_regression.sh
+
+      - name: A missing guard is REFUSED before the tree is touched
+        if: always()
+        run: |
+          set -e
+          # The invariant, asserted independently of the self-test: the
+          # existence check must come BEFORE `rm -rf "$abs_vendor"`. A refusal
+          # placed after the swap would refuse on top of an already-overwritten
+          # tree, turning a caught defect into a worse one.
+          refuse=$(grep -n 'REFUSING TO VENDOR: the symbol-regression guard' scripts/sync_vendor.sh | head -1 | cut -d: -f1)
+          rmrf=$(grep -n '^rm -rf "\$abs_vendor"' scripts/sync_vendor.sh | head -1 | cut -d: -f1)
+          if [ -z "$refuse" ] || [ -z "$rmrf" ]; then
+            echo "could not locate both the refusal and the swap in sync_vendor.sh" >&2
+            echo "refuse=${refuse:-none} rm-rf=${rmrf:-none} -- this is a CANNOT-RUN, not a pass" >&2
+            exit 2
+          fi
+          if [ "$refuse" -ge "$rmrf" ]; then
+            echo "the guard-missing refusal (line $refuse) comes AFTER the swap (line $rmrf)" >&2
+            exit 1
+          fi
+          echo "OK: refusal at $refuse precedes the swap at $rmrf"
+
+      - name: Parses under /bin/bash 3.2 (the shell a re-vendor uses)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n scripts/verify_no_symbol_regression.sh
+          /bin/bash -n tests/test_verify_no_symbol_regression.sh
+          /bin/bash -n scripts/sync_vendor.sh
+          echo "OK: all three parse"
