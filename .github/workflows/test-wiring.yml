@@ -62,82 +62,112 @@ jobs:
       # Runs on macOS because it pins GNU Make 3.81 ordering semantics, which is
       # the make the cut machine has.
       - name: gui/Makefile OSTLER_APP_PATH default applies
+        if: always()
         run: /bin/bash tests/test_makefile_app_path_default.sh
 
       # v1018-D675 security cluster. All ran NOWHERE before this workflow.
       # Each is a pure-shell assertion over install.sh / the generated configs;
       # none needs a device, a secret, or a real install.
       - name: consent A7+A8 assertions
+        if: always()
         run: /bin/bash tests/test_consent_a7_a8.sh
       - name: Q19 consent third-party legal-note separation
+        if: always()
         run: /bin/bash tests/test_cx18_q19_consent_third_party_legal_note_separation.sh
       - name: Q20 consent install body shape
+        if: always()
         run: /bin/bash tests/test_cx18_q20_consent_install_body_shape.sh
       - name: GDPR folder-access-denied handling
+        if: always()
         run: /bin/bash tests/test_gdpr_folder_access_denied.sh
       - name: GDPR scan pre-warning
+        if: always()
         run: /bin/bash tests/test_gdpr_scan_prewarn.sh
       - name: third-party data consent
+        if: always()
         run: /bin/bash tests/test_third_party_data_consent.sh
       - name: at-rest exclusions
+        if: always()
         run: /bin/bash tests/test_v1010_at_rest_exclusions.sh
       # Had never run once, and it gates codesign+spctl on every daemon staging.
       - name: daemon signature gate
+        if: always()
         run: /bin/bash tests/test_v1010_daemon_signature_gate.sh
       - name: ical-server + Doctor service auth
+        if: always()
         run: /bin/bash tests/test_v1010_ical_doctor_service_auth.sh
       - name: ingest reroute plists
+        if: always()
         run: /bin/bash tests/test_v1010_ingest_reroute_plists.sh
       - name: redteam3 supply-chain image pins
+        if: always()
         run: /bin/bash tests/test_v1010_redteam3_supply_chain_pins.sh
       - name: stores are loopback-only and auth-ready
+        if: always()
         run: /bin/bash tests/test_v1010_store_auth_loopback.sh
       - name: wiki is NOT tailscale-served
+        if: always()
         run: /bin/bash tests/test_v1010_wiki_not_tailscale_served.sh
       - name: vendored register carries no operator PII
+        if: always()
         run: /bin/bash tests/test_vendored_register_pii.sh
       - name: walk-away phase-2 input leak
+        if: always()
         run: /bin/bash tests/test_walkaway_no_phase2_input_leak.sh
       - name: PIPELINE_SIGNALS writer
+        if: always()
         run: /bin/bash tests/test_write_pipeline_signals.sh
 
       # Structural half runs everywhere; the behavioural half needs docker and
       # says so rather than exiting 0 over an unproved claim. Exit 2 (could not
       # run) is a CI failure here on purpose -- see the test's header.
       - name: store-proxy Host/Origin allowlist
+        if: always()
         run: /bin/bash tests/test_v1010_store_front_proxy.sh
 
       # Retargeted onto _INGEST_DISPATCH (v1018-D675). Both were phantom
       # failures: the writers were registered all along, the tests were
       # grepping ingest_all's body after dispatch moved to a table.
       - name: bookmarks ingester is dispatched
+        if: always()
         run: /bin/bash tests/test_bookmarks_ingest_wired.sh
       - name: social ingester is dispatched
+        if: always()
         run: /bin/bash tests/test_social_ingest_wired.sh
 
       # bash 3.2 fix (mapfile is bash 4). Hits ghcr.io, so it needs network;
       # it self-skips when ghcr.io is unreachable.
       - name: pinned ghcr.io images are anonymously pullable
+        if: always()
         run: /bin/bash tests/test_pinned_images_are_pullable.sh
 
       # Retargeted off literal English onto MSG_* keys (v1018-D675 systemic).
       - name: knowledge repo wiring
+        if: always()
         run: /bin/bash tests/test_knowledge_repo_wiring.sh
       - name: doctor repo fallback diagnostics
+        if: always()
         run: /bin/bash tests/test_doctor_repo_fallback.sh
       - name: vane bundle + phase-4 health
+        if: always()
         run: /bin/bash tests/test_vane_bundle.sh
       - name: python library-validation entitlement survives signing
+        if: always()
         run: /bin/bash tests/test_cx30_33_python_library_validation_entitlement.sh
       - name: daemon FDA app-bundle path + TCC pre-probe
+        if: always()
         run: /bin/bash tests/test_daemon_fda_app_bundle_path.sh
       - name: off-peak ingest throttle
+        if: always()
         run: /bin/bash tests/test_ingest_offpeak_throttle.sh
       - name: install.sh prefers the bundled python
+        if: always()
         run: /bin/bash tests/test_install_sh_prefers_bundled_python.sh
       - name: iMessage TCC posture probe + marker
+        if: always()
         run: /bin/bash tests/test_imessage_tcc_posture.sh
       - name: email folder is hardcoded and never the inbox
+        if: always()
         run: /bin/bash tests/test_email_folder_prompt.sh
 
   # v1018-D675 contract tests. Every one of these ran NOWHERE before this
@@ -154,180 +184,268 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: ai conversations leg wired
+        if: always()
         run: /bin/bash tests/test_ai_conversations_leg_wired.sh
       - name: aiconv hydrate honesty
+        if: always()
         run: /bin/bash tests/test_aiconv_hydrate_honesty.sh
       - name: app binary agents bootstrap
+        if: always()
         run: /bin/bash tests/test_app_binary_agents_bootstrap.sh
       - name: assistant config reasoning disabled
+        if: always()
         run: /bin/bash tests/test_assistant_config_reasoning_disabled.sh
       - name: assistant config vane wiring
+        if: always()
         run: /bin/bash tests/test_assistant_config_vane_wiring.sh
       - name: assistant identity belt
+        if: always()
         run: /bin/bash tests/test_assistant_identity_belt.sh
       - name: assistant ollama num ctx
+        if: always()
         run: /bin/bash tests/test_assistant_ollama_num_ctx.sh
       - name: bootstrap prelude
+        if: always()
         run: /bin/bash tests/test_bootstrap_prelude.sh
       - name: calendar hydrate venv
+        if: always()
         run: /bin/bash tests/test_calendar_hydrate_venv.sh
       - name: cm048 prompts packaged
+        if: always()
         run: /bin/bash tests/test_cm048_prompts_packaged.sh
       - name: cm048 settings models wired
+        if: always()
         run: /bin/bash tests/test_cm048_settings_models_wired.sh
       - name: colima start retry
+        if: always()
         run: /bin/bash tests/test_colima_start_retry.sh
       - name: composite cleanup
+        if: always()
         run: /bin/bash tests/test_composite_cleanup.sh
       - name: contact card prefill
+        if: always()
         run: /bin/bash tests/test_contact_card_prefill.sh
       - name: contact email coverage guard
+        if: always()
         run: /bin/bash tests/test_contact_email_coverage_guard.sh
       - name: contact resync scheduled
+        if: always()
         run: /bin/bash tests/test_contact_resync_scheduled.sh
       - name: context refresh wired
+        if: always()
         run: /bin/bash tests/test_context_refresh_wired.sh
       - name: conversation bundle user id wired
+        if: always()
         run: /bin/bash tests/test_conversation_bundle_user_id_wired.sh
       - name: conversations ingest wiring
+        if: always()
         run: /bin/bash tests/test_conversations_ingest_wiring.sh
       - name: cx100 mail accounts detection
+        if: always()
         run: /bin/bash tests/test_cx100_mail_accounts_detection.sh
       - name: cx101 calendar hydrate path
+        if: always()
         run: /bin/bash tests/test_cx101_calendar_hydrate_path.sh
       - name: cx101 prelaunch gate population
+        if: always()
         run: /bin/bash tests/test_cx101_prelaunch_gate_population.sh
       - name: cx130 mail populate phase2
+        if: always()
         run: /bin/bash tests/test_cx130_mail_populate_phase2.sh
       - name: cx18 q7 channel choice labels match install sh
+        if: always()
         run: /bin/bash tests/test_cx18_q7_channel_choice_labels_match_install_sh.sh
       - name: cx453 no osascript contacts
+        if: always()
         run: /bin/bash tests/test_cx453_no_osascript_contacts.sh
       - name: cx95 venv shebang promote
+        if: always()
         run: /bin/bash tests/test_cx95_venv_shebang_promote.sh
       - name: cx98 channel vars unbound
+        if: always()
         run: /bin/bash tests/test_cx98_channel_vars_unbound.sh
       - name: cx98 previous install detection
+        if: always()
         run: /bin/bash tests/test_cx98_previous_install_detection.sh
       - name: daemon pins agree
+        if: always()
         run: /bin/bash tests/test_daemon_pins_agree.sh
       - name: dedupe defer background
+        if: always()
         run: /bin/bash tests/test_dedupe_defer_background.sh
       - name: dedupe heartbeat
+        if: always()
         run: /bin/bash tests/test_dedupe_heartbeat.sh
       - name: dmg contains bundled python
+        if: always()
         run: /bin/bash tests/test_dmg_contains_bundled_python.sh
       - name: doctor probe errtrap regression
+        if: always()
         run: /bin/bash tests/test_doctor_probe_errtrap_regression.sh
       - name: doctor probe non fatal
+        if: always()
         run: /bin/bash tests/test_doctor_probe_non_fatal.sh
       - name: email ingest bootstrap guard
+        if: always()
         run: /bin/bash tests/test_email_ingest_bootstrap_guard.sh
       - name: email ingest loud guard
+        if: always()
         run: /bin/bash tests/test_email_ingest_loud_guard.sh
       - name: email ingest venv wired
+        if: always()
         run: /bin/bash tests/test_email_ingest_venv_wired.sh
       - name: err trap emits done fail
+        if: always()
         run: /bin/bash tests/test_err_trap_emits_done_fail.sh
       - name: every fail call has error code
+        if: always()
         run: /bin/bash tests/test_every_fail_call_has_error_code.sh
       - name: every launchagent is torn down
+        if: always()
         run: /bin/bash tests/test_every_launchagent_is_torn_down.sh
       - name: fda assist ordering
+        if: always()
         run: /bin/bash tests/test_fda_assist_ordering.sh
       - name: fda prewarm no early messages popup
+        if: always()
         run: /bin/bash tests/test_fda_prewarm_no_early_messages_popup.sh
       - name: final summary nounset safe
+        if: always()
         run: /bin/bash tests/test_final_summary_nounset_safe.sh
       - name: gen patch new files
+        if: always()
         run: /bin/bash tests/test_gen_patch_new_files.sh
       - name: governor pause throttle
+        if: always()
         run: /bin/bash tests/test_governor_pause_throttle.sh
       - name: graph db pull retry
+        if: always()
         run: /bin/bash tests/test_graph_db_pull_retry.sh
       - name: grep c arith safety
+        if: always()
         run: /bin/bash tests/test_grep_c_arith_safety.sh
       - name: gui progress emitter
+        if: always()
         run: /bin/bash tests/test_gui_progress_emitter.sh
       - name: hydrate email preferences wired
+        if: always()
         run: /bin/bash tests/test_hydrate_email_preferences_wired.sh
       - name: hydrate people wired
+        if: always()
         run: /bin/bash tests/test_hydrate_people_wired.sh
       - name: ical server vendor wired
+        if: always()
         run: /bin/bash tests/test_ical_server_vendor_wired.sh
       - name: imessage fda probe
+        if: always()
         run: /bin/bash tests/test_imessage_fda_probe.sh
       - name: imessage self handles fallback
+        if: always()
         run: /bin/bash tests/test_imessage_self_handles_fallback.sh
       - name: install first month free
+        if: always()
         run: /bin/bash tests/test_install_first_month_free.sh
       - name: linkedin export detect
+        if: always()
         run: /bin/bash tests/test_linkedin_export_detect.sh
       - name: mail content probe
+        if: always()
         run: /bin/bash tests/test_mail_content_probe.sh
       - name: mail onboarding 259 260
+        if: always()
         run: /bin/bash tests/test_mail_onboarding_259_260.sh
       - name: mailbox ingest leg wired
+        if: always()
         run: /bin/bash tests/test_mailbox_ingest_leg_wired.sh
       - name: meeting brief sender
+        if: always()
         run: /bin/bash tests/test_meeting_brief_sender.sh
       - name: migration marker guard fresh install
+        if: always()
         run: python3 tests/test_migration_marker_guard_fresh_install.py
       - name: model fit
+        if: always()
         run: /bin/bash tests/test_model_fit.sh
       - name: no internal codenames in customer strings
+        if: always()
         run: /bin/bash tests/test_no_internal_codenames_in_customer_strings.sh
       - name: no literal backslash n in strings
+        if: always()
         run: /bin/bash tests/test_no_literal_backslash_n_in_strings.sh
       - name: no orphaned fixes gate
+        if: always()
         run: /bin/bash tests/test_no_orphaned_fixes_gate.sh
       - name: no undefined msg refs in install sh
+        if: always()
         run: /bin/bash tests/test_no_undefined_msg_refs_in_install_sh.sh
       - name: ostler gui sudo gates
+        if: always()
         run: /bin/bash tests/test_ostler_gui_sudo_gates.sh
       - name: placeholder strip
+        if: always()
         run: /bin/bash tests/test_placeholder_strip.sh
       - name: preferences vendor wired
+        if: always()
         run: /bin/bash tests/test_preferences_vendor_wired.sh
       - name: resource tier governor
+        if: always()
         run: /bin/bash tests/test_resource_tier_governor.sh
       - name: settling progress writer
+        if: always()
         run: /bin/bash tests/test_settling_progress_writer.sh
       - name: subscription activation path
+        if: always()
         run: /bin/bash tests/test_subscription_activation_path.sh
       - name: sync vendor pin untouched on abort
+        if: always()
         run: /bin/bash tests/test_sync_vendor_pin_untouched_on_abort.sh
       - name: tailscale recovery wrapper
+        if: always()
         run: /bin/bash tests/test_tailscale_recovery_wrapper.sh
       - name: takeout split zip no abort
+        if: always()
         run: /bin/bash tests/test_takeout_split_zip_no_abort.sh
       - name: total steps dynamic
+        if: always()
         run: /bin/bash tests/test_total_steps_dynamic.sh
       - name: uninstaller keep prompt
+        if: always()
         run: /bin/bash tests/test_uninstaller_keep_prompt.sh
       - name: universal import leg wired
+        if: always()
         run: /bin/bash tests/test_universal_import_leg_wired.sh
       - name: upgrade mode invariants
+        if: always()
         run: /bin/bash tests/test_upgrade_mode_invariants.sh
       - name: user facing tree
+        if: always()
         run: /bin/bash tests/test_user_facing_tree.sh
       - name: usr local bin symlinks gui safe
+        if: always()
         run: /bin/bash tests/test_usr_local_bin_symlinks_gui_safe.sh
       - name: v1 sweep install gating
+        if: always()
         run: /bin/bash tests/test_v1_sweep_install_gating.sh
       - name: vendor cm052 ai conversations
+        if: always()
         run: /bin/bash tests/test_vendor_cm052_ai_conversations.sh
       - name: vendor doctor knowledge embed wiring
+        if: always()
         run: /bin/bash tests/test_vendor_doctor_knowledge_embed_wiring.sh
       - name: vendor exclude glob depth
+        if: always()
         run: /bin/bash tests/test_vendor_exclude_glob_depth.sh
       - name: whatsapp channel block
+        if: always()
         run: /bin/bash tests/test_whatsapp_channel_block.sh
       - name: install daily briefs
+        if: always()
         run: /bin/bash tests/test_install_daily_briefs.sh
       - name: wiki baseline background
+        if: always()
         run: /bin/bash tests/test_wiki_baseline_background.sh
       - name: wiki recompile after late hydration
+        if: always()
         run: /bin/bash tests/test_wiki_recompile_after_late_hydration.sh
 
   # v1018-D675. These exercise VENDORED python, so they need what the vendored
@@ -360,18 +478,26 @@ jobs:
       - name: Assert the imports the tests actually need
         run: python -c "import aiofiles, nameparser, rapidfuzz, click, httpx, pydantic_settings, pytest; print('deps ok')"
       - name: amazon extracted-dir parse
+        if: always()
         run: python tests/test_amazon_extracted_dir_parse.py
       - name: appletv parser
+        if: always()
         run: python tests/test_appletv_parser.py
       - name: browsing ingest ensures its collection
+        if: always()
         run: python tests/test_browsing_ingest_ensures_collection.py
       - name: pinterest parser
+        if: always()
         run: python tests/test_pinterest_parser.py
       - name: preference noise source cap
+        if: always()
         run: python tests/test_pref_noise_source_cap.py
       - name: resolver robustness
+        if: always()
         run: python tests/test_resolver_robustness.py
       - name: vendor knowledge embed contract
+        if: always()
         run: python tests/test_vendor_knowledge_embed_contract.py
       - name: identity-resolver fuzzy candidate cache is O(n)
+        if: always()
         run: python tests/test_identity_resolver_fuzzy_cache.py
