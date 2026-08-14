@@ -93,7 +93,7 @@ def rows(path: Path) -> list[dict]:
 
 def expand(pattern: str) -> tuple[list[Path], str | None]:
     """Resolve a registry glob. Returns (paths, unresolved_reason)."""
-    for var in ("OSTLER_APP_PATH", "HR015_ROOT"):
+    for var in ("OSTLER_ASSISTANT_DIR", "OSTLER_APP_PATH", "HR015_ROOT"):
         token = f"${var}"
         if token in pattern:
             value = os.environ.get(var, "")
@@ -108,35 +108,53 @@ def expand(pattern: str) -> tuple[list[Path], str | None]:
     return hits, None
 
 
-def key_of(path: Path) -> str:
-    """Feed name from a tick path: .../imessage_source/bin/imessage-bundle-tick.sh
-    and .../Resources/ingest/imessage/tick.sh both key to 'imessage'."""
-    name = path.name
-    m = re.match(r"([a-z]+)-bundle-tick\.sh$", name)
-    if m:
-        return m.group(1)
-    if name == "tick.sh":
-        return path.parent.name
-    return path.stem
+PAIR_MAP = REPO / "tests" / "tick_pair_map.tsv"
 
 
 def check_invariant_survival(pair: dict, a: list[Path], b: list[Path]) -> list[str]:
+    """Compare declared pairs only.
+
+    The pairing is READ, never inferred. The two naming schemes do not line up
+    (email keeps its "-bundle" suffix, the other three drop it), so any rule that
+    derives one name from the other is wrong for some feed -- and a mis-derived
+    pair compares two unrelated files and then reports "no drift" confidently.
+    tests/tick_pair_map.tsv carries the mapping and how it was established.
+    """
     manifest = rows(REPO / pair["manifest"])
-    by_key_a = {key_of(p): p for p in a}
-    by_key_b = {key_of(p): p for p in b}
+    pmap = rows(PAIR_MAP)
+    by_dir = {p.parent.name: p for p in a}       # release/ingest-ticks/<feed>/tick.sh
+    by_base = {p.name: p for p in b}             # vendor/<pkg>/bin/<feed>-bundle-tick.sh
     failures: list[str] = []
 
-    keys = sorted(set(by_key_a) | set(by_key_b))
-    print(f"    feeds: {len(keys)} ({', '.join(keys)})")
-    for k in keys:
-        if k not in by_key_a:
-            failures.append(f"{k}: present as {pair['side_b_label']} only, absent from {pair['side_a_label']}")
+    paired = [r for r in pmap if r["status"] == "paired"]
+    unpaired = [r for r in pmap if r["status"] == "unpaired"]
+
+    # UNPAIRED IS A STEADY STATE, NOT A FAILURE -- but it is never silent.
+    # "no counterpart exists" and "the counterpart went missing" print
+    # identically if you do not say which one you mean.
+    print(f"    feeds: {len(by_dir)} executing, {len(by_base)} vendored, "
+          f"{len(paired)} declared pairs, {len(unpaired)} declared unpaired")
+    if unpaired:
+        print(f"    {DIM}unpaired (daemon-only, expected): "
+              f"{', '.join(r['feed_dir'] for r in unpaired)}{OFF}")
+
+    # A feed on disk that the map does not mention at all is a REAL gap: the map
+    # has gone stale against the tree, and an undeclared feed is an unchecked one.
+    undeclared = sorted(set(by_dir) - {r["feed_dir"] for r in pmap})
+    for u in undeclared:
+        failures.append(f"{u}: executing feed is not declared in tick_pair_map.tsv "
+                        f"-- the map is stale, so this feed is unchecked")
+
+    for r in paired:
+        k, vb = r["feed_dir"], r["vendored_basename"]
+        if k not in by_dir:
+            failures.append(f"{k}: declared paired but no executing tick resolved")
             continue
-        if k not in by_key_b:
-            failures.append(f"{k}: present as {pair['side_a_label']} only, absent from {pair['side_b_label']}")
+        if vb not in by_base:
+            failures.append(f"{k}: declared paired but vendored {vb} did not resolve")
             continue
-        text_a = by_key_a[k].read_text(encoding="utf-8", errors="replace")
-        text_b = by_key_b[k].read_text(encoding="utf-8", errors="replace")
+        text_a = by_dir[k].read_text(encoding="utf-8", errors="replace")
+        text_b = by_base[vb].read_text(encoding="utf-8", errors="replace")
         for inv in manifest:
             if inv["feed"] not in ("*", k):
                 continue
@@ -156,6 +174,47 @@ def check_invariant_survival(pair: dict, a: list[Path], b: list[Path]) -> list[s
                 where = "MISSING from BOTH sides"
             failures.append(f"{k}: {inv['id']} {where}\n        why: {inv['why']}")
     return failures
+
+
+def _names_from(path: Path) -> tuple[list[str], str]:
+    """Extract a declared name-list from a file. Returns (names, how).
+
+    The two sides are in different languages, so extraction is per-file and
+    deliberately narrow: a loose pattern that silently matches nothing yields an
+    empty list, and two empty lists compare EQUAL. That is a gate that passes by
+    finding nothing, so each extractor reports its own count and the caller
+    refuses a zero.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix == ".rs":
+        # `fn dir_name` match arms:  Self::Foo => "foo-bar",
+        block = re.search(r"fn dir_name.*?\n    \}", text, re.S)
+        scope = block.group(0) if block else ""
+        return re.findall(r'=>\s*"([a-z][a-z0-9-]*)"', scope), "Rust dir_name match arms"
+    # bash:  INGEST_SOURCES=( ... )
+    block = re.search(r"INGEST_SOURCES=\((.*?)\)", text, re.S)
+    scope = block.group(1) if block else ""
+    return re.findall(r"^\s*([a-z][a-z0-9-]*)\s*$", scope, re.M), "INGEST_SOURCES array"
+
+
+def check_list_parity(pair: dict, a: list[Path], b: list[Path]) -> list[str]:
+    na, how_a = _names_from(a[0])
+    nb, how_b = _names_from(b[0])
+    print(f"    {pair['side_a_label']}: {len(na)} names ({how_a})")
+    print(f"    {pair['side_b_label']}: {len(nb)} names ({how_b})")
+    # REFUSE A VACUOUS PASS. Two empty lists are equal, and an extractor that
+    # matched nothing looks exactly like a list that is legitimately empty.
+    if not na or not nb:
+        return [f"{pair['pair_id']}: an extractor returned ZERO names "
+                f"({how_a}={len(na)}, {how_b}={len(nb)}). Two empty lists compare "
+                f"equal, so this is a broken reader, not a passing gate."]
+    out = []
+    for miss in sorted(set(nb) - set(na)):
+        out.append(f"{miss}: in {pair['side_b_label']}, absent from {pair['side_a_label']}")
+    for miss in sorted(set(na) - set(nb)):
+        out.append(f"{miss}: in {pair['side_a_label']}, absent from {pair['side_b_label']}"
+                   f"  <- seals nothing; the daemon will fork a tick that was never bundled")
+    return out
 
 
 def check_size_report(pair: dict, a: list[Path], b: list[Path]) -> list[str]:
@@ -200,7 +259,17 @@ def main() -> int:
                 print(f"    {DIM}unresolved{OFF}: {side} -- {reason}")
             continue
         resolved += 1
-        found = check_invariant_survival(pair, a, b) if kind == "invariant_survival" else check_size_report(pair, a, b)
+        checker = {
+            "invariant_survival": check_invariant_survival,
+            "list_parity": check_list_parity,
+            "size_report": check_size_report,
+        }.get(kind)
+        if checker is None:
+            failures.append(f"{pid}: unknown kind '{kind}' -- a registry row this "
+                            f"gate cannot execute is not a checked row")
+            print(f"    {RED}UNKNOWN KIND{OFF}: {kind}")
+            continue
+        found = checker(pair, a, b)
         if found:
             failures.extend(f"{pid}: {f}" for f in found)
             for f in found:
