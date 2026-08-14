@@ -6220,7 +6220,27 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
-        _ask_source "apple_notes"      "Apple Notes             " Y
+        # APPLE NOTES IS STAGE-ONLY ON THIS BUILD AND THE CUSTOMER MUST BE TOLD.
+        #
+        # universal_import.py::_dispatch_apple_notes (line ~963) is deliberately
+        # stage-only: it writes apple_notes.json and returns WITHOUT `**persist`,
+        # unlike every sibling dispatcher. The reason in that comment is sound --
+        # the ostler-knowledge converter reads SOURCE DIRECTORIES (Obsidian vault,
+        # Evernote .enex, Notion export) and has no confirmed `--source
+        # apple_notes` kind for a note-list JSON, and guessing one would be a
+        # risky broad mapping into the knowledge store.
+        #
+        # The DEFERRAL is fine. Asking for Full Disk Access to someone's Notes
+        # without telling them the notes will not be searchable is NOT.
+        #
+        # This is a consent defect, not a UX one: consent is only meaningful if
+        # the person knows what they get. We read every note, write a JSON file,
+        # and nothing ingests it -- so the customer who says yes here gets
+        # nothing in the wiki or in search, and no message ever says so.
+        #
+        # Label says so until the converter grows an apple_notes source, at which
+        # point this suffix comes off in the same commit that wires persistence.
+        _ask_source "apple_notes"      "Apple Notes (staged only, not searchable yet) " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
@@ -8493,42 +8513,6 @@ TOMLPREAMBLE
     echo "enabled = true"
     echo "allow_private_hosts = true"
 
-    # ── Memory embeddings ────────────────────────────────────────────
-    #
-    # WITHOUT THIS BLOCK THE ASSISTANT CANNOT REMEMBER ANYTHING.
-    #
-    # install.sh never wrote a [memory] section, so every field came from
-    # the daemon's schema defaults -- and `default_embedding_provider()` is
-    # "none". That routes through create_embedding_provider's fallback arm to
-    # NoopEmbedding, whose dimensions() is 0, which makes
-    # get_or_compute_embedding return Ok(None) immediately, which makes
-    # store() write a NULL embedding and report SUCCESS.
-    #
-    # Result on a real box: `memories` populated, FTS populated, every
-    # `embedding` column NULL, `embedding_cache` at 0 rows. The assistant
-    # stores what you tell it and cannot recall it. Observed 2026-08-14: a
-    # fact stated at 21:08 could not be retrieved at 21:13 on the same
-    # channel. Every layer returned success; nothing logged.
-    #
-    # THE ENGINE WAS ALREADY HERE. Phase 3 installs nomic-embed-text, and the
-    # CX-43/#177 block below POSTs to /api/embed and HARD-FAILS the install
-    # unless real vectors come back. So the embedder is installed, running and
-    # proven -- the assistant's memory just was never pointed at it. Two halves
-    # of one feature; only one was wired.
-    #
-    # `custom:<base-url>` is the daemon's OpenAI-compatible provider. Ollama
-    # serves that shape at /v1, and OpenAiEmbedding appends "/embeddings",
-    # giving http://localhost:11434/v1/embeddings.
-    #
-    # dimensions MUST match the model: nomic-embed-text emits 768. The schema
-    # default is 1536 (text-embedding-3-small); leaving it would mis-size
-    # every stored vector.
-    echo
-    echo "[memory]"
-    echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
-    echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
-    echo "embedding_dimensions = 768"
-
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
@@ -10748,34 +10732,6 @@ if [[ "$EMBED_HEALTH_CODE" != "200" ]] || \
     rm -f "$EMBED_HEALTH_BODY"
     fail_with_code "ERR-13-EMBED-HEALTHCHECK" \
         "$(printf "$MSG_FAIL_EMBED_HEALTHCHECK" "$INSTALL_LOG")"
-fi
-
-# DIMENSION PARITY. The [memory] block above writes
-# embedding_dimensions = 768 because that is what nomic-embed-text emits.
-# That number is an ASSUMPTION until something measures it, and a wrong one
-# is silent: the daemon would size every stored vector to a width the model
-# never produces, and recall degrades without an error.
-#
-# We already have a real vector in hand from the healthcheck above, so count
-# it rather than trust the constant. If the model is ever swapped and the
-# width changes, the install fails HERE with both numbers named, instead of
-# shipping a memory system that quietly cannot match anything.
-EMBED_DIMS_ACTUAL="$(python3 -c "
-import json,sys
-try:
-    d=json.load(open('$EMBED_HEALTH_BODY'))
-    print(len(d['embeddings'][0]))
-except Exception:
-    print('')
-" 2>/dev/null || true)"
-if [[ -z "$EMBED_DIMS_ACTUAL" ]]; then
-    # Could not count. Do NOT treat an unreadable probe as agreement --
-    # that is the false green this whole block exists to prevent.
-    warn "$MSG_WARN_EMBED_DIMS_UNREADABLE"
-elif [[ "$EMBED_DIMS_ACTUAL" != "768" ]]; then
-    rm -f "$EMBED_HEALTH_BODY"
-    fail_with_code "ERR-13-EMBED-DIMS" \
-        "$(printf "$MSG_FAIL_EMBED_DIMS" "$EMBED_DIMS_ACTUAL" "768")"
 fi
 rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
