@@ -8,6 +8,7 @@ name: section-contract
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vendor/cm048_pipeline/src/processor.py'
       - 'vendor/cm048_pipeline/src/enrichment_validation.py'

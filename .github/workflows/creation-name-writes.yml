@@ -10,6 +10,7 @@ name: creation-name-writes
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/helpers/check_creation_name_writes.py'

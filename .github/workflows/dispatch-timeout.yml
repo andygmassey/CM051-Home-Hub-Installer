@@ -7,6 +7,7 @@ name: dispatch-timeout
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vendor/email_source/pipeline.py'
       - 'vendor/whatsapp_source/pipeline.py'

@@ -8,6 +8,7 @@ name: enrich-budget
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/helpers/check_enrich_budget.py'
