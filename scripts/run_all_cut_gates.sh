@@ -147,6 +147,12 @@ echo "-- Vendor + artefact freshness -----------------------------------"
 run "cut freshness"   "vendored inputs match live upstream"  bash scripts/verify_cut_freshness.sh
 run "cut provenance"  "components are the intended builds"   bash scripts/verify_cut_provenance.sh
 run "content provenance" "artefacts contain the required fixes" bash scripts/provenance_gate.sh
+# --require-full is LOAD-BEARING. Without it the gate runs in CI mode and
+# reports an unresolvable enforced pair as a gap while exiting 0. At cut time
+# the app bundle exists, so an enforced pair it cannot resolve means the
+# resolution has rotted, and a gate that cannot see what it enforces must fail.
+run "vendor pair drift" "the copy that RUNS matches the copy that was reviewed" \
+    python3 tests/test_vendor_pair_drift.py --require-full
 
 echo
 echo "-- The BOM: is everything we said would ship, shipping? ----------"

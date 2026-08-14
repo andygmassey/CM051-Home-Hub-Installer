@@ -1,0 +1,45 @@
+# vendor_pair_registry.tsv -- every pair of hand-maintained copies of the same
+# code that live in two places, and what the drift gate does about each.
+#
+# WHY A REGISTRY AND NOT A HARDCODED PAIR.
+#
+# The gate this feeds was built for one pair (the ingest ticks). Archie found a
+# second within the hour (ostler_fda), and neither of us believes that is the
+# complete set. A gate that watches one of three pairs is WORSE than no gate,
+# because it licenses the belief that the other two are checked. So the pairs
+# are declared here, the gate enumerates THIS FILE, and it prints the
+# denominator on every run.
+#
+# Add a row the moment a second copy of anything is created. A pair that is not
+# declared is not checked, and the gate cannot know it exists.
+#
+# STATUS
+#   enforced      the gate FAILS on drift, and FAILS if it cannot resolve either
+#                 side. An enforced pair it cannot see must never pass.
+#   unreconciled  a known pair whose correct direction nobody has measured yet.
+#                 REPORTED loudly and counted, never silently dropped, but does
+#                 not fail the cut. Promote to enforced once the direction is
+#                 established and an invariant set exists.
+#
+# KIND
+#   invariant_survival   every row in the named manifest must be present on BOTH
+#                        sides. NOT byte equality: the tick copies legitimately
+#                        differ (222 lines sealed vs 268 vendored, different
+#                        headers, no SOURCE_DIR placeholder in the seal), and a
+#                        diff that is red on a correct tree is not a gate, it is
+#                        a nuisance that trains people to switch it off. That is
+#                        precisely how "VERBATIM copy, do not diverge" ended up
+#                        being enforced by a comment.
+#   size_report          record the byte delta only. For unreconciled pairs, so
+#                        the drift is visible and dated without asserting which
+#                        side is right.
+#
+# COLUMNS (tab-separated)
+#   pair_id  status  kind  manifest  side_a_label  side_a_glob  side_b_label  side_b_glob  why
+#
+# side_*_glob is resolved relative to the CM051 repo root unless it begins with
+# $OSTLER_APP_PATH or $HR015_ROOT, which are resolved from the environment. A
+# glob that matches nothing is an unresolved side.
+pair_id	status	kind	manifest	side_a_label	side_a_glob	side_b_label	side_b_glob	why
+ingest_ticks	enforced	invariant_survival	tests/tick_seal_invariants.tsv	sealed (executes)	$OSTLER_APP_PATH/Contents/Resources/ingest/*/tick.sh	vendored (source of truth)	vendor/*_source/bin/*-bundle-tick.sh	the sealed copy is what the daemon forks; it lost the FDA preflight (sealed 0 tokens, vendored 16) and kept the unbounded slot hold, under a header asserting it was a verbatim copy
+ostler_fda_pwg_ingest	unreconciled	size_report		CM051 vendored (ships)	vendor/ostler_fda/pwg_ingest.py	HR015 source	$HR015_ROOT/ostler_fda/pwg_ingest.py	the DMG ships the CM051 copy and HR015 PRs land in the other; measured 2026-08-14 at 108969 vs 92704 bytes. Direction NOT established: nobody has measured which side is correct, so this row reports and does not fail.

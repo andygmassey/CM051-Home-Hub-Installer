@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""Cross-artefact drift gate: the copy that RUNS vs the copy that is REVIEWED.
+
+THE FAULT THIS EXISTS FOR
+-------------------------
+Two hand-maintained copies of the same code live in two places, one of them
+asserting in its own header that it is "a VERBATIM copy ... Do not diverge",
+and nothing compares them. Measured 2026-08-14:
+
+    sealed tick (executes)     0 FDA preflight tokens   control token 13
+    vendored tick (dormant)   16 FDA preflight tokens   control token 17
+
+The FDA preflight was reasoned about, fixed and reviewed in the vendored copy.
+The daemon forks the sealed copy. So the fix was never in the code that ran, and
+a gate written specifically to make the check and the defect share a surface was
+pointed at the dormant one and would have stayed green forever.
+
+An assertion in a comment is not a gate.
+
+WHY NOT A BYTE DIFF
+-------------------
+The two sides legitimately differ: 222 lines sealed against 268 vendored,
+different headers, no SOURCE_DIR placeholder in the seal. A diff would be red on
+a correct tree, and a gate that is red on a correct tree gets switched off. That
+is exactly how the prose comment ended up being the only enforcement anyone
+could stomach.
+
+So the invariant is SURVIVAL, not equality: every behavioural guarantee a
+customer depends on must be present on BOTH sides. The set is explicit and
+appendable (tests/tick_seal_invariants.tsv), each row drawn from a fault that
+actually happened, rather than derived from a diff.
+
+WHAT THIS GATE REFUSES TO DO
+----------------------------
+* It does not hardcode the path to the executing artefact. The sealed location
+  is declared in the registry and resolved at run time. A gate holding a literal
+  path goes green comparing nothing the moment that path moves, which is the
+  same failure one constant along.
+* It does not silently skip. An `enforced` pair whose side cannot be resolved is
+  a FAILURE, never a pass, because a gate that cannot see what it enforces has
+  no opinion worth having.
+* It does not hide the denominator. Every run prints pairs declared, resolved,
+  enforced and unreconciled, because a gate covering one of three pairs while
+  looking green is worse than no gate: it licenses the belief that the other two
+  are checked.
+* It does not collapse direction. "Present in the source of truth, absent in the
+  artefact that runs" is a shipped regression. The reverse is an artefact that
+  has grown a guarantee its source lacks. Opposite faults, opposite fixes, so
+  the output names which side each miss was found on.
+
+RELATIONSHIP TO tests/test_no_divergent_vendor_twin.sh
+------------------------------------------------------
+That gate is a SIBLING, not a duplicate, and neither subsumes the other. It
+compares vendor/<pkg> against a top-level <pkg> twin INSIDE this repo. This one
+compares this repo against artefacts OUTSIDE it: the signed app bundle and a
+sibling repo. Do not merge them; they read different surfaces.
+
+MODES
+-----
+    (default)        run what can be resolved, report the gap, exit 0. For CI,
+                     where no app bundle exists.
+    --require-full   any unresolved `enforced` pair is a failure. THIS is what
+                     the cut must use. run_all_cut_gates.sh passes it.
+"""
+from __future__ import annotations
+
+import glob
+import os
+import re
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+REGISTRY = REPO / "tests" / "vendor_pair_registry.tsv"
+
+GREEN, RED, YELLOW, DIM, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+
+
+def rows(path: Path) -> list[dict]:
+    """Parse a tab-separated manifest, skipping comments and the header."""
+    out: list[dict] = []
+    header: list[str] | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = line.split("\t")
+        if header is None:
+            header = parts
+            continue
+        out.append(dict(zip(header, parts)))
+    return out
+
+
+def expand(pattern: str) -> tuple[list[Path], str | None]:
+    """Resolve a registry glob. Returns (paths, unresolved_reason)."""
+    for var in ("OSTLER_APP_PATH", "HR015_ROOT"):
+        token = f"${var}"
+        if token in pattern:
+            value = os.environ.get(var, "")
+            if not value:
+                return [], f"{var} is not set"
+            pattern = pattern.replace(token, value)
+    if not pattern.startswith("/"):
+        pattern = str(REPO / pattern)
+    hits = sorted(Path(p) for p in glob.glob(pattern))
+    if not hits:
+        return [], f"no file matched {pattern}"
+    return hits, None
+
+
+def key_of(path: Path) -> str:
+    """Feed name from a tick path: .../imessage_source/bin/imessage-bundle-tick.sh
+    and .../Resources/ingest/imessage/tick.sh both key to 'imessage'."""
+    name = path.name
+    m = re.match(r"([a-z]+)-bundle-tick\.sh$", name)
+    if m:
+        return m.group(1)
+    if name == "tick.sh":
+        return path.parent.name
+    return path.stem
+
+
+def check_invariant_survival(pair: dict, a: list[Path], b: list[Path]) -> list[str]:
+    manifest = rows(REPO / pair["manifest"])
+    by_key_a = {key_of(p): p for p in a}
+    by_key_b = {key_of(p): p for p in b}
+    failures: list[str] = []
+
+    keys = sorted(set(by_key_a) | set(by_key_b))
+    print(f"    feeds: {len(keys)} ({', '.join(keys)})")
+    for k in keys:
+        if k not in by_key_a:
+            failures.append(f"{k}: present as {pair['side_b_label']} only, absent from {pair['side_a_label']}")
+            continue
+        if k not in by_key_b:
+            failures.append(f"{k}: present as {pair['side_a_label']} only, absent from {pair['side_b_label']}")
+            continue
+        text_a = by_key_a[k].read_text(encoding="utf-8", errors="replace")
+        text_b = by_key_b[k].read_text(encoding="utf-8", errors="replace")
+        for inv in manifest:
+            if inv["feed"] not in ("*", k):
+                continue
+            in_a = re.search(inv["pattern"], text_a) is not None
+            in_b = re.search(inv["pattern"], text_b) is not None
+            if in_a and in_b:
+                continue
+            # DIRECTION is the whole point: which side is missing it?
+            if in_b and not in_a:
+                where = (f"MISSING from {pair['side_a_label']}, present in "
+                         f"{pair['side_b_label']}  <- a shipped regression")
+            elif in_a and not in_b:
+                where = (f"MISSING from {pair['side_b_label']}, present in "
+                         f"{pair['side_a_label']}  <- the artefact grew a guarantee "
+                         f"its source of truth lacks")
+            else:
+                where = "MISSING from BOTH sides"
+            failures.append(f"{k}: {inv['id']} {where}\n        why: {inv['why']}")
+    return failures
+
+
+def check_size_report(pair: dict, a: list[Path], b: list[Path]) -> list[str]:
+    for pa, pb in zip(a, b):
+        sa, sb = pa.stat().st_size, pb.stat().st_size
+        delta = sa - sb
+        print(f"    {pair['side_a_label']}: {sa} bytes")
+        print(f"    {pair['side_b_label']}: {sb} bytes")
+        print(f"    delta: {delta:+d} bytes "
+              f"({'A larger' if delta > 0 else 'B larger' if delta else 'identical'})")
+    return []
+
+
+def main() -> int:
+    require_full = "--require-full" in sys.argv
+    if not REGISTRY.exists():
+        print(f"{RED}registry missing: {REGISTRY}{OFF}", file=sys.stderr)
+        return 2
+
+    pairs = rows(REGISTRY)
+    declared = len(pairs)
+    resolved = unresolved = 0
+    failures: list[str] = []
+    unresolved_enforced: list[str] = []
+
+    print(f"vendor-pair drift gate  ({'CUT mode, full coverage required' if require_full else 'CI mode, reports gaps'})")
+    print(f"registry: {REGISTRY.relative_to(REPO)}  --  {declared} pair(s) declared\n")
+
+    for pair in pairs:
+        pid, status, kind = pair["pair_id"], pair["status"], pair["kind"]
+        print(f"  [{status}] {pid}  ({kind})")
+        a, why_a = expand(pair["side_a_glob"])
+        b, why_b = expand(pair["side_b_glob"])
+        if why_a or why_b:
+            unresolved += 1
+            reason = why_a or why_b
+            side = pair["side_a_label"] if why_a else pair["side_b_label"]
+            if status == "enforced":
+                unresolved_enforced.append(f"{pid}: {side} unresolved -- {reason}")
+                print(f"    {RED if require_full else YELLOW}UNRESOLVED{OFF}: {side} -- {reason}")
+            else:
+                print(f"    {DIM}unresolved{OFF}: {side} -- {reason}")
+            continue
+        resolved += 1
+        found = check_invariant_survival(pair, a, b) if kind == "invariant_survival" else check_size_report(pair, a, b)
+        if found:
+            failures.extend(f"{pid}: {f}" for f in found)
+            for f in found:
+                print(f"    {RED}DRIFT{OFF}  {f}")
+        else:
+            print(f"    {GREEN}ok{OFF}")
+        print()
+
+    enforced = sum(1 for p in pairs if p["status"] == "enforced")
+    unrec = declared - enforced
+    print("-" * 68)
+    print(f"DENOMINATOR  declared {declared}   resolved {resolved}   "
+          f"unresolved {unresolved}   enforced {enforced}   unreconciled {unrec}")
+    if unrec:
+        print(f"{YELLOW}NOT ENFORCED{OFF}: {unrec} declared pair(s) are `unreconciled` -- "
+              f"reported above, but drift in them does NOT fail this gate.")
+
+    if failures:
+        print(f"\n{RED}FAIL{OFF}: {len(failures)} invariant(s) did not survive.")
+        return 1
+    if unresolved_enforced:
+        if require_full:
+            print(f"\n{RED}FAIL{OFF}: an enforced pair could not be resolved. "
+                  f"A gate that cannot see what it enforces must not pass.")
+            for u in unresolved_enforced:
+                print(f"  {u}")
+            print("\n  For the ingest_ticks pair, set OSTLER_APP_PATH to the built "
+                  "Ostler.app whose sealed ticks the daemon forks.")
+            return 1
+        print(f"\n{YELLOW}INCOMPLETE{OFF}: {len(unresolved_enforced)} enforced pair(s) "
+              f"unresolved in CI mode. The cut runs this with --require-full, where "
+              f"this is a failure.")
+        return 0
+    print(f"\n{GREEN}PASS{OFF}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
