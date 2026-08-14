@@ -21,6 +21,8 @@ on:
       - 'scripts/verify_cut_manifest.py'
       - 'scripts/verify_cut_manifest.sh'
       - 'scripts/tests/test_verify_cut_manifest.py'
+      - 'scripts/box_walk_probes/**'
+      - 'scripts/tests/test_people_seed_and_retrieval_probe.sh'
       - 'cut-manifests/**'
       - 'gui/Makefile'
       - '.github/workflows/cut-manifest.yml'
@@ -50,6 +52,26 @@ jobs:
       - name: Run verify_cut_manifest smoke tests
         run: |
           python -m pytest scripts/tests/test_verify_cut_manifest.py -v
+
+  # The box-walk probe body itself. The primitive above only proves the
+  # verifier honours a probe's exit code; this job proves the people probe
+  # actually FIRES, by driving it against a controllable fake box and
+  # asserting it goes RED on every way the round-trip can be wrong.
+  #
+  # macOS on purpose: the cut host runs the probe under /bin/bash, which is
+  # 3.2 on macOS. An ubuntu runner's bash 5 would accept 3.2-invalid syntax
+  # and pass a probe that dies on the real cut host.
+  people-probe-fires:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm we are testing under bash 3.2, as the cut host does
+        run: /bin/bash --version | head -1
+
+      - name: Probe must fire (1 green + 11 distinct reds)
+        run: /bin/bash scripts/tests/test_people_seed_and_retrieval_probe.sh
 
   manifest-parse:
     runs-on: ubuntu-latest
