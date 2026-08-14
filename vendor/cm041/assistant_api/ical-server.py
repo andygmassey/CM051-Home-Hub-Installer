@@ -2260,7 +2260,7 @@ def _memory_query_facts() -> list:
     # about the user themselves. But the assert endpoint above writes a fact
     # about SOMEONE ELSE and marks ownership separately:
     #
-    #     <fact> pwg:aboutPerson   <person_alison>   # who it is about
+    #     <fact> pwg:aboutPerson   <person_marlow>   # who it is about
     #            pwg:belongsToUser <user_andy>       # whose memory it is
     #
     # So "Jane Doe is your wife" was stored with aboutPerson = jane,

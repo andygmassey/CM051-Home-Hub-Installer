@@ -559,7 +559,7 @@
 +    # colleagues on the same DID line (BW-1). The unique-by-construction
 +    # identifiers (icloud_contact_uid, linkedin_url, whatsapp_lid) are always
 +    # trusted. The strict exact-normalised-name check is deliberately
-+    # conservative: name VARIANTS (e.g. "Granny Ritchie" / "Margaret Ritchie")
++    # conservative: name VARIANTS (e.g. "Granny Halloran" / "Margaret Halloran")
 +    # stay separate rather than risk a wrong merge -- relaxing that to a fuzzy
 +    # threshold is the BW-2 design follow-up.
 +    _SHAREABLE_ID_TYPES = {"email", "phone"}

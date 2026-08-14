@@ -230,8 +230,8 @@ def distinct_people(names: Iterable[str]) -> Set[str]:
     #
     # "Mum", "Home", "Work", "Achiever" are how the customer refers to someone
     # or where they work -- an alias, not another human. The live run flagged
-    # `alisonmassey@mac.com` as two people ("anthony quillon", "mum") and would
-    # have demoted Anthony's real address, splitting his wife off her own email.
+    # `marta.quillon@example.com` as two people ("marta quillon", "mum") and
+    # would have demoted Marta's real address, splitting her off her own email.
     #
     # A genuine second person arrives with a genuine name: "Craig Whittet" and
     # "Madhu Motwani" are both multi-word and stay two. So only clusters that
@@ -465,9 +465,10 @@ def looks_like_household(identifiers: Iterable[str], names: Iterable[str] = ()) 
       * two or more display names that are DISTINCT PEOPLE
 
     The second condition uses distinct_people(), not a raw name count. The
-    first version counted raw names and flagged Anthony: her node holds
-    `alisonmassey@mac.com` and `alisonritchie@mac.com` -- one woman before and
-    after marriage, with "Mum" and two phone numbers also on the card. Six
+    first version counted raw names and flagged Marta: that node holds
+    `marta.quillon@example.com` and `marta.halloran@example.com` -- one
+    person before and after a name change, with "Mum" and two phone numbers
+    also on the card. Six
     labels, two mailboxes, ONE person. A maiden-name alias on the same domain
     is the benign case this must never touch.
     """
