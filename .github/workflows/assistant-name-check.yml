@@ -2,8 +2,9 @@ name: assistant-name-check
 
 # Hardcoded-assistant-name lint guard. Blocks customer-rendered surfaces
 # from shipping the literal word "Marvin" -- the customer chooses their
-# assistant's name at install time (default "Marvin"; Alison chose
-# "Samantha"; v1.2 multi-instance will multiply this).
+# assistant's name at install time (default "Marvin"; a second user on
+# the same machine renamed theirs to "Samantha"; v1.2 multi-instance will
+# multiply this).
 #
 # Locked 2026-05-19 after the THIRD scrub attempt for the same class
 # of leak. Same script + bypass mechanism as the pre-commit hook at

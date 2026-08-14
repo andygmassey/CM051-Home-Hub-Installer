@@ -3,11 +3,11 @@
 
 THE BUG THIS KILLS, measured on a real graph (2026-08-07):
 
-    person_854d9326b47c   "Alison Massey"            (LinkedIn)
-    person_0d3b1069e8e5   "Mum Massey"               (Contacts, holds
-                                                      alison.massey@bupa.com
+    person_854d9326b47c   "Marlow Bexley"            (LinkedIn)
+    person_0d3b1069e8e5   "Mum Bexley"               (Contacts, holds
+                                                      marlow.bexley@example.com
                                                       as an identifier)
-    person_f17229f7-...   "alison.massey@bupa.com"   (calendar, 0 identifiers)
+    person_f17229f7-...   "marlow.bexley@example.com" (calendar, 0 identifiers)
 
 One human, three records, and the third was created by ``ingest_calendar``
 *while a person holding that exact address already existed*.
@@ -25,7 +25,7 @@ Two independent defects produced it:
    people were measured; nothing downstream could ever fold them in.
 
 Plus the cosmetic half Andy saw first: the raw address was used as the
-displayName and was NOT marked provisional, so "alison.massey@bupa.com"
+displayName and was NOT marked provisional, so "marlow.bexley@example.com"
 rendered as somebody's name and the resolver treated it as a real name it
 must not overwrite -- even though ``_is_provisional_display_name`` has said
 "a bare email used as a name is a placeholder" all along, and
@@ -112,7 +112,7 @@ def write_calendar(tmp: Path, attendees: list[str]) -> Path:
 
 
 MUM = "https://pwg.dev/ontology#person_0d3b1069e8e5"
-ADDR = "alison.massey@bupa.com"
+ADDR = "marlow.bexley@example.com"
 
 
 # ── 1. The real case: the attendee is somebody we already know ────────
