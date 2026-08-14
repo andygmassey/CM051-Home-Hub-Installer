@@ -8493,6 +8493,42 @@ TOMLPREAMBLE
     echo "enabled = true"
     echo "allow_private_hosts = true"
 
+    # ── Memory embeddings ────────────────────────────────────────────
+    #
+    # WITHOUT THIS BLOCK THE ASSISTANT CANNOT REMEMBER ANYTHING.
+    #
+    # install.sh never wrote a [memory] section, so every field came from
+    # the daemon's schema defaults -- and `default_embedding_provider()` is
+    # "none". That routes through create_embedding_provider's fallback arm to
+    # NoopEmbedding, whose dimensions() is 0, which makes
+    # get_or_compute_embedding return Ok(None) immediately, which makes
+    # store() write a NULL embedding and report SUCCESS.
+    #
+    # Result on a real box: `memories` populated, FTS populated, every
+    # `embedding` column NULL, `embedding_cache` at 0 rows. The assistant
+    # stores what you tell it and cannot recall it. Observed 2026-08-14: a
+    # fact stated at 21:08 could not be retrieved at 21:13 on the same
+    # channel. Every layer returned success; nothing logged.
+    #
+    # THE ENGINE WAS ALREADY HERE. Phase 3 installs nomic-embed-text, and the
+    # CX-43/#177 block below POSTs to /api/embed and HARD-FAILS the install
+    # unless real vectors come back. So the embedder is installed, running and
+    # proven -- the assistant's memory just was never pointed at it. Two halves
+    # of one feature; only one was wired.
+    #
+    # `custom:<base-url>` is the daemon's OpenAI-compatible provider. Ollama
+    # serves that shape at /v1, and OpenAiEmbedding appends "/embeddings",
+    # giving http://localhost:11434/v1/embeddings.
+    #
+    # dimensions MUST match the model: nomic-embed-text emits 768. The schema
+    # default is 1536 (text-embedding-3-small); leaving it would mis-size
+    # every stored vector.
+    echo
+    echo "[memory]"
+    echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
+    echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
+    echo "embedding_dimensions = 768"
+
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
@@ -10712,6 +10748,34 @@ if [[ "$EMBED_HEALTH_CODE" != "200" ]] || \
     rm -f "$EMBED_HEALTH_BODY"
     fail_with_code "ERR-13-EMBED-HEALTHCHECK" \
         "$(printf "$MSG_FAIL_EMBED_HEALTHCHECK" "$INSTALL_LOG")"
+fi
+
+# DIMENSION PARITY. The [memory] block above writes
+# embedding_dimensions = 768 because that is what nomic-embed-text emits.
+# That number is an ASSUMPTION until something measures it, and a wrong one
+# is silent: the daemon would size every stored vector to a width the model
+# never produces, and recall degrades without an error.
+#
+# We already have a real vector in hand from the healthcheck above, so count
+# it rather than trust the constant. If the model is ever swapped and the
+# width changes, the install fails HERE with both numbers named, instead of
+# shipping a memory system that quietly cannot match anything.
+EMBED_DIMS_ACTUAL="$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$EMBED_HEALTH_BODY'))
+    print(len(d['embeddings'][0]))
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+if [[ -z "$EMBED_DIMS_ACTUAL" ]]; then
+    # Could not count. Do NOT treat an unreadable probe as agreement --
+    # that is the false green this whole block exists to prevent.
+    warn "$MSG_WARN_EMBED_DIMS_UNREADABLE"
+elif [[ "$EMBED_DIMS_ACTUAL" != "768" ]]; then
+    rm -f "$EMBED_HEALTH_BODY"
+    fail_with_code "ERR-13-EMBED-DIMS" \
+        "$(printf "$MSG_FAIL_EMBED_DIMS" "$EMBED_DIMS_ACTUAL" "768")"
 fi
 rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
