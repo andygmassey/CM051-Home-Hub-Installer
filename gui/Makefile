@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.55
+DAEMON_VERSION       ?= 0.4.56
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -218,7 +218,7 @@ DAEMON_VERSION       ?= 0.4.55
 # black bar from wiki iframe. Signed + notarised + stapled at build time
 # (submission 4c8a2fdb-1049). R4 wiki SETTING-UP typography deferred to v1.0.13.3
 # per CM044 namespace mystery (HR015 task #249).
-DAEMON_SHA256        ?= 976c0b5d5b92073dfc7fe1ec0bbdafd3d70a6f5199bcde3ff9ce047bb063fc49
+DAEMON_SHA256        ?= e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
