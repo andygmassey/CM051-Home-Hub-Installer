@@ -8,6 +8,7 @@ name: enrich-budget
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/helpers/check_enrich_budget.py'
@@ -19,6 +20,13 @@ on:
       - 'tests/helpers/check_enrich_budget.py'
       - 'tests/test_enrich_budget.sh'
       - '.github/workflows/enrich-budget.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   enrich-budget:

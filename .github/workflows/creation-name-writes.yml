@@ -10,6 +10,7 @@ name: creation-name-writes
 
 on:
   push:
+    branches: [main]
     paths:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/helpers/check_creation_name_writes.py'
@@ -21,6 +22,13 @@ on:
       - 'tests/helpers/check_creation_name_writes.py'
       - 'tests/test_creation_name_writes.sh'
       - '.github/workflows/creation-name-writes.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   creation-name-writes:

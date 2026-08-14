@@ -27,6 +27,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   test-wiring:
     runs-on: macos-latest   # the cut host is macOS; /bin/bash is 3.2 there
