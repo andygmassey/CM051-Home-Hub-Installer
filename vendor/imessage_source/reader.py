@@ -85,7 +85,28 @@ def _connect_ro(db_path: Path) -> sqlite3.Connection:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as exc:
-        if "authorization denied" in str(exc).lower():
+        # The translation below used to key ONLY on "authorization
+        # denied". macOS never emits that string here, so the branch was
+        # unreachable and every real Full Disk Access denial escaped as a
+        # bare sqlite3.OperationalError. Measured on the live v1.0.26 box
+        # on 2026-08-14: imessage-bundle.err contained
+        #
+        #     sqlite3.OperationalError: unable to open database file
+        #
+        # and the operator was told nothing about FDA. The same run's
+        # fda-rerun log is the in-situ control: a context WITHOUT Full
+        # Disk Access reported "Safari History: unable to open database
+        # file" and "iMessage: unable to open database file" for exactly
+        # this cause. TCC denial surfaces as "unable to open database
+        # file", not as "authorization denied".
+        #
+        # Note the disambiguation this rests on: the exists() check above
+        # has already run, and under TCC stat(2) still succeeds while
+        # open(2) is denied. So reaching here with this message means the
+        # file IS there and could not be opened, which on macOS is a
+        # permissions problem rather than a missing path.
+        message = str(exc).lower()
+        if "unable to open database file" in message or "authorization denied" in message:
             raise PermissionError(
                 "Cannot read iMessage history. Grant Full Disk Access "
                 "to the Ostler Hub in System Settings > Privacy & "
