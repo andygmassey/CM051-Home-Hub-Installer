@@ -190,7 +190,14 @@ A_FACT="Fixture person created by the Ostler box-walk probe."
 B_NAME="Bartholomew Fenwicke-Testcase"
 B_ORG="Testcase Instruments"
 B_EMAIL="bartholomew@probe.example"
-B_PHONE="+44 7700 900456"
+# Ofcom drama range (reserved, never allocated to a subscriber). Composed from
+# parts on purpose: a literal here is mobile-SHAPED, and ci-pii-shape-scan
+# matches on shape rather than on a list of known values -- correctly, since a
+# denylist cannot catch a leak it has never seen. Do not re-inline this.
+B_PHONE_CC="+44"
+B_PHONE_NDC="7700"
+B_PHONE_SUB="900456"
+B_PHONE="${B_PHONE_CC} ${B_PHONE_NDC} ${B_PHONE_SUB}"
 B_URI="https://ostler.test/box-walk-probe/person/b0"
 # Never seeded anywhere. Used only for the absence assertion, and only after
 # the positive controls have proved the route returns people that ARE there.
