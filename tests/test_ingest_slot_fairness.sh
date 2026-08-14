@@ -44,6 +44,10 @@
 # Section 7  install.sh delivers the lib, and the embedded copy has not
 #            drifted from the canonical one
 # Section 8  the wiki recompile tick is wired to the shared slot
+# Section 9  EVERY conversation feed is wired -- the section whose
+#            absence let a delivered lib sit uncalled on the box
+# Section 10 a holder is only bounded because a waiter enrols, so an
+#            unwired peer makes the bound unreachable (behavioural)
 #
 # Run:  bash tests/test_ingest_slot_fairness.sh
 # British English throughout.
@@ -405,6 +409,145 @@ if /bin/bash -n "$WIKI_TICK" 2>/dev/null; then
     pass "wiki recompile tick parses under /bin/bash"
 else
     failure "wiki recompile tick has a syntax error under /bin/bash"
+fi
+
+# ---------------------------------------------------------------------
+# Section 9 -- THE WIRING. This is the section the suite was missing, and
+# its absence is why an earlier revision of this branch went fully green
+# on a tree where the starvation was completely untouched.
+#
+# On that tree the lib was written to ~/.ostler/lib/ by install.sh
+# (Section 7 passed), the wiki tick consulted it (Section 8 passed), and
+# `ostler_slot_acquire` appeared ZERO times in all four conversation feed
+# ticks. The email feed still took the slot with a bare mkdir, recording
+# no deadline and arming no watchdog, and the iMessage feed still waited
+# its flat 75s. Delivery is not invocation.
+#
+# So this enumerates the contending ticks rather than testing membership,
+# and prints the denominator, because "0 unwired out of 0 examined" reads
+# exactly like a clean result.
+# ---------------------------------------------------------------------
+echo
+echo "== Section 9: every feed that contends for the slot is wired to it =="
+
+SLOT_TICKS="
+vendor/email_source/bin/email-bundle-tick.sh|email-bundle
+vendor/imessage_source/bin/imessage-bundle-tick.sh|imessage-bundle
+vendor/whatsapp_source/bin/whatsapp-bundle-tick.sh|whatsapp-bundle
+vendor/spoken_source/bin/spoken-bundle-tick.sh|spoken-bundle
+wiki-recompile/bin/wiki-recompile-tick.sh|wiki-recompile
+"
+
+EXAMINED=0
+for _entry in $SLOT_TICKS; do
+    _rel="${_entry%%|*}"
+    _feed="${_entry##*|}"
+    _abs="$REPO_ROOT/$_rel"
+    if [ ! -f "$_abs" ]; then
+        failure "Section 9: $_rel does not exist; the tick list is stale and this section is measuring nothing"
+        continue
+    fi
+    EXAMINED=$((EXAMINED + 1))
+
+    grep -q "ostler_slot_acquire" "$_abs" \
+        || failure "$_rel never calls ostler_slot_acquire. It therefore never enrols as a waiter, so no holder is ever bounded on its behalf and it is never bounded itself."
+
+    grep -q "ostler_slot_run" "$_abs" \
+        || failure "$_rel does not run its payload through ostler_slot_run, so the maximum-hold watchdog is never armed and its hold stays unbounded."
+
+    # The escape hatch must be a bypass, not a kill switch. acquire returns
+    # 1 for BOTH "yield" and "disabled", so a tick that sources first and
+    # writes `acquire || exit 0` stops ingesting entirely when an operator
+    # sets OSTLER_INGEST_SLOT=0 to fall back to the inline lock.
+    _guard="$(grep -n 'OSTLER_INGEST_SLOT:-1' "$_abs" | head -1 | cut -d: -f1)"
+    _source="$(grep -n '\. "\$_\(ostler_\)\?slot_lib"\|\. "\$_lib"' "$_abs" | head -1 | cut -d: -f1)"
+    if [ -z "$_guard" ]; then
+        failure "$_rel does not test OSTLER_INGEST_SLOT before sourcing the lib; the documented escape hatch becomes a switch that stops this feed ingesting at all"
+    elif [ -n "$_source" ] && [ "$_guard" -gt "$_source" ]; then
+        failure "$_rel tests OSTLER_INGEST_SLOT at line $_guard, AFTER sourcing the lib at line $_source; the guard must come first or the escape hatch is a kill switch"
+    fi
+
+    # A box that has not yet received the lib must still interlock.
+    grep -q 'mkdir "$_ostler_lock"\|mkdir "$_slot"' "$_abs" \
+        || failure "$_rel has no inline fallback lock; on a box where install.sh has not yet written the lib it would put a second pipeline on Ollama"
+
+    if /bin/bash -n "$_abs" 2>/dev/null; then
+        :
+    else
+        failure "$_rel has a syntax error under /bin/bash (3.2 on the customer's Mac)"
+    fi
+done
+
+if [ "$EXAMINED" -ne 5 ]; then
+    failure "Section 9 examined $EXAMINED ticks, expected 5; a zero denominator reads exactly like a pass"
+else
+    pass "all $EXAMINED slot-contending ticks examined for wiring, watchdog, guard order and fallback"
+fi
+
+# The flat constant may survive ONLY on the no-lib fallback path. If it is
+# still what governs when the lib IS present, nothing has changed.
+if grep -q 'OSTLER_INGEST_STARVE_WAIT' "$REPO_ROOT/vendor/imessage_source/bin/imessage-bundle-tick.sh"; then
+    _acq_line="$(grep -n 'ostler_slot_acquire "imessage-bundle"' "$REPO_ROOT/vendor/imessage_source/bin/imessage-bundle-tick.sh" | head -1 | cut -d: -f1)"
+    _const_line="$(grep -n 'OSTLER_INGEST_STARVE_WAIT' "$REPO_ROOT/vendor/imessage_source/bin/imessage-bundle-tick.sh" | head -1 | cut -d: -f1)"
+    if [ -n "$_acq_line" ] && [ -n "$_const_line" ] && [ "$_const_line" -gt "$_acq_line" ]; then
+        pass "the flat 75s constant survives only below the acquire, on the no-lib fallback path"
+    else
+        failure "the flat 75s constant still governs the iMessage tick's arbitration; a constant cannot win against an unbounded hold, which is the entire defect"
+    fi
+fi
+
+# ---------------------------------------------------------------------
+# Section 10 -- WHY Section 9 is not pedantry, demonstrated rather than
+# asserted. The holder-side bound is gated on a waiter existing:
+#
+#     _ostler_slot_waiters_present || continue
+#
+# and the ONLY code that enrols a waiter is ostler_slot_acquire. So a
+# holder surrounded by peers that never call acquire is unbounded no
+# matter how small its OSTLER_SLOT_MAX_HOLD_SECS is. That is exactly the
+# state the branch was in: one wired consumer, four unwired peers, and a
+# maximum hold that could never be reached.
+# ---------------------------------------------------------------------
+echo
+echo "== Section 10: an unwired peer makes the holder's bound unreachable =="
+if [ ! -f "$LIB" ]; then
+    failure "Section 10 skipped: the lib is absent"
+else
+    WS10="$(mktemp -d)"
+    trap 'rm -rf "$WS10" 2>/dev/null || true' EXIT
+
+    # A holder with a 5s maximum hold, running a 30s payload. Nobody calls
+    # acquire, so nobody enrols, so the bound must NOT fire: this is also
+    # the property that keeps a multi-hour wiki backfill safe on an idle box.
+    OSTLER_STATE_DIR="$WS10" OSTLER_SLOT_MAX_HOLD_SECS=5 OSTLER_SLOT_POLL_SECS=1 \
+        /bin/bash -c '. "$1"; ostler_slot_acquire "holder" >/dev/null 2>&1 || exit 9; ostler_slot_run sleep 30 >/dev/null 2>&1' \
+        _ "$LIB" &
+    HOLDER10=$!
+    sleep 12   # more than twice the maximum hold
+
+    if kill -0 "$HOLDER10" 2>/dev/null; then
+        pass "with nobody enrolled, a 5s maximum hold did not fire after 12s (an idle box does not preempt)"
+    else
+        failure "the holder was stopped with no waiter enrolled; a long wiki backfill on an idle box would now be killed"
+    fi
+
+    # Now a real waiter enrols through acquire. The bound must fire.
+    OSTLER_STATE_DIR="$WS10" OSTLER_SLOT_MAX_HOLD_SECS=5 OSTLER_SLOT_POLL_SECS=1 \
+        OSTLER_SLOT_WAIT_SECS=30 OSTLER_SLOT_GRACE_SECS=2 \
+        /bin/bash -c '. "$1"; if ostler_slot_acquire "waiter"; then echo ACQUIRED; else echo YIELDED; fi' \
+        _ "$LIB" > "$WS10/waiter.out" 2>&1
+    WAIT10="$(cat "$WS10/waiter.out" 2>/dev/null | tail -1)"
+
+    if [ "$WAIT10" = "ACQUIRED" ]; then
+        pass "a waiter that enrols through acquire DOES bound the holder and gets the slot"
+    else
+        failure "a waiter enrolled through acquire and still did not get the slot (got '$WAIT10'); the bounded hold is not reachable even when wired"
+    fi
+
+    kill "$HOLDER10" 2>/dev/null || true
+    wait "$HOLDER10" 2>/dev/null || true
+    rm -rf "$WS10" 2>/dev/null || true
+    trap - EXIT
 fi
 
 echo
