@@ -108,6 +108,7 @@ test_imessage_fda_probe.sh	UNWIRED	-
 test_imessage_self_handles_fallback.sh	UNWIRED	-
 test_imessage_tcc_posture.sh	UNWIRED	-
 test_ingest_offpeak_throttle.sh	UNWIRED	-
+test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
 test_install_daily_briefs.sh	UNWIRED	-
 test_install_first_month_free.sh	UNWIRED	-
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
