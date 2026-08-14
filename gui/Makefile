@@ -1568,10 +1568,15 @@ notarise-hub: guard-local-cut check-tools
 	                fi; \
 	            fi; \
 	        done; \
-	        printf '[STEP] Re-sealing Ostler.app after payload re-sign\n'; \
-	        codesign --force --timestamp --options runtime \
-	            --sign "$(CODESIGN_ID)" "$(OSTLER_APP_PATH)" >/dev/null 2>&1 \
-	            || { echo "ERROR: could not re-seal Ostler.app" >&2; exit 1; }; \
+	    fi; \
+	    printf '[STEP] Sealing Ostler.app with Developer ID before notarisation\n'; \
+	    codesign --force --timestamp --options runtime \
+	        --sign "$(CODESIGN_ID)" "$(OSTLER_APP_PATH)" >/dev/null 2>&1 \
+	        || { echo "ERROR: could not seal Ostler.app" >&2; exit 1; }; \
+	    if ! codesign -dv "$(OSTLER_APP_PATH)" 2>&1 | grep -q 'TeamIdentifier=$(TEAM_ID)'; then \
+	        echo "ERROR: Ostler.app is not Developer ID signed after sealing." >&2; \
+	        echo "  Refusing to spend a notarisation cycle on a bundle Apple will reject." >&2; \
+	        exit 1; \
 	    fi; \
 	    printf '[STEP] Notarising Ostler.app (Hub) so the installer seals a STAPLED bundle\n'; \
 	    HUB_ZIP="$(BUILD_DIR)/Ostler-hub-notary.zip"; \
