@@ -32,6 +32,12 @@ fi
 
 WORK="$(mktemp -d -t peopleprobetest)"
 FAKE="${WORK}/fake_box.py"
+
+# The fake box is a python3 process. If python3 is missing or broken, every
+# scenario fails identically with "never bound a port", which names the SHAPE
+# of the failure and not its cause. State the interpreter up front.
+echo "harness: python3 = $(command -v python3 || echo '<NOT FOUND>')"
+echo "harness: $(python3 --version 2>&1 || echo 'python3 --version FAILED')"
 PASSES=0
 FAILS=0
 SERVER_PID=""
@@ -288,19 +294,33 @@ run_case() {
     local portfile="${WORK}/port.${mode}" outfile="${WORK}/out.${mode}"
     rm -f "$portfile"
 
+    local errfile="${WORK}/err.${mode}"
     MODE="$mode" FAKE_TOKEN="probe-test-token" \
-        python3 "$FAKE" "$portfile" >/dev/null 2>&1 &
+        python3 "$FAKE" "$portfile" >/dev/null 2>"$errfile" &
     SERVER_PID=$!
 
     # Bounded wait WITH a real delay: a poll loop with no sleep is not a wait.
     local tries=0 port=""
-    while [ "$tries" -lt 60 ]; do
+    while [ "$tries" -lt 200 ]; do
         if [ -s "$portfile" ]; then port="$(cat "$portfile")"; break; fi
         sleep 0.1
         tries=$((tries + 1))
     done
     if [ -z "$port" ]; then
-        echo "FAIL [${mode}] fake box never bound a port"
+        echo "FAIL [${mode}] fake box never bound a port after 20s"
+        # Say WHY. A harness that cannot name its own cause sends the reader
+        # guessing, and the guess is usually wrong.
+        if kill -0 "$SERVER_PID" 2>/dev/null; then
+            echo "       server pid ${SERVER_PID} is ALIVE but wrote no portfile"
+        else
+            echo "       server pid ${SERVER_PID} is DEAD"
+        fi
+        if [ -s "$errfile" ]; then
+            echo "       --- fake box stderr ---"
+            sed 's/^/       /' "$errfile" | head -20
+        else
+            echo "       fake box wrote NOTHING to stderr"
+        fi
         FAILS=$((FAILS + 1)); kill "$SERVER_PID" 2>/dev/null; SERVER_PID=""
         return
     fi
