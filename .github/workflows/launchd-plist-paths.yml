@@ -23,6 +23,8 @@ on:
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
+      - 'tests/test_launchagent_bootstrap_after_staging.py'
+      - '**/launchd/*.plist'
       - '.github/workflows/launchd-plist-paths.yml'
   push:
     branches: [main]
@@ -84,3 +86,19 @@ jobs:
       - name: Assert uninstall removes every LaunchAgent plist, not just the job
         if: always()
         run: bash tests/test_uninstall_removes_every_launchagent_plist.sh
+
+      # The ORDERING half of the same fault the step above gates by guard.
+      # A real install log showed step 19 of 39 reaching the email-ingest
+      # LaunchAgent while ProgramArguments[0] did not yet exist; the vendor
+      # guard refused and named EX_CONFIG (78). The guard was right, the
+      # ordering was the defect, and it exposed seven agents, not one. This
+      # asserts the invariant directly: no agent is bootstrapped before its
+      # ProgramArguments[0] is staged. It carries its own negative and
+      # positive controls and exits 2 rather than 0 if either misbehaves,
+      # so a checker that resolves nothing cannot print a green.
+      #
+      # `if: always()` for the same reason as every step above: an earlier
+      # limb's failure must not delete this measurement.
+      - name: Assert no LaunchAgent is bootstrapped before the daemon is staged
+        if: always()
+        run: python3 tests/test_launchagent_bootstrap_after_staging.py
