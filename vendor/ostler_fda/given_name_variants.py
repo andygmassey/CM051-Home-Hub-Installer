@@ -1,4 +1,4 @@
-"""Given-name variants: Andy IS Andrew.
+"""Given-name variants: Bob IS Robert.
 
 Andy, 2026-08-08: "same surname, and two firstnames where one is a well-known
 nickname/shortened version of the other should ALWAYS pass to next merge
@@ -11,7 +11,7 @@ Doe" because the SURNAME collided. It still split:
 
     Andy          vs  Robert Doe     -> no shared word -> two people
     Bob Smith     vs  Robert Smith      -> rescued (smith), by luck
-    Bob Doe   vs  Andrew M          -> split
+    Bob Doe   vs  Robert D          -> split
 
 A shortened given name is the single most common way one person appears twice
 in a contact graph, so leaving it to a surname coincidence is not good enough.
@@ -32,7 +32,7 @@ SAFETY
 ======
 This only ever makes the guard MORE willing to treat two records as one
 person. It cannot cause a split -- the failure it prevents. Two genuinely
-different people called Andrew and Andy with the same surname were already
+different people called Robert and Bob with the same surname were already
 indistinguishable to every other rule here; that is the dedupe layer's job,
 not this one's.
 """
