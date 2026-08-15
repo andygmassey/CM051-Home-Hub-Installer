@@ -156,6 +156,7 @@ cast	margaret	full-form spelling under test in the variants table; no surname or
 phrase	apple silicon	product noun
 phrase	full disk	macOS permission name
 phrase	home hub	product noun
+phrase	laptop hub	product noun, the sibling of home hub: #711's own copy for a Hub installed on a laptop. Two capitalised words, no person.
 phrase	human name	domain noun
 phrase	given name	domain noun
 phrase	display name	domain noun
