@@ -120,15 +120,45 @@ jobs:
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
 
-      # The wiki provenance checks must READ the image, never EXECUTE it.
-      # v1.0.27 was burned by the exec form: the wiki images are arm64-only by
-      # design and this runner is amd64, so `docker run` died with "exec format
-      # error", wiki_image_grep called that a STALE WIKI IMAGE, and -- far worse
-      # -- wiki_image_absent called it PROOF THE PATTERN WAS GONE.
-      #
-      # THIS STEP RUNS ON THE AMD64 RUNNER ON PURPOSE. That is the host where
-      # the defect is reachable; running it only where the image happens to
-      # execute would be testing the one environment that never had the bug.
+      # NOTE: the wiki-provenance extraction test is NOT here. This job is
+      # macos-latest, which has no docker, so the test skipped and the step went
+      # green having examined nothing -- see the wiki-provenance-extract job
+      # below, which runs it on ubuntu where docker exists and the defect lives.
+
+  # ---------------------------------------------------------------------------
+  # The wiki provenance checks must READ the image, never EXECUTE it.
+  #
+  # v1.0.27 was burned by the exec form: the wiki images are arm64-ONLY by
+  # design, cut.yml preflight is amd64, so `docker run` died with "exec format
+  # error". wiki_image_grep called that a STALE WIKI IMAGE, and -- far worse --
+  # wiki_image_absent called it PROOF THE PATTERN WAS GONE.
+  #
+  # UBUNTU ON PURPOSE, AND IT IS THE WHOLE POINT OF THE JOB. amd64 is the host
+  # where the defect is reachable. It was first wired into the macos job above,
+  # where docker does not exist at all: the test printed "SKIP: docker
+  # unavailable" and the step reported success having examined nothing. That is
+  # the same vacuous-green shape this test exists to kill, reproduced inside the
+  # guard itself, so the skip is now a hard failure rather than a pass.
+  # ---------------------------------------------------------------------------
+  wiki-provenance-extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker must really be here -- a missing docker is a FAILURE, not a skip
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null 2>&1 || { echo "::error::docker is absent on a runner chosen BECAUSE it has docker"; exit 1; }
+          docker info >/dev/null 2>&1 || { echo "::error::docker daemon unreachable"; exit 1; }
+          docker --version
+
       - name: wiki provenance -- extract, never exec (and no vacuous absence)
-        if: always()
-        run: bash tests/test_wiki_provenance_extracts_without_exec.sh
+        run: |
+          set -euo pipefail
+          out="$(bash tests/test_wiki_provenance_extracts_without_exec.sh 2>&1)"
+          printf '%s\n' "$out"
+          # A PASS that examined nothing is the defect, not the proof. The test
+          # keeps its SKIP arm so a developer without docker is not blocked; here
+          # that arm must never be taken, so assert the denominator explicitly.
+          grep -q 'EXAMINED: 6 assertion(s)' <<<"$out" || {
+            echo "::error::the test did not examine its 6 assertions -- it skipped or narrowed, and a skip is not a pass"; exit 1; }
