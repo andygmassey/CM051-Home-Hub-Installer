@@ -1,3 +1,14 @@
+--- a/facebook_events.py
++++ b/facebook_events.py
+@@ -4,7 +4,7 @@
+ 
+ Stores event name, date, location (when available), and description
+ as PersonFacts about the user — these become timeline entries in the
+-wiki and are searchable via Marvin.
++wiki and are searchable via the assistant.
+ 
+ Usage:
+     python -m contact_syncer.facebook_events \
 --- a/facebook_friends.py
 +++ b/facebook_friends.py
 @@ -437,6 +437,20 @@
@@ -70,7 +81,7 @@
 +                # candidate snapshot is loaded once and frozen; without this a
 +                # one-shot bulk import (e.g. 3,810 LinkedIn connections) mints a
 +                # fresh node for every repeat of a name -- the root cause of
-+                # "Jay Livens x6" on a fresh install, which the incrementally
++                # "Jane Doe x6" on a fresh install, which the incrementally
 +                # synced graph never hit (each daily run re-snapshots). Fires in
 +                # dry-run too so the reported dedup reflects real behaviour.
 +                resolver.register_person(
@@ -115,6 +126,37 @@
                  # Write messaging relationship signal
                  if not dry_run:
                      conv["conv_id"] = conv_id
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,7 +1,23 @@
+-vobject>=0.9.6
+-httpx>=0.27,<1.0
+-phonenumbers>=8.13.0
++vobject>=0.9.9,<1.0
++httpx>=0.28.1,<1.0
++phonenumbers>=8.13.0,<10.0
+ # qdrant-client: 1.x is API-stable. Pin to the major; allow patches and
+ # minors so security fixes pull through without manual intervention.
+-# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (52 / 52).
+-qdrant-client>=1.15,<2.0
++# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (30 / 30,
++# with CM041's identity_resolver on PYTHONPATH per the cross-repo dep).
++qdrant-client>=1.18.0,<2.0
++
++# rapidfuzz: replaces the hand-rolled Jaro-Winkler in
++# identity_resolver/normalise.py (C++ core, MIT). Verified on real name pairs
++# from the graph before the swap -- max delta 0.028 and ZERO crossings of the
++# 0.85 merge threshold, so no customer's merge decisions change. Pinned to the
++# major; 3.x has been API-stable since 2023.
++rapidfuzz>=3.14.0,<4.0
++
++# nameparser: structured first/middle/last/suffix. Replaces hand-rolled word
++# sorting and suffix regexes, and is the only one of the two that gets CJK
++# ordering right (yamada taro -> first=taro last=yamada), which the hand-rolled
++# version could not do at all.
++# CAVEAT, verified not assumed: it parses "Jane Ross via LinkedIn" to
++# last="LinkedIn", so the source-suffix stripper must run BEFORE it.
++nameparser>=2.1.0,<3.0
 --- a/syncer.py
 +++ b/syncer.py
 @@ -1,4 +1,4 @@
@@ -526,8 +568,8 @@
              id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
 +            # Store the NORMALISED value so it matches what the resolver's
 +            # find_by_identifier queries for. Previously this wrote the raw
-+            # vCard value (e.g. "+852 9681 6605") while the resolver looked up
-+            # the E.164 form ("+85296816605"), so Tier-1 exact-identifier dedup
++            # vCard value (e.g. "+44 7700 900123") while the resolver looked up
++            # the E.164 form ("+447700900123"), so Tier-1 exact-identifier dedup
 +            # never fired and every repeat minted a duplicate (BW-1).
 +            phone_value = normalise_phone(
 +                phone["value"], self.resolver.default_country_code

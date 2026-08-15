@@ -1009,8 +1009,8 @@ class ContactSyncer:
             id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
             # Store the NORMALISED value so it matches what the resolver's
             # find_by_identifier queries for. Previously this wrote the raw
-            # vCard value (e.g. "+852 9681 6605") while the resolver looked up
-            # the E.164 form ("+85296816605"), so Tier-1 exact-identifier dedup
+            # vCard value (e.g. "+44 7700 900123") while the resolver looked up
+            # the E.164 form ("+447700900123"), so Tier-1 exact-identifier dedup
             # never fired and every repeat minted a duplicate (BW-1).
             phone_value = normalise_phone(
                 phone["value"], self.resolver.default_country_code
