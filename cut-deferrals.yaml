@@ -150,9 +150,15 @@ pr_exemptions:
   - ref: "CM031-PWG-Companion#159"
     reason: "Conflicts with CM031 main. Rewrites SyncKeyVault (keychain, 40-byte wrapped DEK) and HubTrust (certificate pinning) across 30 files, and overlaps #158. A security surface that must be rebased deliberately and device-tested. Cannot reach the DMG (no vendor/cm031)."
     review_by: "2026-08-20"
-  - ref: "CM031-PWG-Companion#161"
-    reason: "Conflicts with CM031 main and overlaps #158/#159 on the shared Sources tree. Rebuilds the transcript queue from Realm; ordering against #164's end-marker fix has to be decided before either is rebased. Cannot reach the DMG (no vendor/cm031)."
-    review_by: "2026-08-20"
+  # CM031-PWG-Companion#161 exemption REMOVED 2026-08-15: the PR is merged
+  # (squash d23c356), so an exemption for it can only mislead the next reader.
+  # The ordering question it named was answered rather than deferred: main
+  # already carried #164's parked-end-marker work, main was merged into the
+  # branch first, and the CM031App.swift conflict was resolved by keeping
+  # main's retryFailedUploads plus resumeParkedMarkers calls and appending the
+  # transcript recovery after them. Verified on main after the merge:
+  # resumeParkedMarkers still present in WatchAudioReceiver and called from
+  # CM031App, and #164's merge commit is an ancestor.
 
 deferrals:
   # -------------------------------------------------------------------------
