@@ -41,7 +41,8 @@ _ROLE_LOCALS = frozenset({
 })
 
 # Domains that only ever send machine mail. Any address here is bulk, whatever
-# the local part -- `dan@newsletter.example` is a newsletter, not Dan.
+# the local part: a first-name local part on a newsletter domain is still
+# the newsletter, not a person of that name.
 _BULK_DOMAINS = (
     "tldrnewsletter.com",
     "e.linkedin.com",

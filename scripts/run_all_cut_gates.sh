@@ -156,6 +156,21 @@ run "wiki image PLATFORM" \
     bash tests/test_pinned_wiki_images_are_arm64_only.sh
 
 echo
+echo "-- Privacy: no real person's name in the shipping payload --------"
+# THE CUT, not just the PR. A workflow gate protects what goes through review;
+# it does not protect what is ASSEMBLED. Of the gate scripts in this repo, most
+# are invoked by nothing, so wiring a check into CI alone is not evidence that
+# it runs before a DMG exists.
+#
+# CM051 is PUBLIC and vendors the identity modules, so this is the last point
+# at which a real name can be stopped before it is inside a customer artefact.
+#
+# `run` treats any non-zero as RED, so exit 2 (CANNOT-RUN) blocks the cut. A
+# check that did not happen is indistinguishable from a check that passed.
+run "person-name permit-list" "no name outside the synthetic cast ships" \
+    python3 bin/pii_name_guard.py --root .
+
+echo
 echo "-- Vendor + artefact freshness -----------------------------------"
 # Tests IMPORT, production EXECUTES. A top-level def below a `__main__` guard
 # binds fine on import, so the whole test suite passes, and raises NameError
