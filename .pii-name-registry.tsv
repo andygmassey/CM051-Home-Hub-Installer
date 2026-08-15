@@ -291,6 +291,7 @@ phrase	creation	prose
 phrase	endorsement	domain noun
 phrase	endorser	domain noun
 phrase	carddav	protocol name
+phrase	north american	geographic descriptor of the NANP telephone numbering plan, appearing in a comment that names the US 555-01xx reserved fiction range. Not a person. The PAIR arm flags any two adjacent capitalised words and cannot tell a place from a surname. NOTE: this reason is deliberately written without that capitalised phrase -- the first version of this row carried it in the prose and the guard correctly flagged the registry itself.
 phrase	vcard	format name
 
 # Vocabulary surfaced by the STRICT tier on 2026-08-15, each one checked by
