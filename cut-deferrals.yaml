@@ -33,6 +33,32 @@
 
 pr_exemptions:
 
+  # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
+  #
+  # This is NOT a clean PR being parked. Two independent blockers, both measured:
+  #
+  #  1. Its own NEW test files carry three distinct real-person/operator tokens
+  #     (test_predicate_completeness.py:11, test_d004_blob_display_name.py:47,48,160).
+  #     Controlled BOTH directions: the repo's own
+  #     test_fixtures_have_no_real_contact_detail.py is GREEN on plain main and
+  #     RED with #119 merged. The branch introduces them. Note the shape -- the
+  #     file that hunts for the defect is itself the gate.
+  #
+  #  2. Its new gate correctly fires on a REAL defect: is_non_identifying is
+  #     enforced at 0 of 28 modules. Merging turns CM041 main red until a call
+  #     site lands. That is a product decision, not a merge decision.
+  #
+  # Exempting a PR that CAN merge is how a 176-PR backlog gets built, and the
+  # standing rule is to merge clean PRs rather than defer them. This one cannot
+  # merge without either publishing real-person data or reddening main.
+  #
+  # Clears when the fixtures are de-identified AND a call site for
+  # is_non_identifying lands. Not blocking v1.0.27: CM041 is a feature repo and
+  # vendor/ carries no cm041 path that this PR touches.
+  - ref: "CM041-People-Graph#119"
+    reason: "Introduces real-person tokens into its own test fixtures (guard green on main, red with it merged); and its new gate reds main until a call site exists. Cannot merge without publishing PII or breaking main."
+    review_by: "2026-08-22"
+
   # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
   # merging them to clear this gate would be shipping a failing PR to satisfy a
   # process check -- the exact move this file exists to prevent.
