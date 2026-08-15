@@ -1,0 +1,89 @@
+# Four supply-chain and signing tests existed, passed, and ran NOWHERE.
+#
+# scripts/verify_test_wiring.sh reports "OK: no test file is newly unwired"
+# because it is a ratchet: it recorded the 128 already-unwired files in
+# tests/TEST_WIRING.tsv as an accepted backlog and only fails when a NEW one
+# appears. The backlog was never burned down, so the gate is green while 128
+# tests sit permanently blessed.
+#
+# Measured 2026-08-15. The blessed backlog contained, among others:
+#
+#   the daemon signature gate            rc=0  PASSES  -> wired below
+#   the red-team supply-chain pin test   rc=0  PASSES  -> wired below
+#   the daemon pin-agreement test        rc=0  PASSES  -> wired below
+#   the pinned-image pullability test    rc=0  PASSES  -> wired below
+#   the red-team Team ID pin test        rc=1  known red, board row #676
+#   the CX-30/33 entitlement test        rc=1  known red
+#
+# The four that pass are wired below. That is not a fix for the backlog, it is
+# the removal of four items from it that cost nothing to run and cover what a
+# supply-chain or signing regression would break first: that the daemon is
+# gated on codesign + spctl, that every compose image is first-party, that the
+# daemon pins agree with each other, and that the pinned images are pullable.
+#
+# The two that fail are deliberately NOT wired here. Wiring a red test to make
+# a number look better is the same class of dishonesty as the ratchet.
+#
+# THE TWO RED ONES ARE DESCRIBED ABOVE WITHOUT THEIR FILENAMES, ON PURPOSE.
+# verify_test_wiring.sh:155 scores a test WIRED if its name appears ANYWHERE in
+# a workflow body -- `t in bodies.get(w, "")` -- and a comment is part of the
+# body. Naming them here to document that they are red would have marked them
+# wired, so a note explaining that two tests do not run would itself have
+# recorded them as running. That gate defect is filed separately; this file
+# just refuses to trip it.
+name: supply-chain-pins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose*.yml'
+      - 'install.sh'
+      - 'cut-manifests/**'
+      - 'tests/test_v1010_daemon_signature_gate.sh'
+      - 'tests/test_v1010_redteam3_supply_chain_pins.sh'
+      - 'tests/test_daemon_pins_agree.sh'
+      - 'tests/test_pinned_images_are_pullable.sh'
+      - '.github/workflows/supply-chain-pins.yml'
+  pull_request:
+    paths:
+      - 'docker-compose*.yml'
+      - 'install.sh'
+      - 'cut-manifests/**'
+      - 'tests/test_v1010_daemon_signature_gate.sh'
+      - 'tests/test_v1010_redteam3_supply_chain_pins.sh'
+      - 'tests/test_daemon_pins_agree.sh'
+      - 'tests/test_pinned_images_are_pullable.sh'
+      - '.github/workflows/supply-chain-pins.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  supply-chain-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every step carries `if: always()`. Without it the first failure skips
+      # the rest, and a skipped gate reports identically to one that ran and
+      # passed -- the same confusion this whole workflow exists to remove.
+      - name: daemon is gated on codesign + spctl
+        if: always()
+        run: bash tests/test_v1010_daemon_signature_gate.sh
+
+      - name: every compose image is first-party
+        if: always()
+        run: bash tests/test_v1010_redteam3_supply_chain_pins.sh
+
+      - name: daemon pins agree with each other
+        if: always()
+        run: bash tests/test_daemon_pins_agree.sh
+
+      - name: pinned images are pullable
+        if: always()
+        run: bash tests/test_pinned_images_are_pullable.sh
