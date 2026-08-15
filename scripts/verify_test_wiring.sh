@@ -140,6 +140,38 @@ for p in glob.glob(os.path.join(tests_dir, "*.sh")) + glob.glob(os.path.join(tes
     bodies[os.path.basename(p)] = read(p)
 
 # --- reachability -----------------------------------------------------------
+#
+# A MENTION IS NOT AN INVOCATION, AND THIS USED TO TREAT THEM AS THE SAME.
+#
+# The check below is a substring search over the whole file, and a comment is
+# part of the file. So a test scored WIRED if any workflow merely NAMED it.
+#
+# Found 2026-08-15 the only way this kind of thing gets found: it bit the commit
+# that was fixing the backlog. .github/workflows/supply-chain-pins.yml carried a
+# comment block listing the unwired supply-chain tests and their results, to
+# document which ones do NOT run. Running this gate immediately reported two of
+# them -- both red, both executing nowhere -- as newly WIRED. A note written to
+# record that two tests are dark would have recorded them as live, and the next
+# reader of TEST_WIRING.tsv would have seen WIRED against tests that never run.
+#
+# That matters more than a mislabelled row. The fix for the backlog IS wiring
+# tests, and anyone doing that work writes workflow comments naming the tests
+# they are triaging. The gate rewarded exactly that with false WIRED rows, so the
+# burn-down effort would corrupt the manifest it is trying to drain.
+#
+# FULL-LINE COMMENTS ONLY, deliberately. Stripping everything after any '#'
+# would truncate a real invocation whose arguments contain one -- a grep pattern,
+# a URL fragment, a colour code. The defect is comment BLOCKS listing test names,
+# and dropping lines whose first non-space character is '#' removes those with no
+# risk to a line that actually runs something.
+def strip_comment_lines(text):
+    return "\n".join(
+        l for l in text.splitlines() if not l.lstrip().startswith("#")
+    )
+
+starters = {k: strip_comment_lines(v) for k, v in starters.items()}
+bodies = {k: strip_comment_lines(v) for k, v in bodies.items()}
+
 runner = {}
 for t in tests:
     for name, text in starters.items():

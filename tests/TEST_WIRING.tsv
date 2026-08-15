@@ -38,7 +38,7 @@ test_cm048_prompts_packaged.sh	UNWIRED	-
 test_cm048_settings_models_wired.sh	UNWIRED	-
 test_colima_start_retry.sh	UNWIRED	-
 test_composite_cleanup.sh	UNWIRED	-
-test_consent_a7_a8.sh	WIRED	(via test_third_party_data_consent.sh)
+test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_contact_card_prefill.sh	UNWIRED	-
 test_contact_email_coverage_guard.sh	UNWIRED	-
@@ -137,7 +137,7 @@ test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.
 test_ollama_formula_swap.sh	UNWIRED	-
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
-test_pbxproj_sync_gate.sh	WIRED	.github/workflows/cut.yml
+test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	UNWIRED	-
 test_pinned_wiki_image_has_design_system.sh	WIRED	scripts/run_all_cut_gates.sh
@@ -161,7 +161,7 @@ test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tailnet_owner_resolution.py	UNWIRED	-
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
-test_third_party_data_consent.sh	WIRED	(via test_vane_bundle.sh)
+test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_total_steps_dynamic.sh	UNWIRED	-
 test_uninstaller_keep_prompt.sh	UNWIRED	-
 test_universal_import_leg_wired.sh	UNWIRED	-
@@ -178,7 +178,7 @@ test_v1010_store_auth_loopback.sh	UNWIRED	-
 test_v1010_store_front_proxy.sh	UNWIRED	-
 test_v1010_wiki_not_tailscale_served.sh	UNWIRED	-
 test_v1_sweep_install_gating.sh	UNWIRED	-
-test_vane_bundle.sh	WIRED	(via test_installer_app_bundle_contents.sh)
+test_vane_bundle.sh	UNWIRED	-
 test_vendor_cm052_ai_conversations.sh	UNWIRED	-
 test_vendor_doctor_knowledge_embed_wiring.sh	UNWIRED	-
 test_vendor_entrypoint_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -196,7 +196,7 @@ test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
 test_whatsapp_channel_block.sh	UNWIRED	-
 test_wiki_baseline_background.sh	UNWIRED	-
-test_wiki_compose_paths.sh	WIRED	(via test_vane_bundle.sh)
+test_wiki_compose_paths.sh	UNWIRED	-
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_recompile_after_late_hydration.sh	UNWIRED	-
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
