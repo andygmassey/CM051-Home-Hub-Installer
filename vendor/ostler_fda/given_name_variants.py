@@ -6,12 +6,12 @@ condition."
 
 WHY WORD-OVERLAP WAS NOT ENOUGH
 ===============================
-The clustering in identifier_quality only rescued "Andy Quillon" / "Andrew
-Quillon" because the SURNAME collided. It still split:
+The clustering in identifier_quality only rescued "Bob Doe" / "Robert
+Doe" because the SURNAME collided. It still split:
 
-    Andy          vs  Andrew Quillon     -> no shared word -> two people
+    Andy          vs  Robert Doe     -> no shared word -> two people
     Bob Smith     vs  Robert Smith      -> rescued (smith), by luck
-    Andy Quillon   vs  Andrew M          -> split
+    Bob Doe   vs  Andrew M          -> split
 
 A shortened given name is the single most common way one person appears twice
 in a contact graph, so leaving it to a surname coincidence is not good enough.
@@ -200,8 +200,8 @@ _ALL_GIVEN = set(_CANON) | set(_CANON.values())
 def is_known_given(word: str) -> bool:
     """True when this word is a known given name in the active locale table.
 
-    Used to stop two strangers uniting on a shared FIRST name: "Andrew Quillon"
-    and "Andrew Smith" share "andrew" and are two people. A surname match is
+    Used to stop two strangers uniting on a shared FIRST name: "Robert Doe"
+    and "Robert Smith" share "robert" and are two people. A surname match is
     evidence; a first-name match is a coincidence.
     """
     return (word or "").strip().lower() in _ALL_GIVEN

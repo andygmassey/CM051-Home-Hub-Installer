@@ -18,6 +18,6 @@ rapidfuzz>=3.14.0,<4.0
 # sorting and suffix regexes, and is the only one of the two that gets CJK
 # ordering right (yamada taro -> first=taro last=yamada), which the hand-rolled
 # version could not do at all.
-# CAVEAT, verified not assumed: it parses "Craig Whittet via LinkedIn" to
+# CAVEAT, verified not assumed: it parses "Jane Ross via LinkedIn" to
 # last="LinkedIn", so the source-suffix stripper must run BEFORE it.
 nameparser>=2.1.0,<3.0
