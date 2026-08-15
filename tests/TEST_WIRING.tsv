@@ -65,7 +65,7 @@ test_cx95_venv_shebang_promote.sh	UNWIRED	-
 test_cx98_channel_vars_unbound.sh	UNWIRED	-
 test_cx98_previous_install_detection.sh	UNWIRED	-
 test_daemon_fda_app_bundle_path.sh	UNWIRED	-
-test_daemon_pins_agree.sh	UNWIRED	-
+test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_dedupe_defer_background.sh	UNWIRED	-
 test_dedupe_heartbeat.sh	UNWIRED	-
 test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
@@ -139,7 +139,7 @@ test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/cut.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
-test_pinned_images_are_pullable.sh	UNWIRED	-
+test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	scripts/run_all_cut_gates.sh
 test_pinterest_parser.py	UNWIRED	-
 test_placeholder_strip.sh	UNWIRED	-
@@ -169,10 +169,10 @@ test_upgrade_mode_invariants.sh	UNWIRED	-
 test_user_facing_tree.sh	UNWIRED	-
 test_usr_local_bin_symlinks_gui_safe.sh	UNWIRED	-
 test_v1010_at_rest_exclusions.sh	UNWIRED	-
-test_v1010_daemon_signature_gate.sh	UNWIRED	-
+test_v1010_daemon_signature_gate.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_v1010_ical_doctor_service_auth.sh	UNWIRED	-
 test_v1010_ingest_reroute_plists.sh	UNWIRED	-
-test_v1010_redteam3_supply_chain_pins.sh	UNWIRED	-
+test_v1010_redteam3_supply_chain_pins.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_v1010_redteam3_teamid_pin.sh	UNWIRED	-
 test_v1010_store_auth_loopback.sh	UNWIRED	-
 test_v1010_store_front_proxy.sh	UNWIRED	-
