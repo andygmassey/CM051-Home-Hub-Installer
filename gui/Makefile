@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.55
+DAEMON_VERSION       ?= 0.4.56
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -218,7 +218,7 @@ DAEMON_VERSION       ?= 0.4.55
 # black bar from wiki iframe. Signed + notarised + stapled at build time
 # (submission 4c8a2fdb-1049). R4 wiki SETTING-UP typography deferred to v1.0.13.3
 # per CM044 namespace mystery (HR015 task #249).
-DAEMON_SHA256        ?= 976c0b5d5b92073dfc7fe1ec0bbdafd3d70a6f5199bcde3ff9ce047bb063fc49
+DAEMON_SHA256        ?= e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -1166,6 +1166,34 @@ check-ostler-app:
 	    exit 1; \
 	fi
 	@printf '[CHECK] OSTLER_APP_PATH=%s (directory exists)\n' "$(OSTLER_APP_PATH)"
+	@# PRE-SEAL PROVENANCE. Until this existed, the two checks above were the
+	@# whole of check-ostler-app: non-empty, and is-a-directory. Nothing asked
+	@# WHICH bundle it was.
+	@#
+	@# That was survivable only by accident. An ad-hoc bundle used to die at
+	@# notarytool (step 11) with "Invalid". #679 made notarise-hub seal the Hub
+	@# unconditionally -- correct in itself, an unsigned bundle must never reach
+	@# Apple -- and in doing so converted that noisy accidental backstop into a
+	@# silent pass: we now sign the unknown bundle ourselves and it is Accepted.
+	@#
+	@# The surviving TeamIdentifier assertion in verify-dmg-contents runs AFTER
+	@# the seal we just applied, so it can only fail if codesign failed. And
+	@# verify_commit_parity.sh asks the right question POST-cut, on a mounted
+	@# DMG, after a notarisation round trip has already been spent.
+	@#
+	@# So ask it here, at step 5, before anything is signed. Delegated to a
+	@# script (as COMMIT_PARITY_SH is) so the assertion is self-testable:
+	@# scripts/tests/test_verify_app_provenance.sh, whose load-bearing control
+	@# proves a bundle whose commit differs but whose frontend is IDENTICAL
+	@# still passes. rc=2 (could not run) blocks too: an unmeasured provenance
+	@# is not a pass.
+	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" || { \
+	    echo "" >&2; \
+	    echo "  Refusing to continue: the Ostler.app going into this DMG has not" >&2; \
+	    echo "  been shown to be the bundle this cut intends to ship. Sealing it" >&2; \
+	    echo "  would launder an unattested binary into a signed, notarised DMG." >&2; \
+	    exit 1; \
+	}
 
 sparkle-embed: guard-local-cut
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
@@ -1568,10 +1596,15 @@ notarise-hub: guard-local-cut check-tools
 	                fi; \
 	            fi; \
 	        done; \
-	        printf '[STEP] Re-sealing Ostler.app after payload re-sign\n'; \
-	        codesign --force --timestamp --options runtime \
-	            --sign "$(CODESIGN_ID)" "$(OSTLER_APP_PATH)" >/dev/null 2>&1 \
-	            || { echo "ERROR: could not re-seal Ostler.app" >&2; exit 1; }; \
+	    fi; \
+	    printf '[STEP] Sealing Ostler.app with Developer ID before notarisation\n'; \
+	    codesign --force --timestamp --options runtime \
+	        --sign "$(CODESIGN_ID)" "$(OSTLER_APP_PATH)" >/dev/null 2>&1 \
+	        || { echo "ERROR: could not seal Ostler.app" >&2; exit 1; }; \
+	    if ! codesign -dv "$(OSTLER_APP_PATH)" 2>&1 | grep -q 'TeamIdentifier=$(TEAM_ID)'; then \
+	        echo "ERROR: Ostler.app is not Developer ID signed after sealing." >&2; \
+	        echo "  Refusing to spend a notarisation cycle on a bundle Apple will reject." >&2; \
+	        exit 1; \
 	    fi; \
 	    printf '[STEP] Notarising Ostler.app (Hub) so the installer seals a STAPLED bundle\n'; \
 	    HUB_ZIP="$(BUILD_DIR)/Ostler-hub-notary.zip"; \
@@ -2018,6 +2051,10 @@ verify-stapling:
 # are worse than no gate.
 # ---------------------------------------------------------------------------
 COMMIT_PARITY_SH ?= $(CURDIR)/../scripts/verify_commit_parity.sh
+
+# Pre-seal sibling of COMMIT_PARITY_SH. Same question, asked at step 5 instead
+# of post-cut, and asserted on frontend CONTENT rather than commit-SHA equality.
+APP_PROVENANCE_SH ?= $(CURDIR)/../scripts/verify_app_provenance.sh
 verify-commit-parity:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: the commit-parity gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \

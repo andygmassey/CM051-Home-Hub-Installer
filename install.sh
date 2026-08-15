@@ -8493,6 +8493,42 @@ TOMLPREAMBLE
     echo "enabled = true"
     echo "allow_private_hosts = true"
 
+    # ── Memory embeddings ────────────────────────────────────────────
+    #
+    # WITHOUT THIS BLOCK THE ASSISTANT CANNOT REMEMBER ANYTHING.
+    #
+    # install.sh never wrote a [memory] section, so every field came from
+    # the daemon's schema defaults -- and `default_embedding_provider()` is
+    # "none". That routes through create_embedding_provider's fallback arm to
+    # NoopEmbedding, whose dimensions() is 0, which makes
+    # get_or_compute_embedding return Ok(None) immediately, which makes
+    # store() write a NULL embedding and report SUCCESS.
+    #
+    # Result on a real box: `memories` populated, FTS populated, every
+    # `embedding` column NULL, `embedding_cache` at 0 rows. The assistant
+    # stores what you tell it and cannot recall it. Observed 2026-08-14: a
+    # fact stated at 21:08 could not be retrieved at 21:13 on the same
+    # channel. Every layer returned success; nothing logged.
+    #
+    # THE ENGINE WAS ALREADY HERE. Phase 3 installs nomic-embed-text, and the
+    # CX-43/#177 block below POSTs to /api/embed and HARD-FAILS the install
+    # unless real vectors come back. So the embedder is installed, running and
+    # proven -- the assistant's memory just was never pointed at it. Two halves
+    # of one feature; only one was wired.
+    #
+    # `custom:<base-url>` is the daemon's OpenAI-compatible provider. Ollama
+    # serves that shape at /v1, and OpenAiEmbedding appends "/embeddings",
+    # giving http://localhost:11434/v1/embeddings.
+    #
+    # dimensions MUST match the model: nomic-embed-text emits 768. The schema
+    # default is 1536 (text-embedding-3-small); leaving it would mis-size
+    # every stored vector.
+    echo
+    echo "[memory]"
+    echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
+    echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
+    echo "embedding_dimensions = 768"
+
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
@@ -8641,11 +8677,19 @@ TOMLPREAMBLE
         #     for Web pair-code mode, or phone_number_id + access_token +
         #     verify_token for Cloud API)
         #
-        # and never registers in the cron-delivery registry. Every customer
-        # install since this block landed has written `enabled = true` with no
-        # selector, so the consent ceremony recorded a yes and the channel was
-        # never reachable. Found 2026-08-12 on the gate box by putting
-        # session_path into the config by hand and restarting the daemon.
+        # and never registers in the cron-delivery registry. That WAS the defect:
+        # installs wrote `enabled = true` with no selector, so the consent
+        # ceremony recorded a yes and the channel was never reachable. Found
+        # 2026-08-12 on the gate box by putting session_path into the config by
+        # hand and restarting the daemon.
+        #
+        # IT IS FIXED, AND THIS COMMENT USED TO SAY OTHERWISE. The selector is
+        # written eleven lines below, at the `session_path = ` echo. A stale
+        # past-tense claim sitting directly above the code that falsifies it is
+        # how a refuted defect gets re-filed: this text seeded a false triple-red
+        # launch blocker (#322) because it reads as a live statement about the
+        # current install path. Corrected 2026-08-15. If the echo below is ever
+        # removed, this paragraph becomes true again and must be restored.
         #
         # SQLite file, not a directory: wa-rs opens it through RusqliteStore and
         # writes `-wal` / `-shm` siblings alongside. Engine zone, not the
@@ -8807,14 +8851,50 @@ TOMLPREAMBLE
     # so we do not have to spell out "look at yesterday's data"
     # twice. Customers can edit the prompt after install by hand
     # in ${OSTLER_DIR}/assistant-config/config.toml.
+    # BRIEF DELIVERY CHANNEL -- resolved from what the customer actually set
+    # up, not assumed to be iMessage.
+    #
+    # This whole block used to be gated on CHANNEL_IMESSAGE_ENABLED alone, so a
+    # WhatsApp-only customer got NO [[cron.jobs]] written at all -- no morning
+    # brief, no evening wrap, ever. Not "delivered to the wrong channel": the
+    # jobs did not exist.
+    #
+    # And the installer had ALREADY promised them. The WhatsApp number prompt
+    # says, in as many words, "Where the morning brief (09:00) and evening wrap
+    # (18:00) get delivered". We asked for the number, told them what it was
+    # for, and then wrote a config with nothing to deliver.
+    #
+    # The daemon half of this was fixed on 2026-07-07 (oa 21b2e27c, task #446):
+    # its delivery-channel validator had silently rejected `channel =
+    # "whatsapp"`. That fix is in the shipping pin. But it only removed the
+    # BLOCKER -- nothing ever emitted a whatsapp brief job for it to accept.
+    # A validator that would accept the config and a writer that never produces
+    # it are the two halves of the same feature, and only one of them landed.
+    #
+    # iMessage stays FIRST when both are available: it is the lower-friction
+    # channel on a Mac and the long-standing default. WhatsApp is the fallback,
+    # not a downgrade.
+    _brief_channel=""
+    _brief_to=""
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true && -n "$CHANNEL_IMESSAGE_ALLOWED" ]]; then
         # Pick the first allowed contact as the brief recipient.
         # The allowed_contacts list is comma-separated; trim
         # whitespace around the first entry.
-        _imsg_brief_recipient="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
-        _imsg_brief_recipient="${_imsg_brief_recipient# }"
-        _imsg_brief_recipient="${_imsg_brief_recipient% }"
-        _imsg_brief_recipient_esc="${_imsg_brief_recipient//\"/\\\"}"
+        _brief_channel="imessage"
+        _brief_to="${CHANNEL_IMESSAGE_ALLOWED%%,*}"
+        _brief_to="${_brief_to# }"
+        _brief_to="${_brief_to% }"
+    elif [[ "$CHANNEL_WHATSAPP_ENABLED" == true && -n "$CHANNEL_WHATSAPP_RECIPIENT" ]]; then
+        _brief_channel="whatsapp"
+        _brief_to="$CHANNEL_WHATSAPP_RECIPIENT"
+    fi
+
+    # No channel resolved = genuinely nowhere to deliver, so writing the jobs
+    # would only manufacture a daily delivery error. That is the ONE correct
+    # reason to emit nothing.
+    if [[ -n "$_brief_channel" ]]; then
+        _brief_channel_esc="${_brief_channel//\"/\\\"}"
+        _brief_to_esc="${_brief_to//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
         _morning_prompt="You are the user's personal assistant. Write a concise morning brief in plain prose for delivery as a short message. Summarise the most relevant items from yesterday's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If yesterday was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the brief itself."
         _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
@@ -8827,7 +8907,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 9 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_morning_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_to_esc}\", best_effort = false }"
         echo
         echo "[[cron.jobs]]"
         echo "id = \"evening-wrap\""
@@ -8835,7 +8915,7 @@ TOMLPREAMBLE
         echo "job_type = \"agent\""
         echo "schedule = { kind = \"cron\", expr = \"0 18 * * *\", tz = \"${_user_tz_esc}\" }"
         echo "prompt = \"${_evening_prompt_esc}\""
-        echo "delivery = { mode = \"announce\", channel = \"imessage\", to = \"${_imsg_brief_recipient_esc}\", best_effort = false }"
+        echo "delivery = { mode = \"announce\", channel = \"${_brief_channel_esc}\", to = \"${_brief_to_esc}\", best_effort = false }"
     fi
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
@@ -10712,6 +10792,34 @@ if [[ "$EMBED_HEALTH_CODE" != "200" ]] || \
     rm -f "$EMBED_HEALTH_BODY"
     fail_with_code "ERR-13-EMBED-HEALTHCHECK" \
         "$(printf "$MSG_FAIL_EMBED_HEALTHCHECK" "$INSTALL_LOG")"
+fi
+
+# DIMENSION PARITY. The [memory] block above writes
+# embedding_dimensions = 768 because that is what nomic-embed-text emits.
+# That number is an ASSUMPTION until something measures it, and a wrong one
+# is silent: the daemon would size every stored vector to a width the model
+# never produces, and recall degrades without an error.
+#
+# We already have a real vector in hand from the healthcheck above, so count
+# it rather than trust the constant. If the model is ever swapped and the
+# width changes, the install fails HERE with both numbers named, instead of
+# shipping a memory system that quietly cannot match anything.
+EMBED_DIMS_ACTUAL="$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$EMBED_HEALTH_BODY'))
+    print(len(d['embeddings'][0]))
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+if [[ -z "$EMBED_DIMS_ACTUAL" ]]; then
+    # Could not count. Do NOT treat an unreadable probe as agreement --
+    # that is the false green this whole block exists to prevent.
+    warn "$MSG_WARN_EMBED_DIMS_UNREADABLE"
+elif [[ "$EMBED_DIMS_ACTUAL" != "768" ]]; then
+    rm -f "$EMBED_HEALTH_BODY"
+    fail_with_code "ERR-13-EMBED-DIMS" \
+        "$(printf "$MSG_FAIL_EMBED_DIMS" "$EMBED_DIMS_ACTUAL" "768")"
 fi
 rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
@@ -14339,7 +14447,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.55}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.56}"
 
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
 # Hard-coded last-known-good release. The fallback path below
@@ -14410,7 +14518,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="976c0b5d5b92073dfc7fe1ec0bbdafd3d70a6f5199bcde3ff9ce047bb063fc49"
+DEFAULT_ASSISTANT_TARBALL_SHA256="e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
@@ -16385,7 +16493,19 @@ OSTLER_TS_WRAPPER
             ok "$MSG_OK_TAILSCALE_INSTALLED"
         else
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
-            OSTLER_TAILSCALE_SKIPPED=1
+            # OSTLER_TAILSCALE_SKIPPED=1 used to be set here and was read by
+            # nothing, anywhere in the repo -- one write, zero reads. Removed
+            # rather than wired, because the state it tracked is already
+            # derivable one line later: TS_CLI comes from `command -v tailscale`
+            # and is empty on exactly this path, so the block below already
+            # branches correctly. A second, hand-maintained copy of a fact the
+            # code can compute is the same class of bug as a vendored twin --
+            # and a flag that LOOKS like it gates something is worse than no
+            # flag, because the next person assumes the state is tracked.
+            #
+            # What was genuinely missing is handled at the TS_CLI branch below:
+            # the customer was told the install failed but never told what it
+            # COSTS them.
         fi
     else
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
@@ -16788,6 +16908,17 @@ if ports:
         fi
     else
         warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
+        # SAY WHAT IT COSTS, not just what failed. This branch is where the
+        # brew-install failure lands (TS_CLI is empty), and until now the
+        # customer got two messages that both described the MECHANISM
+        # ("install failed", "could not find the CLI") and neither of which
+        # said the thing they actually care about: their iPhone and Watch will
+        # only reach this Mac on the home network.
+        #
+        # The customer who DECLINED Tailscale was told that consequence (the
+        # else below). The customer whose install FAILED was not -- the worse
+        # outcome got the weaker explanation. Same sentence, both paths.
+        info "$MSG_INFO_TAILSCALE_SKIPPED"
     fi
 else
     info "$MSG_INFO_TAILSCALE_SKIPPED"

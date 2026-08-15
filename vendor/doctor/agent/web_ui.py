@@ -114,6 +114,7 @@ from web_ui_copy import (
     DASHBOARD_CONFIG_LINK,
     DASHBOARD_IMPORT_EVERNOTE_LINK,
     DASHBOARD_PAIR_IOS_LINK,
+    DASHBOARD_WHATSAPP_PAIR_LINK,
     DASHBOARD_LAST_CHECKED_JUST_NOW,
     DASHBOARD_LAST_CHECKED_PREFIX,
     DASHBOARD_LAST_CHECKED_SUFFIX,
@@ -1704,7 +1705,7 @@ def render_dashboard(
         </div>
 
         <div class="meta" id="metaInfo">
-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
+            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}{DASHBOARD_WHATSAPP_PAIR_LINK}
         </div>
     </div>
 

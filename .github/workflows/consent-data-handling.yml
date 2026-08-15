@@ -1,0 +1,134 @@
+# Nine consent, permission-prompt and personal-data tests existed, and ran nowhere.
+#
+# tests/TEST_WIRING.tsv recorded 126 test files that nothing starts. The gate
+# over it (scripts/verify_test_wiring.sh) is a ratchet: it blessed that set as
+# an accepted backlog and only fails when the set GROWS, so the manifest reads
+# green while 126 files assert nothing for anyone.
+#
+# The backlog was triaged by CLASS rather than in file order, consent and
+# personal-data handling first. A dark build gate costs a bad cut. A dark
+# consent gate costs a customer their expectations about what their Mac just
+# agreed to hand over, on the surface with the least margin for being wrong.
+#
+# WHAT THESE NINE COVER
+#
+#   the third-party data explanation stays visually separated from its
+#     GDPR legal note, instead of one undifferentiated wall of text
+#   the final install confirmation does not duplicate its own headline and
+#     renders the terms as a real link rather than plain words
+#   the Full Disk Access explanation appears BEFORE the extractor runs, not
+#     after it has already failed against every locked database
+#   the early prewarm does not fire a "read your messages" prompt ~30s in,
+#     detached from the screen that explains it
+#   a folder the scan cannot READ is reported as denied, not as empty --
+#     a customer's data sitting behind a permission denial must not be
+#     reported back to them as nothing found
+#   the folder-access prompts are announced before the scan triggers three
+#     of them back to back
+#   the iMessage FDA probe stays best-effort and its Doctor card stays quiet
+#     unless a live re-probe actually fails
+#   the vendored defect register carries no person-identifying strings
+#   the daemon's TCC pre-probe covers the legacy client, so an upgrade
+#     resolves an existing grant instead of silently asking again
+#
+# WHOLE-REPO TRIGGER, DELIBERATELY. Every other gate here filters by path.
+# That is right for a gate whose inputs are one directory, and wrong for this
+# one: these nine read install.sh, the string catalogue, ViewCopy.json, a
+# SwiftUI view, the vendored Doctor rules, the install snippet and the vendored
+# register. A path list over seven surfaces is a list that goes silently
+# incomplete the first time a consent string moves, and an incomplete path
+# filter is indistinguishable from a passing gate. The whole set runs in about
+# a second. There is nothing to save by narrowing it.
+#
+# NO TEST IS NAMED IN THIS COMMENT THAT IS NOT ALSO RUN BELOW. On main,
+# scripts/verify_test_wiring.sh:155 scores a test WIRED if its name appears
+# anywhere in a workflow file, comments included, so describing a dark test
+# here would record it as live. The nine are described by what they assert;
+# the steps below are the only place filenames appear.
+name: consent-data-handling
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  consent-data-handling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every step carries `if: always()`. Without it the first failure skips
+      # the rest, and a skipped gate reports identically to one that ran and
+      # passed. That is not hypothetical here: board row #683 is one failure
+      # skipping 71 already-wired tests in another workflow.
+      - name: third-party data note is visually separated from its legal note
+        if: always()
+        run: bash tests/test_cx18_q19_consent_third_party_legal_note_separation.sh
+
+      - name: install confirmation body does not duplicate its headline
+        if: always()
+        run: bash tests/test_cx18_q20_consent_install_body_shape.sh
+
+      - name: FDA assist fires before the extractor, on an honest probe
+        if: always()
+        run: bash tests/test_fda_assist_ordering.sh
+
+      - name: early prewarm does not pop a messages prompt out of context
+        if: always()
+        run: bash tests/test_fda_prewarm_no_early_messages_popup.sh
+
+      - name: an unreadable folder is reported as denied, not as empty
+        if: always()
+        run: bash tests/test_gdpr_folder_access_denied.sh
+
+      - name: folder-access prompts are announced before the scan triggers them
+        if: always()
+        run: bash tests/test_gdpr_scan_prewarn.sh
+
+      - name: iMessage FDA probe stays best-effort and its card stays quiet
+        if: always()
+        run: bash tests/test_imessage_fda_probe.sh
+
+      - name: the vendored defect register carries no personal data
+        if: always()
+        run: bash tests/test_vendored_register_pii.sh
+
+      # Wiring the eight above flipped a NINTH file to WIRED in the manifest
+      # without anything running it. The third-party-note test names this one in
+      # a comment as its sister rule, and the reachability walk in
+      # scripts/verify_test_wiring.sh treats a test named inside an
+      # already-wired test's body as invoked by it -- comments included. So the
+      # act of wiring a consent test would have recorded a second, still-dark
+      # test as live: the burn-down corrupting the manifest it is draining.
+      #
+      # It is wired here for real rather than left to inherit a false label. It
+      # passes, it belongs to this class (a literal backslash-n in a customer
+      # string renders as the two characters on screen), and it costs nothing.
+      # The gate defect itself is a separate fix; this refuses to bank on it.
+      - name: customer strings contain no literal backslash-n
+        if: always()
+        run: bash tests/test_no_literal_backslash_n_in_strings.sh
+
+      - name: daemon TCC pre-probe covers the legacy client on upgrade
+        if: always()
+        run: bash tests/test_daemon_fda_app_bundle_path.sh
+
+      # The step above was RED on main from 2026-07-26 to 2026-08-15 and nobody
+      # saw it, because it ran nowhere. Its case-6 asserted one exact rendering
+      # of a SQL client list; install.sh hardened that rendering and the case
+      # went red while the invariant it names held throughout. The predicate now
+      # reads the content. This control proves it can still go red on the real
+      # defect -- and stays green across the harmless rendering change that
+      # broke the old one. A repaired predicate with no evidence it can fail is
+      # the same non-instrument in a fresh coat.
+      - name: control -- prove the TCC pre-probe check can still fail
+        if: always()
+        run: bash scripts/tests/test_daemon_fda_case6_controls.sh
