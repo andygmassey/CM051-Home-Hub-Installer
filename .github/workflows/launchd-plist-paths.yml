@@ -22,6 +22,7 @@ on:
       - 'tests/test_launchd_plist_no_tmp.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
+      - 'tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - 'tests/test_launchagent_bootstrap_after_staging.py'
       - '**/launchd/*.plist'
@@ -68,6 +69,18 @@ jobs:
       - name: Assert the Hub stays awake after the installer exits (#338)
         if: always()
         run: bash tests/test_stay_awake_agent_survives_installer_exit.sh
+
+      # The half of #338 that the agent cannot fix. `caffeinate -s` is valid
+      # only on AC (caffeinate(8)) and a closed lid sleeps the Mac regardless
+      # of any power assertion, so on a Mac mini or Studio the agent closes the
+      # gap and on a laptop it does not. `-s` is still the right flag -- `-i`
+      # would flatten a laptop -- which makes the remedy honest copy, and makes
+      # the copy the shipped artefact. This renders the two real install.sh
+      # blocks against a stubbed pmset and asserts a laptop is told and a
+      # desktop is not.
+      - name: Assert the laptop-Hub power copy reaches laptops only
+        if: always()
+        run: bash tests/test_laptop_hub_power_copy_fires_on_laptops_only.sh
 
       # The other half of the same agent's life. `launchctl bootout` unloads a
       # job for the current login session only; launchd rescans
