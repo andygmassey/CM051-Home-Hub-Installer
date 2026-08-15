@@ -392,24 +392,17 @@ classify_simple() { # input  pinned  live  verdict
     esac
 }
 
-# Read a manifest field as a boolean. Tolerates  field = true  and  field = "true".
-manifest_bool() { # tree  field
-    local v; v="$(vlib_field "$1" "$2" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-    [ "$v" = "true" ] && { echo true; return; }
-    echo false
-}
-
-# Is <sha> acknowledged by <list> (space/comma-separated, entries may be short)?
-# Prefix-tolerant in BOTH directions so a 12-hex ack matches a 40-hex delta sha.
-sha_in_list() { # sha  list
-    local c="$1" e
-    for e in $(printf '%s' "$2" | tr ',' ' '); do
-        [ -z "$e" ] && continue
-        case "$c" in "$e"*) return 0 ;; esac
-        case "$e" in "$c"*) return 0 ;; esac
-    done
-    return 1
-}
+# hold_ack readers. THE IMPLEMENTATIONS MOVED to scripts/_vendor_lib.sh, which
+# this file already sources, and these are thin aliases so the existing call
+# sites below read unchanged.
+#
+# They used to live here, and only here. verify_vendor_fresh.sh -- the sibling
+# gate, walking the SAME manifest -- had no hold_ack support at all, so a tree
+# this gate correctly reported HELD was reported RED over there with a list of
+# commits the manifest acknowledges one by one. Two readers would have drifted
+# again; one reader cannot. Change the shared version, not a copy.
+manifest_bool() { vlib_manifest_bool "$@"; }  # tree  field
+sha_in_list()   { vlib_sha_in_list "$@"; }    # sha   list
 
 # Enumerate the LIVE path-scoped delta: SHAs of commits touching <gpath> on
 # <branch> that are AHEAD of <pin> (newest first, one per line into DELTA_OUT).

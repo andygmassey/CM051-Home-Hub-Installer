@@ -120,7 +120,26 @@ source_repo      = "$CM041"
 source_path      = "pwg_privacy.py"
 pinned_sha       = "11ad1246286ef86a70ef0aeb28aa8f2926f53842"
   divergence_patch = ""
-exclude          = []
+# SCOPING, NOT STALENESS. This tree's SUBJECT is one file, pwg_privacy.py, but
+# its vendor_path has to be the shared vendor/cm041 ROOT (see the note below for
+# why). vlib_vendor_diff walks vendor_path, so with `exclude = []` it walked all
+# 70 files under vendor/cm041 -- every sibling subtree -- and emitted 67 of them
+# as /dev/null new-file hunks, because they are of course absent from a
+# materialised source tree containing exactly one file. A 28,174-line
+# "divergence" that was entirely an artefact of the walk.
+#
+# The siblings are NOT unvendored: assistant_api, contact_syncer,
+# identity_resolver, meeting_syncer and ostler_hygiene each have their OWN
+# [[tree]] entry above, with their own pins, and each is diffed there. Listing
+# them here says "not this tree's subject", not "nobody checks these".
+#
+# MEASURED 2026-08-15, both directions:
+#   vendor/cm041/pwg_privacy.py is BYTE-IDENTICAL to source@11ad1246, and
+#   0 commits have touched pwg_privacy.py upstream since the pin (checked in a
+#   NON-SHALLOW clone; a shallow one manufactures exactly this kind of absence).
+#   With the excludes the tree reports OK; mutating pwg_privacy.py still turns
+#   it RED, so the excludes did not simply blind the gate.
+exclude          = ["assistant_api/", "contact_syncer/", "identity_resolver/", "meeting_syncer/", "ostler_hygiene/", "tests/", "test_vendor_import.sh", "__pycache__/"]
 verify           = "full"
 note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 privacy helper at the CM041 repo root, hard-imported (top-level, unguarded) by BOTH meeting_syncer/brief.py and assistant_api/ical-server.py since CM041 #97 -- without it those readers crash at import. vendor_path is the shared vendor/cm041 ROOT so the file sits at the twin repo-root the sys.path hacks expect; the freshness gate's shared-file diff therefore only compares pwg_privacy.py (the only file present in both the materialised single-file source and vendor/cm041). WARNING: NEVER run scripts/sync_vendor.sh FULL sync on this tree -- its tree-swap step (rm -rf vendor_path) would delete every sibling cm041 subtree. Graft by hand + --regen-patch only. Runtime staging: install.sh copies it to PIPELINE_DIR (for brief.py) and to the services root next to ical-server (for the Hub API); gui/project.yml + release.sh bundle it at the Resources/install root."
 

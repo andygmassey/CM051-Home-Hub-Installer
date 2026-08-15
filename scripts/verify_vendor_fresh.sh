@@ -70,15 +70,75 @@ STRICT="${VENDOR_FRESH_STRICT:-1}"
 fail=0
 warn=0
 ok=0
+held=0
 checked=0
 
 echo "vendor-freshness gate -- manifest: $VLIB_MANIFEST"
 echo
 
+# Which ref does the advance arm compare the pin against?
+#
+# This used to be, flatly, `HEAD` -- whatever the operator's source checkout
+# happened to be sitting on. So "source has advanced past pinned_sha" was a
+# function of one machine's branch state and last fetch, which is the opposite
+# of a gate. MEASURED 2026-08-15 across the checkouts this gate is normally
+# pointed at:
+#
+#   cm059 checkouts    on main but 4 commits BEHIND origin/main (confirmed in a
+#                      NON-shallow clone). The advance arm was judging the pin
+#                      against a tree older than origin/main, so it could not
+#                      have reported an advance that existed only in those 4.
+#   cm048 checkouts    parked on unmerged feature branches -- the gate reading
+#                      one agent's work in progress as though it were upstream.
+#
+# BE PRECISE ABOUT THE BLAST RADIUS, because overstating it is its own defect:
+# for cm059 the compiler-path delta measures 0 under BOTH refs today, so this
+# was latent blindness rather than a wrong number on the board. What was
+# actually broken is reproducibility -- two operators, two checkouts, two
+# verdicts, and nothing in the output saying why. That is fixed by resolving
+# the ref explicitly AND printing it.
+#
+# Prefer origin/main; fall back to HEAD only when no such ref exists. The
+# fallback is load-bearing: the hermetic self-test fixtures build synthetic
+# source repos with no remote at all, and they must keep working.
+#
+# DELIBERATELY NO FETCH. A gate that reaches the network is slow and flaky, and
+# fetching would HIDE a stale checkout rather than report one. The staleness is
+# reported instead -- see checkout_drift below -- and the resolved ref is
+# printed per tree, which is the half that makes a verdict something a second
+# operator can reproduce rather than an artefact of this machine.
+compare_ref() {
+    local repo="$1"
+    [ -n "$repo" ] && [ -d "$repo" ] || { printf 'HEAD\n'; return 0; }
+    if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+        printf 'origin/main\n'
+    else
+        printf 'HEAD\n'
+    fi
+}
+
+# How far the checkout itself sits from the ref the pin is judged against.
+# Empty when they coincide (nothing to report) or when the ref IS HEAD (the
+# question is meaningless). Printed so a stale or feature-branched checkout is
+# VISIBLE rather than silently changing the answer.
+checkout_drift() {
+    local repo="$1" ref="$2" counts behind ahead
+    [ "$ref" = "HEAD" ] && return 0
+    counts="$(git -C "$repo" rev-list --left-right --count "${ref}...HEAD" 2>/dev/null)" || return 0
+    [ -n "$counts" ] || return 0
+    behind="$(printf '%s' "$counts" | awk '{print $1}')"
+    ahead="$(printf '%s' "$counts" | awk '{print $2}')"
+    [ "${behind:-0}" = "0" ] && [ "${ahead:-0}" = "0" ] && return 0
+    printf 'source checkout HEAD is %s ahead / %s behind %s\n' "${ahead:-0}" "${behind:-0}" "$ref"
+}
+
 # Does the source sub-path have commits newer than pinned_sha?
-# Prints the short log of unshipped commits (empty if up to date).
+# Prints one line per unshipped commit, "<full-sha> <subject>" (empty if up to
+# date). FULL sha, not %h: it is fed to vlib_sha_in_list, and an abbreviation
+# short enough to be ambiguous would acknowledge a commit nobody acknowledged.
+# Display abbreviates again at the print site.
 unshipped_commits() {
-    local tree="$1"
+    local tree="$1" ref="$2"
     local repo subpath sha
     repo="$(resolve_source_repo "$tree")"
     subpath="$(vlib_field "$tree" source_path)"
@@ -89,9 +149,20 @@ unshipped_commits() {
     git -C "$repo" cat-file -e "${sha}^{commit}" 2>/dev/null || return 0
     local pathspec="."
     [ -n "$subpath" ] && [ "$subpath" != "." ] && pathspec="$subpath"
-    # Commits on HEAD that touch the vendored sub-path and are not ancestors
-    # of pinned_sha.
-    git -C "$repo" log --oneline "${sha}..HEAD" -- "$pathspec" 2>/dev/null
+    # Commits on the resolved ref that touch the vendored sub-path and are not
+    # ancestors of pinned_sha.
+    git -C "$repo" log --format='%H %s' "${sha}..${ref}" -- "$pathspec" 2>/dev/null
+}
+
+# Print a "<full-sha> <subject>" list the way the gate has always shown it:
+# indented, sha abbreviated to 7.
+print_commits() {
+    # `NF` skips blank lines. The unacked list is accumulated with a trailing
+    # newline, so without this the caller's `printf '%s\n'` emitted one final
+    # empty record and the gate printed a phantom eight-space commit under a
+    # list of real ones. Small, but this is the output an operator classifies
+    # commit by commit, and an entry that names nothing invites a guess.
+    awk 'NF { printf "        %s %s\n", substr($1, 1, 7), substr($0, index($0, " ") + 1) }'
 }
 
 while IFS= read -r tree; do
@@ -143,11 +214,71 @@ while IFS= read -r tree; do
         content_ok=0
     fi
 
-    # Has the source advanced past the pin without a re-graft?
-    behind="$(unshipped_commits "$tree" || true)"
+    # Has the source advanced past the pin without a re-graft? Judged against
+    # an EXPLICIT ref (origin/main where it exists), never the checkout's
+    # incidental HEAD -- see compare_ref.
+    src_repo="$(resolve_source_repo "$tree" || true)"
+    src_ref="$(compare_ref "$src_repo")"
+    src_drift="$(checkout_drift "$src_repo" "$src_ref" || true)"
+    behind="$(unshipped_commits "$tree" "$src_ref" || true)"
 
-    if [ "$content_ok" = "1" ] && [ -z "$behind" ]; then
-        echo "OK    $tree -- vendor == source@$(vlib_field "$tree" pinned_sha | cut -c1-8) (+patch)"
+    # A pin sitting behind source HEAD is allowed ONLY via a hold_ack that
+    # acknowledges EVERY commit in the delta, records WHY, and asserts the
+    # shipping bugfixes among them are grafted. Identical ladder, identical
+    # parser (vlib_sha_in_list / vlib_manifest_bool) to verify_cut_freshness.sh
+    # -- see the hold_ack section of scripts/_vendor_lib.sh for why this is
+    # shared rather than reimplemented.
+    #
+    # advance_verdict: clean | none | unacked | no-grafted-assert | no-reason
+    #   clean  = up to date, OR fully held. Never fails this arm.
+    advance_verdict="clean"
+    unacked=""
+    if [ -n "$behind" ]; then
+        hold_shas="$(vlib_field "$tree" hold_ack_shas)"
+        hold_reason="$(vlib_field "$tree" hold_ack_reason)"
+        grafted="$(vlib_manifest_bool "$tree" shipping_bugfixes_grafted)"
+        if [ -z "$hold_shas" ]; then
+            # No ledger at all: every delta commit is un-acknowledged.
+            advance_verdict="none"
+            unacked="$behind"
+        else
+            while IFS= read -r _c; do
+                [ -z "$_c" ] && continue
+                vlib_sha_in_list "${_c%% *}" "$hold_shas" && continue
+                unacked="${unacked}${_c}
+"
+            done <<EOF
+$behind
+EOF
+            if [ -n "$unacked" ]; then
+                advance_verdict="unacked"
+            elif [ "$grafted" != "true" ]; then
+                advance_verdict="no-grafted-assert"
+            elif [ -z "$hold_reason" ]; then
+                advance_verdict="no-reason"
+            fi
+        fi
+    fi
+
+    # Report the checkout's own state whatever the verdict: a green produced by
+    # a checkout parked 4 commits behind the ref is not the same green as one
+    # produced by a current checkout, and the reader has to be able to tell.
+    if [ -n "$src_drift" ]; then
+        echo "      note: $tree -- $src_drift (the pin was judged against $src_ref, not that HEAD)"
+    fi
+
+    if [ "$content_ok" = "1" ] && [ "$advance_verdict" = "clean" ]; then
+        pin8="$(vlib_field "$tree" pinned_sha | cut -c1-8)"
+        if [ -n "$behind" ]; then
+            # Fresh in content, and every source commit past the pin is on the
+            # ledger. Say the number out loud: a hold is a decision that has to
+            # stay visible, not a silence. Left in place after its commits land,
+            # a hold_ack is a permanently-exempt path -- discharge them.
+            held=$((held + 1))
+            echo "OK    $tree -- vendor == source@$pin8 (+patch) [vs $src_ref]; $(printf '%s\n' "$behind" | grep -c .) source commit(s) HELD by hold_ack"
+        else
+            echo "OK    $tree -- vendor == source@$pin8 (+patch) [vs $src_ref]"
+        fi
         ok=$((ok + 1))
     else
         if [ "$content_ok" != "1" ]; then
@@ -178,18 +309,43 @@ while IFS= read -r tree; do
                 echo "        ... (diff truncated)" >&2
             fi
         fi
-        if [ -n "$behind" ]; then
-            echo "FAIL  $tree -- source has advanced past pinned_sha; UNGRAFTED commits:" >&2
-            printf '%s\n' "$behind" | sed 's/^/        /' >&2
-            echo "        -> graft them: scripts/sync_vendor.sh $tree" >&2
-        fi
+        case "$advance_verdict" in
+            none)
+                echo "FAIL  $tree -- source ($src_ref) has advanced past pinned_sha; UNGRAFTED commits:" >&2
+                printf '%s\n' "$unacked" | print_commits >&2
+                echo "        -> classify each: graft it (scripts/sync_vendor.sh $tree), or add its" >&2
+                echo "           SHA to hold_ack_shas with hold_ack_reason + shipping_bugfixes_grafted = true." >&2
+                ;;
+            unacked)
+                echo "FAIL  $tree -- source ($src_ref) has advanced past pinned_sha; delta commit(s) NOT in hold_ack_shas:" >&2
+                printf '%s\n' "$unacked" | print_commits >&2
+                echo "        -> classify each: graft it (scripts/sync_vendor.sh $tree), or add its" >&2
+                echo "           SHA to hold_ack_shas with a reason." >&2
+                ;;
+            no-grafted-assert)
+                echo "FAIL  $tree -- hold_ack covers the whole delta but shipping_bugfixes_grafted is not true." >&2
+                echo "        -> graft the bugfixes among the held commits, then assert it." >&2
+                ;;
+            no-reason)
+                echo "FAIL  $tree -- hold_ack_shas is present but hold_ack_reason is empty." >&2
+                echo "        -> record WHY the pin is held. An unexplained hold is an expiring exemption nobody can audit." >&2
+                ;;
+        esac
         fail=$((fail + 1))
     fi
     rm -rf "$tmp" "$tmp.diff"
 done < <(vlib_tree_names)
 
 echo
-echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable"
+# The held count is APPENDED rather than spliced into the middle: the
+# denominator assertions in tests/test_vendor_src_placeholder_unset.sh parse
+# "N tree(s)" and ", N unverifiable" out of this line, and a held tree is a
+# fresh tree with a declared debt, not a fourth bucket in the arithmetic.
+held_note=""
+if [ "$held" -gt 0 ]; then
+    held_note=" ($held of the fresh HELD by hold_ack -- discharge when the held commits land)"
+fi
+echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable$held_note"
 
 if [ "$fail" -gt 0 ]; then
     echo "GATE: RED -- $fail tree(s) are stale or have drifted from source." >&2
