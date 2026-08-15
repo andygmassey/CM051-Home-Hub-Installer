@@ -109,7 +109,24 @@ jobs:
         if: always()
         run: bash tests/test_vendor_fresh_gate.sh
 
-      - name: Vendor-freshness gate (degraded -- source repos absent on CI)
+      # VENDOR_FRESH_STRICT=0 IS SET HERE ON PURPOSE, AND IT IS THE ONLY PLACE.
+      #
+      # The gate is fail-closed by default since 2026-08-15: an unverifiable
+      # tree is RED, because "not verified" and "verified fresh" are different
+      # findings and only one of them is a pass. A GitHub runner genuinely
+      # cannot verify the cross-repo trees -- the sibling source repos are not
+      # checked out -- so this job opts out explicitly rather than inheriting a
+      # lenient default that the cut would inherit too.
+      #
+      # That is exactly what went wrong before. The default was 0, the cut
+      # never overrode it, and the comment eight lines above promised a strict
+      # run that no invocation performed. A mention is not an invocation.
+      #
+      # This step now reports GATE: DEGRADED, never GREEN, and names how many
+      # trees were not checked at all.
+      - name: Vendor-freshness gate (DEGRADED -- source repos absent on CI, opted out explicitly)
+        env:
+          VENDOR_FRESH_STRICT: "0"
         run: bash scripts/verify_vendor_fresh.sh
 
       # Pipeline-contract guard: the vendored /api/v1/conversation/process
