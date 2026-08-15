@@ -895,12 +895,39 @@ def _fetch_all_persons(
 ) -> Dict[str, PersonRecord]:
     """Fetch all person nodes from Oxigraph with identifiers and triple counts."""
     # Get all persons with identifiers
+    # NON-PERSON RECORDS ARE NOT MERGE CANDIDATES.
+    #
+    # This query did not load contactType at all, so a retailer was a full
+    # candidate for every match path below: email, phone, exact name and
+    # Jaro-Winkler fuzzy name. Measured on the live v1.0.26 box, four
+    # AliExpress records were pwg:Person and one already carried
+    # pwg:mergedInto dated 2026-08-14 -- the queue had offered a retailer
+    # to the customer as a human to merge, and the merge had been taken.
+    # Andy: "AliExpress is not a person!!"
+    #
+    # Fuzzy name matching makes this worse than it sounds: a retailer's
+    # brand name scores highly against itself across several campaign
+    # addresses, so these records merge with each other readily and
+    # present as a confident, high-scoring duplicate group.
+    #
+    # The filter is on the NON-PERSON set, not on == "person", so a record
+    # with contactType absent or "unclassified" is still a candidate. 497
+    # of 6,481 records on that box carried no type at all; excluding them
+    # would silently stop de-duplicating 7.7% of the address book, which
+    # is the same defect pointed the other way.
     rows = _sparql_query(url, client, f"""
         PREFIX pwg: <{PWG}>
         SELECT ?person ?name ?org ?title ?givenName ?familyName ?idType ?idValue WHERE {{
             ?person a pwg:Person ;
                     pwg:displayName ?name .
             FILTER NOT EXISTS {{ ?person pwg:mergedInto ?merged }}
+            FILTER NOT EXISTS {{
+                ?person pwg:contactType ?ct .
+                FILTER(LCASE(STR(?ct)) IN (
+                    "organisation", "organization", "company", "business",
+                    "brand", "venue", "service", "group"
+                ))
+            }}
             OPTIONAL {{ ?person pwg:organization ?org }}
             OPTIONAL {{ ?person pwg:jobTitle ?title }}
             OPTIONAL {{ ?person pwg:givenName ?givenName }}

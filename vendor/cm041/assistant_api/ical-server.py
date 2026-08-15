@@ -1123,7 +1123,18 @@ def people_search(query, limit=10):
             "contact_type", "person_uri", "privacy_level",
         ]},
         "filter": {"must": [
-            {"key": "contact_type", "match": {"value": "person"}}
+            # `any`, NOT `value`. Until 2026-08-14 the Qdrant payload was written
+            # with a hardcoded contact_type of "person" for every record, so this
+            # filter matched everything and excluded nothing -- it read as a filter
+            # while doing no work. The payload now carries the REAL classification,
+            # which makes this clause bite for the first time.
+            # It must therefore admit `unclassified` explicitly. 497 of 6,481
+            # records on the v1.0.26 box had no contactType at all; matching only
+            # "person" would silently delete every contact the classifier could not
+            # place from the People tab -- the same half-landed change, pointed the
+            # other way.
+            {"key": "contact_type",
+             "match": {"any": ["person", "unclassified"]}}
         ]},
     }).encode()
     req = urllib.request.Request(
@@ -4419,7 +4430,18 @@ def people_list(sort=None, ceiling=10000):
             body = {
                 "filter": {
                     "must": [
-                        {"key": "contact_type", "match": {"value": "person"}},
+                        # `any`, NOT `value`. Until 2026-08-14 the Qdrant payload was written
+                        # with a hardcoded contact_type of "person" for every record, so this
+                        # filter matched everything and excluded nothing -- it read as a filter
+                        # while doing no work. The payload now carries the REAL classification,
+                        # which makes this clause bite for the first time.
+                        # It must therefore admit `unclassified` explicitly. 497 of 6,481
+                        # records on the v1.0.26 box had no contactType at all; matching only
+                        # "person" would silently delete every contact the classifier could not
+                        # place from the People tab -- the same half-landed change, pointed the
+                        # other way.
+                        {"key": "contact_type",
+                         "match": {"any": ["person", "unclassified"]}},
                     ]
                 },
                 "limit": page,
@@ -4572,7 +4594,18 @@ def people_stale(months=3, limit=5):
             "filter": {
                 "must": [
                     {"key": "last_contact_ts", "range": {"gt": 0, "lt": cutoff_ts}},
-                    {"key": "contact_type", "match": {"value": "person"}},
+                    # `any`, NOT `value`. Until 2026-08-14 the Qdrant payload was written
+                    # with a hardcoded contact_type of "person" for every record, so this
+                    # filter matched everything and excluded nothing -- it read as a filter
+                    # while doing no work. The payload now carries the REAL classification,
+                    # which makes this clause bite for the first time.
+                    # It must therefore admit `unclassified` explicitly. 497 of 6,481
+                    # records on the v1.0.26 box had no contactType at all; matching only
+                    # "person" would silently delete every contact the classifier could not
+                    # place from the People tab -- the same half-landed change, pointed the
+                    # other way.
+                    {"key": "contact_type",
+                     "match": {"any": ["person", "unclassified"]}},
                 ]
             },
             "limit": limit,

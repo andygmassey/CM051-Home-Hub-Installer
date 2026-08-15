@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.56
+DAEMON_VERSION       ?= 0.4.57
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -218,7 +218,19 @@ DAEMON_VERSION       ?= 0.4.56
 # black bar from wiki iframe. Signed + notarised + stapled at build time
 # (submission 4c8a2fdb-1049). R4 wiki SETTING-UP typography deferred to v1.0.13.3
 # per CM044 namespace mystery (HR015 task #249).
-DAEMON_SHA256        ?= e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769
+# v1.0.27 (2026-08-15 ORM): 0.4.56 -> 0.4.57, daemon commit acf991bf -> 723c682f.
+# MEASURED FROM THE PUBLISHED BYTES, not from a release page or a sidecar name.
+# The daemon and the Hub app live in DIFFERENT repositories and this is the trap
+# worth naming: ostler-ai/ostler-assistant publishes ONLY the Hub app at .56 and
+# .57 (hub-v0.4.55 is the last tag there carrying a daemon tarball), while the
+# daemon ships from $(DAEMON_REPO). Reading the wrong repo makes a correct pin
+# look like a missing artefact. Verified per side against the published .sha256:
+#   ostler-releases  hub-v0.4.57  ostler-assistant-...-v0.4.57.tar.gz  f311519a
+#   ostler-assistant hub-v0.4.57  ostler-hub-app-...-v0.4.57.tar.gz    d1b7f828
+# Commit parity re-derived rather than inherited: BOTH build-info.json files
+# report commit 723c682fd7b44b87e3769adfd2db2fdf59f5dadd, so the daemon and the
+# Hub app are the same line, which is what verify-commit-parity asserts.
+DAEMON_SHA256        ?= f311519a51fed09a59c37c9c4049fac1d5e18228950747f91f41a1a0c2dd749e
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -279,7 +291,13 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # where the sibling checkout's bundle is used as-is. Now re-pinned to the
 # published hub-v0.4.56 Ostler.app, built from ostler-assistant acf991bf (the
 # same commit as the v0.4.56 daemon, so verify-commit-parity stays meaningful).
-HUB_APP_SHA256       ?= 676efe8d38e8c5889e4bd4f7121d89949b66889e1002ddae92fff2aca1f8a4f5
+# v1.0.27 (2026-08-15 ORM): re-pinned in lockstep to the published hub-v0.4.57
+# Ostler.app, d1b7f828, built from 723c682f -- the SAME commit as the v0.4.57
+# daemon above, so verify-commit-parity keeps its meaning. The bundle is adhoc
+# signed and deliberately NOT notarised: the cut re-signs it via embed-sparkle.sh
+# codesign --force --deep with the Developer ID, which would discard any earlier
+# ticket. Read from the release's own .sha256 sidecar, not from a build log.
+HUB_APP_SHA256       ?= d1b7f82857eedfd5445387f9e3b9f053c63f5a6c0a2ad6111cdd57ebe2510a8f
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
