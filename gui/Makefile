@@ -1239,7 +1239,24 @@ check-ostler-app:
 	@# proves a bundle whose commit differs but whose frontend is IDENTICAL
 	@# still passes. rc=2 (could not run) blocks too: an unmeasured provenance
 	@# is not a pass.
-	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" || { \
+	@# THE SECOND ARGUMENT IS LOAD-BEARING AND ITS ABSENCE BURNT v1.0.30.
+	@# verify_app_provenance.sh takes the reference checkout as $$2 and, without
+	@# it, derives a SIBLING path. On the runner that sibling resolves to
+	@# .../work/CM051-Home-Hub-Installer/ostler-assistant, which is exactly where
+	@# download-hub-app EXTRACTS the Hub app tarball. The directory therefore
+	@# exists -- so no earlier check caught it -- and it is not a git repo, so the
+	@# gate correctly refused with "reference checkout is not a git repo" and the
+	@# cut died at step 11 having fetched and SHA-verified the bundle it could
+	@# then not attest.
+	@#
+	@# The real clone already exists: cut.yml clones ostler-assistant with full
+	@# history and tags into $${RUNNER_TEMP} and exports OSTLER_ASSISTANT_DIR.
+	@# Two paths, and nothing connected them. This is that connection.
+	@#
+	@# The fallback is the same sibling default three other targets in this file
+	@# already use (1293, 1446, 1481), so an operator Mac with a real sibling
+	@# checkout behaves exactly as before.
+	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
 	    echo "" >&2; \
 	    echo "  Refusing to continue: the Ostler.app going into this DMG has not" >&2; \
 	    echo "  been shown to be the bundle this cut intends to ship. Sealing it" >&2; \

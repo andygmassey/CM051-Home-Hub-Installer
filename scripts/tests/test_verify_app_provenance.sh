@@ -112,6 +112,28 @@ out="$(bash "$GATE" "$TMP/does-not-exist.app" "$REPO" 2>&1)"; rc=$?
 if [[ "$rc" == 2 ]]; then printf '  PASS  %-52s rc=2\n' "missing bundle -> CANNOT (2)"; PASS=$((PASS+1))
 else printf '  FAIL  %-52s rc=%s want=2\n' "missing bundle -> CANNOT" "$rc"; FAIL=$((FAIL+1)); fi
 
+# 8. THE v1.0.30 BURN, LOCKED IN.
+#
+# A non-git directory as the reference checkout must be CANNOT-RUN, never a
+# pass. This is the exact shape that burnt v1.0.30: download-hub-app extracts
+# the Hub app tarball to .../ostler-assistant on the runner, so the SIBLING
+# path the script falls back to EXISTS but is not a repo. The directory
+# existing is why no earlier check caught it.
+#
+# The caller (gui/Makefile) now passes OSTLER_ASSISTANT_DIR explicitly. This
+# case exists so that fix cannot later be "simplified" back out: if anyone
+# drops the second argument, or points it at an extraction directory again,
+# the gate must still refuse rather than wave the bundle through.
+mkdir -p "$TMP/not-a-repo"
+out="$(bash "$GATE" "$(make_bundle good "$C1")" "$TMP/not-a-repo" 2>&1)"; rc=$?
+if [[ "$rc" == 2 ]]; then printf '  PASS  %-52s rc=2\n' "non-git reference checkout -> CANNOT (2)"; PASS=$((PASS+1))
+else printf '  FAIL  %-52s rc=%s want=2\n' "non-git reference checkout -> CANNOT" "$rc"; FAIL=$((FAIL+1)); fi
+# and it must say WHY, not just fail: a bare non-zero would send the next
+# reader hunting a stale bundle instead of a mis-wired path.
+if grep -q 'reference checkout is not a git repo' <<<"$out"; then
+  printf '  PASS  %-52s\n' "and it NAMES the cause (not a git repo)"; PASS=$((PASS+1))
+else printf '  FAIL  %-52s\n' "did not name the cause"; FAIL=$((FAIL+1)); fi
+
 echo
 echo "  $PASS passed, $FAIL failed"
 [[ "$FAIL" == 0 ]] || exit 1
