@@ -154,11 +154,24 @@ jobs:
 
       - name: wiki provenance -- extract, never exec (and no vacuous absence)
         run: |
-          set -euo pipefail
-          out="$(bash tests/test_wiki_provenance_extracts_without_exec.sh 2>&1)"
-          printf '%s\n' "$out"
+          # NOT set -e. The first version of this step was
+          #     set -euo pipefail; out="$(bash <test> 2>&1)"; printf '%s' "$out"
+          # and `set -e` aborted at the ASSIGNMENT the moment the test exited
+          # non-zero, so the printf never ran and the log showed the step's own
+          # source with no test output at all. A step that hides the output you
+          # need to diagnose it is worse than one that simply fails.
+          set -uo pipefail
+          bash tests/test_wiki_provenance_extracts_without_exec.sh 2>&1 | tee /tmp/wpe.out
+          rc=${PIPESTATUS[0]}
+          echo "test exit code: ${rc}"
           # A PASS that examined nothing is the defect, not the proof. The test
           # keeps its SKIP arm so a developer without docker is not blocked; here
           # that arm must never be taken, so assert the denominator explicitly.
-          grep -q 'EXAMINED: 6 assertion(s)' <<<"$out" || {
-            echo "::error::the test did not examine its 6 assertions -- it skipped or narrowed, and a skip is not a pass"; exit 1; }
+          if ! grep -q 'EXAMINED: 6 assertion(s)' /tmp/wpe.out; then
+            echo "::error::the test did not examine its 6 assertions -- it skipped or narrowed, and a skip is not a pass"
+            exit 1
+          fi
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::the test examined its assertions and FAILED (rc=${rc}) -- see the arms above"
+            exit 1
+          fi
