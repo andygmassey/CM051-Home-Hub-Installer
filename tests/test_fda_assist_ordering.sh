@@ -130,7 +130,7 @@ FDA_STEP_BODY=$(awk '
     in_step && /^# ── 3\.8 Docker services/ { exit }
     in_step { print }
 ' "$INSTALL_SH")
-if printf '%s\n' "$FDA_STEP_BODY" | grep -q '\[\[ -r "\$probe" \]\] || ls "\$probe"'; then
+if grep -q '\[\[ -r "\$probe" \]\] || ls "\$probe"' <<< "$FDA_STEP_BODY"; then
     echo "FAIL [case-5]: the broken DMG #48c heuristic ([[ -r ]] || ls) is still in the fda_extract step" >&2
     exit 1
 fi
@@ -142,11 +142,11 @@ echo "PASS [case-5]: honest read-probe (head -c 1) replaces the DMG #48c heurist
 # ~/Library/Messages/chat.db are the canonical examples. The DMG
 # #48c paths (~/Library/Mail as a directory) are user-owned and pass
 # `-r` even without FDA, which is what produced the false positive.
-if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'Library/Safari/History.db'; then
+if ! grep -q 'Library/Safari/History.db' <<< "$FDA_STEP_BODY"; then
     echo "FAIL [case-6]: probe missing Safari History.db reference" >&2
     exit 1
 fi
-if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'Library/Messages/chat.db'; then
+if ! grep -q 'Library/Messages/chat.db' <<< "$FDA_STEP_BODY"; then
     echo "FAIL [case-6]: probe missing Messages chat.db reference" >&2
     exit 1
 fi
@@ -155,15 +155,15 @@ echo "PASS [case-6]: probe targets FDA-gated SQLite DBs (Safari + Messages)"
 # ── Case 7: assist dialog still opens FDA pane + osascript modal ───
 # Move/duplicate must not have stripped the System Settings deep
 # link or the blocking dialog.
-if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'x-apple.systempreferences.*Privacy_AllFiles'; then
+if ! grep -q 'x-apple.systempreferences.*Privacy_AllFiles' <<< "$FDA_STEP_BODY"; then
     echo "FAIL [case-7]: assist block missing System Settings FDA-pane deep link" >&2
     exit 1
 fi
-if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'display dialog'; then
+if ! grep -q 'display dialog' <<< "$FDA_STEP_BODY"; then
     echo "FAIL [case-7]: assist block missing display dialog AppleScript" >&2
     exit 1
 fi
-if ! printf '%s\n' "$FDA_STEP_BODY" | grep -q 'OSTLER_GUI.*== "1"'; then
+if ! grep -q 'OSTLER_GUI.*== "1"' <<< "$FDA_STEP_BODY"; then
     echo "FAIL [case-7]: assist block missing OSTLER_GUI gate" >&2
     exit 1
 fi
