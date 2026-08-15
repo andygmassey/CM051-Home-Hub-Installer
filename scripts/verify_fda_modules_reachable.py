@@ -38,13 +38,22 @@ Two steps, because either alone lies.
 
 Anything outside the closure ships and cannot run.
 
-THE BACKLOG IS A RATCHET, NOT A WARN BUCKET
+DORMANT IS A THIRD COUNT, NOT A WARN BUCKET
 ===========================================
 Same shape as ``verify_test_wiring.sh``, and for the same reason: a gate that
-is red the day it lands is a gate people route around. The known-unreachable
-modules are enumerated BY NAME in ``scripts/fda_unwired_modules.tsv``, with the
-thing that blocks each one, and the gate fails the moment the set GROWS. Every
-run prints the register in full, so it cannot fade into wallpaper.
+is red the day it lands is a gate people route around. But a bucket that
+absorbs failures into a pass is how this codebase keeps getting hurt, so the
+summary reports THREE separate numbers -- REACHABLE, DORMANT, UNREGISTERED --
+and DORMANT is never folded into REACHABLE. Two dark modules show up as two,
+the pass line states the dormant count out loud rather than saying "clean",
+and the register prints in full on every run.
+
+Acknowledgement is PER-MODULE and needs a REASON. There is deliberately no
+blanket "ignore unreachable" switch, no status other than ``DORMANT``, and no
+wildcards: one such line would silently absorb every future orphan. A row whose
+``blocked_by`` is empty, ``-``, ``TBD`` or ``n/a`` is refused outright, because
+a row without a reason is a suppression wearing a reason's clothes. Every one
+of those rules fails CLOSED at exit 2.
 
 EXIT CODES
   0  every module is reachable, or is named in the register
@@ -253,8 +262,27 @@ def closure(entry: set, graph: dict) -> set:
     return reached
 
 
+# The ONLY accepted status. There is deliberately no "IGNORE", no "SKIP" and no
+# blanket switch: an acknowledgement is per-module with a reason, or it is not an
+# acknowledgement. A one-line "ignore all unreachable" would silently absorb
+# every future orphan, which is the failure this file exists to prevent.
+ACCEPTED_STATUS = "DORMANT"
+
+# Strings that look like a reason and are not one. A row whose blocked_by is any
+# of these is a suppression wearing a reason's clothes.
+NON_REASONS = {"", "-", "--", "?", "tbd", "todo", "n/a", "na", "none", "unknown"}
+
+# A wildcard would acknowledge modules nobody has looked at.
+GLOB_CHARS = set("*?[]")
+
+
 def read_register(path: str) -> dict:
-    """module -> (blocked_by, note). Absent file is exit 2, not exit 0."""
+    """module -> (status, blocked_by, note). Absent or malformed is exit 2.
+
+    Every rule below fails CLOSED. A register that cannot be trusted must stop
+    the gate, never wave it through: "no unregistered orphans" and "I could not
+    read the register" have to print differently.
+    """
     if not os.path.exists(path):
         die_cannot_run(
             f"the register is missing at {path}. Without it every recorded "
@@ -265,12 +293,32 @@ def read_register(path: str) -> dict:
     for line in read(path).splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        parts = line.split("\t")
-        if len(parts) < 3:
+        parts = [p.strip() for p in line.split("\t")]
+        if len(parts) < 4:
             die_cannot_run(
-                f"malformed register row (want 3 tab-separated columns): {line!r}"
+                "malformed register row -- want 4 tab-separated columns "
+                f"(module, status, blocked_by, note): {line[:120]!r}"
             )
-        rows[parts[0].strip()] = (parts[1].strip(), parts[2].strip())
+        module, status, blocked_by, note = parts[0], parts[1], parts[2], "\t".join(parts[3:])
+        if set(module) & GLOB_CHARS:
+            die_cannot_run(
+                f"register row {module!r} looks like a glob. Acknowledgement is "
+                "PER-MODULE by literal name; a wildcard would silently absorb "
+                "every future orphan."
+            )
+        if status != ACCEPTED_STATUS:
+            die_cannot_run(
+                f"register row {module!r} has status {status!r}. The only "
+                f"accepted status is {ACCEPTED_STATUS}. There is no blanket "
+                "ignore switch by design."
+            )
+        if blocked_by.strip().lower() in NON_REASONS:
+            die_cannot_run(
+                f"register row {module!r} has no real reason in blocked_by "
+                f"({blocked_by!r}). Name the concrete thing that blocks wiring "
+                "it, or wire it."
+            )
+        rows[module] = (status, blocked_by, note)
     return rows
 
 
@@ -304,23 +352,33 @@ def main(argv=None) -> int:
         )
 
     orphans = sorted(set(mods) - reached)
+    dormant = [m for m in orphans if m in register]
+    unregistered = [m for m in orphans if m not in register]
 
+    # The counts are reported as THREE separate numbers on purpose. Folding
+    # dormant into reachable would let two dark modules read as a clean tree,
+    # and a dormant bucket that reads as a pass is precisely how a warn bucket
+    # collapses into green. Two dormant modules must be visible as two.
     print(f"modules in {PKG_REL}      {len(mods)}")
     print(f"named by the shipping surface     {len(entry)}")
-    print(f"reachable including transitive    {len(reached)}")
-    print(f"ships but can never run           {len(orphans)}")
+    print(f"REACHABLE                         {len(reached)}")
+    print(f"DORMANT (acknowledged, unwired)   {len(dormant)}"
+          + (f"   {sorted(dormant)}" if dormant else ""))
+    print(f"UNREGISTERED ORPHANS              {len(unregistered)}"
+          + ("   <- fails this gate" if unregistered else ""))
     if CONTROL_MODULE in mods:
         print(f"positive control                  {CONTROL_MODULE} REACHABLE "
               f"via a function-local import in {CONTROL_VIA}")
     print("")
-    print(f"recorded backlog ({len(register)}), from {REGISTER_REL} -- printed in full "
-          "every run so it cannot become wallpaper:")
+    print(f"DORMANT MODULES ({len(register)} registered), from {REGISTER_REL}.")
+    print("Printed in full every run so they cannot become wallpaper. These SHIP")
+    print("and nothing calls them:")
     if not register:
-        print("    (empty)")
+        print("    (none)")
     for mod in sorted(register):
-        blocked_by, note = register[mod]
-        print(f"    {mod}")
-        print(f"        blocked by  {blocked_by}")
+        status, blocked_by, note = register[mod]
+        print(f"    {mod}  [{status}]")
+        print(f"        BLOCKED BY: {blocked_by}")
         print(f"        {note}")
     print("")
 
@@ -333,18 +391,21 @@ def main(argv=None) -> int:
             print(f"    {m}")
         print("")
 
-    new = [m for m in orphans if m not in register]
-    if new:
-        print("FAIL -- these ship and can never run, and are not in the register:")
-        for m in new:
+    if unregistered:
+        print("FAIL -- these ship and can never run, and are not acknowledged:")
+        for m in unregistered:
             print(f"    {PKG_REL}/{m}.py")
         print("")
-        print("Either give it a caller, or add a row to " + REGISTER_REL)
-        print("naming what blocks it. A module with no caller reads as a shipped")
-        print("fix while doing nothing.")
+        print("Either give it a caller, or add a DORMANT row to " + REGISTER_REL)
+        print("naming the concrete thing that blocks wiring it. A module with no")
+        print("caller reads as a shipped fix while doing nothing.")
         return 1
 
-    print("OK -- every module is reachable or recorded.")
+    # Deliberately NOT the word "clean". len(dormant) modules ship and cannot
+    # run; that is acknowledged, not fine, and the summary says so in the same
+    # breath as the pass.
+    print(f"OK -- no UNREGISTERED orphans. {len(dormant)} module(s) ship DORMANT "
+          "and are listed above.")
     return 0
 
 
