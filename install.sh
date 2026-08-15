@@ -8661,11 +8661,19 @@ TOMLPREAMBLE
         #     for Web pair-code mode, or phone_number_id + access_token +
         #     verify_token for Cloud API)
         #
-        # and never registers in the cron-delivery registry. Every customer
-        # install since this block landed has written `enabled = true` with no
-        # selector, so the consent ceremony recorded a yes and the channel was
-        # never reachable. Found 2026-08-12 on the gate box by putting
-        # session_path into the config by hand and restarting the daemon.
+        # and never registers in the cron-delivery registry. That WAS the defect:
+        # installs wrote `enabled = true` with no selector, so the consent
+        # ceremony recorded a yes and the channel was never reachable. Found
+        # 2026-08-12 on the gate box by putting session_path into the config by
+        # hand and restarting the daemon.
+        #
+        # IT IS FIXED, AND THIS COMMENT USED TO SAY OTHERWISE. The selector is
+        # written eleven lines below, at the `session_path = ` echo. A stale
+        # past-tense claim sitting directly above the code that falsifies it is
+        # how a refuted defect gets re-filed: this text seeded a false triple-red
+        # launch blocker (#322) because it reads as a live statement about the
+        # current install path. Corrected 2026-08-15. If the echo below is ever
+        # removed, this paragraph becomes true again and must be restored.
         #
         # SQLite file, not a directory: wa-rs opens it through RusqliteStore and
         # writes `-wal` / `-shm` siblings alongside. Engine zone, not the
@@ -14359,7 +14367,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.55}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.56}"
 
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
 # Hard-coded last-known-good release. The fallback path below
@@ -14430,7 +14438,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="976c0b5d5b92073dfc7fe1ec0bbdafd3d70a6f5199bcde3ff9ce047bb063fc49"
+DEFAULT_ASSISTANT_TARBALL_SHA256="e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
