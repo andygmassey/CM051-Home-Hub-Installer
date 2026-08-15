@@ -132,6 +132,7 @@ test_migration_marker_guard_fresh_install.py	UNWIRED	-
 test_model_fit.sh	UNWIRED	-
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	UNWIRED	-
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
@@ -144,7 +145,7 @@ test_ostler_gui_sudo_gates.sh	UNWIRED	-
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
-test_pinned_wiki_image_has_design_system.sh	WIRED	scripts/run_all_cut_gates.sh
+test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pinned_wiki_images_are_arm64_only.sh	WIRED	scripts/run_all_cut_gates.sh
 test_pinterest_parser.py	UNWIRED	-
 test_placeholder_strip.sh	UNWIRED	-

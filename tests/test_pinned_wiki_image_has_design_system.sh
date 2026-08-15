@@ -32,6 +32,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Read files OUT of the pinned images, never RUN them -- these images are
+# arm64-only and CI is amd64. See scripts/lib_image_extract.sh.
+# shellcheck source=scripts/lib_image_extract.sh
+. "${REPO_ROOT}/scripts/lib_image_extract.sh"
 cd "$REPO_ROOT"
 
 CSS_IN_IMAGE="/docs/overrides/stylesheets/extra.css"
@@ -62,9 +66,18 @@ SCRATCH="$(mktemp -d "$REPO_ROOT/.wikicheck.XXXXXX")"
 trap 'rm -rf "$SCRATCH"' EXIT
 
 # ── Open the image ────────────────────────────────────────────────────────
-docker pull -q "$PIN" >/dev/null 2>&1 || fail "could not pull $PIN -- a customer could not either"
-docker run --rm --entrypoint sh "$PIN" -c "cat $CSS_IN_IMAGE" > "$SCRATCH/image.css" 2>/dev/null \
+# EXTRACT, never EXECUTE. These images are arm64-only by design and this test
+# runs on amd64 in CI, where `docker run` dies with "exec format error" and every
+# read comes back empty -- which this file would have reported as "the CSS is
+# missing from the shipped image". Same defect that burned v1.0.27 and v1.0.28
+# in two other files; found here only by a repo-wide predicate
+# (tests/test_no_gate_execs_a_pinned_image.sh) rather than by reading twice.
+image_pull_platform "$PIN" >/dev/null 2>&1 || fail "could not pull $PIN -- a customer could not either"
+image_extract_path "$PIN" "$CSS_IN_IMAGE" \
+    || fail "could not EXTRACT $CSS_IN_IMAGE from the pinned image -- $IMG_EXTRACT_ERR (nothing was read, so this is NOT a statement about the CSS)"
+cp "$IMG_EXTRACT_DIR/$(basename "$CSS_IN_IMAGE")" "$SCRATCH/image.css" 2>/dev/null \
     || fail "$CSS_IN_IMAGE is not present in the pinned image at all"
+rm -rf "$IMG_EXTRACT_DIR"; IMG_EXTRACT_DIR=""
 [[ -s "$SCRATCH/image.css" ]] || fail "$CSS_IN_IMAGE is EMPTY in the pinned image"
 
 IMG_BYTES=$(wc -c < "$SCRATCH/image.css" | tr -d ' ')
@@ -142,20 +155,32 @@ CPIN="$(grep -oE 'ghcr\.io/[a-z0-9-]+/ostler-wiki-compiler@sha256:[a-f0-9]{64}' 
 [[ -n "$CPIN" ]] || fail "no pinned ostler-wiki-compiler digest in install.sh -- the image that BUILDS every page is unpinned"
 pass "install.sh pins ${CPIN##*/}"
 
-docker pull -q "$CPIN" >/dev/null 2>&1 || fail "could not pull $CPIN -- a customer could not either"
+image_pull_platform "$CPIN" >/dev/null 2>&1 || fail "could not pull $CPIN -- a customer could not either"
 
 # Locate the generator inside the image rather than assuming a layout: a
 # wrong path would make this report "missing" for a file that is present,
 # which is a false alarm, and a gate that cries wolf gets switched off.
-FOUND="$(docker run --rm --entrypoint sh "$CPIN" -c \
-        "find / -path /proc -prune -o -name dashboard.py -path '*compiler/pages*' -print 2>/dev/null | head -1" || true)"
-[[ -n "$FOUND" ]] || fail "compiler/pages/dashboard.py is not in the pinned compiler image at all.
-      The image that generates every wiki page does not contain the generator."
-PY_IN_IMAGE="$FOUND"
+# EXTRACT the compiler tree once, then locate and read the generator on the
+# host. The old form execed `find` INSIDE the image, which on amd64 returned
+# empty and made this fail with "the generator is not in the image" about an
+# image that contains it.
+image_extract_path "$CPIN" "/app/compiler" \
+    || fail "could not EXTRACT /app/compiler from the pinned compiler image -- $IMG_EXTRACT_ERR (nothing was read, so this is NOT a statement about the generator)"
+CEXTRACT="$IMG_EXTRACT_DIR"; IMG_EXTRACT_DIR=""
+FOUND="$(find "$CEXTRACT" -name dashboard.py -path '*pages*' -print 2>/dev/null | head -1 || true)"
+[[ -n "$FOUND" ]] || { rm -rf "$CEXTRACT"; fail "compiler/pages/dashboard.py is not in the pinned compiler image at all.
+      The image that generates every wiki page does not contain the generator."; }
+# docker cp NESTS the copied directory under the destination, so $FOUND is
+# "<tmp>/compiler/pages/dashboard.py". The in-image path is therefore /app +
+# that suffix, not /app/compiler + it -- the naive form reported
+# /app/compiler/compiler/pages/dashboard.py, a path that does not exist. A gate
+# that misreports the location of what it checked sends the next reader hunting.
+PY_IN_IMAGE="/app${FOUND#"$CEXTRACT"}"
 pass "found the generator at $PY_IN_IMAGE"
 
-docker run --rm --entrypoint sh "$CPIN" -c "cat $PY_IN_IMAGE" > "$SCRATCH/image_dashboard.py" 2>/dev/null \
-    || fail "could not read $PY_IN_IMAGE out of the pinned compiler image"
+cp "$FOUND" "$SCRATCH/image_dashboard.py" 2>/dev/null \
+    || { rm -rf "$CEXTRACT"; fail "could not read $PY_IN_IMAGE out of the pinned compiler image"; }
+rm -rf "$CEXTRACT"
 [[ -s "$SCRATCH/image_dashboard.py" ]] || fail "$PY_IN_IMAGE is EMPTY in the pinned compiler image"
 
 # Markers of fixes that reached main but not the box. Each is a defect Andy
