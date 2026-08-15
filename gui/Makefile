@@ -269,7 +269,17 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # DAEMON_SHA256 is: a mismatch deletes the file and aborts the cut, so an
 # unverified or wrong-version Ostler.app can never reach the DMG. Bump in
 # lockstep with DAEMON_VERSION from the release's published .sha256 sidecar.
-HUB_APP_SHA256       ?= e074d6fd9647aa325b2c98a5c61540c209e2b03937286e3f22309f03cc2f62bf
+#
+# 2026-08-15: this pin was a version behind DAEMON_VERSION. It held
+# e074d6fd...c2f62bf, which is MEASURABLY the v0.4.55 digest -- byte-identical
+# to the published hub-v0.4.55 sidecar -- while DAEMON_VERSION said 0.4.56, and
+# nothing at all was published at hub-v0.4.56 on $(HUB_APP_REPO). The fetch path
+# was therefore dead: download-hub-app would delete the tarball and abort. It
+# went unnoticed because the fetch path is never taken on the operator's Mac,
+# where the sibling checkout's bundle is used as-is. Now re-pinned to the
+# published hub-v0.4.56 Ostler.app, built from ostler-assistant acf991bf (the
+# same commit as the v0.4.56 daemon, so verify-commit-parity stays meaningful).
+HUB_APP_SHA256       ?= 676efe8d38e8c5889e4bd4f7121d89949b66889e1002ddae92fff2aca1f8a4f5
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
