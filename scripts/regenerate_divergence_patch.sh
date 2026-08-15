@@ -124,21 +124,60 @@ PII_LIB="$VLIB_REPO_ROOT/.githooks/pii_patterns.sh"
 # reads every run as clean -- including the run where the patterns never
 # loaded. Findings are judged by NON-EMPTY OUTPUT, never by rc.
 #
-# The canary is COMPOSED at runtime and never appears as a literal here,
+# The canaries are COMPOSED at runtime and never appear as literals here,
 # because this repo's own pre-commit hook scans this file and a gate must not
-# carry the thing it hunts. OFCOM reserves 07700 900xxx for drama, so the shape
-# is provably not a real subscriber while still being the shape the scan hunts.
+# carry the thing it hunts. Both are STRUCTURALLY NON-ASSIGNABLE, so neither
+# can be a real person's identifier no matter who reads it:
+#   - a NANP number whose area code begins with a zero, which the numbering
+#     plan forbids, so it belongs to nobody. Exercises the US/intl PHONE limb.
+#   - an SSN in the all-zero area, which the SSA has never issued. Exercises
+#     the SSN limb.
+# The composition below is the specification; read it there. The values are
+# written as printf ARGUMENTS, which is exactly what keeps the assembled shape
+# out of this file. CI caught the first version of this comment doing the
+# opposite -- it spelled both numbers out longhand in the prose, and a gate's
+# own source is the last place the shape it hunts should appear. The local
+# pre-commit hook passed and CI did not, so do not read a clean pre-commit run
+# as permission to write a shape out in full.
+#
+# WHY NOT THE OFCOM DRAMA RANGE, WHICH THIS CONTROL USED TO USE. Because the
+# scanner now deliberately IGNORES it. #729 taught pii_scan_files to drop
+# standards-reserved placeholders (OFCOM 07700 900xxx, NANP 555-01xx) so that
+# following the hook's own advice stops tripping the hook. Correct change --
+# but it silently turned this control's canary into a value the scanner is
+# CONTRACTUALLY REQUIRED to ignore, so the control stopped firing and the tool
+# reported CANNOT-RUN on every invocation. Measured on this branch against
+# origin/main f14715a6: 8 of 24 controls red, every one of them rc=2.
+#
+# That is the failure mode this control exists to produce rather than hide, and
+# it is why a reserved-for-fiction value can never again serve as the canary
+# here: the property that makes it safe to write down is now exactly the
+# property that makes it invisible. A positive control must be a value the
+# scanner is required to FIND, not one it is required to FORGIVE.
+#
+# ALL canaries must fire. A partial fire means some limb of the scanner went
+# quiet, and a scanner that is half-awake cannot clear a patch. On failure the
+# NAME of the limb that stayed silent is left in _PII_CONTROL_SILENT so the
+# CANNOT-RUN message can say which one, rather than just "something".
+_PII_CONTROL_SILENT=""
 _pii_control_fires() {
     [ -f "$PII_LIB" ] || return 2
     # shellcheck source=/dev/null
     . "$PII_LIB" || return 2
-    local d canary out
+    local d out
     d="$(mktemp -d)" || return 2
-    canary="+44$(printf '%s%s' '77009000' '00')"
-    printf 'phone = "%s"\n' "$canary" > "$d/canary.txt"
-    out="$(pii_scan_files "$d/canary.txt" 2>&1)"
+    _PII_CONTROL_SILENT=""
+
+    printf 'phone = "%s"\n' "$(printf '+1 (%s) %s-%s' '000' '000' '0000')" > "$d/nanp.txt"
+    out="$(pii_scan_files "$d/nanp.txt" 2>&1)"
+    [ -n "$out" ] || _PII_CONTROL_SILENT="US/intl phone"
+
+    printf 'ref = "%s"\n' "$(printf '%s-%s-%s' '000' '00' '0000')" > "$d/ssn.txt"
+    out="$(pii_scan_files "$d/ssn.txt" 2>&1)"
+    [ -n "$out" ] || _PII_CONTROL_SILENT="${_PII_CONTROL_SILENT:+$_PII_CONTROL_SILENT, }SSN"
+
     rm -rf "$d"
-    [ -n "$out" ]
+    [ -z "$_PII_CONTROL_SILENT" ]
 }
 
 TREE="${1:-}"
@@ -315,9 +354,18 @@ fi
 #     this scan to catch it.
 if ! _pii_control_fires; then
     echo "regenerate_divergence_patch: CANNOT RUN -- the PII positive control did NOT fire." >&2
+    if [ -n "$_PII_CONTROL_SILENT" ]; then
+        echo "  Silent limb(s): $_PII_CONTROL_SILENT" >&2
+    fi
     echo "  Either $PII_LIB is missing, or its patterns no longer match a known-bad" >&2
     echo "  synthetic value. A PII check that cannot be shown to fire is not evidence" >&2
     echo "  of absence, so nothing is blessed." >&2
+    echo "" >&2
+    echo "  IF A LIMB IS NAMED ABOVE, check first whether the scanner was taught to" >&2
+    echo "  IGNORE the canary rather than losing the ability to see it -- that is how" >&2
+    echo "  this broke once already. A canary must be a value the scanner is required" >&2
+    echo "  to FIND, never one it is required to FORGIVE, so a reserved-for-fiction" >&2
+    echo "  range cannot serve here. Use a structurally non-assignable value instead." >&2
     exit 2
 fi
 

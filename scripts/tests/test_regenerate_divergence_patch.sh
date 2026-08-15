@@ -211,9 +211,17 @@ fi
 # whose divergences are unrecorded, which are the first ones anyone would run
 # this tool against.
 R7="$WORK/c7"; mkdir -p "$R7"; make_fixture "$R7" >/dev/null
-# Source carries a synthetic OFCOM-drama UK mobile; vendored side scrubs it.
-# Composed at runtime so this file never carries the shape it hunts.
-_canary="+44$(printf '%s%s' '77009000' '00')"
+# Source carries a synthetic phone number; vendored side scrubs it. Composed at
+# runtime so this file never carries the shape it hunts.
+#
+# NOT the OFCOM drama range, which this control used to use. Since #729 the
+# scanner deliberately IGNORES standards-reserved placeholders, so a canary
+# drawn from a fiction range is a value the scanner is CONTRACTUALLY REQUIRED
+# not to report -- the refusal under test would never fire and this control
+# would fail for a reason that has nothing to do with the tool. Use a
+# structurally non-assignable value instead: NANP forbids an area code starting
+# with 0, so this number exists for nobody and is still a real phone SHAPE.
+_canary="$(printf '+1 (%s) %s-%s' '000' '000' '0000')"
 (
     cd "$R7/synthetic-source"
     printf 'def owner():\n    return "%s"\n' "$_canary" > pkg/mod.py
@@ -233,10 +241,19 @@ else
     fail "control 7: source-side PII -> rc=$rc, expected a PII refusal"
     printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
 fi
-if printf '%s' "$out" | grep -q '77009000'; then
-    fail "control 7: THE REFUSAL PRINTED THE VALUE (it must print pattern names only)"
+# Assert against the canary ACTUALLY IN USE. This grepped for the previous
+# canary after the value had changed, which made it pass by looking for
+# something no longer present anywhere -- a leak check that cannot see the
+# thing it guards is worth less than none, because it reads as a green.
+# So: prove the probe can see the value before trusting that it cannot.
+if printf '%s' "$_canary" | grep -qF "$_canary"; then
+    if printf '%s' "$out" | grep -qF "$_canary"; then
+        fail "control 7: THE REFUSAL PRINTED THE VALUE (it must print pattern names only)"
+    else
+        pass "control 7: refusal named patterns, did not echo the value"
+    fi
 else
-    pass "control 7: refusal named patterns, did not echo the value"
+    fail "control 7: the leak probe cannot match its own canary -- result meaningless"
 fi
 [ -f "$R7/vendor/divergences/synthtree.patch" ] \
     && fail "control 7: WROTE A PATCH CONTAINING PII" \
