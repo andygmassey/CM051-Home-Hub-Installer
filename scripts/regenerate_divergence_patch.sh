@@ -66,6 +66,22 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/_vendor_lib.sh
 . "$SCRIPT_DIR/_vendor_lib.sh"
+
+# RE-ASSERT OUR OWN SHELL OPTIONS. _vendor_lib.sh runs `set -euo pipefail` at
+# file scope, so SOURCING it silently turns -e back on in this shell and
+# overrides the `set -uo pipefail` chosen above. Confirmed by measurement:
+#   bash -c 'set -uo pipefail; . scripts/_vendor_lib.sh; case "$-" in *e*) ...'
+#   -> -e IS SET after sourcing.
+#
+# -e is wrong for this tool. Several library calls signal by EXIT CODE rather
+# than by failing: vlib_vendor_diff returns non-zero to mean "there is drift",
+# which is the normal case here and the whole reason the tool was invoked. The
+# paths in use today happen to be -e-exempt because they sit in `if` or `||`
+# constructs, so nothing is currently broken -- but a bare call added later
+# would abort the run mid-write with no message, and the arm most likely to
+# contain one is the revert, which only executes when something has already
+# gone wrong. A latent -e in the recovery path is the worst place for it.
+set +e
 PII_LIB="$VLIB_REPO_ROOT/.githooks/pii_patterns.sh"
 
 # ---------------------------------------------------------------------------

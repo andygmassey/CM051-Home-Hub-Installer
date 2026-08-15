@@ -257,6 +257,48 @@ else
 fi
 [ "$(vendor_hash "$R8")" = "$H8" ] || fail "control 8: THE VENDORED TREE CHANGED"
 
+# --- 9: the REVERT arm. Write succeeds, verification fails, old patch restored.
+# THE ARM NOBODY HAD TESTED, and the one that matters when things go wrong.
+#
+# Control 4 proves write-then-verify-OK. Nothing proved what happens when the
+# written patch CANNOT reconstruct the tree. That path is the tool's only
+# promise of safety -- "the repo is back as it was" -- and an untested recovery
+# path is a recovery path that has never recovered anything.
+#
+# It also sits downstream of a real hazard: sourcing _vendor_lib.sh turns -e
+# back on (measured), and a bare non-zero anywhere in the revert would abort
+# before the restore. The tool now re-asserts `set +e`; this proves the arm
+# actually runs to completion.
+#
+# TRIGGER: a binary file. `git diff --no-index` emits "Binary files ... differ"
+# with no applicable hunk, so the patch is non-empty but cannot rebuild the
+# tree -- exactly the shape the verify step exists to catch.
+R9="$WORK/c9"; mkdir -p "$R9"; make_fixture "$R9" >/dev/null
+SENTINEL="# a previous, known-good patch that must survive a failed run"
+printf '%s\n' "$SENTINEL" > "$R9/vendor/divergences/synthtree.patch"
+OLDSUM="$(shasum -a 256 < "$R9/vendor/divergences/synthtree.patch")"
+printf '\x00\x01\x02BINARY-DIVERGENCE' > "$R9/vendor/synthtree/pkg/blob.bin"
+H9="$(vendor_hash "$R9")"
+out="$( cd "$R9" && VENDOR_PATCH_REGEN_CONFIRM=synthtree \
+        bash scripts/regenerate_divergence_patch.sh synthtree --write 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ]; then
+    pass "control 9: unreconstructable patch -> run FAILS (rc=1)"
+else
+    fail "control 9: unreconstructable patch -> rc=$rc, expected 1"
+    printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
+fi
+if printf '%s' "$out" | grep -q 'RESTORED the previous'; then
+    pass "control 9: the revert arm RAN and said so"
+else
+    fail "control 9: no evidence the revert arm executed"
+fi
+if [ "$(shasum -a 256 < "$R9/vendor/divergences/synthtree.patch")" = "$OLDSUM" ]; then
+    pass "control 9: the previous patch is byte-identical after the failed run"
+else
+    fail "control 9: THE PREVIOUS PATCH WAS NOT RESTORED"
+fi
+[ "$(vendor_hash "$R9")" = "$H9" ] || fail "control 9: THE VENDORED TREE CHANGED"
+
 echo ""
 if [ "$fails" -gt 0 ]; then
     printf '\033[0;31mregenerate_divergence_patch: %d control(s) FAILED\033[0m\n' "$fails"
