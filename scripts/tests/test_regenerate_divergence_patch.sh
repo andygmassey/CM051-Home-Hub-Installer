@@ -24,6 +24,10 @@
 #   6  source advanced past the pin        REFUSED as a RE-PIN
 #   7  PII on the SOURCE side, no patch    REFUSED, and the value is not echoed
 #   8  PII pattern library absent          CANNOT-RUN, never a pass
+#   9  written patch cannot rebuild        run FAILS, previous patch RESTORED
+#  10  regenerate_forbidden                REFUSED before the source is read
+#  11  --write + confirm on a banned tree  the ban still holds
+#  12  ban declared with no reason         still REFUSED, called malformed
 #   +  the vendored tree is never touched  after EVERY control above
 #
 # The tree-never-touched check is the invariant the whole design rests on, so
@@ -298,6 +302,88 @@ else
     fail "control 9: THE PREVIOUS PATCH WAS NOT RESTORED"
 fi
 [ "$(vendor_hash "$R9")" = "$H9" ] || fail "control 9: THE VENDORED TREE CHANGED"
+
+# --- 10: regenerate_forbidden -> REFUSED, and NOT via the environment --------
+# THE GUARD THAT DOES NOT DEPEND ON THE OPERATOR'S CHECKOUT.
+#
+# Every other refusal above is reached by consulting something outside the
+# repo: the source repo, its HEAD, the pin. Those are the guards that fail OPEN
+# when the environment shifts. Measured on cm041/contact_syncer 2026-08-15: the
+# advance guard refuses while the operator's source checkout is AHEAD of the
+# pin, but a checkout sitting EXACTLY AT the pin discharges it, and the run then
+# returns 0 and offers to write a patch whose minus side carries person-name
+# shaped tokens that the numeric-only PII scan cannot see.
+#
+# So this control asserts the ban fires on a tree that is otherwise PERFECTLY
+# REGENERABLE -- divergent, source present, pin present, no PII -- which is the
+# state that would return 0 without it. If it ever passes for the wrong reason,
+# control 2 (same fixture, no ban, rc=0) is the paired positive control proving
+# the fixture really does reach a verdict.
+R10="$WORK/c10"; mkdir -p "$R10"; make_fixture "$R10" >/dev/null
+printf 'def hello():\n    return "v1"\n\ndef graft():\n    return "local"\n' \
+    > "$R10/vendor/synthtree/pkg/mod.py"
+cat >> "$R10/vendor/VENDOR_MANIFEST.toml" <<'EOF'
+regenerate_forbidden        = true
+regenerate_forbidden_reason = "synthetic ban for the self-test"
+EOF
+H10="$(vendor_hash "$R10")"
+out="$(run_tool "$R10" synthtree)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'regenerate_forbidden'; then
+    pass "control 10: regenerate_forbidden -> REFUSED (rc=1)"
+else
+    fail "control 10: regenerate_forbidden -> rc=$rc, expected refusal"
+    printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
+fi
+if printf '%s' "$out" | grep -q 'synthetic ban for the self-test'; then
+    pass "control 10: the declared reason was printed"
+else
+    fail "control 10: the declared reason was NOT printed"
+fi
+# The ban must be reached BEFORE the source is consulted, or an operator with a
+# different checkout gets a different answer -- which is the whole defect.
+if printf '%s' "$out" | grep -qE 'RE-PIN|not divergent|PROPOSED PATCH|DRY RUN'; then
+    fail "control 10: the run consulted the source before refusing"
+else
+    pass "control 10: refused before consulting the source checkout"
+fi
+[ -f "$R10/vendor/divergences/synthtree.patch" ] \
+    && fail "control 10: WROTE A PATCH FOR A FORBIDDEN TREE" \
+    || pass "control 10: no patch written"
+[ "$(vendor_hash "$R10")" = "$H10" ] || fail "control 10: THE VENDORED TREE CHANGED"
+
+# --- 11: --write cannot beat the ban -----------------------------------------
+# A ban that only holds in dry run is not a ban. Both escape hatches are handed
+# over at once: --write AND the confirm env, which is everything an operator
+# needs to write any other tree.
+out="$( cd "$R10" && VENDOR_PATCH_REGEN_CONFIRM=synthtree \
+        bash scripts/regenerate_divergence_patch.sh synthtree --write 2>&1 )"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'regenerate_forbidden'; then
+    pass "control 11: --write + confirm still REFUSED by the ban"
+else
+    fail "control 11: --write + confirm -> rc=$rc, the ban did not hold"
+fi
+[ -f "$R10/vendor/divergences/synthtree.patch" ] \
+    && fail "control 11: --write BEAT THE BAN AND WROTE" \
+    || pass "control 11: still no patch written"
+[ "$(vendor_hash "$R10")" = "$H10" ] || fail "control 11: THE VENDORED TREE CHANGED"
+
+# --- 12: ban declared WITHOUT a reason -> still REFUSED ----------------------
+# Fail closed. A malformed ban is not a licence to proceed, and the repo's other
+# declare-it-with-a-reason pairs treat a missing reason as RED rather than as an
+# absent declaration.
+R12="$WORK/c12"; mkdir -p "$R12"; make_fixture "$R12" >/dev/null
+printf 'def hello():\n    return "v1"\n\ndef graft():\n    return "local"\n' \
+    > "$R12/vendor/synthtree/pkg/mod.py"
+printf 'regenerate_forbidden        = true\n' >> "$R12/vendor/VENDOR_MANIFEST.toml"
+H12="$(vendor_hash "$R12")"
+out="$(run_tool "$R12" synthtree)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'NO regenerate_forbidden_reason'; then
+    pass "control 12: ban without a reason -> still REFUSED, and says it is malformed"
+else
+    fail "control 12: ban without a reason -> rc=$rc, expected a refusal"
+    printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
+fi
+[ "$(vendor_hash "$R12")" = "$H12" ] || fail "control 12: THE VENDORED TREE CHANGED"
 
 echo ""
 if [ "$fails" -gt 0 ]; then

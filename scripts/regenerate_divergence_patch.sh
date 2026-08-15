@@ -35,6 +35,9 @@
 # this over every divergent tree without typing each name, which is the point.
 #
 # WHAT IT REFUSES OUTRIGHT
+#   - a tree marked regenerate_forbidden           a NAMED, per-tree ban that
+#                                                  does not depend on the
+#                                                  operator's environment
 #   - a tree that is already fresh                 nothing to record
 #   - a source repo that cannot be resolved        CANNOT-RUN, exit 2
 #   - a pinned_sha absent from the checkout        CANNOT-RUN, exit 2
@@ -42,6 +45,33 @@
 #                                                  graft; blessing it here
 #                                                  would record upstream
 #                                                  commits as local edits
+#
+# WHY regenerate_forbidden EXISTS, AND WHY THE ADVANCE CHECK IS NOT ENOUGH.
+# Measured 2026-08-15 on cm041/contact_syncer. With CM041 resolving to a
+# checkout AHEAD of the pin, the advance check refuses and the tree is safe.
+# Point CM041 at a checkout sitting EXACTLY AT the pin -- a fresh clone checked
+# out at the pinned sha, or a clone predating the four held commits -- and the
+# advance limb is discharged, the run reaches a verdict, and it returns 0 and
+# offers to write. The delta it would write carries TWO PERSON-NAME-SHAPED
+# tokens on its MINUS side, i.e. the SOURCE side, so writing would export them
+# from a private repo into this public one.
+#
+# The PII scan does not catch it, and cannot: .githooks/pii_patterns.sh carries
+# five NUMERIC shapes (UK mobile x2, US/intl phone, SSN, long numeric id) and
+# no person-name shape at all. The instrument and the defect sit on different
+# surfaces, so the scan reads clean forever while the defect is fully present.
+# Its positive control fires, so the clean result is a real measurement of the
+# wrong thing -- which is the most misleading kind.
+#
+# The advance limb also cannot be relied on here for a second reason, recorded
+# in VENDOR_MANIFEST.toml: it reads HEAD of whatever checkout source_repo
+# resolves to, so it is NOT PORTABLE. Two "canonical" exports were measured
+# wrong for it on the same day, one of them four commits behind origin/main --
+# which for this tree is precisely the state that discharges the limb.
+#
+# So the ban is DECLARED, per tree, in the manifest, and is checked before the
+# environment is consulted at all. Same shape as the manifest's other
+# declare-it-with-a-reason pairs: a ban without a reason is still a refusal.
 #
 # AND IT VERIFIES ITSELF. After writing, it reconstructs the tree from
 # source@pinned_sha + the NEW patch and diffs against the vendored tree. If
@@ -143,6 +173,35 @@ PATCH_REL="$(vlib_field "$TREE" divergence_patch)"
 PINNED_SHA="$(vlib_field "$TREE" pinned_sha)"
 ABS_VENDOR="$VLIB_REPO_ROOT/$VENDOR_PATH"
 
+# --- REFUSE a tree the manifest bans outright --------------------------------
+# FIRST, before the source repo, the pin or the operator's environment is
+# consulted, because every one of those is a thing an operator can change and
+# this ban must not be escapable by changing them. See the header for the
+# measurement that forced this.
+FORBID="$(vlib_field "$TREE" regenerate_forbidden)"
+if [ "$FORBID" = "true" ]; then
+    FORBID_WHY="$(vlib_field "$TREE" regenerate_forbidden_reason)"
+    echo "" >&2
+    echo "REFUSED: $TREE is marked regenerate_forbidden in VENDOR_MANIFEST.toml." >&2
+    echo "" >&2
+    if [ -n "$FORBID_WHY" ]; then
+        echo "  Declared reason:" >&2
+        printf '%s\n' "$FORBID_WHY" | fold -s -w 72 | sed 's/^/    /' >&2
+    else
+        # Fail closed. A ban with no reason is malformed, and the safe reading
+        # of a malformed ban is that it still bans.
+        echo "  NO regenerate_forbidden_reason IS DECLARED. That is malformed, and it" >&2
+        echo "  is still a refusal: an undocumented ban is not a licence to proceed." >&2
+        echo "  Add the reason, or remove the ban deliberately." >&2
+    fi
+    echo "" >&2
+    echo "  This ban is checked BEFORE the source checkout, so it cannot be cleared" >&2
+    echo "  by re-pointing an env placeholder or moving a checkout. Do not route" >&2
+    echo "  around it with sync_vendor.sh either: that re-syncs FROM source and" >&2
+    echo "  deletes the vendored side, which is where scrubs live." >&2
+    exit 1
+fi
+
 [ -n "$PATCH_REL" ]   || die_cannot_run "$TREE declares no divergence_patch path in the manifest"
 [ -d "$ABS_VENDOR" ]  || die_cannot_run "vendored tree missing on disk: $VENDOR_PATH"
 
@@ -234,11 +293,26 @@ fi
 # So: scan EVERY changed line, both signs, marker stripped.
 #
 # WHAT THIS SCAN DOES NOT COVER, stated so a clean run is not over-read.
-# It scans the patch this run would WRITE. PII already recorded in an existing
-# patch, unchanged by this run, is not in that set and is never rescanned. A
-# clean result here means "this run adds no new PII", NOT "this patch contains
-# no PII". Auditing what is already recorded is a separate sweep against the
-# committed vendor/divergences/ tree, and it is not this tool's job.
+#
+# (a) SCOPE. It scans the patch this run would WRITE. PII already recorded in an
+#     existing patch, unchanged by this run, is not in that set and is never
+#     rescanned. A clean result here means "this run adds no new PII", NOT "this
+#     patch contains no PII". Auditing what is already recorded is a separate
+#     sweep against the committed vendor/divergences/ tree, not this tool's job.
+#
+# (b) SURFACE, and this is the one that has actually bitten. The patterns in
+#     .githooks/pii_patterns.sh are FIVE NUMERIC SHAPES: UK mobile in two
+#     forms, US/intl phone, US SSN, and a long numeric id. There is NO
+#     person-name shape among them. So this scan cannot see a name, and on
+#     cm041/contact_syncer it returns a clean, positive-control-backed zero over
+#     a delta carrying two person-name-shaped tokens on its minus side.
+#     A green line below therefore means "no numeric-shaped PII", never "no
+#     PII". Names are hunted by tests/vendor_person_name_sweep.py, a separate
+#     instrument this tool does not call, and adjudicated in
+#     vendor/PERSON_NAMES_REVIEWED.tsv, which does not exist yet -- so for names
+#     the answer is UNKNOWN, not clean. Where that gap is known to be live for a
+#     specific tree, ban the tree with regenerate_forbidden rather than trusting
+#     this scan to catch it.
 if ! _pii_control_fires; then
     echo "regenerate_divergence_patch: CANNOT RUN -- the PII positive control did NOT fire." >&2
     echo "  Either $PII_LIB is missing, or its patterns no longer match a known-bad" >&2
@@ -272,6 +346,9 @@ fi
 # --- SHOW what is about to be blessed ----------------------------------------
 echo "PII control   : fired on a synthetic known-bad value, so the clean result means something"
 echo "PII scan      : $(wc -l < "$CHANGED" | tr -d ' ') changed line(s) scanned, both signs, no hits"
+echo "                SURFACE: numeric shapes only (phone / SSN / long numeric id)."
+echo "                This scan CANNOT see a person name. For names the answer is"
+echo "                UNKNOWN, not clean -- see tests/vendor_person_name_sweep.py."
 echo ""
 echo "PROPOSED PATCH -- this is what would be RECORDED as a deliberate graft:"
 echo ""
