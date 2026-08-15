@@ -107,12 +107,57 @@ grep -q 'OSTLER_APPLE_NOTES_KNOWLEDGE' "$INSTALL" \
     || fail "$INSTALL missing the OSTLER_APPLE_NOTES_KNOWLEDGE deferred-flag hook"
 echo "hook check: OSTLER_APPLE_NOTES_KNOWLEDGE deferred explicit-flag hook present"
 
-# 7. universal_import _dispatch_apple_notes is UN-DEFERRED ------------
+# 7. CONSENT MUST MATCH CAPABILITY -----------------------------------
+#
+# This check used to assert `DEFERRED persistence` was GONE from
+# universal_import.py. Two things were wrong with it.
+#
+# It named the wrong object. The message said "vendor still carries", sending
+# the reader to a re-vendor. But the vendored copy and the HR015 source hash
+# identically, so a re-vendor is a no-op -- and a re-vendor in this repo has
+# twice been proven destructive. A failure message that recommends a dangerous
+# no-op is worse than no message.
+#
+# And it asserted a state that cannot yet be true. Apple Notes persistence has
+# not landed: vendor/VENDOR_MANIFEST.toml holds cm024_knowledge at 43d6c5da,
+# and the re-pin to 7ace7672 that carries the apple_notes.py adapter is
+# DEFERRED. So this line was permanently red, which meant checks 1 to 6 above
+# -- which pass and are worth having -- never reported green.
+#
+# The invariant that actually matters is not "is it built yet". It is: WE MUST
+# NOT ASK FOR ACCESS WE CANNOT USE. So assert the two facts against each other.
+# While the stage-only stub is present, apple_notes must not be in RECOMMENDED
+# and must not be in the default OSTLER_FDA_SOURCES. This fails if someone
+# re-adds the source without landing the converter, and it fails the other way
+# when the converter lands and the source is not restored. Either way it points
+# at the real object.
 [[ -f "$UNIVERSAL" ]] || fail "vendored universal_import missing at $UNIVERSAL"
-grep -q 'DEFERRED persistence' "$UNIVERSAL" \
-    && fail "$UNIVERSAL still carries the old 'DEFERRED persistence' apple_notes stub"
-grep -q '"--source", "apple_notes"' "$UNIVERSAL" \
-    || fail "$UNIVERSAL _dispatch_apple_notes does not route through ostler-knowledge convert --source apple_notes"
-echo "un-defer check: universal_import _dispatch_apple_notes routes through ostler-knowledge convert"
+if grep -q 'DEFERRED persistence' "$UNIVERSAL"; then
+    # Stage-only by design. Confirm the installer does not solicit the data.
+    if grep -qE '^RECOMMENDED=.*apple_notes' "$INSTALL"; then
+        fail "apple_notes is in RECOMMENDED but persistence is still stage-only.
+   The converter is NOT vendored: VENDOR_MANIFEST.toml pins cm024_knowledge at
+   43d6c5da and the re-pin to 7ace7672 (which carries apple_notes.py) is
+   DEFERRED, so 'convert --source apple_notes' exits non-zero.
+   We would take Full Disk Access to a customer's Notes, read every one, and
+   use none of them. Remove it from RECOMMENDED, or land the re-pin."
+    fi
+    if grep -qE '^OSTLER_FDA_SOURCES=.*apple_notes' "$INSTALL"; then
+        fail "apple_notes is in the default OSTLER_FDA_SOURCES but persistence
+   is still stage-only. Same reason as above: the notes would be extracted and
+   then go nowhere searchable. Remove it from the default, or land the re-pin."
+    fi
+    echo "consent check: persistence is stage-only (universal_import.py), and"
+    echo "               apple_notes is correctly absent from RECOMMENDED + defaults"
+else
+    # Persistence has landed. Now the route must be real AND the source restored.
+    grep -q '"--source", "apple_notes"' "$UNIVERSAL" \
+        || fail "$UNIVERSAL no longer carries the stage-only stub but _dispatch_apple_notes
+   does not route through ostler-knowledge convert --source apple_notes either."
+    grep -qE '^RECOMMENDED=.*apple_notes' "$INSTALL" \
+        || fail "apple_notes persistence has LANDED but the source is still absent from
+   RECOMMENDED. The capability exists and we are not offering it. Restore it."
+    echo "un-defer check: persistence landed, route present, source restored"
+fi
 
 echo "hydrate_apple_notes wiring guard: PASS"
