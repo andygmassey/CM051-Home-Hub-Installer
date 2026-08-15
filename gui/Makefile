@@ -1166,6 +1166,34 @@ check-ostler-app:
 	    exit 1; \
 	fi
 	@printf '[CHECK] OSTLER_APP_PATH=%s (directory exists)\n' "$(OSTLER_APP_PATH)"
+	@# PRE-SEAL PROVENANCE. Until this existed, the two checks above were the
+	@# whole of check-ostler-app: non-empty, and is-a-directory. Nothing asked
+	@# WHICH bundle it was.
+	@#
+	@# That was survivable only by accident. An ad-hoc bundle used to die at
+	@# notarytool (step 11) with "Invalid". #679 made notarise-hub seal the Hub
+	@# unconditionally -- correct in itself, an unsigned bundle must never reach
+	@# Apple -- and in doing so converted that noisy accidental backstop into a
+	@# silent pass: we now sign the unknown bundle ourselves and it is Accepted.
+	@#
+	@# The surviving TeamIdentifier assertion in verify-dmg-contents runs AFTER
+	@# the seal we just applied, so it can only fail if codesign failed. And
+	@# verify_commit_parity.sh asks the right question POST-cut, on a mounted
+	@# DMG, after a notarisation round trip has already been spent.
+	@#
+	@# So ask it here, at step 5, before anything is signed. Delegated to a
+	@# script (as COMMIT_PARITY_SH is) so the assertion is self-testable:
+	@# scripts/tests/test_verify_app_provenance.sh, whose load-bearing control
+	@# proves a bundle whose commit differs but whose frontend is IDENTICAL
+	@# still passes. rc=2 (could not run) blocks too: an unmeasured provenance
+	@# is not a pass.
+	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" || { \
+	    echo "" >&2; \
+	    echo "  Refusing to continue: the Ostler.app going into this DMG has not" >&2; \
+	    echo "  been shown to be the bundle this cut intends to ship. Sealing it" >&2; \
+	    echo "  would launder an unattested binary into a signed, notarised DMG." >&2; \
+	    exit 1; \
+	}
 
 sparkle-embed: guard-local-cut
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
@@ -2023,6 +2051,10 @@ verify-stapling:
 # are worse than no gate.
 # ---------------------------------------------------------------------------
 COMMIT_PARITY_SH ?= $(CURDIR)/../scripts/verify_commit_parity.sh
+
+# Pre-seal sibling of COMMIT_PARITY_SH. Same question, asked at step 5 instead
+# of post-cut, and asserted on frontend CONTENT rather than commit-SHA equality.
+APP_PROVENANCE_SH ?= $(CURDIR)/../scripts/verify_app_provenance.sh
 verify-commit-parity:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: the commit-parity gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \
