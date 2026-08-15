@@ -132,3 +132,11 @@ jobs:
       - name: control -- prove the TCC pre-probe check can still fail
         if: always()
         run: bash scripts/tests/test_daemon_fda_case6_controls.sh
+      # NOT a consent test, wired here because this workflow is the one with no
+      # path filter, and a teardown gate must fire on any change to install.sh.
+      # It found com.ostler.stay-awake written and never removed -- the THIRD
+      # instance of that hole -- and reported it correctly for as long as it has
+      # existed, to nobody, because the file runs nowhere.
+      - name: every LaunchAgent install.sh writes is also torn down
+        if: always()
+        run: bash tests/test_every_launchagent_is_torn_down.sh

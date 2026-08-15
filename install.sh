@@ -12572,6 +12572,23 @@ launchctl bootout "gui/$(id -u)/com.ostler.meeting-brief-sender" 2>/dev/null || 
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.ostler.ollama-logrotate" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist" 2>/dev/null || true
+# 2026-08-15: com.ostler.stay-awake is the THIRD instance of the same hole, and
+# it arrived after the note above was written. install.sh:7188 writes the plist;
+# nothing removed it. The orphan gate that was supposed to hold the line here
+# (tests/test_every_launchagent_is_torn_down.sh) reported it correctly the whole
+# time and nobody saw, because that file runs NOWHERE -- it sits in the unwired
+# backlog in tests/TEST_WIRING.tsv.
+#
+# So the gate did its job and the register did not. A guard nothing executes is
+# indistinguishable from no guard, which is why this one is wired in the same
+# change that fixes what it found.
+#
+# Consequence if left: a reinstall bootstraps a second stay-awake agent while
+# the first is still loaded. Two schedulers, same job, neither aware of the
+# other -- the caffeinate assertion is then held by an agent pointing at a
+# binary path from the previous install.
+launchctl bootout "gui/$(id -u)/com.ostler.stay-awake" 2>/dev/null || \
+    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.stay-awake.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
     launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
 launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
