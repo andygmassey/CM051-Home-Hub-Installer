@@ -194,6 +194,7 @@ test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
 test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
+test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
 test_whatsapp_channel_block.sh	UNWIRED	-
 test_wiki_baseline_background.sh	UNWIRED	-

@@ -6422,30 +6422,64 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Recognising voices on calls${NC}"
+    # WHERE THE BIOMETRIC LIVES. This block used to tell the customer the
+    # voice fingerprint is stored "locally on this Mac", that it "stays on
+    # this Mac", and that they withdraw consent in "Settings -> Privacy ->
+    # Voice recognition" on the Mac. All three were false, on the one screen
+    # where being wrong is an Article 9 problem rather than a copy nit.
+    #
+    # The shipped code is unambiguous. vendor/cm041/assistant_api/ical-server.py
+    # states it as a locked invariant: "the Hub holds no voiceprint registry.
+    # The biometric never crosses the wire in either direction." The Hub
+    # receives a TEXT label plus an opaque voice_fingerprint_ref the DEVICE
+    # supplied; the embedding itself never leaves the phone.
+    #
+    # vendor/legal/consent_strings.py (EU_VOICE_SPEAKER_ID_CONSENT,
+    # v1.1-2026-06-21) says the same thing, and is the version whose hash the
+    # consent record pins. So the installer was the only artefact claiming the
+    # Mac holds biometric data, and it was the one the customer actually read
+    # before ticking the box.
+    #
+    # Two concrete harms, not one. The obvious one is that the Article 9
+    # consent was taken against a false description of where special-category
+    # data is processed. The quieter one is worse in practice: the withdrawal
+    # route was fiction. A customer following "Settings -> Privacy -> Voice
+    # recognition" on this Mac finds nothing, because there is nothing on this
+    # Mac to turn off. The real switch is in the iPhone Companion app.
+    #
+    # Text below is now verbatim from the catalogue, reflowed for an 80-column
+    # terminal and nothing else. tests/test_voice_consent_matches_catalogue.sh
+    # asserts the load-bearing claims cannot drift apart again.
+    echo -e "  ${BOLD}Recognising voices on calls (in the Ostler iPhone app)${NC}"
     echo ""
-    echo "  Ostler can label transcripts with who is speaking – for"
-    echo "  example, \"Speaker A\", \"Speaker B\" – by storing a numeric"
-    echo "  fingerprint of each voice locally on this Mac. Under UK and"
-    echo "  EU privacy law this is biometric data, so we have to ask"
-    echo "  first."
+    echo "  The Ostler iPhone Companion app can label transcripts with who"
+    echo "  is speaking – for example, \"Sam\", \"Alex\" – by storing a numeric"
+    echo "  fingerprint of each voice in an encrypted store on your iPhone."
+    echo "  The fingerprints never leave your phone and are never sent to"
+    echo "  this Mac or to us; the Mac only ever receives the text label"
+    echo "  (the name), never the fingerprint. Under UK and EU privacy law a"
+    echo "  voice fingerprint is biometric data, so we ask before the"
+    echo "  Companion enrols any voices."
     echo ""
     echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a call you capture."
     echo -e "  ${BOLD}What we do not do.${NC} Detect mood, emotion, sentiment, stress"
     echo "  or any other inferred psychological state from voice."
     echo ""
-    echo "  The fingerprints stay on this Mac. We never receive them. You"
-    echo "  can turn this off any time in Settings -> Privacy -> Voice"
-    echo "  recognition; turning it off deletes any fingerprints already"
-    echo "  stored."
+    echo "  The fingerprints stay on your iPhone. We never receive them, and"
+    echo "  neither does this Mac. You can turn this off any time in the"
+    echo "  iPhone app under Settings -> Voice recognition; turning it off"
+    echo "  deletes any fingerprints already stored on the phone. If you"
+    echo "  never install the iPhone Companion, no voice fingerprint is ever"
+    echo "  created."
     echo ""
-    echo -e "  ${DIM}Legal note: Voice fingerprints stored on this Mac are"
-    echo -e "  biometric data under UK GDPR Article 9(1). Your explicit"
-    echo -e "  consent above (Article 9(2)(a)) is the lawful basis for"
-    echo -e "  processing. You are the data controller (Article 4(7));"
-    echo -e "  Creative Machines never receives the fingerprints. For"
+    echo -e "  ${DIM}Legal note: Voice fingerprints stored on your iPhone by the"
+    echo -e "  Ostler Companion app are biometric data under UK GDPR Article"
+    echo -e "  9(1). Your explicit consent above (Article 9(2)(a)) is the"
+    echo -e "  lawful basis for processing. You are the data controller"
+    echo -e "  (Article 4(7)); Creative Machines never receives the"
+    echo -e "  fingerprints, and they are never sent to this Mac. For"
     echo -e "  personal and household use, Article 2(2)(c) further limits"
-    echo -e "  scope. Withdrawing consent in Settings deletes stored"
+    echo -e "  scope. Withdrawing consent in the iPhone app deletes stored"
     echo -e "  fingerprints.${NC}"
     echo ""
     while true; do
