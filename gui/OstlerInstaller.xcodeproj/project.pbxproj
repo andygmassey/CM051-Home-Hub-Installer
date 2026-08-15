@@ -460,7 +460,6 @@
 				};
 			};
 			buildConfigurationList = 83F8F40CF92AC5C4B89FB32F /* Build configuration list for PBXProject "OstlerInstaller" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -470,6 +469,7 @@
 			mainGroup = C75FEAA8301103D163767951;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 7FC686951F990D23E8C912BF /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
