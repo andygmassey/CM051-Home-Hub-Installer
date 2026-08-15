@@ -165,6 +165,7 @@ test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
 test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_total_steps_dynamic.sh	UNWIRED	-
+test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_keep_prompt.sh	UNWIRED	-
 test_universal_import_leg_wired.sh	UNWIRED	-
 test_upgrade_mode_invariants.sh	UNWIRED	-

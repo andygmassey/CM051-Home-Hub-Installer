@@ -12569,112 +12569,82 @@ fi
 echo ""
 echo "  Stopping services..."
 cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ollama" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" 2>/dev/null || true
+# ── LaunchAgent teardown ───────────────────────────────────────
+# ONE register, and one loop that performs BOTH halves of a teardown.
+#
+# This used to be two hand-maintained walls -- a list of `launchctl bootout`
+# lines and a list of `rm -f` lines -- that had to agree with each other and
+# with every plist install.sh writes. They drifted three times:
+#
+#   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
+#               torn down at all. Found loaded on the .208 box-walk.
+#   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
+#   2026-08-15  tailscaled: written at install.sh:16544, absent from both
+#               walls. Its only bootout is the install-time restart at
+#               install.sh:16575, which is not a teardown.
+#
+# THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
+# the current login session and does not touch the disk. launchd rescans
+# ~/Library/LaunchAgents at every login, so a plist left behind is loaded
+# again the next time the customer logs in. A bootout-only teardown is an
+# uninstall that does not survive a reboot -- com.ostler.stay-awake would go
+# on holding a `caffeinate -s` power assertion on a Mac with no Ostler on it,
+# and the agents whose ProgramArguments point into ~/.ostler (which this
+# script deletes below) would be respawned against a missing binary until
+# launchd throttles them.
+#
+# A single list cannot disagree with itself. Adding an agent to install.sh
+# now means adding one line here, and
+# tests/test_uninstall_removes_every_launchagent_plist.sh fails the PR if
+# that line is missing -- it seeds a sandboxed HOME with one plist per label
+# install.sh writes, runs this region, and looks at what is left on disk.
+#
+# Not renamed to a single label domain here: com.ostler.* and
+# com.creativemachines.ostler.* both appear because they both exist on
+# customer machines today. Collapsing them needs a launchd migration on every
+# existing install and is tracked separately; teardown must keep naming both
+# until then.
+OSTLER_LAUNCHAGENT_LABELS=(
+    com.ostler.ollama
+    com.ostler.doctor
+    com.ostler.ical-server
+    com.ostler.export-scan
+    com.ostler.fda-rerun
+    com.ostler.contact-resync
+    com.ostler.deferred-register-device
+    com.ostler.aiconv-resume
+    com.ostler.colima
+    com.ostler.meeting-brief-sender
+    com.ostler.ollama-logrotate
+    com.ostler.stay-awake
+    com.ostler.imessage-bridge
+    com.creativemachines.ostler.hub-power
+    com.creativemachines.ostler.email-ingest
+    com.creativemachines.ostler.whatsapp-bundle
+    com.creativemachines.ostler.email-bundle
+    com.creativemachines.ostler.spoken-bundle
+    com.creativemachines.ostler.imessage-bundle
+    com.creativemachines.ostler.wiki-recompile
+    com.creativemachines.ostler.wiki-recompile-catchup
+    com.creativemachines.ostler.editor-frontpage
+    com.creativemachines.ostler.dedupe-catchup
+    com.creativemachines.ostler.assistant
+    com.creativemachines.ostler.whatsapp-keepalive
+    com.creativemachines.ostler.tailscaled
+    com.creativemachines.ostler-remotecapture
+)
+
+for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
+    launchctl bootout "gui/$(id -u)/${_label}" 2>/dev/null || \
+        launchctl unload "${HOME}/Library/LaunchAgents/${_label}.plist" 2>/dev/null || true
+    rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"
+done
+unset _label
+
+# Ollama's cask is Homebrew's to remove, not launchd's. Sequenced after the
+# loop so com.ostler.ollama is already unloaded and nothing is holding the
+# binary open.
 brew uninstall --cask ollama-app 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.contact-resync" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.deferred-register-device" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
-# 2026-08-08 (MUST-B partial): these two were WRITTEN by install.sh and never
-# torn down. A static audit of install.sh found 25 labels written, 23 removed.
-# Confirmed on the .208 box-walk: com.ostler.ollama-logrotate was present AND
-# loaded on a box that had been installed and reinstalled -- it survives
-# uninstall, so a reinstall leaves the old agent running alongside the new one.
-# meeting-brief-sender is written conditionally (absent on .208) but has the
-# same hole whenever it IS written.
-#
-# This is the launch-tractable half of the two-domain split-brain. The full
-# rename of com.ostler.* -> com.creativemachines.ostler.* is NOT done here:
-# renaming 26 launchd labels needs a bootout/bootstrap migration, and getting
-# it wrong strands agents under the old labels on every existing install --
-# a worse regression than the defect. Deferred, with the orphan gate below
-# holding the line meanwhile.
-launchctl bootout "gui/$(id -u)/com.ostler.meeting-brief-sender" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ollama-logrotate" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist" 2>/dev/null || true
-# 2026-08-15: com.ostler.stay-awake is the THIRD instance of the same hole, and
-# it arrived after the note above was written. install.sh:7188 writes the plist;
-# nothing removed it. The orphan gate that was supposed to hold the line here
-# (tests/test_every_launchagent_is_torn_down.sh) reported it correctly the whole
-# time and nobody saw, because that file runs NOWHERE -- it sits in the unwired
-# backlog in tests/TEST_WIRING.tsv.
-#
-# So the gate did its job and the register did not. A guard nothing executes is
-# indistinguishable from no guard, which is why this one is wired in the same
-# change that fixes what it found.
-#
-# Consequence if left: a reinstall bootstraps a second stay-awake agent while
-# the first is still loaded. Two schedulers, same job, neither aware of the
-# other -- the caffeinate assertion is then held by an agent pointing at a
-# binary path from the previous install.
-launchctl bootout "gui/$(id -u)/com.ostler.stay-awake" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.stay-awake.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.spoken-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.imessage-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.editor-frontpage.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.dedupe-catchup" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" 2>/dev/null || true
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.editor-frontpage.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
 
 # ── Ostler RemoteCapture .app + container ──────────────────────
 # Remove the menubar app from /Applications and the per-user
