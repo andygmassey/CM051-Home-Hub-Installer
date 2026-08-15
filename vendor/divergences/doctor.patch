@@ -1598,7 +1598,26 @@
  )
  
  DASHBOARD_LAST_CHECKED_JUST_NOW = "Last checked: just now"
-@@ -691,5 +696,70 @@
+@@ -264,6 +269,18 @@
+ 
+ DASHBOARD_CONFIG_LINK = (
+     ' &ndash; <a href="/config">Configuration</a>'
++)
++
++# The daemon generates a WhatsApp pair code on EVERY install where
++# `session_path` is set, and install.sh does set it. The code is written to
++# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
++# has existed, routed and tested, while NOTHING linked to it, so the customer
++# had to already know the URL. Measured 2026-08-15: this row already carried
++# /pair-ios and /config, and /whatsapp-pair was the one pairing surface missing
++# from it. See HR015 task #322, where the original row blamed a config gap that
++# had already been fixed.
++DASHBOARD_WHATSAPP_PAIR_LINK = (
++    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
+ )
+ 
+ DASHBOARD_ALERT_REPORT_FAIL = (
+@@ -691,5 +708,70 @@
      "enable the tick for Ostler (or for the assistant process). Once granted, "
      "Ostler retries the blocked commitments on its next run and they appear "
      "in the Reminders app."
@@ -1698,7 +1717,15 @@
      DASHBOARD_FIX_LABEL_FMT,
      DASHBOARD_FIX_NOTE,
      DASHBOARD_HEADING,
-@@ -215,6 +223,21 @@
+@@ -106,6 +114,7 @@
+     DASHBOARD_CONFIG_LINK,
+     DASHBOARD_IMPORT_EVERNOTE_LINK,
+     DASHBOARD_PAIR_IOS_LINK,
++    DASHBOARD_WHATSAPP_PAIR_LINK,
+     DASHBOARD_LAST_CHECKED_JUST_NOW,
+     DASHBOARD_LAST_CHECKED_PREFIX,
+     DASHBOARD_LAST_CHECKED_SUFFIX,
+@@ -215,6 +224,21 @@
      PAIR_IOS_SECTION_CODE,
      PAIR_IOS_SUBTITLE,
      PAIR_IOS_TITLE_TAG,
@@ -1720,7 +1747,7 @@
      PORT_CONFLICT_DETAIL_FMT,
      PORT_CONFLICT_FIX,
      PORT_CONFLICT_FIX_COMMAND_FMT,
-@@ -669,7 +692,66 @@
+@@ -669,7 +693,66 @@
      r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
  )
  
@@ -1787,7 +1814,7 @@
  def _home_username() -> str | None:
      """Best-effort current username for home-path redaction.
  
-@@ -718,6 +800,15 @@
+@@ -718,6 +801,15 @@
  
      redacted = _EMAIL_RE.sub(placeholder, redacted)
      redacted = _IPV4_RE.sub(placeholder, redacted)
@@ -1803,7 +1830,7 @@
  
      return f"{REPORT_REDACTED_BANNER}\n\n{redacted}"
  
-@@ -1149,6 +1240,7 @@
+@@ -1149,6 +1241,7 @@
              display: inline-flex;
              align-items: center;
              gap: 6px;
@@ -1811,7 +1838,7 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1543,6 +1635,7 @@
+@@ -1543,6 +1636,7 @@
              </div>
              <div>
                  <div class="header-controls">
@@ -1819,7 +1846,16 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -2004,6 +2097,32 @@
+@@ -1611,7 +1705,7 @@
+         </div>
+ 
+         <div class="meta" id="metaInfo">
+-            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}
++            {meta_info_html}{import_evernote_link}{DASHBOARD_PAIR_IOS_LINK}{DASHBOARD_CONFIG_LINK}{DASHBOARD_WHATSAPP_PAIR_LINK}
+         </div>
+     </div>
+ 
+@@ -2004,6 +2098,32 @@
  # ── Endpoints ────────────────────────────────────────────────────────
  
  
@@ -1852,12 +1888,10 @@
  @app.get("/doctor", response_class=HTMLResponse)
  async def dashboard():
      """Serve the diagnostic dashboard or first-run wizard."""
-@@ -2292,8 +2411,222 @@
-     breaking-change must roll a /api/v2 instead of mutating this.
-     """
+@@ -2294,6 +2414,220 @@
      return all_observability_postures()
-+
-+
+ 
+ 
 +# ── Wiki hydration status: UNAUTHENTICATED passthrough (#178) ─────────
 +#
 +# The wiki homepage's first-run "still settling" panel (CM044
@@ -2005,13 +2039,13 @@
 +@app.get("/api/v1/pause", response_class=JSONResponse)
 +async def api_pause_get():
 +    """Current pause state read from ``governor.env``.
- 
++
 +    Shape ``{paused, expiry, indefinite, expiry_human, scope}``. Fail-soft to
 +    "not paused" -- the same posture ``box_status._pause`` takes.
 +    """
 +    try:
 +        from pause_control import read_state
- 
++
 +        return read_state()
 +    except Exception:
 +        return {"paused": False, "expiry": None, "indefinite": False,
@@ -2075,19 +2109,17 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -3331,8 +3664,211 @@
-     </script>
- </body>
+@@ -3333,6 +3667,209 @@
  </html>"""
-+
-+
+ 
+ 
 +def _render_whatsapp_pair_page() -> str:
 +    """Render the WhatsApp pair-code panel.
- 
++
 +    Vanilla HTML + JS, no framework, chassis tokens inlined the same way
 +    ``_render_pair_ios_page`` does so the two pairing surfaces sit together
 +    rather than one feeling bolted on.
- 
++
 +    THREE DESIGN RULES, each load-bearing:
 +
 +    1. The countdown renders the daemon's MEASURED ``expires_at``. Doctor
