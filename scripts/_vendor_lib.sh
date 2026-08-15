@@ -147,6 +147,48 @@ vlib_excludes() {
 }
 
 # ---------------------------------------------------------------------------
+# hold_ack readers -- THE ONE PARSER, shared by both freshness gates.
+#
+# These two functions lived in verify_cut_freshness.sh alone, and that is
+# precisely how the defect this section fixes came about. verify_cut_freshness.sh
+# subtracted hold_ack_shas before calling a pin stale; verify_vendor_fresh.sh had
+# never heard of the field (`grep -c hold_ack` returned 0). Two gates, one
+# manifest, two different answers about the same tree: `doctor` reconstructed
+# BYTE-CLEAN from source@pin + patch and still failed, listing 19 commits that
+# the manifest acknowledges individually with a measured reason for each.
+#
+# A hold_ack that only half the toolchain can read is worse than none. The gate
+# that ignores it cries wolf on a tree that was deliberately, auditably held, and
+# a gate whose red is routine is a gate people learn to scroll past -- which is
+# the exact failure this whole vendor toolchain exists to prevent.
+#
+# So the parser lives HERE, once, and both gates call it. Adding a second
+# reader in a caller re-opens the drift; extend these instead.
+# ---------------------------------------------------------------------------
+
+# Read a manifest field as a boolean. Tolerates  field = true  and  field = "true".
+vlib_manifest_bool() { # tree  field
+    local v; v="$(vlib_field "$1" "$2" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    [ "$v" = "true" ] && { echo true; return; }
+    echo false
+}
+
+# Is <sha> acknowledged by <list> (space/comma-separated, entries may be short)?
+# Prefix-tolerant in BOTH directions so a 12-hex ack matches a 40-hex delta sha
+# and vice versa -- the cut gate reads 40-hex shas from the GitHub API while the
+# vendor gate reads them from local git, and the manifest records whatever length
+# the operator pasted.
+vlib_sha_in_list() { # sha  list
+    local c="$1" e
+    for e in $(printf '%s' "$2" | tr ',' ' '); do
+        [ -z "$e" ] && continue
+        case "$c" in "$e"*) return 0 ;; esac
+        case "$e" in "$c"*) return 0 ;; esac
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Source-repo resolution (productised override).
 #
 # A manifest source_repo of "$HR015/ostler_fda" (or a literal path) can be
@@ -181,8 +223,25 @@ resolve_source_repo() {
     #    or "$HR015/ostler_fda" expands HR015 from the env if present.
     if printf '%s' "$raw" | grep -q '\$'; then
         # Let the shell expand any ${VAR} / $VAR present in the value.
+        #
+        # `set +u` INSIDE THE COMMAND SUBSTITUTION, and it is load-bearing.
+        # Callers run `set -euo pipefail`, so expanding "$CM052" with CM052
+        # unset raised "CM052: unbound variable" and killed the whole gate at
+        # the FIRST unset placeholder. An unset placeholder is not an error
+        # here: it means that source repo is simply not checked out on this
+        # host, which must expand to empty, fall through to "source repo not
+        # found ()", and be COUNTED as unverifiable so the denominator tells
+        # the truth. Hard-erroring loses every tree after the first.
+        #
+        # The `set +u` is scoped to the subshell that $( ) already creates, so
+        # the caller's `set -u` is untouched. Verified: after this call, $-
+        # still contains u.
+        #
+        # Note the sibling override lookup above already does the equivalent
+        # via ${VAR:-}; that form cannot be used here because $raw is an
+        # arbitrary string like "$HR015/doctor", not a bare variable name.
         local expanded
-        expanded="$(eval "printf '%s' \"$raw\"")"
+        expanded="$(set +u; eval "printf '%s' \"$raw\"")"
         printf '%s\n' "$expanded"
         return 0
     fi

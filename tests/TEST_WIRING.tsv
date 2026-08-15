@@ -27,7 +27,7 @@ test_assistant_config_reasoning_disabled.sh	UNWIRED	-
 test_assistant_config_vane_wiring.sh	UNWIRED	-
 test_assistant_identity_belt.sh	UNWIRED	-
 test_assistant_ollama_num_ctx.sh	UNWIRED	-
-test_bookmarks_ingest_wired.sh	UNWIRED	-
+test_bookmarks_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_bootstrap_prelude.sh	UNWIRED	-
 test_brew_install_fail_loud.sh	UNWIRED	-
 test_browsing_ingest_ensures_collection.py	UNWIRED	-
@@ -38,7 +38,7 @@ test_cm048_prompts_packaged.sh	UNWIRED	-
 test_cm048_settings_models_wired.sh	UNWIRED	-
 test_colima_start_retry.sh	UNWIRED	-
 test_composite_cleanup.sh	UNWIRED	-
-test_consent_a7_a8.sh	WIRED	(via test_third_party_data_consent.sh)
+test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_contact_card_prefill.sh	UNWIRED	-
 test_contact_email_coverage_guard.sh	UNWIRED	-
@@ -85,9 +85,10 @@ test_email_ingest_venv_wired.sh	UNWIRED	-
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_err_trap_emits_done_fail.sh	UNWIRED	-
 test_every_fail_call_has_error_code.sh	UNWIRED	-
-test_every_launchagent_is_torn_down.sh	UNWIRED	-
+test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_final_summary_nounset_safe.sh	UNWIRED	-
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
@@ -135,13 +136,14 @@ test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_undefined_msg_refs_in_install_sh.sh	UNWIRED	-
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
-test_ollama_formula_swap.sh	UNWIRED	-
+test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
-test_pbxproj_sync_gate.sh	WIRED	.github/workflows/cut.yml
+test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	scripts/run_all_cut_gates.sh
+test_pinned_wiki_images_are_arm64_only.sh	WIRED	scripts/run_all_cut_gates.sh
 test_pinterest_parser.py	UNWIRED	-
 test_placeholder_strip.sh	UNWIRED	-
 test_pref_noise_source_cap.py	UNWIRED	-
@@ -154,7 +156,7 @@ test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
 test_settling_progress_writer.sh	UNWIRED	-
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
-test_social_ingest_wired.sh	UNWIRED	-
+test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
 test_subscription_activation_path.sh	UNWIRED	-
@@ -162,8 +164,9 @@ test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tailnet_owner_resolution.py	UNWIRED	-
 test_tailscale_recovery_wrapper.sh	UNWIRED	-
 test_takeout_split_zip_no_abort.sh	UNWIRED	-
-test_third_party_data_consent.sh	WIRED	(via test_vane_bundle.sh)
+test_third_party_data_consent.sh	WIRED	.github/workflows/consent-contract.yml
 test_total_steps_dynamic.sh	UNWIRED	-
+test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_uninstaller_keep_prompt.sh	UNWIRED	-
 test_universal_import_leg_wired.sh	UNWIRED	-
 test_upgrade_mode_invariants.sh	UNWIRED	-
@@ -179,7 +182,7 @@ test_v1010_store_auth_loopback.sh	UNWIRED	-
 test_v1010_store_front_proxy.sh	UNWIRED	-
 test_v1010_wiki_not_tailscale_served.sh	UNWIRED	-
 test_v1_sweep_install_gating.sh	UNWIRED	-
-test_vane_bundle.sh	WIRED	(via test_installer_app_bundle_contents.sh)
+test_vane_bundle.sh	UNWIRED	-
 test_vendor_cm052_ai_conversations.sh	UNWIRED	-
 test_vendor_doctor_knowledge_embed_wiring.sh	UNWIRED	-
 test_vendor_entrypoint_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -190,15 +193,17 @@ test_vendor_knowledge_embed_contract.py	UNWIRED	-
 test_vendor_manifest_is_valid_toml.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
 test_vendor_pair_drift.py	WIRED	scripts/run_all_cut_gates.sh
+test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
 test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
+test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
 test_whatsapp_channel_block.sh	UNWIRED	-
 test_wiki_baseline_background.sh	UNWIRED	-
-test_wiki_compose_paths.sh	WIRED	(via test_vane_bundle.sh)
+test_wiki_compose_paths.sh	UNWIRED	-
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_recompile_after_late_hydration.sh	UNWIRED	-
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml

@@ -17,13 +17,27 @@
 #
 # WHAT IS MEASURED, AND WHAT IS NOT
 #
-# Measured 2026-08-13: 2.44.1 reproduces the tracked pbxproj byte-for-byte.
-# NOT measured: that any other version fails to. This is pinned because the
-# reproduction is only demonstrated for 2.44.1, not because a specific other
-# version is known to break.
+# Measured 2026-08-15: 2.46.0 reproduces the tracked pbxproj byte-for-byte,
+# with Xcode 26.6 (17F113) selected. Bumped from 2.44.1 on this date because
+# brew carries only 2.46.0 and no 2.44.1 bottle is obtainable or cached, so the
+# old pin made the gate permanently UNAVAILABLE -- a gate that can never run is
+# worth less than one pinned to a version that exists.
+#
+# THE BUMP WAS NOT FREE, and the diff is recorded here because it is the
+# toolchain's and not a project change. Regenerating under 2.46.0 altered
+# exactly two lines of PBXProject metadata:
+#   -  compatibilityVersion = "Xcode 14.0";
+#   +  productRefGroup = ... /* Products */;
+# No target, file reference, build phase or setting moved. Verified after the
+# swap that xcodebuild -list still resolves the project and reports both
+# targets (OstlerInstaller, OstlerInstallerTests).
+#
+# NOT measured: that any other version fails to reproduce it. This is pinned
+# because the reproduction is only demonstrated for 2.46.0, not because a
+# specific other version is known to break.
 #
 # TO BUMP: install the new version, `cd gui && xcodegen generate`, commit the
 # regenerated pbxproj AND this file in the same commit. If the pbxproj does not
 # change, the bump is free; if it does, that diff is the toolchain's, and it
 # needs to land deliberately rather than inside an unrelated PR.
-2.44.1
+2.46.0

@@ -179,6 +179,12 @@ jobs:
           ./tests/test_no_local_cuts.sh
           # v1018-D024: vendor-only files must survive a re-vendor.
           ./tests/test_vendor_only_survives_sync.sh
+          # An unset ${VAR} placeholder in a manifest source_repo must resolve
+          # to EMPTY and be counted unverifiable, never spray "unbound
+          # variable" through a gate's stderr. Also asserts the freshness
+          # DENOMINATOR is printed and non-zero, which is the assertion that
+          # would have caught "GREEN with 24 warnings" over 0 verified trees.
+          ./tests/test_vendor_src_placeholder_unset.sh
           # v1018-D024, second mechanism: imported SYMBOLS must resolve, not
           # just modules. The line above asks "does web_ui_copy exist?" and
           # waves through `from web_ui_copy import WHATSAPP_PAIR_TITLE` when the

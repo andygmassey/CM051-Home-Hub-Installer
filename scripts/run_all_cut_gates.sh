@@ -142,6 +142,19 @@ else
     unavailable "wiki image CONTENT"   "CM044_DIR not a directory: $CM044_DIR"
 fi
 
+# PLATFORM, and note it is OUTSIDE the CM044_DIR branch above on purpose: this
+# one reads the registry, not a checkout, so there is no environment in which
+# it should silently not run. The two gates above can go unavailable; this one
+# cannot hide behind a missing checkout.
+#
+# It asserts the pinned digests are arm64-ONLY. Dropping linux/amd64 from
+# CM044 release-images.yml is a promise that can be edited back, and a stale
+# pin outlives the workflow being correct either way. This checks the artefact
+# that ships instead of the config that produced it.
+run "wiki image PLATFORM" \
+    "the pinned digests are arm64-only" \
+    bash tests/test_pinned_wiki_images_are_arm64_only.sh
+
 echo
 echo "-- Vendor + artefact freshness -----------------------------------"
 run "cut freshness"   "vendored inputs match live upstream"  bash scripts/verify_cut_freshness.sh

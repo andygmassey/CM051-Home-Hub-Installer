@@ -235,15 +235,84 @@ entries:
   # freshness belongs to the post-install box-walk gate, not this
   # artefact-only manifest. Kept out of permanent.yaml deliberately.
   #
-  # Note on wiki container image freshness:
-  # install.sh pins ghcr.io/ostler-ai/ostler-wiki-site@sha256:<digest>. That
-  # is a container digest, not a git tag, so pinned_artefact_freshness (which
-  # resolves a version -> git tag -> commit) does not apply. Bridging a
+  # Note on wiki container image FRESHNESS (still out of scope, and why):
+  # install.sh pins ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:<digest>.
+  # That is a container digest, not a git tag, so pinned_artefact_freshness
+  # (which resolves a version -> git tag -> commit) does not apply. Bridging a
   # container digest back to a source commit needs an OCI-labels lookup that
   # is out of scope for the freshness primitive as designed. A separate
   # `pinned_container_freshness` primitive can be added later if the same
   # class of drift bites us on the wiki image; the risk profile is lower
   # because the wiki image is rebuilt on every CM044 release cycle already.
+  #
+  # (This note said ghcr.io/ostler-ai until 2026-08-15. install.sh has never
+  # pinned that namespace. ostler-ai holds only a stale `:latest` -- probed
+  # 2026-08-15, ostler-ai/ostler-wiki-site:0.1.14 is 404 while
+  # creativemachines-ai/ostler-wiki-site:0.1.14 is 200 anonymously. A reader
+  # following the note during an incident would have probed the wrong
+  # registry path and concluded the image was missing.)
+  #
+  # ==========================================================================
+  # The wiki image pin had no STANDING assertion, and the coverage it did have
+  # was incidental.
+  # ==========================================================================
+  #
+  # verify_cut_manifest.py reads permanent.yaml plus the ONE per-cut manifest
+  # for the version being cut. It does not union prior cuts. So an assertion
+  # written into v1.0.24.yaml covers v1.0.24 and nothing after it.
+  #
+  # Measured 2026-08-15 across cut-manifests/:
+  #
+  #   v1.0.11 .. v1.0.15   0 wiki assertions
+  #   v1.0.16 .. v1.0.24   2 wiki assertions each  (site + compiler digest)
+  #   v1.0.25, v1.0.26     0 wiki assertions, and no mention of the wiki at all
+  #
+  # Nine consecutive cuts looked like standing coverage. They were not: each
+  # row was a per-cut incident assertion recording that THAT cut re-pinned the
+  # image. The coverage existed only for as long as consecutive cuts happened
+  # to re-pin, and it lapsed silently the first time one did not. For v1.0.25
+  # and v1.0.26 nothing anywhere in the gate's inputs asserts that install.sh
+  # carries a usable wiki image reference at all.
+  #
+  # WHAT THIS ROW ASSERTS, AND WHAT IT DOES NOT.
+  #
+  # It asserts the SHAPE of the pin, which needs no OCI lookup and so sits
+  # inside the scope the note above defines: the correct registry, the correct
+  # namespace, the correct image name, pinned BY DIGEST rather than by a
+  # mutable tag, with a well-formed 64-hex digest. That catches an absent pin,
+  # a pin moved to the wrong namespace, a pin degraded from digest to `:latest`,
+  # and a truncated or corrupted digest.
+  #
+  # It does NOT assert freshness and it does NOT assert the digest resolves in
+  # GHCR. Freshness is out of scope here for the reason given above. Resolvability
+  # is asserted at the other end, in CM044's release-images workflow, which now
+  # performs an anonymous pull of what it just pushed against a negative control.
+  # Stated plainly so this row is not read as covering more than it does: a gate
+  # quiet about its blind spot gets taken for one that has none.
+  - id: perm-wiki-site-pinned-by-digest
+    title: install.sh pins the wiki-site image by digest in the first-party namespace
+    incident: >-
+      The wiki image pin was asserted by nine consecutive per-cut manifests and
+      by none since. verify_cut_manifest.py reads permanent.yaml plus one
+      per-cut file, so v1.0.25 and v1.0.26 shipped with no assertion that the
+      customer's compose references a usable wiki image. A pin that is absent,
+      in the wrong namespace, or degraded from a digest to a mutable tag would
+      not have been caught by anything.
+    proof:
+      kind: grep_in_installer
+      pattern: "ghcr\\.io/creativemachines-ai/ostler-wiki-site@sha256:[0-9a-f]{64}"
+      must_match: true
+
+  - id: perm-wiki-compiler-pinned-by-digest
+    title: install.sh pins the wiki-compiler image by digest in the first-party namespace
+    incident: >-
+      Same lapse as the site image. Asserted separately so one moving without
+      the other is caught -- the pair have drifted apart before, which is why
+      the per-cut rows were always written as two.
+    proof:
+      kind: grep_in_installer
+      pattern: "ghcr\\.io/creativemachines-ai/ostler-wiki-compiler@sha256:[0-9a-f]{64}"
+      must_match: true
 
   # ==========================================================================
   # People seed-and-retrieval round-trip. THE customer-visible invariant: after

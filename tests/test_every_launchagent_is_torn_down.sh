@@ -59,9 +59,20 @@ audit() {
   written="$(grep -oE 'LaunchAgents/(com\.[a-z0-9.-]+)\.plist' "$sh" \
              | sed -E 's|LaunchAgents/||; s|\.plist$||' | sort -u)"
 
-  # TORN DOWN: a label named on a bootout / unload / rm -f line.
-  torn="$(grep -hE 'launchctl[[:space:]]+(bootout|unload|disable)|rm[[:space:]]+-f.*LaunchAgents' "$sh" \
-          | grep -oE 'com\.[a-z0-9.-]+' | sed -E 's|\.plist$||' | sort -u)"
+  # TORN DOWN: a label named on a bootout / unload / rm -f line, OR declared
+  # in the uninstaller's OSTLER_LAUNCHAGENT_LABELS register. The register
+  # replaced the two hand-maintained walls this gate was written against
+  # (2026-08-15): its loop names labels via ${_label}, so the line-level
+  # predicate below cannot see them and every label would read as an orphan.
+  #
+  # The register is a teardown declaration, not prose -- it is the array the
+  # loop iterates. Only the array body is read, so a comment mentioning an
+  # agent still cannot satisfy this gate.
+  torn="$( { grep -hE 'launchctl[[:space:]]+(bootout|unload|disable)|rm[[:space:]]+-f.*LaunchAgents' "$sh" \
+               | grep -oE 'com\.[a-z0-9.-]+'
+             awk '/^OSTLER_LAUNCHAGENT_LABELS=\(/ {inreg=1; next} inreg && /^\)/ {inreg=0} inreg' "$sh" \
+               | sed -e 's/[[:space:]]*#.*$//' | grep -oE 'com\.[a-z0-9.-]+'
+           } | sed -E 's|\.plist$||' | sort -u)"
 
   local missing=0 checked=0
   while IFS= read -r label; do
@@ -119,6 +130,51 @@ EOF
     printf '  %sBAD%s  orphaned fixture PASSED -- gate detects nothing\n' "$RED" "$OFF"
   else
     printf '  %sok%s   orphaned fixture is caught\n' "$GRN" "$OFF"; pass=$((pass+1))
+  fi
+
+  # The register shape. Same two controls again, because a predicate that
+  # only ever sees the wall shape would silently stop discriminating the day
+  # the uninstaller was refactored -- which is exactly what happened here.
+  cat > "$tmp/register_balanced.sh" <<'EOF'
+cat > "${HOME}/Library/LaunchAgents/com.ostler.alpha.plist" <<PL
+PL
+OSTLER_LAUNCHAGENT_LABELS=(
+    com.ostler.alpha
+)
+for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
+    launchctl bootout "gui/$(id -u)/${_label}" || true
+    rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"
+done
+EOF
+
+  cat > "$tmp/register_orphaned.sh" <<'EOF'
+cat > "${HOME}/Library/LaunchAgents/com.ostler.alpha.plist" <<PL
+PL
+cat > "${HOME}/Library/LaunchAgents/com.ostler.orphan.plist" <<PL
+PL
+# com.ostler.orphan is mentioned here and nowhere else. A comment is not
+# a teardown.
+OSTLER_LAUNCHAGENT_LABELS=(
+    com.ostler.alpha
+)
+for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
+    launchctl bootout "gui/$(id -u)/${_label}" || true
+    rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"
+done
+EOF
+
+  total=$((total+1))
+  if audit "$tmp/register_balanced.sh" >/dev/null 2>&1; then
+    printf '  %sok%s   register fixture passes\n' "$GRN" "$OFF"; pass=$((pass+1))
+  else
+    printf '  %sBAD%s  register fixture FAILED -- gate cannot read the label register\n' "$RED" "$OFF"
+  fi
+
+  total=$((total+1))
+  if audit "$tmp/register_orphaned.sh" >/dev/null 2>&1; then
+    printf '  %sBAD%s  register fixture with a comment-only label PASSED -- prose satisfies the gate\n' "$RED" "$OFF"
+  else
+    printf '  %sok%s   a label named only in a comment is still an orphan\n' "$GRN" "$OFF"; pass=$((pass+1))
   fi
 
   printf '\n'

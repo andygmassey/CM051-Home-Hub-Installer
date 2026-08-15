@@ -132,3 +132,48 @@ jobs:
       - name: control -- prove the TCC pre-probe check can still fail
         if: always()
         run: bash scripts/tests/test_daemon_fda_case6_controls.sh
+      # NOT a consent test, wired here because this workflow is the one with no
+      # path filter, and a teardown gate must fire on any change to install.sh.
+      # It found com.ostler.stay-awake written and never removed -- the THIRD
+      # instance of that hole -- and reported it correctly for as long as it has
+      # existed, to nobody, because the file runs nowhere.
+      - name: every LaunchAgent install.sh writes is also torn down
+        if: always()
+        run: bash tests/test_every_launchagent_is_torn_down.sh
+
+      # WHERE THE BIOMETRIC LIVES. Until 2026-08-15 the installer's Article 9
+      # voice screen and vendor/legal/consent_strings.py contradicted each
+      # other: the installer said the fingerprint is stored "locally on this
+      # Mac" and withdrawn in Mac Settings; the catalogue, and the shipped code
+      # in vendor/cm041/assistant_api/ical-server.py ("the Hub holds no
+      # voiceprint registry"), say it lives on the iPhone and never reaches
+      # this Mac. The customer read the installer before ticking the box, and
+      # the withdrawal route it named does not exist on this Mac.
+      - name: installer and legal catalogue agree on where the biometric lives
+        if: always()
+        run: bash tests/test_voice_consent_matches_catalogue.sh
+      # Ships-dark guards for two ingest writers. Both predicates were pinned to
+      # a bare-symbol dispatch entry; the table was refactored to resolve writers
+      # by NAME, and both went red against a tree where the wiring is intact --
+      # in the vendored copy, in HR015 upstream, and in install.sh. Now
+      # content-based and scoped to the _INGEST_DISPATCH block.
+      - name: ingest_bookmarks is registered and not ship-dark
+        if: always()
+        run: bash tests/test_bookmarks_ingest_wired.sh
+
+      - name: ingest_social is registered and not ship-dark
+        if: always()
+        run: bash tests/test_social_ingest_wired.sh
+      # The Ollama install path: cask 'ollama-app', de-quarantined, and gated on
+      # a hard binary-exists check. The de-quarantine limb is the load-bearing
+      # one -- without it the cask reintroduces the Gatekeeper dialog CX-14 E1
+      # was raised about, and the rest of the block still reads as correct.
+      # Wired here rather than behind a path filter because its only input is
+      # install.sh, and a filter is how a guard goes quietly dark.
+      - name: ollama install path contract (cask, de-quarantine, exists-check)
+        if: always()
+        run: bash tests/test_ollama_install_path_contract.sh
+
+      - name: control -- prove every limb of the ollama contract can fail
+        if: always()
+        run: bash scripts/tests/test_ollama_contract_controls.sh

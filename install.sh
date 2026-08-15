@@ -6164,7 +6164,7 @@ PRESET=${PRESET:-recommended}
 # and Safari history"). Pre-fix the strings file promised those sources
 # but the bash var did not include them, so install completed with the
 # wiki empty of iMessage + email-correspondent data on every install.
-RECOMMENDED="safari_history,safari_bookmarks,apple_notes,calendar,reminders,imessage,apple_mail"
+RECOMMENDED="safari_history,safari_bookmarks,calendar,reminders,imessage,apple_mail"
 
 # DMG fix 3 (#618 partial): most customers are Chrome-primary, so a
 # Recommended install must ingest Chrome history too when Chrome is
@@ -6220,7 +6220,6 @@ case "$PRESET" in
         echo "  Recommended (defaults on):"
         _ask_source "safari_history"   "Safari history          " Y
         _ask_source "safari_bookmarks" "Safari bookmarks        " Y
-        _ask_source "apple_notes"      "Apple Notes             " Y
         _ask_source "calendar"         "Calendar                " Y
         _ask_source "reminders"        "Reminders               " Y
         _ask_source "imessage"         "iMessage                " Y
@@ -6422,30 +6421,64 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo ""
     echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${BOLD}Recognising voices on calls${NC}"
+    # WHERE THE BIOMETRIC LIVES. This block used to tell the customer the
+    # voice fingerprint is stored "locally on this Mac", that it "stays on
+    # this Mac", and that they withdraw consent in "Settings -> Privacy ->
+    # Voice recognition" on the Mac. All three were false, on the one screen
+    # where being wrong is an Article 9 problem rather than a copy nit.
+    #
+    # The shipped code is unambiguous. vendor/cm041/assistant_api/ical-server.py
+    # states it as a locked invariant: "the Hub holds no voiceprint registry.
+    # The biometric never crosses the wire in either direction." The Hub
+    # receives a TEXT label plus an opaque voice_fingerprint_ref the DEVICE
+    # supplied; the embedding itself never leaves the phone.
+    #
+    # vendor/legal/consent_strings.py (EU_VOICE_SPEAKER_ID_CONSENT,
+    # v1.1-2026-06-21) says the same thing, and is the version whose hash the
+    # consent record pins. So the installer was the only artefact claiming the
+    # Mac holds biometric data, and it was the one the customer actually read
+    # before ticking the box.
+    #
+    # Two concrete harms, not one. The obvious one is that the Article 9
+    # consent was taken against a false description of where special-category
+    # data is processed. The quieter one is worse in practice: the withdrawal
+    # route was fiction. A customer following "Settings -> Privacy -> Voice
+    # recognition" on this Mac finds nothing, because there is nothing on this
+    # Mac to turn off. The real switch is in the iPhone Companion app.
+    #
+    # Text below is now verbatim from the catalogue, reflowed for an 80-column
+    # terminal and nothing else. tests/test_voice_consent_matches_catalogue.sh
+    # asserts the load-bearing claims cannot drift apart again.
+    echo -e "  ${BOLD}Recognising voices on calls (in the Ostler iPhone app)${NC}"
     echo ""
-    echo "  Ostler can label transcripts with who is speaking – for"
-    echo "  example, \"Speaker A\", \"Speaker B\" – by storing a numeric"
-    echo "  fingerprint of each voice locally on this Mac. Under UK and"
-    echo "  EU privacy law this is biometric data, so we have to ask"
-    echo "  first."
+    echo "  The Ostler iPhone Companion app can label transcripts with who"
+    echo "  is speaking – for example, \"Sam\", \"Alex\" – by storing a numeric"
+    echo "  fingerprint of each voice in an encrypted store on your iPhone."
+    echo "  The fingerprints never leave your phone and are never sent to"
+    echo "  this Mac or to us; the Mac only ever receives the text label"
+    echo "  (the name), never the fingerprint. Under UK and EU privacy law a"
+    echo "  voice fingerprint is biometric data, so we ask before the"
+    echo "  Companion enrols any voices."
     echo ""
     echo -e "  ${BOLD}What we do.${NC} Identify *who* is speaking on a call you capture."
     echo -e "  ${BOLD}What we do not do.${NC} Detect mood, emotion, sentiment, stress"
     echo "  or any other inferred psychological state from voice."
     echo ""
-    echo "  The fingerprints stay on this Mac. We never receive them. You"
-    echo "  can turn this off any time in Settings -> Privacy -> Voice"
-    echo "  recognition; turning it off deletes any fingerprints already"
-    echo "  stored."
+    echo "  The fingerprints stay on your iPhone. We never receive them, and"
+    echo "  neither does this Mac. You can turn this off any time in the"
+    echo "  iPhone app under Settings -> Voice recognition; turning it off"
+    echo "  deletes any fingerprints already stored on the phone. If you"
+    echo "  never install the iPhone Companion, no voice fingerprint is ever"
+    echo "  created."
     echo ""
-    echo -e "  ${DIM}Legal note: Voice fingerprints stored on this Mac are"
-    echo -e "  biometric data under UK GDPR Article 9(1). Your explicit"
-    echo -e "  consent above (Article 9(2)(a)) is the lawful basis for"
-    echo -e "  processing. You are the data controller (Article 4(7));"
-    echo -e "  Creative Machines never receives the fingerprints. For"
+    echo -e "  ${DIM}Legal note: Voice fingerprints stored on your iPhone by the"
+    echo -e "  Ostler Companion app are biometric data under UK GDPR Article"
+    echo -e "  9(1). Your explicit consent above (Article 9(2)(a)) is the"
+    echo -e "  lawful basis for processing. You are the data controller"
+    echo -e "  (Article 4(7)); Creative Machines never receives the"
+    echo -e "  fingerprints, and they are never sent to this Mac. For"
     echo -e "  personal and household use, Article 2(2)(c) further limits"
-    echo -e "  scope. Withdrawing consent in Settings deletes stored"
+    echo -e "  scope. Withdrawing consent in the iPhone app deletes stored"
     echo -e "  fingerprints.${NC}"
     echo ""
     while true; do
@@ -7928,7 +7961,16 @@ DEFAULT_PRIVACY_LEVEL=L2
 # Per-source FDA consent – comma-separated list of enabled sources.
 # Set in Phase 2 (or read from a previous install on re-run). Read by
 # ostler_fda.extract_all via the OSTLER_FDA_SOURCES env var.
-OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,apple_notes,calendar,reminders}"
+# apple_notes deliberately ABSENT from this default. The extractor
+# (vendor/ostler_fda/extract_all.py) reads every note and writes
+# apple_notes.json, but the converter that would make them searchable ships in
+# vendor/cm024_knowledge, whose VENDOR_MANIFEST.toml pin is held at 43d6c5da --
+# the re-pin to 7ace7672, which carries the apple_notes.py adapter, is DEFERRED.
+# So `convert --source apple_notes` exits non-zero on an unknown source and the
+# notes go nowhere. Asking Full Disk Access for data we then do not use is the
+# one option that trades consent for nothing. Restore this entry in the same
+# change that lands the CM024 re-pin, not before.
+OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES:-safari_history,safari_bookmarks,calendar,reminders}"
 
 # If a Google Takeout mbox is registered, point extract_all at it.
 OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}"
@@ -10145,7 +10187,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:36de411b2a649f77df6079416ccdb06ce043c30b94b248058f581afd97aec92b
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:34ecb4efb899e1e78825d82a61a7096b874ad853814617ad2e62d5e7b9adb04b
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -10180,7 +10222,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:b92760e141078b1572c0d531aa1e7654cdd57880e3119c453c46434bb523f408
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:a346ddf239078155f1a17c596c17a82eef1988f0a9ee40b341c68b8b84ce11ff
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -12535,95 +12577,82 @@ fi
 echo ""
 echo "  Stopping services..."
 cd "${HOME}/.ostler" 2>/dev/null && docker compose down -v 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ollama" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist" 2>/dev/null || true
-brew uninstall --cask ollama-app 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.doctor" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ical-server" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.export-scan" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.contact-resync" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.deferred-register-device" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.aiconv-resume" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.aiconv-resume.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.colima" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.colima.plist" 2>/dev/null || true
-# 2026-08-08 (MUST-B partial): these two were WRITTEN by install.sh and never
-# torn down. A static audit of install.sh found 25 labels written, 23 removed.
-# Confirmed on the .208 box-walk: com.ostler.ollama-logrotate was present AND
-# loaded on a box that had been installed and reinstalled -- it survives
-# uninstall, so a reinstall leaves the old agent running alongside the new one.
-# meeting-brief-sender is written conditionally (absent on .208) but has the
-# same hole whenever it IS written.
+# ── LaunchAgent teardown ───────────────────────────────────────
+# ONE register, and one loop that performs BOTH halves of a teardown.
 #
-# This is the launch-tractable half of the two-domain split-brain. The full
-# rename of com.ostler.* -> com.creativemachines.ostler.* is NOT done here:
-# renaming 26 launchd labels needs a bootout/bootstrap migration, and getting
-# it wrong strands agents under the old labels on every existing install --
-# a worse regression than the defect. Deferred, with the orphan gate below
-# holding the line meanwhile.
-launchctl bootout "gui/$(id -u)/com.ostler.meeting-brief-sender" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.ollama-logrotate" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.hub-power" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-ingest" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.email-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.spoken-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.imessage-bundle" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.ostler.imessage-bridge" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.editor-frontpage.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.dedupe-catchup" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.assistant" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler.whatsapp-keepalive" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.creativemachines.ostler-remotecapture" 2>/dev/null || \
-    launchctl unload "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" 2>/dev/null || true
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.doctor.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ical-server.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.contact-resync.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.deferred-register-device.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.colima.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.meeting-brief-sender.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.ollama-logrotate.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.hub-power.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-ingest.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.spoken-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.imessage-bundle.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.ostler.imessage-bridge.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.editor-frontpage.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.wiki-recompile-catchup.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.dedupe-catchup.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.whatsapp-keepalive.plist"
-rm -f "${HOME}/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
+# This used to be two hand-maintained walls -- a list of `launchctl bootout`
+# lines and a list of `rm -f` lines -- that had to agree with each other and
+# with every plist install.sh writes. They drifted three times:
+#
+#   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
+#               torn down at all. Found loaded on the .208 box-walk.
+#   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
+#   2026-08-15  tailscaled: written at install.sh:16544, absent from both
+#               walls. Its only bootout is the install-time restart at
+#               install.sh:16575, which is not a teardown.
+#
+# THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
+# the current login session and does not touch the disk. launchd rescans
+# ~/Library/LaunchAgents at every login, so a plist left behind is loaded
+# again the next time the customer logs in. A bootout-only teardown is an
+# uninstall that does not survive a reboot -- com.ostler.stay-awake would go
+# on holding a `caffeinate -s` power assertion on a Mac with no Ostler on it,
+# and the agents whose ProgramArguments point into ~/.ostler (which this
+# script deletes below) would be respawned against a missing binary until
+# launchd throttles them.
+#
+# A single list cannot disagree with itself. Adding an agent to install.sh
+# now means adding one line here, and
+# tests/test_uninstall_removes_every_launchagent_plist.sh fails the PR if
+# that line is missing -- it seeds a sandboxed HOME with one plist per label
+# install.sh writes, runs this region, and looks at what is left on disk.
+#
+# Not renamed to a single label domain here: com.ostler.* and
+# com.creativemachines.ostler.* both appear because they both exist on
+# customer machines today. Collapsing them needs a launchd migration on every
+# existing install and is tracked separately; teardown must keep naming both
+# until then.
+OSTLER_LAUNCHAGENT_LABELS=(
+    com.ostler.ollama
+    com.ostler.doctor
+    com.ostler.ical-server
+    com.ostler.export-scan
+    com.ostler.fda-rerun
+    com.ostler.contact-resync
+    com.ostler.deferred-register-device
+    com.ostler.aiconv-resume
+    com.ostler.colima
+    com.ostler.meeting-brief-sender
+    com.ostler.ollama-logrotate
+    com.ostler.stay-awake
+    com.ostler.imessage-bridge
+    com.creativemachines.ostler.hub-power
+    com.creativemachines.ostler.email-ingest
+    com.creativemachines.ostler.whatsapp-bundle
+    com.creativemachines.ostler.email-bundle
+    com.creativemachines.ostler.spoken-bundle
+    com.creativemachines.ostler.imessage-bundle
+    com.creativemachines.ostler.wiki-recompile
+    com.creativemachines.ostler.wiki-recompile-catchup
+    com.creativemachines.ostler.editor-frontpage
+    com.creativemachines.ostler.dedupe-catchup
+    com.creativemachines.ostler.assistant
+    com.creativemachines.ostler.whatsapp-keepalive
+    com.creativemachines.ostler.tailscaled
+    com.creativemachines.ostler-remotecapture
+)
+
+for _label in "${OSTLER_LAUNCHAGENT_LABELS[@]}"; do
+    launchctl bootout "gui/$(id -u)/${_label}" 2>/dev/null || \
+        launchctl unload "${HOME}/Library/LaunchAgents/${_label}.plist" 2>/dev/null || true
+    rm -f "${HOME}/Library/LaunchAgents/${_label}.plist"
+done
+unset _label
+
+# Ollama's cask is Homebrew's to remove, not launchd's. Sequenced after the
+# loop so com.ostler.ollama is already unloaded and nothing is holding the
+# binary open.
+brew uninstall --cask ollama-app 2>/dev/null || true
 
 # ── Ostler RemoteCapture .app + container ──────────────────────
 # Remove the menubar app from /Applications and the per-user
