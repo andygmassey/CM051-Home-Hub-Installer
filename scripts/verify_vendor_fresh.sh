@@ -152,8 +152,31 @@ while IFS= read -r tree; do
     else
         if [ "$content_ok" != "1" ]; then
             echo "FAIL  $tree -- vendored tree DIFFERS from source@pinned_sha+patch:" >&2
-            sed 's/^/        /' "$tmp.diff" | head -40 >&2
-            [ "$(wc -l < "$tmp.diff")" -gt 40 ] && echo "        ... (diff truncated)" >&2
+            # NO `| head`. This was `sed ... | head -40`, and under the
+            # `set -euo pipefail` at the top of this file that KILLED THE WHOLE
+            # GATE with SIGPIPE (exit 141) the first time a tree produced a
+            # diff bigger than the pipe buffer: head exits at 40 lines, sed
+            # takes SIGPIPE, pipefail promotes 141 to the pipeline status, and
+            # set -e ends the run. No summary line, no denominator, no verdict.
+            #
+            # It hid for as long as it did because it needs BOTH a resolvable
+            # source repo AND a large divergence. With the eight ${VAR}
+            # placeholders unset, zero trees were ever materialised, so nothing
+            # ever diffed and the gate always finished in about a second.
+            # MEASURED 2026-08-15: with the source repos exported, this line
+            # took the run down at rc=141 before it printed anything.
+            #
+            # sed -n with a range does the same job in ONE process, so there is
+            # no reader to close the pipe and no writer to signal. The repo
+            # already learned this once -- scripts/select_pinned_xcode.sh says
+            # outright why `grep ... | head -1` appears nowhere in it.
+            sed -n '1,40{s/^/        /;p;}' "$tmp.diff" >&2
+            # Also an `if`, not `[ ... ] && echo`: as the last statement in a
+            # branch, a false test makes the && list return non-zero, which is
+            # its own set -e hazard.
+            if [ "$(wc -l < "$tmp.diff")" -gt 40 ]; then
+                echo "        ... (diff truncated)" >&2
+            fi
         fi
         if [ -n "$behind" ]; then
             echo "FAIL  $tree -- source has advanced past pinned_sha; UNGRAFTED commits:" >&2
