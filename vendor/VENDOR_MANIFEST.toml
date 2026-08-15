@@ -21,6 +21,27 @@
 #   verify          = "full" | "skip"           # verify_vendor_fresh.sh content check
 #   note            = "free text"
 #
+# CONTENT-GATE ACKNOWLEDGEMENT FIELDS (scripts/verify_vendor_fresh.sh).
+# A tree the CONTENT gate cannot check -- source repo not on this disk, sha not
+# present, or verify = "skip" -- is UNVERIFIABLE, and unverifiable is RED. That
+# is deliberate and is not being softened. But "nobody has looked" and "somebody
+# looked, measured the blocker, wrote it down and owns it" are different states,
+# and before these fields existed the gate had one word for both, so the only
+# way past either was VENDOR_FRESH_STRICT=0, which drops strictness for EVERY
+# tree at once:
+#   unverifiable_ack        = true              # this tree is KNOWN-unverifiable
+#   unverifiable_ack_reason = "the MEASURED blocker" #  REQUIRED. Say what was
+#                                               #  measured and how to retire it,
+#                                               #  not what it is. Ack without a
+#                                               #  reason = RED, naming the tree.
+#   unverifiable_ack_owner  = "who retires it"  #  REQUIRED, same rule.
+# An ack applies ONLY where the gate was already going to say "unverifiable". A
+# tree that DRIFTED, or whose source ADVANCED past the pin, still FAILS with an
+# ack in place -- an ack can never silence a verdict that was actually reached.
+# The acknowledged count is printed in the denominator line AND in the verdict,
+# which never reads as a plain GREEN while any ack is live. An ack is a debt
+# with a name on it. Retire them; do not inherit them.
+#
 # LIVE-HEAD FRESHNESS GATE FIELDS (scripts/verify_cut_freshness.sh).
 # The freshness gate compares every FETCHABLE pin to its live GitHub HEAD. It does
 # NOT key off `verify` (that field drives the content-diff gate). Two -- and only
@@ -44,6 +65,23 @@
 # Source repo paths are overridable for operators/CI:
 #   - per tree:  VENDOR_SRC_CM041_CONTACT_SYNCER=/path
 #   - per base:  export CM041=/path  (the $CM041 placeholder below expands)
+#
+# THE PLACEHOLDERS ARE ASSIGNED NOWHERE IN THIS REPO and there is no remote-URL
+# fallback, so an unset one expands to empty, the tree is UNVERIFIABLE, and the
+# gate goes RED. That is fail-closed and correct, but it means the operator env
+# is load-bearing. The full set, with the checkout each one wanted when this was
+# last measured (2026-08-15):
+#   CM019  ~/Developer/CM019-Personal-World-Graph   (andygmassey/personal-world-graph)
+#   CM021  ~/Developer/cm021-canon
+#   CM024  ~/Developer/cm024-canon                  (andygmassey/evernote-knowledge)
+#   CM040  ~/Developer/conversation-memory          (andygmassey/conversation-memory)
+#   CM041  ~/Developer/cm041-canon
+#   CM048  ~/Developer/cm048-canon
+#   CM052  NOT ON THIS DISK outside iCloud; see that tree's unverifiable_ack
+#   CM059  ~/Developer/cm059-canon
+#   HR015  ~/Developer/HR015-Gaming-PC
+# CM040 is new as of 2026-08-15: imessage_source was addressed to HR015, which
+# has never carried it. See the conversation-feed block comment further down.
 #
 # Pinned SHAs captured 2026-06-16 from the local source checkouts:
 #   CM041  5b93782   CM048  659d6639   CM021  0d73344f
@@ -154,7 +192,10 @@ source_path      = "."
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
 exclude          = ["tests/", "docs/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "DEFIB_PROMPT.md", "PROMPT_TUNING_NOTES.md", "SESSION_HANDOFF_2026-04-16_overnight.md", "SESSION_HANDOFF_2026-04-17_morning.md", "TECH_DEBT_CM048_2026-04-24.md", "settings.yaml.production"]
 verify           = "skip"
-note             = "The local CM048 checkout's object store is sick -- 'git archive'/'git rev-list' hang (corrupt loose object / stale rebase state), so it cannot be materialised here. source_path + pinned_sha are kept so a HEALTHY CM048 checkout auto-verifies once it is set verify=full. The gate's per-op timeout (VENDOR_OP_TIMEOUT) would degrade this to a WARN even if left full. 2026-07-31 (HR015 #233): divergence patch gained a src/ostler_paths.py hunk that removes the false-marker write on the fresh_install branch of migrate_pwg_dotdir_if_needed -- the pinned upstream unconditionally drops the sentinel even when ~/.pwg/ never existed, which (a) lies in the sentinel body and (b) actively prevents a legitimate future migration if the customer later restores a ~/.pwg/. Hand-crafted patch (sync_vendor --regen-patch cannot run against the sick source). Upstream this to CM048 once the source repo is unstuck and drop the graft."
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM, with the CM048 source-repo owner (andygmassey/CM048-PWG-Conversation-Processing)"
+unverifiable_ack_reason = "THE OLD REASON WAS FALSE AND IS CORRECTED IN THE NOTE: the CM048 object store is NOT sick any more. Re-measured 2026-08-15 with the gate's own vlib_timeout in BOTH local checkouts: 'git archive' at the pin returns rc=0 in under a second with 124 entries, and 'rev-list --count HEAD' returns in under a second. Nothing hangs. What actually blocks verify=full is TWO measured things, neither of them the source being unreadable. (1) CONTENT: materialising the pin gives 59 files against 61 vendored, and the shared-file diff is 932 lines across five files -- PLAN.md, README.md, src/enrichment_validation.py, src/processor.py, src/seed.py, including one new-file hunk -- and that is WITH the existing cm048_pipeline.patch already applied. Blessing 932 unreviewed lines into a recorded divergence at cut time is the thing this gate exists to stop, so it needs a reconciliation pass, not a patch regeneration. (2) INSTRUMENT: the staleness limb is HEAD-relative ('git log pin..HEAD'), so it reports whatever branch the operator's checkout happens to sit on. The pin f348270a IS origin/main HEAD, but ~/Developer/CM048 sits on archie/d014c-prompt-placeholders (3 commits past the pin) and ~/Developer/cm048-canon on fix/cm048-package-prompts (1 past), so flipping to full today would report branch commits as 'ungrafted' against a pin that is in fact level with main. Retire this ack by reconciling the five files, then flipping verify=full from a checkout parked on origin/main."
+note             = "SOURCE IS HEALTHY AND REACHABLE (corrected 2026-08-15; the previous note's 'object store is sick, git archive/rev-list hang' claim was inherited, never re-tested, and is false -- see unverifiable_ack_reason for the measurement). Pin f348270a resolves in both ~/Developer/CM048 and ~/Developer/cm048-canon and equals origin/main HEAD in both. 2026-07-31 (HR015 #233): divergence patch gained a src/ostler_paths.py hunk that removes the false-marker write on the fresh_install branch of migrate_pwg_dotdir_if_needed -- the pinned upstream unconditionally drops the sentinel even when ~/.pwg/ never existed, which (a) lies in the sentinel body and (b) actively prevents a legitimate future migration if the customer later restores a ~/.pwg/. Hand-crafted patch. Upstream this to CM048 and drop the graft. NOTE the original justification for hand-crafting it (\"sync_vendor --regen-patch cannot run against the sick source\") no longer holds either; scripts/regenerate_divergence_patch.sh can now read this source fine, which is what makes the five-file reconciliation above a schedulable task rather than a blocked one."
 
 # ---- CM021 (Email Intelligence) ------------------------------------------
 
@@ -361,6 +402,9 @@ pinned_sha       = "282ebfeba2b7751d48966e89e2b856c31218c524"
 divergence_patch = ""
 exclude          = ["__pycache__/"]
 verify           = "skip"
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM, with the CM019 source-repo owner (andygmassey/personal-world-graph)"
+unverifiable_ack_reason = "NOT a reachability problem, and the note below should not be read as one: pin 282ebfeb resolves in ~/Developer/CM019-Personal-World-Graph and IS origin/main HEAD (it is the merge commit of PWG #288; b11e9ed7, which the note names, is the fix merged INSIDE it). The blocker is the deliberate-subset reconciliation that the note has been deferring since 2026-07-25, now re-measured rather than quoted: materialising the pin gives 454 source files against 83 vendored (the vendored tree is a shipping subset of services/ingest + services/enrich + ontology), and the shared-file diff is 1,686 lines across 15 files including 2 new-file hunks -- requirements.txt, both config.py, ingest filters/pipeline/vectorizer, the qdrant loader, six parsers, and test_vendor_preferences.sh. That reconciliation needs the CM019 owner and is out of cut-window scope; doing it under time pressure is exactly how CM051 #431's regression once shipped labelled 'byte-identical to upstream' when it was not. Retire this ack by scheduling the 15-file reconciliation, then flipping verify=full."
 note             = "2026-07-25 v1.0.10 recut re-pin to b11e9ed7 (PWG #287 Facebook parser fix merged into personal-world-graph main). SURGICAL two-file overwrite from PWG@b11e9ed7: services/ingest/src/parsers/meta.py only (test_meta_parser.py NOT vendored -- deliberate subset). Overwrite REVERTS the CM051 #431 divergence (which routed comments/posts_and_comments to _parse_posts and silently dropped the group-name signal + entirely dropped comments_and_reactions/comments.json + groups/your_comments_in_groups.json) and lands the source-of-truth handler + disambiguator + dedupe. Verified: byte-identical to PWG@b11e9ed7; grep guards PASS (_parse_comments, _extract_comment_subject, SUPPORTED_PATTERNS 'comments' entry all present). Full-sync path DELIBERATELY NOT TAKEN because the 81 non-PII shared-file drifts are out of cut-window scope; a scripts/sync_vendor.sh cm019_preferences full run would tangle with unrelated drift. verify=skip STAYS for this cut; v1.0.11 register: adopt verify=full once the 81-drift reconciliation is scheduled with the CM019 owner (this is what let CM051 #431's regression ship as 'byte-identical to upstream' when it wasn't -- gate class per feedback_gate_can_encode_a_reversed_conclusion). --- Historical 2026-07-20: CM019 is NOW a git repo (andygmassey/personal-world-graph); the old non-git '02 - Code/' layout is gone -- services/ + ontology/ sit at the repo ROOT, so source_repo is $CM019 and source_path '.'. Pinned to live main HEAD 44f1c82, so the freshness gate verifies it against GitHub (verify_exempt removed -- it is no longer genuinely-unverifiable). LIVE operator-PII leak scrubbed: grafted the customer-shipping PII fixes from 44f1c82 (which includes #256 93ceeeb) into the five shipping files that carried operator identifiers -- services/enrich/src/enricher.py (stopword tuple), services/ingest/src/cli.py (usage docstrings -u andy -> -u jane), services/ingest/src/parsers/netflix.py + disney.py (hard-coded ALLOWED_PROFILES=['Andy','The Masseys'] -> env-driven _profiles_from_env(); disney room-name 'massey''s home' -> generic), services/enrich/src/cli.py (default='andy' user-id -> OSTLER_USER_ID env / 'default_user'). grep -riw andy|massey over the vendored tree is now CLEAN. verify=skip: the vendored tree is a DELIBERATE shipping SUBSET (services/ingest + services/enrich + ontology only; docker/, scripts/, cli/, docker-compose*, visualization/, *.md docs are NOT vendored), and a full content reconciliation of the subset against 44f1c82 (81 non-PII shared-file drifts) is out of cut-window scope -- deferred to the CM019 owner / next cut like the CM024 subset. Vendor-only files (requirements.txt, test_vendor_preferences.sh) preserved."
 
 [[tree]]
@@ -373,68 +417,127 @@ divergence_patch = ""
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
 verify           = "skip"
 verify_exempt    = true
-exempt_reason    = "Pin 43d6c5da was captured from a LOCAL CM024 checkout that is NOT the canonical GitHub source (andygmassey/evernote-knowledge); the package was also renamed (ostler_knowledge/ -> src/). The pin does not resolve against the canonical repo, so the live-HEAD gate cannot verify it. PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the canonical GitHub source is wired as source_repo and the rename encoded."
+exempt_reason    = "HALF OF THE OLD REASON WAS FALSE AND IS DROPPED. It claimed the pin 'was captured from a LOCAL CM024 checkout that is NOT the canonical GitHub source' and that it 'does not resolve against the canonical repo'. Measured 2026-08-15: ~/Developer/cm024-canon has origin https://github.com/andygmassey/evernote-knowledge.git, which IS the canonical repo, and 43d6c5da resolves in it (and in ~/Developer/ostler-knowledge-kms, same remote). The pin is fine. THE HALF THAT IS TRUE is the package rename, and it is the real blocker: see unverifiable_ack_reason."
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM, with the CM024 source-repo owner (andygmassey/evernote-knowledge)"
+unverifiable_ack_reason = "A STRUCTURAL REMAP THE MANIFEST SCHEMA CANNOT EXPRESS. At the pin the package directory is ostler_knowledge/; the vendored tree carries the same code as src/. There is no path-remap field, so source_path can name one or the other but never both. Measured consequence of flipping verify=full as-is: all 27 vendored files come back as /dev/null new-file hunks, a 7,714-line diff, because not one vendored path exists in the materialised tree. That is a diff which would 'reconcile' by blessing the entire tree as a divergence -- a clean-looking result off a comparison that never actually compared anything, which is the specific failure this gate exists to refuse. Two honest exits, neither of them a cut-window job: teach the manifest a source_path -> vendor_path remap, or take the deferred full re-pin to #14 head 7ace7672, which lands the rename natively but also carries new ingestion adapters (apple_notes/notion/obsidian) plus coordinated drift across cli.py, classifier, enex_parser, importance_scorer, incremental, markdown_writer and the adapter base, and so needs a cross-rename graft with runtime verification."
 note             = "Canonical source is GitHub andygmassey/evernote-knowledge (per vendor/README.md), NOT this local CM024 checkout; package was also renamed (source ostler_knowledge/ -> vendor src/). Structural remap. WARN until the GitHub canonical is wired as the source and the rename is encoded. 2026-07-19 (v1.0.9 recut): hand-grafted the customer-facing part of GitHub #14 (legacy-hostname scrub) into vendor/cm024_knowledge/config/settings.yaml + README.md -- ollama_host from a legacy personal-infra hostname -> localhost:11434 (env-overridable). This removed a shipped personal-infra hostname leak (CLAUDE.md forbids legacy infra in customer surface). pinned_sha HELD at 43d6c5da: the FULL re-pin to #14 head 7ace7672 is DEFERRED -- 7ace7672 also carries a substantial package re-vendor across the rename (NEW ingestion adapters apple_notes.py/notion.py/obsidian.py + coordinated drift in cli.py source= threading, classifier/enex_parser/importance_scorer/incremental/markdown_writer/adapters base+__init__) that needs a careful cross-rename graft + runtime verification, not a blind cut-window graft. FILED for the CM024 owner / next cut."
 
-# ---- Conversation-feed bundles: upstream not on disk ---------------------
+# ---- Conversation-feed bundles -------------------------------------------
 # email_source / imessage_source / whatsapp_source / spoken_source.
-# Their git history (CM051 commit bf9106e: "align test scrub with HR015
-# af4ae65 (vendor==source)") names HR015 as upstream, but the matching HR015
-# source dir was removed/relocated since af4ae65 and is not on disk. Recorded
-# so the gate WARNs (never silently passes) until the HR015 source path is
-# recovered.
+#
+# RE-ADDRESSED 2026-08-15. These four sat as verify=skip behind one shared
+# sentence: "Upstream HR015 source dir not on disk (removed/relocated since
+# af4ae65). WARN until recovered." Nobody had tested it. It is wrong, and it
+# was wrong in the direction that costs the most: it described a LOST source,
+# which reads as unrecoverable, when in fact all four sources are on this disk
+# and were simply being asked for by the wrong name.
+#
+# WHAT WAS ACTUALLY MEASURED, per tree, rather than inherited:
+#
+#  1. THE NAMES NEVER EXISTED. source_repo said "$HR015/email-source" and its
+#     three siblings, with HYPHENS. HR015 has never carried a path under any of
+#     those four names, at any commit, on any ref. The real directories are
+#     UNDERSCORED (email_source, whatsapp_source, spoken_source), so
+#     resolve_source_repo pointed at a directory that could not exist and
+#     vlib_materialise returned 2 forever. Nothing was removed; the address was
+#     never right.
+#
+#  2. THREE OF THEM LIVE ON UNMERGED HR015 BRANCHES, WHICH IS WHY THEY ARE NOT
+#     ON MAIN. Measured with git log --all plus the GitHub branch list:
+#       email_source     origin/feat/4-artefact-email-source     @ 5d31073
+#       whatsapp_source  origin/feat/4-artefact-whatsapp-source  @ af4ae65
+#       spoken_source    origin/feat/4-artefact-spoken-source    @ d06d80e
+#     "Absent from main" was read as "deleted from main". It is neither: the
+#     three feature branches never landed. af4ae65 is the tip of the WhatsApp
+#     branch, and the old manifest had copied that one sha onto all four trees,
+#     so three of the four pins named a commit that does not contain the tree
+#     it claims to pin. A pin that resolves but does not carry the tree is worse
+#     than no pin, because it looks checked.
+#
+#  3. imessage_source IS NOT AN HR015 TREE AT ALL. It has no path in any HR015
+#     clone, on any ref, and there is no feat/4-artefact-imessage-source branch
+#     on GitHub. Its real home is andygmassey/conversation-memory (CM040) at
+#     services/imessage_source, commit 62a776a on
+#     origin/feat/4-artefact-imessage-first. tests/test_conversations_ingest_
+#     wiring.sh had the attribution right in a comment ("<- HR015 (CM040)") the
+#     whole time; the manifest had taken the HR015 half and dropped the CM040
+#     half, which is the half that is true.
+#
+# THE FILE-SET AGREES, which is the check that makes this more than a plausible
+# story: for every one of the four, source@pin and the vendored tree have ZERO
+# vendor-only and ZERO source-only files once the manifest excludes are applied.
+# A wrong guess at an upstream does not produce an exact file-set match.
+#
+# The remaining delta is CM051-side deploy grafts, the same class already
+# recorded for email_ingest and imessage_bridge: the OSTLER_ASSISTANT_BINARY
+# ingest-reroute in each plist (so the tick inherits Full Disk Access from the
+# signed daemon), the v1.0.3 interactive-chat yield plus adaptive resource
+# governor in each tick script, and the v1018-D020 bounded pwg-convo dispatch in
+# each pipeline.py. Those are now RECORDED in a divergence patch per tree
+# instead of being invisible, so verify=full reconstructs each tree from
+# source@pin + patch and any FUTURE drift is caught.
+#
+# verify_exempt STAYS TRUE ON ALL FOUR, and it is not the same statement as
+# verify=full. The two gates ask different questions. This manifest's content
+# gate asks "does the vendored tree reconstruct from the pin", which is now
+# answerable. verify_cut_freshness.sh asks "is the pin behind the live GitHub
+# HEAD for this path", which is NOT answerable for a pin that lives on an
+# unmerged branch (or, for imessage_source, in a different repo from the one
+# $HR015 names). Exempt-from-live-HEAD and content-verified are compatible, and
+# saying both is more honest than either alone.
 
 [[tree]]
 name             = "email_source"
 vendor_path      = "vendor/email_source"
-source_repo      = "$HR015/email-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$HR015"
+source_path      = "email_source"
+pinned_sha       = "5d31073d9e28e9024cbb25b308809ef428a39944"
+  divergence_patch = "vendor/divergences/email_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-email-source, an HR015 branch that has never merged, so there is no live main HEAD for the email_source path to compare it against (the path does not exist on main at all). This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@5d31073 + vendor/divergences/email_source.patch. Exemption lifts if and when the branch lands on HR015 main."
+note             = "4-artefact email conversation feed (Apple Mail bodies -> CM048 bundle). Source: HR015 origin/feat/4-artefact-email-source @ 5d31073, subpath email_source. Was verify=skip behind a false 'source dir not on disk' claim; see the block comment above for what was actually measured. Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor in bin/email-bundle-tick.sh, bounded dispatch in pipeline.py, reader.py deploy delta). tests/ is outside the vendored file-set by the exclude glob."
 
 [[tree]]
 name             = "imessage_source"
 vendor_path      = "vendor/imessage_source"
-source_repo      = "$HR015/imessage-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$CM040"
+source_path      = "services/imessage_source"
+pinned_sha       = "62a776a"
+  divergence_patch = "vendor/divergences/imessage_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-imessage-first in andygmassey/conversation-memory (CM040), a branch that has never merged, so there is no live main HEAD for services/imessage_source to compare it against. This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@62a776a + vendor/divergences/imessage_source.patch. Exemption lifts if and when the branch lands on conversation-memory main."
+note             = "4-artefact iMessage conversation feed (chat.db -> CM048 bundle). NOT an HR015 tree, which is what the old manifest got wrong: source is andygmassey/conversation-memory (CM040) at services/imessage_source, origin/feat/4-artefact-imessage-first @ 62a776a. Set CM040 (or VENDOR_SRC_IMESSAGE_SOURCE) to a conversation-memory checkout for the gate to verify it. Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor + slot fairness in bin/imessage-bundle-tick.sh, bounded dispatch in pipeline.py, reader.py + __init__.py deploy deltas). The vendored tests/test_watermark_cap.py is CM051-authored and outside the vendored file-set by the exclude glob."
 
 [[tree]]
 name             = "whatsapp_source"
 vendor_path      = "vendor/whatsapp_source"
-source_repo      = "$HR015/whatsapp-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$HR015"
+source_path      = "whatsapp_source"
+pinned_sha       = "af4ae65802ffc7d19b7272a57f8f8cc78acc13f0"
+  divergence_patch = "vendor/divergences/whatsapp_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-whatsapp-source, an HR015 branch that has never merged, so there is no live main HEAD for the whatsapp_source path to compare it against (the path does not exist on main at all). This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@af4ae65 + vendor/divergences/whatsapp_source.patch. Exemption lifts if and when the branch lands on HR015 main."
+note             = "4-artefact WhatsApp conversation feed (bodies -> CM048 bundle). Source: HR015 origin/feat/4-artefact-whatsapp-source @ af4ae65, subpath whatsapp_source. This is the ONE tree of the four whose old pin was correct; af4ae65 is this branch's tip, and the old manifest had copied it onto the other three as well, where it names a commit that does not contain them. Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor in bin/whatsapp-bundle-tick.sh, bounded dispatch in pipeline.py). tests/ is outside the vendored file-set by the exclude glob."
 
 [[tree]]
 name             = "spoken_source"
 vendor_path      = "vendor/spoken_source"
-source_repo      = "$HR015/spoken-source"
-source_path      = "."
-pinned_sha       = "af4ae65"
-divergence_patch = ""
+source_repo      = "$HR015"
+source_path      = "spoken_source"
+pinned_sha       = "d06d80e398af7eace303611a10528164f4c632c3"
+  divergence_patch = "vendor/divergences/spoken_source.patch"
 exclude          = ["tests/", "__pycache__/"]
-verify           = "skip"
+verify           = "full"
 verify_exempt    = true
-exempt_reason    = "The recorded source path was removed/relocated off HR015 main since af4ae65, so there is no live GitHub HEAD to compare the pin against (gh reports NONE for the path). PROVENANCE-RECOVERY DEBT, not bugfix staleness: exemption lifts once the HR015 source path is recovered and re-wired."
-note             = "Upstream HR015 source dir not on disk (removed/relocated since af4ae65). WARN until recovered."
+exempt_reason    = "The pin lives on origin/feat/4-artefact-spoken-source, an HR015 branch that has never merged, so there is no live main HEAD for the spoken_source path to compare it against (the path does not exist on main at all). This exempts the tree from the LIVE-HEAD gate only. Its CONTENT is verified: verify=full reconstructs the vendored tree from source@d06d80e + vendor/divergences/spoken_source.patch. Exemption lifts if and when the branch lands on HR015 main."
+note             = "4-artefact spoken/voice-note conversation feed (CM042 captures -> CM048 bundle). Source: HR015 origin/feat/4-artefact-spoken-source @ d06d80e, subpath spoken_source. d06d80e is the branch tip (the PII scrub on top of c510d7c, which introduced the tree). Divergence patch records the CM051 deploy grafts (OSTLER_ASSISTANT_BINARY reroute in the plist, interactive-chat yield + resource governor in bin/spoken-bundle-tick.sh, bounded dispatch in pipeline.py). tests/ is outside the vendored file-set by the exclude glob."
 
 # ---- CM059 (The Editor) Front Page producer -----------------------------
 
@@ -460,4 +563,7 @@ pinned_sha       = "9cfb615d882659854a980bc2d95cda1cd808113c"
 divergence_patch = ""
 exclude          = ["tests/", "docs/", "prompts/", ".github/", ".claude/", "fixtures_private/", "__pycache__/", "*.egg-info/", "CLAUDE.md", "PLAN.md", "README.md", ".env.example", ".gitignore"]
 verify           = "full"
+unverifiable_ack = true
+unverifiable_ack_owner  = "ORM (clone CM052 out of iCloud into ~/Developer, then export CM052 and drop this ack)"
+unverifiable_ack_reason = "THE ONLY ONE OF THE EIGHT WITH NO USABLE CHECKOUT ON THIS MACHINE, and the reason is storage, not provenance. There is no CM052 clone anywhere under ~/Developer, so $CM052 expands to empty and the gate reports 'source repo not found ()'. The one checkout that exists is /Users/andy/Documents/Projects/CM052 - PWG AI Conversation Ingest (origin andygmassey/CM052) and it DOES carry the pin -- 'git cat-file -e 9cfb615d^{commit}' returns 0 instantly -- but 'git archive' at that pin TIMED OUT at 120s having written only 55 entries. That is the iCloud-eviction shape, not corruption: the pack files are dataless placeholders and every object read faults in over the network. Do NOT delete or repack that checkout on the strength of a slow read. Two further facts worth carrying: the pin is AHEAD of that checkout's HEAD (1ff568b), so it would need a fetch as well as a fault-in; and CM052 is a live private GitHub repo, so this tree is genuinely verifiable, just not from where it currently sits. Retire this ack with: git clone git@github.com:andygmassey/CM052.git ~/Developer/CM052, export CM052, re-run. The tree is already verify=full and should go straight to OK."
 note             = "AI-Conversations install leg (task #553 / #613). Vendors exactly the set pinned in CM052 docs/VENDOR_CM051.md (branch cutb/aiconv-vendor-prep): pyproject.toml + src/__init__.py + src/cm052/*.py + src/cm052/adapters/*.py. Console entrypoint pwg-ai-convo = src.cm052.cli:main; MUST be pip-installed NON-editable (editable installs do not expose the src package on every setuptools version). Runtime deps httpx + PyYAML only. install.sh gates the whole leg behind OSTLER_AI_CONVERSATIONS_ENABLED. 2026-07-20 re-pin 1ff568b -> 9cfb615 (current CM052 main HEAD): the earlier pin's recut-caveat said 'the PII source guard should land upstream before the next re-pin' -- it now HAS, as the ONLY delta commit 9cfb615 (test(cm052): add operator-PII regression guard for shipping source, #10). That commit touches tests/ ONLY (tests/test_no_real_names_in_source.py), which is outside the vendored file-set (exclude=tests/), so the 17 vendored product files (pyproject.toml + src/) are BYTE-IDENTICAL at 1ff568b and 9cfb615 -- verified by git blob-hash, no divergence patch. Re-pinned so the pin == live CM052 main HEAD and the freshness gate verifies GREEN (verify=full) rather than lagging by a test-only commit. CM051's operator-pii-scan is clean on this vendor tree. NOTE: CM052 is a live private GitHub repo (andygmassey/CM052) -- NOT unverifiable; no exemption is warranted. PRIVACY-ADJACENT vendor (AI chat transcripts): needs Archie review before merge -- do NOT self-merge."
