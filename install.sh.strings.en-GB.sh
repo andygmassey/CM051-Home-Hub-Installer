@@ -1309,3 +1309,5 @@ MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="iCloud / CalDAV calendar bridge a
 # F9 - deferred-register-device script missing
 MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh not bundled with installer. Device-registration retry on next network is disabled."
 
+MSG_WARN_EMBED_DIMS_UNREADABLE="Could not read the embedding width from the health probe. Memory is configured for 768 dimensions; if recall behaves oddly, check the embedding model."
+MSG_FAIL_EMBED_DIMS="The embedding model returned %s-dimension vectors but Ostler is configured for %s. Memory would store vectors it can never match. Check the embedding model and re-run."

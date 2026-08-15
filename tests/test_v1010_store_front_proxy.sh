@@ -104,8 +104,17 @@ WORK="$(mktemp -d)"
 NET="ostler-sp-selftest-$$"
 IMG="ostler-storeproxy-selftest-$$"
 PORT=16433
+# The mock upstream is PID-scoped like everything else here. It used to be
+# called literally "qdrant", which made this test destructive on any box where
+# the product was running: `docker rm -f qdrant` in the EXIT trap deletes the
+# REAL vector store, and it fires on every path out of the script including a
+# pass. `sp-proxy-$$` on the same line was already scoped -- the inconsistency
+# was the tell. Nothing under test needs to own that global name; nginx only
+# needs the NAME TO RESOLVE inside this test's own network, which is what
+# --network-alias is for.
+MOCK="qdrant-sp-$$"
 bcleanup() {
-    docker rm -f "sp-proxy-$$" "qdrant" >/dev/null 2>&1 || true
+    docker rm -f "sp-proxy-$$" "$MOCK" >/dev/null 2>&1 || true
     docker network rm "$NET" >/dev/null 2>&1 || true
     docker rmi -f "$IMG" >/dev/null 2>&1 || true
     rm -rf "$WORK"
@@ -116,12 +125,41 @@ trap 'bcleanup; rm -f "$COMPOSE" "$NGCONF"' EXIT
 # identical regardless of upstream port; the mock just proves
 # passthrough reaches an upstream).
 sed 's#http://qdrant:6333#http://qdrant:80#; s#http://oxigraph:7878#http://oxigraph:80#' "$NGCONF" > "$WORK/nginx.conf"
-printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\n' > "$WORK/Dockerfile"
+
+# The store-proxy conf does `include /etc/nginx/ostler-wiki-gate.conf`, which
+# install.sh writes as a SECOND heredoc and compose bind-mounts separately.
+# This image only ever copied nginx.conf, so nginx died at startup with
+#   [emerg] open() "/etc/nginx/ostler-wiki-gate.conf" failed (2: No such file)
+# and every run of this half ended at "proxy/mock never became ready".
+#
+# So the behavioural half of this test has NEVER executed a single Host check.
+# Its only observable effect on the world was the EXIT trap deleting a container
+# named `qdrant`. It was pure downside: no signal, real destruction.
+#
+# Extract the real gate conf rather than stubbing one -- a stub would prove the
+# proxy boots against a file the product does not ship.
+awk '/ostler-wiki-gate.conf" <<'\''NGINXWIKIEOF'\''/{c=1;next} /^NGINXWIKIEOF$/{c=0} c' \
+    "$INSTALL_SCRIPT" > "$WORK/ostler-wiki-gate.conf"
+[[ -s "$WORK/ostler-wiki-gate.conf" ]] \
+    || fail "wiki-gate heredoc (NGINXWIKIEOF) not found in install.sh -- the store-proxy conf includes it, so the proxy cannot boot without it"
+
+printf 'FROM nginx:1.27-alpine\nCOPY nginx.conf /etc/nginx/nginx.conf\nCOPY ostler-wiki-gate.conf /etc/nginx/ostler-wiki-gate.conf\n' > "$WORK/Dockerfile"
 docker build -q -t "$IMG" "$WORK" >/dev/null 2>&1 || { echo "SKIP [behaviour]: docker build failed (offline?)."; exit 0; }
 
 docker network create "$NET" >/dev/null 2>&1
-docker run -d --name qdrant --network "$NET" nginx:1.27-alpine >/dev/null 2>&1
-docker run -d --name "sp-proxy-$$" --network "$NET" -p "127.0.0.1:${PORT}:6333" "$IMG" >/dev/null 2>&1
+# --network-alias keeps `http://qdrant:80` resolving inside $NET without this
+# test claiming the global container name.
+#
+# AND THE FAILURE IS NOT SWALLOWED. With `--name qdrant` and 2>&1 to /dev/null,
+# a name collision with the real container failed SILENTLY and the run carried
+# on -- so the Host checks below were served by the LIVE vector store, reported
+# a pass, and then the trap deleted it. A mock that did not start must stop the
+# test, not quietly promote production into the role.
+docker run -d --name "$MOCK" --network "$NET" --network-alias qdrant \
+    nginx:1.27-alpine >/dev/null \
+    || fail "mock upstream '$MOCK' did not start; refusing to run Host checks against whatever else answers to 'qdrant'"
+docker run -d --name "sp-proxy-$$" --network "$NET" -p "127.0.0.1:${PORT}:6333" "$IMG" >/dev/null \
+    || fail "store-proxy container did not start"
 
 ready=false
 for _ in $(seq 1 30); do

@@ -8493,6 +8493,42 @@ TOMLPREAMBLE
     echo "enabled = true"
     echo "allow_private_hosts = true"
 
+    # ── Memory embeddings ────────────────────────────────────────────
+    #
+    # WITHOUT THIS BLOCK THE ASSISTANT CANNOT REMEMBER ANYTHING.
+    #
+    # install.sh never wrote a [memory] section, so every field came from
+    # the daemon's schema defaults -- and `default_embedding_provider()` is
+    # "none". That routes through create_embedding_provider's fallback arm to
+    # NoopEmbedding, whose dimensions() is 0, which makes
+    # get_or_compute_embedding return Ok(None) immediately, which makes
+    # store() write a NULL embedding and report SUCCESS.
+    #
+    # Result on a real box: `memories` populated, FTS populated, every
+    # `embedding` column NULL, `embedding_cache` at 0 rows. The assistant
+    # stores what you tell it and cannot recall it. Observed 2026-08-14: a
+    # fact stated at 21:08 could not be retrieved at 21:13 on the same
+    # channel. Every layer returned success; nothing logged.
+    #
+    # THE ENGINE WAS ALREADY HERE. Phase 3 installs nomic-embed-text, and the
+    # CX-43/#177 block below POSTs to /api/embed and HARD-FAILS the install
+    # unless real vectors come back. So the embedder is installed, running and
+    # proven -- the assistant's memory just was never pointed at it. Two halves
+    # of one feature; only one was wired.
+    #
+    # `custom:<base-url>` is the daemon's OpenAI-compatible provider. Ollama
+    # serves that shape at /v1, and OpenAiEmbedding appends "/embeddings",
+    # giving http://localhost:11434/v1/embeddings.
+    #
+    # dimensions MUST match the model: nomic-embed-text emits 768. The schema
+    # default is 1536 (text-embedding-3-small); leaving it would mis-size
+    # every stored vector.
+    echo
+    echo "[memory]"
+    echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
+    echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
+    echo "embedding_dimensions = 768"
+
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true || "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         echo
         echo "[channels]"
@@ -8641,11 +8677,19 @@ TOMLPREAMBLE
         #     for Web pair-code mode, or phone_number_id + access_token +
         #     verify_token for Cloud API)
         #
-        # and never registers in the cron-delivery registry. Every customer
-        # install since this block landed has written `enabled = true` with no
-        # selector, so the consent ceremony recorded a yes and the channel was
-        # never reachable. Found 2026-08-12 on the gate box by putting
-        # session_path into the config by hand and restarting the daemon.
+        # and never registers in the cron-delivery registry. That WAS the defect:
+        # installs wrote `enabled = true` with no selector, so the consent
+        # ceremony recorded a yes and the channel was never reachable. Found
+        # 2026-08-12 on the gate box by putting session_path into the config by
+        # hand and restarting the daemon.
+        #
+        # IT IS FIXED, AND THIS COMMENT USED TO SAY OTHERWISE. The selector is
+        # written eleven lines below, at the `session_path = ` echo. A stale
+        # past-tense claim sitting directly above the code that falsifies it is
+        # how a refuted defect gets re-filed: this text seeded a false triple-red
+        # launch blocker (#322) because it reads as a live statement about the
+        # current install path. Corrected 2026-08-15. If the echo below is ever
+        # removed, this paragraph becomes true again and must be restored.
         #
         # SQLite file, not a directory: wa-rs opens it through RusqliteStore and
         # writes `-wal` / `-shm` siblings alongside. Engine zone, not the
@@ -10748,6 +10792,34 @@ if [[ "$EMBED_HEALTH_CODE" != "200" ]] || \
     rm -f "$EMBED_HEALTH_BODY"
     fail_with_code "ERR-13-EMBED-HEALTHCHECK" \
         "$(printf "$MSG_FAIL_EMBED_HEALTHCHECK" "$INSTALL_LOG")"
+fi
+
+# DIMENSION PARITY. The [memory] block above writes
+# embedding_dimensions = 768 because that is what nomic-embed-text emits.
+# That number is an ASSUMPTION until something measures it, and a wrong one
+# is silent: the daemon would size every stored vector to a width the model
+# never produces, and recall degrades without an error.
+#
+# We already have a real vector in hand from the healthcheck above, so count
+# it rather than trust the constant. If the model is ever swapped and the
+# width changes, the install fails HERE with both numbers named, instead of
+# shipping a memory system that quietly cannot match anything.
+EMBED_DIMS_ACTUAL="$(python3 -c "
+import json,sys
+try:
+    d=json.load(open('$EMBED_HEALTH_BODY'))
+    print(len(d['embeddings'][0]))
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+if [[ -z "$EMBED_DIMS_ACTUAL" ]]; then
+    # Could not count. Do NOT treat an unreadable probe as agreement --
+    # that is the false green this whole block exists to prevent.
+    warn "$MSG_WARN_EMBED_DIMS_UNREADABLE"
+elif [[ "$EMBED_DIMS_ACTUAL" != "768" ]]; then
+    rm -f "$EMBED_HEALTH_BODY"
+    fail_with_code "ERR-13-EMBED-DIMS" \
+        "$(printf "$MSG_FAIL_EMBED_DIMS" "$EMBED_DIMS_ACTUAL" "768")"
 fi
 rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
@@ -14375,7 +14447,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.55}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.56}"
 
 progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
 # Hard-coded last-known-good release. The fallback path below
@@ -14446,7 +14518,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="976c0b5d5b92073dfc7fe1ec0bbdafd3d70a6f5199bcde3ff9ce047bb063fc49"
+DEFAULT_ASSISTANT_TARBALL_SHA256="e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────

@@ -59,8 +59,36 @@ while IFS=$'\t' read -r path want; do
 	if [ "$got" = "$want" ]; then
 		pass "$path matches the pin"
 	else
-		fail "$path DIFFERS from the pin (fix it in OS003 and re-sync, do not edit the copy)"
+		# DO NOT NAME A DIRECTION THIS CHECK CANNOT KNOW.
+		#
+		# This used to read "fix it in OS003 and re-sync, do not edit the copy",
+		# which assumes the vendored copy is the stale side. It is not always.
+		# Measured 2026-08-15: the vendored registry was 10,381 words AHEAD of
+		# the OS003 original and held gate `v1018-D008`, which OS003 did not have
+		# at all. Following that advice would have deleted both.
+		#
+		# The mirror case is real too, and is why the advice was written: the
+		# header of cuts/REGISTRY_PIN records CM051 once running "a rollforward
+		# gate 239 diff lines behind the original". Both directions have
+		# happened, and a hash comparison cannot tell them apart -- it only knows
+		# the two differ.
+		#
+		# So report the fact and hand the reader the command that establishes the
+		# direction, rather than asserting one.
+		fail "$path DIFFERS from the pin"
 		echo "        pinned ${want:0:16}...  actual ${got:0:16}..."
+		echo ""
+		echo "        This says the two DIFFER. It does NOT say which is right,"
+		echo "        and this check cannot know. Establish that before acting:"
+		echo ""
+		echo "          diff \"\${OS003_DIR:-\$HOME/Developer/OS003-Ostler-Release}/$path\" \"$HERE/$path\""
+		echo ""
+		echo "        If OS003 is ahead, re-sync and re-pin."
+		echo "        If the vendored copy is ahead, port those changes UP to"
+		echo "        OS003 first -- a re-sync would delete them. scripts/"
+		echo "        sync_rollforward_registry.sh now refuses in that case."
+		echo "        If the copy was edited in place and the change is correct,"
+		echo "        land it in OS003 and re-pin so the two agree again."
 	fi
 done < "$PIN"
 
