@@ -140,6 +140,30 @@ jobs:
       - name: every LaunchAgent install.sh writes is also torn down
         if: always()
         run: bash tests/test_every_launchagent_is_torn_down.sh
+
+      # WHERE THE BIOMETRIC LIVES. Until 2026-08-15 the installer's Article 9
+      # voice screen and vendor/legal/consent_strings.py contradicted each
+      # other: the installer said the fingerprint is stored "locally on this
+      # Mac" and withdrawn in Mac Settings; the catalogue, and the shipped code
+      # in vendor/cm041/assistant_api/ical-server.py ("the Hub holds no
+      # voiceprint registry"), say it lives on the iPhone and never reaches
+      # this Mac. The customer read the installer before ticking the box, and
+      # the withdrawal route it named does not exist on this Mac.
+      - name: installer and legal catalogue agree on where the biometric lives
+        if: always()
+        run: bash tests/test_voice_consent_matches_catalogue.sh
+      # Ships-dark guards for two ingest writers. Both predicates were pinned to
+      # a bare-symbol dispatch entry; the table was refactored to resolve writers
+      # by NAME, and both went red against a tree where the wiring is intact --
+      # in the vendored copy, in HR015 upstream, and in install.sh. Now
+      # content-based and scoped to the _INGEST_DISPATCH block.
+      - name: ingest_bookmarks is registered and not ship-dark
+        if: always()
+        run: bash tests/test_bookmarks_ingest_wired.sh
+
+      - name: ingest_social is registered and not ship-dark
+        if: always()
+        run: bash tests/test_social_ingest_wired.sh
       # The Ollama install path: cask 'ollama-app', de-quarantined, and gated on
       # a hard binary-exists check. The de-quarantine limb is the load-bearing
       # one -- without it the cask reintroduces the Gatekeeper dialog CX-14 E1
