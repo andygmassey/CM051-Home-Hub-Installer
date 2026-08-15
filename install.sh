@@ -8677,11 +8677,19 @@ TOMLPREAMBLE
         #     for Web pair-code mode, or phone_number_id + access_token +
         #     verify_token for Cloud API)
         #
-        # and never registers in the cron-delivery registry. Every customer
-        # install since this block landed has written `enabled = true` with no
-        # selector, so the consent ceremony recorded a yes and the channel was
-        # never reachable. Found 2026-08-12 on the gate box by putting
-        # session_path into the config by hand and restarting the daemon.
+        # and never registers in the cron-delivery registry. That WAS the defect:
+        # installs wrote `enabled = true` with no selector, so the consent
+        # ceremony recorded a yes and the channel was never reachable. Found
+        # 2026-08-12 on the gate box by putting session_path into the config by
+        # hand and restarting the daemon.
+        #
+        # IT IS FIXED, AND THIS COMMENT USED TO SAY OTHERWISE. The selector is
+        # written eleven lines below, at the `session_path = ` echo. A stale
+        # past-tense claim sitting directly above the code that falsifies it is
+        # how a refuted defect gets re-filed: this text seeded a false triple-red
+        # launch blocker (#322) because it reads as a live statement about the
+        # current install path. Corrected 2026-08-15. If the echo below is ever
+        # removed, this paragraph becomes true again and must be restored.
         #
         # SQLite file, not a directory: wa-rs opens it through RusqliteStore and
         # writes `-wal` / `-shm` siblings alongside. Engine zone, not the
