@@ -90,12 +90,53 @@ determine the SIDE first, then pick the route, and re-run this sweep AFTER the
 re-vendor rather than before -- that ordering is the only thing that catches a
 silent reinstatement.
 
+A FIXTURE WHOSE REALNESS CANNOT BE DECIDED FROM ITS OWN FILE IS A DEFECT
+------------------------------------------------------------------------
+This is the strongest conclusion available from a day of running this sweep,
+and it is a REQUIREMENT, not a style preference.
+
+On 2026-08-15 a pair of fixture names in a vendored tree was adjudicated four
+times: by this sweep, by a second scanner, and then by two people, one of whom
+reported them as a disclosure and had to be corrected by the person who wrote
+them. They were synthetic all along. Nothing was leaked, and the cost was paid
+anyway: four adjudications, one false accusation, and a near-miss where the
+fix would have scrubbed data that never needed scrubbing.
+
+That cost recurs on every read, forever, and it cannot be engineered away by a
+better detector. Nothing about the SHAPE of a name distinguishes a real one
+from a realistic invented one -- that is the same fact that makes a denylist
+useless here, stated from the other side. A denylist cannot find the real names
+nobody has enumerated, and a shape sweep cannot clear the fake ones nobody has
+declared. Both gaps close from the fixture end, not the detector end.
+
+So: test data must be provably fictional FROM THE FILE ITSELF, without asking a
+human and without a cross-repo lookup. Phones already have this (OFCOM reserves
+07700 900xxx for drama, so a phone fixture carries its own proof). Names have
+no reserved range, so the equivalent is a house surname declared invented in
+the same file or module that uses it -- the pattern already in
+``relationship_labels.py``, whose docstring says outright that its people are
+invented. A realistic name with no such declaration is a defect even when it is
+in fact synthetic, because the reader cannot tell, and the reader is who pays.
+
+The seeded ``PERSON_NAMES_REVIEWED.tsv`` is the estate-wide form of the same
+idea: declare it, or it is a finding.
+
 A NOTE ON REPORTING WHAT THIS FINDS
 -----------------------------------
-Report categories, paths, counts and sides. Never the token. A report about
-removing names must not carry the names, for the same reason this file's
-canaries are synthetic: a gate must not carry the thing it hunts, and a report
-is read, quoted and logged in more places than the gate is.
+Report categories, paths, counts and sides. Prefer not to print the token.
+
+The rule is strongest where a value is UNADJUDICATED, which is the normal case
+and the one to default to: the reporter usually cannot tell a real name from a
+realistic fixture, a report is read, quoted and logged in more places than the
+gate is, and an unadjudicated value cannot be un-printed. It is NOT a claim
+that every name-shaped token is sensitive. Once a value is adjudicated
+synthetic by someone who can actually settle it, naming it is fine and is often
+clearer. Withholding an adjudicated fixture name buys nothing and makes the
+finding harder to act on.
+
+The failure to avoid is asserting either way without checking, in both
+directions: publishing a value nobody has cleared, and accusing over a value
+nobody has examined. The second happened here too.
 
 Corollary, learned the same day: a SHAPE gate can only ever say
 "name-shaped". What converts a candidate into an identification is joining two
