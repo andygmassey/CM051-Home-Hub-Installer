@@ -55,9 +55,9 @@ Will over-split (false positives -- one person appears twice):
     same address. Shared given name only, so the shared-word union does not
     fire and two clusters survive. The highest-frequency case by some
     distance, and the one most likely to reach support.
-  * CROSS-SCRIPT NAMES. A person recorded once as 山田太郎 and once as
-    "Taro Yamada". The given-name variants table is a LOOKUP, not a
-    transliterator, so nothing folds them together.
+  * CROSS-SCRIPT NAMES. A person recorded once in one script and once
+    transliterated into another. The given-name variants table is a LOOKUP,
+    not a transliterator, so nothing folds them together.
   * STAGE AND PEN NAMES with no shared word against the legal name.
 
   Asymmetry worth knowing: the guard is more aggressive against COMMON given
@@ -68,7 +68,8 @@ Will not split (false negatives -- distinct people share one node). These are
 the DANGEROUS direction, and each is a genuine gap:
 
   * FAMILY ON A SHARED ADDRESS where every member is recorded with a single
-    word ("Mum", "Dad", "Nige"). No surname to compare, so the household rule
+    word ("Mum", "Dad", a bare given name). No surname to compare, so the
+    household rule
     has nothing to work with.
   * COUPLES SHARING A SURNAME on one address -- structurally identical to one
     person recorded under two given-name variants.
@@ -144,7 +145,7 @@ def normalise_name(name: str) -> str:
     n = "".join(c for c in n if not unicodedata.combining(c))
     n = _SUFFIX.sub(" ", n.lower())
     n = _PUNCT.sub(" ", n)
-    # Canonicalise given-name variants so Andy IS Andrew, Bob IS Robert.
+    # Canonicalise given-name variants so Bob IS Robert, Liz IS Elizabeth.
     #
     # Andy, 2026-08-08: "same surname, and two firstnames where one is a
     # well-known nickname/shortened version of the other should ALWAYS pass to
@@ -229,9 +230,9 @@ def distinct_people(names: Iterable[str]) -> Set[str]:
     # A SINGLE-WORD label cannot establish a second person.
     #
     # "Mum", "Home", "Work", "Achiever" are how the customer refers to someone
-    # or where they work -- an alias, not another human. The live run flagged
-    # `marta.Doe@example.com` as two people ("marta Doe", "mum") and
-    # would have demoted Marta's real address, splitting her off her own email.
+    # or where they work -- an alias, not another human. A card holding both
+    # `jane.doe@example.com` and the label "Mum" reads as two people to a naive
+    # count, and demoting that address would split one person off her own email.
     #
     # A genuine second person arrives with a genuine name: "Jane Ross" and
     # "Raj Patel" are both multi-word and stay two. So only clusters that
@@ -361,15 +362,14 @@ def is_learned_non_identifying(identifier: str) -> bool:
 # Household over-merge: relatives fused by a shared address book entry.
 # ---------------------------------------------------------------------------
 #
-# Andy, 2026-08-08, on a node carrying "Ana Doe", "Ben Doe" and
-# "Carl Doe": "these are all fairly specific edge cases where I have been
-# sloppy with filing people. Ana, Brian and Carl are mother, son, and
-# father."
+# THE SHAPE, stated abstractly on purpose. One contact card accumulates
+# several relatives because they were filed together over the years -- a
+# mother, a son and a father behind one node, sharing a surname.
 #
 # The rules above are BLIND to this by construction. distinct_people() unions
 # names that share a word, so a family sharing a surname reads as one person --
-# the very rule that correctly rescues "Bob Doe"/"Robert Doe" is what
-# hides the Doees. Names alone cannot separate relatives.
+# the very rule that correctly rescues "Bob Doe"/"Robert Doe" is what hides a
+# household. Names alone cannot separate relatives.
 #
 # The IDENTIFIERS can, and loudly. That node carries:
 #
@@ -428,18 +428,18 @@ def distinct_given_names(names: Iterable[str]) -> Set[str]:
     """Canonical FIRST names among the human-looking labels.
 
     This is the family signature and the one thing distinct_people() cannot
-    see. Ana, Brian and Carl Doe share a surname, so the shared-word
+    see. Ana, Ben and Carl Doe share a surname, so the shared-word
     clustering fuses them -- correctly, for its own purpose, since that is what
     rescues "Bob Doe"/"Robert Doe". Different GIVEN names behind one
     mailbox set is what says "household".
 
         Ana Doe / Ben Doe / Carl Doe  -> Ana, brian, Carl  = 3
         Robbie Doe / Mum / +4478...           -> anthony               = 1
-        Bob Doe / Robert Doe              -> andrew               = 1
-        Mary-Jane Doe / Tom Smith            -> ann-sofie, tim       = 2
+        Bob Doe / Robert Doe                 -> robert            = 1
+        Mary-Jane Doe / Tom Smith            -> mary-jane, tom    = 2
 
     Kinship words and machine labels are excluded first: "Mum" has no given
-    name, and counting it would split Anthony from herself.
+    name, and counting it would split that person from herself.
     """
     out: Set[str] = set()
     for raw in names or []:
@@ -465,8 +465,8 @@ def looks_like_household(identifiers: Iterable[str], names: Iterable[str] = ()) 
       * two or more display names that are DISTINCT PEOPLE
 
     The second condition uses distinct_people(), not a raw name count. The
-    first version counted raw names and flagged Marta: that node holds
-    `marta.Doe@example.com` and `marta.halloran@example.com` -- one
+    first version counted raw names and flagged the benign case: one card
+    holding `jane.doe@example.com` and `jane.ross@example.com` -- one
     person before and after a name change, with "Mum" and two phone numbers
     also on the card. Six
     labels, two mailboxes, ONE person. A maiden-name alias on the same domain
