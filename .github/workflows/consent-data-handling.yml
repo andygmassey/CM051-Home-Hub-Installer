@@ -140,3 +140,15 @@ jobs:
       - name: every LaunchAgent install.sh writes is also torn down
         if: always()
         run: bash tests/test_every_launchagent_is_torn_down.sh
+      # Ships-dark guards for two ingest writers. Both predicates were pinned to
+      # a bare-symbol dispatch entry, the table was refactored to resolve
+      # writers by NAME, and both went red against a tree where the wiring is
+      # intact -- in the vendored copy, in HR015 upstream, and in install.sh.
+      # Now content-based and scoped to the dispatch block.
+      - name: ingest_bookmarks is registered and not ship-dark
+        if: always()
+        run: bash tests/test_bookmarks_ingest_wired.sh
+
+      - name: ingest_social is registered and not ship-dark
+        if: always()
+        run: bash tests/test_social_ingest_wired.sh
