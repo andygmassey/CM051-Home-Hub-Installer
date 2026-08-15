@@ -141,8 +141,19 @@ image_extract_path() { # ref  path
   EXTRACT_DIR=""; EXTRACT_N=0; EXTRACT_ERR=""
   EXTRACT_DIR="$(mktemp -d 2>/dev/null)" || {
     EXTRACT_ERR="could not create a temp dir on this host"; EXTRACT_DIR=""; return 1; }
-  if ! cid="$(docker create "$ref" 2>&1)"; then
-    EXTRACT_ERR="docker create failed: $(printf '%s' "$cid" | tr '\n' ' ')"
+  # --platform IS REQUIRED, and leaving it off is what failed the first CI run
+  # of this very function. On an amd64 runner docker tries to resolve the image
+  # for the HOST platform; these images are arm64-only, so it has nothing to
+  # match and the create fails before any file is read. Naming the platform
+  # explicitly tells docker which manifest to instantiate, and instantiating is
+  # not executing -- no instruction from the image runs either way.
+  #
+  # linux/arm64 is HARDCODED ON PURPOSE and is safe precisely because it is
+  # already an enforced invariant: tests/test_pinned_wiki_images_are_arm64_only.sh
+  # fails the cut if any pinned wiki digest is anything else. If that invariant
+  # is ever deliberately changed, that gate goes red FIRST and points here.
+  if ! cid="$(docker create --platform linux/arm64 "$ref" 2>&1)"; then
+    EXTRACT_ERR="docker create --platform linux/arm64 failed: $(printf '%s' "$cid" | tr '\n' ' ')"
     rm -rf "$EXTRACT_DIR"; EXTRACT_DIR=""; return 1
   fi
   out="$(docker cp "${cid}:${path}" "$EXTRACT_DIR/" 2>&1)"; rc=$?
@@ -273,7 +284,7 @@ while IFS='|' read -r kind target pattern desc; do
       # branch below announced "NOT FOUND -- STALE WIKI IMAGE" about an image
       # it had never opened. Fail-closed is correct; naming a defect that was
       # never observed is not.
-      if ! pull_err="$(docker pull -q "${ref}" 2>&1)"; then
+      if ! pull_err="$(docker pull -q --platform linux/arm64 "${ref}" 2>&1)"; then
         cannot "wiki_image_grep ${img_key} :: cannot pull ${ref##*@} -- this check examined nothing (${desc})"
         printf '%s\n' "$pull_err" | sed 's/^/        docker: /'
         continue
@@ -324,7 +335,7 @@ while IFS='|' read -r kind target pattern desc; do
       # branch below announced "NOT FOUND -- STALE WIKI IMAGE" about an image
       # it had never opened. Fail-closed is correct; naming a defect that was
       # never observed is not.
-      if ! pull_err="$(docker pull -q "${ref}" 2>&1)"; then
+      if ! pull_err="$(docker pull -q --platform linux/arm64 "${ref}" 2>&1)"; then
         cannot "wiki_image_absent ${img_key} :: cannot pull ${ref##*@} -- this check examined nothing (${desc})"
         printf '%s\n' "$pull_err" | sed 's/^/        docker: /'
         continue
