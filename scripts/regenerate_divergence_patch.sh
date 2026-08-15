@@ -216,6 +216,13 @@ fi
 # regenerate run would touch first.
 #
 # So: scan EVERY changed line, both signs, marker stripped.
+#
+# WHAT THIS SCAN DOES NOT COVER, stated so a clean run is not over-read.
+# It scans the patch this run would WRITE. PII already recorded in an existing
+# patch, unchanged by this run, is not in that set and is never rescanned. A
+# clean result here means "this run adds no new PII", NOT "this patch contains
+# no PII". Auditing what is already recorded is a separate sweep against the
+# committed vendor/divergences/ tree, and it is not this tool's job.
 if ! _pii_control_fires; then
     echo "regenerate_divergence_patch: CANNOT RUN -- the PII positive control did NOT fire." >&2
     echo "  Either $PII_LIB is missing, or its patterns no longer match a known-bad" >&2

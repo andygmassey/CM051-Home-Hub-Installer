@@ -42,6 +42,33 @@
 # which never reads as a plain GREEN while any ack is live. An ack is a debt
 # with a name on it. Retire them; do not inherit them.
 #
+# WHICH VERDICTS FROM verify_vendor_fresh.sh ARE PORTABLE, AND WHICH ARE NOT.
+# The gate has two limbs and they do NOT travel the same way. Read this before
+# quoting a count from one operator's run as a fact about the repo.
+#
+#   CONTENT limb  -- reconstructs source@pinned_sha + divergence_patch and
+#                    diffs it against the vendored tree. pinned_sha is a FIXED
+#                    COMMIT, so any checkout holding that commit produces
+#                    identical content and an identical verdict. PORTABLE:
+#                    a DIFFERS here means the same thing on every machine.
+#
+#   ADVANCE limb  -- asks whether the source has commits past pinned_sha, by
+#                    reading HEAD of whatever checkout source_repo resolves to.
+#                    NOT PORTABLE. It measures the operator's working copy, so
+#                    a stale clone, a detached HEAD, or a feature branch each
+#                    give a different answer for the same repo. Measured
+#                    2026-08-15: two published "canonical" exports were wrong
+#                    for this limb -- one 4 commits behind origin/main, one on
+#                    a feature branch -- so a tree was judged against a source
+#                    older than its own pin.
+#
+# AND THE DENOMINATOR ITSELF VARIES. source_repo values here are env
+# placeholders ($CM041 and friends). Nothing in this repo assigns them, so the
+# set of trees that can be verified at all is a function of undeclared operator
+# environment: two operators get two counts and CI gets zero. A run reporting
+# "N fresh" is only a statement about the trees THAT operator could resolve.
+# Always quote the unverifiable count alongside it.
+#
 # LIVE-HEAD FRESHNESS GATE FIELDS (scripts/verify_cut_freshness.sh).
 # The freshness gate compares every FETCHABLE pin to its live GitHub HEAD. It does
 # NOT key off `verify` (that field drives the content-diff gate). Two -- and only
