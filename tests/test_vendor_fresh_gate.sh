@@ -20,6 +20,24 @@
 #               nobody can audit.
 #   7. REF    : the advance arm judges the pin against origin/main, NOT the
 #               source checkout's incidental HEAD, and SAYS which ref it used.
+#   8. UNVERIFIABLE, UNACKNOWLEDGED : a tree whose source repo is not on disk
+#               is RED, and is counted in the UNKNOWN column.
+#   9. UNVERIFIABLE, ACKNOWLEDGED : the same tree with unverifiable_ack +
+#               reason + owner is counted in the acknowledged column, exits 0,
+#               and the verdict does NOT read as a plain GREEN.
+#  10. ACK CANNOT LAUNDER DRIFT : a tree that is BOTH acked and rotted still
+#               FAILS. This is the one that matters. An acknowledgement excuses
+#               "we could not look"; it must never excuse "we looked and it was
+#               wrong", or it becomes the blanket ignore switch that the
+#               fail-closed default was introduced to remove.
+#  11. INCOMPLETE ACK : unverifiable_ack = true with no reason, or no owner, is
+#               RED. An exemption nobody signed is how a temporary gap becomes
+#               permanent.
+#
+# Scenarios 8-11 are the negative-case tests for the acknowledgement mechanism,
+# and they mirror 4-6: both mechanisms let a tree be less than fully verified,
+# so both have to prove they still go red on the case they are NOT meant to
+# excuse. A gate that only compiles is not a gate.
 #
 # HERMETIC: every scenario builds its own throwaway synthetic source git repo
 # + vendored copy + single-entry manifest. It depends on NOTHING outside this
@@ -274,6 +292,107 @@ else
     printf '%s\n' "$out7" | grep -E "GATE|OK|FAIL|note|synthtree" | head -8
 fi
 rm -rf "$TMP7"
+
+# ---------------------------------------------------------------------------
+# Acknowledged-unverifiable. Scenarios 8-11.
+#
+# Rewrite the single-tree manifest of an existing fixture so a scenario can
+# change source_repo and/or append acknowledgement fields. Everything else about
+# the fixture (the synthetic source repo, the vendored copy) is untouched, so
+# each scenario differs from the CLEAN baseline in exactly one way.
+remanifest() {
+    local root="$1" srcrepo="$2" extra="$3" sha
+    sha="$(git -C "$root/synthetic-source" rev-parse HEAD)"
+    {
+        printf '[[tree]]\n'
+        printf 'name             = "synthtree"\n'
+        printf 'vendor_path      = "vendor/synthtree"\n'
+        printf 'source_repo      = "%s"\n' "$srcrepo"
+        printf 'source_path      = "."\n'
+        printf 'pinned_sha       = "%s"\n' "$sha"
+        printf 'divergence_patch = ""\n'
+        printf 'exclude          = ["__pycache__/"]\n'
+        printf 'verify           = "full"\n'
+        if [ -n "$extra" ]; then printf '%s\n' "$extra"; fi
+    } > "$root/vendor/VENDOR_MANIFEST.toml"
+}
+
+ACK_FULL=$'unverifiable_ack = true\nunverifiable_ack_reason = "synthetic: the source repo is deliberately absent in this fixture"\nunverifiable_ack_owner  = "vendor self-test"'
+
+note "=== Scenario 8: UNVERIFIABLE + no ack -> RED, counted as UNKNOWN ==="
+TMP8="$(mktemp -d)"
+make_fixture "$TMP8" >/dev/null
+remanifest "$TMP8" "$TMP8/there-is-no-repo-here" ""
+out8="$(run_gate "$TMP8")"; rc8=$?
+if [ "$rc8" -ne 0 ] \
+    && printf '%s' "$out8" | grep -q "GATE: RED" \
+    && printf '%s' "$out8" | grep -qE "^WARN  synthtree" \
+    && printf '%s' "$out8" | grep -qE "1 unverifiable \(UNKNOWN\)"; then
+    ok "unverifiable + unacknowledged -> RED and counted UNKNOWN (exit $rc8)"
+else
+    bad "an unacknowledged unverifiable tree did NOT go RED as UNKNOWN (exit $rc8)"
+    printf '%s\n' "$out8" | grep -E "GATE|WARN|ACK|vendor-freshness" | head -6
+fi
+rm -rf "$TMP8"
+
+note "=== Scenario 9: UNVERIFIABLE + complete ack -> counted ACKNOWLEDGED, not a plain GREEN ==="
+TMP9="$(mktemp -d)"
+make_fixture "$TMP9" >/dev/null
+remanifest "$TMP9" "$TMP9/there-is-no-repo-here" "$ACK_FULL"
+out9="$(run_gate "$TMP9")"; rc9=$?
+if [ "$rc9" -eq 0 ] \
+    && printf '%s' "$out9" | grep -qE "^ACK   synthtree" \
+    && printf '%s' "$out9" | grep -qE "1 acknowledged-unverifiable" \
+    && printf '%s' "$out9" | grep -q "GATE: GREEN WITH 1 ACKNOWLEDGED-UNVERIFIABLE"; then
+    ok "acknowledged unverifiable -> counted separately, exit 0"
+else
+    bad "a complete acknowledgement was not honoured/counted (exit $rc9)"
+    printf '%s\n' "$out9" | grep -E "GATE|WARN|ACK|vendor-freshness" | head -6
+fi
+# ...and the verdict must NOT be the plain GREEN line. This is the assertion
+# that stops the ack becoming the next "GATE: GREEN with N warning(s)".
+if printf '%s' "$out9" | grep -q "GATE: GREEN -- every vendored tree"; then
+    bad "the verdict read as a PLAIN GREEN while a tree was unverified -- that is the old hole"
+else
+    ok "the verdict does not read as a plain GREEN while an ack is live"
+fi
+rm -rf "$TMP9"
+
+note "=== Scenario 10: ack CANNOT launder real drift -> still RED ==="
+# The one that matters. An ack excuses "we could not look". It must never
+# excuse "we looked and it was wrong". Source is present and healthy here, so
+# the gate reaches a real content verdict; the ack must not touch it.
+TMP10="$(mktemp -d)"
+make_fixture "$TMP10" >/dev/null
+remanifest "$TMP10" "$TMP10/synthetic-source" "$ACK_FULL"
+printf '\n# DELIBERATE ROT injected by self-test -- not in source\n' >> "$TMP10/vendor/synthtree/pkg/mod.py"
+out10="$(run_gate "$TMP10")"; rc10=$?
+if [ "$rc10" -ne 0 ] \
+    && printf '%s' "$out10" | grep -q "GATE: RED" \
+    && printf '%s' "$out10" | grep -qE "^FAIL  synthtree"; then
+    ok "acked-but-rotted tree still FAILS -- an ack cannot launder drift (exit $rc10)"
+else
+    bad "an ack SILENCED real drift -- it has become the blanket ignore switch (exit $rc10)"
+    printf '%s\n' "$out10" | grep -E "GATE|FAIL|ACK|vendor-freshness" | head -6
+fi
+rm -rf "$TMP10"
+
+note "=== Scenario 11: ack without an owner -> RED (reason AND owner are required) ==="
+TMP11="$(mktemp -d)"
+make_fixture "$TMP11" >/dev/null
+remanifest "$TMP11" "$TMP11/there-is-no-repo-here" \
+    $'unverifiable_ack = true\nunverifiable_ack_reason = "synthetic: a reason with nobody\'s name on it"'
+out11="$(run_gate "$TMP11")"; rc11=$?
+if [ "$rc11" -ne 0 ] \
+    && printf '%s' "$out11" | grep -q "GATE: RED" \
+    && printf '%s' "$out11" | grep -qE "^FAIL  synthtree" \
+    && printf '%s' "$out11" | grep -qi "INCOMPLETE"; then
+    ok "ack missing an owner -> RED, named as incomplete (exit $rc11)"
+else
+    bad "an incomplete ack was honoured -- an unsigned exemption became permanent (exit $rc11)"
+    printf '%s\n' "$out11" | grep -E "GATE|FAIL|ACK|vendor-freshness" | head -6
+fi
+rm -rf "$TMP11"
 
 # ---------------------------------------------------------------------------
 note ""

@@ -58,6 +58,50 @@
 # The asymmetry is deliberate. Getting this wrong in the lenient direction
 # ships an unverified vendored tree to a customer. Getting it wrong in the
 # strict direction turns one CI job red until somebody adds one word.
+#
+# ACKNOWLEDGED-UNVERIFIABLE, ADDED 2026-08-15, AND WHY IT IS NOT THE OLD HOLE.
+#
+# Making the default strict was right and is not being softened. But it left
+# the gate with only two words for two very different states:
+#
+#   "nobody has looked at this tree and we do not know what its source is"
+#   "somebody looked, measured the blocker, wrote it down, and owns fixing it"
+#
+# Both printed WARN, both went RED, so the second was indistinguishable from
+# the first and the only way to cut was VENDOR_FRESH_STRICT=0, which drops
+# strictness for EVERY tree at once. That is a blunt instrument that re-creates
+# the exact false green #701 removed, just at the call site instead of the
+# default.
+#
+# So a tree may now carry, IN THE MANIFEST, PER TREE:
+#
+#   unverifiable_ack        = true
+#   unverifiable_ack_reason = "the measured blocker, not a description"
+#   unverifiable_ack_owner  = "who is retiring it"
+#
+# The guardrails are the whole design, and each one closes a way this could
+# have become the old hole:
+#
+#  1. IT ONLY APPLIES WHERE THE GATE WAS ALREADY GOING TO SAY "UNVERIFIABLE".
+#     A tree that DRIFTED, or whose source ADVANCED past the pin, still FAILS
+#     with an ack in place. An ack can never silence a content verdict,
+#     because in that case a content verdict was actually reached. This is
+#     asserted by tests/test_vendor_fresh_gate.sh scenario 6.
+#  2. REASON AND OWNER ARE BOTH REQUIRED. Declaring the ack without either is
+#     RED, naming the tree. An unattributed exemption is how a temporary gap
+#     becomes permanent, and the sibling mechanism in verify_cut_freshness.sh
+#     (verify_exempt + exempt_reason) already learned this.
+#  3. THERE IS NO GLOBAL FORM. No env var, no wildcard, no "ack everything".
+#     Adding a tree to this list is a manifest edit that shows up in a diff and
+#     has to be defended in review.
+#  4. THE COUNT IS IN THE DENOMINATOR LINE AND IN THE VERDICT. While any ack is
+#     live the gate never prints a plain "GATE: GREEN". It prints GREEN WITH N
+#     ACKNOWLEDGED-UNVERIFIABLE TREE(S), so a reader skimming the last line
+#     cannot mistake it for a clean run -- which is the failure mode that made
+#     "GATE: GREEN with N warning(s)" so dangerous.
+#
+# An ack is a debt with a name on it. It is not a pass, and the wording of
+# every line below is chosen so that nobody can quote it as one.
 
 set -euo pipefail
 
@@ -71,6 +115,7 @@ fail=0
 warn=0
 ok=0
 held=0
+ackd=0
 checked=0
 
 echo "vendor-freshness gate -- manifest: $VLIB_MANIFEST"
@@ -132,6 +177,48 @@ checkout_drift() {
     printf 'source checkout HEAD is %s ahead / %s behind %s\n' "${ahead:-0}" "${behind:-0}" "$ref"
 }
 
+# Read a tree's acknowledgement state. Prints nothing; the caller decides how
+# loud to be. Three states, never two -- a declared-but-incomplete ack is its
+# own answer and must not collapse into either "acked" or "not acked".
+#   0 = complete ack   (declared, with BOTH a reason and an owner)
+#   1 = no ack declared
+#   2 = declared but incomplete (missing reason and/or owner) -> RED
+ack_state() {
+    local tree="$1" declared reason owner
+    declared="$(vlib_field "$tree" unverifiable_ack)"
+    [ "$declared" = "true" ] || return 1
+    reason="$(vlib_field "$tree" unverifiable_ack_reason)"
+    owner="$(vlib_field "$tree" unverifiable_ack_owner)"
+    [ -n "$reason" ] && [ -n "$owner" ] || return 2
+    return 0
+}
+
+# The ONE place an unverifiable tree is reported, so the ack rules cannot be
+# applied at one call site and forgotten at the other. Increments exactly one
+# of ackd / fail / warn.
+report_unverifiable() {
+    local tree="$1" detail="$2" st=0
+    ack_state "$tree" || st=$?
+    case "$st" in
+        0)
+            echo "ACK   $tree -- UNVERIFIABLE, acknowledged in writing (owner: $(vlib_field "$tree" unverifiable_ack_owner))"
+            echo "        NOT VERIFIED. Declared, with a reason and an owner: $(vlib_field "$tree" unverifiable_ack_reason)"
+            ackd=$((ackd + 1))
+            ;;
+        2)
+            echo "FAIL  $tree -- unverifiable_ack is declared but INCOMPLETE." >&2
+            echo "        It requires BOTH unverifiable_ack_reason and unverifiable_ack_owner." >&2
+            echo "        An exemption with nobody's name on it is how a temporary gap becomes" >&2
+            echo "        permanent, so an incomplete one is refused rather than honoured." >&2
+            fail=$((fail + 1))
+            ;;
+        *)
+            echo "WARN  $tree -- $detail"
+            warn=$((warn + 1))
+            ;;
+    esac
+}
+
 # Does the source sub-path have commits newer than pinned_sha?
 # Prints one line per unshipped commit, "<full-sha> <subject>" (empty if up to
 # date). FULL sha, not %h: it is fed to vlib_sha_in_list, and an abbreviation
@@ -174,8 +261,7 @@ while IFS= read -r tree; do
     verify="$(vlib_field "$tree" verify)"
     if [ "$verify" = "skip" ]; then
         reason="$(vlib_field "$tree" note)"
-        echo "WARN  $tree -- verification skipped: ${reason:-marked verify=skip}"
-        warn=$((warn + 1))
+        report_unverifiable "$tree" "verification skipped: ${reason:-marked verify=skip}"
         continue
     fi
 
@@ -191,8 +277,7 @@ while IFS= read -r tree; do
 
     if [ "$rc" = "2" ] || [ "$rc" = "3" ]; then
         # Source not available / sha absent -> warning, not a silent pass.
-        echo "WARN  $tree -- could not verify (see above)"
-        warn=$((warn + 1))
+        report_unverifiable "$tree" "could not verify (see above)"
         rm -rf "$tmp"
         continue
     fi
@@ -345,7 +430,19 @@ held_note=""
 if [ "$held" -gt 0 ]; then
     held_note=" ($held of the fresh HELD by hold_ack -- discharge when the held commits land)"
 fi
-echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable$held_note"
+# TWO SEPARATE UNVERIFIABLE COUNTS, on purpose: collapsing them into one number
+# is precisely what let "not looked at" hide inside "known gap".
+#
+# NOTE THE WORDING OF THE SECOND ONE. It is "acknowledged-unverifiable", NOT
+# "unverifiable (ACKNOWLEDGED)", and that is load-bearing rather than a style
+# choice. The legacy assertion in tests/test_vendor_src_placeholder_unset.sh
+# pulls the unverifiable count out with a GREEDY `.*, ([0-9]+) unverifiable.*`,
+# which binds to the RIGHTMOST match. Phrasing the ack count as ", N
+# unverifiable (...)" would therefore silently re-point that assertion at the
+# acknowledged number, so a rising UNKNOWN count could hide behind a steady ack
+# count. Hyphenating it leaves no ", N unverifiable" to the right, so the old
+# parse keeps reading the UNKNOWN bucket, which is the one it exists to watch.
+echo "vendor-freshness: $checked tree(s) -- $ok fresh, $fail stale/divergent, $warn unverifiable (UNKNOWN), $ackd acknowledged-unverifiable$held_note"
 
 if [ "$fail" -gt 0 ]; then
     echo "GATE: RED -- $fail tree(s) are stale or have drifted from source." >&2
@@ -370,6 +467,19 @@ if [ "$warn" -gt 0 ]; then
     echo "      $ok tree(s) were checked and are fresh. The other $warn were not checked at all."
     echo "      This is not a pass for those trees. The cut must run with all source"
     echo "      repos present and the default strictness."
+    if [ "$ackd" -gt 0 ]; then
+        echo "      A further $ackd tree(s) are acknowledged-unverifiable in the manifest."
+    fi
+elif [ "$ackd" -gt 0 ]; then
+    # Deliberately NOT the word GREEN on its own. Every ack is a tree nobody
+    # checked; the only thing that changed is that we now know which trees, why,
+    # and whose job it is. Say the number out loud in the verdict as well as the
+    # denominator, because the verdict is the line people quote.
+    echo "GATE: GREEN WITH $ackd ACKNOWLEDGED-UNVERIFIABLE TREE(S) -- $ok tree(s) verified fresh."
+    echo "      Those $ackd were NOT checked against their source. Each is declared in"
+    echo "      vendor/VENDOR_MANIFEST.toml with a measured reason and a named owner, which"
+    echo "      makes the gap auditable. It does not make it verified, and it is not a pass"
+    echo "      for those trees. Retire them; do not inherit them."
 else
     echo "GATE: GREEN -- every vendored tree matches its pinned source."
 fi
