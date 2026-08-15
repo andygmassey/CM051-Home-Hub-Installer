@@ -2797,10 +2797,16 @@ fi
 #     Phase 2 would populate ~/.ostler/ before a later abort and re-trip
 #     the CX-87 Phase-2-skip bug. The early block only sets FDA_GRANTED
 #     plus the INSTALLER_FDA_SHOWN_EARLY guard.
-#   * The DAEMON FDA grant (ai.ostler.assistant) CANNOT be front-loaded
-#     -- its binary does not exist until late Phase 3. It is pre-announced
-#     in the briefing copy above and granted late; we do not claim "zero
-#     late prompts".
+#   * The DAEMON FDA grant (ai.ostler.assistant) is NOT front-loaded here.
+#     It is pre-announced in the briefing copy above and granted late; we
+#     do not claim "zero late prompts". NOTE: the reason this used to be
+#     impossible -- the daemon binary did not exist until late Phase 3 --
+#     no longer holds. Since the phase-3.7c ordering fix the binary is
+#     staged immediately after fda_extract, so hoisting the daemon grant
+#     to sit alongside the installer grant is now a live option. Not taken
+#     in this PR: it moves a permission dialog, which is box-walk work,
+#     not an ordering fix. Do not re-cite "the binary does not exist yet"
+#     as the blocker; it is no longer true.
 if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
     # Honest read-probe (same shape as the late fda_extract probe): a
     # first-byte read of an FDA-gated SQLite DB. macOS TCC denies open()
@@ -2992,10 +2998,15 @@ if [[ -z "${INSTALLER_FDA_SHOWN_EARLY:-}" && "${OSTLER_GUI:-0}" == "1" ]]; then
     # the START, reassure the customer that the long middle is unattended,
     # and PRE-ANNOUNCE the one genuinely-late permission we cannot
     # front-load: the DAEMON Full Disk Access (Messages history for the
-    # assistant). Its binary (ai.ostler.assistant) does not exist until
-    # late Phase 3, so its TCC grant cannot be hoisted -- we flag it here
-    # exactly as the Tailscale sign-in step is pre-announced, so it is
-    # expected rather than a surprise. We do NOT claim "zero late prompts".
+    # assistant). We flag it here exactly as the Tailscale sign-in step is
+    # pre-announced, so it is expected rather than a surprise. We do NOT
+    # claim "zero late prompts".
+    #
+    # The old reason for the lateness -- "its binary does not exist until
+    # late Phase 3" -- stopped being true at the phase-3.7c ordering fix:
+    # ai.ostler.assistant is now staged immediately after fda_extract.
+    # The grant itself stays late in this PR (moving a permission dialog
+    # is box-walk work), but the constraint is gone, so do not re-cite it.
     info "$MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE"
     info "$MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE"
 fi
@@ -9386,6 +9397,823 @@ PY
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
 
+# ── 3.7c Assistant daemon binary -- STAGED HERE, BEFORE ANY AGENT ──
+#
+# ORDERING CONTRACT. Ten LaunchAgents written by this installer carry
+# ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant as
+# ProgramArguments[0]. Until v1.0.18 the .app was not staged until phase
+# 3.14e, several thousand lines and twenty-two progress steps after the
+# first of those agents was bootstrapped.
+#
+# Bootstrapping a LaunchAgent whose program does not exist makes launchd
+# fail to exec, record last-exit-code=78 (EX_CONFIG) and write zero-byte
+# .log/.err -- nothing ran, so nothing wrote. EX_CONFIG IS NOT A RETRY:
+# launchd reads it as "this job is misconfigured" and parks it. The 78
+# survives reboots and reinstalls until something calls
+# `launchctl kickstart -k`. It presents as silence, not error, under a
+# clean-looking install log.
+#
+# The per-agent refusals (vendor/email_ingest/INSTALL_SNIPPET.sh, the
+# -x gate on com.ostler.export-scan, the gate in
+# _install_conversation_feed) are what caught this, and they STAY. They
+# are defence in depth, and they are still load-bearing on an install
+# where staging fails or is skipped (non-Apple-Silicon, rejected
+# signature). What changes is that on a healthy install they are no
+# longer the thing standing between the customer and a dead agent: the
+# binary is simply already there.
+#
+# WHY HERE AND NOT EARLIER. Every one of those plists interpolates
+# ${OSTLER_DIR}. Before _ostler_promote_prelaunch_tree runs, OSTLER_DIR
+# is the /tmp/ostler-prelaunch-<pid> staging tree, and a plist (or a
+# staged .app) written against it is dead after the next reboot -- the
+# exact fault #177 fixed for the two Ollama agents, gated ever since by
+# tests/test_launchd_plist_no_tmp.sh. The promote is guaranteed only at
+# the tail of 3.7, so 3.7 is the earliest sound staging point. The call
+# sites are inside 3.7 (immediately before com.ostler.fda-rerun, the
+# first app-binary agent in the install) plus an idempotent catch-all
+# after 3.7 for the no-FDA-module arm, mirroring how
+# _ostler_promote_prelaunch_tree itself is called.
+#
+# The LaunchAgent half of the old 3.14e (assistant-agent assets, the
+# daemon's own agent, the WhatsApp keepalive, the iMessage FDA probe)
+# stays at 3.14e. Only the staging moved.
+#
+# Invariant gated by tests/test_launchagent_bootstrap_after_staging.py.
+
+# ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
+#
+# Stages the customer-facing assistant binary and registers a daemon
+# LaunchAgent that runs it under the user's account. The binary is
+# the upstream zeroclaw runtime renamed at tar time by Phase B's
+# release pipeline; the LaunchAgent points it at the config.toml
+# Phase D's wizard wrote in section 3.5b.
+#
+# Pieces:
+#   1. Resolve the release URL and SHA-256 sidecar URL.
+#   2. Download both into a temp dir.
+#   3. Verify SHA-256 (abort on mismatch -- silent acceptance of
+#      a bad download would put a tampered binary on the daily
+#      driver Mac, so this is an explicit hard fail).
+#   4. Extract to ${OSTLER_DIR}/bin/ostler-assistant.
+#   5. Clear the macOS quarantine xattr so the bundled binary
+#      runs immediately. Gatekeeper still verifies the
+#      notarisation ticket online on first execution; xattr
+#      removal just skips the double-click confirmation dialog
+#      that curl-installed binaries otherwise trigger.
+#   6. Source assistant-agent/INSTALL_SNIPPET.sh to register the
+#      LaunchAgent.
+#
+# Failure mode: if the download / verify / extract chain fails,
+# warn and skip the LaunchAgent install. The wizard-written
+# config.toml stays in place so a later manual binary install
+# (re-run the installer when the network recovers, or stage the
+# binary by hand) wires up cleanly.
+#
+# Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
+# are env-overridable so an enterprise fork or pre-release smoke
+# can point at a different release without editing install.sh.
+# Default tracks the last-known-good upstream release. If a future
+# bump (e.g. v0.4.2 not yet published) raises 404, the inline
+# fallback below retries against ASSISTANT_FALLBACK_VERSION so the
+# install completes on the proven-good binary.
+#
+# Open question: there is no zeroclaw subcommand for "encrypt the
+# plaintext password the wizard just wrote" -- the secrets store
+# auto-migrates legacy enc: values to enc2: on read but does not
+# bootstrap from plaintext. The TOML stays mode 0600 in the
+# meantime. A `config encrypt-secrets` subcommand would close the
+# window; flagged as a follow-up Rust PR (or roll into Phase E).
+
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.56}"
+
+# Hard-coded last-known-good release. The fallback path below
+# retries against this version if the primary URL returns 404 /
+# non-200, so a missing tag never strands the customer on an
+# un-installable Hub.
+#
+# v0.4.3+ ships the daemon as OstlerAssistant.app in the release
+# tarball (instead of a bare Mach-O at the tar root) so macOS TCC
+# can read the bundle's Info.plist + Resources/icon.icns and
+# render the Ostler v4 oxblood squircle next to the Full Disk
+# Access entry. The extraction + path logic below detects which
+# shape the tarball ships and stages both correctly, so the same
+# install.sh works against a fallback v0.4.1 tarball (bare
+# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
+# never published per task #507 -- the version was burned on a
+# pre-release dry-run.
+ASSISTANT_FALLBACK_VERSION="0.4.1"
+# Customer-facing distribution.
+#
+# CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
+# release repo ostler-ai/ostler-releases, NOT the private source
+# repo ostler-ai/ostler-assistant (which 404s for every customer).
+# Tags are component-prefixed: the daemon release tag is `hub-vX.Y.Z`
+# (not bare `vX.Y.Z`) so a single release repo can host multiple
+# component release streams. Pre-fix the install.sh default pointed
+# at the source repo, which is private + would 404 on every clean
+# install whose bundled-daemon tarball was missing (silent-warn-skip
+# pattern caught 2026-05-29).
+#
+# The primary install path is the bundled-in-DMG tarball at
+# ${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app (see CX-79b
+# below). This URL is the recovery-only fallback for customers
+# whose DMG is corrupted or whose extraction step dropped the
+# bundled payload.
+OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-releases}"
+OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
+
+# ── Daemon tarball integrity pin (v1.0.10 security lockdown) ───────
+# Cross-origin defence for the curl recovery path. The same-origin
+# `<archive>.sha256` sidecar (fetched from the SAME GitHub release
+# as the tarball) proves nothing against a compromised release: an
+# attacker who can replace the tarball can replace its sidecar too.
+# This pin is baked into install.sh itself, which is served from a
+# DIFFERENT origin (ostler.ai/install.sh via the CM055 edge worker,
+# or the notarised DMG), so a tampered release cannot satisfy it.
+# The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 to the notarised
+# tarball's sha256 at cut time -- same discipline as the installer
+# tarball pin (DEFAULT_INSTALLER_TARBALL_SHA256) and the GWS pins.
+#
+# ┌─ ORM CUT-TIME ACTION REQUIRED (v1.0.10 red-team-3 lockdown) ──┐
+# │ The sentinel below MUST be replaced with the real 64-hex     │
+# │ sha256 of the notarised ostler-assistant tarball AT CUT      │
+# │ ASSEMBLY. As of red-team-3 the curl RECOVERY DOWNLOAD PATH   │
+# │ now FAILS CLOSED while this is still the sentinel: the       │
+# │ cross-origin pin is the mandatory second origin of trust for │
+# │ a network-fetched daemon, so an unresolved pin ABORTS that   │
+# │ path rather than proceeding on same-origin sidecar +         │
+# │ notarisation alone. The DMG-BUNDLED .app path (no network    │
+# │ download) still proceeds on the Team-ID-pinned signature     │
+# │ gate. Ship the sentinel unpinned => curl-recovery installs   │
+# │ are refused. Pin the real hex => curl-recovery re-enabled    │
+# │ with cross-origin integrity + Team-ID signature both         │
+# │ enforced. Do NOT hard-code a real SHA in source control --   │
+# │ this is the ORM's assembly-time step ONLY.                   │
+# └──────────────────────────────────────────────────────────────┘
+#
+# A real 64-hex value => an ADDITIONAL hard check layered on top of
+# the Team-ID signature gate. Override at install time with
+# OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
+DEFAULT_ASSISTANT_TARBALL_SHA256="e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769"
+ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
+
+# ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
+# Team ID of the ONLY Apple Developer-ID account allowed to sign a
+# bundle this installer will stage + quarantine-strip + LaunchAgent.
+# Without this pin, `spctl --assess` + `codesign --verify` accept ANY
+# notarised Developer-ID app -- an attacker who notarises their own
+# $99 Apple-ID malware and can steer a release asset / download URL
+# gets it staged as a persistent user LaunchAgent. The designated
+# requirement below is enforced (codesign -R) behind ALL THREE
+# staging gates: the daemon, RemoteCapture, and the Hub .app.
+# Validated empirically against the notarised 0.4.34 daemon and the
+# signed Hub Ostler.app (subject.OU == TeamIdentifier for our
+# Developer ID Application cert); a wrong Team ID is rejected.
+OSTLER_TEAM_ID="V95N2B8X7A"
+OSTLER_CODESIGN_REQ="anchor apple generic and certificate leaf[subject.OU] = \"${OSTLER_TEAM_ID}\""
+
+OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
+# .app bundle path (v0.4.3+ shape). The bundle wrapper carries
+# CFBundleIconFile + icon.icns, so macOS TCC and Activity Monitor
+# render the Ostler v4 oxblood squircle next to the daemon.
+ASSISTANT_APP_BUNDLE="${OSTLER_DIR}/OstlerAssistant.app"
+# Inner Mach-O path: the LaunchAgent and `ostler-assistant doctor`
+# / `setup channels` / etc. invocations target this directly.
+# Whether the tarball shipped as a bare binary (legacy v0.4.1
+# shape) or as an .app bundle (v0.4.3+ shape), this variable
+# always points at an executable Mach-O after the staging logic
+# below.
+ASSISTANT_BINARY="${ASSISTANT_APP_BUNDLE}/Contents/MacOS/ostler-assistant"
+# Legacy bare-binary path. Kept here for the fallback-to-v0.4.1
+# code path further down: if the tarball does not contain an .app
+# bundle (older release), the binary lands at this path instead
+# and ASSISTANT_BINARY is rewritten to point here. Quoted symbol
+# `_LEGACY_` makes a grep for `bin/ostler-assistant` easy if a
+# future migration wants to flatten the dual-shape support.
+ASSISTANT_BINARY_LEGACY="${OSTLER_DIR}/bin/ostler-assistant"
+
+# Apple Silicon only. The Phase B release workflow does
+# not produce an x86_64 build (customer Macs are arm64 by the
+# brief). Surface this clearly rather than letting curl 404 on
+# a non-existent Intel asset.
+ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
+
+_ostler_assistant_set_urls() {
+    OSTLER_ASSISTANT_VERSION="$1"
+    ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
+    # CX-88 (2026-05-29): tag is `hub-vX.Y.Z` -- the release repo at
+    # ostler-ai/ostler-releases uses component-prefixed tags so it can
+    # host multiple release streams (hub, remote-capture, iOS, etc.)
+    # under one repository.
+    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
+    ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
+}
+
+# ── Daemon signature gate (v1.0.10 security lockdown) ─────────────
+# Returns 0 iff the staged daemon bundle clears BOTH
+# codesign --verify --deep --strict AND spctl --assess --type
+# execute -- the exact Gatekeeper posture RemoteCapture and
+# Ostler.app are held to before their quarantine is cleared. Tool
+# output goes to the caller-provided log paths for surfacing on
+# failure.
+_verify_daemon_signature() {
+    local _bundle="$1" _cs_log="$2" _sp_log="$3"
+    # -R pins the Creative Machines Team ID (V95N2B8X7A) so a
+    # foreign-but-notarised Developer-ID bundle is REJECTED here, not
+    # just any notarised app. spctl alone accepts anyone's notarised
+    # $99 build; codesign -R with our designated requirement does not.
+    codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$_bundle" 2>"$_cs_log" \
+        && spctl --assess --type execute "$_bundle" 2>"$_sp_log"
+}
+
+# ── Deferred export-scan LaunchAgent bootstrap (HR015 #217) ───────
+# The com.ostler.export-scan plist is written earlier in install.sh
+# ("Set up launchd plist to scan every 4 hours"), long before the
+# signed OstlerAssistant.app is staged. Its ProgramArguments[0] is
+# ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant
+# and RunAtLoad=true, so a bare launchctl bootstrap at plist-write
+# time makes launchd fire the tick against a missing binary and
+# record last-exit-code=78 (EX_CONFIG) with zero-byte log files.
+#
+# This helper is called from _finalise_daemon_staging once the daemon
+# is on-disk. It:
+#   * skips silently if the plist was not written (export-scan block
+#     didn't run, or was toggled off);
+#   * skips silently if the daemon binary still isn't there (defensive
+#     -- the finaliser only reaches here on success, but the guard
+#     keeps a future call-site refactor from re-introducing the race);
+#   * bootstraps the plist if not yet loaded (the fresh-install path
+#     that the earlier gated bootstrap deferred);
+#   * kickstart -k's it if already loaded (an upgrade install where
+#     the bootstrap succeeded earlier, or a re-run install where a
+#     previous EX_CONFIG(78) result is still parked on the job --
+#     kickstart -k forcibly restarts and clears the stale exit code).
+# Non-fatal in every branch; export-scan is enrichment, not gating.
+# ── The SAME race, for every agent that runs the daemon binary ────
+#
+# HR015 #217 diagnosed this exactly once and fixed it exactly once. The
+# diagnosis is in the comment above and it is correct: an agent whose
+# ProgramArguments[0] lives inside OstlerAssistant.app, bootstrapped before
+# the .app is staged, makes launchd fail to exec, record last-exit-code=78
+# (EX_CONFIG) and write zero-byte .log/.err -- because nothing ever ran, so
+# nothing ever wrote. The zero bytes ARE the evidence, not a mystery.
+#
+# The part that was missed: EX_CONFIG IS NOT A RETRY. launchd reads it as
+# "this job is misconfigured" and parks it. The 78 stays on the job across
+# reboots and reinstalls until something calls `launchctl kickstart -k`.
+# So the fault is not transient and does not self-heal.
+#
+# MEASURED 2026-08-12, which is why this table exists:
+#   * 10 LaunchAgents have the app binary as ProgramArguments[0];
+#   * exactly 1 of them (export-scan) gated its initial bootstrap and got a
+#     post-staging sweep. `grep -n "_ostler_ensure_.*_bootstrap()"` returned
+#     one hit, hard-coded to one label;
+#   * the other 9 -- including whatsapp-bundle, which is v1018-D019 -- get
+#     the race and no clearing kickstart, so a parked 78 is permanent.
+#
+# A guard that has only ever seen one label is green by construction for
+# every label it has not seen. This table is the class; add a row when you
+# add an agent whose ProgramArguments[0] is the daemon binary, and
+# tests/test_app_binary_agents_bootstrap.sh will tell you if you forget.
+#
+# The set is not arbitrary: it mirrors the daemon's own `run-source` Source
+# enum, because these are precisely the agents that fork the FDA-holding
+# binary rather than a standalone script.
+_OSTLER_APP_BINARY_AGENTS="\
+com.ostler.export-scan
+com.ostler.fda-rerun
+com.ostler.contact-resync
+com.ostler.aiconv-resume
+com.ostler.imessage-bridge
+com.creativemachines.ostler.imessage-bundle
+com.creativemachines.ostler.whatsapp-bundle
+com.creativemachines.ostler.spoken-bundle
+com.creativemachines.ostler.email-bundle
+com.creativemachines.ostler.email-ingest"
+
+# Bootstrap-or-rekick every agent in the table, once the signed daemon is
+# actually on disk. Same body as the export-scan helper below, applied to
+# the class instead of to one instance:
+#   * skip silently if that agent's plist was never written (its block was
+#     gated off, or the channel was declined) -- absence is not a failure;
+#   * skip entirely if the daemon binary still is not there (defensive);
+#   * bootstrap if not loaded (the fresh-install path a gated bootstrap
+#     deferred);
+#   * kickstart -k if already loaded, which is the ONLY thing that clears a
+#     parked EX_CONFIG(78) from a previous run.
+# Non-fatal in every branch: these feeds are enrichment, not gating.
+#
+# export-scan is deliberately covered TWICE -- here, and by its own #217-era
+# helper that tests/test_export_scan_plist_bootstrap_race_217.sh pins line by
+# line. kickstart -k is idempotent so the duplicate costs nothing, and it
+# means neither mechanism can be quietly deleted without the other noticing.
+_ostler_ensure_app_binary_agents_bootstrap() {
+    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+    [[ -x "$_bin" ]] || return 0
+    local _domain="gui/$(id -u)"
+    local _label _plist
+    while IFS= read -r _label; do
+        [[ -n "$_label" ]] || continue
+        _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
+        [[ -f "$_plist" ]] || continue
+        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
+            launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
+        else
+            launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
+                launchctl load "$_plist" 2>/dev/null || true
+        fi
+    done <<< "$_OSTLER_APP_BINARY_AGENTS"
+}
+
+_ostler_ensure_export_scan_bootstrap() {
+    local _plist="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
+    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+    local _label="com.ostler.export-scan"
+    [[ -f "$_plist" ]] || return 0
+    [[ -x "$_bin" ]] || return 0
+    if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
+        launchctl kickstart -k "gui/$(id -u)/${_label}" 2>/dev/null || true
+    else
+        launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null || \
+            launchctl load "$_plist" 2>/dev/null || true
+    fi
+}
+
+# ── Shared daemon-staging finaliser (v1.0.10 security lockdown) ───
+# EVERY path that stages a daemon into ${ASSISTANT_APP_BUNDLE}
+# (DMG-bundled .app, DMG-bundled bare binary wrapped locally, or the
+# curl recovery download) MUST funnel through this gate before the
+# quarantine xattr is stripped or ASSISTANT_BINARY_INSTALLED is set.
+# There is NO unsigned-launch path: a bundle that is not a
+# Developer-ID-signed, notarised .app is deleted and the install
+# aborts. Pre-v1.0.10 the curl path stripped quarantine on ANY valid
+# Mach-O ("unsigned" state) and launched it, so an attacker who could
+# serve a tarball plus a matching SAME-ORIGIN sidecar ran arbitrary
+# code as the daemon. Uses ASSISTANT_TMPDIR (always allocated by this
+# phase) for the codesign/spctl logs.
+_finalise_daemon_staging() {
+    local _cs_log="${ASSISTANT_TMPDIR}/daemon-codesign.log"
+    local _sp_log="${ASSISTANT_TMPDIR}/daemon-spctl.log"
+
+    local _ft
+    _ft="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
+    if [[ "$_ft" != *"Mach-O"* ]]; then
+        # Not even a Mach-O -- malformed extract or upstream pipeline
+        # bug. Refuse: delete + abort.
+        err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
+        err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${_ft}")"
+        err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
+        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    if _verify_daemon_signature "$ASSISTANT_APP_BUNDLE" "$_cs_log" "$_sp_log"; then
+        # Signed + notarised => Gatekeeper-trusted. Clear quarantine
+        # so launchctl can spawn it without a first-run dialog.
+        xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+        info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
+        if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
+            # v1.0.10 run-source preflight gate (BLOCKER: version-skew silent
+            # ingest death). The v1.0.10 install emits `run-source <enum>`
+            # LaunchAgent plists for every ingest source so each tick reads
+            # under the FDA-holding signed daemon. A daemon that PREDATES the
+            # run-source subcommand (an OSTLER_ASSISTANT_VERSION pin skew to
+            # v0.4.34 / v0.4.1) passes --version yet clap-REJECTS run-source,
+            # so every ingest tick would silently no-op and the product would
+            # go stale with no visible error. `run-source --help` exits 0 iff
+            # the subcommand exists in the staged daemon's clap tree; if it
+            # fails, this is a skew -- hard-fail rather than ship dead ingest.
+            # This makes the pin skew impossible to ship silently regardless
+            # of the pin value.
+            if ! "$ASSISTANT_BINARY" run-source --help >/dev/null 2>&1; then
+                fail_with_code "ERR-11-DAEMON-RUN-SOURCE-SKEW" \
+                    "$(printf "$MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
+            fi
+            ASSISTANT_BINARY_INSTALLED=true
+            # HR015 #217: the export-scan LaunchAgent (com.ostler.export-scan)
+            # is written far earlier than the daemon .app is staged, and its
+            # ProgramArguments[0] is inside the .app bundle. On a fresh
+            # install its RunAtLoad tick therefore fires before the binary
+            # exists on disk, launchd fails to exec, and the job's
+            # last-exit-code is EX_CONFIG(78) with zero-byte log files.
+            # Now that _finalise_daemon_staging has put a signed daemon in
+            # place, bootstrap (or re-kick) the agent so the first scan
+            # runs against a real binary. Idempotent, non-fatal.
+            _ostler_ensure_export_scan_bootstrap
+            # v1018-D019: and the same treatment for every OTHER agent that
+            # runs this binary. export-scan was never special; it was just
+            # the one the fault was reported on first.
+            _ostler_ensure_app_binary_agents_bootstrap
+        else
+            warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
+            warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
+        fi
+    else
+        # Signature / notarisation FAILED. No unsigned-launch path:
+        # delete the staged bundle and abort. Mirrors the
+        # RemoteCapture fail_with_code + Ostler.app posture.
+        err "Refusing to install ostler-assistant: not a Developer-ID-signed, notarised bundle (no unsigned-launch path)."
+        err "Both codesign --verify --deep --strict and spctl --assess --type execute must pass on this daemon."
+        if [[ -s "$_cs_log" ]]; then
+            err "codesign reported:"
+            sed -e 's/^/    /' "$_cs_log" | head -5
+        fi
+        if [[ -s "$_sp_log" ]]; then
+            err "spctl reported:"
+            sed -e 's/^/    /' "$_sp_log" | head -5
+        fi
+        err "Deleting the staged bundle and aborting. Re-run once a signed + notarised daemon is available."
+        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
+        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+}
+
+# Stage the daemon binary at ${OSTLER_DIR}/OstlerAssistant.app. Idempotent:
+# the first caller does the work, later callers return immediately, so the
+# `progress` marker fires exactly once however many call sites exist.
+_ostler_stage_assistant_daemon() {
+    if [[ "${OSTLER_ASSISTANT_STAGING_DONE:-false}" == true ]]; then
+        return 0
+    fi
+    OSTLER_ASSISTANT_STAGING_DONE=true
+
+    progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
+
+    # Apple Silicon only. The Phase B release workflow does not produce an
+    # x86_64 build (customer Macs are arm64 by the brief). Surface this
+    # clearly rather than letting curl 404 on a non-existent Intel asset.
+    # The LaunchAgent half at 3.14e re-tests ARCH_DETECTED and skips too.
+    if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
+    warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY" "${OSTLER_ASSISTANT_VERSION}" "${ARCH_DETECTED}")"
+    warn "$MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG"
+    info "$MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST"
+    ASSISTANT_BINARY_INSTALLED=false
+        ASSISTANT_BINARY_INSTALLED=false
+        return 0
+    fi
+
+    _ostler_assistant_set_urls "${OSTLER_ASSISTANT_VERSION}"
+
+# ASSISTANT_TMPDIR is declared in the Phase 3 composite_cleanup
+# block; this allocator sets it. composite_cleanup will rm -rf
+# the dir if we exit before the explicit cleanups below fire.
+ASSISTANT_TMPDIR="$(mktemp -d)"
+
+ASSISTANT_BINARY_INSTALLED=false
+
+# CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
+# Resources/assistant-agent/ over the GitHub release download.
+# The bundled binary is built from the same commit that defines the
+# DMG signing + notarisation posture, so version skew between the
+# customer's daemon and the rest of the install is impossible. The
+# DMG bundling also makes the install network-independent for the
+# critical-path binary (a customer with flaky DNS / GitHub outage /
+# Tailscale rerouting still gets a working daemon).
+#
+# Falls through to the curl path if no bundled artefact is present
+# (older DMGs predating this bundling, or a corrupted install
+# extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
+# forces the curl path even when bundled is present -- used in CI
+# to exercise the customer-network code path.
+#
+# v0.4.3+ shape: the DMG bundles OstlerAssistant.app at
+# assistant-agent/OstlerAssistant.app/. Legacy DMGs bundled a bare
+# binary at assistant-agent/bin/ostler-assistant. Probe for the
+# .app first (preferred), then fall back to the bare-binary path.
+# Both paths are then staged into ~/.ostler/OstlerAssistant.app/
+# downstream (the bare-binary shape gets wrapped in a minimal .app
+# locally so the TCC icon works regardless of which shape the
+# operator's DMG was cut from).
+ASSISTANT_BUNDLED_APP="${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app"
+ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
+
+# Determine whether a bundled artefact (.app or bare bin) is
+# present in the DMG. The .app shape is preferred (v0.4.3+); the
+# bare-binary shape stays supported for older DMGs.
+_assistant_bundled_shape=""
+if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]]; then
+    if [[ -x "${ASSISTANT_BUNDLED_APP}/Contents/MacOS/ostler-assistant" ]]; then
+        _assistant_bundled_shape="app"
+    elif [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
+        _assistant_bundled_shape="bin"
+    fi
+fi
+
+# Try the primary download URL, then fall back once to
+# ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
+# activates when (a) no bundled artefact is present in the DMG
+# and (b) the primary URL returns non-200. v0.4.2 of
+# ostler-assistant was never published to ostler-ai/ostler-installer
+# (default bumped in error pre-DMG#48; caught on a clean Studio
+# install). If the primary URL 404s, the install still completes
+# on a proven-good binary rather than stranding the customer at
+# the launch step.
+_assistant_download_ok=false
+if [[ -z "$_assistant_bundled_shape" ]]; then
+    if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+       && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+        _assistant_download_ok=true
+    elif [[ "${OSTLER_ASSISTANT_VERSION}" != "${ASSISTANT_FALLBACK_VERSION}" ]]; then
+        warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
+        warn "Retrying with last-known-good v${ASSISTANT_FALLBACK_VERSION}..."
+        _ostler_assistant_set_urls "${ASSISTANT_FALLBACK_VERSION}"
+        rm -f "$ASSISTANT_TMPDIR"/*
+        if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
+           && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
+            _assistant_download_ok=true
+        fi
+    fi
+fi
+
+if [[ "$_assistant_bundled_shape" == "app" ]]; then
+    # DMG bundled the v0.4.3+ shape: an .app bundle. Copy the
+    # whole bundle tree to ~/.ostler/OstlerAssistant.app/. ditto
+    # preserves Apple-specific filesystem metadata (extended
+    # attributes, ACLs, signature resources) that a plain cp -R
+    # can occasionally strip on edge filesystems; this matters
+    # because a signed bundle's _CodeSignature dir is part of the
+    # signature envelope.
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    rm -rf "$ASSISTANT_APP_BUNDLE"
+    mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
+    ditto "$ASSISTANT_BUNDLED_APP" "$ASSISTANT_APP_BUNDLE"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # v1.0.10 security lockdown: gate the DMG-bundled daemon on the
+    # SAME codesign + spctl chain RemoteCapture and Ostler.app clear
+    # (both are also DMG-sourced and still verified) before the
+    # quarantine xattr is stripped. A notarised daemon .app passes
+    # cleanly; anything else is deleted and the install aborts.
+    _finalise_daemon_staging
+elif [[ "$_assistant_bundled_shape" == "bin" ]]; then
+    # DMG bundled the legacy bare-binary shape. Stage the binary
+    # into the .app bundle structure locally so the TCC icon
+    # surface stays consistent regardless of which DMG cut the
+    # customer is installing from. The local-wrap uses the same
+    # Info.plist + icon.icns shipped in the DMG Resources/ so the
+    # customer sees the Ostler v4 icon in System Settings even on
+    # an older daemon build.
+    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
+    rm -rf "$ASSISTANT_APP_BUNDLE"
+    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
+    cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
+    chmod 0755 "$ASSISTANT_BINARY"
+    # Synthesise a minimal Info.plist for the locally-wrapped
+    # bundle. The bundle ID matches the daemon's TCC client
+    # identifier so a future v0.4.3+ upgrade preserves the FDA
+    # grant. CFBundleIconFile=icon + the icns copied below give
+    # macOS what it needs to render the Ostler v4 mark.
+    cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ostler-assistant</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.ostler.assistant</string>
+    <key>CFBundleName</key>
+    <string>Ostler Assistant</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ostler</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
+</dict>
+</plist>
+INFOPLISTEOF
+    # Copy the v4 oxblood squircle icns into the bundle.
+    # Resolution order matches the FDA dialog icon path used
+    # downstream: prefer the DMG's Resources, then fall back to
+    # the installed-app Resources/ if the operator ran an unusual
+    # SCRIPT_DIR path. If neither is present we leave
+    # CFBundleIconFile dangling -- macOS falls back to the
+    # generic icon, which is the same outcome as not wrapping;
+    # better than failing the install over a missing icns.
+    _local_wrap_icon_src=""
+    if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+        _local_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
+    elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+        _local_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
+    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+    fi
+    if [[ -n "$_local_wrap_icon_src" ]]; then
+        cp "$_local_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+        chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+    fi
+    unset _local_wrap_icon_src
+    # v1.0.10 security lockdown: this legacy path wraps a BARE binary
+    # in a locally-synthesised .app, which is unsigned by
+    # construction and therefore cannot clear the signature gate.
+    # That is intentional -- "no unsigned daemon may ever launch".
+    # v1.0.10 DMGs ship the signed .app shape, so this path is dead
+    # in practice; a customer on a pre-.app legacy DMG is refused
+    # rather than silently run an unsigned daemon.
+    _finalise_daemon_staging
+elif [[ "$_assistant_download_ok" == "true" ]]; then
+
+    # Verify SHA-256. Phase B writes the sidecar as
+    # `<hex>  <filename>` (shasum default). Recompute against
+    # the local download and compare hex prefixes. A mismatch
+    # is an explicit hard fail: continuing past this point
+    # would stage a tampered or partial binary.
+    EXPECTED_SHA="$(awk '{print $1}' "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256")"
+    ACTUAL_SHA="$(shasum -a 256 "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" | awk '{print $1}')"
+    if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
+        err "$MSG_ERR_OSTLER_ASSISTANT_TARBALL_SHA_256_MISMATCH"
+        err "$(printf "$MSG_ERR_EXPECTED" "${EXPECTED_SHA:-<empty sidecar>}")"
+        err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
+        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+        err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
+        rm -rf "$ASSISTANT_TMPDIR"
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    # Cross-origin pin (v1.0.10 security lockdown). The sidecar
+    # verified above is SAME-ORIGIN (fetched from the same release as
+    # the tarball) and is worthless against a compromised release.
+    # ASSISTANT_TARBALL_SHA256 is baked into install.sh (a different
+    # origin) so a tampered release cannot satisfy it. Enforce it as
+    # an additional hard check when the ORM has populated a real
+    # value; a placeholder / empty pin leaves the codesign + spctl
+    # gate below as the authority (still no unsigned-launch path).
+    if [[ -n "$ASSISTANT_TARBALL_SHA256" && "$ASSISTANT_TARBALL_SHA256" != "REPLACE_AT_RELEASE_TIME" ]]; then
+        if [[ "$ACTUAL_SHA" != "$ASSISTANT_TARBALL_SHA256" ]]; then
+            err "ostler-assistant tarball failed the cross-origin integrity pin baked into install.sh."
+            err "$(printf "$MSG_ERR_EXPECTED" "${ASSISTANT_TARBALL_SHA256}")"
+            err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
+            err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+            err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
+            rm -rf "$ASSISTANT_TMPDIR"
+            ASSISTANT_TMPDIR=""
+            exit 1
+        fi
+    else
+        # v1.0.10 red-team-3: FAIL CLOSED on the curl RECOVERY DOWNLOAD
+        # path when the cross-origin pin is unresolved (still the
+        # REPLACE_AT_RELEASE_TIME sentinel or empty). A network-fetched
+        # daemon has ONLY a same-origin sidecar for byte integrity --
+        # worthless against a compromised release -- so notarisation +
+        # the same-origin sidecar alone are NOT sufficient to stage it.
+        # The cross-origin pin (baked into install.sh, a DIFFERENT
+        # origin) is the mandatory second root of trust for this path.
+        # Abort rather than proceed. NOTE: this does NOT affect the
+        # DMG-bundled .app path -- that path never runs this download
+        # branch and is authorised by the Team-ID-pinned signature gate
+        # alone. The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 at cut
+        # time to re-enable curl-recovery installs.
+        err "ostler-assistant curl-recovery download refused: the cross-origin integrity pin is unresolved."
+        err "DEFAULT_ASSISTANT_TARBALL_SHA256 is still the REPLACE_AT_RELEASE_TIME sentinel, so a network-fetched"
+        err "daemon cannot be verified against a second origin of trust. This build only supports the"
+        err "DMG-bundled daemon path. Re-run from the notarised DMG, or set OSTLER_ASSISTANT_TARBALL_SHA256"
+        err "to the notarised tarball's sha256 to authorise a curl-recovery install."
+        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
+        rm -rf "$ASSISTANT_TMPDIR"
+        ASSISTANT_TMPDIR=""
+        exit 1
+    fi
+
+    # Extract the tarball into a private staging dir first so we
+    # can inspect the shape (bare binary vs .app bundle) before
+    # committing to a final layout. v0.4.3+ tarballs contain
+    # OstlerAssistant.app at the tar root; legacy v0.4.1
+    # tarballs contain a bare ostler-assistant binary. The
+    # release-pipeline rename plan is described in the
+    # companion ostler-assistant PR (Path A).
+    _assistant_extract_dir="$(mktemp -d)"
+    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "$_assistant_extract_dir"; then
+        if [[ -d "$_assistant_extract_dir/OstlerAssistant.app" ]]; then
+            # v0.4.3+ shape: tarball contained OstlerAssistant.app
+            # at the root. Stage it into ~/.ostler/.
+            rm -rf "$ASSISTANT_APP_BUNDLE"
+            mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
+            ditto "$_assistant_extract_dir/OstlerAssistant.app" "$ASSISTANT_APP_BUNDLE"
+        elif [[ -f "$_assistant_extract_dir/ostler-assistant" ]]; then
+            # Legacy v0.4.1 shape: tarball contained a bare
+            # binary. Wrap it in a minimal .app locally so the
+            # TCC icon surface stays consistent regardless of
+            # which release the customer is installing.
+            rm -rf "$ASSISTANT_APP_BUNDLE"
+            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
+            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
+            cp "$_assistant_extract_dir/ostler-assistant" "$ASSISTANT_BINARY"
+            cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ostler-assistant</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.ostler.assistant</string>
+    <key>CFBundleName</key>
+    <string>Ostler Assistant</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ostler</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>CFBundleVersion</key>
+    <string>${OSTLER_ASSISTANT_VERSION}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
+</dict>
+</plist>
+INFOPLISTEOF
+            _curl_wrap_icon_src=""
+            if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
+                _curl_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
+            elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
+                _curl_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
+                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
+            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
+                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
+            fi
+            if [[ -n "$_curl_wrap_icon_src" ]]; then
+                cp "$_curl_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+                chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
+            fi
+            unset _curl_wrap_icon_src
+        else
+            # Tarball shape we don't understand. Leave
+            # ASSISTANT_APP_BUNDLE absent; the Mach-O check below
+            # will mark it corrupt + skip the launch agent.
+            warn "Tarball at $ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME contained neither OstlerAssistant.app nor a bare ostler-assistant binary at the root."
+            warn "Skipping LaunchAgent install. Re-download once the release pipeline is back online."
+        fi
+        rm -rf "$_assistant_extract_dir"
+        chmod 0755 "$ASSISTANT_BINARY" 2>/dev/null || true
+
+        # v1.0.10 security lockdown (daemon download integrity).
+        # The SHA sidecar + cross-origin pin above prove the bytes
+        # match what the ORM published, but a curl-fetched bundle on
+        # the curl|bash path never passes through a DMG Gatekeeper
+        # ceremony, so it is NOT yet trusted to run. Funnel it
+        # through the SAME codesign --verify --deep --strict + spctl
+        # --assess --type execute gate that RemoteCapture and
+        # Ostler.app clear. Pass => strip quarantine + mark installed.
+        # Fail => delete the staged bundle and abort. There is NO
+        # unsigned-launch path any more: pre-v1.0.10 an "unsigned"
+        # (valid Mach-O, no Developer ID) daemon had its quarantine
+        # xattr stripped and was launched, so an attacker who could
+        # serve a tarball plus a matching same-origin sidecar ran
+        # arbitrary code as the daemon.
+        _finalise_daemon_staging
+    else
+        warn "$MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL"
+    fi
+else
+    warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
+    if [[ -s "$ASSISTANT_TMPDIR/curl.log" ]]; then
+        warn "$MSG_WARN_CURL_SAID"
+        sed -e 's/^/    /' "$ASSISTANT_TMPDIR/curl.log" | head -5
+    fi
+    warn "$(printf "$MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET" "${OSTLER_ASSISTANT_VERSION}")"
+    warn "$MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S"
+    warn "$MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY"
+    info "$(printf "$MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ" "${ASSISTANT_ARCHIVE_URL}")"
+    info "$(printf "$MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C" "${OSTLER_DIR}")"
+    info "$(printf "$MSG_INFO_BASH_INSTALL_SNIPPET_SH_2" "${OSTLER_ASSISTANT_DIR}")"
+fi
+
+rm -rf "$ASSISTANT_TMPDIR"
+ASSISTANT_TMPDIR=""
+}
+
 # ── 3.7 FDA extraction (instant onboarding data) ─────────────────
 #
 # FDA_ASSIST_TRIGGER (DMG #48d, 2026-05-28): the assist block at lines
@@ -9977,6 +10805,14 @@ print(json.dumps(summary, default=str))
     fi
     set -e
 
+    # ORDERING CONTRACT (see 3.7c): stage the daemon binary BEFORE the
+    # first LaunchAgent whose ProgramArguments[0] is that binary is
+    # bootstrapped. com.ostler.fda-rerun, immediately below, is that
+    # agent. _ostler_promote_prelaunch_tree has run by this point, so
+    # OSTLER_DIR is ~/.ostler and neither the .app nor the plist can
+    # end up pinned to the /tmp staging tree (#177).
+    _ostler_stage_assistant_daemon
+
     # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
     # iCloud syncs. Calendar, Notes, Photos face recognition etc. can
     # take hours to fully sync after first app launch.
@@ -10041,6 +10877,14 @@ else
     # location. Idempotent.
     _ostler_promote_prelaunch_tree
 fi
+
+# ORDERING CONTRACT catch-all (see 3.7c). The no-FDA-module arm above
+# promotes the staging tree at its tail, so this is the first point at
+# which OSTLER_DIR is canonical on that path. Idempotent: returns
+# immediately when the arm above already staged the daemon. Same shape
+# as the _ostler_promote_prelaunch_tree catch-all it follows.
+_ostler_stage_assistant_daemon
+
 
 # ── 3.7b At-rest hardening (Spotlight + Time Machine exclusions) ───
 # Applied HERE, post-promotion, not in Phase 2. FIX-RT2-F3 (v1.0.10
@@ -12141,18 +12985,31 @@ cat > "$SCAN_PLIST" <<SPEOF
 SPEOF
 # HR015 #217: gate the initial launchd bootstrap on the daemon binary
 # being on-disk. The plist has RunAtLoad=true and its ProgramArguments[0]
-# is inside OstlerAssistant.app, which install.sh does not stage until
-# the app-bundle finaliser several thousand lines later. Bootstrapping
-# now against a missing binary makes launchd fire the RunAtLoad tick,
-# fail to exec the binary, and record last-exit-code=78 EX_CONFIG with
-# zero-byte log files -- the exact fault reported on the box. The
-# post-app-bundle sweep at _ostler_ensure_export_scan_bootstrap below
-# (called from _finalise_daemon_staging on success) picks up the
-# deferred case; upgrade installs where the binary is already staged
-# keep the immediate bootstrap so the first scan still happens now.
+# is inside OstlerAssistant.app. Bootstrapping against a missing binary
+# makes launchd fire the RunAtLoad tick, fail to exec the binary, and
+# record last-exit-code=78 EX_CONFIG with zero-byte log files -- the
+# exact fault reported on the box. EX_CONFIG is not a retry: launchd
+# parks the job until a kickstart -k clears it.
+#
+# Since the phase-3.7c ordering fix the .app IS staged by the time this
+# line runs, so on a healthy install the guard passes and the scan
+# starts here. It stays because it is still the only thing standing
+# between a customer and a permanently parked job on an install where
+# staging was skipped (non-Apple-Silicon) or refused (signature gate).
+# The post-staging sweep at _ostler_ensure_export_scan_bootstrap picks
+# up any deferred case if a daemon lands later.
+#
+# The guard below is spelled out in full rather than through a variable
+# on purpose: tests/test_export_scan_plist_bootstrap_race_217.sh Property A
+# greps the twelve lines above the bootstrap for exactly this literal, and
+# a gate must not be loosened to accommodate a refactor.
 if [[ -x "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant" ]]; then
     launchctl bootstrap "gui/$(id -u)" "$SCAN_PLIST" 2>/dev/null || \
         launchctl load "$SCAN_PLIST" 2>/dev/null || true
+else
+    # NAME THE FILE: print the exact absolute path whose absence caused
+    # the refusal, so the install log answers "looked for what?" itself.
+    warn "$(printf "$MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING" "${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant")"
 fi
 ok "$MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY"
 
@@ -13831,8 +14688,19 @@ _install_conversation_feed() {
     local _assistant_bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
     launchctl bootout "${domain}/${label}" 2>/dev/null || true
     if [[ ! -x "$_assistant_bin" ]]; then
-        # Deliberately not a warning: on a fresh install this is the normal
-        # ordering, not a fault, and the post-staging sweep completes it.
+        # NAME THE FILE. A refusal that does not say what it looked for
+        # sends the reader hunting; this one prints the exact absolute
+        # path whose absence caused it, so the install log answers the
+        # question on its own.
+        #
+        # Since the phase-3.7c ordering fix this branch is NOT the normal
+        # fresh-install path any more -- the daemon is staged twenty-two
+        # steps before this line runs. Reaching it now means staging was
+        # skipped (non-Apple-Silicon) or refused (signature gate), so it
+        # warns rather than whispers. The post-staging sweep
+        # (_ostler_ensure_app_binary_agents_bootstrap) still completes the
+        # job if a daemon lands later; the refusal itself is unchanged.
+        warn "$(printf "$MSG_WARN_BUNDLE_DAEMON_BINARY_MISSING" "$_assistant_bin")"
         info "$(printf "${!k_info_logs}" "$LOGS_DIR")"
     elif launchctl bootstrap "$domain" "$rendered"; then
         ok "${!k_ok_loaded}"
@@ -14466,761 +15334,19 @@ else
     warn "$MSG_WARN_EDITOR_FRONTPAGE_VENDOR_MISSING"
 fi
 
-# ── 3.14e Ostler assistant binary + LaunchAgent ──────────────────
+# ── 3.14e Ostler assistant LaunchAgent (binary staged at 3.7c) ───
 #
-# Stages the customer-facing assistant binary and registers a daemon
-# LaunchAgent that runs it under the user's account. The binary is
-# the upstream zeroclaw runtime renamed at tar time by Phase B's
-# release pipeline; the LaunchAgent points it at the config.toml
-# Phase D's wizard wrote in section 3.5b.
+# The daemon binary itself is staged far earlier, at phase 3.7c, so that
+# every LaunchAgent pointing at it is bootstrapped against a binary that
+# exists. This section is the launchctl half: stage the assistant-agent
+# INSTALL_SNIPPET assets, render + register the daemon's own LaunchAgent
+# (start deferred until FDA is granted), the WhatsApp keepalive, and the
+# iMessage FDA probe.
 #
-# Pieces:
-#   1. Resolve the release URL and SHA-256 sidecar URL.
-#   2. Download both into a temp dir.
-#   3. Verify SHA-256 (abort on mismatch -- silent acceptance of
-#      a bad download would put a tampered binary on the daily
-#      driver Mac, so this is an explicit hard fail).
-#   4. Extract to ${OSTLER_DIR}/bin/ostler-assistant.
-#   5. Clear the macOS quarantine xattr so the bundled binary
-#      runs immediately. Gatekeeper still verifies the
-#      notarisation ticket online on first execution; xattr
-#      removal just skips the double-click confirmation dialog
-#      that curl-installed binaries otherwise trigger.
-#   6. Source assistant-agent/INSTALL_SNIPPET.sh to register the
-#      LaunchAgent.
-#
-# Failure mode: if the download / verify / extract chain fails,
-# warn and skip the LaunchAgent install. The wizard-written
-# config.toml stays in place so a later manual binary install
-# (re-run the installer when the network recovers, or stage the
-# binary by hand) wires up cleanly.
-#
-# Productisation: OSTLER_ASSISTANT_VERSION + OSTLER_ASSISTANT_REPO
-# are env-overridable so an enterprise fork or pre-release smoke
-# can point at a different release without editing install.sh.
-# Default tracks the last-known-good upstream release. If a future
-# bump (e.g. v0.4.2 not yet published) raises 404, the inline
-# fallback below retries against ASSISTANT_FALLBACK_VERSION so the
-# install completes on the proven-good binary.
-#
-# Open question: there is no zeroclaw subcommand for "encrypt the
-# plaintext password the wizard just wrote" -- the secrets store
-# auto-migrates legacy enc: values to enc2: on read but does not
-# bootstrap from plaintext. The TOML stays mode 0600 in the
-# meantime. A `config encrypt-secrets` subcommand would close the
-# window; flagged as a follow-up Rust PR (or roll into Phase E).
+# ARCH_DETECTED and ASSISTANT_BINARY_INSTALLED are both set by
+# _ostler_stage_assistant_daemon at 3.7c.
+if [[ "${ARCH_DETECTED:-}" == "arm64" || "${ARCH_DETECTED:-}" == "aarch64" ]]; then
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.56}"
-
-progress "Setting up ostler-assistant binary (v${OSTLER_ASSISTANT_VERSION})" "ostler_assistant"
-# Hard-coded last-known-good release. The fallback path below
-# retries against this version if the primary URL returns 404 /
-# non-200, so a missing tag never strands the customer on an
-# un-installable Hub.
-#
-# v0.4.3+ ships the daemon as OstlerAssistant.app in the release
-# tarball (instead of a bare Mach-O at the tar root) so macOS TCC
-# can read the bundle's Info.plist + Resources/icon.icns and
-# render the Ostler v4 oxblood squircle next to the Full Disk
-# Access entry. The extraction + path logic below detects which
-# shape the tarball ships and stages both correctly, so the same
-# install.sh works against a fallback v0.4.1 tarball (bare
-# binary) AND the new v0.4.3 tarball (app bundle). v0.4.2 was
-# never published per task #507 -- the version was burned on a
-# pre-release dry-run.
-ASSISTANT_FALLBACK_VERSION="0.4.1"
-# Customer-facing distribution.
-#
-# CX-88 (DMG #48g, 2026-05-29): the daemon ships from the public
-# release repo ostler-ai/ostler-releases, NOT the private source
-# repo ostler-ai/ostler-assistant (which 404s for every customer).
-# Tags are component-prefixed: the daemon release tag is `hub-vX.Y.Z`
-# (not bare `vX.Y.Z`) so a single release repo can host multiple
-# component release streams. Pre-fix the install.sh default pointed
-# at the source repo, which is private + would 404 on every clean
-# install whose bundled-daemon tarball was missing (silent-warn-skip
-# pattern caught 2026-05-29).
-#
-# The primary install path is the bundled-in-DMG tarball at
-# ${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app (see CX-79b
-# below). This URL is the recovery-only fallback for customers
-# whose DMG is corrupted or whose extraction step dropped the
-# bundled payload.
-OSTLER_ASSISTANT_REPO="${OSTLER_ASSISTANT_REPO:-ostler-ai/ostler-releases}"
-OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
-
-# ── Daemon tarball integrity pin (v1.0.10 security lockdown) ───────
-# Cross-origin defence for the curl recovery path. The same-origin
-# `<archive>.sha256` sidecar (fetched from the SAME GitHub release
-# as the tarball) proves nothing against a compromised release: an
-# attacker who can replace the tarball can replace its sidecar too.
-# This pin is baked into install.sh itself, which is served from a
-# DIFFERENT origin (ostler.ai/install.sh via the CM055 edge worker,
-# or the notarised DMG), so a tampered release cannot satisfy it.
-# The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 to the notarised
-# tarball's sha256 at cut time -- same discipline as the installer
-# tarball pin (DEFAULT_INSTALLER_TARBALL_SHA256) and the GWS pins.
-#
-# ┌─ ORM CUT-TIME ACTION REQUIRED (v1.0.10 red-team-3 lockdown) ──┐
-# │ The sentinel below MUST be replaced with the real 64-hex     │
-# │ sha256 of the notarised ostler-assistant tarball AT CUT      │
-# │ ASSEMBLY. As of red-team-3 the curl RECOVERY DOWNLOAD PATH   │
-# │ now FAILS CLOSED while this is still the sentinel: the       │
-# │ cross-origin pin is the mandatory second origin of trust for │
-# │ a network-fetched daemon, so an unresolved pin ABORTS that   │
-# │ path rather than proceeding on same-origin sidecar +         │
-# │ notarisation alone. The DMG-BUNDLED .app path (no network    │
-# │ download) still proceeds on the Team-ID-pinned signature     │
-# │ gate. Ship the sentinel unpinned => curl-recovery installs   │
-# │ are refused. Pin the real hex => curl-recovery re-enabled    │
-# │ with cross-origin integrity + Team-ID signature both         │
-# │ enforced. Do NOT hard-code a real SHA in source control --   │
-# │ this is the ORM's assembly-time step ONLY.                   │
-# └──────────────────────────────────────────────────────────────┘
-#
-# A real 64-hex value => an ADDITIONAL hard check layered on top of
-# the Team-ID signature gate. Override at install time with
-# OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769"
-ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
-
-# ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
-# Team ID of the ONLY Apple Developer-ID account allowed to sign a
-# bundle this installer will stage + quarantine-strip + LaunchAgent.
-# Without this pin, `spctl --assess` + `codesign --verify` accept ANY
-# notarised Developer-ID app -- an attacker who notarises their own
-# $99 Apple-ID malware and can steer a release asset / download URL
-# gets it staged as a persistent user LaunchAgent. The designated
-# requirement below is enforced (codesign -R) behind ALL THREE
-# staging gates: the daemon, RemoteCapture, and the Hub .app.
-# Validated empirically against the notarised 0.4.34 daemon and the
-# signed Hub Ostler.app (subject.OU == TeamIdentifier for our
-# Developer ID Application cert); a wrong Team ID is rejected.
-OSTLER_TEAM_ID="V95N2B8X7A"
-OSTLER_CODESIGN_REQ="anchor apple generic and certificate leaf[subject.OU] = \"${OSTLER_TEAM_ID}\""
-
-OSTLER_ASSISTANT_DIR="${OSTLER_DIR}/assistant-agent"
-# .app bundle path (v0.4.3+ shape). The bundle wrapper carries
-# CFBundleIconFile + icon.icns, so macOS TCC and Activity Monitor
-# render the Ostler v4 oxblood squircle next to the daemon.
-ASSISTANT_APP_BUNDLE="${OSTLER_DIR}/OstlerAssistant.app"
-# Inner Mach-O path: the LaunchAgent and `ostler-assistant doctor`
-# / `setup channels` / etc. invocations target this directly.
-# Whether the tarball shipped as a bare binary (legacy v0.4.1
-# shape) or as an .app bundle (v0.4.3+ shape), this variable
-# always points at an executable Mach-O after the staging logic
-# below.
-ASSISTANT_BINARY="${ASSISTANT_APP_BUNDLE}/Contents/MacOS/ostler-assistant"
-# Legacy bare-binary path. Kept here for the fallback-to-v0.4.1
-# code path further down: if the tarball does not contain an .app
-# bundle (older release), the binary lands at this path instead
-# and ASSISTANT_BINARY is rewritten to point here. Quoted symbol
-# `_LEGACY_` makes a grep for `bin/ostler-assistant` easy if a
-# future migration wants to flatten the dual-shape support.
-ASSISTANT_BINARY_LEGACY="${OSTLER_DIR}/bin/ostler-assistant"
-
-# Apple Silicon only. The Phase B release workflow does
-# not produce an x86_64 build (customer Macs are arm64 by the
-# brief). Surface this clearly rather than letting curl 404 on
-# a non-existent Intel asset.
-ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
-if [[ "$ARCH_DETECTED" != "arm64" && "$ARCH_DETECTED" != "aarch64" ]]; then
-    warn "$(printf "$MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY" "${OSTLER_ASSISTANT_VERSION}" "${ARCH_DETECTED}")"
-    warn "$MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG"
-    info "$MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST"
-    ASSISTANT_BINARY_INSTALLED=false
-else
-
-_ostler_assistant_set_urls() {
-    OSTLER_ASSISTANT_VERSION="$1"
-    ASSISTANT_ARCHIVE_NAME="ostler-assistant-${OSTLER_ASSISTANT_TARGET}-v${OSTLER_ASSISTANT_VERSION}.tar.gz"
-    # CX-88 (2026-05-29): tag is `hub-vX.Y.Z` -- the release repo at
-    # ostler-ai/ostler-releases uses component-prefixed tags so it can
-    # host multiple release streams (hub, remote-capture, iOS, etc.)
-    # under one repository.
-    ASSISTANT_ARCHIVE_URL="https://github.com/${OSTLER_ASSISTANT_REPO}/releases/download/hub-v${OSTLER_ASSISTANT_VERSION}/${ASSISTANT_ARCHIVE_NAME}"
-    ASSISTANT_CHECKSUM_URL="${ASSISTANT_ARCHIVE_URL}.sha256"
-}
-
-# ── Daemon signature gate (v1.0.10 security lockdown) ─────────────
-# Returns 0 iff the staged daemon bundle clears BOTH
-# codesign --verify --deep --strict AND spctl --assess --type
-# execute -- the exact Gatekeeper posture RemoteCapture and
-# Ostler.app are held to before their quarantine is cleared. Tool
-# output goes to the caller-provided log paths for surfacing on
-# failure.
-_verify_daemon_signature() {
-    local _bundle="$1" _cs_log="$2" _sp_log="$3"
-    # -R pins the Creative Machines Team ID (V95N2B8X7A) so a
-    # foreign-but-notarised Developer-ID bundle is REJECTED here, not
-    # just any notarised app. spctl alone accepts anyone's notarised
-    # $99 build; codesign -R with our designated requirement does not.
-    codesign --verify --deep --strict -R "=${OSTLER_CODESIGN_REQ}" "$_bundle" 2>"$_cs_log" \
-        && spctl --assess --type execute "$_bundle" 2>"$_sp_log"
-}
-
-# ── Deferred export-scan LaunchAgent bootstrap (HR015 #217) ───────
-# The com.ostler.export-scan plist is written earlier in install.sh
-# ("Set up launchd plist to scan every 4 hours"), long before the
-# signed OstlerAssistant.app is staged. Its ProgramArguments[0] is
-# ${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant
-# and RunAtLoad=true, so a bare launchctl bootstrap at plist-write
-# time makes launchd fire the tick against a missing binary and
-# record last-exit-code=78 (EX_CONFIG) with zero-byte log files.
-#
-# This helper is called from _finalise_daemon_staging once the daemon
-# is on-disk. It:
-#   * skips silently if the plist was not written (export-scan block
-#     didn't run, or was toggled off);
-#   * skips silently if the daemon binary still isn't there (defensive
-#     -- the finaliser only reaches here on success, but the guard
-#     keeps a future call-site refactor from re-introducing the race);
-#   * bootstraps the plist if not yet loaded (the fresh-install path
-#     that the earlier gated bootstrap deferred);
-#   * kickstart -k's it if already loaded (an upgrade install where
-#     the bootstrap succeeded earlier, or a re-run install where a
-#     previous EX_CONFIG(78) result is still parked on the job --
-#     kickstart -k forcibly restarts and clears the stale exit code).
-# Non-fatal in every branch; export-scan is enrichment, not gating.
-# ── The SAME race, for every agent that runs the daemon binary ────
-#
-# HR015 #217 diagnosed this exactly once and fixed it exactly once. The
-# diagnosis is in the comment above and it is correct: an agent whose
-# ProgramArguments[0] lives inside OstlerAssistant.app, bootstrapped before
-# the .app is staged, makes launchd fail to exec, record last-exit-code=78
-# (EX_CONFIG) and write zero-byte .log/.err -- because nothing ever ran, so
-# nothing ever wrote. The zero bytes ARE the evidence, not a mystery.
-#
-# The part that was missed: EX_CONFIG IS NOT A RETRY. launchd reads it as
-# "this job is misconfigured" and parks it. The 78 stays on the job across
-# reboots and reinstalls until something calls `launchctl kickstart -k`.
-# So the fault is not transient and does not self-heal.
-#
-# MEASURED 2026-08-12, which is why this table exists:
-#   * 10 LaunchAgents have the app binary as ProgramArguments[0];
-#   * exactly 1 of them (export-scan) gated its initial bootstrap and got a
-#     post-staging sweep. `grep -n "_ostler_ensure_.*_bootstrap()"` returned
-#     one hit, hard-coded to one label;
-#   * the other 9 -- including whatsapp-bundle, which is v1018-D019 -- get
-#     the race and no clearing kickstart, so a parked 78 is permanent.
-#
-# A guard that has only ever seen one label is green by construction for
-# every label it has not seen. This table is the class; add a row when you
-# add an agent whose ProgramArguments[0] is the daemon binary, and
-# tests/test_app_binary_agents_bootstrap.sh will tell you if you forget.
-#
-# The set is not arbitrary: it mirrors the daemon's own `run-source` Source
-# enum, because these are precisely the agents that fork the FDA-holding
-# binary rather than a standalone script.
-_OSTLER_APP_BINARY_AGENTS="\
-com.ostler.export-scan
-com.ostler.fda-rerun
-com.ostler.contact-resync
-com.ostler.aiconv-resume
-com.ostler.imessage-bridge
-com.creativemachines.ostler.imessage-bundle
-com.creativemachines.ostler.whatsapp-bundle
-com.creativemachines.ostler.spoken-bundle
-com.creativemachines.ostler.email-bundle
-com.creativemachines.ostler.email-ingest"
-
-# Bootstrap-or-rekick every agent in the table, once the signed daemon is
-# actually on disk. Same body as the export-scan helper below, applied to
-# the class instead of to one instance:
-#   * skip silently if that agent's plist was never written (its block was
-#     gated off, or the channel was declined) -- absence is not a failure;
-#   * skip entirely if the daemon binary still is not there (defensive);
-#   * bootstrap if not loaded (the fresh-install path a gated bootstrap
-#     deferred);
-#   * kickstart -k if already loaded, which is the ONLY thing that clears a
-#     parked EX_CONFIG(78) from a previous run.
-# Non-fatal in every branch: these feeds are enrichment, not gating.
-#
-# export-scan is deliberately covered TWICE -- here, and by its own #217-era
-# helper that tests/test_export_scan_plist_bootstrap_race_217.sh pins line by
-# line. kickstart -k is idempotent so the duplicate costs nothing, and it
-# means neither mechanism can be quietly deleted without the other noticing.
-_ostler_ensure_app_binary_agents_bootstrap() {
-    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
-    [[ -x "$_bin" ]] || return 0
-    local _domain="gui/$(id -u)"
-    local _label _plist
-    while IFS= read -r _label; do
-        [[ -n "$_label" ]] || continue
-        _plist="${HOME}/Library/LaunchAgents/${_label}.plist"
-        [[ -f "$_plist" ]] || continue
-        if launchctl print "${_domain}/${_label}" >/dev/null 2>&1; then
-            launchctl kickstart -k "${_domain}/${_label}" 2>/dev/null || true
-        else
-            launchctl bootstrap "$_domain" "$_plist" 2>/dev/null || \
-                launchctl load "$_plist" 2>/dev/null || true
-        fi
-    done <<< "$_OSTLER_APP_BINARY_AGENTS"
-}
-
-_ostler_ensure_export_scan_bootstrap() {
-    local _plist="${HOME}/Library/LaunchAgents/com.ostler.export-scan.plist"
-    local _bin="${OSTLER_DIR}/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
-    local _label="com.ostler.export-scan"
-    [[ -f "$_plist" ]] || return 0
-    [[ -x "$_bin" ]] || return 0
-    if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
-        launchctl kickstart -k "gui/$(id -u)/${_label}" 2>/dev/null || true
-    else
-        launchctl bootstrap "gui/$(id -u)" "$_plist" 2>/dev/null || \
-            launchctl load "$_plist" 2>/dev/null || true
-    fi
-}
-
-# ── Shared daemon-staging finaliser (v1.0.10 security lockdown) ───
-# EVERY path that stages a daemon into ${ASSISTANT_APP_BUNDLE}
-# (DMG-bundled .app, DMG-bundled bare binary wrapped locally, or the
-# curl recovery download) MUST funnel through this gate before the
-# quarantine xattr is stripped or ASSISTANT_BINARY_INSTALLED is set.
-# There is NO unsigned-launch path: a bundle that is not a
-# Developer-ID-signed, notarised .app is deleted and the install
-# aborts. Pre-v1.0.10 the curl path stripped quarantine on ANY valid
-# Mach-O ("unsigned" state) and launched it, so an attacker who could
-# serve a tarball plus a matching SAME-ORIGIN sidecar ran arbitrary
-# code as the daemon. Uses ASSISTANT_TMPDIR (always allocated by this
-# phase) for the codesign/spctl logs.
-_finalise_daemon_staging() {
-    local _cs_log="${ASSISTANT_TMPDIR}/daemon-codesign.log"
-    local _sp_log="${ASSISTANT_TMPDIR}/daemon-spctl.log"
-
-    local _ft
-    _ft="$(/usr/bin/file --brief "$ASSISTANT_BINARY" 2>&1 || true)"
-    if [[ "$_ft" != *"Mach-O"* ]]; then
-        # Not even a Mach-O -- malformed extract or upstream pipeline
-        # bug. Refuse: delete + abort.
-        err "$(printf "$MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O" "${ASSISTANT_BINARY}")"
-        err "$(printf "$MSG_ERR_FILE_BRIEF_REPORTED" "${_ft}")"
-        err "$MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT"
-        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
-        ASSISTANT_TMPDIR=""
-        exit 1
-    fi
-
-    if _verify_daemon_signature "$ASSISTANT_APP_BUNDLE" "$_cs_log" "$_sp_log"; then
-        # Signed + notarised => Gatekeeper-trusted. Clear quarantine
-        # so launchctl can spawn it without a first-run dialog.
-        xattr -rd com.apple.quarantine "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-        ok "$(printf "$MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
-        info "$MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST"
-        if "$ASSISTANT_BINARY" --version >/dev/null 2>&1; then
-            # v1.0.10 run-source preflight gate (BLOCKER: version-skew silent
-            # ingest death). The v1.0.10 install emits `run-source <enum>`
-            # LaunchAgent plists for every ingest source so each tick reads
-            # under the FDA-holding signed daemon. A daemon that PREDATES the
-            # run-source subcommand (an OSTLER_ASSISTANT_VERSION pin skew to
-            # v0.4.34 / v0.4.1) passes --version yet clap-REJECTS run-source,
-            # so every ingest tick would silently no-op and the product would
-            # go stale with no visible error. `run-source --help` exits 0 iff
-            # the subcommand exists in the staged daemon's clap tree; if it
-            # fails, this is a skew -- hard-fail rather than ship dead ingest.
-            # This makes the pin skew impossible to ship silently regardless
-            # of the pin value.
-            if ! "$ASSISTANT_BINARY" run-source --help >/dev/null 2>&1; then
-                fail_with_code "ERR-11-DAEMON-RUN-SOURCE-SKEW" \
-                    "$(printf "$MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_BINARY}")"
-            fi
-            ASSISTANT_BINARY_INSTALLED=true
-            # HR015 #217: the export-scan LaunchAgent (com.ostler.export-scan)
-            # is written far earlier than the daemon .app is staged, and its
-            # ProgramArguments[0] is inside the .app bundle. On a fresh
-            # install its RunAtLoad tick therefore fires before the binary
-            # exists on disk, launchd fails to exec, and the job's
-            # last-exit-code is EX_CONFIG(78) with zero-byte log files.
-            # Now that _finalise_daemon_staging has put a signed daemon in
-            # place, bootstrap (or re-kick) the agent so the first scan
-            # runs against a real binary. Idempotent, non-fatal.
-            _ostler_ensure_export_scan_bootstrap
-            # v1018-D019: and the same treatment for every OTHER agent that
-            # runs this binary. export-scan was never special; it was just
-            # the one the fault was reported on first.
-            _ostler_ensure_app_binary_agents_bootstrap
-        else
-            warn "$MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK"
-            warn "$(printf "$MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION" "${ASSISTANT_BINARY}")"
-        fi
-    else
-        # Signature / notarisation FAILED. No unsigned-launch path:
-        # delete the staged bundle and abort. Mirrors the
-        # RemoteCapture fail_with_code + Ostler.app posture.
-        err "Refusing to install ostler-assistant: not a Developer-ID-signed, notarised bundle (no unsigned-launch path)."
-        err "Both codesign --verify --deep --strict and spctl --assess --type execute must pass on this daemon."
-        if [[ -s "$_cs_log" ]]; then
-            err "codesign reported:"
-            sed -e 's/^/    /' "$_cs_log" | head -5
-        fi
-        if [[ -s "$_sp_log" ]]; then
-            err "spctl reported:"
-            sed -e 's/^/    /' "$_sp_log" | head -5
-        fi
-        err "Deleting the staged bundle and aborting. Re-run once a signed + notarised daemon is available."
-        rm -rf "$ASSISTANT_APP_BUNDLE" 2>/dev/null || true
-        rm -rf "$ASSISTANT_TMPDIR" 2>/dev/null || true
-        ASSISTANT_TMPDIR=""
-        exit 1
-    fi
-}
-
-_ostler_assistant_set_urls "${OSTLER_ASSISTANT_VERSION}"
-
-# ASSISTANT_TMPDIR is declared in the Phase 3 composite_cleanup
-# block; this allocator sets it. composite_cleanup will rm -rf
-# the dir if we exit before the explicit cleanups below fire.
-ASSISTANT_TMPDIR="$(mktemp -d)"
-
-ASSISTANT_BINARY_INSTALLED=false
-
-# CX-79b (DMG #46, 2026-05-25): prefer the daemon binary bundled in
-# Resources/assistant-agent/ over the GitHub release download.
-# The bundled binary is built from the same commit that defines the
-# DMG signing + notarisation posture, so version skew between the
-# customer's daemon and the rest of the install is impossible. The
-# DMG bundling also makes the install network-independent for the
-# critical-path binary (a customer with flaky DNS / GitHub outage /
-# Tailscale rerouting still gets a working daemon).
-#
-# Falls through to the curl path if no bundled artefact is present
-# (older DMGs predating this bundling, or a corrupted install
-# extraction). OSTLER_ASSISTANT_FORCE_DOWNLOAD=1 env-var override
-# forces the curl path even when bundled is present -- used in CI
-# to exercise the customer-network code path.
-#
-# v0.4.3+ shape: the DMG bundles OstlerAssistant.app at
-# assistant-agent/OstlerAssistant.app/. Legacy DMGs bundled a bare
-# binary at assistant-agent/bin/ostler-assistant. Probe for the
-# .app first (preferred), then fall back to the bare-binary path.
-# Both paths are then staged into ~/.ostler/OstlerAssistant.app/
-# downstream (the bare-binary shape gets wrapped in a minimal .app
-# locally so the TCC icon works regardless of which shape the
-# operator's DMG was cut from).
-ASSISTANT_BUNDLED_APP="${SCRIPT_DIR}/assistant-agent/OstlerAssistant.app"
-ASSISTANT_BUNDLED_BIN="${SCRIPT_DIR}/assistant-agent/bin/ostler-assistant"
-
-# Determine whether a bundled artefact (.app or bare bin) is
-# present in the DMG. The .app shape is preferred (v0.4.3+); the
-# bare-binary shape stays supported for older DMGs.
-_assistant_bundled_shape=""
-if [[ -z "${OSTLER_ASSISTANT_FORCE_DOWNLOAD:-}" ]]; then
-    if [[ -x "${ASSISTANT_BUNDLED_APP}/Contents/MacOS/ostler-assistant" ]]; then
-        _assistant_bundled_shape="app"
-    elif [[ -x "$ASSISTANT_BUNDLED_BIN" ]]; then
-        _assistant_bundled_shape="bin"
-    fi
-fi
-
-# Try the primary download URL, then fall back once to
-# ASSISTANT_FALLBACK_VERSION (last-known-good). The fallback only
-# activates when (a) no bundled artefact is present in the DMG
-# and (b) the primary URL returns non-200. v0.4.2 of
-# ostler-assistant was never published to ostler-ai/ostler-installer
-# (default bumped in error pre-DMG#48; caught on a clean Studio
-# install). If the primary URL 404s, the install still completes
-# on a proven-good binary rather than stranding the customer at
-# the launch step.
-_assistant_download_ok=false
-if [[ -z "$_assistant_bundled_shape" ]]; then
-    if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
-       && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
-        _assistant_download_ok=true
-    elif [[ "${OSTLER_ASSISTANT_VERSION}" != "${ASSISTANT_FALLBACK_VERSION}" ]]; then
-        warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
-        warn "Retrying with last-known-good v${ASSISTANT_FALLBACK_VERSION}..."
-        _ostler_assistant_set_urls "${ASSISTANT_FALLBACK_VERSION}"
-        rm -f "$ASSISTANT_TMPDIR"/*
-        if curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" "$ASSISTANT_ARCHIVE_URL" 2>"$ASSISTANT_TMPDIR/curl.log" \
-           && curl -fSL --retry 2 --retry-delay 2 -o "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256" "$ASSISTANT_CHECKSUM_URL" 2>>"$ASSISTANT_TMPDIR/curl.log"; then
-            _assistant_download_ok=true
-        fi
-    fi
-fi
-
-if [[ "$_assistant_bundled_shape" == "app" ]]; then
-    # DMG bundled the v0.4.3+ shape: an .app bundle. Copy the
-    # whole bundle tree to ~/.ostler/OstlerAssistant.app/. ditto
-    # preserves Apple-specific filesystem metadata (extended
-    # attributes, ACLs, signature resources) that a plain cp -R
-    # can occasionally strip on edge filesystems; this matters
-    # because a signed bundle's _CodeSignature dir is part of the
-    # signature envelope.
-    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
-    rm -rf "$ASSISTANT_APP_BUNDLE"
-    mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
-    ditto "$ASSISTANT_BUNDLED_APP" "$ASSISTANT_APP_BUNDLE"
-    chmod 0755 "$ASSISTANT_BINARY"
-    # v1.0.10 security lockdown: gate the DMG-bundled daemon on the
-    # SAME codesign + spctl chain RemoteCapture and Ostler.app clear
-    # (both are also DMG-sourced and still verified) before the
-    # quarantine xattr is stripped. A notarised daemon .app passes
-    # cleanly; anything else is deleted and the install aborts.
-    _finalise_daemon_staging
-elif [[ "$_assistant_bundled_shape" == "bin" ]]; then
-    # DMG bundled the legacy bare-binary shape. Stage the binary
-    # into the .app bundle structure locally so the TCC icon
-    # surface stays consistent regardless of which DMG cut the
-    # customer is installing from. The local-wrap uses the same
-    # Info.plist + icon.icns shipped in the DMG Resources/ so the
-    # customer sees the Ostler v4 icon in System Settings even on
-    # an older daemon build.
-    info "$MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY"
-    rm -rf "$ASSISTANT_APP_BUNDLE"
-    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
-    mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
-    cp "$ASSISTANT_BUNDLED_BIN" "$ASSISTANT_BINARY"
-    chmod 0755 "$ASSISTANT_BINARY"
-    # Synthesise a minimal Info.plist for the locally-wrapped
-    # bundle. The bundle ID matches the daemon's TCC client
-    # identifier so a future v0.4.3+ upgrade preserves the FDA
-    # grant. CFBundleIconFile=icon + the icns copied below give
-    # macOS what it needs to render the Ostler v4 mark.
-    cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>ostler-assistant</string>
-    <key>CFBundleIdentifier</key>
-    <string>ai.ostler.assistant</string>
-    <key>CFBundleName</key>
-    <string>Ostler Assistant</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ostler</string>
-    <key>CFBundleIconFile</key>
-    <string>icon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>CFBundleVersion</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-    <key>LSBackgroundOnly</key>
-    <true/>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
-</dict>
-</plist>
-INFOPLISTEOF
-    # Copy the v4 oxblood squircle icns into the bundle.
-    # Resolution order matches the FDA dialog icon path used
-    # downstream: prefer the DMG's Resources, then fall back to
-    # the installed-app Resources/ if the operator ran an unusual
-    # SCRIPT_DIR path. If neither is present we leave
-    # CFBundleIconFile dangling -- macOS falls back to the
-    # generic icon, which is the same outcome as not wrapping;
-    # better than failing the install over a missing icns.
-    _local_wrap_icon_src=""
-    if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
-        _local_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
-    elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
-        _local_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
-    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
-        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
-    elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
-        _local_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
-    fi
-    if [[ -n "$_local_wrap_icon_src" ]]; then
-        cp "$_local_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-        chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-    fi
-    unset _local_wrap_icon_src
-    # v1.0.10 security lockdown: this legacy path wraps a BARE binary
-    # in a locally-synthesised .app, which is unsigned by
-    # construction and therefore cannot clear the signature gate.
-    # That is intentional -- "no unsigned daemon may ever launch".
-    # v1.0.10 DMGs ship the signed .app shape, so this path is dead
-    # in practice; a customer on a pre-.app legacy DMG is refused
-    # rather than silently run an unsigned daemon.
-    _finalise_daemon_staging
-elif [[ "$_assistant_download_ok" == "true" ]]; then
-
-    # Verify SHA-256. Phase B writes the sidecar as
-    # `<hex>  <filename>` (shasum default). Recompute against
-    # the local download and compare hex prefixes. A mismatch
-    # is an explicit hard fail: continuing past this point
-    # would stage a tampered or partial binary.
-    EXPECTED_SHA="$(awk '{print $1}' "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME.sha256")"
-    ACTUAL_SHA="$(shasum -a 256 "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" | awk '{print $1}')"
-    if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
-        err "$MSG_ERR_OSTLER_ASSISTANT_TARBALL_SHA_256_MISMATCH"
-        err "$(printf "$MSG_ERR_EXPECTED" "${EXPECTED_SHA:-<empty sidecar>}")"
-        err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
-        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
-        err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
-        rm -rf "$ASSISTANT_TMPDIR"
-        ASSISTANT_TMPDIR=""
-        exit 1
-    fi
-
-    # Cross-origin pin (v1.0.10 security lockdown). The sidecar
-    # verified above is SAME-ORIGIN (fetched from the same release as
-    # the tarball) and is worthless against a compromised release.
-    # ASSISTANT_TARBALL_SHA256 is baked into install.sh (a different
-    # origin) so a tampered release cannot satisfy it. Enforce it as
-    # an additional hard check when the ORM has populated a real
-    # value; a placeholder / empty pin leaves the codesign + spctl
-    # gate below as the authority (still no unsigned-launch path).
-    if [[ -n "$ASSISTANT_TARBALL_SHA256" && "$ASSISTANT_TARBALL_SHA256" != "REPLACE_AT_RELEASE_TIME" ]]; then
-        if [[ "$ACTUAL_SHA" != "$ASSISTANT_TARBALL_SHA256" ]]; then
-            err "ostler-assistant tarball failed the cross-origin integrity pin baked into install.sh."
-            err "$(printf "$MSG_ERR_EXPECTED" "${ASSISTANT_TARBALL_SHA256}")"
-            err "$(printf "$MSG_ERR_ACTUAL" "${ACTUAL_SHA}")"
-            err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
-            err "$MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT"
-            rm -rf "$ASSISTANT_TMPDIR"
-            ASSISTANT_TMPDIR=""
-            exit 1
-        fi
-    else
-        # v1.0.10 red-team-3: FAIL CLOSED on the curl RECOVERY DOWNLOAD
-        # path when the cross-origin pin is unresolved (still the
-        # REPLACE_AT_RELEASE_TIME sentinel or empty). A network-fetched
-        # daemon has ONLY a same-origin sidecar for byte integrity --
-        # worthless against a compromised release -- so notarisation +
-        # the same-origin sidecar alone are NOT sufficient to stage it.
-        # The cross-origin pin (baked into install.sh, a DIFFERENT
-        # origin) is the mandatory second root of trust for this path.
-        # Abort rather than proceed. NOTE: this does NOT affect the
-        # DMG-bundled .app path -- that path never runs this download
-        # branch and is authorised by the Team-ID-pinned signature gate
-        # alone. The ORM re-pins DEFAULT_ASSISTANT_TARBALL_SHA256 at cut
-        # time to re-enable curl-recovery installs.
-        err "ostler-assistant curl-recovery download refused: the cross-origin integrity pin is unresolved."
-        err "DEFAULT_ASSISTANT_TARBALL_SHA256 is still the REPLACE_AT_RELEASE_TIME sentinel, so a network-fetched"
-        err "daemon cannot be verified against a second origin of trust. This build only supports the"
-        err "DMG-bundled daemon path. Re-run from the notarised DMG, or set OSTLER_ASSISTANT_TARBALL_SHA256"
-        err "to the notarised tarball's sha256 to authorise a curl-recovery install."
-        err "$(printf "$MSG_ERR_URL" "${ASSISTANT_ARCHIVE_URL}")"
-        rm -rf "$ASSISTANT_TMPDIR"
-        ASSISTANT_TMPDIR=""
-        exit 1
-    fi
-
-    # Extract the tarball into a private staging dir first so we
-    # can inspect the shape (bare binary vs .app bundle) before
-    # committing to a final layout. v0.4.3+ tarballs contain
-    # OstlerAssistant.app at the tar root; legacy v0.4.1
-    # tarballs contain a bare ostler-assistant binary. The
-    # release-pipeline rename plan is described in the
-    # companion ostler-assistant PR (Path A).
-    _assistant_extract_dir="$(mktemp -d)"
-    if tar xzf "$ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME" -C "$_assistant_extract_dir"; then
-        if [[ -d "$_assistant_extract_dir/OstlerAssistant.app" ]]; then
-            # v0.4.3+ shape: tarball contained OstlerAssistant.app
-            # at the root. Stage it into ~/.ostler/.
-            rm -rf "$ASSISTANT_APP_BUNDLE"
-            mkdir -p "$(dirname "$ASSISTANT_APP_BUNDLE")"
-            ditto "$_assistant_extract_dir/OstlerAssistant.app" "$ASSISTANT_APP_BUNDLE"
-        elif [[ -f "$_assistant_extract_dir/ostler-assistant" ]]; then
-            # Legacy v0.4.1 shape: tarball contained a bare
-            # binary. Wrap it in a minimal .app locally so the
-            # TCC icon surface stays consistent regardless of
-            # which release the customer is installing.
-            rm -rf "$ASSISTANT_APP_BUNDLE"
-            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/MacOS"
-            mkdir -p "$ASSISTANT_APP_BUNDLE/Contents/Resources"
-            cp "$_assistant_extract_dir/ostler-assistant" "$ASSISTANT_BINARY"
-            cat > "$ASSISTANT_APP_BUNDLE/Contents/Info.plist" <<INFOPLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>ostler-assistant</string>
-    <key>CFBundleIdentifier</key>
-    <string>ai.ostler.assistant</string>
-    <key>CFBundleName</key>
-    <string>Ostler Assistant</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ostler</string>
-    <key>CFBundleIconFile</key>
-    <string>icon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>CFBundleVersion</key>
-    <string>${OSTLER_ASSISTANT_VERSION}</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-    <key>LSBackgroundOnly</key>
-    <true/>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright (c) 2026 Creative Machines Limited. All rights reserved.</string>
-</dict>
-</plist>
-INFOPLISTEOF
-            _curl_wrap_icon_src=""
-            if [[ -f "${SCRIPT_DIR}/AppIcon.icns" ]]; then
-                _curl_wrap_icon_src="${SCRIPT_DIR}/AppIcon.icns"
-            elif [[ -f "${SCRIPT_DIR}/DialogIcon.icns" ]]; then
-                _curl_wrap_icon_src="${SCRIPT_DIR}/DialogIcon.icns"
-            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns" ]]; then
-                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/AppIcon.icns"
-            elif [[ -f "/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns" ]]; then
-                _curl_wrap_icon_src="/Applications/OstlerInstaller.app/Contents/Resources/DialogIcon.icns"
-            fi
-            if [[ -n "$_curl_wrap_icon_src" ]]; then
-                cp "$_curl_wrap_icon_src" "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-                chmod 0644 "$ASSISTANT_APP_BUNDLE/Contents/Resources/icon.icns"
-            fi
-            unset _curl_wrap_icon_src
-        else
-            # Tarball shape we don't understand. Leave
-            # ASSISTANT_APP_BUNDLE absent; the Mach-O check below
-            # will mark it corrupt + skip the launch agent.
-            warn "Tarball at $ASSISTANT_TMPDIR/$ASSISTANT_ARCHIVE_NAME contained neither OstlerAssistant.app nor a bare ostler-assistant binary at the root."
-            warn "Skipping LaunchAgent install. Re-download once the release pipeline is back online."
-        fi
-        rm -rf "$_assistant_extract_dir"
-        chmod 0755 "$ASSISTANT_BINARY" 2>/dev/null || true
-
-        # v1.0.10 security lockdown (daemon download integrity).
-        # The SHA sidecar + cross-origin pin above prove the bytes
-        # match what the ORM published, but a curl-fetched bundle on
-        # the curl|bash path never passes through a DMG Gatekeeper
-        # ceremony, so it is NOT yet trusted to run. Funnel it
-        # through the SAME codesign --verify --deep --strict + spctl
-        # --assess --type execute gate that RemoteCapture and
-        # Ostler.app clear. Pass => strip quarantine + mark installed.
-        # Fail => delete the staged bundle and abort. There is NO
-        # unsigned-launch path any more: pre-v1.0.10 an "unsigned"
-        # (valid Mach-O, no Developer ID) daemon had its quarantine
-        # xattr stripped and was launched, so an attacker who could
-        # serve a tarball plus a matching same-origin sidecar ran
-        # arbitrary code as the daemon.
-        _finalise_daemon_staging
-    else
-        warn "$MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL"
-    fi
-else
-    warn "$(printf "$MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V" "${OSTLER_ASSISTANT_VERSION}" "${ASSISTANT_ARCHIVE_URL}")"
-    if [[ -s "$ASSISTANT_TMPDIR/curl.log" ]]; then
-        warn "$MSG_WARN_CURL_SAID"
-        sed -e 's/^/    /' "$ASSISTANT_TMPDIR/curl.log" | head -5
-    fi
-    warn "$(printf "$MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET" "${OSTLER_ASSISTANT_VERSION}")"
-    warn "$MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S"
-    warn "$MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY"
-    info "$(printf "$MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ" "${ASSISTANT_ARCHIVE_URL}")"
-    info "$(printf "$MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C" "${OSTLER_DIR}")"
-    info "$(printf "$MSG_INFO_BASH_INSTALL_SNIPPET_SH_2" "${OSTLER_ASSISTANT_DIR}")"
-fi
-
-rm -rf "$ASSISTANT_TMPDIR"
-ASSISTANT_TMPDIR=""
 
 # Stage the assistant-agent INSTALL_SNIPPET assets even when the
 # binary download failed. The snippet refuses to run without the

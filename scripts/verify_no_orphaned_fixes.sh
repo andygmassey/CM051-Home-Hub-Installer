@@ -220,7 +220,8 @@ report_orphan() {
 #          1 = not landed, or could not be determined -- FAIL CLOSED
 # ---------------------------------------------------------------------------
 branch_landed() {
-    local gh_repo="$1" path="$2" branch="$3" rev="$4" ship_sha="$5" tok="${6:-}"
+    local gh_repo="$1" path="$2" branch="$3" rev="$4" ship_sha="$5" tok="${6:-}" \
+          pr_num="${7:-}"
 
     # `rev` and `branch` are DIFFERENT THINGS and conflating them cost an hour.
     #
@@ -255,7 +256,23 @@ branch_landed() {
     # those reads as "no PR" -- which here means RED, but on the next edit
     # could just as easily mean GREEN. Fourth stderr-suppression incident of
     # 2026-08-10/11; the rule is now: never suppress a probe's stderr.
-    if ! js="$(gh_as "$tok" pr list --repo "$gh_repo" --head "$branch" \
+    #
+    # When the caller resolved a PR NUMBER, ask about that number. `pr list
+    # --head` matches on the branch name GitHub knows, and a `prN` mirror is
+    # named after the PR, never after its head ref -- so the name lookup asks
+    # a question with no possible answer and gets NONE, which reads as RED.
+    # Measured 2026-08-15 on CM051: 0 of 105 `prN` mirrors carried a name
+    # matching their PR's headRefName, so this limb was RED for all 105.
+    if [[ -n "$pr_num" ]]; then
+        if ! js="$(gh_as "$tok" pr view "$pr_num" --repo "$gh_repo" \
+                     --json number,state,mergedAt 2>&1)"; then
+            printf '  [warn] gh pr view failed for %s#%s: %s\n' \
+                "$gh_repo" "$pr_num" "$(printf '%s' "$js" | head -1)" >&2
+            return 1
+        fi
+        # Wrap the single object so the shared parser below sees a list.
+        js="[${js}]"
+    elif ! js="$(gh_as "$tok" pr list --repo "$gh_repo" --head "$branch" \
                  --state all --limit 20 --json number,state,mergedAt 2>&1)"; then
         printf '  [warn] gh pr list failed for %s#%s: %s\n' \
             "$gh_repo" "$branch" "$(printf '%s' "$js" | head -1)" >&2
@@ -312,7 +329,7 @@ print("NONE")
 # gate exists to stop, so "landed" is stated, not assumed.
 maybe_orphan_branch() {
     local ref="$1" branch="$2" rev="$3" detail="$4" \
-          gh_repo="$5" path="$6" ship_sha="$7" tok="${8:-}"
+          gh_repo="$5" path="$6" ship_sha="$7" tok="${8:-}" pr_num="${9:-}"
 
     if is_deferred "$ref"; then
         local why; why="$(deferral_reason "$ref")"
@@ -321,7 +338,8 @@ maybe_orphan_branch() {
     fi
 
     local why rc
-    why="$(branch_landed "$gh_repo" "$path" "$branch" "$rev" "$ship_sha" "$tok")"; rc=$?
+    why="$(branch_landed "$gh_repo" "$path" "$branch" "$rev" "$ship_sha" "$tok" \
+             "$pr_num")"; rc=$?
     case "$rc" in
         0) ok "${ref}: landed -- ${why}" ; return ;;
         2) ok "${ref}: ${why} -- reported once, by the PR check below" ; return ;;
@@ -462,15 +480,47 @@ check_repo() {
     # the local one is left behind. Four of the six false REDs on 2026-08-11
     # were exactly this: merged work described as "One rm -rf from gone".
     # branch_landed() settles it against PR merge state.
+    #
+    # A local branch named `prN` or `prNmerge` is NOT work. It is a mirror of
+    # `refs/pull/N/head` (or `/merge`) left behind by a fetch refspec such as
+    # `refs/pull/*/head:refs/heads/pr*`. GitHub holds those refs permanently,
+    # so the content cannot be lost and there is nothing to push.
+    #
+    # Two separate defects came out of treating them as branches, and BOTH
+    # were measured on CM051 on 2026-08-15 with 105 such mirrors present:
+    #
+    #   1. The lookup could not answer. `pr list --head pr632` matches on the
+    #      name GitHub knows, and a mirror is named for the PR NUMBER, never
+    #      for its head ref. 0 of 105 mirror names matched their PR's real
+    #      headRefName, so every one answered NONE and every one went RED.
+    #
+    #   2. The KEY could not match a deferral. This limb emitted `CM051:pr632`
+    #      while every deferral for that work is recorded as `CM051:#632` --
+    #      67 such rows existed and not one could ever be consulted, because
+    #      no deferral in the file uses the `prN` spelling.
+    #
+    # So 105 of 112 REDs were the gate misreading its own fetch artefacts. A
+    # permanently-RED blocking gate is worse than no gate: the only sanctioned
+    # way past it is a deferral, so it asks the operator to attest to a
+    # hundred untrue things, which is the exact habit it exists to stop.
+    #
+    # Normalising to the PR number fixes both at once -- the number is what
+    # the deferral file already keys on, and what `pr view` can answer.
     local b
     while IFS= read -r b; do
         [[ -z "$b" ]] && continue
         [[ "$b" == "HEAD" ]] && continue
         if ! git -C "$path" show-ref -q --verify "refs/remotes/origin/$b" 2>/dev/null; then
             local n; n="$(git -C "$path" rev-list --count "${ship_sha}..$b" 2>/dev/null || echo '?')"
-            maybe_orphan_branch "${label}:${b}" "$b" "$b" \
-                "LOCAL-ONLY branch, no remote ref and no merged PR, ${n} commit(s) not in ${ship_ref}. One rm -rf from gone." \
-                "$gh_repo" "$path" "$ship_sha" "$_tok"
+            local key="${label}:${b}" pr_num="" detail
+            detail="LOCAL-ONLY branch, no remote ref and no merged PR, ${n} commit(s) not in ${ship_ref}. One rm -rf from gone."
+            if [[ "$b" =~ ^pr([0-9]+)(merge)?$ ]]; then
+                pr_num="${BASH_REMATCH[1]}"
+                key="${label}:#${pr_num}"
+                detail="local mirror of refs/pull/${pr_num}/ -- PR #${pr_num} is neither merged nor open, ${n} commit(s) not in ${ship_ref}."
+            fi
+            maybe_orphan_branch "$key" "$b" "$b" "$detail" \
+                "$gh_repo" "$path" "$ship_sha" "$_tok" "$pr_num"
         fi
     done < <(git -C "$path" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null)
 

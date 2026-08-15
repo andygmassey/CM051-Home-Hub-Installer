@@ -2,18 +2,20 @@
 
 WHY
 ===
-Worked example. The people are invented; the failure is not.
+Worked example, entirely synthetic in structure as well as in tokens.
+The failure it describes is not.
 
-Rowan Quillon's address book has a card for his wife Marta. He filed it years
-ago from their son Teo's point of view, so the card is titled "Mum". The name
-election picks "Marta Quillon" as canonical and demotes "Mum" to
-pwg:alternateName.
+An account owner has a card for another adult in the household. It was filed
+years ago from a THIRD person's point of view -- a child's -- so the card is
+titled "Mum". The name election picks the card's own name as canonical and
+demotes "Mum" to pwg:alternateName.
 
 An alternateName is offered to the assistant as "another name this person goes
-by". So with "Mum" sitting on Marta's card, the assistant will answer "your mum
-is Marta Quillon". Rowan's mother is Beatriz, and she has died.
+by". So with "Mum" sitting on that card, the assistant will answer "your mum is
+<that person>" -- to an owner whose own mother is somebody else entirely, and
+who may have died.
 
-That is not a cosmetic error. A card the owner filed for his son's benefit
+That is not a cosmetic error. A card the owner filed for a child's benefit
 turns into the assistant confidently naming the wrong person, in the one
 relationship where being wrong out loud is unbearable. Every rule below exists
 for that one sentence.
@@ -33,9 +35,9 @@ So kinship labels:
     the holder is unknown unless something states it -- so v1 drops them
     rather than guessing whose mum she is.
 
-Dropping loses nothing the customer can see: Marta still renders as "Marta
-Quillon", and "Mum" was only ever going to make the assistant confidently
-wrong.
+Dropping loses nothing the customer can see: the card still renders under
+the person's own name, and "Mum" was only ever going to make the assistant
+confidently wrong.
 
 Not English-only: the word list is locale data
 (OSTLER_KINSHIP_WORDS_FILE), same pattern as given_name_variants. A locale

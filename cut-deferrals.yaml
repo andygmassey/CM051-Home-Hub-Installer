@@ -33,6 +33,32 @@
 
 pr_exemptions:
 
+  # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
+  #
+  # This is NOT a clean PR being parked. Two independent blockers, both measured:
+  #
+  #  1. Its own NEW test files carry three distinct real-person/operator tokens
+  #     (test_predicate_completeness.py:11, test_d004_blob_display_name.py:47,48,160).
+  #     Controlled BOTH directions: the repo's own
+  #     test_fixtures_have_no_real_contact_detail.py is GREEN on plain main and
+  #     RED with #119 merged. The branch introduces them. Note the shape -- the
+  #     file that hunts for the defect is itself the gate.
+  #
+  #  2. Its new gate correctly fires on a REAL defect: is_non_identifying is
+  #     enforced at 0 of 28 modules. Merging turns CM041 main red until a call
+  #     site lands. That is a product decision, not a merge decision.
+  #
+  # Exempting a PR that CAN merge is how a 176-PR backlog gets built, and the
+  # standing rule is to merge clean PRs rather than defer them. This one cannot
+  # merge without either publishing real-person data or reddening main.
+  #
+  # Clears when the fixtures are de-identified AND a call site for
+  # is_non_identifying lands. Not blocking v1.0.27: CM041 is a feature repo and
+  # vendor/ carries no cm041 path that this PR touches.
+  - ref: "CM041-People-Graph#119"
+    reason: "Introduces real-person tokens into its own test fixtures (guard green on main, red with it merged); and its new gate reds main until a call site exists. Cannot merge without publishing PII or breaking main."
+    review_by: "2026-08-22"
+
   # The daemon's four Dependabot bumps in web/. All four are RED on Lint, so
   # merging them to clear this gate would be shipping a failing PR to satisfy a
   # process check -- the exact move this file exists to prevent.
@@ -56,6 +82,76 @@ pr_exemptions:
     review_by: "2026-08-20"
   - ref: "ostler-assistant#283"
     reason: "RED on Lint; cannot reach a DMG built from the pinned 0.4.55 tarball. Land on the next daemon rebuild."
+    review_by: "2026-08-20"
+
+  # ==========================================================================
+  # ADDED 2026-08-15 by the check-pr-age sweep for the v1.0.26 cut.
+  #
+  # Denominator: 29 PRs over 48h across the 6 reachable repos. Two were closed
+  # as provably dead (HR015 #314, #311). Of the 27 left, 15 are CLEAN against
+  # current main under local `git merge-tree` and are MERGE DECISIONS, not
+  # exemptions. They are deliberately left RED. Exempting a clean, mergeable,
+  # additive PR is precisely how the 176-PR backlog this gate exists to prevent
+  # was built, and this file's own header says so.
+  #
+  # Only the 12 below are blocked on something concrete. Each names the
+  # blocker rather than "not now".
+  # ==========================================================================
+
+  # --- HR015 BACKLOG.yaml cluster (8) --------------------------------------
+  # All eight are purely additive (zero deletions). Every row id they add was
+  # checked line-by-line against origin/main BACKLOG.yaml: all 15 ids are
+  # ABSENT, so this is un-landed filed work, not squash-merge residue. Closing
+  # them would delete the record, including #321's [blocker] finding about the
+  # cut's own rollforward gate. They conflict for one mechanical reason: eight
+  # branches appending to the same append-only register. Resolution is rebase
+  # + take-both, and it wants doing in a single sitting rather than eight.
+  # Short horizon on purpose so this comes straight back if it is not done.
+  - ref: "HR015-Gaming-PC#329"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 2 ids absent from main (cm031-realm-tests-use-the-real-documents-directory, cm031-ci-never-runs-the-test-suite). Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#326"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 1 id absent from main (cm041-identity-quality-cluster-is-unwired). Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#325"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 3 ids absent from main plus MLX_VS_OLLAMA_FINDINGS.md. MLX evaluation is already set post-launch-DMG, so it cannot affect v1.0.26. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#324"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 1 id absent from main (repo-gates-assert-main-not-the-pin). Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#321"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds rollforward-gate-cm051-twin-has-never-run, absent from main, and it is tagged [blocker] against THIS cut pipeline. Must be read before v1.0.27, not closed. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#319"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 2 ids absent from main recording that Snyk PR-time SCA is paused for cost, plus the reinstate condition in SECURITY.md. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#316"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds genui-tool-result-component-rendering, absent from main, explicitly scoped v1.1. Rebase + take-both."
+    review_by: "2026-08-17"
+  - ref: "HR015-Gaming-PC#315"
+    reason: "Append-conflict on BACKLOG.yaml only. Adds 5 ids absent from main, including operator-pii-scan-cannot-run-on-ci-by-construction and cm044-ci-runs-no-tests-at-all. Rebase + take-both."
+    review_by: "2026-08-17"
+
+  # --- HR015 shipping ledger (1) -------------------------------------------
+  - ref: "HR015-Gaming-PC#344"
+    reason: "Only HR015 conflict that is not a BACKLOG.yaml append. It is a hand reconcile of SHIPPING_LEDGER.yaml, which diverged in BOTH directions, and the ledger is the single canonical release register. Resolving this conflict by rule rather than by reading is how a release record gets silently rewritten, so it needs a human pass, not a rebase."
+    review_by: "2026-08-17"
+
+  # --- CM031 iOS companion (3 conflicting) ---------------------------------
+  # CM031 is NOT vendored into the DMG: `vendor/` carries cm019/cm021/cm024/
+  # cm041/cm048/cm052/cm059/doctor/ostler_fda/ostler_security and no cm031.
+  # The iOS app ships through App Store Connect on its own cadence, so none of
+  # these can reach v1.0.26 whatever happens to them. CM031 main has also not
+  # moved since 2026-08-12. The two CLEAN CM031 PRs (#165, #164) are NOT
+  # exempted here; they are merge decisions.
+  - ref: "CM031-PWG-Companion#158"
+    reason: "Conflicts with CM031 main. 1191/-133 across 23 files, and it overlaps #159 on 8 of them, so the two cannot both be rebased blind. Touches the paywall and QR pairing. Cannot reach the DMG (no vendor/cm031). Needs a real device test run, not a conflict resolution."
+    review_by: "2026-08-20"
+  - ref: "CM031-PWG-Companion#159"
+    reason: "Conflicts with CM031 main. Rewrites SyncKeyVault (keychain, 40-byte wrapped DEK) and HubTrust (certificate pinning) across 30 files, and overlaps #158. A security surface that must be rebased deliberately and device-tested. Cannot reach the DMG (no vendor/cm031)."
+    review_by: "2026-08-20"
+  - ref: "CM031-PWG-Companion#161"
+    reason: "Conflicts with CM031 main and overlaps #158/#159 on the shared Sources tree. Rebuilds the transcript queue from Realm; ordering against #164's end-marker fix has to be decided before either is rebased. Cannot reach the DMG (no vendor/cm031)."
     review_by: "2026-08-20"
 
 deferrals:

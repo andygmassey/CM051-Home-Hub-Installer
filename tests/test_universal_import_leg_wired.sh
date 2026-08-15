@@ -59,7 +59,7 @@ IMPORT_BODY="$(sed -n "$((HEREDOC_START + 1)),$((HEREDOC_END - 1))p" "$INSTALL_S
 # ---------------------------------------------------------------------------
 
 # A1: P3 leg invokes ostler_fda.universal_import.
-if printf '%s' "$IMPORT_BODY" | grep -qE '\-m ostler_fda\.universal_import'; then
+if grep -qE '\-m ostler_fda\.universal_import' <<< "$IMPORT_BODY"; then
     pass "P3 leg invokes ostler_fda.universal_import"
 else
     failure "ostler-import does not invoke ostler_fda.universal_import (P3 leg missing)"
@@ -68,14 +68,14 @@ fi
 # A2: the leg runs from the email-ingest venv -- the only venv on the box
 #     that pip-installs ostler_fda (same venv the calendar/browsing/imessage
 #     ingests already use). A bare `python3` would hit ModuleNotFoundError.
-if printf '%s' "$IMPORT_BODY" | grep -qE 'UIMPORT_PY="\$\{OSTLER_DIR\}/services/email-ingest/\.venv/bin/python"'; then
+if grep -qE 'UIMPORT_PY="\$\{OSTLER_DIR\}/services/email-ingest/\.venv/bin/python"' <<< "$IMPORT_BODY"; then
     pass "P3 leg targets the email-ingest venv (has ostler_fda)"
 else
     failure "P3 leg does not resolve the email-ingest venv python (UIMPORT_PY)"
 fi
 
 # A3: the leg is GUARDED on its venv being executable (skip-if-absent).
-if printf '%s' "$IMPORT_BODY" | grep -qE '\[\[ -x "\$UIMPORT_PY" \]\]'; then
+if grep -qE '\[\[ -x "\$UIMPORT_PY" \]\]' <<< "$IMPORT_BODY"; then
     pass "P3 leg is guarded on UIMPORT_PY existence (skip-if-absent)"
 else
     failure "P3 leg is not guarded on UIMPORT_PY (could fail when venv absent)"

@@ -62,7 +62,7 @@ EOF
 #!/usr/bin/env bash
 "$PY" -m ostler_fda.extract_all
 EOF
-    printf '# columns: module\tblocked_by\tnote\n' >"$root/scripts/fda_unwired_modules.tsv"
+    printf '# columns: module\tstatus\tblocked_by\tnote\n' >"$root/scripts/fda_unwired_modules.tsv"
 }
 
 run_gate() {
@@ -79,7 +79,7 @@ else
     bad "clean tree went red (rc=$rc) -- a gate that fails on everything says nothing"
     printf '%s\n' "$out" | sed 's/^/      /'
 fi
-if printf '%s' "$out" | grep -q "positive control .*apple_music REACHABLE"; then
+if grep -q "positive control .*apple_music REACHABLE" <<< "$out"; then
     ok "positive control: a FUNCTION-LOCAL import counts as reachable"
 else
     bad "apple_music scored unreachable -- the walk cannot see function-local imports"
@@ -94,7 +94,7 @@ if [ "$rc" -eq 1 ]; then
 else
     bad "planted orphan did NOT fail the gate (rc=$rc) -- the gate is blind"
 fi
-if printf '%s' "$out" | grep -q "zz_probe_orphan"; then
+if grep -q "zz_probe_orphan" <<< "$out"; then
     ok "the failing output NAMES the orphan"
 else
     bad "the gate failed without naming what it failed on"
@@ -123,20 +123,85 @@ else
     bad "a genuinely-called module still failed (rc=$rc) -- case 3 proved nothing"
 fi
 
-# --- 5. a register row silences it, and only by name ------------------------
+# --- 5. a DORMANT row acknowledges it, and only by name ---------------------
 build_tree "$TMP/registered"
 : >"$TMP/registered/vendor/ostler_fda/zz_probe_orphan.py"
-printf 'zz_probe_orphan\tsynthetic\tprobe row\n' >>"$TMP/registered/scripts/fda_unwired_modules.tsv"
+printf 'zz_probe_orphan\tDORMANT\tblocked on a synthetic precondition\tprobe row\n' \
+    >>"$TMP/registered/scripts/fda_unwired_modules.tsv"
 out="$(run_gate "$TMP/registered")"; rc=$?
 if [ "$rc" -eq 0 ]; then
-    ok "a recorded orphan passes, and the register prints in full"
+    ok "an acknowledged orphan passes, with a reason attached"
 else
-    bad "a recorded orphan still failed (rc=$rc)"
+    bad "an acknowledged orphan still failed (rc=$rc)"
 fi
-if printf '%s' "$out" | grep -q "zz_probe_orphan"; then
-    ok "the recorded orphan is PRINTED, not silently swallowed"
+if grep -q "zz_probe_orphan" <<< "$out"; then
+    ok "the dormant module is PRINTED, not silently swallowed"
 else
     bad "the register row passed silently -- that is a warn bucket"
+fi
+
+# THE COUNT MUST NOT BE ABSORBED. A dormant bucket folded into the reachable
+# number is how a warn bucket collapses into green: the tree would report as
+# fully reachable while a module ships that nothing can call.
+if grep -qE "^DORMANT \(acknowledged, unwired\)   1" <<< "$out"; then
+    ok "dormant is counted SEPARATELY from reachable, and shows as 1"
+else
+    bad "the dormant count was folded into the reachable count"
+fi
+if grep -q "OK -- no UNREGISTERED orphans. 1 module(s) ship DORMANT" <<< "$out"; then
+    ok "the pass line ADMITS the dormant count instead of saying 'clean'"
+else
+    bad "the pass line reads as clean while a module ships dark"
+fi
+
+# --- 5b. an acknowledgement REQUIRES a real reason --------------------------
+for bogus in "" "-" "TBD" "n/a"; do
+    build_tree "$TMP/noreason"
+    : >"$TMP/noreason/vendor/ostler_fda/zz_probe_orphan.py"
+    printf 'zz_probe_orphan\tDORMANT\t%s\tprobe row\n' "$bogus" \
+        >>"$TMP/noreason/scripts/fda_unwired_modules.tsv"
+    run_gate "$TMP/noreason" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 2 ]; then
+        ok "blocked_by=${bogus:-<empty>} refused: an acknowledgement needs a reason"
+    else
+        bad "blocked_by=${bogus:-<empty>} was accepted (rc=$rc) -- that is a suppression"
+    fi
+done
+
+# --- 5c. there is NO blanket ignore switch ----------------------------------
+# A wildcard row, or any status other than DORMANT, would let one line absorb
+# every future orphan. Both must be CANNOT RUN.
+build_tree "$TMP/glob"
+: >"$TMP/glob/vendor/ostler_fda/zz_probe_orphan.py"
+printf '*\tDORMANT\tacknowledge everything\tblanket row\n' \
+    >>"$TMP/glob/scripts/fda_unwired_modules.tsv"
+run_gate "$TMP/glob" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ]; then
+    ok "a wildcard module name is REFUSED: no blanket ignore switch"
+else
+    bad "a '*' row was accepted (rc=$rc) -- one line now silences every orphan"
+fi
+
+build_tree "$TMP/status"
+: >"$TMP/status/vendor/ostler_fda/zz_probe_orphan.py"
+printf 'zz_probe_orphan\tIGNORE\tbecause I said so\tprobe row\n' \
+    >>"$TMP/status/scripts/fda_unwired_modules.tsv"
+run_gate "$TMP/status" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ]; then
+    ok "status=IGNORE is REFUSED: DORMANT is the only acknowledgement"
+else
+    bad "an invented status was accepted (rc=$rc)"
+fi
+
+build_tree "$TMP/shortrow"
+: >"$TMP/shortrow/vendor/ostler_fda/zz_probe_orphan.py"
+printf 'zz_probe_orphan\tDORMANT\tmissing the note column\n' \
+    >>"$TMP/shortrow/scripts/fda_unwired_modules.tsv"
+run_gate "$TMP/shortrow" >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ]; then
+    ok "a malformed row is CANNOT RUN, not a quiet pass"
+else
+    bad "a 3-column row was accepted (rc=$rc)"
 fi
 
 # --- 6. a missing register is CANNOT RUN, never a pass ----------------------
@@ -179,7 +244,7 @@ def run():
     return None
 EOF
 out="$(run_gate "$TMP/blind")"; rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "positive control FAILED"; then
+if [ "$rc" -eq 2 ] && grep -q "positive control FAILED" <<< "$out"; then
     ok "control broken: the census REFUSES (rc=2) instead of naming false orphans"
 else
     bad "with its control severed the census answered anyway (rc=$rc)"
@@ -193,10 +258,22 @@ else
     bad "this repo is RED (rc=$rc) -- a module ships that can never run"
     printf '%s\n' "$out" | sed 's/^/      /'
 fi
-if printf '%s' "$out" | grep -q "repair_placeholder_names"; then
-    ok "the D658/D659 repair pass is on the record as unreachable"
+if grep -q "repair_placeholder_names" <<< "$out"; then
+    ok "the D658/D659 repair pass is on the record as dormant"
 else
     bad "repair_placeholder_names is not named -- the finding has gone quiet"
+fi
+if grep -qE "^DORMANT \(acknowledged, unwired\)   2" <<< "$out"; then
+    ok "this repo reports 2 dormant modules, visible as two"
+else
+    bad "the two dormant modules were absorbed into another count"
+fi
+# The whole point of the row is that the next person to ship the household
+# split finds it. If that string ever drops out, the handoff is gone.
+if grep -q "household-split.done" <<< "$out"; then
+    ok "the blocker names the marker path, so the handoff survives"
+else
+    bad "the register no longer names the concrete blocker"
 fi
 
 echo ""
