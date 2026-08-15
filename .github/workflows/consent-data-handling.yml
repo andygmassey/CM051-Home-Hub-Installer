@@ -140,3 +140,16 @@ jobs:
       - name: every LaunchAgent install.sh writes is also torn down
         if: always()
         run: bash tests/test_every_launchagent_is_torn_down.sh
+      # The Ollama install path: cask 'ollama-app', de-quarantined, and gated on
+      # a hard binary-exists check. The de-quarantine limb is the load-bearing
+      # one -- without it the cask reintroduces the Gatekeeper dialog CX-14 E1
+      # was raised about, and the rest of the block still reads as correct.
+      # Wired here rather than behind a path filter because its only input is
+      # install.sh, and a filter is how a guard goes quietly dark.
+      - name: ollama install path contract (cask, de-quarantine, exists-check)
+        if: always()
+        run: bash tests/test_ollama_install_path_contract.sh
+
+      - name: control -- prove every limb of the ollama contract can fail
+        if: always()
+        run: bash scripts/tests/test_ollama_contract_controls.sh

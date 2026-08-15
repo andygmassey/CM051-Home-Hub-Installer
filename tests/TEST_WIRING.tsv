@@ -135,7 +135,7 @@ test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
 test_no_orphaned_fixes_gate.sh	WIRED	.github/workflows/cut.yml
 test_no_undefined_msg_refs_in_install_sh.sh	UNWIRED	-
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
-test_ollama_formula_swap.sh	UNWIRED	-
+test_ollama_install_path_contract.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_ostler_gui_sudo_gates.sh	UNWIRED	-
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/cut.yml
