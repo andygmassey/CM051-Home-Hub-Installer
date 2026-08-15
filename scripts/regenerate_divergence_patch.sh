@@ -58,6 +58,39 @@ REPO_ROOT="$(cd "$HERE/.." && pwd)"
 
 # shellcheck source=/dev/null
 . "$HERE/_vendor_lib.sh"
+
+# RESTORE THE DECLARED MODE. `set -uo pipefail` above is deliberate and the
+# exit-code contract at the top of this file depends on it: three states, with
+# every error routed through die1/die2 so the caller is TOLD which one it got.
+# _vendor_lib.sh line 16 runs `set -euo pipefail` when sourced, which silently
+# turns -e back on in THIS shell, and -e is incompatible with that contract.
+#
+# It was not theoretical. MEASURED 2026-08-15 on this file at origin/main, with
+# --write, and it killed the tool's central safety promise:
+#
+#   line 233  bash verify_vendor_fresh.sh > "$GATE_OUT" 2>&1
+#             The gate returns 1 whenever ANY tree is red, which is the normal
+#             state while other trees are still divergent -- the header even
+#             says so ("the gate's overall verdict may still be RED because of
+#             OTHER trees. That is correct"). Under -e that expected 1 ended
+#             the run on the spot, so the grep for OK, the PROVEN line, and the
+#             whole REVERTING branch below it never executed.
+#   line 244  grep -E "^(FAIL|WARN) <tree>" | sed ...
+#             greps empty at rc=1, and pipefail promotes it.
+#
+# Net effect: --write copied the new patch into place (line 228 runs first),
+# then exited 1 having printed nothing after the delta. The patch was written
+# and NOT proven, the revert-on-failure path was unreachable, and the operator
+# saw a bare non-zero exit that the documented exit codes do not describe. A
+# tool whose whole argument is "the proof is the gate's verdict, not this
+# script's confidence" was structurally incapable of reaching the gate.
+#
+# Fixed here rather than at the two call sites, because the defect is the mode,
+# not the lines: any future non-zero-tolerant command would inherit it too.
+# -u and -o pipefail are re-asserted so nothing else is relaxed by accident.
+set +e
+set -uo pipefail
+
 PII_LIB="$REPO_ROOT/.githooks/pii_patterns.sh"
 
 RED=$'\033[0;31m'; GRN=$'\033[0;32m'; YEL=$'\033[0;33m'; OFF=$'\033[0m'
@@ -226,14 +259,25 @@ if [ -f "$OLDPATCH" ]; then
 fi
 mkdir -p "$(dirname "$OLDPATCH")"
 cp "$NEWPATCH" "$OLDPATCH"
-ensure_manifest_patch_ref "$TREE" 2>/dev/null || true
+# SECOND ARGUMENT IS REQUIRED. ensure_manifest_patch_ref() is
+# set_manifest_field "$1" divergence_patch "$2"; called with one argument it
+# expanded an unbound $2 under the -u this file sets, which exits the shell
+# outright -- `|| true` cannot catch an expansion error. That happened right
+# here, one line after the patch had already been copied into place, so the
+# tool wrote and then died before it could prove or revert anything.
+#
+# It matters beyond the crash: this call is the ONLY thing that gives a tree
+# with `divergence_patch = ""` (cm059_editor was one) a manifest entry pointing
+# at the patch just generated. Passing nothing meant the field was never
+# written, so the gate kept reconstructing that tree with no patch at all.
+ensure_manifest_patch_ref "$TREE" "$PATCH_REL" 2>/dev/null || true
 
 say "wrote $PATCH_REL. Now proving it with the gate rather than asserting it."
 GATE_OUT="$TMP.gate"
 bash "$HERE/verify_vendor_fresh.sh" > "$GATE_OUT" 2>&1
-if grep -qE "^OK[[:space:]]+$TREE[[:space:]]" "$GATE_OUT"; then
+if grep -qE "^OK[[:space:]]+${TREE}[[:space:]]" "$GATE_OUT"; then
     say "${GRN}PROVEN${OFF}  the gate now reports OK for $TREE:"
-    grep -E "^OK[[:space:]]+$TREE[[:space:]]" "$GATE_OUT" | sed 's/^/    /'
+    grep -E "^OK[[:space:]]+${TREE}[[:space:]]" "$GATE_OUT" | sed 's/^/    /'
     say ""
     say "Note: the gate's overall verdict may still be RED because of OTHER trees."
     say "That is correct and is not this tree's problem."
@@ -241,7 +285,7 @@ if grep -qE "^OK[[:space:]]+$TREE[[:space:]]" "$GATE_OUT"; then
 fi
 
 say "${RED}REVERTING${OFF}  the gate does NOT report OK for $TREE after the write:"
-grep -E "^(FAIL|WARN)[[:space:]]+$TREE[[:space:]]" "$GATE_OUT" | sed -n '1,6{s/^/    /;p;}'
+grep -E "^(FAIL|WARN)[[:space:]]+${TREE}[[:space:]]" "$GATE_OUT" | sed -n '1,6{s/^/    /;p;}'
 if [ -n "$BACKUP" ]; then
     cp "$BACKUP" "$OLDPATCH"
     say "restored the previous $PATCH_REL"
