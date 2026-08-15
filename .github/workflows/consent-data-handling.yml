@@ -152,3 +152,15 @@ jobs:
       - name: installer and legal catalogue agree on where the biometric lives
         if: always()
         run: bash tests/test_voice_consent_matches_catalogue.sh
+      # Ships-dark guards for two ingest writers. Both predicates were pinned to
+      # a bare-symbol dispatch entry; the table was refactored to resolve writers
+      # by NAME, and both went red against a tree where the wiring is intact --
+      # in the vendored copy, in HR015 upstream, and in install.sh. Now
+      # content-based and scoped to the _INGEST_DISPATCH block.
+      - name: ingest_bookmarks is registered and not ship-dark
+        if: always()
+        run: bash tests/test_bookmarks_ingest_wired.sh
+
+      - name: ingest_social is registered and not ship-dark
+        if: always()
+        run: bash tests/test_social_ingest_wired.sh
