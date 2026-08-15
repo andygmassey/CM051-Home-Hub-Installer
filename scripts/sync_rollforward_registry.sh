@@ -132,6 +132,72 @@ fi
 
 hash_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# REFUSE TO OVERWRITE A DESTINATION THAT IS AHEAD OF THE SOURCE.
+#
+# Everything above guards the SOURCE: not dirty, not detached, not behind
+# origin/main. Nothing guarded the DESTINATION, and this script's whole job is
+# `cp $SRC -> $dest`. So a vendored copy that had gained content could be
+# silently truncated by a routine sync, and the operator would be following the
+# pin test's own advice when they did it: that test fails with "fix it in OS003
+# and re-sync, do not edit the copy".
+#
+# That is not hypothetical. Measured 2026-08-15:
+#   CM051 cuts/DEFECTS_ROLLFORWARD.md  209211 bytes, 32235 words, 28 gate blocks
+#   OS003 cuts/DEFECTS_ROLLFORWARD.md  144162 bytes, 21854 words, 27 gate blocks
+# Same 39 defect rows on both sides, but gate `v1018-D008` existed ONLY in the
+# vendored copy. A sync would have deleted ~10,381 words and the only copy of a
+# gate. The drift arrives because the vendored copy gets edited in place during
+# ordinary feature commits -- visible in this repo's own history as MATCH at
+# re-sync commits and DRIFT at the feature commits between them.
+#
+# The header of cuts/REGISTRY_PIN already records the mirror-image incident, when
+# CM051 ran "a rollforward gate 239 diff lines behind the original". Both
+# directions are real, so the direction cannot be assumed. A one-way copy tool
+# must refuse when it cannot tell which side is right, rather than pick.
+#
+# Bypass is deliberate and explicit: SYNC_ACCEPT_DESTINATION_LOSS=1, which the
+# operator must type after reading what would be lost.
+ahead=0
+for f in "${FILES[@]}"; do
+	dest="$HERE/$f"
+	[ -f "$dest" ] || continue
+	cmp -s "$SRC/$f" "$dest" && continue
+	# "Ahead" is a substantive-content test, not a byte-count one: a file can be
+	# larger purely from re-wrapping. Compare the set of non-empty, whitespace-
+	# collapsed lines and ask whether the destination holds lines the source does
+	# not. That survives reformatting and still catches genuine deletion.
+	only_in_dest="$(comm -13 \
+		<(tr -s ' \t' ' ' < "$SRC/$f" | sed 's/^ *//;s/ *$//' | grep -v '^$' | sort -u) \
+		<(tr -s ' \t' ' ' < "$dest"   | sed 's/^ *//;s/ *$//' | grep -v '^$' | sort -u) \
+		| wc -l | tr -d ' ')"
+	if [ "$only_in_dest" -gt 0 ]; then
+		ahead=$((ahead + 1))
+		printf '\033[0;31m  AHEAD    %s -- destination holds %s line(s) the source does not\033[0m\n' "$f" "$only_in_dest"
+	fi
+done
+
+if [ "$ahead" -gt 0 ] && [ "$MODE" != "--check" ] && [ "${SYNC_ACCEPT_DESTINATION_LOSS:-0}" != "1" ]; then
+	echo "" >&2
+	echo "REFUSING TO SYNC: $ahead vendored file(s) are AHEAD of OS003." >&2
+	echo "" >&2
+	echo "  Copying now would DELETE content that exists only in this repo." >&2
+	echo "  This is not a stale-vendor situation and re-syncing is not the fix." >&2
+	echo "" >&2
+	echo "  Decide the direction deliberately: either port the CM051-only content" >&2
+	echo "  UP into OS003 and then sync, or establish that the vendored copy is" >&2
+	echo "  authoritative and regenerate OS003 from it. Do not resolve it by" >&2
+	echo "  overwriting a side." >&2
+	echo "" >&2
+	echo "  To see exactly what would be lost:" >&2
+	for f in "${FILES[@]}"; do
+		printf '    diff "%s" "%s"\n' "$SRC/$f" "$HERE/$f" >&2
+	done
+	echo "" >&2
+	echo "  If the loss is genuinely intended, re-run with:" >&2
+	echo "    SYNC_ACCEPT_DESTINATION_LOSS=1 scripts/sync_rollforward_registry.sh" >&2
+	exit 2
+fi
+
 changed=0
 for f in "${FILES[@]}"; do
 	dest="$HERE/$f"
