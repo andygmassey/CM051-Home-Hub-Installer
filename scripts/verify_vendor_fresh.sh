@@ -27,10 +27,37 @@
 # available the tree is reported as "could not verify (source repo not
 # found)" and counted as a WARNING -- never a silent pass.
 #
-# Exit: 0 = all verifiable trees fresh; 1 = at least one stale/divergent
-# tree; warnings alone do not fail the gate (CI without all source repos
-# checked out still runs the verifiable subset). Set VENDOR_FRESH_STRICT=1
-# to make warnings fatal (the cut should run strict).
+# Exit: 0 = all verifiable trees fresh; 1 = at least one stale/divergent tree,
+# OR at least one tree that could not be verified at all.
+#
+# FAIL-CLOSED SINCE 2026-08-15, AND HERE IS WHY IT HAD TO CHANGE.
+#
+# This defaulted to VENDOR_FRESH_STRICT=0. An unverifiable tree printed
+# "GATE: GREEN with N warning(s)" and exited 0 -- a warn that reads as a pass,
+# on the gate that guards what ships, with the reassuring word GREEN in front
+# of it.
+#
+# The intent was never in doubt. What was missing was anyone actually setting
+# the flag:
+#
+#   OS003/CUT_MECHANISM_CANONICAL.md:40,119  "VENDOR_FRESH_STRICT=1 ... GREEN"
+#   CM051 .github/workflows/vendor-integrity.yml:106  a COMMENT promising the
+#     real gate runs "with all source repos present, VENDOR_FRESH_STRICT=1"
+#   OS003/pipeline/release.yml:75  the actual cut invocation:
+#     `bash vendor/verify_vendor_fresh.sh`   <-- no flag
+#
+# Measured 2026-08-15: NOTHING anywhere sets VENDOR_FRESH_STRICT=1. Two
+# documents and a comment described a strict gate; every invocation ran the
+# lenient one. A mention is not an invocation.
+#
+# So the default is now 1. An environment that genuinely cannot verify -- CI
+# without the sibling source repos checked out -- must now say so explicitly by
+# setting VENDOR_FRESH_STRICT=0, which makes the degradation visible at the
+# call site instead of inherited silently by everything including the cut.
+#
+# The asymmetry is deliberate. Getting this wrong in the lenient direction
+# ships an unverified vendored tree to a customer. Getting it wrong in the
+# strict direction turns one CI job red until somebody adds one word.
 
 set -euo pipefail
 
@@ -38,7 +65,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/_vendor_lib.sh
 . "$SCRIPT_DIR/_vendor_lib.sh"
 
-STRICT="${VENDOR_FRESH_STRICT:-0}"
+STRICT="${VENDOR_FRESH_STRICT:-1}"
 
 fail=0
 warn=0
@@ -147,13 +174,23 @@ if [ "$fail" -gt 0 ]; then
 fi
 
 if [ "$warn" -gt 0 ] && [ "$STRICT" = "1" ]; then
-    echo "GATE: RED (strict) -- $warn tree(s) could not be verified and VENDOR_FRESH_STRICT=1." >&2
+    echo "GATE: RED -- $warn tree(s) could NOT BE VERIFIED." >&2
+    echo "      Not verified is not the same as verified fresh. This gate guards" >&2
+    echo "      what ships; an unverifiable vendored tree is exactly the state it" >&2
+    echo "      exists to refuse." >&2
+    echo "      Check the source repos out, or set VENDOR_FRESH_STRICT=0 at the" >&2
+    echo "      call site to accept the degradation ON PURPOSE and in writing." >&2
     exit 1
 fi
 
 if [ "$warn" -gt 0 ]; then
-    echo "GATE: GREEN with $warn warning(s) -- some source repos were not locally available."
-    echo "      (run the cut with all source repos checked out + VENDOR_FRESH_STRICT=1 to make these fatal)"
+    # Reached only when a caller has explicitly opted out. Do NOT print GREEN.
+    # The previous wording was "GATE: GREEN with N warning(s)", which is the
+    # whole defect in one line: the reader takes the first word and moves on.
+    echo "GATE: DEGRADED -- $warn tree(s) NOT VERIFIED (VENDOR_FRESH_STRICT=0 was set explicitly)."
+    echo "      $ok tree(s) were checked and are fresh. The other $warn were not checked at all."
+    echo "      This is not a pass for those trees. The cut must run with all source"
+    echo "      repos present and the default strictness."
 else
     echo "GATE: GREEN -- every vendored tree matches its pinned source."
 fi
