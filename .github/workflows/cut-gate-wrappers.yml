@@ -35,6 +35,10 @@ on:
       - 'gui/scripts/sign-python-bundle.sh'
       - 'tests/test_sign_python_bundle_reports_why.sh'
       - 'tests/test_provenance_gate_cannot_run_is_not_stale.sh'
+      - 'tests/test_no_gate_execs_a_pinned_image.sh'
+      - 'scripts/lib_image_extract.sh'
+      - 'scripts/provenance_gate.sh'
+      - 'tests/test_pinned_wiki_image_has_design_system.sh'
       - 'scripts/verify_cut_provenance.sh'
       - 'tests/test_wiki_provenance_extracts_without_exec.sh'
       - '.github/workflows/cut-gate-wrappers.yml'
@@ -119,6 +123,17 @@ jobs:
       - name: provenance gate -- cannot-run is never reported as stale
         if: always()
         run: bash tests/test_provenance_gate_cannot_run_is_not_stale.sh
+
+      # REPO-WIDE, and static, so it runs anywhere and needs no docker.
+      # Two tags burned because the same exec-a-pinned-image bug lived in more
+      # than one file: v1.0.27 on verify_cut_provenance.sh, then v1.0.28 on its
+      # twin provenance_gate.sh, with three more sites in the design-system test
+      # that neither incident looked at. Both times the right grep was run and
+      # then scoped to one file while a verdict was reported about the repo.
+      # This asks the whole tree every run and prints what it examined.
+      - name: no gate execs a pinned image to read it (repo-wide)
+        if: always()
+        run: bash tests/test_no_gate_execs_a_pinned_image.sh
 
       # NOTE: the wiki-provenance extraction test is NOT here. This job is
       # macos-latest, which has no docker, so the test skipped and the step went
