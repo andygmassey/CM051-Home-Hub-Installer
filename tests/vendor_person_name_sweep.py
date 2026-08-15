@@ -63,6 +63,33 @@ means something is the count of UNDECLARED candidates once
 count will panic at 877, and anyone watching it after a scrub will conclude the
 scrub failed.
 
+A BASELINE IS A STATEMENT ABOUT THE FUTURE, NOT A FINDING ABOUT THE PAST,
+AND IT PRINTS IDENTICALLY TO ONE
+-------------------------------------------------------------------------
+The general form of the failure that let a set of SCOPED zeros read as
+whole-tree zeros on 2026-08-15.
+
+A guard that records existing occurrences as an accepted baseline and then
+blocks anything NEW is doing something useful and something narrow. It says
+"no more of these". It does not say "there are none of these". Those two
+sentences have the same output: a green tick and a zero.
+
+Measured that day: several thousand baseline rows across two repos, each of
+them UNREVIEWED legacy prose, sitting behind a green gate; and separately, a
+scoped pass over about nine modules returned zero and was reported as a clean
+tree, while a whole-committed-tree pass then found residue in eighteen files.
+The earlier zeros were TRUE OF WHAT THEY MEASURED. That is the trap: they were
+not wrong, they were narrow, and narrowness does not print.
+
+So when reading any zero from a gate of this shape, ask three questions in
+order, because each can produce a zero on its own:
+  1. What was in SCOPE? (a scoped zero is not a tree zero)
+  2. What SHAPE can the predicate match? (a pair regex cannot see a lone token)
+  3. Was the instrument itself in scope? (a guard that excludes its own file
+     is green about its own contents by construction)
+
+All three of those fired on the same day, on the same class of data.
+
 WHICH SIDE OF A DIVERGENCE PATCH A NAME SITS ON DETERMINES THE FIX ROUTE,
 AND THE WRONG ROUTE FAILS SILENTLY IN BOTH DIRECTIONS
 -------------------------------------------------------------------------
