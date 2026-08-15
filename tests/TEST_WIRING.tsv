@@ -207,6 +207,7 @@ test_whatsapp_channel_block.sh	UNWIRED	-
 test_wiki_baseline_background.sh	UNWIRED	-
 test_wiki_compose_paths.sh	UNWIRED	-
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
+test_wiki_provenance_extracts_without_exec.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_wiki_recompile_after_late_hydration.sh	UNWIRED	-
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_write_pipeline_signals.sh	UNWIRED	-
