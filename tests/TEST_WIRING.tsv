@@ -190,6 +190,7 @@ test_vendor_import_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_knowledge_embed_contract.py	UNWIRED	-
 test_vendor_manifest_is_valid_toml.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
+test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml

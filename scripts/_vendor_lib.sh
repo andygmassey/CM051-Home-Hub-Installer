@@ -181,8 +181,25 @@ resolve_source_repo() {
     #    or "$HR015/ostler_fda" expands HR015 from the env if present.
     if printf '%s' "$raw" | grep -q '\$'; then
         # Let the shell expand any ${VAR} / $VAR present in the value.
+        #
+        # `set +u` INSIDE THE COMMAND SUBSTITUTION, and it is load-bearing.
+        # Callers run `set -euo pipefail`, so expanding "$CM052" with CM052
+        # unset raised "CM052: unbound variable" and killed the whole gate at
+        # the FIRST unset placeholder. An unset placeholder is not an error
+        # here: it means that source repo is simply not checked out on this
+        # host, which must expand to empty, fall through to "source repo not
+        # found ()", and be COUNTED as unverifiable so the denominator tells
+        # the truth. Hard-erroring loses every tree after the first.
+        #
+        # The `set +u` is scoped to the subshell that $( ) already creates, so
+        # the caller's `set -u` is untouched. Verified: after this call, $-
+        # still contains u.
+        #
+        # Note the sibling override lookup above already does the equivalent
+        # via ${VAR:-}; that form cannot be used here because $raw is an
+        # arbitrary string like "$HR015/doctor", not a bare variable name.
         local expanded
-        expanded="$(eval "printf '%s' \"$raw\"")"
+        expanded="$(set +u; eval "printf '%s' \"$raw\"")"
         printf '%s\n' "$expanded"
         return 0
     fi
