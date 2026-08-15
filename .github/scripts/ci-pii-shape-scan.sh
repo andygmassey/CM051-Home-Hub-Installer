@@ -21,16 +21,38 @@
 #
 # WHAT THIS DOES INSTEAD
 #
-# Scans for the SHAPE of PII rather than for known values: UK/US phone
-# patterns, SSN, DSID, email addresses, /Users/<name>/ home paths. Those
-# patterns live in .githooks/pii_patterns.sh, are already used by the
-# pre-commit hook, and already have their own test suite asserting they fire
-# on synthetic SSN and UK-phone input and stay quiet on clean input.
+# Scans for the SHAPE of PII rather than for known values. The patterns live
+# in .githooks/pii_patterns.sh and have their own test suite asserting they
+# fire on synthetic SSN and UK-phone input and stay quiet on clean input.
 #
-# Shape-based is strictly stronger for the leak that matters. A denylist can
-# only catch values someone already wrote down; it can never catch the first
-# leak of a number nobody has enumerated. This catches a phone-shaped literal
-# whoever it belongs to.
+# WHAT IT COVERS, EXACTLY. `pii_load_patterns` returns FIVE patterns and all
+# five are numeric:
+#
+#     UK mobile, international form   +44 7xxx xxxxxx
+#     UK mobile, national form        07xxx xxxxxx
+#     US phone                        +1 (xxx) xxx-xxxx
+#     SSN                             xxx-xx-xxxx
+#     long digit run                  15+ consecutive digits (DSID and kin)
+#
+# WHAT IT DOES NOT COVER, and this paragraph is load-bearing. This header used
+# to claim "email addresses, /Users/<name>/ home paths" as well. It does not
+# scan for either. Those checks are built in to .githooks/pre-commit (see
+# pii_patterns.sh:10 and :35), and pre-commit does not run in CI, so on a pull
+# request both classes have a denominator of ZERO.
+#
+# MEASURED 2026-08-15 over the 485 tracked files under vendor/: the email class
+# has 90 distinct addresses in it, around 33 of them on domains that are not
+# obvious fixtures. None of that is visible to this gate. A reader who trusted
+# the old header would have believed it was. Adding those two classes needs a
+# canary per class -- the point of the block below is that a pattern set nobody
+# has demonstrated is worth nothing -- and that is tracked separately.
+#
+# Person NAMES are a different instrument again: tests/vendor_person_name_sweep.py.
+#
+# Shape-based is strictly stronger than a denylist for the classes it does
+# cover. A denylist can only catch values someone already wrote down; it can
+# never catch the first leak of a number nobody has enumerated. This catches a
+# phone-shaped literal whoever it belongs to.
 #
 # THE CANARY, AND WHY IT RUNS EVERY TIME
 #
@@ -159,14 +181,49 @@ else
 fi
 [ -z "$ADDED_ONLY_DIR" ] || trap 'rm -rf "$CANARY_DIR" "$ADDED_ONLY_DIR"' EXIT
 
-# Drop paths that no longer exist and directories.
+# Drop paths that no longer exist. REFUSE directories -- see below.
+#
+# MEASURED 2026-08-15 on CM051. This loop used to filter with `[ -f ]` alone,
+# which discards a directory as quietly as it discards a stale path. So
+#
+#     ci-pii-shape-scan.sh vendor/
+#
+# printed "examining 0 file(s) ... Nothing was scanned, and nothing was found."
+# and exited 0. The same tree handed over as an explicit 485-file list exits 1
+# on twelve files. The text was honest and the EXIT CODE was not, and exit 0 is
+# what a caller reads.
+#
+# That is the failure this file's own header names: "a green tick" over a zero.
+# It was describing the printed line and had become true of the status. CI never
+# hit it (the workflow passes no arguments and sets BASE_REF), but the audit
+# path -- a human scanning a subtree by hand -- is exactly where a directory
+# gets typed, and it is the path with no second check behind it.
+#
+# A stale path is still dropped silently: git can name a file the working tree
+# no longer has, and that is not a caller error. A directory IS a caller error.
 EXISTING=""
+DIRS=""
 while IFS= read -r f; do
     [ -n "$f" ] || continue
+    if [ -d "$f" ]; then
+        DIRS="$DIRS    $f
+"
+        continue
+    fi
     [ -f "$f" ] || continue
     EXISTING="$EXISTING$f
 "
 done <<< "$FILES"
+
+if [ -n "$DIRS" ]; then
+    echo "ci-pii-shape-scan: CANNOT-RUN -- directory argument(s) given:" >&2
+    printf '%s' "$DIRS" >&2
+    echo "  This scanner reads FILES. It cannot walk a directory, and reporting" >&2
+    echo "  the resulting zero as a pass would be a clean bill from a scan that" >&2
+    echo "  examined nothing. Expand it first:" >&2
+    echo "    .github/scripts/ci-pii-shape-scan.sh \$(git ls-files -- 'vendor/*')" >&2
+    exit 2
+fi
 
 COUNT="$(printf '%s' "$EXISTING" | grep -c . || true)"
 

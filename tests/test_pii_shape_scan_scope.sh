@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Scope tests for .github/scripts/ci-pii-shape-scan.sh in PR (BASE_REF) mode.
+# Scope tests for .github/scripts/ci-pii-shape-scan.sh.
+#
+# Cases 1-5 pin PR (BASE_REF) mode, which is how CI invokes it.
+# Cases 6-8 pin PATH-ARGUMENT mode, which is how a human audits a subtree by
+# hand -- the path with no second check behind it, and the one where a
+# directory used to read as clean.
 #
 # WHAT THIS PINS, and why it is a scope test rather than a pattern test:
 # .githooks/test_pii_patterns.sh already proves the PATTERNS fire. This proves
@@ -46,6 +51,11 @@ mkrepo() { # -> echoes a fresh repo dir with one commit on main
 
 run_scan() { # repo base -> rc
     ( cd "$1" && BASE_REF="$2" bash .github/scripts/ci-pii-shape-scan.sh >/dev/null 2>&1 )
+}
+
+run_paths() { # repo path... -> rc   (path-argument mode, no BASE_REF)
+    r="$1"; shift
+    ( cd "$r" && bash .github/scripts/ci-pii-shape-scan.sh "$@" >/dev/null 2>&1 )
 }
 
 echo "ci-pii-shape-scan: PR-mode scope"
@@ -103,6 +113,36 @@ git -C "$d" commit -aqm remove-phone
 run_scan "$d" "$base"; rc=$?
 [ "$rc" -eq 0 ] && ok "(5) REMOVING a phone -> green (removed lines are never scanned)" \
                 || bad "(5) deleting PII must not be a violation" "$rc"
+rm -rf "$d"
+
+# ── Cases 6-8. PATH-ARGUMENT mode: a directory must never read as clean. ──
+# MEASURED 2026-08-15: `ci-pii-shape-scan.sh vendor/` printed "examining 0
+# file(s) ... nothing was found" and exited 0, while the same tree as an
+# explicit file list exited 1 on twelve files. The `[ -f ]` filter dropped the
+# directory as quietly as it drops a stale path.
+#
+# Case 7 is the load-bearing one. Case 6 alone would still pass if the scanner
+# had simply started refusing everything, and it would pass over an EMPTY
+# directory, where a zero is the truth. Case 7 proves the directory really did
+# hold a hit -- so the old exit 0 was a false clean, not an honest one.
+d="$(mkrepo)"
+mkdir -p "$d/subtree"
+printf 'contact = "%s"\n' "$(phone)" > "$d/subtree/buried.txt"
+git -C "$d" add -A >/dev/null; git -C "$d" commit -qm seed-subtree
+
+run_paths "$d" subtree; rc=$?
+[ "$rc" -eq 2 ] && ok "(6) DIRECTORY argument -> CANNOT-RUN (rc 2), never a pass" \
+                || bad "(6) a directory must not report clean" "$rc"
+
+run_paths "$d" subtree/buried.txt; rc=$?
+[ "$rc" -eq 1 ] && ok "(7) same content as an explicit FILE -> RED (so case 6 was a false clean)" \
+                || bad "(7) the expanded file list must still find the phone" "$rc"
+
+# The refusal must not have swallowed the legitimate drop. git can name a path
+# the working tree no longer has; that is not a caller error and stays green.
+run_paths "$d" seed.txt no/such/file.txt; rc=$?
+[ "$rc" -eq 0 ] && ok "(8) a STALE path is still dropped silently -> green" \
+                || bad "(8) a non-existent path must not be CANNOT-RUN" "$rc"
 rm -rf "$d"
 
 echo
