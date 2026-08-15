@@ -102,6 +102,63 @@ if [[ -n "${DAEMON_PIN}" ]] && git -C "${ASSISTANT_DIR}" rev-parse --git-dir >/d
   done
 fi
 
+# --- read an image's files WITHOUT executing it ------------------------------
+#
+# WHY EXTRACT RATHER THAN RUN (v1.0.27, and it burned a tag to find out).
+#
+# Both wiki branches below used to do:
+#     docker run --rm --entrypoint sh "$ref" -c "grep -rq ..."
+# The wiki images are arm64-ONLY -- deliberately, and enforced by
+# tests/test_pinned_wiki_images_are_arm64_only.sh, because install.sh refuses an
+# Intel Mac outright with ERR-01-ARCH-INTEL-NOT-SUPPORTED and no supported
+# customer ever pulls an amd64 wiki image. cut.yml's preflight job runs on
+# ubuntu amd64. So `docker run` died with "exec /usr/bin/sh: exec format error",
+# every grep returned nothing, and the two branches drew OPPOSITE conclusions
+# from the same non-event:
+#
+#   wiki_image_grep   -> nothing found -> RED "NOT FOUND -- STALE WIKI IMAGE"
+#   wiki_image_absent -> nothing found -> GREEN "pattern is absent"
+#
+# The RED was a lie that sent an operator hunting a stale digest that did not
+# exist. The GREEN was worse and quieter: every absent-assertion has been
+# passing on an image it never opened for as long as these images have been
+# arm64-only, which makes those greens worthless rather than merely wrong.
+#
+# `docker create` + `docker cp` never executes a single instruction from the
+# image, so architecture stops mattering entirely. This is not a workaround for
+# the amd64 runner; it removes the coupling. Measured on the v1.0.27 images:
+# 104 files extracted from an arm64-only image on an arm64 host with no exec,
+# and the runner log for the burnt tag shows docker CREATING the container fine
+# and failing only at exec -- which is the half we no longer need.
+#
+# Sets EXTRACT_DIR / EXTRACT_N / EXTRACT_ERR. Returns 0 only when files were
+# actually written. A ZERO-FILE EXTRACTION IS CANNOT-RUN, NEVER A PASS: it is
+# indistinguishable from a successful extraction of nothing, and that confusion
+# is the exact bug this function exists to kill.
+EXTRACT_DIR=""; EXTRACT_N=0; EXTRACT_ERR=""
+image_extract_path() { # ref  path
+  local ref="$1" path="$2" cid out rc
+  EXTRACT_DIR=""; EXTRACT_N=0; EXTRACT_ERR=""
+  EXTRACT_DIR="$(mktemp -d 2>/dev/null)" || {
+    EXTRACT_ERR="could not create a temp dir on this host"; EXTRACT_DIR=""; return 1; }
+  if ! cid="$(docker create "$ref" 2>&1)"; then
+    EXTRACT_ERR="docker create failed: $(printf '%s' "$cid" | tr '\n' ' ')"
+    rm -rf "$EXTRACT_DIR"; EXTRACT_DIR=""; return 1
+  fi
+  out="$(docker cp "${cid}:${path}" "$EXTRACT_DIR/" 2>&1)"; rc=$?
+  docker rm -f "$cid" >/dev/null 2>&1
+  if [[ $rc -ne 0 ]]; then
+    EXTRACT_ERR="docker cp ${cid:0:12}:${path} rc=${rc}: $(printf '%s' "$out" | tr '\n' ' ')"
+    rm -rf "$EXTRACT_DIR"; EXTRACT_DIR=""; return 1
+  fi
+  EXTRACT_N="$(find "$EXTRACT_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${EXTRACT_N:-0}" -eq 0 ]]; then
+    EXTRACT_ERR="docker cp reported success but extracted 0 files from ${path} (container ${cid:0:12}) -- an empty extraction proves nothing about content"
+    rm -rf "$EXTRACT_DIR"; EXTRACT_DIR=""; return 1
+  fi
+  return 0
+}
+
 # --- walk the manifest ---
 while IFS='|' read -r kind target pattern desc; do
   [[ -z "${kind:-}" || "${kind}" == \#* ]] && continue
@@ -221,12 +278,19 @@ while IFS='|' read -r kind target pattern desc; do
         printf '%s\n' "$pull_err" | sed 's/^/        docker: /'
         continue
       fi
-      if docker run --rm --entrypoint sh "${ref}" -c "grep -rq -- '${pattern}' '${img_path}' 2>/dev/null"; then
-        green "wiki_image_grep ${img_key}@${ref##*@} :${img_path} ~ /${pattern}/ (${desc})"
+      # EXTRACT, never execute -- see image_extract_path() for why.
+      if ! image_extract_path "${ref}" "${img_path}"; then
+        cannot "wiki_image_grep ${img_key} :: could not EXTRACT ${img_path} from ${ref##*@} -- ${EXTRACT_ERR} (${desc})"
+        info "this says NOTHING about the image content: no file was read, so the pattern was neither found nor missing"
+        continue
+      fi
+      if grep -rq -- "${pattern}" "${EXTRACT_DIR}" 2>/dev/null; then
+        green "wiki_image_grep ${img_key}@${ref##*@} :${img_path} ~ /${pattern}/ [${EXTRACT_N} files extracted] (${desc})"
       else
-        red "wiki_image_grep ${img_key} :${img_path} ~ /${pattern}/ NOT FOUND -- STALE WIKI IMAGE (${desc})"
+        red "wiki_image_grep ${img_key} :${img_path} ~ /${pattern}/ NOT FOUND in ${EXTRACT_N} extracted file(s) -- STALE WIKI IMAGE (${desc})"
         info "rebuild + repin the ${img_key} digest from current CM044 main before cutting"
       fi
+      rm -rf "${EXTRACT_DIR}"; EXTRACT_DIR=""
       ;;
     wiki_image_absent)
       # The mirror of wiki_image_grep: assert a pattern is GONE from the pinned
@@ -265,12 +329,22 @@ while IFS='|' read -r kind target pattern desc; do
         printf '%s\n' "$pull_err" | sed 's/^/        docker: /'
         continue
       fi
-      if docker run --rm --entrypoint sh "${ref}" -c "grep -rq -- '${pattern}' '${img_path}' 2>/dev/null"; then
-        red "wiki_image_absent ${img_key} :${img_path} ~ /${pattern}/ IS PRESENT -- a deliberately removed component came back (${desc})"
+      # EXTRACT, never execute. THIS BRANCH IS WHY IT MATTERS MOST: an absence
+      # assertion passes on an empty result, so a container that never started
+      # used to read as proof the pattern was gone. Extraction failure must be
+      # CANNOT-RUN here, or the check certifies an image it never opened.
+      if ! image_extract_path "${ref}" "${img_path}"; then
+        cannot "wiki_image_absent ${img_key} :: could not EXTRACT ${img_path} from ${ref##*@} -- ${EXTRACT_ERR} (${desc})"
+        info "this check examined nothing; it did NOT establish that the pattern is absent"
+        continue
+      fi
+      if grep -rq -- "${pattern}" "${EXTRACT_DIR}" 2>/dev/null; then
+        red "wiki_image_absent ${img_key} :${img_path} ~ /${pattern}/ IS PRESENT in ${EXTRACT_N} extracted file(s) -- a deliberately removed component came back (${desc})"
         info "this pattern was deleted on purpose; find what reintroduced it before cutting"
       else
-        green "wiki_image_absent ${img_key}@${ref##*@} :${img_path} !~ /${pattern}/ (${desc})"
+        green "wiki_image_absent ${img_key}@${ref##*@} :${img_path} !~ /${pattern}/ [${EXTRACT_N} files extracted] (${desc})"
       fi
+      rm -rf "${EXTRACT_DIR}"; EXTRACT_DIR=""
       ;;
     *)
       red "unknown manifest kind '${kind}'"
