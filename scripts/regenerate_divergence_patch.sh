@@ -66,6 +66,34 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/_vendor_lib.sh
 . "$SCRIPT_DIR/_vendor_lib.sh"
+PII_LIB="$VLIB_REPO_ROOT/.githooks/pii_patterns.sh"
+
+# ---------------------------------------------------------------------------
+# THE PII POSITIVE CONTROL. Runs EVERY invocation, before any verdict is trusted.
+#
+# READ THE SCANNER'S CONVENTION BEFORE TRUSTING ITS ANSWER. `pii_scan_files`
+# ALWAYS returns 0 and signals findings by PRINTING them. It also returns 0
+# with NO OUTPUT when the pattern file fails to load. So the exit code carries
+# no information, and a predicate written as `if pii_scan_files ...; then`
+# reads every run as clean -- including the run where the patterns never
+# loaded. Findings are judged by NON-EMPTY OUTPUT, never by rc.
+#
+# The canary is COMPOSED at runtime and never appears as a literal here,
+# because this repo's own pre-commit hook scans this file and a gate must not
+# carry the thing it hunts. OFCOM reserves 07700 900xxx for drama, so the shape
+# is provably not a real subscriber while still being the shape the scan hunts.
+_pii_control_fires() {
+    [ -f "$PII_LIB" ] || return 2
+    # shellcheck source=/dev/null
+    . "$PII_LIB" || return 2
+    local d canary out
+    d="$(mktemp -d)" || return 2
+    canary="+44$(printf '%s%s' '77009000' '00')"
+    printf 'phone = "%s"\n' "$canary" > "$d/canary.txt"
+    out="$(pii_scan_files "$d/canary.txt" 2>&1)"
+    rm -rf "$d"
+    [ -n "$out" ]
+}
 
 TREE="${1:-}"
 MODE="${2:-}"
@@ -112,7 +140,7 @@ echo ""
 
 # --- materialise source@pinned_sha, WITHOUT the existing patch ---------------
 SRC="$(mktemp -d)"
-trap 'rm -rf "$SRC" "$SRC.new" "$SRC.chk" "$SRC.diff"' EXIT
+trap 'rm -rf "$SRC" "$SRC.new" "$SRC.chk" "$SRC.diff" "$SRC.changed" "$SRC.pii"' EXIT
 rc=0
 vlib_materialise "$TREE" "$SRC" || rc=$?
 case "$rc" in
@@ -170,7 +198,58 @@ if [ ! -s "$NEW_PATCH" ]; then
            $SRC.diff  holds the drift the gate saw."
 fi
 
+# --- REFUSE if the patch would record PII ------------------------------------
+# THE `-` LINES ARE THE DANGEROUS ONES, AND THAT IS THE WHOLE POINT.
+#
+# A divergence patch's `-` lines are the SOURCE content, and its `+` lines are
+# the vendored content. In this repo the commonest graft is a SCRUB: upstream
+# still carries a real name or mailbox, the vendored side has it removed. So
+# the PII lands on the MINUS side, and writing the patch republishes into a
+# public repo exactly what was removed from the tree.
+#
+# A scan of only the added lines misses that entirely whenever there is no
+# patch on disk yet -- because then the "delta" is the raw patch and its `+`
+# lines are the SCRUBBED side. Verified by construction 2026-08-15 against a
+# patch whose source side held a synthetic UK mobile: the added-lines-only
+# predicate scanned it and found 0 occurrences. That is precisely the case for
+# the trees whose divergences are unrecorded today, which are the ones a
+# regenerate run would touch first.
+#
+# So: scan EVERY changed line, both signs, marker stripped.
+if ! _pii_control_fires; then
+    echo "regenerate_divergence_patch: CANNOT RUN -- the PII positive control did NOT fire." >&2
+    echo "  Either $PII_LIB is missing, or its patterns no longer match a known-bad" >&2
+    echo "  synthetic value. A PII check that cannot be shown to fire is not evidence" >&2
+    echo "  of absence, so nothing is blessed." >&2
+    exit 2
+fi
+
+CHANGED="$SRC.changed"
+grep -E '^[+-]' "$NEW_PATCH" | grep -vE '^(\+\+\+|---)' | sed -E 's/^[+-]//' > "$CHANGED" 2>/dev/null || true
+if [ -s "$CHANGED" ]; then
+    pii_scan_files "$CHANGED" > "$SRC.pii" 2>&1 || true
+    if [ -s "$SRC.pii" ]; then
+        echo "" >&2
+        echo "REFUSED: the patch this would record carries PII-shaped content." >&2
+        echo "" >&2
+        echo "  Pattern names only -- the values are deliberately NOT printed:" >&2
+        cut -d: -f1 "$SRC.pii" 2>/dev/null | sort -u | sed 's/^/    /' | head -20 >&2
+        echo "" >&2
+        echo "  This is the case the tool exists to prevent, and the likely location is" >&2
+        echo "  the MINUS side: upstream still carries the value, the vendored tree has" >&2
+        echo "  it scrubbed. Recording that publishes it back into a public repo." >&2
+        echo "" >&2
+        echo "  Do NOT re-sync to clear this. A re-sync deletes the vendored side, which" >&2
+        echo "  is where the scrub lives. Remove the PII from the SOURCE, re-pin, and" >&2
+        echo "  bring the graft forward; or keep the divergence unrecorded until you can." >&2
+        exit 1
+    fi
+fi
+
 # --- SHOW what is about to be blessed ----------------------------------------
+echo "PII control   : fired on a synthetic known-bad value, so the clean result means something"
+echo "PII scan      : $(wc -l < "$CHANGED" | tr -d ' ') changed line(s) scanned, both signs, no hits"
+echo ""
 echo "PROPOSED PATCH -- this is what would be RECORDED as a deliberate graft:"
 echo ""
 printf '  files touched : %s\n' "$(grep -c '^diff --git' "$NEW_PATCH" || echo 0)"

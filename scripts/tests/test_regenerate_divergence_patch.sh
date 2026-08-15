@@ -22,11 +22,20 @@
 #   4  --write with the confirm env        writes, self-verifies, tree rebuilds
 #   5  re-run after a successful write     REFUSED, patch already correct
 #   6  source advanced past the pin        REFUSED as a RE-PIN
-#   7  the vendored tree is never touched  across every control above
+#   7  PII on the SOURCE side, no patch    REFUSED, and the value is not echoed
+#   8  PII pattern library absent          CANNOT-RUN, never a pass
+#   +  the vendored tree is never touched  after EVERY control above
 #
-# Control 7 is the invariant the whole design rests on: this tool must change
-# no shipped bytes. It is checked by hashing the vendored tree before and after
-# every single control, not just at the end.
+# The tree-never-touched check is the invariant the whole design rests on, so
+# it runs after each control rather than once at the end.
+#
+# CONTROL 7 IS THE ONE AN ADDED-LINES-ONLY SCAN FAILS. A divergence patch's `-`
+# lines are the SOURCE and its `+` lines are the VENDORED tree, and the
+# commonest graft here is a SCRUB: upstream still carries a real value, the
+# vendored side has it removed. So PII sits on the MINUS side. Worse, when no
+# patch exists yet the "delta" is the raw patch, whose `+` lines are the
+# scrubbed side -- which is the state of every unrecorded divergence, the first
+# trees anyone would point this tool at.
 #
 # Fixture shape mirrors tests/test_vendor_fresh_gate.sh so the two agree about
 # what a vendored tree looks like.
@@ -69,9 +78,13 @@ make_fixture() {
         git commit --quiet -m "v1: initial"
     )
     local sha; sha="$(git -C "$src" rev-parse HEAD)"
-    mkdir -p "$root/scripts" "$root/vendor/synthtree/pkg" "$root/vendor/divergences"
+    mkdir -p "$root/scripts" "$root/vendor/synthtree/pkg" "$root/vendor/divergences" "$root/.githooks"
     cp "$REPO_ROOT/scripts/_vendor_lib.sh" \
        "$REPO_ROOT/scripts/regenerate_divergence_patch.sh" "$root/scripts/"
+    # The PII positive control runs on every invocation that reaches a verdict,
+    # so the fixture needs the pattern library or every divergent control below
+    # would CANNOT-RUN instead of exercising the guard it is aimed at.
+    cp "$REPO_ROOT/.githooks/pii_patterns.sh" "$root/.githooks/" 2>/dev/null || true
     cp "$src/pkg/mod.py" "$root/vendor/synthtree/pkg/mod.py"
     cat > "$root/vendor/VENDOR_MANIFEST.toml" <<EOF
 [[tree]]
@@ -179,6 +192,70 @@ fi
     && fail "control 6: WROTE A PATCH FOLDING IN UPSTREAM COMMITS" \
     || pass "control 6: no patch written"
 [ "$(vendor_hash "$R6")" = "$H6" ] || fail "control 6: THE VENDORED TREE CHANGED"
+
+# --- 7: PII on the SOURCE side, no patch on disk -> REFUSED ------------------
+# THE CONTROL THAT MATTERS MOST, and the one an added-lines-only scan fails.
+#
+# A divergence patch's `-` lines are the SOURCE and its `+` lines are the
+# VENDORED tree. The commonest graft in this repo is a SCRUB: upstream still
+# carries a real value, the vendored side has it removed. So the PII sits on
+# the MINUS side, and a scan of only added lines never sees it -- verified by
+# construction, 0 occurrences, on exactly this shape.
+#
+# It is worst when NO patch exists yet, because then the "delta" is the raw
+# patch and its `+` lines are the scrubbed side. That is the state of the trees
+# whose divergences are unrecorded, which are the first ones anyone would run
+# this tool against.
+R7="$WORK/c7"; mkdir -p "$R7"; make_fixture "$R7" >/dev/null
+# Source carries a synthetic OFCOM-drama UK mobile; vendored side scrubs it.
+# Composed at runtime so this file never carries the shape it hunts.
+_canary="+44$(printf '%s%s' '77009000' '00')"
+(
+    cd "$R7/synthetic-source"
+    printf 'def owner():\n    return "%s"\n' "$_canary" > pkg/mod.py
+    git add pkg/mod.py
+    git commit --quiet -m "v2: source carries the value"
+)
+_sha7="$(git -C "$R7/synthetic-source" rev-parse HEAD)"
+sed -i.bak "s/^pinned_sha .*/pinned_sha       = \"$_sha7\"/" "$R7/vendor/VENDOR_MANIFEST.toml"
+rm -f "$R7/vendor/VENDOR_MANIFEST.toml.bak"
+printf 'def owner():\n    return "REDACTED"\n' > "$R7/vendor/synthtree/pkg/mod.py"
+rm -f "$R7/vendor/divergences/synthtree.patch"
+H7="$(vendor_hash "$R7")"
+out="$(run_tool "$R7" synthtree)"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'PII-shaped content'; then
+    pass "control 7: PII on the SOURCE side, no patch on disk -> REFUSED"
+else
+    fail "control 7: source-side PII -> rc=$rc, expected a PII refusal"
+    printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
+fi
+if printf '%s' "$out" | grep -q '77009000'; then
+    fail "control 7: THE REFUSAL PRINTED THE VALUE (it must print pattern names only)"
+else
+    pass "control 7: refusal named patterns, did not echo the value"
+fi
+[ -f "$R7/vendor/divergences/synthtree.patch" ] \
+    && fail "control 7: WROTE A PATCH CONTAINING PII" \
+    || pass "control 7: no patch written"
+[ "$(vendor_hash "$R7")" = "$H7" ] || fail "control 7: THE VENDORED TREE CHANGED"
+
+# --- 8: PII library absent -> CANNOT-RUN, never a pass -----------------------
+# A PII check that cannot be shown to fire is not evidence of absence. With the
+# pattern file gone the scanner returns 0 and prints nothing, which is
+# indistinguishable from clean -- so the control must catch it and the tool must
+# report CANNOT-RUN rather than blessing anything.
+R8="$WORK/c8"; mkdir -p "$R8"; make_fixture "$R8" >/dev/null
+printf 'def hello():\n    return "v1"\n\ndef graft():\n    return "local"\n' \
+    > "$R8/vendor/synthtree/pkg/mod.py"
+rm -f "$R8/.githooks/pii_patterns.sh"      # THE mutation this control is about
+H8="$(vendor_hash "$R8")"
+out="$(run_tool "$R8" synthtree)"; rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'positive control did NOT fire'; then
+    pass "control 8: PII library absent -> CANNOT-RUN (rc=2), not a pass"
+else
+    fail "control 8: PII library absent -> rc=$rc, expected CANNOT-RUN"
+fi
+[ "$(vendor_hash "$R8")" = "$H8" ] || fail "control 8: THE VENDORED TREE CHANGED"
 
 echo ""
 if [ "$fails" -gt 0 ]; then
