@@ -90,3 +90,19 @@
          records = fetch_new_messages(conn, after_rowid=last_rowid)
      finally:
          conn.close()
+--- a/launchd/com.ostler.imessage-bridge.plist
++++ b/launchd/com.ostler.imessage-bridge.plist
+@@ -36,10 +36,9 @@
+     -->
+     <key>ProgramArguments</key>
+     <array>
+-        <string>OSTLER_PYTHON</string>
+-        <string>OSTLER_BIN/bridge.py</string>
+-        <string>--interval</string>
+-        <string>30</string>
++        <string>OSTLER_ASSISTANT_BINARY</string>
++        <string>run-source</string>
++        <string>imessage-bridge</string>
+     </array>
+ 
+     <!--

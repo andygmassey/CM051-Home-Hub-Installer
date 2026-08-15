@@ -157,6 +157,19 @@ run "wiki image PLATFORM" \
 
 echo
 echo "-- Vendor + artefact freshness -----------------------------------"
+# Tests IMPORT, production EXECUTES. A top-level def below a `__main__` guard
+# binds fine on import, so the whole test suite passes, and raises NameError
+# the moment the file is run as a script -- which is how every LaunchAgent in
+# the DMG runs it. That shipped once already, in the Front Page producer, and
+# for the life of the release it presented as "the page never updates" because
+# the degraded-feed path kept serving the last good feed.
+#
+# It belongs in the CUT gates and not only in CI: the gate reads the three
+# shipped roots (vendor/, scripts/, lib/) in the tree being cut, so it is
+# asking about the artefact rather than about a branch.
+run "no defs after __main__ guard" \
+    "shipped .py files run as scripts, not just import" \
+    python3 scripts/verify_no_defs_after_main_guard.py
 run "cut freshness"   "vendored inputs match live upstream"  bash scripts/verify_cut_freshness.sh
 run "cut provenance"  "components are the intended builds"   bash scripts/verify_cut_provenance.sh
 run "content provenance" "artefacts contain the required fixes" bash scripts/provenance_gate.sh
