@@ -43,6 +43,136 @@ classification to ``vendor/PERSON_NAMES_REVIEWED.tsv``, the same
 declare-it-or-it-is-a-finding pattern ``vendor/VENDOR_ONLY.tsv`` already uses in
 this repo. Until that file is seeded the sweep is a MEASUREMENT (``--report``),
 not a gate.
+
+THE HEADLINE NUMBER GOES **UP** WHEN YOU FIX THINGS
+---------------------------------------------------
+Read this before concluding a scrub made things worse. Measured across one
+scrub on 2026-08-15: distinct candidates fell 877 -> 875, while the
+kinship-shaped set ROSE from 3 names at 9 sites to 4 at 10.
+
+Nothing regressed. Replacing a real-looking name with a synthetic one removes
+one token and mints another, and the new one is a candidate too, because this
+sweep reports SHAPE and a synthetic name is the same shape as a real one. A
+scrub can therefore raise every number here while strictly improving the tree.
+
+So the count is a DENOMINATOR, not a finding count, in both directions: it
+cannot go to zero (the trees are full of legitimate two-capitalised-word
+tokens), and it does not fall monotonically as you fix things. The number that
+means something is the count of UNDECLARED candidates once
+``PERSON_NAMES_REVIEWED.tsv`` is seeded. Anyone quoting the raw total as a leak
+count will panic at 877, and anyone watching it after a scrub will conclude the
+scrub failed.
+
+A BASELINE IS A STATEMENT ABOUT THE FUTURE, NOT A FINDING ABOUT THE PAST,
+AND IT PRINTS IDENTICALLY TO ONE
+-------------------------------------------------------------------------
+The general form of the failure that let a set of SCOPED zeros read as
+whole-tree zeros on 2026-08-15.
+
+A guard that records existing occurrences as an accepted baseline and then
+blocks anything NEW is doing something useful and something narrow. It says
+"no more of these". It does not say "there are none of these". Those two
+sentences have the same output: a green tick and a zero.
+
+Measured that day: several thousand baseline rows across two repos, each of
+them UNREVIEWED legacy prose, sitting behind a green gate; and separately, a
+scoped pass over about nine modules returned zero and was reported as a clean
+tree, while a whole-committed-tree pass then found residue in eighteen files.
+The earlier zeros were TRUE OF WHAT THEY MEASURED. That is the trap: they were
+not wrong, they were narrow, and narrowness does not print.
+
+So when reading any zero from a gate of this shape, ask three questions in
+order, because each can produce a zero on its own:
+  1. What was in SCOPE? (a scoped zero is not a tree zero)
+  2. What SHAPE can the predicate match? (a pair regex cannot see a lone token)
+  3. Was the instrument itself in scope? (a guard that excludes its own file
+     is green about its own contents by construction)
+
+All three of those fired on the same day, on the same class of data.
+
+WHICH SIDE OF A DIVERGENCE PATCH A NAME SITS ON DETERMINES THE FIX ROUTE,
+AND THE WRONG ROUTE FAILS SILENTLY IN BOTH DIRECTIONS
+-------------------------------------------------------------------------
+Both halves of this were hit for real on 2026-08-15, by two people, in the same
+file, on opposite sides. Neither half is safe to know alone.
+
+  MINUS line -- the content is SOURCE, and the graft REMOVES it. The commonest
+  graft is a scrub, so a name being scrubbed sits here. Scrubbing the VENDORED
+  copy pushes the name onto this side, where the diff reads as "fixed", and the
+  name is still published from source.
+
+  PLUS line -- the content is VENDORED, added by the graft, and it may not
+  exist in source at all. Fixing SOURCE and re-vendoring does not touch it. The
+  graft reinstates it on the next vendor, and you are left with a convincing
+  "already fixed" commit in the history and the name still shipping.
+
+Measured instance of the plus-side trap: a kinship-shaped example in
+``vendor/cm041/identity_resolver/resolver.py`` and its divergence patch, with
+the enclosing comment block VERIFIED ABSENT from cm041 source (source 782
+lines, vendored 986). A source-side fix would have been a no-op that looked
+like a fix.
+
+Neither failure is visible in the diff you would naturally look at. So:
+determine the SIDE first, then pick the route, and re-run this sweep AFTER the
+re-vendor rather than before -- that ordering is the only thing that catches a
+silent reinstatement.
+
+A FIXTURE WHOSE REALNESS CANNOT BE DECIDED FROM ITS OWN FILE IS A DEFECT
+------------------------------------------------------------------------
+This is the strongest conclusion available from a day of running this sweep,
+and it is a REQUIREMENT, not a style preference.
+
+On 2026-08-15 a pair of fixture names in a vendored tree was adjudicated four
+times: by this sweep, by a second scanner, and then by two people, one of whom
+reported them as a disclosure and had to be corrected by the person who wrote
+them. They were synthetic all along. Nothing was leaked, and the cost was paid
+anyway: four adjudications, one false accusation, and a near-miss where the
+fix would have scrubbed data that never needed scrubbing.
+
+That cost recurs on every read, forever, and it cannot be engineered away by a
+better detector. Nothing about the SHAPE of a name distinguishes a real one
+from a realistic invented one -- that is the same fact that makes a denylist
+useless here, stated from the other side. A denylist cannot find the real names
+nobody has enumerated, and a shape sweep cannot clear the fake ones nobody has
+declared. Both gaps close from the fixture end, not the detector end.
+
+So: test data must be provably fictional FROM THE FILE ITSELF, without asking a
+human and without a cross-repo lookup. Phones already have this (OFCOM reserves
+07700 900xxx for drama, so a phone fixture carries its own proof). Names have
+no reserved range, so the equivalent is a house surname declared invented in
+the same file or module that uses it -- the pattern already in
+``relationship_labels.py``, whose docstring says outright that its people are
+invented. A realistic name with no such declaration is a defect even when it is
+in fact synthetic, because the reader cannot tell, and the reader is who pays.
+
+The seeded ``PERSON_NAMES_REVIEWED.tsv`` is the estate-wide form of the same
+idea: declare it, or it is a finding.
+
+A NOTE ON REPORTING WHAT THIS FINDS
+-----------------------------------
+Report categories, paths, counts and sides. Prefer not to print the token.
+
+The rule is strongest where a value is UNADJUDICATED, which is the normal case
+and the one to default to: the reporter usually cannot tell a real name from a
+realistic fixture, a report is read, quoted and logged in more places than the
+gate is, and an unadjudicated value cannot be un-printed. It is NOT a claim
+that every name-shaped token is sensitive. Once a value is adjudicated
+synthetic by someone who can actually settle it, naming it is fine and is often
+clearer. Withholding an adjudicated fixture name buys nothing and makes the
+finding harder to act on.
+
+The failure to avoid is asserting either way without checking, in both
+directions: publishing a value nobody has cleared, and accusing over a value
+nobody has examined. The second happened here too.
+
+Corollary, learned the same day: a SHAPE gate can only ever say
+"name-shaped". What converts a candidate into an identification is joining two
+independently-written files -- e.g. a fixture and a repo instruction file that
+names the same person alongside an employer or a venue. That join is a
+legitimate and cheap audit technique, and it is also the thing an outsider can
+do. When assessing a file's exposure, measure the ADJACENCY (does a
+name-shaped token share a line with an employer/venue/role cue?), not just the
+name count.
 """
 from __future__ import annotations
 
