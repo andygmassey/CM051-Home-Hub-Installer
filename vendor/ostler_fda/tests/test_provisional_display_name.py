@@ -17,8 +17,8 @@ def test_bare_email_is_provisional():
 
 
 def test_real_name_is_not_provisional():
-    assert p._is_provisional_display_name("Danny Kwan") is False
-    assert p._is_provisional_display_name("Arnaud Bonzom") is False
+    assert p._is_provisional_display_name("Sam Wang") is False
+    assert p._is_provisional_display_name("Alex Brown") is False
     # A human nickname with a few digits is still a name, not a phone.
     assert p._is_provisional_display_name("Agent 3-2-1") is False
 

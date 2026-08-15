@@ -132,7 +132,7 @@ def _wiki_slug(name: str) -> str:
 #
 # So a kinship word is REFUSED outright: never a displayName, never an
 # alternateName, and never grounds to clear the provisional flag. Only
-# the BARE word goes -- "Auntie Emma" and "Granny Halloran" carry a real
+# the BARE word goes -- "Auntie Jane" and "Granny Doe" carry a real
 # name and are kept, because a false positive here erases a real
 # person's name, which is worse than keeping an odd alias.
 #

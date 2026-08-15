@@ -179,8 +179,42 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "eb00b702677055c4483dfc0f63c5a9df0b125eb3"
+  pinned_sha = "c9b5f5595696f706f348dd123ca6e63cd3267b2c"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
+  # RE-PIN 2026-08-15 (second, same day): eb00b702 -> c9b5f55. The previous
+  # re-pin below retired an identifier_quality.py divergence by pulling HR015
+  # #369 forward. #369 was MAILBOX-SHAPED. It replaced email addresses and left
+  # every real NAME in the same file, and the file was then reported clean by a
+  # shape-only scanner that has no name pattern and, measured 2026-08-15, no
+  # email pattern either. So the tree this repo vendored publicly still carried
+  # real third-party names, in four modules, after being declared scrubbed.
+  #
+  # HR015 #371 (e32ed13) de-identifies them upstream and adds the permit-list
+  # guard that can actually see a name; #372 (c9b5f55) restores one code comment
+  # #371 over-scrubbed, whose text is the CONTEXT of the given_name_variants
+  # divergence hunk below. Pinning at #372 keeps that hunk applying.
+  #
+  # WHAT THIS RE-PIN ASSERTS. Two commits touch this sub-path across the range,
+  # both of them the fix, and the two-dot TREE diff is the whole of it:
+  #   git diff --stat eb00b702 c9b5f55 -- ostler_fda/
+  #     given_name_variants.py 12 +-   identifier_quality.py 96 +--
+  #     repair_role_address_people.py 6 +-   role_addresses.py 12 +-
+  #     tests/test_identifier_quality.py 132 +--
+  #     tests/test_no_unknown_person_names.py 424 +   (new guard)
+  #     tests/test_role_address_over_merge.py 74 +--
+  # Only the four non-test modules are vendored here; tests/ is not, except
+  # test_provisional_display_name.py which this range does not touch.
+  #
+  # PROVEN BY CONTENT, not ancestry. Three files are byte-identical to source:
+  #   identifier_quality.py         2c3a9ff92f12715b...  (both sides)
+  #   role_addresses.py             2b1a089abd5e6e2d...  (both sides)
+  #   repair_role_address_people.py e9baffe9dd2ec5cc...  (both sides)
+  # given_name_variants.py is NOT byte-identical and must not be: it carries the
+  # recorded divergence below (one dictionary row removed for the operator-PII
+  # guard). Only the docstring delta was applied to it, so the diff against
+  # source@c9b5f55 is exactly that one recorded hunk and nothing else.
+  #
+  # ---- previous re-pin, retained ----
   # RE-PIN 2026-08-15: ab63b7be -> eb00b702, and the point of it is a divergence
   # that could NOT be written down.
   #
