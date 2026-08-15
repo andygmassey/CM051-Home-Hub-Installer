@@ -160,8 +160,42 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "ab63b7be732daeabde2dedcbfa50e593a54153da"
+  pinned_sha = "eb00b702677055c4483dfc0f63c5a9df0b125eb3"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
+  # RE-PIN 2026-08-15: ab63b7be -> eb00b702, and the point of it is a divergence
+  # that could NOT be written down.
+  #
+  # This tree diverged from source@pinned_sha in three places. Two are ours to
+  # keep: the v1018-D011 creation-name routing in pwg_ingest.py (CM051 272360c)
+  # and the vendor-only repair_placeholder_names.py (VENDOR_ONLY.tsv row 41,
+  # subject of .github/workflows/name-repair.yml). Both are now RECORDED in the
+  # divergence patch. The third was identifier_quality.py, and recording it was
+  # the problem: a divergence patch's MINUS lines are the SOURCE side, and this
+  # divergence is CM051 ab2b6d4 scrubbing real personal data that HR015 still
+  # carried. Writing that record into this PUBLIC repo republishes the values
+  # the scrub removed.
+  #
+  # HR015 #369 (eb00b702) applies the identical anonymisation upstream, so the
+  # hunk is RETIRED rather than recorded. Proven by content, not by ancestry:
+  #   sha256 ostler_fda/identifier_quality.py @ eb00b702  a1e226454740774b...
+  #   sha256 vendor/ostler_fda/identifier_quality.py      a1e226454740774b...
+  # Byte-identical, so the file drops out of the shared-file diff entirely.
+  #
+  # WHAT THE RE-PIN ASSERTS. Exactly one commit touches this sub-path across the
+  # range, and the tree diff is the whole of it:
+  #   git diff --stat ab63b7be eb00b702 -- ostler_fda/
+  #     ostler_fda/identifier_quality.py | 11 ++++++-----   (1 file, +6/-5)
+  # eb00b702 is prose only -- one comment block (line 233) and one docstring
+  # (line 468) -- with zero executable bytes, so nothing new reaches a customer.
+  # The other 30 commits in ab63b7be..HR015 main touch no path this tree vendors.
+  #
+  # WHY NOT PIN AT HR015 main HEAD (01ed8703). Same content, weaker claim:
+  #   git rev-parse eb00b702:ostler_fda == git rev-parse origin/main:ostler_fda
+  #     8a1abd1c2ac5b2b34884b5790c4755e450dd4f52 (both)
+  # Identical tree object, so pinning at the newest commit that actually touches
+  # the sub-path asserts one reviewed commit instead of thirty-one unreviewed
+  # ones. The freshness gate's "source advanced" limb is satisfied either way.
+  #
   # hold_ack for 9a53c466 REMOVED 2026-08-07 (v1.0.16) -- DISCHARGED, not dropped.
   # It held "fix(email-ingest): resilient emlx walk -- skip unreadable subdirs"
   # (#197/#276) across v1.0.13.2 with the promise "to be grafted forward with the
