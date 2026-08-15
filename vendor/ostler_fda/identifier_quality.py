@@ -430,13 +430,20 @@ def distinct_given_names(names: Iterable[str]) -> Set[str]:
     This is the family signature and the one thing distinct_people() cannot
     see. Ana, Ben and Carl Doe share a surname, so the shared-word
     clustering fuses them -- correctly, for its own purpose, since that is what
-    rescues "Bob Doe"/"Robert Doe". Different GIVEN names behind one
+    rescues "Bobby Doe"/"Robert Doe". Different GIVEN names behind one
     mailbox set is what says "household".
 
-        Ana Doe / Ben Doe / Carl Doe  -> Ana, brian, Carl  = 3
-        Robbie Doe / Mum / +4478...           -> anthony               = 1
-        Bob Doe / Robert Doe                 -> robert            = 1
-        Mary-Jane Doe / Tom Smith            -> mary-jane, tom    = 2
+    The right-hand side is what this function RETURNS -- lowercase canonical
+    given names, measured, not paraphrased:
+
+        Ana Doe / Ben Doe / Carl Doe    -> ana, ben, carl  = 3
+        Robbie Doe / Mum / +4478...     -> robert          = 1
+        Bobby Doe / Robert Doe          -> robert          = 1
+        Mary-Jane Doe / Tom Smith       -> mary, tom       = 2
+
+    "Bob Doe" / "Robert Doe" returns TWO ({bob, robert}), not one: "bob" is
+    claimed by more than one full name, so given_name_variants deliberately
+    refuses to canonicalise it. The short form that does resolve is "bobby".
 
     Kinship words and machine labels are excluded first: "Mum" has no given
     name, and counting it would split that person from herself.
