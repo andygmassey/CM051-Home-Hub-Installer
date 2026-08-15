@@ -16457,7 +16457,19 @@ OSTLER_TS_WRAPPER
             ok "$MSG_OK_TAILSCALE_INSTALLED"
         else
             warn "$MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL"
-            OSTLER_TAILSCALE_SKIPPED=1
+            # OSTLER_TAILSCALE_SKIPPED=1 used to be set here and was read by
+            # nothing, anywhere in the repo -- one write, zero reads. Removed
+            # rather than wired, because the state it tracked is already
+            # derivable one line later: TS_CLI comes from `command -v tailscale`
+            # and is empty on exactly this path, so the block below already
+            # branches correctly. A second, hand-maintained copy of a fact the
+            # code can compute is the same class of bug as a vendored twin --
+            # and a flag that LOOKS like it gates something is worse than no
+            # flag, because the next person assumes the state is tracked.
+            #
+            # What was genuinely missing is handled at the TS_CLI branch below:
+            # the customer was told the install failed but never told what it
+            # COSTS them.
         fi
     else
         ok "$MSG_OK_TAILSCALE_ALREADY_INSTALLED"
@@ -16860,6 +16872,17 @@ if ports:
         fi
     else
         warn "$MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU"
+        # SAY WHAT IT COSTS, not just what failed. This branch is where the
+        # brew-install failure lands (TS_CLI is empty), and until now the
+        # customer got two messages that both described the MECHANISM
+        # ("install failed", "could not find the CLI") and neither of which
+        # said the thing they actually care about: their iPhone and Watch will
+        # only reach this Mac on the home network.
+        #
+        # The customer who DECLINED Tailscale was told that consequence (the
+        # else below). The customer whose install FAILED was not -- the worse
+        # outcome got the weaker explanation. Same sentence, both paths.
+        info "$MSG_INFO_TAILSCALE_SKIPPED"
     fi
 else
     info "$MSG_INFO_TAILSCALE_SKIPPED"
