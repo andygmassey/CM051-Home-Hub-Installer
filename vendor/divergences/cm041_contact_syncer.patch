@@ -562,15 +562,23 @@
          # FOAF is the de-facto vocabulary for person-to-depicting-image; we
          # use foaf:img (the primary image) rather than foaf:depiction (any
          # image containing the person). The value is a file URI because the
-@@ -763,11 +1007,19 @@
+@@ -763,11 +1007,27 @@
  
          for idx, phone in enumerate(parsed.get("phones", [])):
              id_uri = f"https://pwg.dev/ontology#id_{person_id}_phone{idx}"
 +            # Store the NORMALISED value so it matches what the resolver's
 +            # find_by_identifier queries for. Previously this wrote the raw
-+            # vCard value (e.g. "+44 7700 900123") while the resolver looked up
-+            # the E.164 form ("+447700900123"), so Tier-1 exact-identifier dedup
++            # vCard value -- country code plus the number's own spacing and
++            # punctuation, exactly as the card carried it -- while the resolver
++            # looked up the E.164 form, which is a leading "+" and digits only.
++            # The two never compared equal, so Tier-1 exact-identifier dedup
 +            # never fired and every repeat minted a duplicate (BW-1).
++            #
++            # Deliberately described rather than illustrated: a worked example
++            # here would have to be phone-SHAPED to make the point, and the
++            # shape guard cannot tell a synthetic number from a real one. That
++            # is the correct behaviour, so the example goes rather than the
++            # guard being weakened or the literal being smuggled past it.
 +            phone_value = normalise_phone(
 +                phone["value"], self.resolver.default_country_code
 +            )
@@ -583,7 +591,7 @@
              )
              if phone.get("label"):
                  id_triples.append(
-@@ -814,7 +1066,7 @@
+@@ -814,7 +1074,7 @@
  
          Updates mutable scalar properties (displayName/org/jobTitle/contactType)
          AND merges any new identifiers (iCloud UID, phones, emails) from the
@@ -592,7 +600,7 @@
          identifier that already exists is a no-op.
          """
          fn = (parsed.get("fn") or "").replace('"', '\\"')
-@@ -868,6 +1120,8 @@
+@@ -868,6 +1128,8 @@
          for phone in parsed.get("phones", []):
              v = phone.get("value") if isinstance(phone, dict) else None
              if v:
@@ -601,7 +609,7 @@
                  new_ids.append(("phone", v, phone.get("label") if isinstance(phone, dict) else None))
          for email in parsed.get("emails", []):
              raw = email.get("value") if isinstance(email, dict) else None
-@@ -1079,10 +1333,10 @@
+@@ -1079,10 +1341,10 @@
                  ),
              )
          except Exception as exc:
