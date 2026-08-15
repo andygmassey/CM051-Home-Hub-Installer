@@ -81,7 +81,10 @@ if grep -q 'PASS.*_render_settling_panel' <<<"$out"; then
   ok "a present marker PASSES (the gate can read image content at all)"
 else
   bad "a present marker did not pass -- the gate cannot read the image"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 fi
 
 # --- 2. NEGATIVE: a marker that cannot possibly exist -----------------------
@@ -91,7 +94,10 @@ if grep -q 'FAIL.*zzz-this-string-cannot-exist' <<<"$out"; then
   ok "an impossible marker FAILS (the gate discriminates, it does not rubber-stamp)"
 else
   bad "an impossible marker did NOT fail -- the gate passes everything"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 fi
 
 # --- 3. MIRROR POLARITY: absent-check must fire on something present --------
@@ -100,7 +106,10 @@ if grep -q 'FAIL.*IS PRESENT' <<<"$out"; then
   ok "wiki_image_absent RED-flags a pattern that is present (mirror polarity works)"
 else
   bad "wiki_image_absent did not fire on a present pattern -- absence checks are vacuous"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 fi
 
 # --- 4. THE ARM THAT WOULD HAVE CAUGHT v1.0.27 ------------------------------
@@ -112,7 +121,10 @@ if grep -qE 'CANNOT|could not EXTRACT' <<<"$out"; then
   ok "unextractable path is CANNOT-RUN on wiki_image_grep, not a content verdict"
 else
   bad "unextractable path did not report CANNOT-RUN on wiki_image_grep"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 fi
 
 out="$(run_gate 'wiki_image_absent|wiki-compiler:/no/such/path/in/this/image|anything|THE VACUOUS-PASS KILLER: must not pass just because nothing was read')"
@@ -120,10 +132,16 @@ if grep -qE 'CANNOT|could not EXTRACT' <<<"$out"; then
   ok "unextractable path is CANNOT-RUN on wiki_image_absent (NOT a silent green)"
 elif grep -q 'PASS' <<<"$out"; then
   bad "REGRESSION: wiki_image_absent PASSED on an image it never read -- this is the v1.0.27 bug"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 else
   bad "wiki_image_absent gave neither CANNOT-RUN nor PASS on an unextractable path"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 fi
 
 # --- 5. the extraction itself must be evidenced -----------------------------
@@ -133,7 +151,10 @@ if grep -qE '\[[0-9]+ files extracted\]' <<<"$out" && ! grep -qE '\[0 files extr
   ok "the extraction is evidenced by a non-zero file count ${n}"
 else
   bad "no non-zero file count reported -- a zero-file extraction could pass unnoticed"
-  printf '%s\n' "$out" | tail -4 | sed 's/^/        /'
+  # Print the ROW, not the verdict tail. The tail is generic boilerplate that
+  # names ostler-assistant on every cannot-run, which sent the first diagnosis
+  # of this test's own CI failure in entirely the wrong direction.
+  printf '%s\n' "$out" | grep -E 'wiki_image_(grep|absent)|docker:|EXTRACT' | head -4 | sed 's/^/        /'
 fi
 
 echo
