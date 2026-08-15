@@ -1,0 +1,17 @@
+# fda_unwired_modules.tsv -- ostler_fda modules that SHIP and can never run.
+#
+# Read by scripts/verify_fda_modules_reachable.py and printed IN FULL on every
+# run. Verified on every PR by .github/workflows/fda-reachable.yml.
+#
+# This is a BACKLOG, not a blessing. Each row records a module that is present
+# in the shipped payload and reachable from nothing: not install.sh, not a tick
+# script, not a LaunchAgent, not the doctor. The gate fails the moment the set
+# GROWS, so a new module wired to nothing fails CI on the PR that adds it.
+#
+# A row is not a permission to leave it dark. It is a named, dated debt with the
+# blocking thing written down, so the next reader inherits the reason rather
+# than the silence.
+#
+# columns: module<TAB>blocked_by<TAB>note
+repair_placeholder_names	the household split does not exist	v1018-D658/D659. Elects one displayName per person and demotes the rest; deletes kinship words outright. Merged, tested, and PRESENT in the shipped v1.0.26 DMG (verified byte-identical to main under OstlerInstaller.app/Contents/Resources/ostler_fda/). Nothing calls it. It CANNOT be auto-wired to --apply: main() refuses to write unless a household-split marker exists (default ~/.ostler/household-split.done, override OSTLER_HOUSEHOLD_SPLIT_MARKER), and NOTHING in this repo creates that marker -- grep is zero outside the module and its guard test. Measured 2026-08-15 against the shipped copy with a stub graph: --apply without the marker exits 2 and writes nothing; with the marker it applies. Passing --households-already-split from install.sh would assert an environmental fact no one measured, on a pass that deletes names with no undo. The trigger is UNRECORDED: neither the module, tests/test_name_repair.sh nor the workflow says once/scheduled/on-demand; the docstring shows manual CLI use only. Andy to choose the trigger.
+repair_role_address_people	no caller was ever written	Sibling repair pass in the same directory, same shape, same problem: it ships and nothing invokes it. Found by the same census that found the row above, which is the point of counting rather than remembering. Not diagnosed here beyond reachability -- do not wire it on the strength of this row alone.
