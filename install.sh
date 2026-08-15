@@ -9484,7 +9484,7 @@ fi
 # meantime. A `config encrypt-secrets` subcommand would close the
 # window; flagged as a follow-up Rust PR (or roll into Phase E).
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.56}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.4.57}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -9554,7 +9554,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="e918c96c50e554e251fff0efce4bbc516ade51255a3baa0d45a63ab38a45c769"
+DEFAULT_ASSISTANT_TARBALL_SHA256="f311519a51fed09a59c37c9c4049fac1d5e18228950747f91f41a1a0c2dd749e"
 ASSISTANT_TARBALL_SHA256="${OSTLER_ASSISTANT_TARBALL_SHA256:-${DEFAULT_ASSISTANT_TARBALL_SHA256}}"
 
 # ── Creative Machines Developer-ID pin (v1.0.10 red-team-3) ──────
@@ -11065,7 +11065,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:34ecb4efb899e1e78825d82a61a7096b874ad853814617ad2e62d5e7b9adb04b
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:852351e2002fa14ac864d35cab1cd39aec4a805a246a460feafdec62dd446728
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -11100,7 +11100,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:a346ddf239078155f1a17c596c17a82eef1988f0a9ee40b341c68b8b84ce11ff
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:8be6ce78e37ba0397e74d847dc3ac1a31993ad3d5abb4f7bb0dc14d7b55f8449
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
