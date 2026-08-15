@@ -56,7 +56,17 @@ echo "=== repo-wide: no gate execs a pinned image to read it ==="
 
 # Everything tracked by git, so a stray file in the working tree cannot hide a
 # site and an untracked scratch copy cannot manufacture one.
-mapfile -t FILES < <(git ls-files '*.sh' '*.py' '*.yml' '*.yaml' 2>/dev/null)
+#
+# NO mapfile. It is a bash 4 builtin and this test runs in cut-gate-wrappers,
+# which is macos-latest ON PURPOSE because the cut host is macOS and /bin/bash
+# there is 3.2. The first version used mapfile and died with "command not found"
+# followed by three unbound-variable errors -- non-zero, so fail-closed, but
+# noise rather than a verdict. A gate that proves things about the cut host has
+# to run under the cut host's shell.
+FILES=()
+while IFS= read -r _f; do
+  [[ -n "$_f" ]] && FILES+=("$_f")
+done < <(git ls-files '*.sh' '*.py' '*.yml' '*.yaml' 2>/dev/null)
 echo "files examined: ${#FILES[@]}"
 if [[ "${#FILES[@]}" -eq 0 ]]; then
   echo "REFUSING: git ls-files returned nothing -- the predicate examined no files, which is not a pass" >&2
