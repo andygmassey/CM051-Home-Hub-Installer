@@ -22,6 +22,7 @@ on:
       - 'tests/test_launchd_plist_no_tmp.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
+      - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - '.github/workflows/launchd-plist-paths.yml'
   push:
     branches: [main]
@@ -65,3 +66,21 @@ jobs:
       - name: Assert the Hub stays awake after the installer exits (#338)
         if: always()
         run: bash tests/test_stay_awake_agent_survives_installer_exit.sh
+
+      # The other half of the same agent's life. `launchctl bootout` unloads a
+      # job for the current login session only; launchd rescans
+      # ~/Library/LaunchAgents at every login, so a plist left on disk is
+      # loaded again next time the customer logs in. An uninstall that boots
+      # out com.ostler.stay-awake and leaves its plist behind keeps holding a
+      # `caffeinate -s` power assertion on a Mac with no Ostler on it.
+      #
+      # This runs the uninstaller's teardown against a sandboxed HOME seeded
+      # with one plist per agent and fails on anything still on disk after.
+      # Presence of an `rm -f` line is not what it measures; what is left in
+      # the directory is.
+      #
+      # `if: always()` for the same reason as the steps above: an earlier
+      # failure must not delete this measurement (CM051 #656).
+      - name: Assert uninstall removes every LaunchAgent plist, not just the job
+        if: always()
+        run: bash tests/test_uninstall_removes_every_launchagent_plist.sh
