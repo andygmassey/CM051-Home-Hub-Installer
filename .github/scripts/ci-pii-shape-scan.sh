@@ -97,14 +97,26 @@ if [ "${PATTERN_COUNT:-0}" -eq 0 ]; then
 fi
 
 # ── Positive control ──────────────────────────────────────────────────────
-# Composed from parts on purpose. The phone pattern is SHAPE-based and
-# .githooks/test_pii_patterns.sh asserts it fires even on the OFCOM drama
-# range, so a phone-shaped literal written directly into this file would be
-# blocked by the very hook this script supports. A gate must not carry the
-# thing it hunts.
+# Composed from parts on purpose: a phone-shaped literal written directly into
+# this file would be blocked by the very hook this script supports. A gate must
+# not carry the thing it hunts.
+#
+# THE CANARY MUST BE A NON-RESERVED NUMBER. It used to be an OFCOM drama-range
+# one (+44 7700 900xxx), which was correct while this repo's copy of
+# pii_patterns.sh reported on a bare `grep -l`. Re-provisioning that library
+# from HR015 brought pii_reserved_placeholder_re with it, whose entire job is
+# to EXCUSE the drama range -- so the canary stopped firing and this scanner
+# went permanently CANNOT-RUN.
+#
+# It failed in the right direction, which is the point of the canary: it
+# refused to report a pass rather than reporting a clean tree it had not
+# examined. But a permanently-refusing gate is still a dead gate, so the
+# fixture has to sit outside every reserved range. If this scanner ever goes
+# CANNOT-RUN across the board, check whether a reserved range swallowed the
+# canary before looking at the patterns.
 CANARY_DIR="$(mktemp -d -t pii-canary-XXXXXX)"
 trap 'rm -rf "$CANARY_DIR"' EXIT
-_cc="+44"; _sub="7700900000"
+_cc="+44"; _sub="7911123456"
 printf 'contact = "%s%s"\n' "$_cc" "$_sub" > "$CANARY_DIR/canary.txt"
 
 CANARY_HIT="$(pii_scan_files "$CANARY_DIR/canary.txt" "$CUSTOM")"

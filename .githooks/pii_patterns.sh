@@ -127,6 +127,18 @@ pii_load_patterns() {
 #       <file>
 # Returns 0 always (the caller decides whether any output == failure); the
 # point is that scanning never aborts on a single bad input.
+# Standards-reserved placeholders. A value in one of these ranges can
+# never belong to a real person, so a pattern hit on one is never a leak.
+#
+# Kept deliberately short and standards-only: this is an allowlist of
+# SHAPES that are reserved by a standards body, not a list of values
+# somebody judged safe.
+#   UK    OFCOM drama range, reserved for fiction
+#   US    555-01xx, the North American fiction range
+pii_reserved_placeholder_re() {
+    printf '%s' '(\+?44[[:space:]-]?7700[[:space:]-]?900[0-9]{3}|0?7700[[:space:]-]?900[0-9]{3}|555[[:space:]-]?01[0-9]{2})'
+}
+
 pii_scan_files() {
     local files="$1"
     local custom_file="${2:-}"
@@ -141,7 +153,24 @@ pii_scan_files() {
         while IFS= read -r f; do
             [ -n "$f" ] || continue
             [ -f "$f" ] || continue
-            if grep -l -iE -e "$pattern" "$f" >/dev/null 2>&1; then
+            # Extract the ACTUAL matches and drop any that are
+            # standards-reserved placeholders, rather than reporting the
+            # file on a bare `grep -l`.
+            #
+            # WHY: the UK-mobile pattern matches 7700 900xxx, which IS the
+            # OFCOM range reserved for fiction -- the exact value this
+            # hook's own error message tells you to use. So following the
+            # advice did not unblock you, and the only way forward was
+            # --no-verify. A guard that teaches people to bypass it is
+            # worse than one that is slightly too loose.
+            #
+            # Extract-then-filter rather than a cleverer regex because
+            # POSIX ERE has no negative lookahead, and enumerating "7xxx
+            # but not 7700" is unreadable and wrong the first time it is
+            # edited.
+            hits_raw="$(grep -oiE -e "$pattern" "$f" 2>/dev/null || true)"
+            if [ -n "$hits_raw" ] \
+               && printf '%s\n' "$hits_raw" | grep -qvE "$(pii_reserved_placeholder_re)"; then
                 found="$found
     $f"
             fi
