@@ -317,6 +317,11 @@ MSG_OK_WHATSAPP_BUNDLE_LOADED="WhatsApp conversation feed LaunchAgent loaded (la
 MSG_INFO_WHATSAPP_BUNDLE_TICK="  First tick reads recent WhatsApp conversations your Mac has synced (about the last year); it stays on your Mac."
 MSG_INFO_WHATSAPP_BUNDLE_LOGS="  Logs: %s/whatsapp-bundle.log and whatsapp-bundle.err"
 MSG_WARN_WHATSAPP_BUNDLE_FAILED="WhatsApp conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
+# Shared by all four conversation feeds: the refusal that keeps a LaunchAgent
+# from being started against a program that is not on disk yet. It names the
+# exact path it looked for, because a refusal that does not say what was
+# missing sends the reader hunting.
+MSG_WARN_BUNDLE_DAEMON_BINARY_MISSING="  Not started yet: the assistant program this agent runs is not on disk. Looked for: %s"
 # Email body feed (Apple Mail). Reads recent threads (about the last month).
 MSG_PROGRESS_EMAIL_BUNDLE="Setting up email conversation memory"
 MSG_OK_EMAIL_SOURCE_INSTALLED="  Email conversation reader installed."
@@ -350,6 +355,9 @@ MSG_WARN_IMESSAGE_BUNDLE_FAILED="iMessage conversation feed LaunchAgent install 
 MSG_OK_EMBEDDING_MODEL_READY="Embedding model ready"
 MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY="Exported %s contacts (will import automatically)"
 MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="Export watcher installed (scans Downloads every 4 hours)"
+# The export watcher's refusal names the exact path it looked for, so the
+# install log does not send the reader hunting for what was missing.
+MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING="  Export watcher not started yet: the assistant program it runs is not on disk. Looked for: %s"
 MSG_OK_MEETING_BRIEF_SENDER_INSTALLED="Pre-meeting brief sender installed (polls every 10 minutes during waking hours)"
 MSG_OK_STAY_AWAKE_AGENT_INSTALLED="Your Mac will stay awake on mains power so Ostler keeps working (it still sleeps on battery)"
 MSG_OK_EXTRACTED="Extracted to %s"

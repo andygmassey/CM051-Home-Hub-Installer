@@ -304,6 +304,30 @@ SAFARI_EXT_REPO    ?= $(HUB_APP_REPO)
 SAFARI_EXT_NAME    := OstlerSafariExtension.app.zip
 SAFARI_EXT_DEST    := $(_CM051_ROOT)/vendor/extensions/$(SAFARI_EXT_NAME)
 SAFARI_EXT_SHA256  ?= 87f82a29eb4a4c1e13ddc694335747163f0f76fb4e055717b76219351534c69a
+# PINNED INDEPENDENTLY OF DAEMON_VERSION, and that is the whole point of this
+# variable existing.
+#
+# This fetch used to read $(DAEMON_RELEASE_TAG). That is correct for the hub
+# app -- see the HUB APP block above, where sharing the daemon's tag is what
+# makes verify-commit-parity meaningful -- but it is wrong here, because the
+# parity argument does not apply to this artefact at all. The extension is
+# built from CM020, not from ostler-assistant, and is NOT rebuilt by the cut
+# (see the "NOT REBUILT HERE" note above). It therefore has no commit
+# relationship to the daemon, and nothing about a daemon bump changes these
+# bytes.
+#
+# What the coupling actually did: because the tag was DERIVED from
+# DAEMON_VERSION, bumping the daemon silently redirected this fetch at a tag
+# that does not carry the extension, while leaving SAFARI_EXT_SHA256 pointing
+# at bytes published under the old one. Measured 2026-08-15 after the 0.4.56
+# re-pin (#681): hub-v0.4.56 does not exist in $(SAFARI_EXT_REPO), so this
+# target 404s. Every future daemon bump re-breaks it the same way, which is
+# the class of defect a version number should never be able to cause.
+#
+# Pinned to the release that actually carries the asset. Bump this ONLY when
+# CM020 publishes a new extension build, alongside SAFARI_EXT_SHA256 -- the
+# two move together because they describe the same bytes.
+SAFARI_EXT_TAG     ?= hub-v0.4.55
 
 STEP          := @printf '\n[STEP] %s\n'
 
@@ -711,17 +735,17 @@ download-safari-extension:
 	fi; \
 	mkdir -p "$(dir $(SAFARI_EXT_DEST))"; \
 	printf '\n[STEP] Safari extension absent -- fetching %s from %s %s\n' \
-	    "$(SAFARI_EXT_NAME)" "$(SAFARI_EXT_REPO)" "$(DAEMON_RELEASE_TAG)"; \
+	    "$(SAFARI_EXT_NAME)" "$(SAFARI_EXT_REPO)" "$(SAFARI_EXT_TAG)"; \
 	if [ -n "$$OSTLER_RELEASES_TOKEN" ]; then \
-	    GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(DAEMON_RELEASE_TAG)" \
+	    GH_TOKEN="$$OSTLER_RELEASES_TOKEN" gh release download "$(SAFARI_EXT_TAG)" \
 	            --repo "$(SAFARI_EXT_REPO)" --pattern "$(SAFARI_EXT_NAME)" \
 	            --dir "$(dir $(SAFARI_EXT_DEST))" --clobber || { \
-	        echo "ERROR: could not read $(SAFARI_EXT_REPO) $(DAEMON_RELEASE_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
+	        echo "ERROR: could not read $(SAFARI_EXT_REPO) $(SAFARI_EXT_TAG) with OSTLER_RELEASES_TOKEN." >&2; \
 	        echo "  The token IS set, so this is a scope problem, not a missing credential." >&2; \
 	        exit 1; \
 	    }; \
 	elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then \
-	    gh release download "$(DAEMON_RELEASE_TAG)" --repo "$(SAFARI_EXT_REPO)" \
+	    gh release download "$(SAFARI_EXT_TAG)" --repo "$(SAFARI_EXT_REPO)" \
 	            --pattern "$(SAFARI_EXT_NAME)" --dir "$(dir $(SAFARI_EXT_DEST))" --clobber || { \
 	        echo "ERROR: gh release download failed for $(SAFARI_EXT_NAME)." >&2; \
 	        exit 1; \

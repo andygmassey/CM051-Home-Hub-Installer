@@ -1,0 +1,73 @@
+# vendor_pair_registry.tsv -- every pair of hand-maintained copies of the same
+# code that live in two places, and what the drift gate does about each.
+#
+# WHY A REGISTRY AND NOT A HARDCODED PAIR.
+#
+# This gate was built for one pair (the ingest ticks). A second (ostler_fda) was
+# found within the hour, and a third (the run-source enum) the same day. A gate
+# that watches one of three pairs is WORSE than no gate, because it licenses the
+# belief that the other two are checked. So the pairs are declared here, the gate
+# enumerates THIS FILE, and it prints the denominator on every run.
+#
+# THE MISTAKE THIS FILE ALREADY MADE ONCE -- do not repeat it.
+#
+# The first version of this registry declared the executing tick as
+# "$OSTLER_APP_PATH/Contents/Resources/ingest/*/tick.sh". That path is real, but
+# it does not exist AT CUT TIME: the seal is created when the app bundle is
+# wrapped, and on the build host it has not been created yet. A build-time gate
+# reaching for a runtime artefact does not go stale, it goes FICTIONAL -- it
+# would have exited 1 on every cut while detecting nothing.
+#
+# The fix is not a better path, it is knowing which side of the build you are on:
+#
+#   at CUT time      SOURCE vs SOURCE. ostler-assistant release/ingest-ticks
+#                    against CM051 vendor/<pkg>/bin/. Both exist on the build
+#                    host, and -- see below -- this is COMPLETE, not a proxy.
+#   at BOX-WALK time the INSTALLED seal against the source it claims to copy.
+#                    Needs a box. Its subject is TRANSPORT, not content.
+#
+# WHY THE CUT-TIME CHECK IS COMPLETE FOR CONTENT, which is the load-bearing fact.
+#
+#   ostler-assistant/release/wrap-in-app-bundle.sh:160-184
+#       INGEST_TICKS_SRC="$REPO_ROOT/release/ingest-ticks"
+#       cp -p "$_tick_src" "$_tick_dst_dir/tick.sh"
+#
+# A verbatim byte copy. No substitution, no template, no SOURCE_DIR rewrite. So
+# the seal is byte-identical to the source by construction: if an invariant is
+# present in release/ingest-ticks at cut time it IS present in the seal, because
+# `cp -p` is the only thing between them. The box-walk gate therefore adds
+# transport integrity (did all ten land, was anything altered after signing) and
+# must NOT be described as the content check, or two gates each believe the
+# other covers content.
+#
+# STATUS
+#   enforced      the gate FAILS on drift, and FAILS if it cannot resolve either
+#                 side. An enforced pair it cannot see must never pass.
+#   unreconciled  a known pair whose correct direction nobody has measured yet.
+#                 REPORTED loudly and counted, never silently dropped, but does
+#                 not fail the cut. Promote once the direction is established.
+#
+# KIND
+#   invariant_survival   every row in the named manifest must be present on BOTH
+#                        sides, for every PAIRED feed in tests/tick_pair_map.tsv.
+#                        NOT byte equality: the two sides legitimately differ
+#                        (222 lines vs 299, different headers), and a diff that
+#                        is red on a correct tree is not a gate, it is a nuisance
+#                        that trains people to switch it off -- which is exactly
+#                        how "VERBATIM copy, do not diverge" ended up enforced by
+#                        a comment.
+#   list_parity          two hand-maintained lists of the same names must match.
+#   size_report          record the byte delta only. For unreconciled pairs, so
+#                        the drift is visible and dated without asserting which
+#                        side is right.
+#
+# COLUMNS (tab-separated)
+#   pair_id  status  kind  manifest  side_a_label  side_a_glob  side_b_label  side_b_glob  why
+#
+# Globs resolve relative to the CM051 repo root unless they begin with
+# $OSTLER_ASSISTANT_DIR or $HR015_ROOT, which come from the environment. A glob
+# matching nothing is an unresolved side.
+pair_id	status	kind	manifest	side_a_label	side_a_glob	side_b_label	side_b_glob	why
+ingest_ticks_source	enforced	invariant_survival	tests/tick_seal_invariants.tsv	daemon source (gets sealed verbatim)	$OSTLER_ASSISTANT_DIR/release/ingest-ticks/*/tick.sh	CM051 vendored (reviewed here)	vendor/*_source/bin/*-bundle-tick.sh	wrap-in-app-bundle.sh cp -p's side A into the app bundle, so side A IS what runs; measured 2026-08-14 the imessage pair had FDA preflight 0 vs 15 and the slot library layer 0 vs 4 on all four feeds
+ingest_source_enum	enforced	list_parity		Rust run-source enum	$OSTLER_ASSISTANT_DIR/src/main.rs	wrap-in-app-bundle INGEST_SOURCES	$OSTLER_ASSISTANT_DIR/release/wrap-in-app-bundle.sh	the wrapper's own comment says "keep this list identical to that enum"; in sync at 10/10 on 2026-08-14. Guarded ONE WAY ONLY: a tick with no array entry hard-fails the wrap, but an ENUM VARIANT with no array entry seals nothing and fails silently at runtime
+ostler_fda_pwg_ingest	unreconciled	size_report		CM051 vendored (ships)	vendor/ostler_fda/pwg_ingest.py	HR015 source	$HR015_ROOT/ostler_fda/pwg_ingest.py	the DMG ships the CM051 copy and HR015 PRs land in the other; measured 2026-08-14 at 108969 vs 92704 bytes. Direction NOT established, so this row reports and does not fail.

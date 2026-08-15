@@ -118,6 +118,7 @@ test_install_sh_prefers_bundled_python.sh	UNWIRED	-
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_knowledge_repo_wiring.sh	UNWIRED	-
+test_launchagent_bootstrap_after_staging.py	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_linkedin_export_detect.sh	UNWIRED	-
 test_mail_content_probe.sh	UNWIRED	-
@@ -192,6 +193,7 @@ test_vendor_import_resolution.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_knowledge_embed_contract.py	UNWIRED	-
 test_vendor_manifest_is_valid_toml.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
+test_vendor_pair_drift.py	WIRED	scripts/run_all_cut_gates.sh
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
