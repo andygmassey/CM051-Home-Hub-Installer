@@ -271,6 +271,18 @@ DASHBOARD_CONFIG_LINK = (
     ' &ndash; <a href="/config">Configuration</a>'
 )
 
+# The daemon generates a WhatsApp pair code on EVERY install where
+# `session_path` is set, and install.sh does set it. The code is written to
+# ~/.ostler/state/whatsapp_pair.json and /whatsapp-pair renders it. That page
+# has existed, routed and tested, while NOTHING linked to it, so the customer
+# had to already know the URL. Measured 2026-08-15: this row already carried
+# /pair-ios and /config, and /whatsapp-pair was the one pairing surface missing
+# from it. See HR015 task #322, where the original row blamed a config gap that
+# had already been fixed.
+DASHBOARD_WHATSAPP_PAIR_LINK = (
+    ' &ndash; <a href="/whatsapp-pair">Link WhatsApp</a>'
+)
+
 DASHBOARD_ALERT_REPORT_FAIL = (
     "Could not prepare report. Please try again."
 )
