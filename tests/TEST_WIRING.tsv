@@ -124,6 +124,7 @@ test_mail_onboarding_259_260.sh	UNWIRED	-
 test_mailbox_ingest_leg_wired.sh	UNWIRED	-
 test_makefile_app_path_default.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_meeting_brief_sender.sh	UNWIRED	-
+test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
 test_migration_marker_guard_fresh_install.py	UNWIRED	-
 test_model_fit.sh	UNWIRED	-
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
