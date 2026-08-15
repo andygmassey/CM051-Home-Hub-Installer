@@ -88,6 +88,7 @@ test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_final_summary_nounset_safe.sh	UNWIRED	-
 test_gdpr_export_detect.sh	WIRED	.github/workflows/gdpr-export-detect.yml
