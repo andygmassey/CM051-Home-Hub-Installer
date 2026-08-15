@@ -43,6 +43,68 @@ classification to ``vendor/PERSON_NAMES_REVIEWED.tsv``, the same
 declare-it-or-it-is-a-finding pattern ``vendor/VENDOR_ONLY.tsv`` already uses in
 this repo. Until that file is seeded the sweep is a MEASUREMENT (``--report``),
 not a gate.
+
+THE HEADLINE NUMBER GOES **UP** WHEN YOU FIX THINGS
+---------------------------------------------------
+Read this before concluding a scrub made things worse. Measured across one
+scrub on 2026-08-15: distinct candidates fell 877 -> 875, while the
+kinship-shaped set ROSE from 3 names at 9 sites to 4 at 10.
+
+Nothing regressed. Replacing a real-looking name with a synthetic one removes
+one token and mints another, and the new one is a candidate too, because this
+sweep reports SHAPE and a synthetic name is the same shape as a real one. A
+scrub can therefore raise every number here while strictly improving the tree.
+
+So the count is a DENOMINATOR, not a finding count, in both directions: it
+cannot go to zero (the trees are full of legitimate two-capitalised-word
+tokens), and it does not fall monotonically as you fix things. The number that
+means something is the count of UNDECLARED candidates once
+``PERSON_NAMES_REVIEWED.tsv`` is seeded. Anyone quoting the raw total as a leak
+count will panic at 877, and anyone watching it after a scrub will conclude the
+scrub failed.
+
+WHICH SIDE OF A DIVERGENCE PATCH A NAME SITS ON DETERMINES THE FIX ROUTE,
+AND THE WRONG ROUTE FAILS SILENTLY IN BOTH DIRECTIONS
+-------------------------------------------------------------------------
+Both halves of this were hit for real on 2026-08-15, by two people, in the same
+file, on opposite sides. Neither half is safe to know alone.
+
+  MINUS line -- the content is SOURCE, and the graft REMOVES it. The commonest
+  graft is a scrub, so a name being scrubbed sits here. Scrubbing the VENDORED
+  copy pushes the name onto this side, where the diff reads as "fixed", and the
+  name is still published from source.
+
+  PLUS line -- the content is VENDORED, added by the graft, and it may not
+  exist in source at all. Fixing SOURCE and re-vendoring does not touch it. The
+  graft reinstates it on the next vendor, and you are left with a convincing
+  "already fixed" commit in the history and the name still shipping.
+
+Measured instance of the plus-side trap: a kinship-shaped example in
+``vendor/cm041/identity_resolver/resolver.py`` and its divergence patch, with
+the enclosing comment block VERIFIED ABSENT from cm041 source (source 782
+lines, vendored 986). A source-side fix would have been a no-op that looked
+like a fix.
+
+Neither failure is visible in the diff you would naturally look at. So:
+determine the SIDE first, then pick the route, and re-run this sweep AFTER the
+re-vendor rather than before -- that ordering is the only thing that catches a
+silent reinstatement.
+
+A NOTE ON REPORTING WHAT THIS FINDS
+-----------------------------------
+Report categories, paths, counts and sides. Never the token. A report about
+removing names must not carry the names, for the same reason this file's
+canaries are synthetic: a gate must not carry the thing it hunts, and a report
+is read, quoted and logged in more places than the gate is.
+
+Corollary, learned the same day: a SHAPE gate can only ever say
+"name-shaped". What converts a candidate into an identification is joining two
+independently-written files -- e.g. a fixture and a repo instruction file that
+names the same person alongside an employer or a venue. That join is a
+legitimate and cheap audit technique, and it is also the thing an outsider can
+do. When assessing a file's exposure, measure the ADJACENCY (does a
+name-shaped token share a line with an employer/venue/role cue?), not just the
+name count.
 """
 from __future__ import annotations
 
