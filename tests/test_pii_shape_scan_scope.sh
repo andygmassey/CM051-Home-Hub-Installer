@@ -30,10 +30,20 @@ PASS=0; FAIL=0
 ok()  { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  \033[0;31mFAIL\033[0m  %s (rc=%s)\n' "$1" "$2"; FAIL=$((FAIL+1)); }
 
-# Composed, never a literal. OFCOM reserves 07700 900xxx for drama, so this is
-# provably not a real subscriber, and the pattern is shape-based so it still
-# fires -- which is the point.
-phone() { printf '+44%s%s' "77009000" "00"; }
+# Composed, never a literal: this file is scanned by the guard it tests.
+#
+# MUST BE A NON-RESERVED NUMBER, and this is not a detail. An earlier version
+# used the OFCOM drama range (07700 900xxx) because the library then in this
+# repo fired on it. Re-provisioning the library from HR015 brought
+# pii_reserved_placeholder_re with it, whose whole job is to EXCUSE that range,
+# and 7 of these 8 cases inverted at once: every limb expecting RED went green,
+# because the fixture had become invisible to the scanner rather than because
+# any scope logic changed.
+#
+# The number below is shape-valid and outside every reserved range, so it
+# exercises the scan rather than the exemption. If a future change makes these
+# cases mysteriously pass, check the FIXTURE before the logic.
+phone() { printf '+44%s%s' "7911" "123456"; }
 
 mkrepo() { # -> echoes a fresh repo dir with one commit on main
     d="$(mktemp -d -t pii-scope-XXXXXX)"
