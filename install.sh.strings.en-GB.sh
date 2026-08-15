@@ -114,6 +114,18 @@ MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the la
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
 MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="AC-only hub (no battery detected), skipping hub-power LaunchAgent."
 MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub power scripts not bundled with installer."
+# Laptop-Hub recap lines (task #339). Kept to one whole sentence per key so a
+# translator gets sentences rather than fragments, and each one short enough to
+# sit inside the recap's five-space indent on an 80-column terminal.
+MSG_INFO_HUB_RECAP_LAPTOP_AWAKE="Laptop Hub. It keeps working while the lid is open and on mains power."
+MSG_INFO_HUB_RECAP_LAPTOP_SLEEPS="Close the lid, or leave it idle on battery, and macOS sleeps it."
+MSG_INFO_HUB_RECAP_LAPTOP_RECEIVES_NOTHING="While it sleeps the assistant receives nothing."
+MSG_INFO_HUB_RECAP_LAPTOP_MESSAGES_MISSED="Messages that arrive in that time are not picked up when it wakes."
+MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY="The lid can stay closed in closed-display mode."
+MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY_NEEDS="That needs mains power plus an external display, keyboard and mouse."
+MSG_INFO_HUB_RECAP_LAPTOP_PAUSES="Docker and Ollama pause on battery and resume on mains power."
+MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN="After a restart, FileVault holds this Mac at the login screen."
+MSG_INFO_HUB_RECAP_FILEVAULT_STARTS="Ostler starts once you sign in."
 MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installer; using vendored source."
 MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; iOS Companion endpoints will be limited."
 MSG_INFO_ICAL_SERVER_DEPS_INSTALLING="Installing Assistant API runtime dependencies (phonenumbers, httpx)..."
@@ -157,6 +169,13 @@ MSG_INFO_INSTALLING_TAILSCALE="Installing Tailscale..."
 MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST="Intel support is not on the roadmap; raise a request if required."
 MSG_INFO_KNOWLEDGE_SERVICE_BUNDLED_WITH_INSTALLER="Knowledge service bundled with installer; using vendored source."
 MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE="Knowledge service not installed: PWG_KNOWLEDGE_REPO empty."
+# Laptop-Hub posture, stated in Phase 1 while changing your mind is still cheap
+# (task #339). Fires on every laptop, on mains power or not; a desktop Mac never
+# sees these lines.
+MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS="This Mac is a laptop. As your Hub it keeps working while the lid is open and the Mac is on mains power."
+MSG_INFO_LAPTOP_HUB_SLEEP_COST="Close the lid, or leave it idle on battery, and macOS puts it to sleep. The assistant receives nothing while it sleeps, and messages that arrive in that time are not picked up when it wakes."
+MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY="The lid can stay closed in closed-display mode, which needs mains power plus an external display, keyboard and mouse."
+MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="A Mac Mini or Mac Studio Hub stays awake on its own, if you would rather install on one of those."
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="later in System Settings > Privacy & Security > Full Disk Access"
 MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  launch to verify cron-delivery + imessage-tcc posture)."
 MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT="Licence: %s is Apache 2.0. Full text: %s/LICENSES/Apache-2.0.txt"

@@ -2359,6 +2359,40 @@ if [[ "$HAS_BATTERY" == true ]]; then
         warn "$MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS"
         warn "$MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL"
     fi
+    # ── Laptop Hub: the ONGOING condition, not just the install window ──
+    #
+    # The block above is about Phase 3 stalling. This is about the rest of
+    # the machine's life as a Hub, and it fires on every laptop whether or
+    # not it is plugged in right now.
+    #
+    # Two measured facts sit behind it, neither visible to a customer:
+    #
+    #   1. The stay-awake LaunchAgent installed at 3.0-bis runs
+    #      `caffeinate -s`. caffeinate(8): that assertion "is valid only
+    #      when system is running on AC power". On battery it holds
+    #      nothing, which is deliberate (`-i` would flatten the battery),
+    #      so the Mac idle-sleeps on its own schedule.
+    #   2. Closing the lid sleeps the Mac regardless of any power
+    #      assertion, unless it is in closed-display mode. Apple states
+    #      the requirement for that directly: "If the display is connected
+    #      to a Mac laptop computer with a closed lid, make sure that the
+    #      Mac is connected to power and using an external keyboard and
+    #      mouse." (support.apple.com/en-us/102501)
+    #
+    # A slept Hub is not a degraded Hub, it is a silent one: launchd does
+    # not schedule user agents in dark wake, so the assistant's poll never
+    # runs and inbound messages are never seen (task #338, measured
+    # 2026-08-13: 1430 of 1439 wakes were dark). Nothing on screen says
+    # so. The installer is the only place that can, and Phase 1 is the
+    # last point where choosing a different Mac costs the customer
+    # nothing, so it is said here rather than only in the recap.
+    #
+    # info, not warn: on a lid-open laptop on mains power this is a
+    # condition being met, not a fault.
+    info "$MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS"
+    info "$MSG_INFO_LAPTOP_HUB_SLEEP_COST"
+    info "$MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY"
+    info "$MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE"
 else
     ok "$MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO"
 fi
@@ -20421,9 +20455,23 @@ fi
 
 echo -e "  ${BOLD}Hub deployment:${NC}"
 if [[ "$HAS_BATTERY" == true ]]; then
-    echo "     MacBook Hub. Docker + Ollama will pause automatically when"
-    echo "     you unplug, and resume when you plug back in. Battery life"
-    echo "     stays roughly as it was before Ostler."
+    # The laptop arm used to say only that Docker and Ollama pause on
+    # battery and that battery life is unchanged. Both true, and together
+    # they read as "nothing to think about" -- while omitting the thing
+    # the customer most needs to know, that a slept laptop Hub receives
+    # no messages at all and says nothing about it. See the Phase 1
+    # comment at the power-source check for the two measurements.
+    #
+    # Order is deliberate: the condition, then what breaks it, then the
+    # cost, then the way to keep the lid shut, then the battery note that
+    # used to be the whole message.
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_AWAKE"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_SLEEPS"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_RECEIVES_NOTHING"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_MESSAGES_MISSED"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY_NEEDS"
+    echo "     $MSG_INFO_HUB_RECAP_LAPTOP_PAUSES"
 else
     echo "     Mac Mini / Studio Hub. Always-on AC: nothing is paused."
     echo "     hub-power sees tier 'ac' every tick and takes no action."
@@ -20431,6 +20479,21 @@ fi
 if [[ -f "${HOME}/.ostler/power.conf" ]]; then
     echo "     Policy override: edit ~/.ostler/power.conf"
     echo "                      (POWER_POLICY=normal | aggressive | eco)"
+fi
+# The other way a Hub is up but not listening, and it is not laptop-only.
+# Every Ostler service runs from a LaunchAgent, and a LaunchAgent needs an
+# Aqua login session. FileVault holds the boot at the pre-login unlock
+# screen, so between a restart and someone signing in there is no session
+# and nothing runs. Worth one sentence, because a Hub that reboots
+# overnight looks identical to one that is working.
+#
+# Gated on FV_ENABLED so a customer without FileVault is not told about a
+# screen they will never see.
+if [[ "${FV_ENABLED:-false}" == true ]]; then
+    echo ""
+    echo -e "  ${BOLD}After a restart:${NC}"
+    echo "     $MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN"
+    echo "     $MSG_INFO_HUB_RECAP_FILEVAULT_STARTS"
 fi
 echo ""
 echo "  $MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI"
