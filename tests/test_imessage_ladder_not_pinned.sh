@@ -23,13 +23,18 @@
 #
 # AND WHY THE DWELL IS PART OF THE FIX, NOT A NICETY
 #
-# The ladder advances once per CALL, and com.ostler.export-scan drives the
-# extractor with StartInterval=14400 -- every four hours, measured on the box.
-# Un-pinning alone therefore walks 45 -> terminal in under a day, which
-# dispatches the whole backlog at once: install.sh's own note puts that at
-# ~28,405 conversations x ~1.20 min of chained local inference. Turning the
-# ladder on without a pace would have been WORSE than leaving it pinned, so
-# controls (6) and (7) are as load-bearing as (1).
+# The ladder advances once per CALL, so its pace is set by whatever invokes
+# extract_all. VERIFIED on the installed box, because `run-source` dispatches
+# generically to ingest/<src>/tick.sh and the agent name decides nothing:
+#
+#     ingest/export-scan/tick.sh   runs ostler-scan-exports. No extract_all.
+#     ingest/fda-rerun/tick.sh     calls ostler_fda.extract_all.run_all
+#     CONTROL: grep -rl extract_all over ingest/ returns fda-rerun and nothing
+#              else, so the single hit is a real population and not a miss.
+#
+# So the invoker is one-shot today. A pace still matters the moment it recurs:
+# install.sh prices arrival at the top rung at ~28,405 conversations x ~1.20 min
+# of chained local inference. Controls (6) and (7) are as load-bearing as (1).
 
 set -uo pipefail
 
@@ -177,9 +182,9 @@ fi
 #
 #     TNM's measurement, which refuted my first premise: com.ostler.fda-rerun
 #     is ONE-SHOT (install.sh pins Year/Month/Day/Hour/Minute into
-#     StartCalendarInterval at install +12h), and com.ostler.export-scan's
-#     RunAtLoad firing did NOT re-run the iMessage extractor. So the only
-#     advance a customer gets without re-running the installer is at +12h.
+#     StartCalendarInterval at install +12h), and it is the ONLY agent whose
+#     tick reaches extract_all. So the only advance a customer gets without
+#     re-running the installer is at +12h.
 #
 #     My first dwell was 86400. That would have BLOCKED it, leaving every box
 #     on rung 1 forever while the code read like a ladder -- a fix that ships

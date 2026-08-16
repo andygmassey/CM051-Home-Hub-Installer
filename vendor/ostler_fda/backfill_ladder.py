@@ -64,30 +64,46 @@ DEFAULT_LADDER: List[int] = [45, 90, 180, 365, 730, 1825, 36500]
 
 # How long a rung must be held before the ladder widens again.
 #
-# WHY THIS EXISTS. The ladder advances once per CALL, and extract_all is driven
-# by com.ostler.export-scan with StartInterval=14400 -- every four hours,
-# MEASURED on the box. Simply un-pinning the window would therefore walk
-# 45 -> 36500 in under a day, and the comment in install.sh gives the cost of
-# arriving at the top: ~28,405 conversations at ~1.20 min of chained local
-# inference each. That is the runtime the 45-day default was protecting
-# against, so turning the ladder on WITHOUT a pace would have been worse than
-# leaving it pinned.
+# WHY THIS EXISTS. The ladder advances once per CALL, so its pace is set by
+# whatever invokes extract_all. That population is exactly ONE agent:
+#
+#   `run-source` dispatches generically to
+#   <app>/Contents/Resources/ingest/<src>/tick.sh, so the invoker is decided by
+#   the tick, not the agent name. VERIFIED on the installed box:
+#
+#     ingest/export-scan/tick.sh   runs ostler-scan-exports. No extract_all.
+#     ingest/fda-rerun/tick.sh     calls ostler_fda.extract_all.run_all
+#
+#     CONTROL: grep -rl extract_all over ingest/ returns fda-rerun/tick.sh and
+#     nothing else, so the single hit is a real population and not a miss.
+#
+# com.ostler.export-scan never reaches this module at all. TNM's finding; my
+# first version of this comment said extract_all was driven by export-scan
+# every four hours, which was wrong.
+#
+# Un-pinning without a pace would still be a mistake wherever the invoker
+# recurs: install.sh prices arrival at the top rung at ~28,405 conversations x
+# ~1.20 min of chained local inference, which is the runtime the 45-day first
+# rung exists to avoid.
 #
 # THE VALUE IS PINNED BY THE ONE GUARANTEED ADVANCE, NOT BY TASTE.
 #
 # I first set this to 86400 (one rung per day), reasoning from
-# com.ostler.export-scan's StartInterval=14400. TNM refuted the premise and the
-# box agreed with them:
+# com.ostler.export-scan's StartInterval=14400. Both halves of that were wrong:
+# export-scan does not invoke extract_all at all (see above), and the agent that
+# does is not recurring. TNM refuted it and the box agreed with them:
 #
 #   com.ostler.fda-rerun is ONE-SHOT. install.sh pins Year, Month, Day, Hour
 #   AND Minute into StartCalendarInterval at install time +12h, and a fully
 #   specified calendar interval fires once and never again.
 #
-#   com.ostler.export-scan IS loaded and recurring, but its RunAtLoad firing
-#   at 20:34:01 left imessage_conversations.json at 20:16:51, untouched.
-#   CONTROL: calendar_events.json (20:40:46) and whatsapp_conversations.json
-#   (20:41:25) WERE rewritten after that firing, so mtimes in that directory
-#   do move and the iMessage file's stillness is a signal, not a frozen disk.
+#   com.ostler.export-scan IS loaded and recurring, and its RunAtLoad firing at
+#   20:34:01 left imessage_conversations.json at 20:16:51, untouched. I read
+#   that as "it ran and skipped iMessage". The tick files say it is stronger
+#   than that: export-scan does not touch iMessage BY DESIGN, so the untouched
+#   mtime was never evidence of a skip. Recording the distinction because a
+#   0-byte log at agent-creation time is the shape-of-a-zero trap, and reading
+#   a designed no-op as a runtime skip is how a wrong premise survives.
 #
 # So the only advance a customer is guaranteed to get without re-running the
 # installer arrives at INSTALL + 12 HOURS. A 24-hour dwell would have blocked
@@ -222,10 +238,13 @@ def resolve_backfill_days(
     current = _read_days(source)
     chosen = next_rung(current, rungs)
 
-    # DWELL. Hold a rung for DEFAULT_DWELL_SECONDS before widening again. The
-    # extractor is driven every four hours, so without this the ladder reaches
-    # the terminal rung in under a day and dispatches the whole backlog at
-    # once -- the exact runtime the first rung exists to avoid.
+    # DWELL. Hold a rung for DEFAULT_DWELL_SECONDS before widening again, so
+    # that the number of rungs climbed is bounded by TIME rather than by how
+    # often something happens to call this. The sole invoker today is
+    # ingest/fda-rerun/tick.sh and it is one-shot, so nothing races right now --
+    # but the pace has to hold the moment that schedule recurs, because
+    # arriving at the top rung dispatches the whole backlog at once, which is
+    # the runtime the 45-day first rung exists to avoid.
     #
     # A horizon written before this field existed has no advanced_at, which
     # reads as 0 and therefore advances immediately. That is the right
