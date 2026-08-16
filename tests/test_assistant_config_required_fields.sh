@@ -60,9 +60,35 @@ PY="${PYTHON:-python3}"
 command -v "$PY" >/dev/null 2>&1 || { echo "CANNOT-RUN: no python3 for TOML parsing" >&2; exit 2; }
 "$PY" -c 'import tomllib' 2>/dev/null || { echo "CANNOT-RUN: python3 lacks tomllib (needs 3.11+)" >&2; exit 2; }
 
-# TABLE:FIELD pairs the daemon requires because the field has no serde default.
-# Adding a row here is how a future required field gets covered.
-REQUIRED_PAIRS="memory:backend"
+# TABLE:FIELD pairs the daemon requires because the field has NO serde default.
+#
+# THE FIRST VERSION OF THIS LINE SAID ONLY "memory:backend", AND THAT WAS THE
+# BUG IN THE GATE. It pinned the instance I had just watched fail instead of the
+# class, so it passed over a config missing `auto_save` -- exactly the state that
+# sat on main after the first fix and would have shipped a dead Hub again. A
+# daemon that reports one missing field at a time will be fixed one field at a
+# time unless the set is enumerated.
+#
+# DERIVED FROM THE SOURCE, NOT FROM THE ERROR MESSAGE. At the shipped daemon
+# commit 723c682f, crates/zeroclaw-config/src/schema.rs, struct MemoryConfig:
+#
+#     pub field declarations        33
+#     #[serde( attributes           31
+#     fields with NO serde attr      2      backend, auto_save
+#
+# To re-derive after a daemon bump, take the struct body and list every
+# `pub <name>:` with no `#[serde(` in the lines above it. Do NOT infer the set
+# from which Default-impl entries look like literals: a bare `#[serde(default)]`
+# uses the TYPE's Default, so `search_mode`, `policy`, `qdrant` and six others
+# look literal in the impl and are nonetheless defaulted. That heuristic
+# over-counts to 12 and would have us freeze ten daemon defaults into install.sh
+# for no reason, which is the same silent-divergence trap that caused the
+# original outage.
+#
+# Corroboration, independent of the source read: a live box logged 66 daemon
+# restarts at 10s intervals, 56 x "missing field `backend`" then 10 x "missing
+# field `auto_save`". Two distinct fields, matching the two derived here.
+REQUIRED_PAIRS="memory:backend memory:auto_save"
 
 # ---------------------------------------------------------------------------
 # Render: pull the literal `echo "..."` lines install.sh emits into config.toml.
