@@ -1585,6 +1585,129 @@ _ostler_promote_prelaunch_tree() {
 # Safe to call when no venv exists (no-op). Safe to call when venv
 # was created at the final location (shebang check finds no drift,
 # no rebuild).
+# ---------------------------------------------------------------------------
+# _ostler_pip_install_pkg -- pip install a bundled package WITHOUT writing into
+# the bundle it came from.
+#
+# WHY THIS EXISTS. `pip install <dir>` builds IN PLACE: it writes <dir>/*.egg-info
+# and <dir>/build/lib/ into the SOURCE directory. When install.sh runs from the
+# signed app, SCRIPT_DIR is
+#   /Applications/OstlerInstaller.app/Contents/Resources
+# so those writes land inside a NOTARISED BUNDLE and break its code seal.
+#
+# MEASURED on the v1.0.32 box, 2026-08-16, after a real install:
+#   spctl -a -vv /Applications/OstlerInstaller.app
+#     -> "a sealed resource is missing or invalid"   rc=1
+#   codesign --verify --deep --strict  -> 346 unsealed files
+#   263 of them written during the install window; PKG-INFO mtime 20:25:29
+#   against a signature timestamp of 17:09:52
+#
+# The bundle still LAUNCHED on that box only because com.apple.quarantine
+# happened to be absent. A customer who downloads the DMG carries the quarantine
+# bit, and Gatekeeper then refuses.
+#
+# ostler_fda already did the right thing (cp -R out of the bundle, then use the
+# copy). This generalises that pattern to every pip install sourced from
+# SCRIPT_DIR.
+#
+# Usage: _ostler_pip_install_pkg <pip-binary> <source-dir> [extra pip args...]
+# Returns pip's exit code. Callers keep their own tolerance policy.
+# Where _ostler_pip_install_pkg records its OWN failures.
+#
+# TNM's review of #767: two call sites are `... 2>/dev/null || true`, so the
+# helper's diagnostics went to /dev/null and its rc=2 was discarded. "Could not
+# stage the package" and "pip itself failed" then present identically, as
+# ostler_security silently missing. The tolerance is pre-existing and
+# deliberate; the invisibility is new and is not.
+#
+# A file write cannot be silenced by a caller's stderr redirect, so the record
+# survives regardless of how the call site is written. stderr is kept too, for
+# the sites that do show it.
+_OSTLER_PIP_STAGE_LOG="${_OSTLER_PIP_STAGE_LOG:-/tmp/ostler-pip-stage.log}"
+
+_ostler_pip_stage_note() {
+    printf '%s _ostler_pip_install_pkg: %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$_OSTLER_PIP_STAGE_LOG" 2>/dev/null || true
+    echo "_ostler_pip_install_pkg: $*" >&2
+}
+
+_ostler_pip_install_pkg() {
+    local pip_bin="$1"; shift
+    local src_dir="$1"; shift
+    local stage rc
+
+    if [[ ! -d "$src_dir" ]]; then
+        _ostler_pip_stage_note "no such package dir: $src_dir"
+        return 2
+    fi
+
+    # Stage OUTSIDE the bundle.
+    #
+    # This previously read `mktemp -d -t ostler-pipsrc-XXXXXX`, with a comment
+    # claiming "mktemp -d honours TMPDIR". MEASURED on macOS 2026-08-16, that
+    # is false: BSD mktemp -t IGNORES TMPDIR and always uses the system default.
+    #
+    #     TMPDIR=<...>/Foo.app/Contents/Resources/tmpstage
+    #     mktemp -d -t ostler-pipsrc-XXXXXX
+    #       -> /var/folders/<user>/T/ostler-pipsrc-XXXXXX.H70ZLN60ZP
+    #
+    # The OUTCOME was right by accident: the default is the per-user temp dir,
+    # which can never be inside /Applications. GNU mktemp does honour TMPDIR, so
+    # the comment described the wrong platform. An explicit template does what
+    # the comment always claimed, behaves identically on both, and -- the reason
+    # this matters -- makes the stage location reachable by a test, so the
+    # refusal arms below are exercised rather than merely present.
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/ostler-pipsrc-XXXXXX")" || return 2
+
+    # ASSERT the thing this function is named for, rather than reasoning about
+    # it. The comment above argues that mktemp -d honours TMPDIR and that TMPDIR
+    # is not inside /Applications. An argument is not a control, and this helper
+    # exists precisely because a plausible argument about where files land was
+    # wrong for 32 cuts. TNM's review of #767.
+    #
+    # TWO predicates, deliberately, and NOT the single
+    #     case "$stage" in "$SCRIPT_DIR"*) ...
+    # that suggests itself. That form is a trap: this file runs under `set -u`
+    # but "${SCRIPT_DIR:-}" expands happily to empty in any context that has not
+    # set it, and the pattern then degenerates to `*`, which matches EVERY path.
+    # Every call would return 2 and ostler_security would silently stop being
+    # installed -- a worse failure than the one being guarded, delivered by the
+    # guard. So the bundle test below needs no variable at all and can never be
+    # silently absent, and the SCRIPT_DIR test only runs when there is a value
+    # to test against.
+    #
+    # `"$SCRIPT_DIR"/*` and not `"$SCRIPT_DIR"*`: the second also matches a
+    # sibling whose name merely shares the prefix (/a/b vs /a/bc).
+    case "$stage" in
+        *.app/*)
+            _ostler_pip_stage_note "refusing to stage inside an app bundle: $stage"
+            rm -rf "$stage"
+            return 2
+            ;;
+    esac
+    if [[ -n "${SCRIPT_DIR:-}" ]]; then
+        case "$stage" in
+            "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
+                _ostler_pip_stage_note "refusing to stage under SCRIPT_DIR: $stage"
+                rm -rf "$stage"
+                return 2
+                ;;
+        esac
+    fi
+    # cp the CONTENTS into a same-named dir so any build metadata pip emits
+    # lands in the throwaway copy.
+    if ! cp -R "$src_dir" "$stage/"; then
+        rm -rf "$stage"
+        _ostler_pip_stage_note "failed to stage $src_dir"
+        return 2
+    fi
+
+    "$pip_bin" install "$@" "${stage}/$(basename "$src_dir")"
+    rc=$?
+    rm -rf "$stage"
+    return $rc
+}
+
 _ostler_repair_venv_after_promote() {
     local venv_dir="${OSTLER_FINAL_DIR}/.venv"
     local pip_path="${venv_dir}/bin/pip"
@@ -1680,10 +1803,10 @@ _ostler_repair_venv_after_promote() {
     # post-promote venv is at least syntactically valid even on a
     # partial reinstall.
     if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
-        "${venv_dir}/bin/pip" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/dev/null || true
+        _ostler_pip_install_pkg "${venv_dir}/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>/dev/null || true
     fi
     if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
-        "${venv_dir}/bin/pip" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || true
+        _ostler_pip_install_pkg "${venv_dir}/bin/pip" "${SCRIPT_DIR}/legal" --quiet 2>/dev/null || true
     fi
     "${venv_dir}/bin/pip" install --quiet "sqlcipher3>=0.6.0,<0.7.0" 2>/dev/null || true
 }
@@ -4930,7 +5053,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
     # tools that read non-Python assets (e.g. setup wizard reading
     # bip39_english.txt from a known on-disk path) still work; the
     # package_data inclusion in the wheel covers the import path.
-    if "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/tmp/ostler-pip-install.log; then
+    if _ostler_pip_install_pkg "$OSTLER_PIP" "${SCRIPT_DIR}/ostler_security" --quiet 2>/tmp/ostler-pip-install.log; then
         HAS_SECURITY_MODULE=true
         # Mirror the source for diagnostic / read-the-file flows.
         mkdir -p "$SECURITY_DIR"
@@ -4942,7 +5065,7 @@ if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/py
         # raise via consent_cli with a clearer error than a bare
         # ImportError.
         if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
-            "$OSTLER_PIP" install --quiet "${SCRIPT_DIR}/legal" 2>/dev/null || \
+            _ostler_pip_install_pkg "$OSTLER_PIP" "${SCRIPT_DIR}/legal" --quiet 2>/dev/null || \
                 warn "$MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS"
         else
             # Surface a missing-bundle warning so a future buried-failure
@@ -12504,7 +12627,7 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
     # and the wiki /Conversations/ section ships permanently empty.
     if [[ -d "${SCRIPT_DIR}/ostler_security" && -f "${SCRIPT_DIR}/ostler_security/pyproject.toml" ]]; then
         info "$MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV"
-        if ! "$CM048_VENV/bin/pip" install --quiet "${SCRIPT_DIR}/ostler_security" 2>/tmp/ostler-cm048-security-pip.log; then
+        if ! _ostler_pip_install_pkg "$CM048_VENV/bin/pip" "${SCRIPT_DIR}/ostler_security" --quiet 2>/tmp/ostler-cm048-security-pip.log; then
             warn "$MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048"
             if [[ -s /tmp/ostler-cm048-security-pip.log ]]; then
                 sed -e 's/^/    /' /tmp/ostler-cm048-security-pip.log | tail -5
