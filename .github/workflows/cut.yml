@@ -154,6 +154,27 @@ jobs:
           fi
           echo "manifest: $MANIFEST"
 
+      # THE PIN IN THE CUT RECORD MUST NAME THE install.sh BEING SHIPPED.
+      #
+      # v1.0.31 existed because the previous DMG's Hub could not start: a
+      # present-and-partial [memory] table disarmed the serde default and the
+      # daemon crash-looped on `missing field backend`. Three commits fixed it
+      # and merged (#745, #748, #751) -- and cuts/v1.0.31/cut.env still pinned
+      # CM051=f219eb0, whose install.sh predates all three. Cutting v1.0.31
+      # from its own declared pin would have shipped the exact defect v1.0.31
+      # was created to fix.
+      #
+      # ANCESTRY WOULD HAVE CALLED THAT FINE: f219eb0 IS an ancestor of main.
+      # The comparison has to be blob identity, and cut.env already said so --
+      # it even carried the re-verify instruction, addressed to a human at tag
+      # time. That note was accurate when written and false by morning, and
+      # nothing said so, because a sentence cannot fail closed.
+      #
+      # Runs immediately after the cut record is confirmed to exist and before
+      # anything is built, since a stale pin invalidates everything downstream.
+      - name: The cut record's CM051 pin is the tree being cut
+        run: bash scripts/verify_cut_pin_is_current.sh --cut "${CUT_VERSION}" --ref HEAD
+
       # The vendored gate must match the OS003 commit it claims to come from.
       # #540 vendored the runner with nothing holding it to its source and it
       # drifted 239 diff lines behind, missing the redactor, the claim-coverage
