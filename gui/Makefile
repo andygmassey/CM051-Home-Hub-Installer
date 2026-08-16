@@ -426,6 +426,25 @@ HUB_MIN_OS            ?=
 # pasted-in daemon version (0.4.x where the Hub is on 0.7.x) publishes cleanly
 # and reaches nobody. Absent path => nothing to supersede (fresh box / first
 # release) => skipped with a printed note. Set empty to disable.
+#
+# KNOWN LIMITATION, STATED RATHER THAN SHIPPED QUIETLY. Cuts run in CI
+# (guard-local-cut refuses a local cut), and a hosted runner has no
+# /Applications/Ostler.app. So on the machine where cuts ACTUALLY happen this
+# default is absent, the guard takes its documented skip branch, and it
+# protects nothing. It is live for a local emergency cut and inert for the
+# normal path. That is a strictly better position than before -- there was no
+# guard at all, at any layer -- but it is not the finished article, and a
+# reader who assumes "wired" means "covering the cut" would be wrong.
+#
+# CM051 PR #463 has the same property; it is a property of comparing against a
+# LOCALLY INSTALLED app rather than of any particular implementation.
+#
+# THE DURABLE FIX is to compare against the newest entry already in the
+# published manifest, which is the real "what is out there" and is the same
+# answer on every machine. `ostler-release list` returns it. That needs
+# network + wrangler auth, so it belongs in CM050 beside the publisher rather
+# than here, and it is not in this PR. Until then, a CI cut that wants the
+# guard live must pass HUB_REFERENCE_APP explicitly at a path the runner has.
 HUB_REFERENCE_APP     ?= /Applications/Ostler.app
 # The guard itself. A variable so a self-test can point the recipe at a stub
 # and prove the recipe's own branching, per the PROVENANCE_SH / STAPLING_SH
