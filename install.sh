@@ -11327,20 +11327,44 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # shorter ones: recent months are denser than a 5-year average, so the
     # true count at 45d is above 700. Measure on a real box.
     #
-    # This value is the ladder's FIRST rung. Setting the env var explicitly
-    # pins the window and disables the ladder entirely -- an operator who asks
-    # for 1825 gets 1825 on run one, and owns the runtime.
+    # The ladder's first rung is 45 days, and that rung is chosen by
+    # backfill_ladder.py -- NOT set here.
     #
-    # The window stays operator-overridable exactly as before, so anyone who
-    # wants the full 5 years sets OSTLER_IMESSAGE_BACKFILL_DAYS=1825 and
-    # accepts the runtime knowingly.
+    # ── WHY THIS LINE NO LONGER SETS A DEFAULT (2026-08-16) ───────────────
+    # The comment block above has always described a widening ladder, and the
+    # paragraph that used to sit here said it outright: "Setting the env var
+    # explicitly pins the window and DISABLES the ladder entirely." The next
+    # line then did exactly that, on every install:
     #
-    # HONEST TRADE-OFF: a customer with years of iMessage gets 90 days at
-    # install, not 5 years. The older history is NOT extracted -- it is
-    # deferred, not silently dropped, and the same "backfill further from
-    # Doctor later" affordance named above applies. Shipping 90 days that
-    # completes beats 5 years that never finishes.
-    : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=45}"
+    #     : "${OSTLER_IMESSAGE_BACKFILL_DAYS:=45}"
+    #
+    # resolve_backfill_days() treats ANY explicit value as an operator pin and
+    # returns before it ever consults the ladder. So the widening never ran on
+    # a single customer machine. MEASURED on the v1.0.32 box:
+    #
+    #     install.log:851
+    #       [backfill-ladder] imessage pinned to 45d by
+    #       OSTLER_IMESSAGE_BACKFILL_DAYS; ladder disabled
+    #
+    #     no ~/.ostler/state/backfill_horizon_imessage.json existed anywhere,
+    #     which is consistent: the pinned path returns before persisting.
+    #
+    #     45 days -> 33 of 2,130 conversations, permanently.
+    #
+    # Andy's call, 2026-08-16: the backlog should EVENTUALLY be all of
+    # iMessage; 45 days is only what the customer sees first, so the product
+    # looks recent and reasonable on first sight. That is the ladder, so the
+    # ladder must be allowed to run.
+    #
+    # Leaving the variable UNSET is what enables it. An operator who exports a
+    # value still pins it -- that affordance is unchanged and is now the only
+    # thing that pins.
+    #
+    # NOTE the `:-` at the pass-through below. install.sh runs under `set -u`
+    # (line 28, set -Eeuo pipefail), so an unset variable read bare would abort
+    # the install rather than pass an empty value. resolve_backfill_days() does
+    # `os.environ.get(var, "").strip()` and treats empty as absent, so an empty
+    # pass-through is exactly equivalent to not setting it.
     : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
     : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
@@ -11349,7 +11373,7 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     set +e
     FDA_OUTPUT=$(OSTLER_FDA_SOURCES="${OSTLER_FDA_SOURCES}" \
                  OSTLER_TAKEOUT_PATH="${OSTLER_TAKEOUT_PATH:-}" \
-                 OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS}" \
+                 OSTLER_IMESSAGE_BACKFILL_DAYS="${OSTLER_IMESSAGE_BACKFILL_DAYS:-}" \
                  OSTLER_BROWSER_BACKFILL_DAYS="${OSTLER_BROWSER_BACKFILL_DAYS}" \
                  OSTLER_SAFARI_BACKFILL_DAYS="${OSTLER_SAFARI_BACKFILL_DAYS}" \
                  OSTLER_WHATSAPP_BACKFILL_DAYS="${OSTLER_WHATSAPP_BACKFILL_DAYS}" \
