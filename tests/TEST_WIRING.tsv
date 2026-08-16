@@ -123,6 +123,7 @@ test_knowledge_repo_wiring.sh	UNWIRED	-
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootstrap_after_staging.py	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_linkedin_export_detect.sh	UNWIRED	-
 test_mail_content_probe.sh	UNWIRED	-
 test_mail_onboarding_259_260.sh	UNWIRED	-
