@@ -88,6 +88,27 @@ jobs:
           python3 -m py_compile scripts/appcast_version_guard.py
           echo "OK: parses under the shell and interpreter the cut actually uses"
 
+      # A COMPILE CHECK, AND NOTHING MORE -- said plainly so it is not read as
+      # coverage. `make -n` expands the recipe without running it; piping the
+      # expansion through `bash -n` proves the 100-odd continued lines of shell
+      # PARSE. It does not run a single branch of them, and it says nothing
+      # about whether the publish works.
+      #
+      # It is still worth a step. This recipe is the LAST thing `make ship`
+      # does, so a stray quote in it surfaces only after the notarisation
+      # cycles have been paid for, on the one run nobody wants to repeat.
+      #
+      # `-n` is safe here: publish-appcast has no prerequisites and no $(MAKE)
+      # line, and $(MAKE) lines are the only thing make executes under -n.
+      - name: The publish-appcast recipe PARSES as shell (compile only, runs nothing)
+        if: always()
+        run: |
+          cd gui
+          make -n publish-appcast > /tmp/recipe.txt
+          tail -n +2 /tmp/recipe.txt > /tmp/recipe_body.sh
+          /bin/bash -n /tmp/recipe_body.sh
+          echo "OK: the recipe parses under /bin/bash 3.2. NOT a proof that it works."
+
       # PROVE THE CONTROLS CAN FAIL, HERE, ON EVERY RUN. Both were watched
       # failing by hand before this landed, but a red observed once in a
       # terminal is not a property CI holds. Each mutation is applied to a COPY
