@@ -37,6 +37,7 @@ Test cases:
 """
 
 import asyncio
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -98,9 +99,19 @@ _SYNTHETIC_HTML = (
     "</div></body></html>"
 )
 
+# OPT-IN, and deliberately not a hardcoded absolute path. This previously named one
+# operator's home directory and the layout of their personal Pinterest export inside
+# a PUBLIC repository. Every consumer below already guards on .exists(), so an unset
+# env var simply skips those tests, which is what a fixture-only environment wants.
+_REAL_EXPORT_ENV = "OSTLER_PINTEREST_REAL_EXPORT"
+
+# The `or <sentinel>` is load-bearing and must not be simplified away. Path("") is
+# Path("."), and "." EXISTS, so falling back to the empty string would turn every
+# `.exists()` guard below into True and run the real-export tests against a
+# directory. A path that cannot exist is the only fallback that keeps them skipped.
 _REAL_EXPORT_PATH = Path(
-    "/Users/andy/Documents/Projects/CM019 - Personal World Graph"
-    "/03 - Social Media archives/1 Jan 2026/10 - Pinterest/pinterest.html"
+    os.environ.get(_REAL_EXPORT_ENV)
+    or "/nonexistent/ostler-pinterest-real-export-not-configured"
 )
 
 _EXPECTED_SECTION_IDS = {
