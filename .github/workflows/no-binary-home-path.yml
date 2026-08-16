@@ -1,0 +1,49 @@
+name: no-binary-home-path
+
+# This repository is PUBLIC. A committed binary can carry an absolute build path
+# in its debug metadata, disclosing the machine owner's home directory name and
+# the internal layout of their source tree.
+#
+# vendor/ostler_security/bin/ostler-passkey-helper did exactly that: 361,920
+# bytes of Mach-O, committed 2026-05-22, carrying 18 occurrences of
+# /Users/<operator>/Documents/Projects/HR015 - ... It was found by accident while
+# chasing something else, which is the whole argument for a gate: deleting it
+# fixes the instance, this retires the class.
+#
+# The measurement axis is RAW BYTES and that is load-bearing. Against that same
+# file, a lowercase-only text grep missed it and `strings -a | grep` returned a
+# confident ZERO, because `strings` extracts printable runs and skips the Mach-O
+# sections these paths live in. Only `grep -a` over raw bytes found them.
+#
+# Expected value is zero, so the test plants a binary it MUST catch and exits 2
+# (CANNOT-RUN, never a pass) if that control does not fire.
+
+on:
+  pull_request:
+    paths:
+      - '**'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  no-binary-home-path:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Deliberately scoped to '**' rather than a path list. A new binary can
+      # arrive anywhere, and a gate that only watches the places we already
+      # thought of is the gate that missed this one for three months.
+      - name: Assert no committed binary carries a home path
+        run: bash tests/test_no_committed_binary_leaks_a_home_path.sh
