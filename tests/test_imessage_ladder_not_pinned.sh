@@ -178,33 +178,57 @@ else
     fail "(8b) the ladder is not ascending; next_rung scans upward and would break"
 fi
 
-# (9) THE DWELL MUST NOT BLOCK THE ONE GUARANTEED ADVANCE.
+# (9) THE DWELL MUST NOT BLOCK THE LADDER, AND THE INVOKER MUST NOT STARVE IT.
 #
-#     TNM's measurement, which refuted my first premise: com.ostler.fda-rerun
-#     is ONE-SHOT (install.sh pins Year/Month/Day/Hour/Minute into
+#     ORIGINAL PREMISE, now superseded. TNM measured that com.ostler.fda-rerun
+#     was ONE-SHOT (install.sh pinned Year/Month/Day/Hour/Minute into a
 #     StartCalendarInterval at install +12h), and it is the ONLY agent whose
-#     tick reaches extract_all. So the only advance a customer gets without
-#     re-running the installer is at +12h.
+#     tick reaches extract_all. So the only advance a customer got without
+#     re-running the installer was at +12h, once, ever. My first dwell was
+#     86400, which would have BLOCKED even that -- every box stuck on rung 1
+#     while the code read like a ladder.
 #
-#     My first dwell was 86400. That would have BLOCKED it, leaving every box
-#     on rung 1 forever while the code read like a ladder -- a fix that ships
-#     dark. This control pins the dwell to the SCHEDULE rather than to a
-#     number, so if install.sh's 12-hour figure ever moves, this fails here
-#     instead of on a customer's machine.
-rerun_hours="$(grep -c 'date -v+12H' "$INSTALL" || true)"
+#     #714 fixed the one-shot: the plist is now StartInterval, so an advance
+#     OPPORTUNITY recurs forever instead of arriving once. This control was
+#     deliberately pinned to the SCHEDULE rather than to a number so that it
+#     would fail here when that happened, and it did. Re-anchoring rather than
+#     relaxing.
+#
+#     THE INVARIANT IS NOW A RELATIONSHIP, NOT EITHER NUMBER:
+#
+#         rerun interval  <=  dwell
+#
+#     so the DWELL governs how fast the ladder climbs, and the invoker is
+#     never the bottleneck. Read the two values from their real sources, so
+#     moving either one on its own trips this.
+rerun_interval="$(grep -oE ': "\$\{OSTLER_FDA_RERUN_INTERVAL_S:=[0-9]+\}"' "$INSTALL" \
+                  | grep -oE '[0-9]+' | head -1)"
 CHECKS=$((CHECKS + 1))
-if [[ "$rerun_hours" -ge 1 ]]; then
-    pass "(9) CONTROL: install.sh still schedules the one-shot rerun at +12h"
+if [[ -n "$rerun_interval" ]] && [[ "$rerun_interval" -gt 0 ]]; then
+    pass "(9) CONTROL: install.sh schedules the rerun on a recurring ${rerun_interval}s interval"
 else
-    fail "(9) the +12h rerun schedule moved; the dwell below is no longer anchored"
+    fail "(9) could not read the fda-rerun interval from install.sh; the dwell below is no longer anchored"
 fi
+
+# (9a) AND IT MUST NOT HAVE REGRESSED TO A ONE-SHOT. A recurring StartInterval
+#      plus a re-pinned calendar date would satisfy (9) while restoring the
+#      original defect, so assert the mechanism -- the pinned DATE -- directly.
+#      Independent of tests/test_fda_rerun_recurs.sh on purpose: two gates on
+#      the same axis, so retiring either one does not leave it unguarded.
+CHECKS=$((CHECKS + 1))
+if ! grep -qE '^\s+<key>(Year|Month|Day)</key>' "$INSTALL"; then
+    pass "(9a) no LaunchAgent pins a calendar DATE, which is what made it one-shot"
+else
+    fail "(9a) a plist pins Year/Month/Day again; that agent runs once and never more"
+fi
+
 dwell="$(run_py 'from ostler_fda.backfill_ladder import DEFAULT_DWELL_SECONDS
 print(DEFAULT_DWELL_SECONDS)')"
 CHECKS=$((CHECKS + 1))
-if [[ "$dwell" -lt 43200 ]]; then
-    pass "(9b) the dwell (${dwell}s) is under the 12h rerun, so it cannot block it"
+if [[ -n "$rerun_interval" ]] && [[ "$rerun_interval" -le "$dwell" ]]; then
+    pass "(9b) the rerun (${rerun_interval}s) is at least as often as the dwell (${dwell}s), so the dwell governs"
 else
-    fail "(9b) the dwell (${dwell}s) is >= the 12h rerun and would BLOCK the only guaranteed advance"
+    fail "(9b) the rerun (${rerun_interval}s) is rarer than the dwell (${dwell}s); the invoker STARVES the ladder"
 fi
 
 echo

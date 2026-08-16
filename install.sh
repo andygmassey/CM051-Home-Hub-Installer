@@ -11456,18 +11456,50 @@ print(json.dumps(summary, default=str))
     # end up pinned to the /tmp staging tree (#177).
     _ostler_stage_assistant_daemon
 
-    # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
-    # iCloud syncs. Calendar, Notes, Photos face recognition etc. can
-    # take hours to fully sync after first app launch.
+    # Schedule a RECURRING FDA re-run to catch slow iCloud syncs.
+    # Calendar, Notes, Photos face recognition etc. can take hours to
+    # fully sync after first app launch, and Calendar in particular is
+    # deliberately truncated at install time.
+    #
+    # 🔴 WHY THIS IS StartInterval AND NOT StartCalendarInterval (#714).
+    # Until 2026-08-16 this plist carried a StartCalendarInterval with
+    # Year, Month, Day, Hour AND Minute all pinned to install+12h. A
+    # StartCalendarInterval with a fully specified date is a ONE-SHOT:
+    # launchd fires it at that instant (or at the next wake if the Mac
+    # was asleep) and never again, because the date is then in the past
+    # forever.
+    #
+    # That silently broke a decision made elsewhere in this file. At the
+    # OSTLER_HYDRATE_CALENDAR_DAYS site the comment reads "The hourly
+    # fda-rerun LaunchAgent walks the 5-year window in the background",
+    # and CX-106 narrowed the install-time calendar window to 90 days ON
+    # THAT PREMISE. The agent was never hourly. So a customer whose one
+    # firing failed, or who simply has more than 90 days of calendar,
+    # never got the backfill the installer had already decided to defer.
+    #
+    # The interval is deliberately NOT tied to any other cadence in this
+    # file. It only has to be short enough that a failed run is retried
+    # without the customer noticing, and long enough not to sit on the
+    # ingest slot. launchd will not start a second copy of a job that is
+    # still running, so an overlong walk cannot pile up.
+    : "${OSTLER_FDA_RERUN_INTERVAL_S:=3600}"
     FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+    #
+    # 🔴 THE UPGRADE LIMB. A bare `[[ ! -f ]]` guard fixes fresh installs
+    # only: every box that already carries the one-shot plist keeps it
+    # forever, because the file exists and we skip. That is exactly the
+    # shape of #768, whose fix could not reach any box that already had
+    # the defect (#769). So rewrite when the file is ABSENT *or* when it
+    # still carries the legacy StartCalendarInterval shape.
+    FDA_RERUN_NEEDS_WRITE=0
+    FDA_RERUN_WAS_LEGACY=0
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
-        # Calculate the run date: now + 12 hours
-        FDA_RERUN_HOUR=$(date -v+12H +%H)
-        FDA_RERUN_MIN=$(date +%M)
-        FDA_RERUN_DAY=$(date -v+12H +%d)
-        FDA_RERUN_MONTH=$(date -v+12H +%m)
-        FDA_RERUN_YEAR=$(date -v+12H +%Y)
-
+        FDA_RERUN_NEEDS_WRITE=1
+    elif grep -q 'StartCalendarInterval' "$FDA_RERUN_PLIST" 2>/dev/null; then
+        FDA_RERUN_NEEDS_WRITE=1
+        FDA_RERUN_WAS_LEGACY=1
+    fi
+    if [[ "$FDA_RERUN_NEEDS_WRITE" == "1" ]]; then
         mkdir -p "${HOME}/Library/LaunchAgents"
         cat > "$FDA_RERUN_PLIST" <<FDARPEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -11482,19 +11514,8 @@ print(json.dumps(summary, default=str))
         <string>run-source</string>
         <string>fda-rerun</string>
     </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Year</key>
-        <integer>${FDA_RERUN_YEAR}</integer>
-        <key>Month</key>
-        <integer>${FDA_RERUN_MONTH}</integer>
-        <key>Day</key>
-        <integer>${FDA_RERUN_DAY}</integer>
-        <key>Hour</key>
-        <integer>${FDA_RERUN_HOUR}</integer>
-        <key>Minute</key>
-        <integer>${FDA_RERUN_MIN}</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>${OSTLER_FDA_RERUN_INTERVAL_S}</integer>
     <key>StandardOutPath</key>
     <string>${LOGS_DIR}/fda-rerun.log</string>
     <key>StandardErrorPath</key>
@@ -11502,9 +11523,18 @@ print(json.dumps(summary, default=str))
 </dict>
 </plist>
 FDARPEOF
+        # On the upgrade limb the OLD job is still registered with the
+        # old one-shot schedule. bootstrap is a no-op against an already
+        # loaded label, so boot it out first or the box keeps running the
+        # very plist we just replaced on disk. Absent-file installs have
+        # nothing to bootout and the failure is expected, hence || true.
+        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" ]]; then
+            launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
+                launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
+        fi
         launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
             launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
-        ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
+        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -18372,9 +18402,27 @@ unset _hydrate_contacts_accounts
 # with the longer window, overwriting the existing JSON.
 #
 # CX-106 (DMG #48l, 2026-05-29): for CALENDAR specifically we keep
-# the install-time window at 90 days. The hourly fda-rerun
-# LaunchAgent (scheduled +12h at Phase 3.7) walks the 5-year window
-# in the background. Studio retest of DMG #48k showed customers
+# the install-time window at 90 days, and defer the rest to the
+# recurring com.ostler.fda-rerun LaunchAgent registered at Phase 3.7.
+#
+# 🔴 THIS COMMENT USED TO CLAIM THE AGENT "walks the 5-year window".
+# It does not, and it never has. Measured 2026-08-16, both limbs:
+#
+#   limb 1  the agent was a ONE-SHOT StartCalendarInterval, so it ran
+#           at most once ever. FIXED in #714, this cut.
+#   limb 2  vendor/ostler_fda/extract_all.py:502 calls
+#           extract_events(since_days=365, future_days=30) with the 365
+#           HARDCODED and no env override, unlike every sibling source
+#           (safari/browser/imessage/whatsapp/mail all read
+#           OSTLER_*_BACKFILL_DAYS). NOT fixed here: that file is a
+#           vendored twin of HR015 ostler_fda and the fix belongs
+#           upstream then re-vendored, not edited in place.
+#
+# So after #714 the honest statement is: calendar reaches 365 days
+# within the hour instead of stopping at 90 days forever. It does not
+# reach 5 years. Do not restore the 5-year wording until limb 2 lands.
+#
+# Studio retest of DMG #48k showed customers
 # with multi-year calendar history hitting silent timeouts on the
 # install-time path because the Calendar Cache query was scanning
 # years of recurring-event expansions inside the 180s wall-clock cap.
@@ -18740,6 +18788,10 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         | tail -n 1
     )"
     rc=$?
+    # #712: mirror into a per-source variable at the point of capture. `rc` is
+    # a shared global that every hydrate block reassigns, so reading it a
+    # hundred lines later works only by accident of ordering.
+    _HYDRATE_WHATSAPP_RC="$rc"
     set -e; eval "${_wa_saved_err_trap:-}"; unset _wa_saved_err_trap
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_WHATSAPP_TIMED_OUT=true
@@ -18779,10 +18831,22 @@ except Exception:
 
     # #48g sentinel record: dedupes re-runs within a 7-day window. The
     # payload is a counts-only snapshot; never logged off-machine.
-    _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    #
+    # #712: rc was read ONLY for the 124/137 timeout check, so every other
+    # non-zero exit -- a store-auth 401, an unexpected ChatStorage.sqlite
+    # schema, an EX_CONFIG 78 -- fell through and wrote a SUCCESS sentinel.
+    # That suppressed the retry for seven days on the strength of a run that
+    # failed. A timeout counts as failure too: gtimeout killed the extract,
+    # nothing is continuing in the background whatever the message says.
+    if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
+            "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
-    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP
+    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC
     unset _HYDRATE_WHATSAPP_LOG
 elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
@@ -18889,6 +18953,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"
     rc=$?
+    _HYDRATE_BROWSING_RC="$rc"   # #712: see the whatsapp block for why
     set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_BROWSING_TIMED_OUT=true
@@ -18933,11 +18998,17 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    # #712: an errored or timed-out ingest must NOT suppress its own retry.
+    if [[ "${_HYDRATE_BROWSING_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
+            "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    else
+        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
-    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
+    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
@@ -19050,6 +19121,7 @@ else
         :
     else
         rc=$?
+        _HYDRATE_EMAILPREFS_RC="$rc"   # #712: see the whatsapp block for why
         _hydrate_heartbeat_stop
         if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
             _HYDRATE_EMAILPREFS_TIMED_OUT=true
@@ -19079,12 +19151,18 @@ else
             info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
         fi
         # Sentinel dedupes a re-run within the 7-day window.
-        _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        # #712: an errored or timed-out ingest must NOT suppress its own retry.
+        if [[ "${_HYDRATE_EMAILPREFS_RC:-0}" -ne 0 ]]; then
+            _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
+                "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        else
+            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        fi
     fi
 
     unset _HYDRATE_EMAILPREFS_CAP _HYDRATE_EMAILPREFS_TIMEOUT_WRAP
     unset _HYDRATE_EMAILPREFS_LOG _HYDRATE_EMAILPREFS_TIMED_OUT
-    unset _HYDRATE_EMAILPREFS_COUNT
+    unset _HYDRATE_EMAILPREFS_COUNT _HYDRATE_EMAILPREFS_RC
 fi
 
 unset _HYDRATE_EMAILPREFS_CM019_DIR _HYDRATE_EMAILPREFS_PY _HYDRATE_EMAILPREFS_REL
@@ -19567,7 +19645,23 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
     fi
 
     # Sentinel dedupes a re-run within the 7-day window.
-    _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    #
+    # #712: this source has TWO stages and the sentinel ignored both. convert
+    # failing is the common case (an older vendored CM024 without the
+    # apple_notes adapter -> unknown --source), and embed is skipped with
+    # EMBED_RC=1 whenever convert failed. Either stage non-zero means the notes
+    # are not searchable, so the retry must not be suppressed for a week.
+    # Report the convert rc when that is what broke, otherwise the embed rc,
+    # so the sentinel names the stage that actually failed.
+    if [[ "${_HYDRATE_APPLENOTES_CONVERT_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
+            "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    elif [[ "${_HYDRATE_APPLENOTES_EMBED_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
+            "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    fi
 
     unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
     unset _HYDRATE_APPLENOTES_LOG _HYDRATE_APPLENOTES_TIMED_OUT
@@ -19637,6 +19731,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_PEOPLE_LOG" | tail -n 1
     )"
     rc=$?
+    _HYDRATE_PEOPLE_RC="$rc"   # #712: see the whatsapp block for why
     set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_PEOPLE_TIMED_OUT=true
@@ -19666,10 +19761,16 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    # #712: an errored or timed-out ingest must NOT suppress its own retry.
+    if [[ "${_HYDRATE_PEOPLE_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
+            "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    else
+        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
-    unset _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
+    unset _HYDRATE_PEOPLE_RC _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
 else
     info "$MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING"
 fi
@@ -19971,7 +20072,15 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
         # startup hook retries on the next boot. Surface it, do not abort.
         warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See /tmp/ostler-privacy-backfill.log"  # i18n-exempt
     fi
-    _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    # #712: the rc was already captured AND already printed in the warn above,
+    # and then thrown away at the sentinel -- the failure was visible to the
+    # customer on screen while the sentinel recorded success and suppressed
+    # the retry for seven days. Route it.
+    if [[ "$_privacy_rc" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "privacy_backfill" "$_privacy_rc" "status=run"
+    else
+        _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    fi
     unset _privacy_rc
 fi
 
