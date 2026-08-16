@@ -131,37 +131,54 @@ check "(5) the 7-day expiry still applies to a successful run" "$rc" "1"
 rc=$(run_in_harness '_hydrate_sentinel_fresh never_ran')
 check "(6) an absent sentinel is not fresh" "$rc" "1"
 
-# (7) POPULATION REPORT. Which sources route their non-zero-rc arm to the
-#     error variant? This prints the unguarded ones so the remaining work is
-#     visible in the output rather than silently missing. It ASSERTS only the
-#     sources this change covers; the rest are reported, and the count is
-#     ratcheted so it can only improve.
+# (7) POPULATION REPORT + RATCHET. Which sources keep their non-zero-rc arm
+#     from writing a success sentinel? Prints every source by name so the
+#     remaining work is visible in the output rather than silently missing.
+#
+#     TWO SHAPES ARE VALID, and they are not interchangeable:
+#
+#       (a) the arm records the ERROR variant  -- _hydrate_sentinel_record_error
+#       (b) the arm records NOTHING AT ALL     -- the ai_conversations shape
+#
+#     (b) is equally correct: an absent sentinel is not fresh, so the next run
+#     retries. Control (6) proves that.
+#
+#     🔴 THIS CONTROL USED TO CARRY `|| [[ "$src" == "ai_conversations" ]]`,
+#     which is an unconditional pass -- for that one source it could not fail,
+#     whatever install.sh did. Shape (b) is now ASSERTED by reading the arm and
+#     requiring it to be free of a success record, so adding one there turns
+#     this red instead of being waved through. #712.
 echo
 echo "  -- sentinel guard coverage --"
 GUARDED=0
-for src in imessage places ai_conversations; do
-    if grep -q "_hydrate_sentinel_record_error \"$src\"\|_hydrate_sentinel_record_error $src" "$INSTALL" \
-       || [[ "$src" == "ai_conversations" ]]; then
-        echo "     guarded    $src"
-        GUARDED=$((GUARDED + 1))
-    else
-        echo "     UNGUARDED  $src"
-    fi
-done
-for src in whatsapp browsing email_preferences apple_notes people privacy_backfill; do
+ALL_SOURCES="imessage places whatsapp browsing email_preferences apple_notes people privacy_backfill ai_conversations"
+for src in $ALL_SOURCES; do
     if grep -q "_hydrate_sentinel_record_error \"$src\"" "$INSTALL"; then
-        echo "     guarded    $src"
+        echo "     guarded    $src   (records the error variant)"
+        GUARDED=$((GUARDED + 1))
+        continue
+    fi
+    # Shape (b): the rc arm must exist AND must not write a success sentinel.
+    ARM="$(awk -v s="$src" '
+        /elif \[\[ "\$_aiconv_rc" -ne 0 \]\]; then/ { if (s == "ai_conversations") grab = 1 }
+        grab && /^ *(elif|else|fi)/ && ++seen > 1                             { exit }
+        grab                                                                  { print }
+    ' "$INSTALL")"
+    if [[ -n "$ARM" ]] && ! printf '%s\n' "$ARM" | grep -q '_hydrate_sentinel_record '; then
+        echo "     guarded    $src   (error arm records NO sentinel, so the retry stands)"
         GUARDED=$((GUARDED + 1))
     else
-        echo "     UNGUARDED  $src   <- still writes .done on the error path (#711)"
+        echo "     UNGUARDED  $src   <- still writes .done on the error path (#711/#712)"
     fi
 done
 echo
+# FLOOR, not equality. 9 of 9 as of #712; it can only go up.
+SENTINEL_GUARD_FLOOR=9
 CHECKS=$((CHECKS + 1))
-if [[ "$GUARDED" -ge 3 ]]; then
-    pass "(7) at least the 3 covered sources are guarded (guarded=$GUARDED of 9)"
+if [[ "$GUARDED" -ge "$SENTINEL_GUARD_FLOOR" ]]; then
+    pass "(7) every hydrate source is guarded (guarded=$GUARDED, floor=$SENTINEL_GUARD_FLOOR of 9)"
 else
-    fail "(7) coverage went BACKWARDS: guarded=$GUARDED, floor is 3"
+    fail "(7) coverage went BACKWARDS: guarded=$GUARDED, floor is $SENTINEL_GUARD_FLOOR"
 fi
 
 echo
