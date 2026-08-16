@@ -18,6 +18,17 @@
 #
 #   * CM051 tests/verify_hub_chat.sh   "Exit 0 = chat works. Non-zero = BLOCK
 #                                       THE CUT." Zero callers, zero mentions.
+#                                       DISPOSITIONED 2026-08-16: deleted. The
+#                                       live equivalent is OS003
+#                                       gates/behavioural_chat_probe.py, and it
+#                                       IS reached --
+#                                       pipeline/release.yml:169 runs
+#                                       gates/verify_behavioural_acceptance.sh
+#                                       --seed, which invokes the probe. Two
+#                                       copies of one gate where only one is
+#                                       reachable is worse than one copy: the
+#                                       dark one absorbs the attention the live
+#                                       one needs.
 #   * HR015 bin/ci-pii-shape-scan.sh   declared blocking, reachable only via a
 #                                       workflow nothing required.
 #   * D011 repair pass                  same shape.

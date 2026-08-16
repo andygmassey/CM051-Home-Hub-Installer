@@ -66,14 +66,34 @@ jobs:
 
       # REPORT, DO NOT BLOCK, ON THE REAL TREE -- for now, and deliberately.
       #
-      # There are four known orphans on main today (cut_hygiene_gate.sh,
-      # run_all_cut_gates.sh, verify_must_contain.sh, verify_hub_chat.sh) and
-      # they need triage, not an immediate red: wiring a rotted predicate
-      # manufactures a permanent false red, and permanent false reds teach
-      # people that red means nothing. The ratio is printed on every run so the
-      # number cannot drift silently while nobody is blocked by it.
+      # There are THREE known orphans on main (cut_hygiene_gate.sh,
+      # run_all_cut_gates.sh, verify_must_contain.sh) and they need triage, not
+      # an immediate red: wiring a rotted predicate manufactures a permanent
+      # false red, and permanent false reds teach people that red means
+      # nothing. The ratio is printed on every run so the number cannot drift
+      # silently while nobody is blocked by it.
       #
-      # FLIP THIS TO BLOCKING the moment the four are dispositioned. A
+      # WAS FOUR. verify_hub_chat.sh was dispositioned on 2026-08-16 by
+      # DELETION, naming its survivor, which is the second of the two options
+      # this gate offers. Evidence for that call, gathered before making it:
+      #
+      #   not in tests/TEST_WIRING.tsv, no cut manifest row, no BOM row, so it
+      #   was cited as wiring evidence NOWHERE and deleting it voids no claim
+      #
+      #   the survivor is OS003 gates/behavioural_chat_probe.py, and it is
+      #   REACHED: pipeline/release.yml:169 runs
+      #   gates/verify_behavioural_acceptance.sh --seed, which invokes it.
+      #   Checked by behaviour (ws/chat) rather than by filename, because a
+      #   filename search for "hub_chat" in OS003 returns nothing and would
+      #   have concluded there was no survivor at all.
+      #
+      # The remaining three are ONE knot, not three problems: verify_must_
+      # contain.sh (the BOM gate) has real call sites, but only inside
+      # cut_hygiene_gate.sh and run_all_cut_gates.sh, which are themselves
+      # orphans. Wiring run_all_cut_gates.sh into the cut makes all three
+      # reachable at once. That is #699 and it is Archie's.
+      #
+      # FLIP THIS TO BLOCKING the moment the three are dispositioned. A
       # report-only gate that stays report-only is the next thing on this list.
       - name: Ratio on the real tree (report only, see comment)
         continue-on-error: true
