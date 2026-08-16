@@ -8612,6 +8612,30 @@ TOMLPREAMBLE
     # every stored vector.
     echo
     echo "[memory]"
+    # `backend` IS REQUIRED AND ITS ABSENCE IS FATAL. Do not remove it, and do
+    # not assume the daemon will fill it in.
+    #
+    # MemoryConfig.backend (zeroclaw-config/src/schema.rs) is a plain
+    # `pub backend: String` with NO #[serde(default)]. The Config struct's
+    # `memory` FIELD does carry #[serde(default)], and that is the trap:
+    # serde's field default fires when the WHOLE TABLE is absent, not when a
+    # field inside a present table is absent. For as long as install.sh wrote
+    # no [memory] section at all, MemoryConfig::default() supplied
+    # backend = "sqlite" and nobody noticed it was mandatory.
+    #
+    # The moment this block was added (219ee4e, 2026-08-14, the #677 fix that
+    # finally pointed memory at the embedder) the table became PRESENT and
+    # partial, the default stopped applying, and `ostler-assistant daemon`
+    # began failing to boot on every fresh install with:
+    #     Error: Failed to deserialize config file
+    #     TOML parse error at line 1, column 1 ... missing field `backend`
+    # crash-looping on the LaunchAgent KeepAlive roughly every 10 seconds.
+    # Found on a clean 16 GB Mini at v1.0.31, "ATTEMPT 34".
+    #
+    # "sqlite" is not a new choice. It is the exact value MemoryConfig::default()
+    # has always used, so writing it explicitly restores the previous behaviour
+    # rather than changing it.
+    echo "backend = \"sqlite\""
     echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
     echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
     echo "embedding_dimensions = 768"
