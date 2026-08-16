@@ -1,0 +1,77 @@
+name: declared-gates-reachable
+
+# A file that says it blocks the cut must be reachable FROM the cut, and its
+# caller must be reachable too.
+#
+# WHY. Three files across three repos were found in one night, each declaring
+# itself a cut blocker in its own header, each invoked by nothing. None was
+# caught by the test-wiring register, because that register enumerates `test_*`
+# and these are named otherwise: they were not scored UNWIRED, they were
+# UNENUMERABLE, which prints as nothing at all.
+#
+# AND ONE-HOP IS NOT ENOUGH. scripts/run_all_cut_gates.sh is invoked by nothing
+# (its only appearance in an executable file is an @echo printing its name as
+# advice), and scripts/verify_must_contain.sh -- the gate that reads the cut's
+# Bill of Materials -- has exactly one real call site, inside that dark runner.
+# A one-hop grep says "something calls it" and reports it wired. Only a
+# fixpoint from real cut entry points sees that the caller is dark too.
+#
+# THE SELF-TEST IS THE POINT OF THIS WORKFLOW. The sweep result changes as the
+# tree changes and is reported by the gate itself; what CI must protect is the
+# gate's ability to DISCRIMINATE. Ten controls, including a green one.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_declared_gates_reachable.sh'
+      - '.github/workflows/declared-gates-reachable.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ten controls, each built as a real git fixture and run through the
+      # SHIPPING script via --repo. The first version of this self-test carried
+      # an inline copy of the walk, which proved a copy correct and said
+      # nothing about what ships.
+      #
+      # Two of the controls are regressions of defects this gate itself had:
+      #   (4) variable-indirection call sites, which v1 called orphans
+      #   (5) print-only references, which must NOT rescue a dark gate
+      # and (7) is the transitive case that found the BOM gate.
+      - name: The gate can still tell a reachable gate from an orphaned one
+        run: bash scripts/verify_declared_gates_reachable.sh --self-test
+
+      # The cut runs on a Mac, where /bin/bash is 3.2. A script that only
+      # parses under bash 5 is a gate that reads CANNOT-RUN forever there.
+      - name: Parses under bash 3.2-compatible syntax
+        run: bash -n scripts/verify_declared_gates_reachable.sh
+
+      # REPORT, DO NOT BLOCK, ON THE REAL TREE -- for now, and deliberately.
+      #
+      # There are four known orphans on main today (cut_hygiene_gate.sh,
+      # run_all_cut_gates.sh, verify_must_contain.sh, verify_hub_chat.sh) and
+      # they need triage, not an immediate red: wiring a rotted predicate
+      # manufactures a permanent false red, and permanent false reds teach
+      # people that red means nothing. The ratio is printed on every run so the
+      # number cannot drift silently while nobody is blocked by it.
+      #
+      # FLIP THIS TO BLOCKING the moment the four are dispositioned. A
+      # report-only gate that stays report-only is the next thing on this list.
+      - name: Ratio on the real tree (report only, see comment)
+        continue-on-error: true
+        run: bash scripts/verify_declared_gates_reachable.sh
