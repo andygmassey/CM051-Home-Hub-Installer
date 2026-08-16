@@ -102,7 +102,11 @@ import json
 import sys
 
 p = 2 ** 255 - 19
-q = 2 ** 252 + 27742317777372353535851937790883648493
+# Curve25519 group order L in hex, for the reason spelled out beside the
+# same constant in install.sh: the decimal form is a 38-digit run and
+# .github/scripts/ci-pii-shape-scan.sh refuses 15+ digit runs on shape
+# alone. Value unchanged, RFC 8032 s5.1.
+q = 0x1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED
 
 
 def modp_inv(x):
