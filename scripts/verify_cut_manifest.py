@@ -651,14 +651,43 @@ def check_plist_env_key_present(entry: dict, ctx: dict) -> Result:
 BOX_WALK_PROBE_TIMEOUT_SECONDS = 180
 
 
-def _box_walk_probe_registry_dir(cm051_dir: Path) -> Path:
-    """Location of the box-walk probe registry.
+def _box_walk_probe_search_dirs(cm051_dir: Path) -> list:
+    """Every directory a probe may be registered in, in resolution order.
 
-    All probe scripts live under `scripts/box_walk_probes/<probe_name>.sh`.
-    Keeping them together (rather than scattering) makes the registry easy to
-    audit and lets `chmod +x` propagate via a single directory.
+    #778. This used to return ONE directory, `scripts/box_walk_probes`, and
+    resolve `<name>.sh` directly inside it. The repo has TWO populations:
+
+        scripts/box_walk_probes/probes/*.sh    7 probes, each with a
+                                               --self-test negative control
+        scripts/box_walk_probes/*.sh           1 probe, people_seed_and_retrieval,
+                                               735 lines, NO negative control
+
+    The split is deliberate and documented in that directory's README: the
+    runner (`run_box_walk.sh`) globs `probes/` ONLY, because phase 1 demands a
+    `--self-test` from everything it finds and the flat probe cannot supply one.
+
+    What was NOT deliberate is that this gate looked only in the flat directory
+    while the runner looked only in the subdirectory. The two instruments had
+    ZERO probes in common. The gate could resolve exactly one probe -- the one
+    the runner never executes -- and the seven the runner does execute were
+    unresolvable here, so no manifest could name them.
+
+    Searching both, subdirectory first, means a probe is visible to the gate
+    wherever it is registered, and the coverage test in
+    scripts/tests/test_verify_cut_manifest.py asserts every probe on disk is
+    declared by at least one manifest row so a new one cannot go dark again.
     """
-    return cm051_dir / "scripts" / "box_walk_probes"
+    root = cm051_dir / "scripts" / "box_walk_probes"
+    return [root / "probes", root]
+
+
+def _resolve_box_walk_probe(cm051_dir: Path, probe: str):
+    """Return the path of `probe`, or None. Never guesses outside the registry."""
+    for d in _box_walk_probe_search_dirs(cm051_dir):
+        candidate = d / f"{probe}.sh"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
@@ -701,11 +730,13 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
                       "OSTLER_BOX_HOST not set (runtime probe requires a reachable box)",
                       entry.get("source_pr", ""))
 
-    registry_dir = _box_walk_probe_registry_dir(cm051_dir)
-    script = registry_dir / f"{probe}.sh"
-    if not script.is_file():
+    script = _resolve_box_walk_probe(cm051_dir, probe)
+    if script is None:
+        searched = ", ".join(
+            str(d / f"{probe}.sh") for d in _box_walk_probe_search_dirs(cm051_dir)
+        )
         return Result(entry["id"], entry["title"], "box_walk_probe", "FAIL",
-                      f"probe {probe!r} not registered at {script}",
+                      f"probe {probe!r} not registered. Searched: {searched}",
                       entry.get("source_pr", ""))
     try:
         result = subprocess.run(
