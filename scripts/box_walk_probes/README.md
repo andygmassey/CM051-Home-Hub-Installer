@@ -29,11 +29,35 @@ whose failure mode is **invisible at install time**:
 
 Every one of those looks like a healthy box.
 
+## Two directories, and what each one means
+
+```
+probes/*.sh    every probe with a --self-test negative control.
+               run_box_walk.sh globs THIS directory and nothing else,
+               because phase 1 demands a --self-test from everything it finds.
+*.sh           people_seed_and_retrieval.sh, alone. A real 735-line
+               implementation with graded exit codes and no --self-test,
+               so the runner would mark it BROKEN and discard its result.
+```
+
+The split is deliberate. What was not deliberate, and is fixed in #778, is that
+the cut gate `scripts/verify_cut_manifest.py` used to resolve `probe: <name>`
+against the flat directory ONLY. The gate and the runner therefore had **zero
+probes in common**: the gate could resolve only the probe the runner never
+executes, and the seven the runner does execute could not be named by any
+manifest, so nobody wrote the rows. Nothing failed. There was nothing to fail.
+
+The gate now searches `probes/` first and the flat directory second, and
+`test_every_probe_on_disk_is_declared_in_permanent_manifest` fails if a probe
+lands here without a `permanent.yaml` row. Adding a probe means adding a row.
+
+Giving `people_seed_and_retrieval.sh` a `--self-test` and moving it into
+`probes/` would collapse the two directories into one, and is the right end
+state. It is not done here.
+
 ## The rule this suite is built around
 
-`people_seed_and_retrieval.sh` already sits alongside these probes. It is a real
-735-line implementation with graded exit codes, and it is not replaced by this
-framework.
+`people_seed_and_retrieval.sh` is not replaced by this framework.
 
 What it does not have -- and what none of the gates that burnt four consecutive
 release tags had -- is a **negative control**. Nothing in it, or in them, ever
@@ -132,6 +156,9 @@ the system it models misses them. Both cost the same amount of trust.
 | `pair_state_agreement` | do the pairing signals agree with each other? | #265, #208 |
 | `freshness_panel_has_dates` | does every source report a date, not `unknown`? | #349, #266 |
 | `people_count_agreement` | do the graph and the API agree on the count? | #273 |
+| `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
+| `installed_bundle_seal_intact` | does the installed bundle's signature still verify? | #375 |
+| `people_seed_and_retrieval` | can a seeded person be retrieved through the tool-call path? (flat, no `--self-test`) | v1.0.12 |
 
 Each asserts **agreement or absence of a lie**, not a particular value. An
 unpaired box is fine; a box claiming to be paired over an empty table is not. A
