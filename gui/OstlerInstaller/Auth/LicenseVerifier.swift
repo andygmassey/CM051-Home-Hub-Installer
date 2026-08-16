@@ -30,11 +30,22 @@ import Foundation
 // matching the LICENSE_SIGNING_PRIVATE_KEY Worker secret in CM050.
 // Keypair ceremonied 2026-05-13.
 //
-// To override at build time for QA / staging:
-//     OSTLER_LICENSE_PUBKEY_OVERRIDE=<64-hex-char string>
-// is read from the process env at LicenseVerifier init time.
-// Test target injects its own keypair-derived public key via
-// `LicenseVerifier(publicKey: testKey)`.
+// THE VERIFICATION KEY IS COMPILED IN. There is no runtime
+// mechanism to swap it -- no env var, no defaults key, no file,
+// no argument. `init?()` reads this constant and nothing else.
+//
+// QA, staging and the unit tests inject their own keypair-derived
+// public key through `init(publicKey:)` below. That seam is
+// compile-time (the caller has to be linked against the type), so
+// it cannot be reached by anyone merely LAUNCHING the shipped app.
+//
+// This is load-bearing, not stylistic. A verifier that resolves
+// its trust anchor from anything the launching process controls
+// has no trust anchor: an attacker mints their own keypair, signs
+// their own licence body, points the verifier at their own public
+// key, and the signature check passes by construction. The paywall
+// is then decorative. `LicenseVerifierTests` pins the absence of
+// that shape by scanning this file.
 
 private let productionPublicKeyHex =
     "ad31903baa3b2d84ec4bdbfbab860f10e69d5f31649ad5e2a369dbf3377b3dd3"
@@ -94,17 +105,13 @@ final class LicenseVerifier {
 
     private let publicKey: Curve25519.Signing.PublicKey
 
-    /// Production initializer. Reads the embedded public key constant
-    /// (or the `OSTLER_LICENSE_PUBKEY_OVERRIDE` env var if set).
+    /// Production initializer. Uses the embedded public key constant
+    /// and nothing else -- the trust anchor is not overridable at
+    /// run time, deliberately. To verify against a different key
+    /// (QA, staging, unit tests), use `init(publicKey:)`.
     /// Returns `nil` if the embedded key is unusable.
     init?() {
-        let hex: String
-        if let override = ProcessInfo.processInfo.environment["OSTLER_LICENSE_PUBKEY_OVERRIDE"],
-           override.count == 64 {
-            hex = override
-        } else {
-            hex = productionPublicKeyHex
-        }
+        let hex = productionPublicKeyHex
         guard let bytes = Self.hexToData(hex), bytes.count == 32 else {
             NSLog("LicenseVerifier: embedded public key hex is malformed (length=\(hex.count))")
             return nil
@@ -119,9 +126,13 @@ final class LicenseVerifier {
         self.publicKey = key
     }
 
-    /// Test-only initializer. Lets the test target inject a key
-    /// derived from a generated test keypair, so tests don't depend
-    /// on the embedded production key being in place.
+    /// The only key-injection seam, and it is compile-time. Lets the
+    /// test target (and any QA / staging harness linked against this
+    /// type) verify against a generated keypair instead of the
+    /// embedded production key. Nothing in the shipped app calls this
+    /// -- `InstallerCoordinator` constructs `LicenseVerifier()` -- so
+    /// a customer running the notarised .app cannot reach it without
+    /// recompiling, which notarisation already gates.
     init(publicKey: Curve25519.Signing.PublicKey) {
         self.publicKey = publicKey
     }
