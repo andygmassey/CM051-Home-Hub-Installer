@@ -32,6 +32,7 @@ CHECK_ONLY=false
 SHOW_HELP=false
 SHOW_LICENSES=false
 ALLOW_PLAINTEXT=0
+ALLOW_UNLICENSED=0
 NO_EXTENSIONS=false
 
 for arg in "$@"; do
@@ -40,6 +41,9 @@ for arg in "$@"; do
         --help|-h) SHOW_HELP=true ;;
         --licenses|--licences) SHOW_LICENSES=true ;;
         --allow-plaintext) ALLOW_PLAINTEXT=1 ;;
+        # Developer escape hatch for the licence gate below. Both
+        # spellings, matching --licenses|--licences above.
+        --allow-unlicensed|--allow-unlicenced) ALLOW_UNLICENSED=1 ;;
         --no-extensions) NO_EXTENSIONS=true ;;
     esac
 done
@@ -574,6 +578,10 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "                      database encryption. NOT FOR PRODUCTION USE."
     echo "                      Writes a posture marker at"
     echo "                      ~/.ostler/security-posture/install.json."
+    echo "  --allow-unlicensed  Dev only. Install without a licence. Prints a"
+    echo "                      loud unlicensed banner and carries on. The"
+    echo "                      OSTLER_DEV=1 environment variable does the"
+    echo "                      same thing. NOT FOR PRODUCTION USE."
     echo "  --no-extensions     Skip the browser-extensions install phase"
     echo "                      (Safari .app copy + Chrome Web Store open)."
     echo "                      The Hub still works; you just enable"
@@ -586,6 +594,12 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "  4. You walk away and come back to a working system"
     echo ""
     echo "Environment variables (advanced - override before running):"
+    echo ""
+    echo "  OSTLER_DEV"
+    echo "    Set to 1 to skip the licence check and install unlicensed."
+    echo "    Identical to --allow-unlicensed. Developer escape hatch; the"
+    echo "    install prints an unlicensed banner and the resulting Hub is"
+    echo "    not a supported install."
     echo ""
     echo "  OSTLER_INSTALLER_TARBALL_URL"
     echo "    Where install.sh fetches the installer tarball when invoked"
@@ -899,6 +913,435 @@ if [[ "$ALLOW_PLAINTEXT" == "1" ]]; then
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
     warn "RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."  # i18n-exempt
+fi
+
+# ── Licence gate (ERR-02-LICENCE-REQUIRED) ─────────────────────────
+#
+# WHY THIS BLOCK EXISTS (Andy decision, 2026-08-16)
+#
+# install.sh is a PUBLIC script advertised at the top of this file and
+# in README.md as `curl -fsSL https://ostler.ai/install.sh | bash`.
+# Until today that one command installed the whole paid product for
+# free: there was no licence enforcement anywhere in these 20k lines.
+# The only Ed25519 verification in the repo lived in the Swift GUI
+# (gui/OstlerInstaller/Auth/LicenseVerifier.swift), which the shell
+# path never runs. The "Licence / activation check" comment further
+# down recorded the assumption that the GUI always goes first. For the
+# DMG it does. For curl|bash it never did.
+#
+# So verify here, and verify FOR REAL: Ed25519 over the canonical
+# licence body, same bytes and same public key as the Swift verifier.
+# A file-exists check would be worse than nothing -- it reads as a
+# gate in review while a zero-byte file walks straight through it.
+#
+# WHERE THE LICENCE LIVES, AND THE TRAP SITTING NEXT TO IT
+#   ~/.ostler/license/license.json   <- THIS ONE. Singular, lowercase.
+#                                       Written by the GUI's
+#                                       LicensePersistence at 0600.
+#   ~/.ostler/LICENSES/              <- NOT THIS ONE. Plural, upper.
+#                                       Third-party open-source licence
+#                                       texts (see --licenses above).
+#                                       Nothing to do with entitlement.
+#
+# ORDERING: this runs before the /tmp staging tree is created, before
+# the curl|bash tarball download, before Homebrew, before anything at
+# all touches the customer's Mac. Failing late is worse than not
+# failing.
+#
+# ESCAPE HATCH (Andy asked for one; it is deliberately loud):
+#   OSTLER_DEV=1        environment variable
+#   --allow-unlicensed  flag
+# Either proceeds without a licence and says so three times, in the
+# log the customer would send to support. A silent hatch is how this
+# defect comes back.
+#
+# DELIBERATELY NOT GATED:
+#   - OSTLER_UPGRADE_MODE / OSTLER_UPGRADE_ROLLBACK exit long before
+#     this point. They reconcile an EXISTING install and bail with
+#     exit 10 when there is nothing installed, so they cannot be
+#     turned into a free fresh install.
+#   - --check installs nothing and exits after the prerequisite
+#     probes. README documents it as the pre-install compatibility
+#     check, so it stays usable before a licence exists.
+#
+# Proof it fires: tests/test_licence_gate.sh (five cases, synthetic
+# keys generated per run, nothing real committed).
+
+# American spelling on the path and on the pubkey override env var:
+# both are contracts shared with the Swift side (LicensePersistence
+# writes `license.json`; LicenseVerifier reads
+# OSTLER_LICENSE_PUBKEY_OVERRIDE). British spelling everywhere else.
+OSTLER_LICENCE_FILE="${HOME}/.ostler/license/license.json"
+
+# Ed25519 public key, 32 bytes as hex. Verbatim copy of
+# productionPublicKeyHex in gui/OstlerInstaller/Auth/LicenseVerifier.swift
+# (keypair ceremonied 2026-05-13). A PUBLIC key, safe in a public repo;
+# the private half is a CM050 Worker secret. tests/test_licence_gate.sh
+# asserts this constant still equals the Swift one -- if the Swift key
+# rotates and this copy does not, every real licence fails here.
+OSTLER_LICENCE_PUBKEY="ad31903baa3b2d84ec4bdbfbab860f10e69d5f31649ad5e2a369dbf3377b3dd3"
+
+# Resolve an interpreter that can run the verifier. Order matters:
+# the bundled python-build-standalone 3.11 inside the .app is the one
+# every customer install has (CX-19), and it works on a stock Mac with
+# no Command Line Tools, where /usr/bin/python3 is an Apple stub that
+# fires the CLT dialog and returns non-zero. SCRIPT_DIR proper is not
+# resolved until much later in this script, so redo the dirname dance
+# locally rather than reordering the world.
+_ostler_licence_python() {
+    local _cand _dir=""
+    if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+        _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    fi
+    for _cand in ${_dir:+"${_dir}/python/bin/python3.11"} \
+                 /opt/homebrew/opt/python@3.11/bin/python3.11 \
+                 /usr/local/opt/python@3.11/bin/python3.11 \
+                 /opt/homebrew/bin/python3 \
+                 /usr/local/bin/python3 \
+                 "$(command -v python3 2>/dev/null || true)"; do
+        [[ -n "$_cand" && -x "$_cand" ]] || continue
+        if "$_cand" -c 'import base64, hashlib, json' >/dev/null 2>&1; then
+            printf '%s' "$_cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Refuse, with somewhere for the customer to go next. No internals:
+# the reason lines say what is wrong with the licence, never what the
+# verifier did about it.
+_ostler_licence_refuse() {
+    local _reason="$1"
+    err "Ostler needs a valid licence before it can install."                    # i18n-exempt
+    err "  ${_reason}"                                                           # i18n-exempt
+    echo "" >&2
+    echo "  The licence file belongs here:" >&2                                  # i18n-exempt
+    echo "      ${OSTLER_LICENCE_FILE}" >&2
+    echo "" >&2
+    echo "  If you have not bought Ostler yet:" >&2                              # i18n-exempt
+    echo "      https://ostler.ai" >&2
+    echo "" >&2
+    echo "  If you have: your welcome email has the licence attached as" >&2     # i18n-exempt
+    echo "  ostler-licence.json. Save it, then put it in place:" >&2             # i18n-exempt
+    echo "" >&2
+    echo "      mkdir -p ~/.ostler/license" >&2
+    echo "      cp ~/Downloads/ostler-licence.json ~/.ostler/license/license.json" >&2
+    echo "" >&2
+    echo "  and run this installer again. The OstlerInstaller app from the" >&2  # i18n-exempt
+    echo "  DMG does that step for you: drop the licence on its licence" >&2     # i18n-exempt
+    echo "  screen and it writes the file itself." >&2                           # i18n-exempt
+    echo "" >&2
+    echo "  Bought Ostler and still seeing this? Email support@ostler.ai." >&2   # i18n-exempt
+    echo "" >&2
+    fail_with_code "ERR-02-LICENCE-REQUIRED" "Licence check failed: ${_reason}"  # i18n-exempt
+}
+
+if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == "1" ]]; then
+    # Loud on purpose, three times, matching the --allow-plaintext
+    # precedent above. This is the line support needs to see in a
+    # pasted log before spending an hour on a Hub that was never
+    # licensed. Fires before the strings catalogue is sourced, so it
+    # cannot use MSG_* -- same constraint as --allow-plaintext.
+    # if/else rather than `[[ ... ]] && x=y`: a false test in an AND-list
+    # is exempt from set -e today, but it is one refactor away from not
+    # being, and this block must never be the thing that aborts.
+    if [[ "${OSTLER_DEV:-0}" == "1" ]]; then
+        _lic_switch="OSTLER_DEV=1"
+    else
+        _lic_switch="--allow-unlicensed"
+    fi
+    warn "RUNNING UNLICENSED (${_lic_switch}): licence check SKIPPED. NOT A SUPPORTED INSTALL."  # i18n-exempt
+    warn "RUNNING UNLICENSED (${_lic_switch}): licence check SKIPPED. NOT A SUPPORTED INSTALL."  # i18n-exempt
+    warn "RUNNING UNLICENSED (${_lic_switch}): licence check SKIPPED. NOT A SUPPORTED INSTALL."  # i18n-exempt
+    unset _lic_switch
+elif [[ "$CHECK_ONLY" == true ]]; then
+    info "Prerequisites check only -- installing Ostler needs a licence."  # i18n-exempt
+else
+    _lic_python="$(_ostler_licence_python)" || _lic_python=""
+    if [[ -z "$_lic_python" ]]; then
+        # Fail closed. Not a hardship: there is no successful install
+        # without python3 anyway (venvs, FDA extraction, the security
+        # module all need it), so this refuses earlier and with a
+        # clearer message than the failure that was coming regardless.
+        err "Cannot verify your licence: no usable python3 on this Mac."        # i18n-exempt
+        err "Install the Xcode Command Line Tools, then run this again:"        # i18n-exempt
+        err "    xcode-select --install"                                        # i18n-exempt
+        fail_with_code "ERR-02-LICENCE-UNVERIFIABLE" "No python3 available to verify the licence."  # i18n-exempt
+    fi
+
+    # QA / staging keypair override, same env var and same 64-hex-char
+    # rule as LicenseVerifier.swift. A wrong-length value falls back to
+    # the production key exactly like the Swift side, and says so.
+    _lic_pubkey="$OSTLER_LICENCE_PUBKEY"
+    if [[ -n "${OSTLER_LICENSE_PUBKEY_OVERRIDE:-}" ]]; then
+        if [[ "${#OSTLER_LICENSE_PUBKEY_OVERRIDE}" -eq 64 ]]; then
+            _lic_pubkey="$OSTLER_LICENSE_PUBKEY_OVERRIDE"
+            warn "OSTLER_LICENSE_PUBKEY_OVERRIDE set: verifying against a NON-PRODUCTION licence key."  # i18n-exempt
+        else
+            warn "OSTLER_LICENSE_PUBKEY_OVERRIDE is not 64 hex characters -- ignored."  # i18n-exempt
+        fi
+    fi
+
+    # Exit codes are the contract between the heredoc and the case
+    # below. Captured explicitly with `|| rc=$?` because `set -e` would
+    # otherwise abort here and the customer would see nothing at all.
+    _lic_rc=0
+    _lic_detail="$("$_lic_python" - "$OSTLER_LICENCE_FILE" "$_lic_pubkey" <<'OSTLER_LICENCE_VERIFY_PY'
+# Verify a CM050 v1 licence file. Mirrors, decision for decision,
+# gui/OstlerInstaller/Auth/LicenseVerifier.swift:
+#
+#   parse JSON -> require the v1 fields and types -> version == 1 ->
+#   signature_algorithm == "Ed25519" -> drop `signature` -> canonical
+#   JSON (sorted keys, no whitespace, ensure_ascii=False, flat values
+#   only) -> Ed25519 verify -> expiry window.
+#
+# Ed25519 is implemented here in pure Python (RFC 8032 reference
+# construction) because neither macOS system Python nor the bundled
+# python-build-standalone ships an Ed25519 primitive, and the gate
+# must not depend on `pip install` having already happened -- it runs
+# before anything is installed. tests/test_licence_gate.sh pins the
+# implementation to the RFC 8032 section 7.1 known-answer vector, so a
+# broken edit here cannot pass as "verification".
+#
+# Exit codes (consumed by the case statement in install.sh):
+#   0 valid   10 no file   11 empty   12 malformed
+#  13 signature did not verify   14 expired   20 internal error
+import base64
+import binascii
+import datetime
+import hashlib
+import json
+import os
+import sys
+
+RC_OK, RC_MISSING, RC_EMPTY, RC_MALFORMED = 0, 10, 11, 12
+RC_BADSIG, RC_EXPIRED, RC_INTERNAL = 13, 14, 20
+
+p = 2 ** 255 - 19
+# Curve25519 group order L (RFC 8032 s5.1), in hex. Written in hex, not
+# in the usual 2**252 + <38-digit> decimal form, because
+# .github/scripts/ci-pii-shape-scan.sh refuses any run of 15+ digits on
+# sight: it matches on SHAPE, and a maths constant is indistinguishable
+# from an account number to a shape matcher. Do not "tidy" this back to
+# decimal -- CI goes red and the reason is not obvious from the message.
+q = 0x1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED
+
+
+def _modp_inv(x):
+    return pow(x, p - 2, p)
+
+
+d = -121665 * _modp_inv(121666) % p
+modp_sqrt_m1 = pow(2, (p - 1) // 4, p)
+
+
+def _recover_x(y, sign):
+    if y >= p:
+        return None
+    x2 = (y * y - 1) * _modp_inv(d * y * y + 1) % p
+    if x2 == 0:
+        return None if sign else 0
+    x = pow(x2, (p + 3) // 8, p)
+    if (x * x - x2) % p != 0:
+        x = x * modp_sqrt_m1 % p
+    if (x * x - x2) % p != 0:
+        return None
+    if (x & 1) != sign:
+        x = p - x
+    return x
+
+
+_g_y = 4 * _modp_inv(5) % p
+_g_x = _recover_x(_g_y, 0)
+G = (_g_x, _g_y, 1, _g_x * _g_y % p)
+
+
+def _point_add(P, Q):
+    a = (P[1] - P[0]) * (Q[1] - Q[0]) % p
+    b = (P[1] + P[0]) * (Q[1] + Q[0]) % p
+    c = 2 * P[3] * Q[3] * d % p
+    e = 2 * P[2] * Q[2] % p
+    return ((b - a) * (e - c) % p, (e + c) * (b + a) % p,
+            (e - c) * (e + c) % p, (b - a) * (b + a) % p)
+
+
+def _point_mul(s, P):
+    Q = (0, 1, 1, 0)
+    while s > 0:
+        if s & 1:
+            Q = _point_add(Q, P)
+        P = _point_add(P, P)
+        s >>= 1
+    return Q
+
+
+def _point_equal(P, Q):
+    if (P[0] * Q[2] - Q[0] * P[2]) % p != 0:
+        return False
+    return (P[1] * Q[2] - Q[1] * P[2]) % p == 0
+
+
+def _point_decompress(s):
+    if len(s) != 32:
+        return None
+    y = int.from_bytes(s, "little")
+    sign = y >> 255
+    y &= (1 << 255) - 1
+    x = _recover_x(y, sign)
+    if x is None:
+        return None
+    return (x, y, 1, x * y % p)
+
+
+def _sha512_modq(s):
+    return int.from_bytes(hashlib.sha512(s).digest(), "little") % q
+
+
+def ed25519_verify(public, msg, signature):
+    if len(public) != 32 or len(signature) != 64:
+        return False
+    a_point = _point_decompress(public)
+    if a_point is None:
+        return False
+    r_bytes = signature[:32]
+    r_point = _point_decompress(r_bytes)
+    if r_point is None:
+        return False
+    s = int.from_bytes(signature[32:], "little")
+    if s >= q:
+        return False
+    h = _sha512_modq(r_bytes + public + msg)
+    return _point_equal(_point_mul(s, G),
+                        _point_add(r_point, _point_mul(h, a_point)))
+
+
+# Byte-for-byte the Swift canonicaliser: flat body only, no floats, no
+# negative integers, no nested containers. Diverging bytes here would
+# read as a bad signature, so refuse rather than guess.
+def canonical_body(body):
+    for value in body.values():
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, int):
+            if value < 0:
+                return None
+            continue
+        if isinstance(value, str):
+            continue
+        return None
+    return json.dumps(body, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
+
+
+def parse_iso8601_utc(text):
+    # [.withInternetDateTime] equivalent, no fractional seconds. An
+    # unparseable stamp is NOT treated as expired -- same as Swift,
+    # where `if let expiry = ...` simply skips the comparison.
+    if not isinstance(text, str) or len(text) < 20:
+        return None
+    stamp = text.strip()
+    if stamp.endswith("Z"):
+        stamp = stamp[:-1] + "+0000"
+    else:
+        stamp = stamp[:-3] + stamp[-2:] if stamp[-3:-2] == ":" else stamp
+    try:
+        return datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return None
+
+
+STRING_FIELDS = ("license_id", "issued_to_email", "purchased_at",
+                 "update_window_expires_at", "stripe_payment_id",
+                 "signature_algorithm", "signature")
+
+
+def main():
+    path, pubkey_hex = sys.argv[1], sys.argv[2]
+    if not os.path.isfile(path):
+        return RC_MISSING
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return RC_EMPTY
+    if not raw.strip():
+        return RC_EMPTY
+    try:
+        pubkey = binascii.unhexlify(pubkey_hex)
+    except (binascii.Error, ValueError):
+        return RC_INTERNAL
+    if len(pubkey) != 32:
+        return RC_INTERNAL
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return RC_MALFORMED
+    if not isinstance(doc, dict):
+        return RC_MALFORMED
+    for field in STRING_FIELDS:
+        if not isinstance(doc.get(field), str):
+            return RC_MALFORMED
+    for field in ("version", "max_hardware_fingerprints"):
+        if not isinstance(doc.get(field), int) or isinstance(doc.get(field), bool):
+            return RC_MALFORMED
+    if doc["version"] != 1:
+        return RC_MALFORMED
+    if doc["signature_algorithm"] != "Ed25519":
+        return RC_MALFORMED
+    body = dict(doc)
+    body.pop("signature", None)
+    canonical = canonical_body(body)
+    if canonical is None:
+        return RC_MALFORMED
+    try:
+        signature = base64.b64decode(doc["signature"], validate=True)
+    except (binascii.Error, ValueError):
+        return RC_MALFORMED
+    if not ed25519_verify(pubkey, canonical, signature):
+        return RC_BADSIG
+    expires = parse_iso8601_utc(doc["update_window_expires_at"])
+    if expires is not None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if expires < now:
+            # The only value this script prints. The customer already
+            # knows the date; support needs it to renew them.
+            sys.stdout.write(doc["update_window_expires_at"])
+            return RC_EXPIRED
+    return RC_OK
+
+
+# === entrypoint === (tests/test_licence_gate.sh splits the source here
+# so it can run the KAT against the definitions above without invoking
+# main(). Keep this marker if you move the driver.)
+try:
+    sys.exit(main())
+except Exception:
+    sys.exit(RC_INTERNAL)
+OSTLER_LICENCE_VERIFY_PY
+)" || _lic_rc=$?
+
+    case "$_lic_rc" in
+        0)  ok "Licence verified." ;;                                                  # i18n-exempt
+        10) _ostler_licence_refuse "No licence file found." ;;                         # i18n-exempt
+        11) _ostler_licence_refuse "The licence file is empty." ;;                     # i18n-exempt
+        12) _ostler_licence_refuse "The licence file is not a valid Ostler licence." ;; # i18n-exempt
+        13) _ostler_licence_refuse "The licence signature did not verify." ;;          # i18n-exempt
+        14) _ostler_licence_refuse "This licence expired on ${_lic_detail}." ;;        # i18n-exempt
+        *)  _ostler_licence_refuse "The licence could not be checked." ;;              # i18n-exempt
+    esac
+    unset _lic_python _lic_pubkey _lic_rc _lic_detail
+fi
+
+# Test-only stop. Placed AFTER the gate, so it can only ever STOP the
+# installer, never skip the gate: a refusal above has already exited
+# non-zero before this line is reached. tests/test_licence_gate.sh
+# uses it for the positive control (a valid licence has to be observed
+# PASSING, not merely observed failing), and asserts that setting it
+# with no licence still refuses.
+if [[ "${OSTLER_TEST_STOP_AFTER_LICENCE_GATE:-0}" == "1" ]]; then
+    echo "OSTLER_TEST: licence gate passed, stopping before install."  # i18n-exempt
+    exit 0
 fi
 
 # ── Paths ──────────────────────────────────────────────────────────
@@ -2158,8 +2601,17 @@ gui_emit PCT "step=prereq_check" "pct=5"
 #      `install.sh` is running, the licence is on disk + verified
 #      + the device is registered.
 #
-# This script therefore does NOT touch the licence file. Anything
-# Hub-side that needs licence introspection should read the
+# That is the DMG path, and for the DMG the sequence above holds.
+#
+# CORRECTED 2026-08-16: this block used to end "this script therefore
+# does NOT touch the licence file", which was true and also the whole
+# defect. install.sh is public and advertised as curl|bash, so the GUI
+# does not always run first -- and when it does not, nothing checked
+# anything. The shell path now verifies the licence itself, up at the
+# "Licence gate (ERR-02-LICENCE-REQUIRED)" block near the top of this
+# file, before any download or system modification. Same file, same
+# Ed25519 public key, same canonical bytes as LicenseVerifier.swift.
+# Hub-side code that needs licence introspection still reads the
 # canonical path written by the GUI -- single source of truth.
 #
 # TODO (post-App Store): StoreKit receipt verification replaces the
