@@ -33,12 +33,33 @@
 # just refuses to trip it.
 name: supply-chain-pins
 
+# PATHS MUST COVER EVERY FILE THE GATES READ.
+#
+# test_daemon_pins_agree.sh reads TWO files -- install.sh and gui/Makefile --
+# and fails when the daemon version or SHA-256 disagrees between them. Only
+# install.sh was listed below. So the gate fired for a PR that bumped
+# install.sh and did NOT fire for a PR that bumped gui/Makefile, which is the
+# half of the drift the DMG actually ships: DAEMON_VERSION and DAEMON_SHA256
+# both live in gui/Makefile. A Makefile-only half-bump was green.
+#
+# Measured on main at 24990da: for a diff touching only gui/Makefile, none of
+# the eight patterns matched, so the workflow was never scheduled. The check
+# itself was never broken -- run by hand against that same tree it says
+# "VERSION DRIFT: install.sh:10106 OSTLER_ASSISTANT_VERSION=0.4.57 but
+# gui/Makefile:202 DAEMON_VERSION=0.4.58". It simply was not asked. A trigger that fires on the gate but not on what the gate MEASURES is
+# a gate that reports on a subset of its own subject.
+#
+# This is the mechanism behind the recurring pin-drift tasks (#237, #253): the
+# comparison existed, the trigger did not reach the file that drifted.
+#
+# So: when a test added here reads a file, that file belongs in BOTH lists.
 on:
   push:
     branches: [main]
     paths:
       - 'docker-compose*.yml'
       - 'install.sh'
+      - 'gui/Makefile'
       - 'cut-manifests/**'
       - 'tests/test_v1010_daemon_signature_gate.sh'
       - 'tests/test_v1010_redteam3_supply_chain_pins.sh'
@@ -49,6 +70,7 @@ on:
     paths:
       - 'docker-compose*.yml'
       - 'install.sh'
+      - 'gui/Makefile'
       - 'cut-manifests/**'
       - 'tests/test_v1010_daemon_signature_gate.sh'
       - 'tests/test_v1010_redteam3_supply_chain_pins.sh'

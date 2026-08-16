@@ -53,6 +53,17 @@ INSTALL_SHA="$(grep 'DEFAULT_ASSISTANT_TARBALL_SHA256="' "$INSTALL" | grep -oE '
 MAKE_VER="$(grep -E '^DAEMON_VERSION' "$MAKEFILE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 MAKE_SHA="$(grep -E '^DAEMON_SHA256' "$MAKEFILE" | grep -oE '[a-f0-9]{64}' | head -1)"
 
+# WHERE each value came from, captured with the SAME pattern that captured the
+# value, so a drift message can name a file:line the reader can open. Without
+# these the message said only "install.sh=A but Makefile=B" and left the reader
+# to re-derive both sites by hand -- on a 10k-line install.sh that is the
+# difference between a fix and a hunt. Line numbers only; the comparison and
+# the exit status below are unchanged.
+INSTALL_VER_LN="$(grep -n -m1 'OSTLER_ASSISTANT_VERSION:-' "$INSTALL" | cut -d: -f1)"
+INSTALL_SHA_LN="$(grep -n -m1 'DEFAULT_ASSISTANT_TARBALL_SHA256="' "$INSTALL" | cut -d: -f1)"
+MAKE_VER_LN="$(grep -n -m1 -E '^DAEMON_VERSION' "$MAKEFILE" | cut -d: -f1)"
+MAKE_SHA_LN="$(grep -n -m1 -E '^DAEMON_SHA256' "$MAKEFILE" | cut -d: -f1)"
+
 # Non-emptiness FIRST. An empty capture compares equal to another empty
 # capture, which is how a broken extractor reports perfect agreement.
 for pair in "install.sh version:$INSTALL_VER" "install.sh sha:$INSTALL_SHA" \
@@ -69,13 +80,13 @@ done
 if [[ "$INSTALL_VER" == "$MAKE_VER" ]]; then
     ok "version agrees across install.sh and gui/Makefile ($INSTALL_VER)"
 else
-    bad "VERSION DRIFT: install.sh=$INSTALL_VER but Makefile=$MAKE_VER -- the DMG would bundle one daemon and the installer expect another"
+    bad "VERSION DRIFT: install.sh:${INSTALL_VER_LN} OSTLER_ASSISTANT_VERSION=$INSTALL_VER but gui/Makefile:${MAKE_VER_LN} DAEMON_VERSION=$MAKE_VER -- the DMG would bundle one daemon and the installer expect another; set both to the same version"
 fi
 
 if [[ "$INSTALL_SHA" == "$MAKE_SHA" ]]; then
     ok "SHA-256 agrees across install.sh and gui/Makefile"
 else
-    bad "SHA DRIFT: install.sh=$INSTALL_SHA but Makefile=$MAKE_SHA -- this is the D4 drift CUT_STEPS warns about"
+    bad "SHA DRIFT: install.sh:${INSTALL_SHA_LN} DEFAULT_ASSISTANT_TARBALL_SHA256=$INSTALL_SHA but gui/Makefile:${MAKE_SHA_LN} DAEMON_SHA256=$MAKE_SHA -- this is the D4 drift CUT_STEPS warns about; re-pin both from the published .sha256 sidecar"
 fi
 
 # The pinned SHA must match the bytes the release actually serves. A local
