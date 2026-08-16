@@ -385,8 +385,12 @@ wait_for_fake_box() {
             # tr, not cat: a truncated or partially-flushed write must not
             # become a garbage port that then fails as a connection error.
             port="$(tr -cd '0-9' < "$portfile")"
-            if [ -n "$port" ] && /usr/bin/curl -sS --noproxy '*' --max-time 3 \
-                    -o /dev/null "http://127.0.0.1:${port}/api/health"; then
+            # --fail, so a non-2xx is NOT ready. Without it curl exits 0 on any
+            # answer at all and the failure message below would be claiming a
+            # 200 it never checked for. /api/health returns 200 in all 12 modes.
+            if [ -n "$port" ] && /usr/bin/curl -sS --fail --noproxy '*' \
+                    --max-time 3 -o /dev/null \
+                    "http://127.0.0.1:${port}/api/health"; then
                 FAKE_BOX_PORT="$port"
                 FAKE_BOX_WAITED=$(( $(date +%s) - started ))
                 return 0
