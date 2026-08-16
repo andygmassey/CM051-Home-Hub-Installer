@@ -11456,18 +11456,50 @@ print(json.dumps(summary, default=str))
     # end up pinned to the /tmp staging tree (#177).
     _ostler_stage_assistant_daemon
 
-    # Schedule a one-shot FDA re-run ~12 hours from now to catch slow
-    # iCloud syncs. Calendar, Notes, Photos face recognition etc. can
-    # take hours to fully sync after first app launch.
+    # Schedule a RECURRING FDA re-run to catch slow iCloud syncs.
+    # Calendar, Notes, Photos face recognition etc. can take hours to
+    # fully sync after first app launch, and Calendar in particular is
+    # deliberately truncated at install time.
+    #
+    # 🔴 WHY THIS IS StartInterval AND NOT StartCalendarInterval (#714).
+    # Until 2026-08-16 this plist carried a StartCalendarInterval with
+    # Year, Month, Day, Hour AND Minute all pinned to install+12h. A
+    # StartCalendarInterval with a fully specified date is a ONE-SHOT:
+    # launchd fires it at that instant (or at the next wake if the Mac
+    # was asleep) and never again, because the date is then in the past
+    # forever.
+    #
+    # That silently broke a decision made elsewhere in this file. At the
+    # OSTLER_HYDRATE_CALENDAR_DAYS site the comment reads "The hourly
+    # fda-rerun LaunchAgent walks the 5-year window in the background",
+    # and CX-106 narrowed the install-time calendar window to 90 days ON
+    # THAT PREMISE. The agent was never hourly. So a customer whose one
+    # firing failed, or who simply has more than 90 days of calendar,
+    # never got the backfill the installer had already decided to defer.
+    #
+    # The interval is deliberately NOT tied to any other cadence in this
+    # file. It only has to be short enough that a failed run is retried
+    # without the customer noticing, and long enough not to sit on the
+    # ingest slot. launchd will not start a second copy of a job that is
+    # still running, so an overlong walk cannot pile up.
+    : "${OSTLER_FDA_RERUN_INTERVAL_S:=3600}"
     FDA_RERUN_PLIST="${HOME}/Library/LaunchAgents/com.ostler.fda-rerun.plist"
+    #
+    # 🔴 THE UPGRADE LIMB. A bare `[[ ! -f ]]` guard fixes fresh installs
+    # only: every box that already carries the one-shot plist keeps it
+    # forever, because the file exists and we skip. That is exactly the
+    # shape of #768, whose fix could not reach any box that already had
+    # the defect (#769). So rewrite when the file is ABSENT *or* when it
+    # still carries the legacy StartCalendarInterval shape.
+    FDA_RERUN_NEEDS_WRITE=0
+    FDA_RERUN_WAS_LEGACY=0
     if [[ ! -f "$FDA_RERUN_PLIST" ]]; then
-        # Calculate the run date: now + 12 hours
-        FDA_RERUN_HOUR=$(date -v+12H +%H)
-        FDA_RERUN_MIN=$(date +%M)
-        FDA_RERUN_DAY=$(date -v+12H +%d)
-        FDA_RERUN_MONTH=$(date -v+12H +%m)
-        FDA_RERUN_YEAR=$(date -v+12H +%Y)
-
+        FDA_RERUN_NEEDS_WRITE=1
+    elif grep -q 'StartCalendarInterval' "$FDA_RERUN_PLIST" 2>/dev/null; then
+        FDA_RERUN_NEEDS_WRITE=1
+        FDA_RERUN_WAS_LEGACY=1
+    fi
+    if [[ "$FDA_RERUN_NEEDS_WRITE" == "1" ]]; then
         mkdir -p "${HOME}/Library/LaunchAgents"
         cat > "$FDA_RERUN_PLIST" <<FDARPEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -11482,19 +11514,8 @@ print(json.dumps(summary, default=str))
         <string>run-source</string>
         <string>fda-rerun</string>
     </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Year</key>
-        <integer>${FDA_RERUN_YEAR}</integer>
-        <key>Month</key>
-        <integer>${FDA_RERUN_MONTH}</integer>
-        <key>Day</key>
-        <integer>${FDA_RERUN_DAY}</integer>
-        <key>Hour</key>
-        <integer>${FDA_RERUN_HOUR}</integer>
-        <key>Minute</key>
-        <integer>${FDA_RERUN_MIN}</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>${OSTLER_FDA_RERUN_INTERVAL_S}</integer>
     <key>StandardOutPath</key>
     <string>${LOGS_DIR}/fda-rerun.log</string>
     <key>StandardErrorPath</key>
@@ -11502,9 +11523,18 @@ print(json.dumps(summary, default=str))
 </dict>
 </plist>
 FDARPEOF
+        # On the upgrade limb the OLD job is still registered with the
+        # old one-shot schedule. bootstrap is a no-op against an already
+        # loaded label, so boot it out first or the box keeps running the
+        # very plist we just replaced on disk. Absent-file installs have
+        # nothing to bootout and the failure is expected, hence || true.
+        if [[ "$FDA_RERUN_WAS_LEGACY" == "1" ]]; then
+            launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun" 2>/dev/null || \
+                launchctl unload "$FDA_RERUN_PLIST" 2>/dev/null || true
+        fi
         launchctl bootstrap "gui/$(id -u)" "$FDA_RERUN_PLIST" 2>/dev/null || \
             launchctl load "$FDA_RERUN_PLIST" 2>/dev/null || true
-        ok "$MSG_OK_FDA_RE_RUN_SCHEDULED_12_HOURS"
+        ok "$(printf "$MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING" "$(( OSTLER_FDA_RERUN_INTERVAL_S / 60 ))")"
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
@@ -18372,9 +18402,27 @@ unset _hydrate_contacts_accounts
 # with the longer window, overwriting the existing JSON.
 #
 # CX-106 (DMG #48l, 2026-05-29): for CALENDAR specifically we keep
-# the install-time window at 90 days. The hourly fda-rerun
-# LaunchAgent (scheduled +12h at Phase 3.7) walks the 5-year window
-# in the background. Studio retest of DMG #48k showed customers
+# the install-time window at 90 days, and defer the rest to the
+# recurring com.ostler.fda-rerun LaunchAgent registered at Phase 3.7.
+#
+# 🔴 THIS COMMENT USED TO CLAIM THE AGENT "walks the 5-year window".
+# It does not, and it never has. Measured 2026-08-16, both limbs:
+#
+#   limb 1  the agent was a ONE-SHOT StartCalendarInterval, so it ran
+#           at most once ever. FIXED in #714, this cut.
+#   limb 2  vendor/ostler_fda/extract_all.py:502 calls
+#           extract_events(since_days=365, future_days=30) with the 365
+#           HARDCODED and no env override, unlike every sibling source
+#           (safari/browser/imessage/whatsapp/mail all read
+#           OSTLER_*_BACKFILL_DAYS). NOT fixed here: that file is a
+#           vendored twin of HR015 ostler_fda and the fix belongs
+#           upstream then re-vendored, not edited in place.
+#
+# So after #714 the honest statement is: calendar reaches 365 days
+# within the hour instead of stopping at 90 days forever. It does not
+# reach 5 years. Do not restore the 5-year wording until limb 2 lands.
+#
+# Studio retest of DMG #48k showed customers
 # with multi-year calendar history hitting silent timeouts on the
 # install-time path because the Calendar Cache query was scanning
 # years of recurring-event expansions inside the 180s wall-clock cap.
