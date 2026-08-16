@@ -1612,24 +1612,93 @@ _ostler_promote_prelaunch_tree() {
 #
 # Usage: _ostler_pip_install_pkg <pip-binary> <source-dir> [extra pip args...]
 # Returns pip's exit code. Callers keep their own tolerance policy.
+# Where _ostler_pip_install_pkg records its OWN failures.
+#
+# TNM's review of #767: two call sites are `... 2>/dev/null || true`, so the
+# helper's diagnostics went to /dev/null and its rc=2 was discarded. "Could not
+# stage the package" and "pip itself failed" then present identically, as
+# ostler_security silently missing. The tolerance is pre-existing and
+# deliberate; the invisibility is new and is not.
+#
+# A file write cannot be silenced by a caller's stderr redirect, so the record
+# survives regardless of how the call site is written. stderr is kept too, for
+# the sites that do show it.
+_OSTLER_PIP_STAGE_LOG="${_OSTLER_PIP_STAGE_LOG:-/tmp/ostler-pip-stage.log}"
+
+_ostler_pip_stage_note() {
+    printf '%s _ostler_pip_install_pkg: %s\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$_OSTLER_PIP_STAGE_LOG" 2>/dev/null || true
+    echo "_ostler_pip_install_pkg: $*" >&2
+}
+
 _ostler_pip_install_pkg() {
     local pip_bin="$1"; shift
     local src_dir="$1"; shift
     local stage rc
 
     if [[ ! -d "$src_dir" ]]; then
-        echo "_ostler_pip_install_pkg: no such package dir: $src_dir" >&2
+        _ostler_pip_stage_note "no such package dir: $src_dir"
         return 2
     fi
 
-    # Stage OUTSIDE the bundle. mktemp -d honours TMPDIR, which is per-user and
-    # not inside /Applications.
-    stage="$(mktemp -d -t ostler-pipsrc-XXXXXX)" || return 2
+    # Stage OUTSIDE the bundle.
+    #
+    # This previously read `mktemp -d -t ostler-pipsrc-XXXXXX`, with a comment
+    # claiming "mktemp -d honours TMPDIR". MEASURED on macOS 2026-08-16, that
+    # is false: BSD mktemp -t IGNORES TMPDIR and always uses the system default.
+    #
+    #     TMPDIR=<...>/Foo.app/Contents/Resources/tmpstage
+    #     mktemp -d -t ostler-pipsrc-XXXXXX
+    #       -> /var/folders/<user>/T/ostler-pipsrc-XXXXXX.H70ZLN60ZP
+    #
+    # The OUTCOME was right by accident: the default is the per-user temp dir,
+    # which can never be inside /Applications. GNU mktemp does honour TMPDIR, so
+    # the comment described the wrong platform. An explicit template does what
+    # the comment always claimed, behaves identically on both, and -- the reason
+    # this matters -- makes the stage location reachable by a test, so the
+    # refusal arms below are exercised rather than merely present.
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/ostler-pipsrc-XXXXXX")" || return 2
+
+    # ASSERT the thing this function is named for, rather than reasoning about
+    # it. The comment above argues that mktemp -d honours TMPDIR and that TMPDIR
+    # is not inside /Applications. An argument is not a control, and this helper
+    # exists precisely because a plausible argument about where files land was
+    # wrong for 32 cuts. TNM's review of #767.
+    #
+    # TWO predicates, deliberately, and NOT the single
+    #     case "$stage" in "$SCRIPT_DIR"*) ...
+    # that suggests itself. That form is a trap: this file runs under `set -u`
+    # but "${SCRIPT_DIR:-}" expands happily to empty in any context that has not
+    # set it, and the pattern then degenerates to `*`, which matches EVERY path.
+    # Every call would return 2 and ostler_security would silently stop being
+    # installed -- a worse failure than the one being guarded, delivered by the
+    # guard. So the bundle test below needs no variable at all and can never be
+    # silently absent, and the SCRIPT_DIR test only runs when there is a value
+    # to test against.
+    #
+    # `"$SCRIPT_DIR"/*` and not `"$SCRIPT_DIR"*`: the second also matches a
+    # sibling whose name merely shares the prefix (/a/b vs /a/bc).
+    case "$stage" in
+        *.app/*)
+            _ostler_pip_stage_note "refusing to stage inside an app bundle: $stage"
+            rm -rf "$stage"
+            return 2
+            ;;
+    esac
+    if [[ -n "${SCRIPT_DIR:-}" ]]; then
+        case "$stage" in
+            "$SCRIPT_DIR"|"$SCRIPT_DIR"/*)
+                _ostler_pip_stage_note "refusing to stage under SCRIPT_DIR: $stage"
+                rm -rf "$stage"
+                return 2
+                ;;
+        esac
+    fi
     # cp the CONTENTS into a same-named dir so any build metadata pip emits
     # lands in the throwaway copy.
     if ! cp -R "$src_dir" "$stage/"; then
         rm -rf "$stage"
-        echo "_ostler_pip_install_pkg: failed to stage $src_dir" >&2
+        _ostler_pip_stage_note "failed to stage $src_dir"
         return 2
     fi
 
