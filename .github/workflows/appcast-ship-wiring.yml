@@ -1,0 +1,179 @@
+name: appcast-ship-wiring
+
+# THE CUT MUST STILL PUBLISH AN APPCAST ENTRY, AND MUST STILL RUN EVERY GATE
+# IT RAN BEFORE.
+#
+# WHY. Auto-update has three pieces: the Sparkle updater inside the Hub, the
+# feed it polls, and the step that publishes a release into that feed. The
+# third was built in CM050 and called by nothing. Measured on CM051 origin/main
+# before this workflow existed, over Makefile / *.mk / *.sh / *.yml:
+#
+#     publish-appcast | PUBLISH_APPCAST | ostler-release publish     0 hits
+#     sparkle-embed          (positive control, same search style)  14 hits
+#     notarise               (positive control, same search style) 124 hits
+#
+# So every installed Hub polled a feed, got a well-formed "nothing newer", and
+# stayed on its version for ever. No error, no log line. A bug that ships is
+# permanent for whoever installed it.
+#
+# WHAT THIS WORKFLOW PROTECTS is not the publisher -- it is the WIRING, which
+# is the part that was missing and the part a merge conflict silently undoes.
+#
+#   Control A  ship: still names every prerequisite it named before, BY SET.
+#              A count is satisfied by a swap: drop verify-stapling, add
+#              publish-appcast, and the count is unchanged while the cut has
+#              stopped checking notarisation tickets.
+#   Control B  publish-appcast is REACHED FROM ship, has a recipe, and runs
+#              after the verification gates. A defined-but-unreachable target
+#              is the original defect one layer up, and it satisfies every
+#              grep for its own name.
+#
+# ALWAYS RUNS. No `paths:` filter, deliberately, and for the same reason as
+# test-wiring: a path filter means the gate skips on exactly the PR that breaks
+# something it did not think to watch, and "skipped" renders as a grey tick
+# that reads like a pass. The whole job is seconds long.
+#
+# Every step carries `if: always()` so a failure in one does not silently skip
+# the rest. GitHub stops a job at its first failing step, and a skipped proof
+# is indistinguishable from a proof that passed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  appcast-ship-wiring:
+    # The cut host is macOS and /bin/bash there is 3.2. Both controls read
+    # make's database, and make 3.81 (macOS) and 4.x (ubuntu) print that
+    # database differently -- "commands to execute" against "recipe to
+    # execute". Running on the platform that actually cuts is the only way
+    # that difference is exercised rather than assumed.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: CONTROL A -- ship still names every prerequisite it named before
+        run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh
+
+      - name: CONTROL B -- publish-appcast is reached from ship, not just defined
+        if: always()
+        run: /bin/bash tests/test_publish_appcast_reached_from_ship.sh
+
+      # The guard is what stops a publish Sparkle would silently skip. Its own
+      # controls include both directions plus the cannot-run branch, because a
+      # guard only ever seen passing is not known to be able to fail.
+      - name: The AU-1 version guard can still tell newer from not-newer
+        if: always()
+        run: python3 scripts/appcast_version_guard.py --self-test
+
+      # A gate that only parses under bash 5 reads CANNOT-RUN for ever on the
+      # machine that cuts.
+      - name: Everything parses under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_ship_prereqs_are_a_superset.sh
+          /bin/bash -n tests/test_publish_appcast_reached_from_ship.sh
+          python3 -m py_compile scripts/appcast_version_guard.py
+          echo "OK: parses under the shell and interpreter the cut actually uses"
+
+      # PROVE THE CONTROLS CAN FAIL, HERE, ON EVERY RUN. Both were watched
+      # failing by hand before this landed, but a red observed once in a
+      # terminal is not a property CI holds. Each mutation is applied to a COPY
+      # of the Makefile; the tracked file is never touched.
+      #
+      # The first mutation is a SWAP -- remove verify-stapling, keep
+      # publish-appcast -- so the prerequisite count is 22 before and 22 after.
+      # That is the exact case a count-based assertion waves through.
+      - name: Control A goes RED when a prerequisite is dropped (a swap, count unchanged)
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's/^ship: \(.*\) verify-stapling \(.*\)$/ship: \1 \2/' gui/Makefile > "$MUT/Makefile"
+          # A MUTATION THAT DID NOT APPLY PRODUCES A GREEN RUN THAT PROVES
+          # NOTHING, and it looks exactly like a working proof.
+          if grep '^ship:' "$MUT/Makefile" | grep -q 'verify-stapling'; then
+            echo "MUTATION DID NOT APPLY -- verify-stapling is still in ship:." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash tests/test_ship_prereqs_are_a_superset.sh --makefile "$MUT/Makefile" 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$out" | grep -q -- '- verify-stapling'; then
+            echo "The failure did not NAME the dropped prerequisite." >&2
+            echo "'ship changed' sends a reader to diff 2400 lines; the name sends them to the line." >&2
+            exit 1
+          fi
+          echo "OK: Control A fails, exit 1, naming verify-stapling."
+
+      # The mutation leaves `publish-appcast:` defined in the file. Every grep
+      # for the name still hits. Only reachability tells the two apart.
+      - name: Control B goes RED when publish-appcast is detached but left defined
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's/^ship: \(.*\) publish-appcast$/ship: \1/' gui/Makefile > "$MUT/Makefile"
+          if ! grep -q '^publish-appcast:' "$MUT/Makefile"; then
+            echo "MUTATION IS WRONG -- the target must stay DEFINED, only detached." >&2
+            echo "Deleting it would prove a different and much easier thing." >&2
+            exit 1
+          fi
+          if grep '^ship:' "$MUT/Makefile" | grep -q 'publish-appcast'; then
+            echo "MUTATION DID NOT APPLY -- ship: still names publish-appcast." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash tests/test_publish_appcast_reached_from_ship.sh --makefile "$MUT/Makefile" 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$out" | grep -q 'IT IS DEFINED'; then
+            echo "The failure did not distinguish DEFINED from REACHABLE, which is the" >&2
+            echo "entire point of this control." >&2
+            exit 1
+          fi
+          echo "OK: Control B fails, exit 1, naming the defined-but-unreachable target."
+
+      # Ordering is a third, separate property: reachable and bodied but
+      # sequenced before a gate still publishes an unverified artefact.
+      - name: Control B goes RED when publish-appcast is sequenced before a gate
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's/^ship: \(.*\) archive publish-appcast$/ship: \1 publish-appcast archive/' gui/Makefile > "$MUT/Makefile"
+          if ! grep '^ship:' "$MUT/Makefile" | grep -q 'publish-appcast archive'; then
+            echo "MUTATION DID NOT APPLY -- ship: ordering unchanged." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(/bin/bash tests/test_publish_appcast_reached_from_ship.sh --makefile "$MUT/Makefile" 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the mutant, got $rc." >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$out" | grep -q 'sequenced wrongly'; then
+            echo "The failure did not name the ordering defect." >&2
+            exit 1
+          fi
+          echo "OK: Control B fails, exit 1, on a publish scheduled before a gate."
