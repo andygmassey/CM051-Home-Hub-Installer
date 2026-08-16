@@ -11,12 +11,74 @@
 # There is deliberately no `workflow_dispatch`. A manually-fired pipeline is a
 # hand-cut wearing a costume: same "I'll just run it" pressure, same bypass of
 # the tag that pins what was cut. If you want a cut, write the tag down.
+#
+# ---------------------------------------------------------------------------
+# THE PARAGRAPH ABOVE IS RATIFIED AND STILL BINDING. It is kept verbatim.
+# Everything below narrows what a dispatch can DO; it does not widen what a cut
+# can be. (task #359, 2026-08-16)
+#
+# THE GUARANTEE, RESTATED SO IT CAN BE CHECKED
+# --------------------------------------------
+#   THERE IS NO ROUTE TO A SIGNED, NOTARISED, PUBLISHABLE ARTEFACT THAT HAS NOT
+#   PASSED THE ROLLFORWARD GATE VIA A TAG.
+#
+# THE COST THAT FORCED THIS
+# -------------------------
+# Because the tag push was the only trigger, the only way to discover a broken
+# cut-path CHECK was to SPEND A VERSION NUMBER. Five were spent that way in one
+# day, v1.0.27 through v1.0.31, at roughly one discovery each:
+#
+#   v1.0.27  daemon / hub-app pins a version apart, fetch path dead
+#   v1.0.28  the guard from #737
+#   v1.0.29  check-orphans
+#   v1.0.30  verify_app_provenance.sh called without its reference checkout
+#   v1.0.31  green
+#
+# Every one of those is a defect in a CHECK or in a FETCH, not in the cut. None
+# of them needed a signature, a notarisation or a release to be found. They cost
+# a version number each purely because the checks had no other way to run.
+#
+# WHAT A DISPATCH DOES, AND WHY IT IS NOT A HAND-CUT
+# --------------------------------------------------
+# A dispatch runs the gates and STOPS. It is not "make ship with a flag": there
+# is no flag, because a flag is a switch and a switch is exactly what the
+# ratified paragraph refuses. The mechanism is structural, not a promise:
+#
+#   1. `workflow_dispatch:` DECLARES NO INPUTS. There is nothing to set, so
+#      there is nothing to set wrongly. Adding one would be the violation.
+#   2. Everything that signs, notarises, staples, packages, releases, archives
+#      or uploads lives in the `cut` job, and that job carries
+#      `if: github.event_name == 'push'`. A dispatch cannot make its own event
+#      name be `push`, and the only push this workflow answers to is a
+#      `v1.0.*` TAG push. The gate is on the EVENT, not on a variable.
+#   3. The dry-run job holds `permissions: contents: read` -- strictly less
+#      than the `cut` job's `contents: write`. A job that cannot write contents
+#      cannot create a release, whatever its steps say.
+#   4. The dry-run job contains no signing-credential step, no notary
+#      credential step, and no upload-artifact step. They are not disabled
+#      there; they are ABSENT, because they only exist in `cut`.
+#   5. scripts/dry_run_cut_checks.sh ends by ASSERTING no DMG, no exported
+#      .app, no archive copy and no shipping identity exist on the runner. The
+#      claim is measured, not asserted in prose.
+#
+# The comment's concern is manufacturing something shippable without a tag. A
+# gates-only run manufactures nothing shippable. If you want a cut, you still
+# write the tag down.
+#
+# tests/test_cut_dispatch_is_dry.sh is the enforcer for points 1-4: a change
+# that reopens the route fails in preflight, on every tag and on every dispatch.
+# A locked directive needs an enforcer, not a reminder.
+# ---------------------------------------------------------------------------
 name: cut
 
 on:
   push:
     tags:
       - 'v1.0.*'
+  # GATES ONLY. NO INPUTS, ON PURPOSE -- see the block above. There is
+  # deliberately no `dry_run: false`, no `really_ship`, no `skip_gates`. A real
+  # cut still requires a tag.
+  workflow_dispatch:
 
 permissions:
   contents: write     # create the release
@@ -32,19 +94,58 @@ jobs:
   # 1. GATE. Nothing is built until the ledger says the blockers are fixed.
   #    Cheap, fast, and it runs FIRST so a red rollforward costs seconds
   #    rather than a full signed build.
+  #
+  #    Runs on BOTH events. On a tag push it gates the cut; on a dispatch it
+  #    is the first half of the dry run, which is why "run preflight in full"
+  #    needed no second copy of it.
   # ---------------------------------------------------------------------
   preflight:
     runs-on: ubuntu-latest
+    # READ ONLY, and not merely because it happens to be enough.
+    #
+    # This job is reachable by a dispatch, so it is inside the blast radius of
+    # the guarantee at the top of this file. Without a job-level block it would
+    # inherit the workflow's `contents: write`, which is enough to create a
+    # release -- so the next step anyone adds here would inherit the ability to
+    # publish. Every gate in this job only reads.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0          # gates need history, not a shallow clone
 
-      - name: Tag must match the in-repo cut record
+      # WHICH CUT IS THIS RUN ABOUT?
+      #
+      # On a tag push the answer is the tag, unchanged. On a dispatch there is
+      # no tag -- that is the point, a dispatch cannot cut -- so the run asks
+      # the TREE what version it would stamp if it were tagged now, and gates
+      # against that. DERIVED, never accepted as an input: an input here would
+      # be a knob that aims the gates at a version the tree is not.
+      #
+      # Same base derivation gui/Makefile uses for CUT_MANIFEST_VERSION, so a
+      # hotfix 1.0.13.1 selects the v1.0.13 line's manifest exactly as a real
+      # cut of it would.
+      - name: Resolve which cut this run is about
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          echo "tag: $TAG"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            CUT_VERSION="${GITHUB_REF_NAME}"
+            echo "source: tag push"
+          else
+            VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
+            [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
+            CUT_VERSION="v$(printf '%s' "$VER" | cut -d. -f1-3)"
+            echo "source: gui/OstlerInstaller/Info.plist (CFBundleShortVersionString=$VER)"
+          fi
+          echo "cut version: $CUT_VERSION"
+          echo "CUT_VERSION=$CUT_VERSION" >> "$GITHUB_ENV"
+
+      - name: The cut record for this version must exist
+        run: |
+          set -euo pipefail
+          TAG="${CUT_VERSION}"
+          echo "cut: $TAG"
           MANIFEST="cut-manifests/${TAG}.yaml"
           if [ ! -f "$MANIFEST" ]; then
             echo "::error::No cut manifest at $MANIFEST." >&2
@@ -126,7 +227,13 @@ jobs:
           #
           # --verify-claims prints what it did NOT prove, every run, so a green
           # here cannot be read as "the defects are fixed".
-          "$RUNNER" --verify-claims --cut "${GITHUB_REF_NAME}"
+          #
+          # $CUT_VERSION, not $GITHUB_REF_NAME: on a dispatch the ref name is a
+          # BRANCH, and `--cut` binds the run to that version's pins, so a
+          # branch name would exit 2 ("names no cut"). The resolve step above
+          # derives the version the tree would stamp, which is the cut this run
+          # is actually about.
+          "$RUNNER" --verify-claims --cut "${CUT_VERSION}"
 
       # THE WIKI-IMAGE CHECKS RUN HERE, NOT IN THE CUT JOB.
       #
@@ -177,6 +284,13 @@ jobs:
           # v1018-D027: local cutting must be impossible. Asserted here too, so
           # a PR that quietly removes the guard cannot then cut in CI.
           ./tests/test_no_local_cuts.sh
+          # task #359: a workflow_dispatch of THIS file must be incapable of
+          # producing or publishing an artefact. The dry run exists so a broken
+          # cut-path check stops costing a version number; the moment a
+          # dispatch can ship, it has become the hand-cut the header refuses.
+          # Asserted on every tag AND every dispatch, because a guarantee whose
+          # enforcer only runs sometimes is a reminder.
+          ./tests/test_cut_dispatch_is_dry.sh
           # v1018-D024: vendor-only files must survive a re-vendor.
           ./tests/test_vendor_only_survives_sync.sh
           # An unset ${VAR} placeholder in a manifest source_repo must resolve
@@ -214,9 +328,17 @@ jobs:
   # ---------------------------------------------------------------------
   # 2. CUT. macOS runner; the only place signing credentials exist.
   #    $CI is set by GitHub, which is what satisfies guard-local-cut.
+  #
+  #    TAG PUSHES ONLY. `if: github.event_name == 'push'` is the whole
+  #    enforcement of the header's guarantee: every step that signs,
+  #    notarises, staples, packages, releases, archives or uploads lives in
+  #    THIS job, and a workflow_dispatch cannot make its event name be
+  #    `push`. The only push this workflow answers to is a v1.0.* tag push,
+  #    so "the cut job ran" and "a tag was written down" are the same fact.
   # ---------------------------------------------------------------------
   cut:
     needs: preflight
+    if: github.event_name == 'push'
     # macos-26, NOT macos-14. macos-14 carries Xcode 15.4 and gui/.xcode-version
     # pins 26.6 (17F113), so check-pbxproj-sync could only ever report
     # UNAVAILABLE on that image -- measured on the v1.0.26 cut. The DMG should
@@ -226,6 +348,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # The toolchain + the reference clone, shared with the dry-run job so the
+      # two cannot drift. See .github/actions/cut-prepare/action.yml.
+      - name: Prepare the cut toolchain
+        uses: ./.github/actions/cut-prepare
+        with:
+          releases-token: ${{ secrets.CM051_RELEASES_READ }}
 
       # ALL FIVE CREDENTIALS, CHECKED TOGETHER, BEFORE ANY OF THEM IS USED.
       #
@@ -250,104 +379,11 @@ jobs:
       # message is directly actionable.
       #
       # Values are never echoed -- only names. The check is emptiness only.
-      # The project-sync gate needs xcodegen, and this runner had none.
       #
-      # Measured on the v1.0.26 cut: scripts/verify_pbxproj_in_sync.sh printed
-      # "UNAVAILABLE: xcodegen is not installed" and exited 2, meaning it FAILED
-      # TO LOOK -- but `make ship` reported "the tracked Xcode project does not
-      # match gui/project.yml", which is a different and much more alarming
-      # claim. Both halves are fixed: the Makefile now preserves exit 2, and
-      # this step means the gate can actually run.
-      #
-      # PINNED, from gui/.xcodegen-version, because the gate compares BYTES and
-      # two xcodegen versions can emit different bytes from identical input. An
-      # unpinned install would turn a toolchain difference into "DO NOT SHIP".
-      - name: Install the pinned xcodegen
-        run: |
-          set -euo pipefail
-          WANT="$(grep -v '^#' gui/.xcodegen-version | tr -d '[:space:]')"
-          [ -n "$WANT" ] || { echo "::error::gui/.xcodegen-version is empty" >&2; exit 1; }
-          echo "pinned xcodegen: $WANT"
-
-          # DOWNLOADED AT THE PINNED VERSION, NOT `brew install`.
-          #
-          # Measured 2026-08-13, and it is why this is not a brew step: brew
-          # served 2.45.4 to this runner and 2.46.0 to the operator's Mac within
-          # the same hour. The gate compares BYTES, so "install latest, then
-          # check the version" can never converge -- it just relocates the
-          # failure to whenever the formula moves. A pin has to be INSTALLED,
-          # not asserted after the fact.
-          #
-          # XcodeGen publishes a prebuilt artefact per tag, so the pin resolves
-          # to exactly one download and CI reproduces the operator's bytes.
-          URL="https://github.com/yonaskolb/XcodeGen/releases/download/${WANT}/xcodegen.zip"
-          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "$URL"
-          unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen"
-          # THE WHOLE RELEASE PREFIX, bin/ AND share/, not just the binary.
-          #
-          # Measured 2026-08-13: copying only the binary made the verifier
-          # report UNAVAILABLE with a message that had clearly seen this
-          # before -- "xcodegen cannot reach its SettingPresets ... without
-          # them xcodegen omits every default build setting and STILL EXITS 0,
-          # so a byte comparison would report the PROJECT stale for a broken
-          # generator install."
-          #
-          # That is the same failure shape as everything else in this cut: a
-          # tool that answers confidently while unable to do its job. The
-          # verifier refuses rather than answering, which is why this was a
-          # named cause and not a mystery diff.
-          BIN="$(find "$RUNNER_TEMP/xcodegen" -type f -name xcodegen -perm +111 | head -1)"
-          [ -n "$BIN" ] || { echo "::error::no xcodegen binary in $URL" >&2; exit 1; }
-          PREFIX="$(cd "$(dirname "$BIN")/.." && pwd)"
-          [ -d "$PREFIX/share/xcodegen/SettingPresets" ] || {
-            echo "::error::$URL has no share/xcodegen/SettingPresets under $PREFIX" >&2
-            find "$RUNNER_TEMP/xcodegen" -maxdepth 3 -type d >&2
-            exit 1
-          }
-          echo "release prefix: $PREFIX"
-          chmod +x "$PREFIX/bin/xcodegen"
-          echo "$PREFIX/bin" >> "$GITHUB_PATH"
-
-          GOT="$("$PREFIX/bin/xcodegen" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-          echo "installed xcodegen: $GOT"
-          [ "$GOT" = "$WANT" ] || { echo "::error::downloaded $GOT but $WANT is pinned" >&2; exit 1; }
-
-      # Same script the pbxproj-sync workflow uses. Selecting by BUILD, not
-      # marketing version, and asserting the selection took. Fails loudly and
-      # enumerates what IS present rather than falling back to the default.
-      - name: Select the pinned Xcode
-        run: scripts/select_pinned_xcode.sh
-
-      # create-dmg WRITES THE ARTEFACT. Without it there is no DMG.
-      #
-      # Measured on run 31681624343: every gate in the chain went green -- the
-      # orphan gate, the manifest gate at 10 PASS / 0 FAIL / 1 SKIP, the archive
-      # built, signed, notarised and stapled -- and then:
-      #
-      #   ERROR: create-dmg not installed.
-      #   make: *** [check-create-dmg] Error 1
-      #
-      # It is a hosted-runner tooling gap of exactly the same shape as the
-      # missing xcodegen above: the tool exists on the operator's Mac, so the
-      # dependency was invisible until a cut actually ran somewhere else. This
-      # is the last one in the chain, which is why it surfaced last -- each
-      # earlier blocker hid the one behind it.
-      #
-      # NOT pinned, unlike xcodegen, and the difference is deliberate. xcodegen
-      # feeds a BYTE-EXACT comparison, so its version is an input to a verdict
-      # and an unpinned install would turn a toolchain difference into DO NOT
-      # SHIP. create-dmg only lays out a disk image; nothing downstream compares
-      # its bytes, and every payload inside is separately hash-verified by
-      # download-daemon / download-hub-app / download-safari-extension and then
-      # asserted present by the manifest gate. If a future gate ever compares
-      # DMG bytes, pin this the same way.
-      - name: Install create-dmg (writes the DMG itself)
-        run: |
-          set -euo pipefail
-          brew install create-dmg
-          command -v create-dmg || { echo "::error::create-dmg still not on PATH after install" >&2; exit 1; }
-          create-dmg --version || true
-
+      # THIS STEP AND THE TWO BELOW ARE WHY THE DRY RUN IS A SEPARATE JOB.
+      # They are not conditionally skipped there; they do not exist there. A
+      # dry run that had to be handed the signing material to say "skip" would
+      # be a dry run nobody could run freely, which defeats the purpose.
       - name: Verify signing credentials are present
         env:
           OSTLER_SIGNING_CERT_P12:      ${{ secrets.OSTLER_SIGNING_CERT_P12 }}
@@ -420,47 +456,6 @@ jobs:
           ./scripts/orphan_gate_selftest.sh
           ./tests/test_no_orphaned_fixes_gate.sh
           ./tests/test_orphan_gate_cannot_verify.sh
-
-      # THE PROVENANCE GATE NEEDS A CHECKOUT TO LOOK AT.
-      #
-      # verify_cut_provenance.sh proves daemon-side fixes are present in the
-      # TAG the daemon tarball was built from, by reading them out of a git
-      # checkout of ostler-assistant. Its default location is a SIBLING
-      # directory: correct on the operator's Mac, impossible here. On run
-      # 31693253364 that absence was reported as
-      #   "assistant_tag_grep ... :: ostler-assistant not at .../gui/../../ostler-assistant"
-      # and walled the cut as STALE DAEMON SOURCE -- a cannot-run wearing a
-      # defect's clothes, the same shape as the OSTLER_APP_PATH default that
-      # blocked eight cuts. The gate now says CANNOT-RUN instead; this step is
-      # what lets it return a real verdict.
-      #
-      # FULL clone, deliberately not --depth 1: the daemon_tag check runs
-      # `git merge-base --is-ancestor`, which needs history. A shallow clone
-      # would make every ancestry test fail and reintroduce a false STALE.
-      #
-      # The token is the one the cut already carries. That it can read
-      # ostler-assistant is MEASURED, not assumed: on the same run the
-      # freshness gate printed "daemon: STALE:+1 vs ostler-ai/ostler-assistant
-      # main", which it could not have produced without read access.
-      - name: Fetch ostler-assistant so the provenance gate can RUN
-        env:
-          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
-        run: |
-          set -euo pipefail
-          if [ -z "${OSTLER_RELEASES_TOKEN:-}" ]; then
-            echo "::error::no credential to fetch ostler-assistant. The provenance gate will exit 2 (could not run) rather than pass, which is correct, but the cut cannot proceed." >&2
-            exit 1
-          fi
-          DEST="${RUNNER_TEMP}/ostler-assistant"
-          git clone --quiet "https://x-access-token:${OSTLER_RELEASES_TOKEN}@github.com/ostler-ai/ostler-assistant.git" "$DEST" 2>/dev/null
-          # Assert the clone is USABLE for what the gate does, rather than that
-          # the command exited 0: a tagless or historyless clone would send
-          # every ancestry check to a false STALE.
-          N_TAGS="$(git -C "$DEST" tag | wc -l | tr -d ' ')"
-          echo "ostler-assistant: $(git -C "$DEST" rev-parse --short HEAD), ${N_TAGS} tags"
-          [ "$N_TAGS" -gt 0 ] || { echo "::error::clone carries no tags; every daemon_tag check would report a false STALE" >&2; exit 1; }
-          git -C "$DEST" rev-parse HEAD~5 >/dev/null 2>&1 || { echo "::error::clone has no history; merge-base --is-ancestor cannot work" >&2; exit 1; }
-          echo "OSTLER_ASSISTANT_DIR=$DEST" >> "$GITHUB_ENV"
 
       - name: Build, sign, notarise, staple
         env:
@@ -596,3 +591,136 @@ jobs:
             dist/*.dmg
             dist/SHA256SUMS
           retention-days: 90
+
+  # ---------------------------------------------------------------------
+  # 3. DRY RUN. workflow_dispatch ONLY. Runs the cut path's CHECKS and stops.
+  #
+  #    WHAT IT IS FOR. Every defect that burnt v1.0.27 through v1.0.30 was in
+  #    a CHECK or a FETCH. None needed a signature to be found. They cost a
+  #    version number each because the checks had no other way to run.
+  #
+  #    WHY IT IS NOT A HAND-CUT. Read the header. In short: no inputs, so
+  #    nothing to flip; `contents: read`, so no release can be created; no
+  #    signing step, no notary step, no upload step -- not disabled, ABSENT;
+  #    and the script it runs ends by MEASURING that no DMG, no exported .app,
+  #    no archive copy and no shipping identity exist on this runner.
+  #
+  #    ONE ROW IS EXPECTED RED ON A BRANCH, AND IT IS NOT NOISE. check-orphans
+  #    asks "does a fix exist that this cut does not carry?", so on a dispatch
+  #    of a FEATURE BRANCH the branch itself is unmerged work and is correctly
+  #    named. Measured on the first dispatch of this feature (run 31929819028):
+  #    it named this branch AND open PRs #747 and #748 -- and those two are a
+  #    real finding about the next tag cut, not noise, so read the rows rather
+  #    than learning to ignore the target. The dispatch this feature is for is
+  #    a dispatch of MAIN, before a tag is written down.
+  #
+  #    WHAT A GREEN HERE DOES NOT MEAN. It does not mean the cut will pass.
+  #    Nine of the twenty-two `ship:` prerequisites are exercised and thirteen
+  #    are not, and the run prints both lists with both counts every time --
+  #    including the biggest hole, check-manifest, which reads the built .app
+  #    and is therefore unreachable without building and signing one. A green
+  #    that covers 9 of 22 and reads as "ready to ship" is worse than no dry
+  #    run at all, which is why the denominator is not optional output.
+  # ---------------------------------------------------------------------
+  dry-run:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    # STRICTLY LESS THAN THE `cut` JOB'S, AND THAT IS THE POINT.
+    #
+    # Job-level permissions REPLACE the workflow-level block, so this job's
+    # GITHUB_TOKEN has contents: READ and no id-token at all. Creating a
+    # release needs contents: write. This job cannot, whatever a future step
+    # tries to do. Every other scope is none, exactly as in `cut`, so no check
+    # can pass here for an access reason that would fail there.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A positive assertion, not a comment. If this job is ever reached by
+      # anything other than a dispatch, stop before doing anything at all.
+      - name: This job can only ever be a dry run
+        run: |
+          set -euo pipefail
+          echo "event: ${GITHUB_EVENT_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
+            echo "::error::the dry-run job was reached by a '${GITHUB_EVENT_NAME}' event." >&2
+            echo "It is gated on workflow_dispatch and must never run on a tag push." >&2
+            exit 1
+          fi
+          echo "DRY RUN. Nothing here signs, notarises, packages, releases,"
+          echo "archives or uploads. A cut still requires a tag."
+
+      # FAST-FAIL ON A DRIFTED LEDGER, BEFORE SPENDING FOUR MINUTES ON IT.
+      #
+      # The denominator is read out of gui/Makefile's `ship:` line at run time
+      # and compared against the classification in the script. A prerequisite
+      # that has been added, removed or renamed and never classified is exit 2
+      # -- CANNOT RUN -- not a silently smaller fraction. Seconds, no network.
+      #
+      # Deliberately NOT in preflight: a bookkeeping drift must not be able to
+      # fail a real cut. It fails the dry run, which is the run whose honesty
+      # depends on it.
+      - name: The coverage ledger still matches gui/Makefile
+        run: bash scripts/dry_run_cut_checks.sh --plan
+
+      # The SAME toolchain + reference clone the cut job uses. Shared so a fix
+      # to either lands in both, and so the dry run keeps predicting the cut.
+      - name: Prepare the cut toolchain
+        uses: ./.github/actions/cut-prepare
+        with:
+          releases-token: ${{ secrets.CM051_RELEASES_READ }}
+
+      # NO "Verify signing credentials", NO "Import signing identity", NO
+      # "Store notary credentials". They are absent from this job by design --
+      # see the header. The dry run must work without them or nobody will run
+      # it, and a dry run nobody runs is the tag-burning we started with.
+
+      # Same three proofs the cut runs, on the same shell the cut runs them on.
+      - name: Orphan gate still FIRES (3 proofs, on /bin/bash 3.2)
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n ./scripts/orphan_gate_selftest.sh
+          /bin/bash -n ./tests/test_no_orphaned_fixes_gate.sh
+          /bin/bash -n ./tests/test_orphan_gate_cannot_verify.sh
+          ./scripts/orphan_gate_selftest.sh
+          ./tests/test_no_orphaned_fixes_gate.sh
+          ./tests/test_orphan_gate_cannot_verify.sh
+
+      # OSTLER_CUT_VERSION, derived the same way preflight derives it: the
+      # version this tree would stamp. It lets the deferral gate flag rows
+      # whose until_cut has already passed, exactly as a tag push does.
+      - name: Resolve which cut this run is about
+        run: |
+          set -euo pipefail
+          VER="$(make -C gui --no-print-directory print-version | sed 's/^version: *//')"
+          [ -n "$VER" ] || { echo "::error::make could not name the version" >&2; exit 1; }
+          CUT_VERSION="v$(printf '%s' "$VER" | cut -d. -f1-3)"
+          echo "cut version: $CUT_VERSION"
+          echo "OSTLER_CUT_VERSION=$CUT_VERSION" >> "$GITHUB_ENV"
+
+      # `if: always()` because the DENOMINATOR is the deliverable. A dry run
+      # whose ledger is skipped by an earlier red reports nothing at all, which
+      # is the exact confusion .github/workflows/ci-maskless.yml exists to end.
+      - name: Dry run -- the cut path's checks, and the ledger of what was NOT run
+        if: always()
+        env:
+          # THE CUT'S OWN ENVIRONMENT, MINUS NOTARY_PROFILE.
+          #
+          # A check exercised under different configuration is a different
+          # check. Everything below is copied from the `cut` job's `make ship`
+          # step so the gates see what they would see on a tag; the comments
+          # explaining each one live there and are not restated.
+          #
+          # NOTARY_PROFILE is deliberately absent: nothing here notarises, and
+          # a profile that exists invites a step that uses it.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
+          PROV_GATE_SKIP_CLASSES: wiki
+          OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+        run: bash scripts/dry_run_cut_checks.sh
