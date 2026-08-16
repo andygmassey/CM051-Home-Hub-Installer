@@ -156,6 +156,17 @@ jobs:
           fi
           make -C gui download-safari-extension
 
+      # The SECOND artefact the app build needs and the repo does not carry.
+      # It surfaced only by running: the first CI attempt got past the Safari
+      # extension and died in "Bundle python-build-standalone Python 3.11 into
+      # Resources". It did not surface locally because this machine had a
+      # python tarball left staged by an earlier cut -- a good reminder that a
+      # green local build can be green because of state the repo does not have.
+      #
+      # No token: plain curl plus a pinned SHA256 that the target verifies.
+      - name: Stage python-build-standalone (SHA256-pinned)
+        run: make -C gui download-python
+
       - name: Generate the project from project.yml
         run: cd gui && xcodegen generate
 
