@@ -91,6 +91,36 @@ mkdir -p "$CACHE_DIR"
 die() { echo "embed-sparkle.sh: ERROR: $*" >&2; exit 1; }
 note() { echo "embed-sparkle.sh: $*"; }
 
+# THE SHIPPING CHECK, defined here so BOTH the ship path and --self-test
+# reach the SAME code. TNM caught the earlier version: the self-test
+# carried a private comparator, so restoring the original defect at the
+# real check site left control (3) still printing PASS. A guard compared
+# against a reimplementation of itself proves only that the
+# reimplementation works.
+verify_tarball_checksum() {
+    # UNCONDITIONAL. There is deliberately no branch that skips this. An
+    # empty SPARKLE_SHA256 reaching here means someone exported it empty
+    # on purpose, and "verify against nothing" must be an error, never a
+    # warning that a build log scrolls past.
+    if [[ -z "${SPARKLE_SHA256:-}" ]]; then
+        echo "embed-sparkle.sh: ERROR: SPARKLE_SHA256 resolved empty; refusing to embed an unverified framework into a signed bundle." >&2
+        return 2
+    fi
+    if [[ ! -f "${SPARKLE_TARBALL:-}" ]]; then
+        echo "embed-sparkle.sh: ERROR: no tarball at ${SPARKLE_TARBALL:-<unset>} to verify." >&2
+        return 3
+    fi
+    local actual
+    actual="$(shasum -a 256 "$SPARKLE_TARBALL" | awk '{print $1}')"
+    if [[ "$SPARKLE_SHA256" != "$actual" ]]; then
+        echo "embed-sparkle.sh: ERROR: Sparkle tarball SHA-256 mismatch (expected ${SPARKLE_SHA256}, got ${actual}); refusing to embed. If you just bumped SPARKLE_VERSION, re-measure and update the pin; if you did not, treat the cached tarball at ${SPARKLE_TARBALL} as suspect and delete it." >&2
+        return 1
+    fi
+    note "Sparkle ${SPARKLE_VERSION} tarball verified against pinned SHA-256"
+    return 0
+}
+
+
 # --self-test proves the checksum gate FIRES, rather than proving it
 # compiles. Five controls, and each one is a way the predicate could
 # be wrong rather than a way it could be right. Control (3) is the
@@ -106,11 +136,17 @@ if [[ "${1:-}" == "--self-test" ]]; then
             echo "  FAIL  $1 (expected $3, got $2)"; st_fail=$((st_fail + 1))
         fi
     }
-    # The comparator, isolated from any download.
-    cmp_sha() {
-        [[ -z "$1" ]] && return 2
-        [[ "$1" == "$2" ]] && return 0
-        return 1
+    # NO PRIVATE COMPARATOR. Each control spawns THIS script with
+    # --verify-tarball-only, driving verify_tarball_checksum, the same
+    # function the ship path calls. Proven by TNM's method: restore the
+    # original defect at the real check site and these controls go RED,
+    # where the previous private-comparator version stayed green.
+    st_tmp="$(mktemp -d -t sparkle-selftest-XXXXXX)"
+    trap 'rm -rf "$st_tmp"' EXIT
+    printf 'synthetic bytes, self-test only' > "$st_tmp/fake.tar.xz"
+    st_real_sha="$(shasum -a 256 "$st_tmp/fake.tar.xz" | awk '{print $1}')"
+    drive() {
+        SPARKLE_SHA256="$1" bash "$0" --verify-tarball-only "$st_tmp/fake.tar.xz" >/dev/null 2>&1
     }
     echo "embed-sparkle.sh: self-test"
 
@@ -118,14 +154,29 @@ if [[ "${1:-}" == "--self-test" ]]; then
     # `set -e`, so a negative control that fails ON PURPOSE kills the harness
     # before it can be scored. Written the naive way, this self-test printed
     # control (1) and exited 1, which reads exactly like a real failure.
-    rc=0; cmp_sha "$SPARKLE_PINNED_SHA256" "$SPARKLE_PINNED_SHA256" || rc=$?
+    rc=0; drive "$st_real_sha" || rc=$?
     st "(1) matching checksum accepts" "$rc" "0"
 
-    rc=0; cmp_sha "$SPARKLE_PINNED_SHA256" "deadbeef" || rc=$?
+    rc=0; drive "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" || rc=$?
     st "(2) mismatching checksum refuses" "$rc" "1"
 
-    rc=0; cmp_sha "" "$SPARKLE_PINNED_SHA256" || rc=$?
-    st "(3) EMPTY checksum refuses, never skips" "$rc" "2"
+    # (3) WAS WORDED FOR A STATE THE CODE MAKES UNREACHABLE, and only
+    # driving the real function revealed it. Exporting SPARKLE_SHA256=""
+    # does NOT reach the check empty: pin resolution substitutes the
+    # built-in constant first. So the guarantee to assert is that an
+    # empty export is REPLACED and then genuinely checked, never skipped.
+    # rc=1 here means it compared the pin against the fake tarball and
+    # refused; rc=0 would mean it waved the file through.
+    rc=0; drive "" || rc=$?
+    st "(3) empty export is replaced by the pin, then CHECKED not skipped" "$rc" "1"
+
+    # (3b) the empty limb is defence-in-depth for a future refactor that
+    # breaks resolution. Drive it directly, bypassing resolution, so the
+    # limb is proven to exist rather than assumed.
+    rc=0
+    ( SPARKLE_SHA256="" SPARKLE_TARBALL="$st_tmp/fake.tar.xz" \
+      bash -c 'source <(sed -n "/^verify_tarball_checksum() {/,/^}/p" "$1"); note(){ :; }; verify_tarball_checksum' _ "$0" ) >/dev/null 2>&1 || rc=$?
+    st "(3b) the empty-checksum limb exists and returns 2" "$rc" "2"
 
     # Version drift must refuse rather than compare against the wrong pin.
     rc=0
@@ -155,6 +206,15 @@ if [[ "${1:-}" == "--resolve-pin-only" ]]; then
     exit 0
 fi
 
+# Internal: run the SHIPPING checksum check against a caller-supplied
+# tarball and exit with its rc. Exists so --self-test drives the real
+# function in a subprocess rather than reimplementing it.
+if [[ "${1:-}" == "--verify-tarball-only" ]]; then
+    SPARKLE_TARBALL="${2:?--verify-tarball-only needs a tarball path}"
+    verify_tarball_checksum
+    exit $?
+fi
+
 APP_PATH="${1:-}"
 if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
     die "usage: $0 <path-to-Ostler.app>  |  $0 --self-test"
@@ -180,18 +240,7 @@ if [[ ! -f "$SPARKLE_TARBALL" ]]; then
     fi
 fi
 
-# UNCONDITIONAL. There is deliberately no branch that skips this.
-# An empty SPARKLE_SHA256 reaching here means someone exported it
-# empty on purpose, and "verify against nothing" must be an error,
-# never a warning that a build log scrolls past.
-if [[ -z "$SPARKLE_SHA256" ]]; then
-    die "SPARKLE_SHA256 resolved empty; refusing to embed an unverified framework into a signed bundle."
-fi
-ACTUAL_SHA="$(shasum -a 256 "$SPARKLE_TARBALL" | awk '{print $1}')"
-if [[ "$SPARKLE_SHA256" != "$ACTUAL_SHA" ]]; then
-    die "Sparkle tarball SHA-256 mismatch (expected ${SPARKLE_SHA256}, got ${ACTUAL_SHA}); refusing to embed. If you just bumped SPARKLE_VERSION, re-measure and update the pin; if you did not, treat the cached tarball at ${SPARKLE_TARBALL} as suspect and delete it."
-fi
-note "Sparkle ${SPARKLE_VERSION} tarball verified against pinned SHA-256"
+verify_tarball_checksum || exit $?
 
 EXTRACT_DIR="$(mktemp -d -t ostler-sparkle-XXXXXX)"
 trap 'rm -rf "$EXTRACT_DIR"' EXIT
