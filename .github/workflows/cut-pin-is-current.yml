@@ -1,0 +1,63 @@
+name: cut-pin-is-current
+
+# The CM051 pin in cuts/<tag>/cut.env must name the tree whose install.sh
+# actually ships. This workflow keeps the GATE honest; cut.yml's preflight is
+# where it BLOCKS.
+#
+# WHY BOTH. A gate that only runs inside cut.yml is only exercised when someone
+# tries to cut, so it can rot for weeks and then fail at the worst moment, or
+# worse, silently stop discriminating. The self-test here runs on every PR that
+# touches the gate, the cut records, or install.sh.
+#
+# WHAT IT IS FOR, IN ONE PARAGRAPH: v1.0.31 existed because the previous DMG's
+# Hub could not start. Three commits fixed it and merged. cuts/v1.0.31/cut.env
+# still pinned a commit from before all three, so cutting v1.0.31 from its own
+# declared pin would have reshipped the defect v1.0.31 was created to fix. The
+# pin was an ANCESTOR of main, so an ancestry check would have called it fine.
+# Only blob identity discriminates.
+#
+# The cut record already documented every word of that, including the re-verify
+# instruction. It was prose addressed to a human at tag time, and prose cannot
+# fail closed.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_cut_pin_is_current.sh'
+      - '.github/workflows/cut-pin-is-current.yml'
+      - 'cuts/**/cut.env'
+      - 'install.sh'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the gate resolves historical pins
+
+      # Nine controls: the RED limb on a fixture that reproduces the v1.0.31
+      # shape (pin is a genuine ancestor, install.sh differs), a GREEN limb so
+      # the gate is known to be able to pass, a blob-vs-commit discrimination
+      # check, an ancestry-is-not-a-defence check, and three CANNOT-RUN limbs
+      # that must exit 2 rather than 0.
+      - name: The gate can still tell a stale pin from a current one
+        run: bash scripts/verify_cut_pin_is_current.sh --self-test
+
+      # Parse under /bin/bash EXPLICITLY. On macOS that is 3.2, and the cut
+      # runs on a Mac. A script that only parses under bash 5 is a gate that
+      # exits 2 on the build machine and reads as CANNOT-RUN forever.
+      - name: Parses under bash 3.2-compatible syntax
+        run: bash -n scripts/verify_cut_pin_is_current.sh
