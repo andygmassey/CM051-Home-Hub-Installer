@@ -52,5 +52,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Installer version-consistency gate (#171)
+      # The PREDICATE's own controls, before the predicate is trusted. Control
+      # (1) is the state of main on 2026-08-16 -- 1.0.32 with a uniformly
+      # frozen 2500 -- and it must go RED. Control (7) proves a version outside
+      # the encoded scheme is CANNOT-RUN rather than a quiet pass.
+      - name: The gate can still tell a frozen build number from a fresh one
+        run: bash tests/test_installer_version_consistency.sh --self-test
+
+      - name: Parses under bash 3.2-compatible syntax
+        run: bash -n tests/test_installer_version_consistency.sh
+
+      - name: Installer version-consistency gate (#171 agreement, #703 derivation)
         run: bash tests/test_installer_version_consistency.sh
