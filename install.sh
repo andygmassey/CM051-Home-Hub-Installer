@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Ostler – Beta Installer
-# Usage: curl -fsSL https://ostler.ai/install.sh | bash
+# Usage: bash install.sh            (run by OstlerInstaller.app from the DMG)
+#        bash install.sh --check    (prerequisites only, no licence needed)
 #
 # Structure:
 #   Phase 1: Check prerequisites (automatic, no input)
@@ -563,8 +564,11 @@ fi
 if [[ "$SHOW_HELP" == true ]]; then
     echo "Ostler Installer"
     echo ""
-    echo "Usage: curl -fsSL ostler.ai/install.sh | bash"
-    echo "       bash install.sh [--check] [--help]"
+    echo "Usage: bash install.sh [--check] [--help]"
+    echo ""
+    echo "Ostler is a paid product. Installing requires a valid licence;"
+    echo "buy at https://ostler.ai and install from the DMG you are sent."
+    echo "--check verifies prerequisites only and needs no licence."
     echo ""
     echo "Options:"
     echo "  --check             Check prerequisites without installing anything"

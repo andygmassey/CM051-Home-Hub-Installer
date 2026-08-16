@@ -4,13 +4,11 @@ This file provides guidance to Claude Code agents working in this repo.
 
 ## Project purpose
 
-CM051 is the public-facing installer for the Ostler Hub. Users run:
+CM051 is the installer for the Ostler Hub. Customers buy at https://ostler.ai and
+install from the DMG; `OstlerInstaller.app` runs `install.sh`, which verifies the
+licence before it touches the machine and refuses without one.
 
-```bash
-curl -fsSL https://ostler.ai/install.sh | bash
-```
-
-...and end up with a working local-first Ostler Hub on their Mac.
+This repo is PUBLIC. Treat every string in it as customer-facing copy.
 
 ## Related repos (sibling projects)
 
