@@ -363,7 +363,8 @@ STEP          := @printf '\n[STEP] %s\n'
         staple staple-apps archive ship clean regen \
         check-tools check-identity check-create-dmg check-ostler-app check-version \
         check-pbxproj-sync \
-        print-version print-dmg-path dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
+        print-version print-dmg-path print-dist-dir print-build-dir print-archive-dir \
+        dmg-bg sparkle-embed verify-dmg-contents verify-stapling \
         check-orphans \
         check-pr-age \
         verify-commit-parity \
@@ -448,6 +449,26 @@ print-version:
 # derives it instead of restating it.
 print-dmg-path:
 	@echo "$(DMG_PATH)"
+
+# THE SIBLINGS OF print-dmg-path, FOR THE SAME REASON (task #359).
+#
+# The gates-only dry run ends by ASSERTING that nothing shippable exists on the
+# runner: no DMG, no exported .app, no xcarchive, no archived copy. That
+# assertion is only worth anything if it looks where the build would actually
+# write, and the v1.0.26 lesson is that a second copy of a path is a second
+# thing to drift -- `find dist -name '*.dmg'` threw away a notarised DMG
+# because DIST_DIR pointed at /tmp all along.
+#
+# So the dry run asks make, exactly as cut.yml already does for the DMG. One
+# definition of each path, three readers, no restatements.
+print-dist-dir:
+	@echo "$(DIST_DIR)"
+
+print-build-dir:
+	@echo "$(BUILD_DIR)"
+
+print-archive-dir:
+	@echo "$(ARCHIVE_DIR)"
 
 # ---------------------------------------------------------------------------
 # Version-consistency preflight (CM051 #171). Fail-closed guard that the
