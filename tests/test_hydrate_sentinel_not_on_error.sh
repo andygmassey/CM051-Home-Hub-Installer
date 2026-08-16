@@ -103,6 +103,24 @@ CHECKS=$((CHECKS + 1))
 rc=$(run_in_harness '_hydrate_sentinel_record_error whatsapp 1; _hydrate_sentinel_fresh whatsapp')
 check "(4) an error sentinel is stale immediately, not after 7 days" "$rc" "1"
 
+# (4b) THE UPGRADE-PATH GAP. Every sentinel written before #768 has NO
+#      status line. Testing only for `status=error` left those reading as
+#      fresh, so the fix could not reach any box that already had the defect.
+#      Measured on the launch box after #768 merged: 8 sentinels, all legacy,
+#      including the imessage.done written by the EX_CONFIG 78 tick itself.
+rc=$(run_in_harness 'printf "recorded_at=2026-08-16T12:51:08Z\nsource=imessage\npayload=people=0\n" \
+                       > "$_HYDRATE_SENTINEL_DIR/imessage.done"
+                     _hydrate_sentinel_fresh imessage')
+check "(4b) a LEGACY sentinel with no status line is NOT fresh" "$rc" "1"
+
+# (4c) ...and it CONVERGES. After the retry records a success the source is
+#      suppressed again, so an upgraded box re-hydrates ONCE, not every run.
+rc=$(run_in_harness 'printf "recorded_at=2026-08-16T12:51:08Z\nsource=imessage\npayload=people=0\n" \
+                       > "$_HYDRATE_SENTINEL_DIR/imessage.done"
+                     _hydrate_sentinel_fresh imessage || _hydrate_sentinel_record imessage "people=41"
+                     _hydrate_sentinel_fresh imessage')
+check "(4c) after the retry succeeds it IS fresh again -- one re-hydrate, not a loop" "$rc" "0"
+
 # (5) A success sentinel older than 7 days is still not fresh (unchanged).
 rc=$(run_in_harness '_hydrate_sentinel_record browsing "sent=3"
                      touch -t 202001010000 "$_HYDRATE_SENTINEL_DIR/browsing.done"
