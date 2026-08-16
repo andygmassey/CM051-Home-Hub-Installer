@@ -109,6 +109,7 @@ test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.y
 test_ical_server_vendor_wired.sh	UNWIRED	-
 test_identity_resolver_fuzzy_cache.py	UNWIRED	-
 test_imessage_fda_probe.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_imessage_ladder_not_pinned.sh	WIRED	.github/workflows/imessage-ladder.yml
 test_imessage_self_handles_fallback.sh	UNWIRED	-
 test_imessage_tcc_posture.sh	UNWIRED	-
 test_ingest_offpeak_throttle.sh	UNWIRED	-

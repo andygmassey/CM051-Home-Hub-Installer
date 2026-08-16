@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -52,7 +53,30 @@ logger = logging.getLogger(__name__)
 
 # The rungs, in days. Terminal rung is the historical 5-year window, so the
 # ladder converges on exactly the behaviour we had before -- just later.
-DEFAULT_LADDER: List[int] = [45, 90, 180, 365, 730, 1825]
+# 36500 days is a hundred years: the terminal rung means EVERYTHING, not
+# "five years". Andy, 2026-08-16: the backlog should eventually be ALL of
+# iMessage. 1825 truncates anyone who has been messaging for longer, and
+# next_rung() scans ascending and returns rungs[-1] as terminal, so the
+# sentinel has to be the LARGEST value rather than a falsy 0.
+# extract_conversations() computes `now - since_days*86400` and keeps
+# everything after it, so a hundred-year window filters nothing.
+DEFAULT_LADDER: List[int] = [45, 90, 180, 365, 730, 1825, 36500]
+
+# How long a rung must be held before the ladder widens again.
+#
+# WHY THIS EXISTS. The ladder advances once per CALL, and extract_all is driven
+# by com.ostler.export-scan with StartInterval=14400 -- every four hours,
+# MEASURED on the box. Simply un-pinning the window would therefore walk
+# 45 -> 36500 in under a day, and the comment in install.sh gives the cost of
+# arriving at the top: ~28,405 conversations at ~1.20 min of chained local
+# inference each. That is the runtime the 45-day default was protecting
+# against, so turning the ladder on WITHOUT a pace would have been worse than
+# leaving it pinned.
+#
+# One rung per day makes the progression 45 -> 90 -> 180 -> 365 -> 730 -> 1825
+# -> all over about six days, which is what "the tail arrives across the
+# settle-in period" already promised in this file's own docstring.
+DEFAULT_DWELL_SECONDS: int = 86400
 
 def _state_dir() -> Path:
     """Where the horizon lives -- resolved on EVERY call, never at import.
@@ -95,7 +119,9 @@ def _write_days(source: str, days: int) -> None:
         # Atomic: a half-written horizon read by the next tick is a horizon
         # nobody can trust.
         tmp = p.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps({"source": source, "days": days}, indent=2))
+        tmp.write_text(json.dumps(
+            {"source": source, "days": days, "advanced_at": int(time.time())},
+            indent=2))
         tmp.replace(p)
     except OSError as exc:
         # Not fatal. Worst case the next run repeats this rung, which costs
@@ -118,6 +144,31 @@ def next_rung(current: Optional[int], ladder: Optional[List[int]] = None) -> int
         if rung > current:
             return rung
     return rungs[-1]
+
+
+def _dwell_seconds() -> int:
+    """Seconds a rung is held before the ladder widens. Operator-overridable
+    so a support case can be told to widen faster without a new build."""
+    raw = os.environ.get("OSTLER_BACKFILL_DWELL_SECONDS", "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            logger.warning("[backfill-ladder] OSTLER_BACKFILL_DWELL_SECONDS=%r is not an integer", raw)
+    return DEFAULT_DWELL_SECONDS
+
+
+def _seconds_since_advance(source: str) -> Optional[int]:
+    """Seconds since this source last widened, or None if never recorded."""
+    p = _state_path(source)
+    try:
+        raw = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+    ts = raw.get("advanced_at")
+    if not isinstance(ts, int):
+        return None
+    return max(0, int(time.time()) - ts)
 
 
 def resolve_backfill_days(
@@ -147,6 +198,23 @@ def resolve_backfill_days(
 
     current = _read_days(source)
     chosen = next_rung(current, rungs)
+
+    # DWELL. Hold a rung for DEFAULT_DWELL_SECONDS before widening again. The
+    # extractor is driven every four hours, so without this the ladder reaches
+    # the terminal rung in under a day and dispatches the whole backlog at
+    # once -- the exact runtime the first rung exists to avoid.
+    #
+    # A horizon written before this field existed has no advanced_at, which
+    # reads as 0 and therefore advances immediately. That is the right
+    # behaviour for an upgraded box: it is already overdue.
+    if current is not None and chosen != current:
+        held = _seconds_since_advance(source)
+        if held is not None and held < _dwell_seconds():
+            logger.info(
+                "[backfill-ladder] %s holding %sd for another %ss before widening",
+                source, current, int(_dwell_seconds() - held))
+            return current
+
     if advance and chosen != current:
         _write_days(source, chosen)
     if current is None:
