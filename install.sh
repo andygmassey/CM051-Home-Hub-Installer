@@ -18788,6 +18788,10 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         | tail -n 1
     )"
     rc=$?
+    # #712: mirror into a per-source variable at the point of capture. `rc` is
+    # a shared global that every hydrate block reassigns, so reading it a
+    # hundred lines later works only by accident of ordering.
+    _HYDRATE_WHATSAPP_RC="$rc"
     set -e; eval "${_wa_saved_err_trap:-}"; unset _wa_saved_err_trap
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_WHATSAPP_TIMED_OUT=true
@@ -18827,10 +18831,22 @@ except Exception:
 
     # #48g sentinel record: dedupes re-runs within a 7-day window. The
     # payload is a counts-only snapshot; never logged off-machine.
-    _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    #
+    # #712: rc was read ONLY for the 124/137 timeout check, so every other
+    # non-zero exit -- a store-auth 401, an unexpected ChatStorage.sqlite
+    # schema, an EX_CONFIG 78 -- fell through and wrote a SUCCESS sentinel.
+    # That suppressed the retry for seven days on the strength of a run that
+    # failed. A timeout counts as failure too: gtimeout killed the extract,
+    # nothing is continuing in the background whatever the message says.
+    if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "whatsapp" "$_HYDRATE_WHATSAPP_RC" \
+            "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "whatsapp" "people_added=${_HYDRATE_WHATSAPP_COUNT:-0}"
+    fi
 
     unset _HYDRATE_WHATSAPP_TIMED_OUT _HYDRATE_WHATSAPP_JSON
-    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP
+    unset _HYDRATE_WHATSAPP_COUNT _HYDRATE_WHATSAPP_TIMEOUT_WRAP _HYDRATE_WHATSAPP_RC
     unset _HYDRATE_WHATSAPP_LOG
 elif [[ ! -x "$_HYDRATE_WHATSAPP_PY" ]]; then
     info "$MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING"
@@ -18937,6 +18953,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_BROWSING_LOG" | tail -n 1
     )"
     rc=$?
+    _HYDRATE_BROWSING_RC="$rc"   # #712: see the whatsapp block for why
     set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_BROWSING_TIMED_OUT=true
@@ -18981,11 +18998,17 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    # #712: an errored or timed-out ingest must NOT suppress its own retry.
+    if [[ "${_HYDRATE_BROWSING_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "browsing" "$_HYDRATE_BROWSING_RC" \
+            "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    else
+        _hydrate_sentinel_record "browsing" "sent=${_HYDRATE_BROWSING_SENT:-0},skipped=${_HYDRATE_BROWSING_SKIPPED:-0}"
+    fi
 
     unset _HYDRATE_BROWSING_TIMED_OUT _HYDRATE_BROWSING_JSON
     unset _HYDRATE_BROWSING_SENT _HYDRATE_BROWSING_SKIPPED
-    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG
+    unset _HYDRATE_BROWSING_TIMEOUT_WRAP _HYDRATE_BROWSING_LOG _HYDRATE_BROWSING_RC
 elif [[ ! -x "$_HYDRATE_BROWSING_PY" ]]; then
     info "$MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING"
 else
@@ -19098,6 +19121,7 @@ else
         :
     else
         rc=$?
+        _HYDRATE_EMAILPREFS_RC="$rc"   # #712: see the whatsapp block for why
         _hydrate_heartbeat_stop
         if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
             _HYDRATE_EMAILPREFS_TIMED_OUT=true
@@ -19127,12 +19151,18 @@ else
             info "$MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE"
         fi
         # Sentinel dedupes a re-run within the 7-day window.
-        _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        # #712: an errored or timed-out ingest must NOT suppress its own retry.
+        if [[ "${_HYDRATE_EMAILPREFS_RC:-0}" -ne 0 ]]; then
+            _hydrate_sentinel_record_error "email_preferences" "$_HYDRATE_EMAILPREFS_RC" \
+                "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        else
+            _hydrate_sentinel_record "email_preferences" "preferences_created=${_HYDRATE_EMAILPREFS_COUNT:-0}"
+        fi
     fi
 
     unset _HYDRATE_EMAILPREFS_CAP _HYDRATE_EMAILPREFS_TIMEOUT_WRAP
     unset _HYDRATE_EMAILPREFS_LOG _HYDRATE_EMAILPREFS_TIMED_OUT
-    unset _HYDRATE_EMAILPREFS_COUNT
+    unset _HYDRATE_EMAILPREFS_COUNT _HYDRATE_EMAILPREFS_RC
 fi
 
 unset _HYDRATE_EMAILPREFS_CM019_DIR _HYDRATE_EMAILPREFS_PY _HYDRATE_EMAILPREFS_REL
@@ -19615,7 +19645,23 @@ elif [[ "$_HYDRATE_APPLENOTES_BIN_OK" == "true" ]] && [[ -s "$_HYDRATE_APPLENOTE
     fi
 
     # Sentinel dedupes a re-run within the 7-day window.
-    _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    #
+    # #712: this source has TWO stages and the sentinel ignored both. convert
+    # failing is the common case (an older vendored CM024 without the
+    # apple_notes adapter -> unknown --source), and embed is skipped with
+    # EMBED_RC=1 whenever convert failed. Either stage non-zero means the notes
+    # are not searchable, so the retry must not be suppressed for a week.
+    # Report the convert rc when that is what broke, otherwise the embed rc,
+    # so the sentinel names the stage that actually failed.
+    if [[ "${_HYDRATE_APPLENOTES_CONVERT_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_CONVERT_RC" \
+            "stage=convert,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    elif [[ "${_HYDRATE_APPLENOTES_EMBED_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "apple_notes" "$_HYDRATE_APPLENOTES_EMBED_RC" \
+            "stage=embed,notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "apple_notes" "notes=${_HYDRATE_APPLENOTES_COUNT:-0}"
+    fi
 
     unset _HYDRATE_APPLENOTES_CAP _HYDRATE_APPLENOTES_TIMEOUT_WRAP
     unset _HYDRATE_APPLENOTES_LOG _HYDRATE_APPLENOTES_TIMED_OUT
@@ -19685,6 +19731,7 @@ print(json.dumps(result))
 " 2>>"$_HYDRATE_PEOPLE_LOG" | tail -n 1
     )"
     rc=$?
+    _HYDRATE_PEOPLE_RC="$rc"   # #712: see the whatsapp block for why
     set -e; eval "${_saved_err_trap:-}"
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         _HYDRATE_PEOPLE_TIMED_OUT=true
@@ -19714,10 +19761,16 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    # #712: an errored or timed-out ingest must NOT suppress its own retry.
+    if [[ "${_HYDRATE_PEOPLE_RC:-0}" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "people" "$_HYDRATE_PEOPLE_RC" \
+            "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    else
+        _hydrate_sentinel_record "people" "sent=${_HYDRATE_PEOPLE_SENT:-0}"
+    fi
 
     unset _HYDRATE_PEOPLE_TIMED_OUT _HYDRATE_PEOPLE_JSON
-    unset _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
+    unset _HYDRATE_PEOPLE_RC _HYDRATE_PEOPLE_SENT _HYDRATE_PEOPLE_TIMEOUT_WRAP _HYDRATE_PEOPLE_LOG
 else
     info "$MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING"
 fi
@@ -20019,7 +20072,15 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
         # startup hook retries on the next boot. Surface it, do not abort.
         warn "Privacy backfill did not complete (rc=$_privacy_rc); readers stay fail-closed. See /tmp/ostler-privacy-backfill.log"  # i18n-exempt
     fi
-    _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    # #712: the rc was already captured AND already printed in the warn above,
+    # and then thrown away at the sentinel -- the failure was visible to the
+    # customer on screen while the sentinel recorded success and suppressed
+    # the retry for seven days. Route it.
+    if [[ "$_privacy_rc" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "privacy_backfill" "$_privacy_rc" "status=run"
+    else
+        _hydrate_sentinel_record "privacy_backfill" "status=run rc=$_privacy_rc"
+    fi
     unset _privacy_rc
 fi
 
