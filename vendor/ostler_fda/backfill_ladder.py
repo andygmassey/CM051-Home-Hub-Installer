@@ -73,10 +73,33 @@ DEFAULT_LADDER: List[int] = [45, 90, 180, 365, 730, 1825, 36500]
 # against, so turning the ladder on WITHOUT a pace would have been worse than
 # leaving it pinned.
 #
-# One rung per day makes the progression 45 -> 90 -> 180 -> 365 -> 730 -> 1825
-# -> all over about six days, which is what "the tail arrives across the
-# settle-in period" already promised in this file's own docstring.
-DEFAULT_DWELL_SECONDS: int = 86400
+# THE VALUE IS PINNED BY THE ONE GUARANTEED ADVANCE, NOT BY TASTE.
+#
+# I first set this to 86400 (one rung per day), reasoning from
+# com.ostler.export-scan's StartInterval=14400. TNM refuted the premise and the
+# box agreed with them:
+#
+#   com.ostler.fda-rerun is ONE-SHOT. install.sh pins Year, Month, Day, Hour
+#   AND Minute into StartCalendarInterval at install time +12h, and a fully
+#   specified calendar interval fires once and never again.
+#
+#   com.ostler.export-scan IS loaded and recurring, but its RunAtLoad firing
+#   at 20:34:01 left imessage_conversations.json at 20:16:51, untouched.
+#   CONTROL: calendar_events.json (20:40:46) and whatsapp_conversations.json
+#   (20:41:25) WERE rewritten after that firing, so mtimes in that directory
+#   do move and the iMessage file's stillness is a signal, not a frozen disk.
+#
+# So the only advance a customer is guaranteed to get without re-running the
+# installer arrives at INSTALL + 12 HOURS. A 24-hour dwell would have blocked
+# it, leaving every box on rung 1 forever while the code looked like a ladder.
+# The fix would have shipped dark.
+#
+# Six hours: comfortably under the 12-hour rerun so it can never block the one
+# advance that is certain, and still long enough that a four-hourly invoker
+# cannot walk several rungs in an evening. Control (9) pins the relationship to
+# the 12-hour figure rather than to the number 21600, so if that schedule ever
+# changes the test says so.
+DEFAULT_DWELL_SECONDS: int = 21600
 
 def _state_dir() -> Path:
     """Where the horizon lives -- resolved on EVERY call, never at import.

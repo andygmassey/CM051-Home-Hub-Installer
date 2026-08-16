@@ -173,6 +173,35 @@ else
     fail "(8b) the ladder is not ascending; next_rung scans upward and would break"
 fi
 
+# (9) THE DWELL MUST NOT BLOCK THE ONE GUARANTEED ADVANCE.
+#
+#     TNM's measurement, which refuted my first premise: com.ostler.fda-rerun
+#     is ONE-SHOT (install.sh pins Year/Month/Day/Hour/Minute into
+#     StartCalendarInterval at install +12h), and com.ostler.export-scan's
+#     RunAtLoad firing did NOT re-run the iMessage extractor. So the only
+#     advance a customer gets without re-running the installer is at +12h.
+#
+#     My first dwell was 86400. That would have BLOCKED it, leaving every box
+#     on rung 1 forever while the code read like a ladder -- a fix that ships
+#     dark. This control pins the dwell to the SCHEDULE rather than to a
+#     number, so if install.sh's 12-hour figure ever moves, this fails here
+#     instead of on a customer's machine.
+rerun_hours="$(grep -c 'date -v+12H' "$INSTALL" || true)"
+CHECKS=$((CHECKS + 1))
+if [[ "$rerun_hours" -ge 1 ]]; then
+    pass "(9) CONTROL: install.sh still schedules the one-shot rerun at +12h"
+else
+    fail "(9) the +12h rerun schedule moved; the dwell below is no longer anchored"
+fi
+dwell="$(run_py 'from ostler_fda.backfill_ladder import DEFAULT_DWELL_SECONDS
+print(DEFAULT_DWELL_SECONDS)')"
+CHECKS=$((CHECKS + 1))
+if [[ "$dwell" -lt 43200 ]]; then
+    pass "(9b) the dwell (${dwell}s) is under the 12h rerun, so it cannot block it"
+else
+    fail "(9b) the dwell (${dwell}s) is >= the 12h rerun and would BLOCK the only guaranteed advance"
+fi
+
 echo
 echo "=== $((CHECKS - FAILURES)) passed / $FAILURES failed ==="
 [[ "$FAILURES" -eq 0 ]]
