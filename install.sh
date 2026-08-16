@@ -17693,11 +17693,38 @@ mkdir -p "$_HYDRATE_SENTINEL_DIR"
 # Reading the status here rather than refusing to write the file keeps
 # the record for Doctor and for a human reading state/hydrate/, while
 # still letting the next run try again.
+#
+# ── AND A LEGACY SENTINEL IS NOT FRESH EITHER ─────────────────────────
+# #768 tested `status=error` and that was not enough. Every sentinel
+# written BEFORE that change has no status line at all, so it matches
+# neither arm and still reads as fresh: the fix could not reach any box
+# that already had the defect it fixes.
+#
+# Measured on the launch box immediately after #768 merged:
+#
+#     ~/.ostler/state/hydrate/   8 sentinels, ALL pre-fix, NONE with a
+#                                status= line
+#     imessage.done  recorded_at=2026-08-16T12:51:08Z  payload=people=0
+#
+# That imessage.done IS the artefact of the EX_CONFIG 78 tick #711 was
+# about. Under #768 alone it would have kept suppressing the retry until
+# 2026-08-23.
+#
+# So freshness now requires a POSITIVE `status=ok`, not merely the
+# absence of `status=error`. Anything without one is legacy, and legacy
+# is stale. Cost: zero on a fresh install (no sentinels exist), and one
+# re-hydrate per source on an upgraded box, which is the behaviour that
+# box should have had all along.
+#
+# This is the difference between "not known to have failed" and "known
+# to have succeeded". Only the second is evidence.
 _hydrate_sentinel_fresh() {
     local sentinel="${_HYDRATE_SENTINEL_DIR}/$1.done"
     [[ -f "$sentinel" ]] || return 1
-    # A recorded failure never suppresses a retry, at any age.
-    grep -q '^status=error' "$sentinel" 2>/dev/null && return 1
+    # POSITIVE evidence required. A recorded failure never suppresses a
+    # retry at any age, and neither does a sentinel that records nothing
+    # about how the run ended.
+    grep -q '^status=ok' "$sentinel" 2>/dev/null || return 1
     # macOS stat: -f%m yields unix mtime
     local mtime now age
     mtime=$(stat -f%m "$sentinel" 2>/dev/null || echo 0)
