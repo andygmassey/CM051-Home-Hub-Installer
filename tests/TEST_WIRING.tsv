@@ -132,6 +132,7 @@ test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
 test_migration_marker_guard_fresh_install.py	UNWIRED	-
 test_model_fit.sh	UNWIRED	-
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
+test_no_committed_binary_leaks_a_home_path.sh	WIRED	.github/workflows/no-binary-home-path.yml
 test_no_divergent_vendor_twin.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_internal_codenames_in_customer_strings.sh	UNWIRED	-
