@@ -90,6 +90,11 @@ jobs:
       # would let a dead fixture (exit 2) satisfy the control, which is the same
       # false-pass shape in a new costume.
       - name: Negative control - the harness must go RED on the stub probe
+        # always(): a run where the step above went red is exactly the run where
+        # you most need to know whether the harness can still produce a red at
+        # all. Skipping this on failure would mask the one measurement that
+        # separates "the probe regressed" from "the harness stopped working".
+        if: always()
         run: |
           set -u
           PROBE=scripts/box_walk_probes/people_seed_and_retrieval.sh
