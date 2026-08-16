@@ -8636,6 +8636,28 @@ TOMLPREAMBLE
     # has always used, so writing it explicitly restores the previous behaviour
     # rather than changing it.
     echo "backend = \"sqlite\""
+    # THE REST OF THE REQUIRED SET. `backend` alone is NOT enough.
+    #
+    # #745 added `backend` and that unblocked the FIRST failure. It is not the
+    # only one: every MemoryConfig field whose Default impl uses a LITERAL
+    # rather than a default_xxx() helper has NO #[serde(default)], and a
+    # present-but-partial [memory] table makes ALL of them required at once.
+    # The daemon only ever reports the first one it hits, so fixing one moves
+    # the error to the next and the install still dies.
+    #
+    # Measured on the v1.0.31 box: adding `backend` moved the failure to
+    # `missing field auto_save`. Adding these seven let the daemon boot and
+    # bind :8000. Values are exactly what MemoryConfig::default() has always
+    # used, so this restores prior behaviour rather than choosing anything.
+    #
+    # DO NOT trim this list to "the one that is failing today".
+    echo "auto_save = true"
+    echo "response_cache_enabled = false"
+    echo "snapshot_enabled = false"
+    echo "snapshot_on_hygiene = false"
+    echo "auto_hydrate = true"
+    echo "rerank_enabled = false"
+    echo "audit_enabled = false"
     echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
     echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
     echo "embedding_dimensions = 768"
