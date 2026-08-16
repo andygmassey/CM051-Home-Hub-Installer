@@ -91,6 +91,15 @@ jobs:
       - name: Parses under bash 3.2-compatible syntax
         run: bash -n scripts/verify_cut_pin_is_current.sh
 
+      # The CLASSIFIER's own controls. Control (2) is the regression that
+      # review caught: a branch touching no cut.env, on a main that HAS moved
+      # cut.env since the merge-base. Two-dot classified that `block`.
+      - name: The classifier does not mistake main's movement for this branch's
+        run: bash scripts/classify_pr_pin_shape.sh --self-test
+
+      - name: Classifier parses under bash 3.2-compatible syntax
+        run: bash -n scripts/classify_pr_pin_shape.sh
+
   # THE JOB THAT WAS MISSING. Runs the gate against the tree in the PR.
   cut-pin-is-actually-current:
     runs-on: ubuntu-latest
@@ -113,15 +122,24 @@ jobs:
             echo "  push to main: reporting the pin state, not blocking."
             exit 0
           fi
-          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
-          printf '  files changed:\n%s\n' "$(printf '%s\n' "$CHANGED" | sed 's/^/    /')"
-          if printf '%s\n' "$CHANGED" | grep -qE '^cuts/.*/cut\.env$'; then
-            echo "mode=block" >> "$GITHUB_OUTPUT"
-            echo "  -> this PR ASSERTS a pin. Checking it, and it BLOCKS."
-          else
-            echo "mode=report" >> "$GITHUB_OUTPUT"
-            echo "  -> this PR does not assert a pin. Reminder only."
-          fi
+          # THE CLASSIFIER IS A SCRIPT, NOT FOUR LINES HERE, AND THAT MATTERS.
+          #
+          # It WAS four lines here, and it shipped with a two-dot diff that
+          # classified most open PRs as `block`. Nothing could test it, because
+          # logic inside a workflow `run:` block is only exercised by opening a
+          # pull request -- which is exactly when a false red does its damage.
+          #
+          # scripts/classify_pr_pin_shape.sh carries the dots, the reasoning,
+          # and a 4-control self-test whose control (2) is precisely the case
+          # that failed review: a branch touching no cut.env, on a main that HAS
+          # moved cut.env since the merge-base.
+          MODE="$(bash scripts/classify_pr_pin_shape.sh "$BASE" "$HEAD")"
+          case "$MODE" in
+            block)  echo "  -> this PR ASSERTS a pin. Checking it, and it BLOCKS." ;;
+            report) echo "  -> this PR does not assert a pin. Reminder only." ;;
+            *)      echo "::error::classifier returned '$MODE', refusing to guess" >&2; exit 1 ;;
+          esac
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
 
       # BLOCKING limb. rc is taken DIRECTLY, never through a pipe.
       - name: The pin this PR asserts must name the tree being cut
