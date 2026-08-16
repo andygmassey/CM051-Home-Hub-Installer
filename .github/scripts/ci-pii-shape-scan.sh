@@ -96,6 +96,40 @@ if [ "${PATTERN_COUNT:-0}" -eq 0 ]; then
     exit 2
 fi
 
+# ── Built-in pattern FLOOR ────────────────────────────────────────────────
+# Zero patterns is the catastrophic case and it is caught above. The quiet
+# case is WORSE and it is caught here: a library that loads SOME patterns but
+# fewer than it declares. This repo sat on five of seven for weeks. The two
+# absent classes were email and the macOS home directory carrying a username
+# -- and the operator-path class is precisely what leaked from this repo into
+# a public mirror. The scan ran, went green, and was structurally unable to
+# see it. Every run printed a healthy "5 pattern(s) loaded".
+#
+# Counting BUILT-INS specifically, not the merged total: a site .pii-patterns
+# file with two patterns of its own would otherwise mask two dropped built-ins
+# exactly, and the total would look healthier the more custom patterns a site
+# added.
+#
+# A MISSING FUNCTION AND A BREACHED FLOOR ARE DIFFERENT FINDINGS, and
+# `if ! <missing function>` collapses them: a missing function exits 127,
+# which inverts into the failure branch, and the message then describes a
+# count that nobody measured. PII_PATTERNS_LIB is overridable, so the library
+# on disk can legitimately be older than this script.
+if ! declare -F pii_builtin_floor_check >/dev/null 2>&1; then
+    echo "ci-pii-shape-scan: CANNOT-RUN -- the pattern library at" >&2
+    echo "  $LIB" >&2
+    echo "  predates the built-in pattern floor: pii_builtin_floor_check is not defined." >&2
+    echo "  NOTHING WAS COUNTED. This is not a verdict about the patterns, it is a" >&2
+    echo "  library too old to produce one. Re-provision with bin/install-pii-guards.sh." >&2
+    exit 2
+fi
+if ! pii_builtin_floor_check; then
+    echo "ci-pii-shape-scan: CANNOT-RUN -- built-in pattern floor breached (see above)." >&2
+    echo "  A scan with fewer patterns than the library declares is not a pass," >&2
+    echo "  it is a narrower question asked of the same tree." >&2
+    exit 2
+fi
+
 # ── Positive control ──────────────────────────────────────────────────────
 # Composed from parts on purpose: a phone-shaped literal written directly into
 # this file would be blocked by the very hook this script supports. A gate must

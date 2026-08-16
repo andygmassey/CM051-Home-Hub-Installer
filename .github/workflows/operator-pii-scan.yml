@@ -95,6 +95,21 @@ jobs:
       - name: Prove ci-pii-shape-scan scope
         run: bash tests/test_pii_shape_scan_scope.sh
 
+      # Prove the PATTERNS, having just proved the SCOPE. The two are separate
+      # questions and this repo answered only the first for weeks: the scope
+      # test pinned WHICH LINES get asked, and nothing at all pinned WHAT gets
+      # asked of them. The library sat at five of seven built-ins, the missing
+      # pair being email and the macOS home path, and every run printed a
+      # confident "5 pattern(s) loaded" while the scan was structurally unable
+      # to see the operator-path class.
+      #
+      # The library declares its own expected built-in count. Until this step
+      # existed here, that declaration was a comment: nothing in THIS repo
+      # compared it to what actually loads, so the contract travelled with the
+      # file and the enforcement did not.
+      - name: Prove the pattern library (declared floor + merge + validation)
+        run: bash .githooks/test_pii_patterns.sh
+
       # The check that CAN run here. Runs FIRST and unconditionally, because it
       # needs no inventory: it matches PII by SHAPE, and it carries its own
       # canary so it refuses to report clean when its detector loaded nothing.
