@@ -19,7 +19,7 @@
 # columns: test_file<TAB>status<TAB>runner
 test_ai_conversations_leg_wired.sh	UNWIRED	-
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
-test_aiconv_hydrate_honesty.sh	UNWIRED	-
+test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_amazon_extracted_dir_parse.py	UNWIRED	-
 test_app_binary_agents_bootstrap.sh	UNWIRED	-
 test_appletv_parser.py	UNWIRED	-
@@ -105,6 +105,7 @@ test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hydrate_apple_notes_wired.sh	UNWIRED	-
 test_hydrate_email_preferences_wired.sh	UNWIRED	-
 test_hydrate_people_wired.sh	UNWIRED	-
+test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_ical_server_vendor_wired.sh	UNWIRED	-
 test_identity_resolver_fuzzy_cache.py	UNWIRED	-
 test_imessage_fda_probe.sh	WIRED	.github/workflows/consent-data-handling.yml

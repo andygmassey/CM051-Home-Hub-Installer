@@ -17678,11 +17678,26 @@ progress "Hydrating your graph from iCloud" "hydrate_graph"
 _HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"
 mkdir -p "$_HYDRATE_SENTINEL_DIR"
 
-# Returns 0 if the sentinel for $1 is present + fresher than 7 days.
+# Returns 0 if the sentinel for $1 is present, fresher than 7 days, AND
+# records a completed run rather than a failed one.
 # Use as: if _hydrate_sentinel_fresh imessage; then continue; fi
+#
+# ── AN ERROR SENTINEL IS NOT FRESH (#711) ─────────────────────────────
+# The contract above is "success or no-data both count". An ERRORED run
+# counts as neither, and suppressing its retry for 7 days is how a
+# transient refusal becomes permanent: deny Full Disk Access once, the
+# extractor exits EX_CONFIG 78, imessage.done lands with people=0, and
+# granting FDA an hour later changes nothing because the block is
+# skipped. Measured on the box 2026-08-16.
+#
+# Reading the status here rather than refusing to write the file keeps
+# the record for Doctor and for a human reading state/hydrate/, while
+# still letting the next run try again.
 _hydrate_sentinel_fresh() {
     local sentinel="${_HYDRATE_SENTINEL_DIR}/$1.done"
     [[ -f "$sentinel" ]] || return 1
+    # A recorded failure never suppresses a retry, at any age.
+    grep -q '^status=error' "$sentinel" 2>/dev/null && return 1
     # macOS stat: -f%m yields unix mtime
     local mtime now age
     mtime=$(stat -f%m "$sentinel" 2>/dev/null || echo 0)
@@ -17696,6 +17711,14 @@ _hydrate_sentinel_fresh() {
 # hydrate step produced (count, status, etc). The payload is
 # customer-local; we never log its contents off-machine.
 # Use as: _hydrate_sentinel_record imessage '{"people":123,"status":"ok"}'
+#
+# SUCCESS AND NO-DATA ONLY. If the step exited non-zero, call
+# _hydrate_sentinel_record_error instead. The rule is not new: it is
+# written in prose at the ai_conversations call site and pinned by
+# tests/test_aiconv_hydrate_honesty.sh, which asserts that "a timed-out
+# (124/137) or crashed (any other non-zero rc) drain must NOT record it,
+# so the next install/re-run retries instead of skipping for a week".
+# Measured 2026-08-16: 8 of the 9 hydrate sources broke that rule.
 _hydrate_sentinel_record() {
     local source="$1"
     local payload="${2:-}"
@@ -17703,6 +17726,28 @@ _hydrate_sentinel_record() {
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
+        printf 'status=ok\n'
+        if [[ -n "$payload" ]]; then
+            printf 'payload=%s\n' "$payload"
+        fi
+    } > "$sentinel"
+}
+
+# Records a FAILED hydrate step. Same file, so Doctor and a human
+# reading ~/.ostler/state/hydrate/ still see what happened and when,
+# but _hydrate_sentinel_fresh will not treat it as done, so the next
+# install or re-run attempts the source again.
+# Use as: _hydrate_sentinel_record_error imessage "$rc" "people=0"
+_hydrate_sentinel_record_error() {
+    local source="$1"
+    local rc="${2:-1}"
+    local payload="${3:-}"
+    local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    {
+        printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'source=%s\n' "$source"
+        printf 'status=error\n'
+        printf 'rc=%s\n' "$rc"
         if [[ -n "$payload" ]]; then
             printf 'payload=%s\n' "$payload"
         fi
@@ -18996,7 +19041,24 @@ except Exception:
     fi
 
     # #48g sentinel record: dedupes re-runs within a 7-day window.
-    _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+    #
+    # #711. `rc` above is read for exactly one thing: the 124/137
+    # gtimeout kill. Every OTHER non-zero was falling through to the
+    # no-data message and then recording a clean sentinel. The measured
+    # case is EX_CONFIG 78 from a Full Disk Access denial: the customer
+    # grants FDA an hour later, re-runs, and the block is skipped
+    # because imessage.done is fresh and says people=0. A refusal that
+    # lasts one run becomes a refusal that lasts a week.
+    #
+    # A timeout is NOT an error here: the background continuation
+    # message has already been shown, the work carries on, and the
+    # existing arm above owns that case.
+    if [[ "$_HYDRATE_IMESSAGE_TIMED_OUT" != "true" ]] && [[ "$rc" -ne 0 ]]; then
+        _hydrate_sentinel_record_error "imessage" "$rc" \
+            "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+    else
+        _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
+    fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
     unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP
@@ -19678,7 +19740,20 @@ if [[ -x "${PIPELINE_DIR:-}/.venv/bin/python" ]]; then
         # Still non-fatal, but visible -- not mislabelled as "no signals yet".
         warn "$MSG_HYDRATE_PLACES_ERROR_WARN"
     fi
-    _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
+    # #711. The branches above already distinguish a crash ("Non-zero
+    # exit with no guard line = config error / unexpected crash") and
+    # warn the customer about it. The sentinel was then written OUTSIDE
+    # every branch, so this leg knew it had crashed, said so, and
+    # suppressed its own retry for 7 days. The module's own PLACES
+    # INGEST GUARD arm is deliberately NOT an error: it means the run
+    # completed and found nothing to write, which is the no-data case
+    # the sentinel exists for.
+    if [[ "$_places_rc" -ne 0 ]] \
+       && ! printf '%s' "$_places_log_tail" | grep -q "PLACES INGEST GUARD"; then
+        _hydrate_sentinel_record_error "places" "$_places_rc" "status=run"
+    else
+        _hydrate_sentinel_record "places" "status=run rc=$_places_rc"
+    fi
     unset _PLACES_EMBED_URL _PLACES_EMBED_MODEL _PLACES_TIMEOUT_WRAP \
           _places_rc _places_log_tail
 fi
