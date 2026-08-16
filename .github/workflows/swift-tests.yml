@@ -108,13 +108,37 @@ jobs:
           curl -fsSL -o /tmp/xcodegen.zip \
             "https://github.com/yonaskolb/XcodeGen/releases/download/${PIN}/xcodegen.zip"
           unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+
           # The WHOLE prefix, not just the binary: xcodegen resolves its
           # SettingPresets relative to its own location, and a binary-only
           # install emits a project with every default build setting missing,
-          # silently, exit 0. See pbxproj-sync.yml for the measurement.
-          sudo cp -R /tmp/xcodegen/bin /usr/local/
-          sudo cp -R /tmp/xcodegen/share /usr/local/
-          xcodegen --version
+          # silently, exit 0. See pbxproj-sync.yml for that measurement.
+          #
+          # LOCATE the prefix rather than assuming its shape. My first version
+          # hardcoded /tmp/xcodegen/bin and CI said, correctly,
+          # "cp: /tmp/xcodegen/bin: No such file or directory". The zip's
+          # internal layout is not a contract, so this finds the binary and
+          # derives the prefix from it, then asserts both halves are present
+          # before installing either. Same block as pbxproj-sync.yml, which is
+          # where it was already solved.
+          SRC="$(dirname "$(dirname "$(find /tmp/xcodegen -type f -name xcodegen -perm +111 | head -1)")")"
+          [ -n "$SRC" ] && [ -x "$SRC/bin/xcodegen" ] \
+            || { echo "::error::no bin/xcodegen in the release zip" >&2; exit 1; }
+          [ -d "$SRC/share/xcodegen/SettingPresets" ] \
+            || { echo "::error::the zip has no share/xcodegen/SettingPresets; the layout changed and installing it would produce a preset-less generator" >&2; exit 1; }
+          sudo mkdir -p /usr/local/bin /usr/local/share
+          sudo cp "$SRC/bin/xcodegen" /usr/local/bin/xcodegen
+          sudo rm -rf /usr/local/share/xcodegen
+          sudo cp -R "$SRC/share/xcodegen" /usr/local/share/xcodegen
+          sudo chmod +x /usr/local/bin/xcodegen
+          [ -d /usr/local/share/xcodegen/SettingPresets ] \
+            || { echo "::error::SettingPresets did not land beside the installed binary" >&2; exit 1; }
+
+          # Assert the thing installed IS the thing pinned, rather than trusting
+          # that the download was what its filename claimed.
+          GOT="$(xcodegen --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)"
+          echo "installed xcodegen: $GOT"
+          [ "$GOT" = "$PIN" ] || { echo "::error::installed $GOT, pinned $PIN" >&2; exit 1; }
 
       # HARD FAIL, NOT SKIP. A test job that cannot obtain its inputs and
       # reports success is precisely the shape this workflow exists to remove.
