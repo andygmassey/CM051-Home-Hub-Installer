@@ -8652,12 +8652,6 @@ TOMLPREAMBLE
     #
     # DO NOT trim this list to "the one that is failing today".
     echo "auto_save = true"
-    echo "response_cache_enabled = false"
-    echo "snapshot_enabled = false"
-    echo "snapshot_on_hygiene = false"
-    echo "auto_hydrate = true"
-    echo "rerank_enabled = false"
-    echo "audit_enabled = false"
     echo "embedding_provider = \"custom:${EMBED_OLLAMA_URL:-http://localhost:11434}/v1\""
     echo "embedding_model = \"${EMBED_MODEL:-nomic-embed-text}\""
     echo "embedding_dimensions = 768"
