@@ -707,6 +707,99 @@ def test_box_walk_probe_missing_probe_fails(fake_cm051, fake_app, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# #713 -- a declared RUNTIME proof that could not run must not read as green.
+#
+# Measured on main before this change: OSTLER_BOX_HOST is set NOWHERE. Zero
+# hits across OS003 (the canonical cut mechanism); in CM051 only inside
+# scripts/tests/. Two manifests declare box_walk_probe rows, so those rows have
+# returned SKIP on every cut that has ever run, main() exits 0 because
+# `fails == 0`, and the summary printed a skip COUNT with no names.
+#
+# The four tests above pin the DEFAULT behaviour and must keep passing: SKIP is
+# right in CI and on a dev box, where there is no machine to probe. These tests
+# pin the cut behaviour, which is the opposite.
+# ---------------------------------------------------------------------------
+
+
+def test_runtime_proof_skip_is_a_failure_under_require_flag(fake_cm051, fake_app, monkeypatch):
+    """The row this whole primitive exists for cannot silently prove nothing."""
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-smoke",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", "--require-runtime-proofs")
+    assert r.returncode == 1, r.stdout
+    assert "no runtime proof happened" in r.stdout
+
+
+def test_require_flag_does_not_break_a_probe_that_can_run(fake_cm051, fake_app, monkeypatch):
+    """The flag must not turn a genuinely-runnable proof red.
+
+    Without this, the test above could be satisfied by a flag that fails
+    unconditionally -- which would be a gate that cannot pass, the mirror image
+    of a gate that cannot fail.
+    """
+    monkeypatch.setenv("OSTLER_BOX_HOST", "1.2.3.4")
+    _write_probe(fake_cm051, "green", "echo 'seeded + retrieved'\nexit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-green",
+        "title": "runtime probe passes",
+        "proof": {"kind": "box_walk_probe", "probe": "green"},
+    }])
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha", "--require-runtime-proofs")
+    assert r.returncode == 0, r.stdout
+
+
+def test_skipped_rows_are_named_not_just_counted(fake_cm051, fake_app, monkeypatch):
+    """A skip COUNT is a silent cap. The HUMAN summary must name which proof did not happen.
+
+    🔴 THIS TEST WAS BLIND TWICE, IN DIFFERENT WAYS, AND BOTH WERE CAUGHT BY
+    PROVING RED RATHER THAN BY READING IT.
+
+    v1 asserted only that the row id appeared somewhere in stdout. Every check
+    already prints its own id via emit(), so it passed with the summary block
+    deleted -- satisfied by output the change does not touch.
+
+    v2 anchored to the summary header, and then failed against the FIX, because
+    the shared _run() helper always passes --json and the human summary branch
+    never executes under it. The JSON path was never the blind one: it emits
+    every result object including skips, with id and kind. The HUMAN path was,
+    and the human path is what a person reads during a cut.
+
+    So this runs WITHOUT --json deliberately. It is the only test in this file
+    that does, and that is the point.
+    """
+    monkeypatch.delenv("OSTLER_BOX_HOST", raising=False)
+    _write_probe(fake_cm051, "smoke", "exit 0")
+    _write_manifest(fake_cm051, "permanent.yaml", [])
+    _write_manifest(fake_cm051, "v1.0.0.yaml", [{
+        "id": "box-walk-named",
+        "title": "runtime probe smoke check",
+        "proof": {"kind": "box_walk_probe", "probe": "smoke"},
+    }])
+    run_env = {k: v for k, v in os.environ.items() if k != "DAEMON_VERSION"}
+    run_env.pop("OSTLER_BOX_HOST", None)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT),
+         "--cm051-dir", str(fake_cm051),
+         "--app-path", str(fake_app),
+         "--skip-source-at-sha"],
+        capture_output=True, check=False, text=True, env=run_env,
+    )
+    assert r.returncode == 0, r.stdout
+    header = "Rows that did NOT prove anything (SKIP):"
+    assert header in r.stdout, "the human summary does not list skipped rows at all"
+    tail = r.stdout.split(header, 1)[1]
+    assert "box-walk-named" in tail, "the skipped row was not named in the summary block"
+    assert "box_walk_probe" in tail, "the summary block does not name the proof KIND"
+
+
+# ---------------------------------------------------------------------------
 # payload_version_matches_daemon_version
 # ---------------------------------------------------------------------------
 
