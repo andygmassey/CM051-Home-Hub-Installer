@@ -1,0 +1,57 @@
+name: assistant-config-required-fields
+
+# Regression gate for the v1.0.31 launch blocker: `ostler-assistant daemon`
+# would not boot on ANY fresh install, crash-looping on the LaunchAgent
+# KeepAlive every ~10s with "missing field `backend`", so the Hub gateway never
+# came online and the installer sat on "Hub starting up... ATTEMPT 34".
+#
+# The trap is serde semantics, not a typo. MemoryConfig.backend has no
+# #[serde(default)] and has been required since 2026-04-09. The Config struct's
+# `memory` FIELD does have #[serde(default)], and that default fires only when
+# the whole [memory] TABLE is absent -- never for a field missing from a table
+# that is present. install.sh wrote no [memory] section for months, so
+# MemoryConfig::default() quietly supplied backend = "sqlite". Commit 219ee4e
+# (2026-08-14, the #677 embeddings fix) added a three-key [memory] block, the
+# table became present and partial, the default stopped applying, and the
+# daemon stopped booting.
+#
+# A partial table silently disarms the default that was covering you.
+#
+# This gate renders the config.toml install.sh actually emits, parses it as real
+# TOML, and fails if a table that IS present is missing a field the daemon
+# requires. It pins the defect rather than the spelling, and carries both a
+# negative control (delete the key, checker must go red) and a positive control
+# (no [memory] table at all must stay green, because there the serde default
+# genuinely does apply).
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_assistant_config_required_fields.sh'
+      - '.github/workflows/assistant-config-required-fields.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  assistant-config-required-fields:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ubuntu-latest ships Python 3.12, so tomllib is in the stdlib. The test
+      # exits 2 (CANNOT-RUN) rather than 0 if it is ever absent, so a runner
+      # image change cannot turn this gate into a silent pass.
+      - name: Assert every table install.sh emits carries the fields the daemon requires
+        run: bash tests/test_assistant_config_required_fields.sh
