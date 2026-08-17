@@ -1074,9 +1074,29 @@ else
         fail_with_code "ERR-02-LICENCE-UNVERIFIABLE" "No python3 available to verify the licence."  # i18n-exempt
     fi
 
-    # QA / staging keypair override, same env var and same 64-hex-char
-    # rule as LicenseVerifier.swift. A wrong-length value falls back to
-    # the production key exactly like the Swift side, and says so.
+    # QA / staging keypair override. A wrong-length value falls back to the
+    # production key, and says so.
+    #
+    # 🔴 DO NOT "RESTORE CONSISTENCY" WITH THE SWIFT SIDE. This comment used to
+    # read "same env var and same 64-hex-char rule as LicenseVerifier.swift"
+    # and "falls back to the production key exactly like the Swift side". Both
+    # sentences described a branch that had ALREADY BEEN DELETED, on
+    # 2026-08-16, as a security defect: it let anyone launching the shipped
+    # installer substitute their own trust anchor and self-sign a licence.
+    # LicenseVerifierTests.swift now asserts its absence, and the assertion
+    # message states the principle this block is in tension with:
+    #
+    #     "Whatever the variable is called, a trust anchor the launching
+    #      process can set is not a trust anchor."
+    #
+    # So the two implementations DIFFER on purpose. Swift removed its override
+    # because `init(publicKey:)` already existed as a compile-time seam. The
+    # shell has no equivalent seam yet -- OSTLER_LICENCE_PUBKEY below is a baked
+    # assignment, not a ${VAR:-default}, and tests/test_licence_gate.sh:364
+    # injects through this very variable. Held, not blessed:
+    # scripts/verify_no_env_trust_anchors.sh carries it as the estate's ONE
+    # exemption, with the reason, so the exception is auditable rather than
+    # inferred. It goes when the seam arrives. See #733.
     _lic_pubkey="$OSTLER_LICENCE_PUBKEY"
     if [[ -n "${OSTLER_LICENSE_PUBKEY_OVERRIDE:-}" ]]; then
         if [[ "${#OSTLER_LICENSE_PUBKEY_OVERRIDE}" -eq 64 ]]; then
