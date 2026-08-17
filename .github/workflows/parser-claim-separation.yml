@@ -22,3 +22,37 @@ jobs:
         run: pip install aiofiles pydantic-settings beautifulsoup4
       - name: a YouTube parser must never claim a Facebook export
         run: python3 tests/test_youtube_parser_does_not_claim_facebook.py
+      - name: a WhatsApp parser must never claim a Meta message thread
+        # MEASURED on a real archive: 1,852 Facebook + 856 Instagram
+        # message_N.json were claimed by WhatsAppParser and yielded 0.
+        #
+        # if: always() because these two claim tests are INDEPENDENT axes.
+        # Without it this step is skipped whenever the YouTube step above
+        # fails, so a run that is already red would silently stop reporting
+        # the WhatsApp axis -- a gate that hides exactly when it matters most.
+        # ci-maskless caught this; the step was maskable as first written.
+        if: always()
+        run: python3 tests/test_whatsapp_parser_does_not_claim_meta_messages.py
+      - name: Apple must stay registered before AppleTV (reorder costs 2,107 records)
+        # Independent axis: this one pins REGISTRATION ORDER, not a predicate.
+        # if: always() for the same reason as the step above.
+        if: always()
+        run: python3 tests/test_apple_is_registered_before_appletv.py
+      # The general case of the same defect, measured across the whole
+      # registration list rather than one pair: eight export archives were
+      # claimed by a parser that could not read them, each yielding zero. Runs
+      # in this job, not a new workflow, because it is the same defect class on
+      # the same files -- a second workflow would duplicate the checkout, the
+      # Python setup and the pip install to say the same thing.
+      # if: always() because the step above is a test, not a prerequisite. The
+      # two measure different things and a red YouTube/Facebook run must not
+      # hide whether the general case also broke.
+      - name: no parser may claim another service's export
+        if: always()
+        run: python3 tests/test_parser_claims_do_not_cross_services.py
+      - name: an EXTRACTED Discord package must still be claimed
+        # MEASURED: package.zip is claimed, but all 74 files inside the
+        # extracted tree are not, because the .json test needs the literal
+        # string "discord" in the FILENAME. if: always() -- independent axis.
+        if: always()
+        run: python3 tests/test_discord_claims_an_extracted_package.py

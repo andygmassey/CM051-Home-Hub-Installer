@@ -255,19 +255,37 @@ for expected in ("bookmark", "interest", "page", "book", "music"):
     if expected not in cats:
         bad.append("%s is dispatchable but not in the sweep" % expected)
 
-# No credential -> excluded, and NAMED as excluded rather than silently gone.
-missing = S.categories_missing_credentials()
-if "movie" in cats:
-    bad.append("movie is swept with no TMDB key, so it can only fail")
-if "movie" not in missing:
-    bad.append("movie is skipped but not reported as needing a credential")
+# Films and places are now KEYLESS, routed to Wikidata rather than to
+# TMDB and Google Places, so they must be SWEPT rather than excluded.
+for expected in ("movie", "movie_tv", "tv", "place", "venue", "education", "food"):
+    if expected not in cats:
+        bad.append("%s is not swept; it should route to a keyless client" % expected)
+for cat, client in (("movie", "wikidata_film"), ("tv", "wikidata_film"),
+                    ("place", "wikidata_place"), ("venue", "wikidata_place"),
+                    ("education", "wikidata"), ("food", "wikidata")):
+    if S.CATEGORY_CLIENTS.get(cat) != client:
+        bad.append("%s routes to %r, expected %r" % (cat, S.CATEGORY_CLIENTS.get(cat), client))
 
-# The discriminating control: with a key present, movie comes back. Without
-# this, "movie is excluded" could be a predicate that excludes everything.
-os.environ["TMDB_API_KEY"] = "test-key-not-a-real-credential"
-S.CLIENT_CREDENTIALS  # touch, no reload needed: the check reads env at call time
-if "movie" not in S.enrichable_categories():
-    bad.append("movie stays excluded even WITH a key: the check is not reading the credential")
+# Andy excluded `professional` explicitly. Asserted so that adding it back
+# is a decision someone has to make against a failing test, not a drift.
+if "professional" in S.CATEGORY_CLIENTS:
+    bad.append("professional has a client; Andy excluded it on 2026-08-17")
+
+# No credential -> excluded, and NAMED as excluded rather than silently
+# gone. `video` still needs a YouTube key, so it carries this control now
+# that films no longer do.
+os.environ.pop("YOUTUBE_API_KEY", None)
+missing = S.categories_missing_credentials()
+if "video" in S.enrichable_categories():
+    bad.append("video is swept with no YouTube key, so it can only fail")
+if "video" not in missing:
+    bad.append("video is skipped but not reported as needing a credential")
+
+# The discriminating control: with a key present, video comes back. Without
+# this, "video is excluded" could be a predicate that excludes everything.
+os.environ["YOUTUBE_API_KEY"] = "test-key-not-a-real-credential"
+if "video" not in S.enrichable_categories():
+    bad.append("video stays excluded even WITH a key: the check is not reading the credential")
 
 print("OK" if not bad else "\n".join(bad))
 PYEOF
@@ -325,6 +343,85 @@ n_pred="$(grep -c 'pwg:enrichedAt' "$REPO/install.sh")"
 n_used="$(grep -c 'MSG_HYDRATE_PREFERENCES_ENRICHED' "$REPO/install.sh")"
 [ "$n_used" -ge 1 ] && ok "the enriched string is actually printed" \
                     || bad "MSG_HYDRATE_PREFERENCES_ENRICHED is defined and never used"
+
+
+# ── 7. ENRICHED PEOPLE ARE NOT THE CUSTOMER'S PEOPLE.
+#
+#    Andy asked, on seeing Bryan Cranston and Vince Gilligan come back as
+#    entities: do these get merged into People, or into the customer's
+#    contacts? They must not. An actor is a fact ABOUT a film someone
+#    watched, not someone they know, and a graph that confuses the two
+#    produces a contact list full of strangers.
+#
+#    Measured: they cannot, for TWO independent reasons.
+#
+#      a) DIFFERENT CLASS. Enrichment writes `a pwg:Entity`. The wiki's
+#         People pages are built from `?uri a pwg:Person`.
+#      b) DIFFERENT NAMESPACE. Enrichment writes into one ontology IRI and
+#         the people/meetings graph uses a different one. The same short
+#         name `pwg:` expands to two different IRIs, so even the class
+#         names cannot collide.
+#
+#    (b) IS NOT SOMETHING TO PIN, AND MY FIRST VERSION OF THIS TEST GOT
+#    THAT WRONG. It asserted the literal IRI enrichment writes, which would
+#    make this suite fight #743, the migration that exists BECAUSE the
+#    domain is unregistered and pwg-branded namespaces should not be
+#    stamped into a customer's graph at all. A guard that pins the thing we
+#    are removing is worse than no guard.
+#
+#    So what is asserted is the RELATIONSHIP, not the literal: the two
+#    namespaces must DIFFER, whatever they are. That survives any migration,
+#    and if some future tidy-up unifies them this goes red and somebody has
+#    to decide on purpose rather than by accident.
+#
+#    AND THAT IS WHY NEITHER SIDE IS SPELLED OUT IN THIS FILE ANY MORE.
+#    The first draft de-pinned the enrichment side and then hard-coded the
+#    people side one line below, which is the same defect facing the other
+#    way. Both are now DERIVED from the source that declares them, so this
+#    file contains no ontology domain literal at all and the #802 ratchet
+#    counts nothing here. Measured 2026-08-17: that removed six occurrences
+#    -- five in this comment block and one in the pin -- which is six of the
+#    seven that took main red after #812 and #816 landed.
+PEOPLE_NS="$(git -C "$REPO" grep -hoE 'PWG_NS *= *"https?://[a-z0-9./-]+/ontology#"' \
+                 -- 'contact_syncer/*.py' 2>/dev/null \
+             | grep -oE 'https?://[a-z0-9./-]+/ontology#' | sort -u | head -1)"
+ENRICH_NS="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' "$SRC/enricher.py" 2>/dev/null | sort -u | head -1)"
+
+# BOTH OPERANDS MUST BE NON-EMPTY BEFORE THEY ARE COMPARED, and the first
+# draft of this de-pinning did not check. An empty PEOPLE_NS makes the glob
+# `*""*` match ANY string, so the comparison below reported "enrichment now
+# writes into the SAME namespace as people/meetings ()" -- with an empty
+# parenthesis, against a tree where the two namespaces were fine. A confident
+# false finding produced by an empty operand, which is the same shape as
+# every other one this file exists to catch, committed inside the check that
+# catches it. Neither side may be derived-and-unchecked.
+if [ -z "$PEOPLE_NS" ] || [ -z "$ENRICH_NS" ]; then
+    bad "cannot derive both namespaces (people='${PEOPLE_NS:-EMPTY}' enrichment='${ENRICH_NS:-EMPTY}'); the comparison is measuring nothing and is NOT a pass"
+else
+ok "both graphs declare an ontology namespace (positive control, neither operand empty)"
+
+case "$ENRICH_NS" in
+    *"$PEOPLE_NS"*)
+        bad "enrichment now writes into the SAME namespace as people/meetings ($PEOPLE_NS); the accidental separation between an actor and a contact is gone" ;;
+    *)
+        ok "enrichment's namespace differs from the people/meetings namespace, whatever each is" ;;
+esac
+fi
+
+n_entity="$(grep -c 'a pwg:Entity' "$SRC/models/enrichment.py")"
+[ "$n_entity" -ge 1 ] && ok "enriched actors and directors are typed pwg:Entity, a class the People query does not select" \
+                      || bad "entities are no longer typed pwg:Entity; whatever they are now may be selected as people"
+
+
+# ── 8. THE CLI WHITELIST AND THE DISPATCH TABLE CANNOT DIVERGE.
+#
+#    They were two hand-kept lists. Measured on the box: nine categories
+#    were dispatchable but rejected by --category, including movie_tv,
+#    education and food. `--all` reached them, a targeted run did not.
+#    Found by RUNNING it, not by any test.
+n_derived="$(grep -c 'VALID_CATEGORIES = sorted(EnrichmentService.CATEGORY_CLIENTS' "$SRC/cli.py")"
+[ "$n_derived" -eq 1 ] && ok "the CLI category whitelist is derived from the dispatch table, not kept beside it" \
+                       || bad "VALID_CATEGORIES is a second hand-kept list again; it will drift from CATEGORY_CLIENTS"
 
 echo
 echo "  $pass passed, $fail failed"

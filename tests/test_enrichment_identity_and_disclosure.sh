@@ -137,6 +137,50 @@ n="$(grep -c 'bookmarked' "$INSTALL_SH")"
 [ "$n" -gt 0 ] && ok "installer discloses that bookmarked links are followed" \
                || failure "url_fetcher follows the customer's bookmarked URLs and the installer does not say so"
 
+# ── 7. THE CONSENT COPY MAY NOT PROMISE A CONTROL WE DO NOT SHIP.
+#
+#      A draft of section 6's paragraph said "You can turn them off in
+#      Settings". Measured 2026-08-17 on this tree, there is no such control:
+#      every OSTLER_ENRICH_* knob is a THROTTLE (budget, concurrency,
+#      interval, namespace, user), no installer question offers an opt-out,
+#      and no settings surface mentions enrichment at all.
+#
+#      That is a worse defect than the thin list section 6 replaced. The old
+#      copy was incomplete; an invented off switch is UNTRUE, on a consent
+#      screen, about the one subject where we are asking to be believed.
+#
+#      So this control COUPLES THE CLAIM TO THE MECHANISM rather than banning
+#      a phrase. It fails only when the copy promises an off switch and the
+#      tree does not have one. Build the switch and this goes green with the
+#      promise in place; write the promise alone and it goes red. Either half
+#      can move without the other rotting silently.
+#      THE INSTRUMENT MUST NOT COUNT ITS OWN DOCUMENTATION. The first draft of
+#      this control grepped install.sh whole and reported 1 promise against a
+#      tree that makes none: the single match was the COMMENT above the fixed
+#      copy, quoting the false sentence in order to explain why it was removed.
+#      A guard whose reading moves when you edit a comment is measuring the
+#      wrong thing, so only real emitted lines are counted. Same trap as the
+#      SELF exclusions in verify_no_foreign_ontology_namespace.sh.
+promises_off="$(grep -vE '^[[:space:]]*#' "$INSTALL_SH" \
+                | grep -cE 'turn (them|it|enrichment) off|disable (them|it|these lookups)|opt out of (them|these)')"
+
+# The mechanism, if it exists, is a SWITCH and not a throttle. A budget of
+# zero means "no limit" in this codebase, so a knob is not an answer here.
+has_switch="$(git -C "$REPO_ROOT" grep -lE 'OSTLER_ENRICH(MENT)?_(ENABLED|DISABLED)|ENRICHMENT_OPT_OUT|--no-enrich' \
+                  -- . ':(exclude)tests/*' 2>/dev/null | grep -c . || true)"
+
+if [ "$promises_off" -gt 0 ] && [ "$has_switch" -eq 0 ]; then
+    failure "the consent copy promises an enrichment off switch and the tree ships none ($promises_off claim(s), 0 mechanisms)"
+elif [ "$promises_off" -eq 0 ] && [ "$has_switch" -eq 0 ]; then
+    ok "the consent copy claims no off switch, and correctly so: this tree ships none"
+    ok "     NOT COVERED, and it is a product gap not a test gap: a customer who reads"
+    ok "     the disclosure has no supported way to decline it. Filed as its own row."
+elif [ "$promises_off" -gt 0 ]; then
+    ok "an enrichment off switch exists and the consent copy tells the customer about it"
+else
+    failure "an enrichment off switch now exists ($has_switch site(s)) and the consent copy never mentions it"
+fi
+
 echo
 echo "  $PASS passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] || exit 1
