@@ -97,7 +97,34 @@ PROBE_QUESTION="does anything Ostler runs hold a connection outside the local bo
 # anchored to the TAB and not to end-of-line. The first version used $ and
 # matched nothing at all: Mail and WhatsApp both came back flagged as ours on
 # the very first fixture run. Truncated forms are listed explicitly.
-OSTLER_EGRESS_FOREIGN_RE="${OSTLER_EGRESS_FOREIGN_RE:-^(Mail|WhatsApp|Messages|Safari|firefox|Google|Slack|Spotify|Dropbox|zoom|Music|Photos|AddressBook|akd|apsd|rapportd|nsurlsessi|nsurlsessiond|trustd|cloudd|bird|identityse|Finder|sshd|sshd-sess|ssh|mDNSRespon|mDNSResponder|configd|netbiosd|Terminal|iTerm2|Code)[[:space:]]}"
+# ATTRIBUTION IS BY EXECUTABLE PATH. NOTHING IS EXCLUDED BY NAME, NOTHING IS
+# DROPPED. Archie broke the previous design 2026-08-17 and was right three ways.
+#
+# The old name list silently did three different jobs:
+#   APPS the operator owns (Safari, Slack)  -- excluding those is defensible.
+#   SHARED COURIERS (nsurlsessiond, cloudd, bird, apsd) -- these carry traffic
+#     ON BEHALF OF WHOEVER ASKS. Excluding a courier by name takes with it
+#     whatever WE asked it to carry, reported as "not examined".
+#   THE FIVE SURFACES THE PRODUCT EXISTS TO READ -- WhatsApp, Messages, Mail,
+#     AddressBook, Photos. `WhatsApp` WAS ON THE LIST. This probe's first real
+#     finding was a WhatsApp session to Meta, found ONLY because our DAEMON
+#     held the socket. Held by a process named "WhatsApp*" it would have been
+#     dropped and the run would have printed clean. The probe was structurally
+#     blind to the class of finding it had just made.
+#
+# So every socket is examined and each is attributed OURS or THIRD-PARTY by
+# resolving the PID to its EXECUTABLE PATH. Third-party rows are PRINTED, never
+# dropped, so a courier carrying our bytes is visible even when unattributable.
+#
+# This also retires a bug class: lsof truncates COMMAND to 9 characters, which
+# is why the old list carried BOTH `nsurlsessi` and `nsurlsessiond`, plus
+# `identityse` and `mDNSRespon`. Nothing matches a truncated name any more.
+#
+# STATED BLIND SPOT, printed on every run: if our code hands a request to a
+# shared system courier, the socket belongs to the courier and this reports it
+# THIRD-PARTY. That is a limit of socket-level observation, not a claim of
+# cleanliness.
+OSTLER_OURS_PATH_RE="${OSTLER_OURS_PATH_RE:-(/\.ostler/|/Ostler[A-Za-z]*\.app/|/ostler-|/OstlerInstaller\.app/|/colima|/lima|/Tailscale\.app/|/tailscale)}"
 
 # Kept ONLY to label a row as unmistakably ours in the report. It no longer
 # decides what is examined, and nothing is dropped for failing to match it.
@@ -124,7 +151,16 @@ sample_sockets() {
     # self-test caught it by failing to observe its own planted socket. Scanning
     # for the arrow survives the state suffix being present, absent, or moved.
     box_run "lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
-             | awk 'NR>1 { for (f=NF; f>=1; f--) { i=index(\$f,\"->\"); if (i>0) { print \$1 \"\t\" \$2 \"\t\" substr(\$f,i+2); break } } }'"
+             | awk 'NR>1 { for (f=NF; f>=1; f--) { i=index(\$f,\"->\"); if (i>0) { print \$1 \"\t\" \$2 \"\t\" substr(\$f,i+2); break } } }' \\
+             | while IFS=\$'\t' read -r c pp r; do
+                 chain=''; cur=\"\$pp\"; n=0
+                 while [ -n \"\$cur\" ] && [ \"\$cur\" != 1 ] && [ \"\$cur\" != 0 ] && [ \$n -lt 8 ]; do
+                   chain=\"\${chain}:\$(ps -p \"\$cur\" -o comm= 2>/dev/null)\"
+                   cur=\$(ps -p \"\$cur\" -o ppid= 2>/dev/null | tr -d ' ')
+                   n=\$((n+1))
+                 done
+                 printf '%s\t%s\t%s\t%s\n' \"\$c\" \"\$pp\" \"\$r\" \"\$chain\"
+               done"
 }
 
 # Everything the product owns, across the samples, deduplicated.
@@ -136,6 +172,24 @@ collect() {
         [ "$i" -lt "$SAMPLES" ] && sleep "$SAMPLE_GAP"
     done
     printf '%s' "$out" | grep -vE '^[[:space:]]*$' | sort -u
+}
+
+# is_ours <ancestor-chain> -> 0 if WE are anywhere in the process's lineage.
+#
+# LINEAGE, NOT THE PROCESS'S OWN PATH, and this is the correction that matters.
+# Matching only the socket-holder's executable drops the exact finding this
+# probe exists for: the installer fetches with /usr/bin/curl and virtualises
+# with limactl, whose paths say "Apple" and "Homebrew", not "Ostler". A system
+# binary WE spawned is OURS; the same binary spawned by the operator's shell is
+# not, and only the parent chain can tell them apart.
+#
+# The chain is the socket-holder plus up to 8 ancestors, colon-joined, bounded
+# so a pid cycle cannot hang a sample.
+#
+# grep -c not -q: under pipefail a -q exit races SIGPIPE.
+is_ours() {
+    [ -n "${1:-}" ] || return 1
+    [ "$(printf '%s' "$1" | grep -cE "$OSTLER_OURS_PATH_RE")" -gt 0 ]
 }
 
 is_outside_boundary() {   # $1 = remote address:port
@@ -150,8 +204,9 @@ run_probe() {
     fi
 
     probe_note "boundary policy : ${OSTLER_EGRESS_ALLOWED_RE}"
-    probe_note "operator procs  : ${OSTLER_EGRESS_FOREIGN_RE}"
-    probe_note "                  (EXCLUDED by name. Everything else is examined.)"
+    probe_note "ours (lineage)  : ${OSTLER_OURS_PATH_RE}"
+    probe_note "                  Matched against the socket-holder AND its"
+    probe_note "                  ancestors. NOTHING is excluded by name."
     probe_note "sampling        : ${SAMPLES} samples, ${SAMPLE_GAP}s apart"
     probe_note "BLIND TO        : sub-sample-lifetime connections, UDP, DNS,"
     probe_note "                  proxied requests, and all payload content."
@@ -171,7 +226,7 @@ run_probe() {
     # fix, so the direction of this grep is the load-bearing character in the
     # file: -vE, not -E.
     local foreign_n
-    ours="$(printf '%s' "$all" | grep -vE "$OSTLER_EGRESS_FOREIGN_RE" || true)"
+    ours="$(printf '%s\n' "$all" | while IFS=$'\t' read -r c p r path; do is_ours "${path:-}" && printf '%s\t%s\t%s\t%s\n' "$c" "$p" "$r" "$path"; done || true)"
     ours_n="$(printf '%s' "$ours" | grep -c . )"
     foreign_n=$((total_sockets - ours_n))
 
@@ -312,22 +367,145 @@ PY
 #
 # Input format is exactly what sample_sockets emits: COMMAND<TAB>PID<TAB>REMOTE
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# --inventory
+#
+# Produce the ATTRIBUTED inventory: every outside-boundary connection, joined
+# to a declared host, with a stated purpose. Unmatched observations are printed
+# as UNATTRIBUTED and are the point of the exercise.
+#
+# THE JOIN IS CONTEMPORANEOUS AND THAT IS THE WHOLE DESIGN. The socket read and
+# the hostname resolution happen in ONE remote invocation, on the same box, at
+# the same instant. Resolving afterwards is unsound: on 2026-08-17 github.com
+# returned 20.205.243.166 and then 140.82.114.3 inside a single minute, so an
+# address observed at time T cannot be attributed by a lookup at T+n. Two of
+# six addresses in the first attempt matched only because the lookup happened
+# to be close enough in time to get lucky.
+#
+# WHAT THIS STILL DOES NOT PROVE, stated because a sceptic will ask:
+#   a shared CDN address serves many tenants, so a match is "consistent with",
+#   never "was". Content is not observed at all. This narrows what an
+#   unexplained connection could be. It does not certify what an explained one
+#   carried, and the ledger's third column is a CLAIM by us, not a measurement.
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "--inventory" ]; then
+    HOSTS_FILE="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/egress_hosts.tsv}"
+    [ -f "$HOSTS_FILE" ] || { echo "CANNOT-RUN: no declared host ledger at '$HOSTS_FILE'" >&2; exit 2; }
+
+    hosts="$(grep -vE '^[[:space:]]*(#|$)' "$HOSTS_FILE" | cut -f1 | tr '\n' ' ')"
+    [ -n "$hosts" ] || { echo "CANNOT-RUN: ledger declares no hosts" >&2; exit 2; }
+
+    # DYNAMIC SOURCES. Some destinations cannot be declared statically and
+    # pretending otherwise would make the inventory permanently noisy, which is
+    # how a report gets ignored. Tailscale is the case in point: the client
+    # FETCHES its DERP map from the control plane at runtime and picks a relay
+    # by latency, so the relay address set is served, not fixed, and rotates.
+    # A static row would be wrong within days.
+    #
+    # So the probe fetches the SAME map the client used, in the SAME call as
+    # the socket read, and treats its node addresses as attributed to the
+    # relay purpose. Contemporaneous, like everything else here.
+    derp_purpose="tailnet: encrypted relay when no direct path exists"
+    derp_carries="relayed WireGuard packets. Tailscale cannot read them; keys never leave the devices."
+
+    # ONE remote call: sockets, resolutions and the DERP map together, same instant.
+    joint="$(box_run "
+        curl -fsS --max-time 8 https://controlplane.tailscale.com/derpmap/default 2>/dev/null \
+          | python3 -c \"
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for rid,r in (d.get('Regions') or {}).items():
+    for n in (r.get('Nodes') or []):
+        ip=n.get('IPv4')
+        if ip: print('DERP\\t%s\\t%s' % (n.get('HostName') or 'derp', ip))
+\" 2>/dev/null
+        lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
+          | awk 'NR>1 { for (f=NF; f>=1; f--) { i=index(\$f,\"->\"); if (i>0) { print \"SOCK\t\" \$1 \"\t\" substr(\$f,i+2) \"\t\" \$2; break } } }'
+        for h in ${hosts}; do
+            for a in \$(dig +short +time=3 +tries=1 \"\$h\" 2>/dev/null | grep -E '^[0-9]+\.'); do
+                printf 'HOST\t%s\t%s\n' \"\$h\" \"\$a\"
+            done
+        done
+    ")"
+    [ -n "$joint" ] || { echo "CANNOT-RUN: the box returned nothing; not a clean result" >&2; exit 2; }
+
+    resolved="$(printf '%s\n' "$joint" | grep '^HOST	' || true)"
+    derps="$(printf '%s\n' "$joint" | grep '^DERP	' || true)"
+    # Exclusion happens per row in the loop below, against the COMMAND field,
+    # not here against the whole line. Filtering the tagged stream would match
+    # the tag and the address too.
+    socks="$(printf '%s\n' "$joint" | grep '^SOCK	' || true)"
+
+    echo "DECLARED EGRESS INVENTORY"
+    echo "  ledger        : $HOSTS_FILE ($(printf '%s\n' "$hosts" | wc -w | tr -d ' ') hosts declared)"
+    echo "  resolutions   : $(printf '%s\n' "$resolved" | grep -c . ) addresses, resolved ON THE BOX in the SAME call as the socket read"
+    echo "  derp map      : $(printf '%s\n' "$derps" | grep -c . ) relay nodes, fetched live in that same call (served, not declarable)"
+    echo "  NOT PROOF     : shared CDN addresses serve many tenants, so a match is"
+    echo "                  'consistent with', never 'was'. Content is never observed."
+    echo
+
+    att=0; unatt=0
+    while IFS=$'\t' read -r tag cmd remote path; do
+        [ "$tag" = "SOCK" ] || continue
+        is_ours "${path:-}" || continue
+        is_outside_boundary "$remote" || continue
+        ip="${remote%:*}"
+        host="$(printf '%s\n' "$resolved" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+        derp="$(printf '%s\n' "$derps" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+        if [ -z "$host" ] && [ -n "$derp" ]; then
+            printf '  ATTRIBUTED    %-12s %-22s %s\n' "$cmd" "$ip" "$derp"
+            printf '                purpose : %s\n' "$derp_purpose"
+            printf '                carries : %s\n' "$derp_carries"
+            printf '                source  : live DERP map from controlplane.tailscale.com, fetched in this same call\n'
+            att=$((att + 1))
+            continue
+        fi
+        if [ -n "$host" ]; then
+            purpose="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f2)"
+            carries="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f3)"
+            printf '  ATTRIBUTED    %-12s %-22s %s\n' "$cmd" "$ip" "$host"
+            printf '                purpose : %s\n' "$purpose"
+            printf '                carries : %s\n' "$carries"
+            att=$((att + 1))
+        else
+            printf '  UNATTRIBUTED  %-12s %-22s no declared host resolved to this address\n' "$cmd" "$ip"
+            unatt=$((unatt + 1))
+        fi
+    done <<< "$(printf '%s\n' "$socks" | sort -u)"
+
+    echo
+    echo "  attributed=${att}  unattributed=${unatt}"
+    [ "$unatt" -eq 0 ] && { echo "  every outside-boundary connection matched a declared host."; exit 0; }
+    echo "  UNATTRIBUTED connections are not a pass. Either the ledger is incomplete" >&2
+    echo "  or something is talking to a destination nobody declared." >&2
+    exit 1
+fi
+
 if [ "${1:-}" = "--classify-fixture" ]; then
     fixture="${2:-}"
     [ -f "$fixture" ] || { echo "CANNOT-RUN: no fixture at '${fixture}'" >&2; exit 2; }
 
-    kept="$(grep -vE '^[[:space:]]*(#|$)' "$fixture" | grep -vE "$OSTLER_EGRESS_FOREIGN_RE" || true)"
+    kept="$(grep -vE '^[[:space:]]*(#|$)' "$fixture" || true)"
     [ -n "$kept" ] || { echo "CANNOT-RUN: fixture has no rows left after exclusion" >&2; exit 2; }
 
-    flagged=0
-    while IFS=$'\t' read -r cmd pid remote; do
+    flagged=0; ours_seen=0
+    while IFS=$'\t' read -r cmd pid remote path; do
         [ -n "${remote:-}" ] || continue
+        is_ours "${path:-}" || continue
+        ours_seen=$((ours_seen + 1))
         if is_outside_boundary "$remote"; then
             printf '%s\t%s\n' "$cmd" "$remote"
             flagged=$((flagged + 1))
         fi
     done <<< "$kept"
 
+    # Nothing of ours in the reading is CANNOT-RUN, never a quiet pass: the run
+    # observed no Ostler-owned connection, so it says nothing about our egress.
+    if [ "$ours_seen" -eq 0 ]; then
+        echo "CANNOT-RUN: no row in the fixture is attributable to us by lineage." >&2
+        exit 2
+    fi
     [ "$flagged" -eq 0 ] && exit 0
     exit 1
 fi
