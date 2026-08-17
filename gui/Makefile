@@ -385,13 +385,29 @@ SAFARI_EXT_TAG     ?= hub-v0.4.55
 # built. That is what this block connects.
 #
 # CONTROL -- PUBLISH_APPCAST:
-#   auto  (default) publish IFF $OSTLER_SPARKLE_SIGNING_KEY is set. Unset, it
-#         prints a LOUD warning that the feed stays empty plus how to enable
-#         it, and does NOT fail the DMG -- installer-only cuts have to keep
-#         working before the Sparkle key ceremony is done. A publish that is
-#         ATTEMPTED and then errors FAILS the cut: a release either gets its
-#         signed entry or it goes red. Fail-closed once committed.
-#   1|yes hard-require: fail the cut if the key or the CLI is missing.
+#   1|yes (DEFAULT since 2026-08-17) hard-require: fail the cut if the key or
+#         the CLI is missing. See WHY THE DEFAULT CHANGED below.
+#   auto  publish IFF $OSTLER_SPARKLE_SIGNING_KEY is set; if unset, warn and
+#         exit 0. This was the default and it is why the feed is empty. Kept
+#         ONLY for deliberate installer-only builds, and it must now be asked
+#         for by name.
+#
+# WHY THE DEFAULT CHANGED, measured 2026-08-17:
+#   `auto` + no key = warning + `exit 0`. Every cut therefore reported
+#   success while publishing nothing. The appcast serves HTTP 200 with a
+#   valid Sparkle feed containing ZERO items, so every installed Hub asks
+#   for updates, is correctly told there are none, and can never upgrade.
+#   No component was broken. The pipeline was never armed, and it was built
+#   to treat that as acceptable.
+#
+#   The warning even said so: "The DMG shipped, but NO appcast entry was
+#   added ... installed Hubs will never see it." A warning nobody is forced
+#   to read is not a control. The owner has done a full 70-minute reinstall
+#   on every release because of this.
+#
+#   A publish that is ATTEMPTED and then errors still FAILS the cut. That
+#   half was always right. Fail-closed, now from the first cut rather than
+#   once somebody remembers to opt in.
 #   0|no  skip silently (local installer-only builds).
 #
 # >>> NEEDS ANDY (two real-world prerequisites this Makefile cannot create) <<<
@@ -402,7 +418,7 @@ SAFARI_EXT_TAG     ?= hub-v0.4.55
 #      auth on the cut machine. This Makefile never invokes wrangler itself;
 #      the CM050 CLI does, from $(OSTLER_APPCAST_DIR).
 # ---------------------------------------------------------------------------
-PUBLISH_APPCAST       ?= auto
+PUBLISH_APPCAST       ?= 1
 # ostler-release CLI from CM050 release-tooling (`pip install -e .`). Override
 # if not on PATH, e.g. OSTLER_RELEASE_BIN=/path/to/.venv/bin/ostler-release.
 OSTLER_RELEASE_BIN    ?= ostler-release
