@@ -357,30 +357,48 @@ n_used="$(grep -c 'MSG_HYDRATE_PREFERENCES_ENRICHED' "$REPO/install.sh")"
 #
 #      a) DIFFERENT CLASS. Enrichment writes `a pwg:Entity`. The wiki's
 #         People pages are built from `?uri a pwg:Person`.
-#      b) DIFFERENT NAMESPACE. Enrichment writes into
-#         http://pwg.local/ontology#, the people/meetings graph uses
-#         https://pwg.dev/ontology#. The same short name `pwg:` expands to
-#         two different IRIs, so even the class names cannot collide.
+#      b) DIFFERENT NAMESPACE. Enrichment writes into one ontology IRI and
+#         the people/meetings graph uses a different one. The same short
+#         name `pwg:` expands to two different IRIs, so even the class
+#         names cannot collide.
 #
 #    (b) IS NOT SOMETHING TO PIN, AND MY FIRST VERSION OF THIS TEST GOT
-#    THAT WRONG. It asserted that enrichment writes http://pwg.local/... ,
-#    which would make this suite fight #743, the migration that exists
-#    BECAUSE pwg.dev is unregistered and pwg-branded namespaces should not
-#    be stamped into a customer's graph at all. A guard that pins the thing
-#    we are removing is worse than no guard.
+#    THAT WRONG. It asserted the literal IRI enrichment writes, which would
+#    make this suite fight #743, the migration that exists BECAUSE the
+#    domain is unregistered and pwg-branded namespaces should not be
+#    stamped into a customer's graph at all. A guard that pins the thing we
+#    are removing is worse than no guard.
 #
 #    So what is asserted is the RELATIONSHIP, not the literal: the two
 #    namespaces must DIFFER, whatever they are. That survives any migration,
 #    and if some future tidy-up unifies them this goes red and somebody has
 #    to decide on purpose rather than by accident.
 #
-#    (Separately: pwg.local is a THIRD pwg-branded namespace and the #802
-#    ratchet's regex is `pwg\.dev` only, so it does not see it. Widening
-#    that ratchet is the real fix and is not this file's job.)
-PEOPLE_NS='pwg.dev/ontology'
-ENRICH_NS="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' "$SRC/enricher.py" | sort -u | head -1)"
-[ -n "$ENRICH_NS" ] && ok "enrichment declares an ontology namespace ($ENRICH_NS) (positive control)" \
-                    || bad "no ontology namespace found in enricher.py; this check is measuring nothing"
+#    AND THAT IS WHY NEITHER SIDE IS SPELLED OUT IN THIS FILE ANY MORE.
+#    The first draft de-pinned the enrichment side and then hard-coded the
+#    people side one line below, which is the same defect facing the other
+#    way. Both are now DERIVED from the source that declares them, so this
+#    file contains no ontology domain literal at all and the #802 ratchet
+#    counts nothing here. Measured 2026-08-17: that removed six occurrences
+#    -- five in this comment block and one in the pin -- which is six of the
+#    seven that took main red after #812 and #816 landed.
+PEOPLE_NS="$(git -C "$REPO" grep -hoE 'PWG_NS *= *"https?://[a-z0-9./-]+/ontology#"' \
+                 -- 'contact_syncer/*.py' 2>/dev/null \
+             | grep -oE 'https?://[a-z0-9./-]+/ontology#' | sort -u | head -1)"
+ENRICH_NS="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' "$SRC/enricher.py" 2>/dev/null | sort -u | head -1)"
+
+# BOTH OPERANDS MUST BE NON-EMPTY BEFORE THEY ARE COMPARED, and the first
+# draft of this de-pinning did not check. An empty PEOPLE_NS makes the glob
+# `*""*` match ANY string, so the comparison below reported "enrichment now
+# writes into the SAME namespace as people/meetings ()" -- with an empty
+# parenthesis, against a tree where the two namespaces were fine. A confident
+# false finding produced by an empty operand, which is the same shape as
+# every other one this file exists to catch, committed inside the check that
+# catches it. Neither side may be derived-and-unchecked.
+if [ -z "$PEOPLE_NS" ] || [ -z "$ENRICH_NS" ]; then
+    bad "cannot derive both namespaces (people='${PEOPLE_NS:-EMPTY}' enrichment='${ENRICH_NS:-EMPTY}'); the comparison is measuring nothing and is NOT a pass"
+else
+ok "both graphs declare an ontology namespace (positive control, neither operand empty)"
 
 case "$ENRICH_NS" in
     *"$PEOPLE_NS"*)
@@ -388,6 +406,7 @@ case "$ENRICH_NS" in
     *)
         ok "enrichment's namespace differs from the people/meetings namespace, whatever each is" ;;
 esac
+fi
 
 n_entity="$(grep -c 'a pwg:Entity' "$SRC/models/enrichment.py")"
 [ "$n_entity" -ge 1 ] && ok "enriched actors and directors are typed pwg:Entity, a class the People query does not select" \

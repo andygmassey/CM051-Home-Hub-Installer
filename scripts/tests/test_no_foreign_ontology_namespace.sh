@@ -107,37 +107,93 @@ rc="$(run "$TMP/plain")"
 #    A predicate that cannot distinguish the pass state from the failure state
 #    is not measuring the thing its own sentence names.
 #
-#    So it asserts the GREEN LINE, which only the at-count branch prints.
+#    So it asserted the GREEN LINE, which only the at-count branch prints.
+#
+#    AND THAT OVERCORRECTED INTO A THIRD DEFECT, WHICH TOOK MAIN RED.
+#
+#    Measured: #814 merged at 71910de with a declaration of 294 taken on
+#    7cc2a6f. Four PRs landed in between (#813, #812, #817, #816) and added
+#    seven occurrences, so the real tree was at 301. The gate did exactly
+#    what it is designed to do -- WARN, name both numbers, and exit 0,
+#    because it is deliberately ADVISORY while the declared count is above
+#    zero. This control turned that designed warning into a hard CI red.
+#
+#    THE GATE HAS THREE STATES AND THE CONTROL HAD TWO. Same shape as
+#    CANNOT-RUN being neither PASS nor FAIL, and the same shape as the
+#    original defect, one turn of the screw further on:
+#
+#        GREEN      at the declared count            -> pass
+#        ADVISORY   out of step, declared > 0        -> NOT a failure of
+#                                                       this control. It is
+#                                                       the ratchet doing its
+#                                                       job. Surface it.
+#        anything   cannot run, or no verdict at all -> fail
+#
+#    A ratchet that hard-fails on the exact event it exists to merely warn
+#    about is a cliff, and Archie's original call was that a cliff gets
+#    routed around or deleted. Making the advisory a red would have re-created
+#    that by the back door, from the test side, where nobody would look for it.
+#
+#    The teeth do not come from this control. They come from the DECLARED
+#    NUMBER only moving when a human edits it, and from control 2b, which
+#    proves that at zero the advisory is gone and the gate is hard.
 # ---------------------------------------------------------------------------
 REAL="$(cd "$HERE/../.." && pwd)"
 rc="$(run "$REAL")"
-if [ "$rc" != 0 ]; then
-    no "the real repository does not match its declaration (rc=$rc)" "$(cat "$TMP/out")"
-elif [ "$(grep -c 'GATE: GREEN' "$TMP/out")" -lt 1 ]; then
-    no "rc=0 but the gate did not print GREEN -- it is ADVISORY, which is NOT a pass" "$(cat "$TMP/out")"
-else
+n_declared="$(grep -vE '^[[:space:]]*#' "$REAL/scripts/.foreign-ontology-namespace-count" 2>/dev/null | tr -dc '0-9')"
+
+if [ "$rc" = 2 ]; then
+    no "the gate CANNOT RUN against the real repository (rc=2)" "$(cat "$TMP/out")"
+elif [ "$rc" != 0 ]; then
+    no "the real repository FAILED the gate hard (rc=$rc)" "$(cat "$TMP/out")"
+elif [ "$(grep -c 'GATE: GREEN' "$TMP/out")" -ge 1 ]; then
     ok "the REAL repository is at its declared count (GREEN, not merely rc=0)"
+elif [ "$(grep -c 'ADVISORY while the declared count is above zero' "$TMP/out")" -ge 1 ]; then
+    # Deliberately a PASS, and deliberately loud. The drift is printed here
+    # rather than swallowed, so it is visible in the CI log of every PR until
+    # somebody re-declares, which is the pressure the ratchet is supposed to
+    # apply. What it must not do is stop unrelated work from landing.
+    ok "the gate is ADVISORY and said so (declared ${n_declared:-?}); ratchet working, tree out of step"
+    printf '        | %s\n' "$(grep -E 'occurrences=|went (UP|DOWN)' "$TMP/out" | head -2)"
+else
+    no "rc=0 but the gate printed NEITHER a GREEN line nor an ADVISORY line -- no verdict at all" "$(cat "$TMP/out")"
 fi
 
-# 7b. PROVE THE CONTROL ABOVE CAN FAIL. An assertion about the real tree that
-#     has never been shown to go red is indistinguishable from one that always
-#     passes, which is exactly the defect 7 just had. Copy the real tree's
-#     declaration out of step and require a red.
+# 7b. THE INSTRUMENT STILL DETECTS DRIFT ON THE REAL TREE. This is a property
+#     of the GATE, not a red proof for control 7 any more: skewing the
+#     declaration now produces the ADVISORY branch, which 7 deliberately
+#     accepts. It is still worth asserting, because if the gate stopped
+#     noticing drift altogether then 7's advisory pass would be vacuous.
 REALDECL="$REAL/scripts/.foreign-ontology-namespace-count"
 if [ -r "$REALDECL" ]; then
     n_real="$(grep -vE '^[[:space:]]*#' "$REALDECL" | tr -dc '0-9')"
-    cp "$REALDECL" "$TMP/decl.bak"
     printf '# temporary, control 7b\n%s\n' "$(( n_real - 50 ))" > "$TMP/decl.skewed"
     rc="$(OSTLER_NS_COUNT_FILE="$TMP/decl.skewed" bash "$GATE" "$REAL" >"$TMP/out" 2>&1; echo $?)"
     if [ "$(grep -c 'GATE: GREEN' "$TMP/out")" -ge 1 ]; then
-        no "PROVE RED FAILED: a declaration 50 out still printed GREEN" "$(cat "$TMP/out")"
+        no "a declaration 50 out still printed GREEN -- the gate has stopped seeing drift" "$(cat "$TMP/out")"
     elif [ "$(grep -c 'went UP' "$TMP/out")" -lt 1 ]; then
-        no "PROVE RED FAILED: a declaration 50 out produced no WARN" "$(cat "$TMP/out")"
+        no "a declaration 50 out produced no WARN -- the gate has stopped seeing drift" "$(cat "$TMP/out")"
     else
-        ok "PROVED RED: the real-tree control goes red when the declaration is 50 out"
+        ok "a declaration 50 out is still SEEN: WARN, no GREEN (the ratchet notices)"
     fi
 else
     no "cannot read the real declaration at $REALDECL" ""
+fi
+
+# 7c. PROVE CONTROL 7 CAN STILL FAIL, ON THE AXIS IT NOW FAILS ON.
+#
+#     7 used to be proved red by skewing the declaration. It no longer fails
+#     for that, so that proof is spent and reusing it would be the shape this
+#     whole file exists to stop: a red proof that no longer exercises the
+#     branch it claims to. 7 now fails on CANNOT-RUN and on no-verdict, so
+#     that is what has to be shown. Delete the declaration and require rc=2.
+rc="$(OSTLER_NS_COUNT_FILE="$TMP/definitely-not-here" bash "$GATE" "$REAL" >"$TMP/out" 2>&1; echo $?)"
+if [ "$rc" != 2 ]; then
+    no "PROVE RED FAILED [control 7]: an absent declaration gave rc=$rc, so 7 has no failing branch" "$(cat "$TMP/out")"
+elif [ "$(grep -c 'CANNOT-RUN' "$TMP/out")" -lt 1 ]; then
+    no "PROVE RED FAILED [control 7]: rc=2 but no CANNOT-RUN said out loud" "$(cat "$TMP/out")"
+else
+    ok "PROVED RED [control 7]: an unrunnable gate is rc=2 and control 7 fails on it"
 fi
 
 # ---------------------------------------------------------------------------

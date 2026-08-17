@@ -18323,6 +18323,31 @@ _install_enrichment_agent() {
     local cm019_dir="${OSTLER_DIR}/services/cm019"
     local enrich_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
 
+    # THE ONTOLOGY IRI IS READ FROM THE WRITER, NOT TYPED HERE.
+    #
+    # The tick counts `pwg:enrichedAt` subjects to report its own delta, so
+    # its PREFIX has to match whatever enrichment actually writes. Typing the
+    # IRI in would be a second source of truth for one fact, and this file
+    # already carries the readback further up: two literals, one of which
+    # would be silently wrong the day #743 migrates the namespace.
+    #
+    # Deriving it also means this installer contributes NO ontology domain
+    # literal of its own for the #802 ratchet to count. Falls back to the
+    # value the shipped enricher uses today if the source is not readable,
+    # because a tick that cannot form its query is worse than one that
+    # guesses the status quo.
+    local enrich_ns
+    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
+                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
+                 | sort -u | head -1)"
+    #
+    # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
+    # parts so the ratchet would not see it. That is laundering: the string
+    # would still be in the shipped installer, just spelled in a way the
+    # instrument cannot read, which is worse than the occurrence it hides.
+    # If the writer cannot be read, the tick simply cannot state a delta,
+    # and it already has a branch that says exactly that.
+
     mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
 
     # Single-quoted heredoc: nothing expands at install time. The wrapper
@@ -18344,6 +18369,11 @@ STATE_DIR="${OSTLER_DIR}/state"
 CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
 CM019_PY="${CM019_DIR}/.venv/bin/python3"
 ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
+# Supplied by the plist, derived there from the shipped enricher. Empty means
+# the installer could not read the writer, and the readback below must then
+# report UNREADABLE rather than query a malformed prefix and get 0 back: a
+# zero that means "I could not ask" must never print as "nothing enriched".
+ENRICH_NS="${OSTLER_ENRICH_NS:-}"
 BUDGET_S="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
 OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
 LOG_FILE="${LOGS_DIR}/enrich.log"
@@ -18374,11 +18404,12 @@ fi
 # never ran print differently, which is the whole lesson of every silent
 # failure in this product. No item content is read or logged.
 enriched_count() {
+    [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
     curl -sf -m 5 \
         -H 'Content-Type: application/sparql-query' \
         -H 'Accept: application/sparql-results+json' \
-        --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
-SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
+        --data-binary "PREFIX pwg: <${ENRICH_NS}>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }" \
         "${OXIGRAPH_URL}/query" 2>/dev/null \
     | python3 -c 'import json,sys
 try:
@@ -18441,6 +18472,8 @@ ENRTICKEOF
         <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
         <key>QDRANT_COLLECTION</key>
         <string>preferences</string>
+        <key>OSTLER_ENRICH_NS</key>
+        <string>${enrich_ns}</string>
     </dict>
     <key>StartInterval</key>
     <integer>${interval_s}</integer>
