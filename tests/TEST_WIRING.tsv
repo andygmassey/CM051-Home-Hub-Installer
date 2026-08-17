@@ -24,6 +24,7 @@ test_amazon_extracted_dir_parse.py	UNWIRED	-
 test_app_binary_agents_bootstrap.sh	UNWIRED	-
 test_appcast_publish_is_fail_closed.sh	WIRED	.github/workflows/appcast-fail-closed.yml
 test_appletv_parser.py	UNWIRED	-
+test_assistant_config_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_assistant_config_reasoning_disabled.sh	UNWIRED	-
 test_assistant_config_required_fields.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_assistant_config_vane_wiring.sh	UNWIRED	-
@@ -87,6 +88,7 @@ test_email_ingest_loud_guard.sh	UNWIRED	-
 test_email_ingest_venv_wired.sh	UNWIRED	-
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_err_trap_emits_done_fail.sh	UNWIRED	-
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -171,6 +173,7 @@ test_settling_progress_writer.sh	UNWIRED	-
 test_ship_prereqs_are_a_superset.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
+test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
@@ -225,6 +228,7 @@ test_wiki_provenance_extracts_without_exec.sh	WIRED	.github/workflows/cut-gate-w
 test_wiki_recompile_after_late_hydration.sh	UNWIRED	-
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_write_pipeline_signals.sh	UNWIRED	-
+test_youtube_parser_does_not_claim_facebook.py	WIRED	.github/workflows/parser-claim-separation.yml
 gui/OstlerInstallerTests/AdminAuthorizationGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/BiometricProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml

@@ -6169,11 +6169,31 @@ _ostler_slot_ws() {
 _OSTLER_SLOT_DIR="${OSTLER_INGEST_LOCK:-$(_ostler_slot_ws)/ingest-ollama.lock.d}"
 _OSTLER_SLOT_WAITERS="${_OSTLER_SLOT_DIR%.d}.waiters.d"
 _OSTLER_SLOT_STATE="${OSTLER_SLOT_STATE_DIR:-$(_ostler_slot_ws)/ingest-slot}"
-_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-900}"
+# MEASURED on the v1.0.33 box, 2026-08-17. The mechanism was not missing --
+# waiters dir, max-hold and starve-after all exist and all worked. The RATIO
+# between two of them guaranteed starvation:
+#
+#   MAX_HOLD 900s   a holder keeps the slot 15 minutes even with a waiter
+#   WAIT      75s   a HEALTHY waiter gives up after 75 seconds
+#
+# A waiter's patience was 1/12th of a holder's right, so it could never
+# outlast one. Observed: email-bundle held with 895s remaining while
+# imessage-bundle got 4s. Twelve contentions in the log, email-bundle winning
+# eight of them, and whatsapp/imessage/spoken all starved in turn.
+#
+# STARVE_AFTER 21600s meant the "this feed is starving" escalation fired only
+# after SIX HOURS -- long after the install finished and the owner had already
+# looked at an empty Messages surface and concluded the product was broken.
+#
+# MAX_HOLD is now 180s: longer than any feed's real work (imessage needed 4s)
+# and comfortably above WAIT=75s, so a holder still finishes a unit of work
+# but a waiter that keeps asking now outlives it. STARVE_AFTER 1800s puts the
+# escalation inside the install window where somebody can act on it.
+_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
 _OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
 _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
-_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-21600}"
+_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
 _OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
 
 _OSTLER_SLOT_FEED=""
@@ -9455,8 +9475,34 @@ TOMLPREAMBLE
         # dir is created here rather than relying on the later `mkdir -p
         # "${OSTLER_DIR}/state"` around line 11200, so this block does not carry
         # a silent ordering dependency on a line 3000 lines further down.
+        #
+        # OSTLER_FINAL_DIR, NOT OSTLER_DIR, AND THIS IS #177 ALL OVER AGAIN.
+        # Measured on the .219 box running v1.0.33, 2026-08-17:
+        #
+        #     session_path = "/tmp/ostler-prelaunch-3992/state/whatsapp-session.db"
+        #
+        # This block runs PRE-FDA, when _ostler_set_paths still has OSTLER_DIR
+        # bound to the /tmp/ostler-prelaunch-<pid> staging tree. The config FILE
+        # is promoted onto ~/.ostler/ later; the VALUE inside it is not. So the
+        # shipped config pointed the WhatsApp Web device credentials at a
+        # directory macOS purges on reboot and on periodic cleanup: the link
+        # dies, the customer has to re-pair, and the daemon goes on printing
+        # "Channels: imessage, whatsapp" as though nothing happened.
+        #
+        # The comment above reasoned about Caches and missed /tmp, which is
+        # worse than Caches. Exactly the root cause of #177 (the two ollama
+        # LaunchAgents), one file over -- and tests/test_launchd_plist_no_tmp.sh
+        # was blind to it because that gate is keyed to the PLISTS by name.
+        # A gate keyed to a name does not cover a class.
+        #
+        # Do NOT also `mkdir -p "${OSTLER_FINAL_DIR}/state"` here.
+        # _ostler_promote_prelaunch_tree walks the staging tree and, on a name
+        # collision, `rm -rf`s the target before `mv`. Pre-creating the final
+        # state/ dir would hand the promote a collision to resolve by deleting
+        # whatever session the daemon had already written into it. The staging
+        # `state/` below is promoted into place, which is the intended route.
         mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
-        _wa_session_path_esc="${OSTLER_DIR}/state/whatsapp-session.db"
+        _wa_session_path_esc="${OSTLER_FINAL_DIR}/state/whatsapp-session.db"
         _wa_session_path_esc="${_wa_session_path_esc//\"/\\\"}"
         echo "session_path = \"${_wa_session_path_esc}\""
         unset _wa_session_path_esc
@@ -11790,7 +11836,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670
     container_name: ostler-wiki-site
     ports:
       - "127.0.0.1:8044:8000"
@@ -11825,7 +11871,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -13338,6 +13384,39 @@ except Exception:
     _PREFS_POINTS="${_PREFS_POINTS:-0}"
     if [[ "$_PREFS_POINTS" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
+
+        # ── Enriched count, read from where enrichment actually writes ──
+        #
+        # The line above used to say "Imported and enriched %s" against the
+        # INGEST count. On 2026-08-17 that printed 2,963 while enrichment
+        # had succeeded exactly once. The number was never wrong; it was
+        # answering a different question from the one the sentence asked.
+        #
+        # `pwg:enrichedAt` is the predicate enricher.py writes on success
+        # and the one `enrich stats` has always counted, so this reads the
+        # same fact the product could already state about itself. Same
+        # counts-only, non-fatal shape as the readback above: a SPARQL
+        # error degrades to 0 and prints nothing rather than aborting.
+        _PREFS_ENRICHED="$(
+            curl -sf -m 5 \
+                -H 'Content-Type: application/sparql-query' \
+                -H 'Accept: application/sparql-results+json' \
+                --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
+                "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(0)' 2>/dev/null \
+            || printf '0'
+        )"
+        _PREFS_ENRICHED="${_PREFS_ENRICHED:-0}"
+        if [[ "$_PREFS_ENRICHED" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_PREFERENCES_ENRICHED" "$_PREFS_ENRICHED")"
+        fi
 
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,

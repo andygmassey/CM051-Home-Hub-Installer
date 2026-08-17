@@ -14,6 +14,42 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+def _takeout_records(data: object, file_path: Path) -> list:
+    """Return the dict records from a parsed Google Takeout payload.
+
+    Every Takeout JSON export this parser handles is a top-level ARRAY of
+    objects, and every limb below reads each record with ``item.get(...)``.
+
+    When a file is claimed on its NAME and turns out to hold something else,
+    ``for item in data`` iterates whatever the payload actually is. For a
+    top-level object that means iterating its KEYS -- strings -- and the
+    first ``.get`` raises ``AttributeError: 'str' object has no attribute
+    'get'``, which pipeline.py logs at ERROR and which discards the ENTIRE
+    file. That is exactly what three Facebook activity exports did on a real
+    customer box.
+
+    ``can_parse`` no longer claims those files, so this is the second line
+    rather than the first. It exists because a name-based claim can always be
+    surprised by a payload, and the failure mode should be a warning plus the
+    usable records, never a discarded file.
+    """
+    if not isinstance(data, list):
+        logger.warning(
+            "%s is not a Google Takeout array (top level is %s); no records read",
+            file_path, type(data).__name__,
+        )
+        return []
+
+    records = [item for item in data if isinstance(item, dict)]
+    skipped = len(data) - len(records)
+    if skipped:
+        logger.warning(
+            "%s: skipped %d of %d entries that were not objects",
+            file_path, skipped, len(data),
+        )
+    return records
+
+
 class YouTubeParser(BaseParser):
     """
     Parser for YouTube/Google Takeout data exports.
@@ -46,9 +82,43 @@ class YouTubeParser(BaseParser):
                 # Exclude Facebook-style files
                 if "likes_and_reactions" in name:
                     return False
+                # "comments" is a SUBSTRING match, and Facebook ships three
+                # files whose names contain it:
+                #   comments_and_reactions/comments.json
+                #   groups/group_posts_and_comments.json
+                #   groups/your_comments_in_groups.json
+                # This parser is registered ahead of MetaParser, so claiming
+                # on the name alone took all three off Meta before Meta was
+                # ever asked -- and MetaParser's own shape check, written to
+                # let a YouTube export "fall through to the YouTube parser",
+                # could never run. Measured on a real customer box: three
+                # ERROR lines, three whole files discarded.
+                if pattern == "comments" and not self._looks_like_youtube_json(file_path):
+                    return False
                 return True
 
         return False
+
+    @staticmethod
+    def _looks_like_youtube_json(file_path: Path) -> bool:
+        """Return True if the JSON file is shaped like a Google Takeout export.
+
+        Takeout exports are a top-level ARRAY of records. Facebook activity
+        exports are a top-level OBJECT keyed by "*_v2". Only the top-level
+        shape is read, and the mirror of this check already lives in
+        MetaParser._looks_like_facebook_activity_json.
+
+        An unreadable or malformed file is NOT claimed. Both parsers then
+        decline it, which is the correct outcome: a file nothing can identify
+        is left alone rather than handed to a parser that will raise on it.
+        """
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return False
+
+        return isinstance(data, list)
 
     async def parse(
         self,
@@ -107,7 +177,7 @@ class YouTubeParser(BaseParser):
         # Aggregate by video to count views
         video_views = {}
 
-        for item in data:
+        for item in _takeout_records(data, file_path):
             try:
                 title = item.get('title', '').strip()
                 title_url = item.get('titleUrl', '').strip()
@@ -197,7 +267,7 @@ class YouTubeParser(BaseParser):
             logger.error(f"Failed to parse JSON: {e}")
             return
 
-        for item in data:
+        for item in _takeout_records(data, file_path):
             try:
                 title = item.get('title', '').strip()
                 title_url = item.get('titleUrl', '').strip()
@@ -250,7 +320,7 @@ class YouTubeParser(BaseParser):
             logger.error(f"Failed to parse JSON: {e}")
             return
 
-        for item in data:
+        for item in _takeout_records(data, file_path):
             try:
                 snippet = item.get('snippet', {})
                 channel_title = snippet.get('title', '').strip()
@@ -348,7 +418,7 @@ class YouTubeParser(BaseParser):
 
         # Count comments by video
         video_comment_counts: dict[str, int] = {}
-        for item in data:
+        for item in _takeout_records(data, file_path):
             video_id = item.get('snippet', {}).get('videoId', '')
             if video_id:
                 video_comment_counts[video_id] = video_comment_counts.get(video_id, 0) + 1
