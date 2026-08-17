@@ -1408,19 +1408,21 @@ check-ostler-app:
 	@# block a hotfix on a convention it has never followed -- but say so, loudly,
 	@# naming BOTH paths. A fallback nobody can see is how the parent's pin gets
 	@# read as the hotfix's.
+	@# DELEGATED TO A SCRIPT so the fallback is TESTABLE. #794 shipped this
+	@# resolution inline and Archie merged it flagging that the new WARN had no
+	@# control firing it -- and the WARN is the entire safety mechanism, so an
+	@# unfired one is a two-state predicate reading a warning as a pass.
+	@#
+	@# Logic embedded in a recipe cannot be driven by a fixture without a full
+	@# build, and asserting the recipe TEXT would test the rendering instead of
+	@# the behaviour. Same move, same reason, as COMMIT_PARITY_SH and
+	@# APP_PROVENANCE_SH above. Controls live in
+	@# scripts/tests/test_resolve_cut_daemon_pin.sh, and the load-bearing pair is
+	@# "a four-part version WARNS" plus "a three-part version does NOT" -- a
+	@# warning that fires on every cut is noise, and noise gets muted.
 	@set -e; \
-	CUT_ENV="$(CURDIR)/../cuts/v$(VERSION)/cut.env"; \
-	if [ ! -f "$$CUT_ENV" ]; then \
-	    _parent="$(CURDIR)/../cuts/$(CUT_MANIFEST_VERSION)/cut.env"; \
-	    if [ "$$_parent" != "$$CUT_ENV" ] && [ -f "$$_parent" ]; then \
-	        printf '[WARN] no cut record for v%s; falling back to %s\n' "$(VERSION)" "$(CUT_MANIFEST_VERSION)" >&2; \
-	        printf '[WARN] if this hotfix re-pinned the daemon, that pin is NOT the one being read\n' >&2; \
-	    fi; \
-	    CUT_ENV="$$_parent"; \
-	fi; \
-	DC="$$(grep -E '^[[:space:]]*DAEMON_COMMIT=' "$$CUT_ENV" 2>/dev/null \
-	       | tail -1 | sed -E 's/^[[:space:]]*DAEMON_COMMIT=//; s/[[:space:]]*(#.*)?$$//')"; \
-	printf '[CHECK] daemon operand from %s: %s\n' "$$CUT_ENV" "$${DC:-<unset>}"; \
+	DC="$$(bash "$(CUT_PIN_RESOLVER_SH)" "$(CURDIR)/.." "$(VERSION)")"; \
+	printf '[CHECK] daemon operand: %s\n' "$${DC:-<unset>}"; \
 	OSTLER_DAEMON_COMMIT="$$DC" \
 	bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
 	    echo "" >&2; \
@@ -2290,6 +2292,11 @@ COMMIT_PARITY_SH ?= $(CURDIR)/../scripts/verify_commit_parity.sh
 # Pre-seal sibling of COMMIT_PARITY_SH. Same question, asked at step 5 instead
 # of post-cut, and asserted on frontend CONTENT rather than commit-SHA equality.
 APP_PROVENANCE_SH ?= $(CURDIR)/../scripts/verify_app_provenance.sh
+
+# Resolves cuts/<tag>/cut.env DAEMON_COMMIT, preferring the FULL version over the
+# truncated CUT_MANIFEST_VERSION so a hotfix does not silently read its parent's
+# pin. A script rather than a recipe so the fallback WARN is testable.
+CUT_PIN_RESOLVER_SH ?= $(CURDIR)/../scripts/resolve_cut_daemon_pin.sh
 verify-commit-parity:
 	@if [ ! -f "$(DMG_PATH)" ]; then \
 	    echo "ERROR: the commit-parity gate COULD NOT RUN -- $(DMG_PATH) not found." >&2; \
