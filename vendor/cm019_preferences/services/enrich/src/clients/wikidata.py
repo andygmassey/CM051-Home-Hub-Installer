@@ -721,44 +721,105 @@ class WikidataClient(BaseClient[WikidataEntity]):
                 out.setdefault(qid, set()).add(t)
         return out
 
+    # property -> the bucket its values land in. One place, so adding a
+    # property is one line and cannot drift from the parser.
+    DETAIL_PROPS = {
+        "P136": "genres",     "P57":  "directors", "P161": "cast",
+        "P58":  "writers",    "P86":  "composers", "P162": "producers",
+        "P144": "based_on",   "P495": "origin",
+        "P17":  "country",    "P131": "admin",
+    }
+
     async def _fetch_detail(self, qid: str) -> Dict[str, Any]:
-        """Genres, people, year and location for ONE chosen entity."""
+        """
+        Every property of interest for ONE entity, in ONE linear query.
+
+        NOT a query with eleven OPTIONAL blocks. That returns their CROSS
+        PRODUCT: for "Breaking Bad", with dozens of episode directors and
+        an unbounded cast and five genres, the response reached 76 MB and
+        failed to parse, so the show came back with NOTHING. Adding
+        properties made the answer smaller, which is the signature of a
+        combinatorial blow-up rather than a missing fact.
+
+        Iterating a VALUES list of properties instead returns one row per
+        (property, value) pair. Linear in the number of values, and it
+        cannot explode however well-connected the entity is.
+        """
+        props = " ".join("wdt:%s" % p for p in self.DETAIL_PROPS)
         query = """
-        SELECT ?genreLabel ?directorLabel ?castLabel ?year
-               ?countryLabel ?adminLabel WHERE {
-          OPTIONAL { wd:%(q)s wdt:P136 ?genre . }
-          OPTIONAL { wd:%(q)s wdt:P57  ?director . }
-          OPTIONAL { wd:%(q)s wdt:P161 ?cast . }
-          OPTIONAL { wd:%(q)s wdt:P577 ?date . BIND(YEAR(?date) AS ?year) }
-          OPTIONAL { wd:%(q)s wdt:P17  ?country . }
-          OPTIONAL { wd:%(q)s wdt:P131 ?admin . }
+        SELECT ?p ?vLabel WHERE {
+          VALUES ?p { %s }
+          wd:%s ?p ?v .
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
-        """ % {"q": qid}
-        rec: Dict[str, Any] = {
-            "genres": set(), "directors": set(), "cast": set(),
-            "year": None, "country": None, "admin": None,
-        }
+        """ % (props, qid)
+
+        rec: Dict[str, Any] = {k: set() for k in set(self.DETAIL_PROPS.values())}
+        rec["year"] = None
         result = await self._sparql_query(query)
-        if not result or "results" not in result:
-            return rec
-        for b in result["results"].get("bindings", []):
-            for key, field_name in (("genreLabel", "genres"),
-                                    ("directorLabel", "directors"),
-                                    ("castLabel", "cast")):
-                v = b.get(key, {}).get("value")
-                # A label service that cannot resolve a name echoes the Q-ID
-                # back. Storing that would put "Q12345" on the page as if it
-                # were a director, so it is dropped rather than shown.
-                if v and not re.fullmatch(r"Q\d+", v):
-                    rec[field_name].add(v)
-            if rec["year"] is None and b.get("year", {}).get("value"):
+
+        # The label service does not always resolve every entity in one
+        # query; when it cannot, it echoes the bare Q-ID back.
+        #
+        # DROPPING those was the previous behaviour and it was WRONG. For
+        # "The Hitchhiker's Guide to the Galaxy" the screenwriters come back
+        # as "Karey Kirkpatrick" and "Q42", and Q42 is DOUGLAS ADAMS. A
+        # guard written to avoid showing "Q12345" on a page was quietly
+        # deleting the person most associated with the work.
+        #
+        # So unresolved Q-IDs are COLLECTED and looked up, not discarded.
+        # Showing a raw Q-ID is still never acceptable, and anything that
+        # survives both passes unresolved is dropped at the end.
+        unresolved = []   # (bucket, qid)
+        for b in ((result or {}).get("results", {}) or {}).get("bindings", []):
+            pid = b.get("p", {}).get("value", "").rsplit("/", 1)[-1]
+            bucket = self.DETAIL_PROPS.get(pid)
+            v = b.get("vLabel", {}).get("value")
+            if not (bucket and v):
+                continue
+            if re.fullmatch(r"Q\d+", v):
+                unresolved.append((bucket, v))
+            else:
+                rec[bucket].add(v)
+
+        if unresolved:
+            values = " ".join("wd:%s" % q for _, q in dict.fromkeys(
+                (b, q) for b, q in unresolved))
+            label_q = """
+            SELECT ?item ?label WHERE {
+              VALUES ?item { %s }
+              ?item rdfs:label ?label .
+              FILTER(LANG(?label) = "en")
+            }
+            """ % values
+            resolved = {}
+            lr = await self._sparql_query(label_q)
+            for b in ((lr or {}).get("results", {}) or {}).get("bindings", []):
+                q = b.get("item", {}).get("value", "").rsplit("/", 1)[-1]
+                lab = b.get("label", {}).get("value")
+                if q and lab:
+                    resolved[q] = lab
+            for bucket, q in unresolved:
+                if q in resolved:
+                    rec[bucket].add(resolved[q])
+                else:
+                    logger.debug("Wikidata %s has no English label; dropped", q)
+
+        # Publication date separately: it is single-valued in practice and
+        # keeping it out of the loop above avoids re-deriving a year from
+        # every one of a series' release dates.
+        year_q = """
+        SELECT (MIN(YEAR(?d)) AS ?year) WHERE { wd:%s wdt:P577 ?d . }
+        """ % qid
+        yr = await self._sparql_query(year_q)
+        for b in ((yr or {}).get("results", {}) or {}).get("bindings", []):
+            if b.get("year", {}).get("value"):
                 rec["year"] = b["year"]["value"]
-            for key, field_name in (("countryLabel", "country"),
-                                    ("adminLabel", "admin")):
-                v = b.get(key, {}).get("value")
-                if v and rec[field_name] is None and not re.fullmatch(r"Q\d+", v):
-                    rec[field_name] = v
+
+        # country/admin are single-valued downstream; collapse to a scalar.
+        for k in ("country", "admin"):
+            vals = sorted(rec[k])
+            rec[k] = vals[0] if vals else None
         return rec
 
     def _unavailable(self, result, what: str):
@@ -781,7 +842,7 @@ class WikidataClient(BaseClient[WikidataEntity]):
         """Genre, director and cast for a film or television title."""
         from ..models.enrichment import (
             EnrichmentResult, EnrichmentSource, MatchType,
-            GenreResult, EntityResult,
+            GenreResult, EntityResult, TopicResult,
         )
 
         result = EnrichmentResult(
@@ -842,18 +903,37 @@ class WikidataClient(BaseClient[WikidataEntity]):
             GenreResult(name=g, normalized=g.lower().replace(" ", "_"), confidence=sim)
             for g in sorted(rec["genres"])
         ]
-        result.entities = [
-            # Both lists are bounded. A long-running series has dozens of
-            # episode directors and an unbounded cast, and the value here is
-            # the SHAPE of what someone watches, not a complete credit roll.
-            EntityResult(name=d, entity_type="director")
-            for d in sorted(rec["directors"])[:8]
-        ] + [
-            # Bounded deliberately. A cast list is unbounded on Wikidata and
-            # the value here is the shape of what someone watches, not a
-            # complete filmography.
-            EntityResult(name=a, entity_type="actor") for a in sorted(rec["cast"])[:12]
+        # Bounded deliberately. A long-running series has dozens of episode
+        # directors and an unbounded cast, and the value here is the SHAPE
+        # of what someone watches, not a complete credit roll. Writers and
+        # composers are few, so they are not capped: capping them is how
+        # Douglas Adams would fall off a two-writer film.
+        people = []
+        for field_name, kind, cap in (("directors", "director", 8),
+                                      ("writers", "writer", None),
+                                      ("composers", "composer", None),
+                                      ("producers", "producer", 6),
+                                      ("cast", "actor", 12)):
+            vals = sorted(rec[field_name])
+            for v in (vals[:cap] if cap else vals):
+                people.append(EntityResult(name=v, entity_type=kind))
+        result.entities = people
+
+        # The work it adapts, and where it was made. `year` was computed by
+        # the previous version and then never attached to anything, which
+        # is its own small defect: data fetched, paid for and discarded.
+        result.topics = [
+            TopicResult(name=v, normalized=v.lower().replace(" ", "_"),
+                        confidence=sim, source_field=field_name)
+            for field_name, values in (("based_on", sorted(rec["based_on"])),
+                                       ("country_of_origin", sorted(rec["origin"])))
+            for v in values
         ]
+        if rec["year"]:
+            result.topics.append(TopicResult(
+                name=str(rec["year"]), normalized="year_%s" % rec["year"],
+                confidence=sim, source_field="release_year",
+            ))
         return result
 
     async def enrich_place(self, preference_id: str, name: str):

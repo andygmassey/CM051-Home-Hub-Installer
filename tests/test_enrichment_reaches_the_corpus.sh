@@ -344,6 +344,43 @@ n_used="$(grep -c 'MSG_HYDRATE_PREFERENCES_ENRICHED' "$REPO/install.sh")"
 [ "$n_used" -ge 1 ] && ok "the enriched string is actually printed" \
                     || bad "MSG_HYDRATE_PREFERENCES_ENRICHED is defined and never used"
 
+
+# ── 7. ENRICHED PEOPLE ARE NOT THE CUSTOMER'S PEOPLE.
+#
+#    Andy asked, on seeing Bryan Cranston and Vince Gilligan come back as
+#    entities: do these get merged into People, or into the customer's
+#    contacts? They must not. An actor is a fact ABOUT a film someone
+#    watched, not someone they know, and a graph that confuses the two
+#    produces a contact list full of strangers.
+#
+#    Measured: they cannot, for TWO independent reasons.
+#
+#      a) DIFFERENT CLASS. Enrichment writes `a pwg:Entity`. The wiki's
+#         People pages are built from `?uri a pwg:Person`.
+#      b) DIFFERENT NAMESPACE. Enrichment writes into
+#         http://pwg.local/ontology#, the people/meetings graph uses
+#         https://pwg.dev/ontology#. The same short name `pwg:` expands to
+#         two different IRIs, so even the class names cannot collide.
+#
+#    (b) is doing real safety work BY ACCIDENT: it is namespace divergence
+#    nobody chose, and #743 is an open plan to migrate namespaces. A tidy-up
+#    that unified them would remove a barrier without anyone intending to.
+#    So the separation is asserted here, and this comment is the reason.
+NS_ENRICH="$(grep -c 'http://pwg.local/ontology#' "$SRC/enricher.py")"
+[ "$NS_ENRICH" -ge 1 ] && ok "enrichment writes its own namespace, separate from the people graph" \
+                       || bad "enricher.py no longer writes http://pwg.local/ontology#; the namespace barrier between actors and People may be gone"
+
+# One path, no fallback. The `||` form here ran BOTH greps and concatenated
+# their answers into "0\n0", which is not an integer and made the test fail
+# on its own arithmetic rather than on the thing it guards.
+n_person="$(grep -c 'pwg:Person' "$SRC/models/enrichment.py")"
+[ "$n_person" -eq 0 ] && ok "enrichment never types an entity as pwg:Person" \
+                      || bad "enrichment emits pwg:Person; enriched actors could reach the customer's People list"
+
+n_entity="$(grep -c 'a pwg:Entity' "$SRC/models/enrichment.py")"
+[ "$n_entity" -ge 1 ] && ok "enriched actors and directors are typed pwg:Entity, a class the People query does not select" \
+                      || bad "entities are no longer typed pwg:Entity; whatever they are now may be selected as people"
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ] || exit 1
