@@ -182,6 +182,28 @@ else
         ok "a held lock makes a second pass stand down rather than overlap"
     fi
     rmdir "$TMP/fakehome/.ostler/state/enrich.lock" 2>/dev/null || true
+
+    # 8c. A BOX WITH NO PREFERENCES YET IS THE NORMAL FRESH-INSTALL STATE,
+    #     and this agent fires on it every half hour for as long as it stays
+    #     that way. Measured against a real empty Qdrant collection: the pass
+    #     returned in 0.2s having looked at nothing and printed
+    #
+    #         ENRICHMENT COMPLETE
+    #         Total processed: 0
+    #
+    #     "Complete" over an empty set is indistinguishable from "I enriched
+    #     everything there was", and a half-hourly agent would say it for
+    #     ever. Assert the two are now DIFFERENT sentences, in the wrapper
+    #     and in the CLI it drives.
+    if [ "$(grep -c 'NOTHING TO ENRICH' "$TMP/wrapper.sh")" -lt 1 ]; then
+        no "the wrapper cannot tell an empty corpus from a drained one" ""
+    elif [ "$(grep -c 'nothing to enrich, no preferences matched' "$TMP/wrapper.sh")" -lt 1 ]; then
+        no "no distinct log line for the empty-corpus case" ""
+    elif [ "$(grep -c 'did NOT move' "$TMP/wrapper.sh")" -lt 1 ]; then
+        no "no distinct log line for examined-but-unmoved, which is the FAILURE case" ""
+    else
+        ok "empty corpus, unmoved corpus and unreadable graph are three different log lines"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

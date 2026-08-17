@@ -18401,14 +18401,26 @@ rc=$?
 
 after="$(enriched_count)"
 
-# -1 means the readback itself failed, which is a DIFFERENT event from
-# "enriched nothing" and must not be reported as a delta.
+# FOUR OUTCOMES, FOUR SENTENCES. A tick that could not read the graph, a
+# tick with no corpus to work on, a tick that moved the number and a tick
+# that looked at real preferences and moved nothing are four different
+# events, and on a half-hourly agent they will each occur thousands of
+# times. Collapsing any two of them into one line is how a permanently
+# broken source spends a year looking like a drained backlog.
+#
+# `NOTHING TO ENRICH` is emitted by the CLI when it matched no preferences
+# at all, which is the normal state of a fresh install before any import.
+nothing_matched=0
+grep -q "NOTHING TO ENRICH" "$LOG_FILE" 2>/dev/null && nothing_matched=1
+
 if [[ "$before" -lt 0 || "$after" -lt 0 ]]; then
     log "tick finished rc=${rc}, but the graph readback failed; no delta can be stated"
+elif [[ "$nothing_matched" -eq 1 ]]; then
+    log "tick finished rc=${rc}: nothing to enrich, no preferences matched. Normal before the first import; enrichedAt stays at ${after}"
 elif [[ "$after" -gt "$before" ]]; then
     log "tick finished rc=${rc}: enrichedAt ${before} -> ${after} (+$((after - before)))"
 else
-    log "tick finished rc=${rc}: enrichedAt unchanged at ${after} (backlog may be drained, or every item in this slice failed)"
+    log "tick finished rc=${rc}: preferences were examined and enrichedAt did NOT move, still ${after}. Either the backlog is drained or every item in this slice failed; the lines above say which"
 fi
 exit 0
 ENRTICKEOF
