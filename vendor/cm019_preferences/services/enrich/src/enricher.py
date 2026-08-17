@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
 import httpx
@@ -980,8 +980,36 @@ INSERT DATA {{
         """
         combined_stats = EnrichmentStats()
 
+        # ONE UNREACHABLE SOURCE MUST NOT STARVE EVERY OTHER CATEGORY.
+        #
+        # MEASURED ON .219, 2026-08-17, on the first real run of the recurring
+        # invoker. The sweep handed the WHOLE remaining deadline to each
+        # category in turn, and `book` is first. OpenLibrary was unreachable,
+        # each lookup burned three retries with backoff, and the entire 180s
+        # allowance went on THREE books:
+        #
+        #     Total processed: 3   Successful: 0   Failed: 2
+        #     By category: {'book': 3}
+        #     Allowance spent before reaching category books
+        #
+        # Films, music, places and the other twenty categories were never
+        # reached. Not once, and not on the next tick either, because every
+        # tick would start at `book` and hit the same dead host. A permanently
+        # unreachable third party would have silently owned 100% of the
+        # enrichment budget for ever.
+        #
+        # A FAIR SHARE RECOMPUTED EACH TIME, not a fixed slice up front. A
+        # category with nothing to do returns in milliseconds and its unused
+        # time flows to the categories after it, so the common case loses
+        # nothing. A category that stalls is capped at its share of what was
+        # left when it started. That makes the worst case "one dead source
+        # costs one share per tick" instead of "one dead source costs
+        # everything, permanently".
+        remaining = list(categories)
+
         for category in categories:
-            if deadline is not None and datetime.utcnow() >= deadline:
+            now = datetime.utcnow()
+            if deadline is not None and now >= deadline:
                 combined_stats.budget_exhausted = True
                 logger.info(
                     "Allowance spent before reaching category %s. Not started, "
@@ -989,14 +1017,35 @@ INSERT DATA {{
                 )
                 break
 
-            logger.info(f"Enriching category: {category}")
+            category_deadline = deadline
+            if deadline is not None and remaining:
+                share = (deadline - now).total_seconds() / len(remaining)
+                category_deadline = now + timedelta(seconds=share)
+                logger.info(
+                    "Enriching category: %s (share %.0fs of %.0fs left, "
+                    "%d categories to go)",
+                    category, share, (deadline - now).total_seconds(),
+                    len(remaining),
+                )
+            else:
+                logger.info(f"Enriching category: {category}")
 
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit_per_category,
-                deadline=deadline,
+                deadline=category_deadline,
             )
+
+            # `budget_exhausted` from a per-category deadline means THAT
+            # category ran out of its share, not that the sweep is over. The
+            # merge below would otherwise mark the whole pass exhausted after
+            # the first slow category and stop, which is the starvation this
+            # block exists to remove, reintroduced one level up.
+            if category_deadline is not deadline:
+                stats.budget_exhausted = False
+
+            remaining.pop(0)
 
             # Merge stats
             combined_stats.total_processed += stats.total_processed
