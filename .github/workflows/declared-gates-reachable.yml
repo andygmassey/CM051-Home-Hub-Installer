@@ -18,7 +18,8 @@ name: declared-gates-reachable
 #
 # THE SELF-TEST IS THE POINT OF THIS WORKFLOW. The sweep result changes as the
 # tree changes and is reported by the gate itself; what CI must protect is the
-# gate's ability to DISCRIMINATE. Ten controls, including a green one.
+# gate's ability to DISCRIMINATE. Seventeen controls, including a green one
+# and both directions of the proved-red ratchet.
 
 on:
   pull_request:
@@ -47,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Ten controls, each built as a real git fixture and run through the
+      # Seventeen controls, each built as a real git fixture and run through the
       # SHIPPING script via --repo. The first version of this self-test carried
       # an inline copy of the walk, which proved a copy correct and said
       # nothing about what ships.
@@ -95,6 +96,54 @@ jobs:
       #
       # FLIP THIS TO BLOCKING the moment the three are dispositioned. A
       # report-only gate that stays report-only is the next thing on this list.
-      - name: Ratio on the real tree (report only, see comment)
-        continue-on-error: true
-        run: bash scripts/verify_declared_gates_reachable.sh
+      # AXIS TWO IS RATCHETED, NOT REPORT-ONLY.
+      #
+      # 5 of 12 declared gates currently have a known-failing fixture. Turning
+      # that into a hard red today would block main on a backlog that predates
+      # this check, which is the permanent-false-red failure described above.
+      # But leaving it purely advisory would make it the very thing it
+      # measures: a check that cannot say no.
+      #
+      # So the floor is the ratchet. It is set to what main measures TODAY. A
+      # gate losing its known-failing fixture fails this step; the standing
+      # backlog does not. Raise the floor as gates are proven; lowering it
+      # needs a reason in the same commit.
+      #
+      # THE EXIT CODE CANNOT CARRY THIS, so do not pretend it does. Axis one
+      # exits 1 on its three known orphans no matter what axis two finds, so a
+      # step that just checks the exit status would either be permanently red
+      # (blocking on #699, which is not this PR's to fix) or permanently
+      # continue-on-error, which is a ratchet that can never fire.
+      #
+      # So the step asserts the DEFECT, not the status: it fails if and only if
+      # the run prints a PROVED-RED REGRESSION. The ratio is printed either way.
+      - name: Ratio on the real tree, and the proved-red ratchet
+        env:
+          OSTLER_PROVED_RED_FLOOR: "5"
+        run: |
+          set +e
+          out="$(bash scripts/verify_declared_gates_reachable.sh 2>&1)"
+          set -e
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | grep -q 'PROVED-RED REGRESSION'; then
+            echo "::error::a declared gate lost its known-failing fixture" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$out" | grep -q 'PROVED RED:'; then
+            echo "::error::the proved-red axis did not report at all" >&2
+            exit 1
+          fi
+
+      # The ratchet, proved able to fire. Without this the floor above is a
+      # number nobody has ever seen enforced.
+      - name: The proved-red floor can actually fail
+        run: |
+          set +e
+          OSTLER_PROVED_RED_FLOOR=99 bash scripts/verify_declared_gates_reachable.sh >/dev/null 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "the proved-red floor did not fire on an impossible floor" >&2
+            exit 1
+          fi
+          echo "ok: an impossible floor fails the run (exit $rc)"
