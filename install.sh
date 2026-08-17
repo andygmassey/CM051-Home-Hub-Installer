@@ -3255,11 +3255,24 @@ step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
 #   6. Documents folder               (CX-70 pre-warm)
 #   7. Full Disk Access -- installer  (FDA-only data sources)
 #   8. Full Disk Access -- daemon     (CX-60 ostler-assistant chat.db)
-#   9. iMessage Automation            (CX-55 if iMessage channel enabled)
-#  10. macOS admin password           (sudo for Homebrew, sleep-disable)
+#   9. Downloads folder -- daemon     (the DAEMON asks AGAIN, separately from
+#                                      the installer's #4. Measured on a fresh
+#                                      install 2026-08-17:
+#                                      kTCCServiceSystemPolicyDownloadsFolder
+#                                      -> ai.ostler.assistant at 07:22:53)
+#  10. App data -- daemon             (kTCCServiceSystemPolicyAppData, granted
+#                                      07:23:32, 39s after the one above. macOS
+#                                      words this "wants to access data from
+#                                      other apps" -- which matched NOTHING in
+#                                      this list, so it read as a random popup
+#                                      30 steps into a run that had promised a
+#                                      complete inventory. Naming it here is the
+#                                      whole point of this list.)
+#  11. iMessage Automation            (CX-55 if iMessage channel enabled)
+#  12. macOS admin password           (sudo for Homebrew, sleep-disable)
 # Plus, on a fresh Mac: the Xcode CLT installer dialog (not a TCC
 # permission per se, but customer-visible).
-PERMISSIONS_TOTAL=10
+PERMISSIONS_TOTAL=12
 gui_emit STEP "name=permissions_briefing" "total_permissions=${PERMISSIONS_TOTAL}"
 
 echo ""
@@ -3279,8 +3292,11 @@ echo -e "    3. ${BOLD}Reminders${NC}             Tasks in your graph"
 echo -e "    4-6. ${BOLD}Downloads/Desktop/Documents${NC}    Find data exports"
 echo -e "    7. ${BOLD}Full Disk Access (installer)${NC}     Read Safari, Notes etc. (asked now, upfront)"
 echo -e "    8. ${BOLD}Full Disk Access (daemon)${NC}        Read iMessage history (asked near the end)"
-echo -e "    9. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
-echo -e "    10. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
+echo -e "    9. ${BOLD}Downloads (assistant)${NC}            The assistant asks for itself, after the installer (near the end)"
+echo -e "    10. ${BOLD}Data from other apps${NC}            macOS words it exactly that way. It is the assistant"
+echo -e "        ${BOLD}(assistant)${NC}                     reading the app data you already approved (near the end)"
+echo -e "    11. ${BOLD}Messages automation${NC}    Send + receive iMessages as you (asked now, upfront)"
+echo -e "    12. ${BOLD}macOS admin password${NC}            One-off for Homebrew + sleep"
 echo ""
 echo "  Plus, on a fresh Mac, a Command Line Tools installer dialog"
 echo "  from Apple (Xcode); these are downloaded in the background"
