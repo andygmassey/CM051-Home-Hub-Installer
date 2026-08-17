@@ -13404,6 +13404,12 @@ except Exception:
             ok "$(printf "$MSG_HYDRATE_PREFERENCES_ENRICHED" "$_PREFS_ENRICHED")"
         fi
 
+        # #747. Whatever the count above says, keep enriching. Before this
+        # the number could only ever change when the customer dropped
+        # another data export into ~/Downloads, because that was the only
+        # path in the product that reached enrichment at all.
+        _install_enrichment_agent
+
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,
         # Professional) and every Topic page read a `category` field off the
@@ -14317,6 +14323,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.wiki-recompile-catchup
     com.creativemachines.ostler.editor-frontpage
     com.creativemachines.ostler.dedupe-catchup
+    com.ostler.enrich
     com.creativemachines.ostler.assistant
     com.creativemachines.ostler.whatsapp-keepalive
     com.creativemachines.ostler.tailscaled
@@ -18267,6 +18274,197 @@ DCUPLIST
         ok "$MSG_OK_DEDUPE_CATCHUP_LOADED"
     else
         warn "$MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED"
+    fi
+}
+
+
+# ── The enrichment invoker (#747). WITHOUT THIS, ENRICHMENT NEVER RUNS. ──
+#
+# MEASURED ON A SHIPPED BOX, 2026-08-17, by dumping ProgramArguments for
+# all 23 Ostler LaunchAgents, grepping the whole ~/.ostler tree and the
+# sealed app bundle, and grepping this file end to end.
+#
+# There was exactly ONE invocation of enrichment in the entire product:
+# `enrich --all` inside bin/ostler-import, which runs only when
+# bin/ostler-scan-exports finds a NEW data-export drop in ~/Downloads.
+# Install-time hydration runs services.ingest and stops there.
+#
+# So on a Mac where the customer never drops a GDPR export, enrichment
+# had never run and never would. Not a bug in enrichment: enrichment was
+# never reachable. Every fix to it -- categories, filters, keyless film
+# and place lookups -- sat behind a door with no handle.
+#
+# WHY AN AGENT AND NOT AN INSTALL-TIME PASS.
+#
+# Wikidata is one request per second and each item costs two round trips,
+# so a full first pass over a real corpus is hours, not minutes. Doing it
+# during the install would either lengthen the install by hours or, if
+# budgeted short, enrich a token slice and stop. Neither is honest. The
+# agent drains it in bounded slices in the background, and the customer's
+# wiki fills in over the following day rather than making them wait.
+#
+# WHY THIS ONE DOES NOT SELF-REMOVE, unlike the dedupe catch-up agent
+# above. That agent finishes a fixed job. This one has permanent work:
+# every new bookmark, film or place ingested later needs enriching too. A
+# run with nothing to do costs one Qdrant scroll and exits.
+#
+# THE PRECONDITION THAT MAKES A SLICED DRAIN POSSIBLE AT ALL is CM051
+# #815: `--limit` used to bound items READ from Qdrant, and Qdrant does
+# not know what is already enriched, so every slice after the first
+# re-read the same finished head and printed COMPLETE. Bounded on work
+# attempted, successive runs walk forward. Without that fix this agent
+# would have been an expensive no-op that looked like it was working.
+_install_enrichment_agent() {
+    local label="com.ostler.enrich"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_ENRICH_INTERVAL_S:-1800}"
+    local budget_s="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-enrich-tick"
+    local cm019_dir="${OSTLER_DIR}/services/cm019"
+    local enrich_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Single-quoted heredoc: nothing expands at install time. The wrapper
+    # resolves its paths at run time, so a re-install or a moved OSTLER_DIR
+    # does not leave a wrapper pointing at a path that no longer exists.
+    cat > "$wrapper" <<'ENRTICKEOF'
+#!/usr/bin/env bash
+# Drain the enrichment backlog in bounded slices. See #747.
+#
+# `set -uo pipefail` and NOT -e, matching ostler-scan-exports: a single
+# failing lookup must not kill the tick, because the next slice is how the
+# backlog gets drained and an agent that dies on one bad title stops
+# draining for ever.
+set -uo pipefail
+
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
+CM019_PY="${CM019_DIR}/.venv/bin/python3"
+ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
+BUDGET_S="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
+LOG_FILE="${LOGS_DIR}/enrich.log"
+LOCK_DIR="${STATE_DIR}/enrich.lock"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+# A slice can outlast its interval on a slow network. Overlapping passes
+# would double the outbound rate to a third party we do not own, which is
+# a courtesy issue and a rate-limit issue, so a second instance stands
+# down rather than queueing. mkdir is the atomic primitive here; a lock
+# FILE plus a test would be a race.
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "a previous enrichment pass is still running; standing down"
+    exit 0
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
+if [[ ! -x "$CM019_PY" ]]; then
+    log "no preferences service at ${CM019_DIR}; nothing to enrich"
+    exit 0
+fi
+
+# Counts-only readback, before and after. This is what makes the log
+# EVIDENCE rather than noise: a tick that enriched nothing and a tick that
+# never ran print differently, which is the whole lesson of every silent
+# failure in this product. No item content is read or logged.
+enriched_count() {
+    curl -sf -m 5 \
+        -H 'Content-Type: application/sparql-query' \
+        -H 'Accept: application/sparql-results+json' \
+        --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
+        "${OXIGRAPH_URL}/query" 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(-1)' 2>/dev/null \
+    || printf '%s' -1
+}
+
+before="$(enriched_count)"
+log "tick start: enrichedAt=${before} budget=${BUDGET_S}s"
+
+( cd "$CM019_DIR" && QDRANT_COLLECTION="${QDRANT_COLLECTION:-preferences}" \
+    "$CM019_PY" -m services.enrich.src.cli enrich \
+        --all --budget-seconds "$BUDGET_S" -u "$ENRICH_USER" \
+) >>"$LOG_FILE" 2>&1
+rc=$?
+
+after="$(enriched_count)"
+
+# -1 means the readback itself failed, which is a DIFFERENT event from
+# "enriched nothing" and must not be reported as a delta.
+if [[ "$before" -lt 0 || "$after" -lt 0 ]]; then
+    log "tick finished rc=${rc}, but the graph readback failed; no delta can be stated"
+elif [[ "$after" -gt "$before" ]]; then
+    log "tick finished rc=${rc}: enrichedAt ${before} -> ${after} (+$((after - before)))"
+else
+    log "tick finished rc=${rc}: enrichedAt unchanged at ${after} (backlog may be drained, or every item in this slice failed)"
+fi
+exit 0
+ENRTICKEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<ENRPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_DIR}</string>
+        <key>OSTLER_CM019_DIR</key>
+        <string>${cm019_dir}</string>
+        <key>OSTLER_ENRICH_USER</key>
+        <string>${enrich_user}</string>
+        <key>OSTLER_ENRICH_BUDGET_SECONDS</key>
+        <string>${budget_s}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>QDRANT_COLLECTION</key>
+        <string>preferences</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/enrich.out</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/enrich.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+ENRPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
+    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
+       launchctl load "$plist" 2>/dev/null; then
+        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
+    else
+        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
     fi
 }
 
