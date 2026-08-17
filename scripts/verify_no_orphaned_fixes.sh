@@ -61,6 +61,10 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFERRALS_FILE="${OSTLER_CUT_DEFERRALS:-${REPO_ROOT}/cut-deferrals.yaml}"
+# Every ref is_deferred() is asked about, so the end of this run can subtract
+# them from what the file DECLARES and name the deferrals that did nothing.
+CONSULTED_REFS="$(mktemp -t ostler-consulted-refs)"
+trap 'rm -f "$CONSULTED_REFS"' EXIT
 
 red=0
 warn=0
@@ -108,6 +112,12 @@ ok()   { printf '  [ok]   %s\n' "$*"; }
 # ---------------------------------------------------------------------------
 is_deferred() {
     local ref="$1"
+    # RECORD WHAT WAS ASKED. This lookup is one-directional: it answers "is this
+    # ref deferred", and never "is this deferral reachable". A deferral for a ref
+    # this gate can never generate is consumed by NOTHING and reports NOTHING, so
+    # an inert hold reads exactly like a satisfied one. See the reverse sweep at
+    # the end of this script, and CM051 #788 for the incident.
+    printf '%s\n' "$ref" >> "$CONSULTED_REFS"
     [[ -f "$DEFERRALS_FILE" ]] || return 1
     grep -qE "^[[:space:]]*-?[[:space:]]*ref:[[:space:]]*[\"']?${ref}[\"']?[[:space:]]*$" \
         "$DEFERRALS_FILE"
@@ -629,6 +639,71 @@ if [[ "$unchecked" -gt 0 ]]; then
     say "   them either way. They are covered by the OPERATOR run of this script"
     say "   on the build machine, where all three gh accounts resolve. If that run"
     say "   did not happen, these repos went unexamined."
+fi
+
+# ---------------------------------------------------------------------------
+# REVERSE SWEEP: which DECLARED deferrals did nothing this run?
+#
+# is_deferred() only ever answers forwards. Nothing has ever checked that a
+# deferral is reachable, so a ref the gate cannot generate sits in the file
+# looking handled and holding nothing. CM051 #788 recorded
+# `daemon:fix/vault-state-default-status-none`, a BRANCH key, while this gate
+# keys open PRs as `daemon:#312`, a PR-NUMBER key. It never matched. It read as
+# satisfied for its entire life.
+#
+# UNCONSULTED is not automatically a defect. It means exactly one thing: this
+# deferral was not asked about, so it held nothing THIS RUN. Three causes, and
+# the reader has to tell them apart:
+#   1. the ref is malformed or in the wrong key shape  -> fix it
+#   2. the work has since LANDED                       -> delete the deferral
+#   3. its repo was not checked here                   -> excluded below, not
+#                                                         reported, because that
+#                                                         would be noise
+#
+# ADVISORY. It prints a ratio and does not fail the run, because turning it
+# blocking today would red-line a file with 576 entries that predate the check.
+# A permanent red teaches people red means nothing, which is the failure this
+# script's own header warns about.
+# ---------------------------------------------------------------------------
+if [[ -f "$DEFERRALS_FILE" ]]; then
+    declared_refs="$(sed -nE 's/^[[:space:]]*-?[[:space:]]*ref:[[:space:]]*["'"'"']?([^"'"'"']+)["'"'"']?[[:space:]]*$/\1/p' \
+                     "$DEFERRALS_FILE" | sed 's/[[:space:]]*$//' | sort -u)"
+    consulted="$(sort -u "$CONSULTED_REFS" 2>/dev/null || true)"
+    n_declared=$(printf '%s\n' "$declared_refs" | grep -c . || true)
+    n_consulted=$(printf '%s\n' "$consulted" | grep -c . || true)
+
+    # VACUITY CONTROL. If nothing was consulted at all, this sweep has measured
+    # nothing and must say so rather than report every deferral as unconsulted.
+    if [[ "$n_consulted" -eq 0 ]]; then
+        say ""
+        say "   DEFERRAL REACHABILITY: CANNOT-RUN. is_deferred() was never called,"
+        say "   so this run says NOTHING about which deferrals bind. Not a pass."
+    else
+        unconsulted="$(comm -23 <(printf '%s\n' "$declared_refs") <(printf '%s\n' "$consulted"))"
+        # Exclude repos this environment did not check -- their deferrals could
+        # not have been consulted no matter how well-formed they are.
+        if [[ -n "$unchecked_labels" ]]; then
+            for _lbl in ${unchecked_labels//,/ }; do
+                _lbl="${_lbl// /}"
+                [[ -z "$_lbl" ]] && continue
+                unconsulted="$(printf '%s\n' "$unconsulted" | grep -v "^${_lbl}:" || true)"
+            done
+        fi
+        n_unconsulted=$(printf '%s\n' "$unconsulted" | grep -c . || true)
+        say ""
+        say "   DEFERRAL REACHABILITY: ${n_consulted} of ${n_declared} declared deferral(s) were consulted"
+        say "   this run; ${n_unconsulted} were NOT (excluding repos not checked here)."
+        if [[ "$n_unconsulted" -gt 0 ]]; then
+            say "   A deferral nothing asks about holds nothing. Either the ref is in the"
+            say "   wrong key shape, or the work has landed and the row should go."
+            printf '%s\n' "$unconsulted" | head -20 | while IFS= read -r _r; do
+                [[ -n "$_r" ]] && say "     UNCONSULTED  ${_r}"
+            done
+            if [[ "$n_unconsulted" -gt 20 ]]; then
+                say "     ... and $((n_unconsulted - 20)) more (showing 20 of ${n_unconsulted})"
+            fi
+        fi
+    fi
 fi
 
 if [[ "$red" -gt 0 ]]; then
