@@ -45,19 +45,19 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-# Valid categories for enrichment
-VALID_CATEGORIES = [
-    # Core media
-    "book", "movie", "video", "music", "tv", "tv_show", "podcast", "artist", "track",
-    # URLs/bookmarks
-    "bookmark", "website", "page",
-    # Brands/topics
-    "brand", "interest", "topic", "search_interest",
-    # Places
-    "place", "venue", "restaurant",
-    # Events
-    "event", "ticket", "concert",
-]
+# Valid categories for enrichment.
+#
+# DERIVED from the dispatch table, not maintained beside it. These were two
+# hand-kept lists and they had drifted: measured 2026-08-17, NINE categories
+# were dispatchable but rejected by --category, including movie_tv (175
+# preferences on a real corpus, the largest film category), education (106)
+# and food (13). `--all` reached them; `--category movie_tv` returned
+# "Invalid category". Two sources of truth for the same fact, disagreeing.
+#
+# Found by running the CLI against the real corpus on the box. No unit test
+# caught it, because both lists were self-consistent and each test used the
+# one its own code path read.
+VALID_CATEGORIES = sorted(EnrichmentService.CATEGORY_CLIENTS.keys())
 
 
 def validate_category(ctx, param, value):

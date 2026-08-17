@@ -393,6 +393,17 @@ n_entity="$(grep -c 'a pwg:Entity' "$SRC/models/enrichment.py")"
 [ "$n_entity" -ge 1 ] && ok "enriched actors and directors are typed pwg:Entity, a class the People query does not select" \
                       || bad "entities are no longer typed pwg:Entity; whatever they are now may be selected as people"
 
+
+# ── 8. THE CLI WHITELIST AND THE DISPATCH TABLE CANNOT DIVERGE.
+#
+#    They were two hand-kept lists. Measured on the box: nine categories
+#    were dispatchable but rejected by --category, including movie_tv,
+#    education and food. `--all` reached them, a targeted run did not.
+#    Found by RUNNING it, not by any test.
+n_derived="$(grep -c 'VALID_CATEGORIES = sorted(EnrichmentService.CATEGORY_CLIENTS' "$SRC/cli.py")"
+[ "$n_derived" -eq 1 ] && ok "the CLI category whitelist is derived from the dispatch table, not kept beside it" \
+                       || bad "VALID_CATEGORIES is a second hand-kept list again; it will drift from CATEGORY_CLIENTS"
+
 echo
 echo "  $pass passed, $fail failed"
 [ "$fail" -eq 0 ] || exit 1
