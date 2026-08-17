@@ -1393,8 +1393,31 @@ check-ostler-app:
 	@# Empty is passed through deliberately: the gate now treats a missing pin as
 	@# CANNOT-RUN (exit 2) and blocks. A cut record with no DAEMON_COMMIT is a cut
 	@# nobody can attest, and that must be loud rather than defaulted.
+	@# AND A HOTFIX MUST NOT SILENTLY READ ITS PARENT'S CUT RECORD.
+	@#
+	@# CUT_MANIFEST_VERSION is `v$(shell ... | cut -d. -f1-3)`, which TRUNCATES a
+	@# four-part version: 1.0.13.1 resolves cuts/v1.0.13/. Not hypothetical --
+	@# CFBundleShortVersionString has held 1.0.13.1 and 1.0.13.2 in this repo's
+	@# own history, and a hotfix is precisely when the daemon gets re-pinned. So
+	@# the operand this block just started reading could be the PARENT's
+	@# DAEMON_COMMIT while the hotfix ships a different daemon: the same
+	@# right-question-wrong-operand shape one level up.
+	@#
+	@# Prefer the record for the FULL version. Fall back to the truncated one,
+	@# because no four-part cuts/ directory has ever existed and refusing would
+	@# block a hotfix on a convention it has never followed -- but say so, loudly,
+	@# naming BOTH paths. A fallback nobody can see is how the parent's pin gets
+	@# read as the hotfix's.
 	@set -e; \
-	CUT_ENV="$(CURDIR)/../cuts/$(CUT_MANIFEST_VERSION)/cut.env"; \
+	CUT_ENV="$(CURDIR)/../cuts/v$(VERSION)/cut.env"; \
+	if [ ! -f "$$CUT_ENV" ]; then \
+	    _parent="$(CURDIR)/../cuts/$(CUT_MANIFEST_VERSION)/cut.env"; \
+	    if [ "$$_parent" != "$$CUT_ENV" ] && [ -f "$$_parent" ]; then \
+	        printf '[WARN] no cut record for v%s; falling back to %s\n' "$(VERSION)" "$(CUT_MANIFEST_VERSION)" >&2; \
+	        printf '[WARN] if this hotfix re-pinned the daemon, that pin is NOT the one being read\n' >&2; \
+	    fi; \
+	    CUT_ENV="$$_parent"; \
+	fi; \
 	DC="$$(grep -E '^[[:space:]]*DAEMON_COMMIT=' "$$CUT_ENV" 2>/dev/null \
 	       | tail -1 | sed -E 's/^[[:space:]]*DAEMON_COMMIT=//; s/[[:space:]]*(#.*)?$$//')"; \
 	printf '[CHECK] daemon operand from %s: %s\n' "$$CUT_ENV" "$${DC:-<unset>}"; \
