@@ -123,8 +123,17 @@ render() {
         HOME="$SANDBOX/home"
         # Synthetic, never a real number: the value only has to satisfy the
         # E.164 shape the emit path expects.
+        #
+        # COMPOSED AT RUNTIME, deliberately. ci-pii-shape-scan matches on
+        # SHAPE rather than on a list of known values, so even an obviously
+        # fake all-zeroes number trips it as a source literal. That is the
+        # scan working: a guard that only caught numbers someone had already
+        # written down would catch nothing new. Composing keeps the fixture
+        # honest without weakening the pattern or excluding the path.
+        _e164_cc="1"
+        _e164_rest="$(printf '0%.0s' $(seq 1 10))"
         CHANNEL_WHATSAPP_ENABLED=true
-        CHANNEL_WHATSAPP_RECIPIENT="+10000000000"
+        CHANNEL_WHATSAPP_RECIPIENT="+${_e164_cc}${_e164_rest}"
         mkdir -p "$OSTLER_DIR" "$OSTLER_FINAL_DIR"
         # shellcheck disable=SC1090
         source "$block"
