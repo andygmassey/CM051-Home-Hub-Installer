@@ -185,14 +185,24 @@ def extract_events(
 
     Returns:
         List of CalendarEvent objects, chronological order. Returns []
-        on graceful failures (db not found, unrecognised schema, etc.),
-        errors logged.
+        on graceful failures (unrecognised schema, unreadable rows),
+        errors logged. A genuinely empty calendar and a soft schema
+        failure both look like [] -- an absent database does NOT.
 
     Raises:
         PermissionError: If Full Disk Access is not granted (sqlite
             "authorization denied"). Raised -- never swallowed -- so the
             orchestrator surfaces a no_fda status and a Doctor card rather
             than shipping an empty-but-healthy-looking calendar.
+        FileNotFoundError: If no Calendar database exists at the resolved
+            location. Raised for exactly the same reason as the
+            PermissionError above, and it is the idiom every sibling
+            extractor already uses (imessage, apple_notes, reminders,
+            apple_mail, photos_metadata, safari_history all raise it).
+            Returning [] here reported ``{"status": "ok", "events": 0}``
+            from extract_all -- a green summary, no Doctor card, forever --
+            and left that orchestrator's ``except FileNotFoundError ->
+            not_found`` branch unreachable.
     """
     try:
         resolved = _resolve_db_path(db_path)
@@ -201,12 +211,18 @@ def extract_events(
         return []
 
     if resolved is None:
-        logger.warning(
-            "Calendar database not found at either macOS 15 path (%s) "
-            "or macOS 14 path (%s)",
-            DEFAULT_CALENDAR_DB_SEQUOIA, DEFAULT_CALENDAR_CACHE,
+        # Name the path actually probed. The old message always cited both
+        # defaults, so an explicit-path miss read as "your Mac has no
+        # calendar" and sent at least one reader down the wrong trail.
+        if db_path is not None:
+            raise FileNotFoundError(
+                f"Calendar database not found at {db_path}"
+            )
+        raise FileNotFoundError(
+            "Calendar database not found at either macOS 15 path "
+            f"({DEFAULT_CALENDAR_DB_SEQUOIA}) or macOS 14 path "
+            f"({DEFAULT_CALENDAR_CACHE})"
         )
-        return []
 
     try:
         conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
