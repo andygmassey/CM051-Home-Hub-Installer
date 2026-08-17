@@ -654,6 +654,280 @@ class WikidataClient(BaseClient[WikidataEntity]):
 
         return related
 
+    # ── Films, television and places, without an API key ────────────────
+    #
+    # WHY THESE LIVE HERE, measured 2026-08-17.
+    #
+    # `movie`, `movie_tv`, `tv`, `tv_show` dispatched to TMDB and `place`,
+    # `venue`, `restaurant` to Google Places. We ship neither key, so on a
+    # real install 24 films failed in 0.2 seconds and 84 places were never
+    # attempted. 284 preferences that can never succeed, retried on every
+    # future run.
+    #
+    # Wikidata answers the same questions with no credential: genre (P136),
+    # director (P57), cast (P161) for a film; type, country and admin area
+    # for a place. It is a smaller answer than TMDB gives, and it is an
+    # answer, which is the whole of the difference.
+    #
+    # The transport/absence distinction from #805 is honoured throughout:
+    # a source we could not REACH establishes nothing and must stay
+    # eligible for a later run, so it returns UNAVAILABLE rather than NONE.
+
+    FILM_TYPES = frozenset({
+        "Q11424",     # film
+        "Q5398426",   # television series
+        "Q506240",    # television film
+        "Q24856",     # film series
+        "Q1259759",   # miniseries
+        "Q29168811",  # animated feature film
+        "Q93204",     # documentary film
+        "Q21191270",  # television series episode
+        "Q7725310",   # television series season
+    })
+
+    async def _fetch_types(self, qids: List[str]) -> Dict[str, set]:
+        """
+        What KIND of thing is each candidate? One cheap round trip.
+
+        Types are fetched separately from details on purpose. The first
+        version of this asked for types and genres and cast and directors
+        in one query with OPTIONAL blocks, which returns their CROSS
+        PRODUCT, then bounded it with LIMIT 400. On a candidate list headed
+        by something well-connected the first entity alone can fill 400
+        rows, and every later candidate then looks like it has no type at
+        all. That is a silent truncation wearing the costume of an absence,
+        and it is how "Hitchhiker's Guide" came back as "no film or
+        programme named that" while Wikidata holds several.
+
+        One property, no OPTIONALs, no cap needed.
+        """
+        if not qids:
+            return {}
+        values = " ".join("wd:%s" % q for q in qids)
+        query = """
+        SELECT ?item ?type WHERE {
+          VALUES ?item { %s }
+          ?item wdt:P31 ?type .
+        }
+        """ % values
+        result = await self._sparql_query(query)
+        if not result or "results" not in result:
+            return {}
+        out: Dict[str, set] = {}
+        for b in result["results"].get("bindings", []):
+            qid = b.get("item", {}).get("value", "").rsplit("/", 1)[-1]
+            t = b.get("type", {}).get("value", "").rsplit("/", 1)[-1]
+            if qid.startswith("Q") and t.startswith("Q"):
+                out.setdefault(qid, set()).add(t)
+        return out
+
+    async def _fetch_detail(self, qid: str) -> Dict[str, Any]:
+        """Genres, people, year and location for ONE chosen entity."""
+        query = """
+        SELECT ?genreLabel ?directorLabel ?castLabel ?year
+               ?countryLabel ?adminLabel WHERE {
+          OPTIONAL { wd:%(q)s wdt:P136 ?genre . }
+          OPTIONAL { wd:%(q)s wdt:P57  ?director . }
+          OPTIONAL { wd:%(q)s wdt:P161 ?cast . }
+          OPTIONAL { wd:%(q)s wdt:P577 ?date . BIND(YEAR(?date) AS ?year) }
+          OPTIONAL { wd:%(q)s wdt:P17  ?country . }
+          OPTIONAL { wd:%(q)s wdt:P131 ?admin . }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """ % {"q": qid}
+        rec: Dict[str, Any] = {
+            "genres": set(), "directors": set(), "cast": set(),
+            "year": None, "country": None, "admin": None,
+        }
+        result = await self._sparql_query(query)
+        if not result or "results" not in result:
+            return rec
+        for b in result["results"].get("bindings", []):
+            for key, field_name in (("genreLabel", "genres"),
+                                    ("directorLabel", "directors"),
+                                    ("castLabel", "cast")):
+                v = b.get(key, {}).get("value")
+                # A label service that cannot resolve a name echoes the Q-ID
+                # back. Storing that would put "Q12345" on the page as if it
+                # were a director, so it is dropped rather than shown.
+                if v and not re.fullmatch(r"Q\d+", v):
+                    rec[field_name].add(v)
+            if rec["year"] is None and b.get("year", {}).get("value"):
+                rec["year"] = b["year"]["value"]
+            for key, field_name in (("countryLabel", "country"),
+                                    ("adminLabel", "admin")):
+                v = b.get(key, {}).get("value")
+                if v and rec[field_name] is None and not re.fullmatch(r"Q\d+", v):
+                    rec[field_name] = v
+        return rec
+
+    def _unavailable(self, result, what: str):
+        """Mark a result as 'could not reach', which is not an absence."""
+        from ..models.enrichment import MatchType
+        result.error = (
+            "Could not reach Wikidata to look up %s. "
+            "This is NOT a statement about it." % what
+        )
+        result.confidence = 0.0
+        result.match_type = MatchType.UNAVAILABLE
+        return result
+
+    async def enrich_film(
+        self,
+        preference_id: str,
+        title: str,
+        year: Optional[int] = None,
+    ):
+        """Genre, director and cast for a film or television title."""
+        from ..models.enrichment import (
+            EnrichmentResult, EnrichmentSource, MatchType,
+            GenreResult, EntityResult,
+        )
+
+        result = EnrichmentResult(
+            preference_id=preference_id,
+            original_subject=title,
+            source=EnrichmentSource.WIKIDATA,
+        )
+
+        # limit=10, and the 5 it used to be was a defect I introduced.
+        # For "The Hitchhiker's Guide to the Galaxy" Wikidata ranks the
+        # novel, the radio series, the franchise, the video game and a
+        # concept above the film; the film is SIXTH and the TV series
+        # EIGHTH. At 5 this returned "no film or programme named that"
+        # about a title with two. A cap that produces a false absence is
+        # the same defect as the LIMIT in the query above, one layer up.
+        candidates = await self.search_entity(title, limit=10)
+        if not candidates:
+            if getattr(self, "_last_transport_failure", None):
+                return self._unavailable(result, "%r" % title)
+            result.error = "No Wikidata entity for: %s" % title
+            result.match_type = MatchType.NONE
+            return result
+
+        types = await self._fetch_types([c.qid for c in candidates])
+        if not types and getattr(self, "_last_transport_failure", None):
+            return self._unavailable(result, "%r" % title)
+
+        # First candidate that is actually a film or programme. Search
+        # ranking alone is not enough: "Chef" is a film AND an occupation,
+        # and the occupation frequently ranks first.
+        chosen = None
+        for cand in candidates:
+            if types.get(cand.qid, set()) & self.FILM_TYPES:
+                chosen = (cand, await self._fetch_detail(cand.qid))
+                break
+
+        if chosen is None:
+            result.error = "Wikidata has no film or programme named: %s" % title
+            result.match_type = MatchType.NONE
+            return result
+
+        cand, rec = chosen
+        sim = title_similarity(title, cand.label or "")
+        if sim < 0.6:
+            result.error = (
+                "Best Wikidata film match for %r was %r, too far to trust"
+                % (title, cand.label)
+            )
+            result.match_type = MatchType.NONE
+            return result
+
+        result.matched_title = cand.label
+        result.confidence = round(sim, 3)
+        result.match_type = (
+            MatchType.EXACT_TITLE if sim >= 0.95 else MatchType.FUZZY_TITLE
+        )
+        result.genres = [
+            GenreResult(name=g, normalized=g.lower().replace(" ", "_"), confidence=sim)
+            for g in sorted(rec["genres"])
+        ]
+        result.entities = [
+            # Both lists are bounded. A long-running series has dozens of
+            # episode directors and an unbounded cast, and the value here is
+            # the SHAPE of what someone watches, not a complete credit roll.
+            EntityResult(name=d, entity_type="director")
+            for d in sorted(rec["directors"])[:8]
+        ] + [
+            # Bounded deliberately. A cast list is unbounded on Wikidata and
+            # the value here is the shape of what someone watches, not a
+            # complete filmography.
+            EntityResult(name=a, entity_type="actor") for a in sorted(rec["cast"])[:12]
+        ]
+        return result
+
+    async def enrich_place(self, preference_id: str, name: str):
+        """Type, country and administrative area for a place or venue."""
+        from ..models.enrichment import (
+            EnrichmentResult, EnrichmentSource, MatchType,
+            TopicResult, EntityResult,
+        )
+
+        result = EnrichmentResult(
+            preference_id=preference_id,
+            original_subject=name,
+            source=EnrichmentSource.WIKIDATA,
+        )
+
+        candidates = await self.search_entity(name, entity_type="place", limit=10)
+        if not candidates:
+            if getattr(self, "_last_transport_failure", None):
+                return self._unavailable(result, "%r" % name)
+            result.error = "No Wikidata entity for: %s" % name
+            result.match_type = MatchType.NONE
+            return result
+
+        # A place is anything Wikidata situates: it has a country or an
+        # administrative area. Enumerating place TYPES would be a losing
+        # game (restaurant, cafe, hotel, park, borough, hamlet ...), and
+        # "is it located somewhere" is the property that actually matters.
+        chosen = None
+        reached = False
+        for cand in candidates:
+            rec = await self._fetch_detail(cand.qid)
+            reached = True
+            if rec["country"] or rec["admin"]:
+                chosen = (cand, rec)
+                break
+
+        if not reached and getattr(self, "_last_transport_failure", None):
+            return self._unavailable(result, "%r" % name)
+
+        if chosen is None:
+            result.error = "Wikidata has no located entity named: %s" % name
+            result.match_type = MatchType.NONE
+            return result
+
+        cand, rec = chosen
+        sim = title_similarity(name, cand.label or "")
+        if sim < 0.6:
+            result.error = (
+                "Best Wikidata place match for %r was %r, too far to trust"
+                % (name, cand.label)
+            )
+            result.match_type = MatchType.NONE
+            return result
+
+        result.matched_title = cand.label
+        result.confidence = round(sim, 3)
+        result.match_type = (
+            MatchType.EXACT_TITLE if sim >= 0.95 else MatchType.FUZZY_TITLE
+        )
+        result.topics = [
+            TopicResult(
+                name=v,
+                normalized=v.lower().replace(" ", "_"),
+                confidence=sim,
+                source_field=field_name,
+            )
+            for field_name, v in (("country", rec["country"]), ("admin_area", rec["admin"]))
+            if v
+        ]
+        result.entities = [EntityResult(
+            name=cand.label, entity_type="place", external_id=cand.qid,
+        )]
+        return result
+
     # Required abstract method implementations
     async def search(self, query: str) -> Optional[WikidataEntity]:
         """Search for an entity by query string."""

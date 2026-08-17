@@ -255,19 +255,37 @@ for expected in ("bookmark", "interest", "page", "book", "music"):
     if expected not in cats:
         bad.append("%s is dispatchable but not in the sweep" % expected)
 
-# No credential -> excluded, and NAMED as excluded rather than silently gone.
-missing = S.categories_missing_credentials()
-if "movie" in cats:
-    bad.append("movie is swept with no TMDB key, so it can only fail")
-if "movie" not in missing:
-    bad.append("movie is skipped but not reported as needing a credential")
+# Films and places are now KEYLESS, routed to Wikidata rather than to
+# TMDB and Google Places, so they must be SWEPT rather than excluded.
+for expected in ("movie", "movie_tv", "tv", "place", "venue", "education", "food"):
+    if expected not in cats:
+        bad.append("%s is not swept; it should route to a keyless client" % expected)
+for cat, client in (("movie", "wikidata_film"), ("tv", "wikidata_film"),
+                    ("place", "wikidata_place"), ("venue", "wikidata_place"),
+                    ("education", "wikidata"), ("food", "wikidata")):
+    if S.CATEGORY_CLIENTS.get(cat) != client:
+        bad.append("%s routes to %r, expected %r" % (cat, S.CATEGORY_CLIENTS.get(cat), client))
 
-# The discriminating control: with a key present, movie comes back. Without
-# this, "movie is excluded" could be a predicate that excludes everything.
-os.environ["TMDB_API_KEY"] = "test-key-not-a-real-credential"
-S.CLIENT_CREDENTIALS  # touch, no reload needed: the check reads env at call time
-if "movie" not in S.enrichable_categories():
-    bad.append("movie stays excluded even WITH a key: the check is not reading the credential")
+# Andy excluded `professional` explicitly. Asserted so that adding it back
+# is a decision someone has to make against a failing test, not a drift.
+if "professional" in S.CATEGORY_CLIENTS:
+    bad.append("professional has a client; Andy excluded it on 2026-08-17")
+
+# No credential -> excluded, and NAMED as excluded rather than silently
+# gone. `video` still needs a YouTube key, so it carries this control now
+# that films no longer do.
+os.environ.pop("YOUTUBE_API_KEY", None)
+missing = S.categories_missing_credentials()
+if "video" in S.enrichable_categories():
+    bad.append("video is swept with no YouTube key, so it can only fail")
+if "video" not in missing:
+    bad.append("video is skipped but not reported as needing a credential")
+
+# The discriminating control: with a key present, video comes back. Without
+# this, "video is excluded" could be a predicate that excludes everything.
+os.environ["YOUTUBE_API_KEY"] = "test-key-not-a-real-credential"
+if "video" not in S.enrichable_categories():
+    bad.append("video stays excluded even WITH a key: the check is not reading the credential")
 
 print("OK" if not bad else "\n".join(bad))
 PYEOF

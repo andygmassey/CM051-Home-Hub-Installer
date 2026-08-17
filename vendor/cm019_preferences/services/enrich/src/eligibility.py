@@ -58,6 +58,8 @@ SUBJECT_IS_THE_QUERY = frozenset({
     "musicbrainz",
     "wikidata",
     "wikidata_brand",
+    "wikidata_film",
+    "wikidata_place",
     "google_places",
     "foursquare",
     "events",
