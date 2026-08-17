@@ -93,12 +93,18 @@ class EnrichmentService:
         "book": "openlibrary",
         "books": "openlibrary",
 
-        # Movies/TV - TMDB
-        "movie": "tmdb",
-        "movies": "tmdb",
-        "tv": "tmdb",
-        "tv_show": "tmdb",
-        "movie_tv": "tmdb",
+        # Films and television - Wikidata, because we ship no TMDB key.
+        #
+        # These four categories were dispatched to TMDB, which warns at
+        # construction that its key is missing and then fails every item
+        # instantly. Measured: 24 films failed in 0.2 seconds on a real
+        # install, and would have been retried on every run forever.
+        # Wikidata gives genre, director and cast with no credential.
+        "movie": "wikidata_film",
+        "movies": "wikidata_film",
+        "tv": "wikidata_film",
+        "tv_show": "wikidata_film",
+        "movie_tv": "wikidata_film",
 
         # YouTube Videos - YouTube Data API
         "video": "youtube",
@@ -128,10 +134,18 @@ class EnrichmentService:
         "search_interest": "wikidata",
         "instagram_creator": "wikidata",  # Well-known creators may have Wikidata entries
 
-        # Places/Venues - Google Places (Foursquare key not available)
-        "place": "google_places",
-        "venue": "google_places",
-        "restaurant": "google_places",
+        # Andy, 2026-08-17: education and food should be enriched;
+        # `professional` explicitly EXCLUDED. That exclusion is a product
+        # decision, not an oversight, so it is recorded here rather than
+        # left as a category that merely happens to be absent.
+        "education": "wikidata",
+        "food": "wikidata",
+
+        # Places/Venues - Wikidata, because we ship no Google Places key
+        # either. Type, country and administrative area, keyless.
+        "place": "wikidata_place",
+        "venue": "wikidata_place",
+        "restaurant": "wikidata_place",
 
         # Events - Ticketmaster
         "event": "events",
@@ -276,11 +290,34 @@ class EnrichmentService:
                 # Build filter
                 must_conditions = []
 
+                # USER_ID: MATCH IT, OR ACCEPT ITS ABSENCE.
+                #
+                # Measured on a real box, 2026-08-17, over 7,773 preferences:
+                #
+                #     user_id = "ostler"   2,963
+                #     user_id = absent     4,810
+                #
+                # and among the categories enrichment can actually handle,
+                # 4,791 of 6,240 carry NO user_id at all, including every one
+                # of the 4,714 bookmarks and 77 of 84 places. A plain equality
+                # filter silently excluded 77% of the corpus, and did it in a
+                # way that reads as "there was nothing there".
+                #
+                # Ostler is single-machine by architectural directive: the Hub
+                # Mac is THE machine and there is exactly one person. An
+                # untagged preference is therefore THIS user's, not somebody
+                # else's, and skipping it enriches nothing while looking like
+                # a completed pass.
+                #
+                # `should` is OR in Qdrant, and must+should means must AND
+                # at-least-one-should: the right category, and either the
+                # right user or no user at all.
+                should_conditions = []
                 if user_id:
-                    must_conditions.append({
-                        "key": "user_id",
-                        "match": {"value": user_id}
-                    })
+                    should_conditions = [
+                        {"key": "user_id", "match": {"value": user_id}},
+                        {"is_empty": {"key": "user_id"}},
+                    ]
 
                 if category:
                     must_conditions.append({
@@ -303,8 +340,12 @@ class EnrichmentService:
                 if offset:
                     body["offset"] = offset
 
-                if must_conditions:
-                    body["filter"] = {"must": must_conditions}
+                if must_conditions or should_conditions:
+                    body["filter"] = {}
+                    if must_conditions:
+                        body["filter"]["must"] = must_conditions
+                    if should_conditions:
+                        body["filter"]["should"] = should_conditions
 
                 # Order by strength descending for priority processing
                 if order_by_strength:
@@ -617,6 +658,21 @@ INSERT DATA {{
                 result.matched_name = norm_result.label
                 return result
             return None
+
+        elif client_name == "wikidata_film":
+            # For TV, "Show Name - Episode Title" is common; the show is the
+            # thing with a genre and a cast, so search on that half.
+            search_title = subject
+            if " - " in subject:
+                head = subject.split(" - ", 1)[0].strip()
+                if len(head) > 2 and head.lower() not in ("me", "my", "we"):
+                    search_title = head
+            return await self._wikidata.enrich_film(
+                pref_id, search_title, preference.get("year")
+            )
+
+        elif client_name == "wikidata_place":
+            return await self._wikidata.enrich_place(pref_id, subject)
 
         elif client_name == "wikidata_brand":
             # Look up brand in Wikidata
