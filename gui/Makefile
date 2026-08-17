@@ -199,7 +199,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.4.57
+DAEMON_VERSION       ?= 0.4.58
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -230,7 +230,7 @@ DAEMON_VERSION       ?= 0.4.57
 # Commit parity re-derived rather than inherited: BOTH build-info.json files
 # report commit 723c682fd7b44b87e3769adfd2db2fdf59f5dadd, so the daemon and the
 # Hub app are the same line, which is what verify-commit-parity asserts.
-DAEMON_SHA256        ?= f311519a51fed09a59c37c9c4049fac1d5e18228950747f91f41a1a0c2dd749e
+DAEMON_SHA256        ?= d4f274cbc32d7029fe24c3cebde9cd199dab8135cc6e165e2fedf0ae9c2cc6bf
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -297,7 +297,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # signed and deliberately NOT notarised: the cut re-signs it via embed-sparkle.sh
 # codesign --force --deep with the Developer ID, which would discard any earlier
 # ticket. Read from the release's own .sha256 sidecar, not from a build log.
-HUB_APP_SHA256       ?= d1b7f82857eedfd5445387f9e3b9f053c63f5a6c0a2ad6111cdd57ebe2510a8f
+HUB_APP_SHA256       ?= 7a45722d16854a5ccd0e46fc37c0dbd164ffd79ccdef5c6d9fc904d42d73f24e
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
