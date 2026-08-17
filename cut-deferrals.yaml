@@ -184,8 +184,11 @@ deferrals:
       executed, which is the same shape as the prose instruction that killed the v1.0.31 pin.
       It is renewed rather than carried silently, and renewed rather than merged, because the
       mechanical reason is UNCHANGED and was RE-MEASURED, not recalled: ostler-assistant
-      origin/main HEAD is 5b7efb00a54131bf49cb659ea3e23fb325e83db7, which is byte-identical to
-      the DAEMON_COMMIT that cuts/v1.0.34/cut.env pins, because v1.0.34 rebuilds no daemon.
+      origin/main HEAD is 5b7efb00a54131bf49cb659ea3e23fb325e83db7, and cuts/v1.0.34/cut.env
+      pins DAEMON_COMMIT=5b7efb00a541, which is that HEAD abbreviated to 12 characters -- a
+      PREFIX of the same commit, not a second value that happens to agree, and stated that way
+      because an earlier draft called them "byte-identical", which they are not. Same commit,
+      because v1.0.34 rebuilds no daemon.
       Merging ANY of these moves oa main HEAD off the pinned commit and flips the daemon
       freshness row from FRESH to RED STALE the instant it lands, which would then demand
       either a freshly signed and notarised daemon release for a gateway status-string fix, or
@@ -210,8 +213,10 @@ deferrals:
   - ref: daemon:#313
     reason: >-
       DIFFERENT WORK, IDENTICAL MECHANISM, AND IT WAS NEVER DEFERRED AT ALL. MEASURED
-      2026-08-17: oa#313 is open, unmerged, head ref fix/settings-preferences-ia ("a raw
-      config.toml editor was in the customer settings UI"). It is not the vault-state fix and
+      2026-08-17: oa#313 is open, unmerged, head ref fix/settings-preferences-ia, title
+      "fix(web): a raw config.toml editor was in the customer sidebar under the friendliest
+      name in the app" (quoted from the API, after an earlier draft of this row paraphrased
+      it as "customer settings UI" while wearing quotation marks). It is not the vault-state fix and
       is not covered by the entry above, which names only #312. It is held here for the same
       single reason every daemon-side merge is held at this cut: ostler-assistant main HEAD IS
       the pinned DAEMON_COMMIT, so any merge to oa main makes the v1.0.34 daemon pin stale.

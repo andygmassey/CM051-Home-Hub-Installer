@@ -64,8 +64,17 @@ deferrals:
     reason: |-
       LITERAL BLOCK REASON that uses a pipe rather than a caret.
     until_cut: v9.9.9
+  - ref: synthetic:block-with-quotes
+    reason: >-
+      Inside a BLOCK scalar the quotes are literal CONTENT, not YAML syntax.
+      The bug was that status degraded to '' rather than 'none', and the
+      gate's own text says "do not do this".
+    until_cut: v9.9.9
   - ref: synthetic:quoted-inline
     reason: "A quoted single-line reason."
+    until_cut: v9.9.9
+  - ref: synthetic:inline-with-inner-quotes
+    reason: "status was '' rather than 'none', and the note says \"fix it\"."
     until_cut: v9.9.9
 YAML
 
@@ -101,6 +110,68 @@ out="$(run_reason 'synthetic:block-literal')"
 case "$out" in
     *"LITERAL BLOCK REASON"*) ok "literal (|-) block is read too" ;;
     *) no "literal block not read: [${out}]" ;;
+esac
+
+# --- quotes INSIDE a block scalar are content, not syntax ---------------------
+#
+# Raised in review, on the row this cut renews. The inline arm strips quotes
+# because there they ARE YAML syntax; the block arm inherited that strip, and
+# so rendered daemon:fix/vault-state-default-status-none's reason -- "degraded
+# to status '' not 'none'" -- as "degraded to status not none", stating the
+# OPPOSITE of the defect. Measured at 13 rows mangled file-wide.
+#
+# Without a fixture carrying quotes INSIDE a block, the suite was structurally
+# blind to this and would have stayed green while it got worse.
+out="$(run_reason 'synthetic:block-with-quotes')"
+case "$out" in
+    *"degraded to '' rather than 'none'"*) ok "single quotes inside a block survive verbatim" ;;
+    *) no "single quotes inside a block were altered: [${out}]" ;;
+esac
+case "$out" in
+    *'says "do not do this"'*) ok "double quotes inside a block survive verbatim" ;;
+    *) no "double quotes inside a block were altered: [${out}]" ;;
+esac
+
+# CONTROL for the two assertions above: the INLINE arm must still strip its
+# SYNTACTIC quotes. Without this, "stop stripping quotes everywhere" would also
+# pass, and that would break the inline form the old parser got right.
+out="$(run_reason 'synthetic:quoted-inline')"
+case "$out" in
+    '"'*|*'"') no "inline quotes were NOT stripped -- the fix over-reached: [${out}]" ;;
+    *) ok "CONTROL: inline scalar still has its syntactic quotes stripped" ;;
+esac
+
+# --- inline: the OUTER pair is syntax, the INNER quotes are content -----------
+#
+# The other half of the same defect. The inline arm stripped EVERY quote, so a
+# reason citing a value lost the citation: 'none' became none. Measured at 4
+# rows file-wide, distinct from the 13 block rows above.
+out="$(run_reason 'synthetic:inline-with-inner-quotes')"
+case "$out" in
+    '"'*|*'"') no "outer syntactic quotes survived: [${out}]" ;;
+    *) ok "inline: outer syntactic pair still stripped" ;;
+esac
+case "$out" in
+    *"was '' rather than 'none'"*) ok "inline: inner single quotes survive as content" ;;
+    *) no "inline: inner single quotes were eaten: [${out}]" ;;
+esac
+# KNOWN LIMITATION, PINNED ON PURPOSE RATHER THAN HIDDEN.
+#
+# deferral_reason is a LINE-ORIENTED READER, not a YAML parser. Inside a
+# double-quoted scalar, YAML treats \" as an escaped quote; awk sees the raw
+# bytes and prints the backslash. So a reason written with \" renders with
+# visible backslashes.
+#
+# Left unhandled because handling it means implementing YAML string escapes in
+# awk, and the corpus does not need it: measured across all 580 deferrals, the
+# reader agrees with PyYAML on 580 and disagrees on 0, so NO real row uses an
+# escape. This assertion states the current behaviour so that a future reader
+# who makes the parser smarter is told to update it, instead of discovering
+# the gap the way this one was discovered -- by a fixture nobody had written.
+case "$out" in
+    *'says \"fix it\"'*) ok "KNOWN LIMITATION pinned: YAML \\\" escapes are not unescaped (0 real rows affected)" ;;
+    *'says "fix it"'*)   no "escapes ARE now handled -- good, but update this assertion and the note above it" ;;
+    *) no "inline: inner double quotes were eaten entirely: [${out}]" ;;
 esac
 
 # --- inline forms must not regress -------------------------------------------

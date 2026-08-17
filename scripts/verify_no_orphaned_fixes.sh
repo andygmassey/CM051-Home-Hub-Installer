@@ -156,7 +156,20 @@ deferral_reason() {
             match($0, /^[[:space:]]*/)
             if (RLENGTH > key_indent) {
                 line = $0; gsub(/^[[:space:]]+/, "", line)
-                gsub(/["'"'"']/, "", line)
+                # NO QUOTE STRIPPING HERE, and the asymmetry with the inline
+                # arm below is the whole point. On an inline scalar the quotes
+                # are YAML SYNTAX and must come off. Inside a block scalar they
+                # are literal CONTENT, and stripping them rewrites the reason.
+                #
+                # Found in review, on the worst possible row: this cut renews
+                # daemon:fix/vault-state-default-status-none, whose reason says
+                # the bug was "degraded to status '' not 'none'". Stripped, the
+                # gate printed "degraded to status not none" -- which states the
+                # OPPOSITE of the defect. Measured over the whole file, 13 rows
+                # rendered a reason that was not their reason.
+                #
+                # That is the same failure as printing the bare block marker,
+                # only quieter: a mangled why still reads as an explanation.
                 buf = buf " " line
                 next
             }
@@ -175,7 +188,18 @@ deferral_reason() {
                 collecting = 1; buf = ""
                 next
             }
-            gsub(/["'"'"']/, "", r); print r; exit
+            # Strip ONE MATCHING OUTER PAIR, not every quote in the string.
+            # The old gsub removed inner quotes too, so an inline reason
+            # citing a value -- 'none', "do not do this" -- was printed
+            # without them. Measured: 4 rows file-wide, and they are the
+            # remainder of the same defect the block arm above carries a
+            # comment about. Truncation-shaped rather than meaning-inverting,
+            # but a reason is evidence and evidence is quoted.
+            if ((substr(r, 1, 1) == "\"" && substr(r, length(r), 1) == "\"") ||
+                (substr(r, 1, 1) == "'"'"'" && substr(r, length(r), 1) == "'"'"'")) {
+                r = substr(r, 2, length(r) - 2)
+            }
+            print r; exit
         }
         END { if (collecting) flush_block() }
     ' "$DEFERRALS_FILE" 2>/dev/null
