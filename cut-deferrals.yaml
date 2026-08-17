@@ -161,6 +161,24 @@ pr_exemptions:
   # CM031App, and #164's merge commit is an ancestor.
 
 deferrals:
+  - ref: daemon:fix/vault-state-default-status-none
+    reason: >-
+      The ONLY RED in check-orphans for v1.0.33. It is a real fix with a real test (1da772e5
+      vault-state degraded to status '' not 'none' on every failure path, plus 60516bdd asserting
+      the general invariant rather than three instances of it), it is ahead 2 / behind 0 against
+      oa main, and it would merge clean. It is deferred anyway, and the reason is mechanical
+      rather than editorial. MEASURED: oa main HEAD is 5b7efb00a541, which IS the daemon commit
+      this cut pins in cuts/v1.0.33/cut.env, which is exactly why the freshness gate currently
+      reports 'daemon (0.4.58) 5b7efb00 5b7efb00 FRESH'. verify_cut_freshness.sh compares the
+      pinned daemon against LIVE ostler-ai/ostler-assistant HEAD (the RED arm is at :746), so
+      merging these two commits moves that HEAD to 60516bdd and converts a FRESH row into RED
+      STALE:+2 the instant it lands. Clearing that would then demand either a fresh signed and
+      notarised daemon release cut for a gateway status-string fix, or a hold_ack asserting the
+      fix is grafted when it is not. Both are worse than waiting. MERGE IT IMMEDIATELY AFTER THE
+      v1.0.33 TAG IS PUSHED, alongside oa #312, which is held on this identical mechanism. This
+      deferral expires at v1.0.33 by design: if a v1.0.34 is ever cut with this still unmerged,
+      the gate must say so again rather than carry the hold silently forward.
+    until_cut: v1.0.33
   # -------------------------------------------------------------------------
   # ADDED 2026-08-13 for the v1.0.26 cut. The orphan gate named exactly three
   # RED refs -- #621, #622, #623 -- all open PRs with work not in main.
