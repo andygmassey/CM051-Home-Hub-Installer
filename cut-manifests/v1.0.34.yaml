@@ -1,0 +1,184 @@
+# cut-manifests/v1.0.34.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.34.
+#
+# WHY v1.0.34 EXISTS: THERE IS A BOX WORTH WALKING.
+# ---------------------------------------------------------------------------
+# v1.0.33 (a1cb850f) is 33 commits behind main and 0 ahead. Every fix merged on
+# 2026-08-17 landed after it. Walking v1.0.33 would mean rediscovering defects
+# that are already fixed, which is the most expensive possible use of a walk
+# and the reason this cut was asked for.
+#
+# WHAT THIS CUT CARRIES THAT v1.0.33 DOES NOT
+#   CM051 #808  the YouTube parser claimed three Facebook files and destroyed each
+#   CM051 #817  the WhatsApp parser ate 2,708 Facebook and Instagram message files
+#   CM051 #816  enrichment had NO invoker, so on a stock install it had never run
+#   CM051 #818  the ten-minute enrich stall was an unset allowance, not a timeout
+#   CM051 #820  a sweep that spent its whole allowance reported ENRICHMENT COMPLETE
+#   CM051 #823  the wiki page-count oracle
+#   CM051 #809  wiki re-pin to image v0.1.18 (the navigation fix)
+#
+# WHY THE PAGE-COUNT ORACLE IS THE ENTRY THAT MATTERS FOR THE WALK
+# ---------------------------------------------------------------------------
+# The primary fault on Andy's last box was a wiki that compiled ZERO pages while
+# the install reported 39/39 green. That is not a reporting cosmetic: CM044
+# discards its own result, so a total compile failure also exits 0, and
+# install.sh had no page count anywhere. The exit code was never an oracle. This
+# is the first cut that can detect the condition at install time, which is why
+# it is asserted here rather than left to the walk to notice again.
+#
+# WHAT WAS FIXED IN THE COURSE OF PREPARING THIS CUT, AND WHY IT IS NOT A
+# FEATURE CHANGE
+# ---------------------------------------------------------------------------
+# #809 re-pinned both wiki digests and added no rows to
+# scripts/wiki_image_provenance.tsv. Measured on main at 25cc231d, the wiki
+# provenance gate exited 1 with 4 FAILs, all "UNRECORDED provenance
+# (fail-closed)". That gate is a cut.yml preflight step, so the tag would have
+# gone red at preflight and SKIPPED the cut job, spending the version number for
+# nothing. The two ledger rows are added on the cut branch. Adding a row that
+# records what an already-built image IS changes no shipped byte.
+#
+# NOT ASSERTED HERE, DELIBERATELY
+# ---------------------------------------------------------------------------
+# 1. That the wiki RENDERS its navigation. #809 got the CSS into the image the
+#    installer pulls, which is a delivery step, not a render check. Nobody has
+#    opened the fixed wiki in a browser. It is a box-walk item and it stays one.
+# 2. That enrichment PRODUCES enrichment. The entries below prove the invoker
+#    exists and is installed; whether a LaunchAgent fires on a real box and
+#    writes facts is behaviour, and behaviour is what the walk is for.
+# 3. The 4 advisory WARNs from the provenance gate: the wiki images carry no
+#    org.opencontainers.image.revision label, so the digest-to-source binding is
+#    a hand-recorded claim rather than an enforceable one. The CONTENT of each
+#    required fix was proven present by pulling and grepping the pinned images,
+#    so this is a weakness in the binding's enforceability, not evidence of a
+#    wrong image. Stamping the revision label at build time is owed to CM044.
+version: v1.0.34
+entries:
+  # --------------------------------------------------------------------------
+  # THE WIKI IMAGES. Two entries, not one, because the two images are pinned on
+  # separate lines and a single assertion would pass with one of them left on
+  # v0.1.17 -- the half-shipped state v1.0.32 was in.
+  #
+  # Anchored on the FULL 64-hex digest, so they cannot be satisfied by an
+  # unrelated `ostler-wiki-site@sha256:` line. Both digests were read from the
+  # ghcr registry for tag 0.1.18, not from the PR body that claimed them.
+  # --------------------------------------------------------------------------
+  - id: v1034-wiki-site-is-v0118
+    title: install.sh pins the wiki-site image that carries the navigation fix
+    incident: >-
+      CM044 #210 (bf5dfe68) is the fix for the missing wiki navigation, and v0.1.17
+      predates it by exactly one commit. So the fix was merged and the image every
+      install pulls did not contain it. Andy raised the missing navigation twice;
+      the pin is the step that was missing both times.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670'
+      must_match: true
+
+  - id: v1034-wiki-compiler-is-v0118
+    title: install.sh pins the wiki-compiler image from the same v0.1.18 source
+    incident: >-
+      The compiler and the site are pinned on different lines and have drifted apart
+      before. Both must come from CM044 bf5dfe68 or the rendered wiki and the compiler
+      that produced it disagree about what the page template is.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f'
+      must_match: true
+
+  - id: v1034-no-v0117-wiki-pin-survives
+    title: no v0.1.17 wiki digest is left anywhere in install.sh
+    incident: >-
+      A re-pin that edits one of two lines leaves the other live, and the failure is
+      silent because both lines are individually well-formed. This is the negative
+      half of the two entries above: it was measured at 0 hits on the cut branch, so
+      it discriminates rather than passing vacuously.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a|21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e)'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # THE FIX THAT WOULD HAVE CAUGHT ANDY'S LAST BOX.
+  # --------------------------------------------------------------------------
+  - id: v1034-wiki-compile-has-a-page-count-oracle
+    title: install.sh counts the wiki pages instead of trusting the compiler's exit code
+    incident: >-
+      On Andy's last box the wiki compiled zero pages while the install reported 39/39
+      green. CM044 discards its own result, so a total compile failure exits 0 too, and
+      install.sh had no page count anywhere. The count is -type f, not -name '*', so a
+      tree of empty directories counts zero rather than reading as a built wiki.
+    proof:
+      kind: grep_in_installer
+      pattern: 'WIKI_PAGE_COUNT="\$\(find "\$WIKI_DOCS_DIR" -type f'
+      must_match: true
+
+  - id: v1034-zero-pages-is-reported-as-not-built
+    title: a zero-page compile is stated as NOT built, not summarised as green
+    incident: >-
+      Counting is only half of an oracle; the count has to change what the installer
+      SAYS. Without this the number is printed and the step still reads green, which is
+      the same walk-past that produced the original 39/39.
+    proof:
+      kind: grep_in_installer
+      pattern: 'produced ZERO pages under'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # ENRICHMENT. Presence of the invoker only; behaviour is a walk item.
+  # --------------------------------------------------------------------------
+  - id: v1034-enrichment-has-an-invoker
+    title: the installer registers a recurring enrichment invoker
+    incident: >-
+      There was exactly ONE invocation of enrichment in the entire product, inside
+      bin/ostler-import, which runs only when a GDPR export is dropped. On a Mac where
+      the customer never drops one, enrichment had never run and never would. This was
+      not a bug in enrichment; enrichment was never reached.
+    proof:
+      kind: grep_in_installer
+      pattern: '_install_enrichment_agent\(\)'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # Carried forward. An unchanged claim still has to be measured.
+  # --------------------------------------------------------------------------
+  - id: v1034-payload-carries-the-0458-daemon
+    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+    incident: >-
+      v1.0.31 moved this line and had to move the pins naming the daemon with it or ship
+      halves of two builds: install.sh's DEFAULT_ASSISTANT_TARBALL_SHA256 held the
+      previous digest while the version string had already advanced, and a customer
+      install would have fetched the new tarball and aborted on its own fail-closed
+      checksum. v1.0.34 rebuilds no daemon, so the pair is re-measured rather than
+      assumed to have stayed together: gui/Makefile, install.sh's version, install.sh's
+      tarball checksum and the PUBLISHED hub-v0.4.58 .sha256 sidecar all read
+      d4f274cbc32d7029fe24c3cebde9cd199dab8135cc6e165e2fedf0ae9c2cc6bf.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1034-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. Re-asserted every cut because "the DMG contains the Hub" is the kind of
+      claim that is only ever true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1034-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.34
+    incident: >-
+      Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
+      a cut, shipping an installer that reports the previous version to the customer and
+      to support. CFBundleVersion moves WITH it, 3300 to 3400, because that is the field
+      SPARKLE COMPARES: an update whose build number is at or below the installed one is
+      skipped SILENTLY, with no error, no prompt and no log line a customer would see.
+      All ten version sites were moved together and the derivation gate was run.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.34"
