@@ -97,7 +97,21 @@ COUNT_FILE="${OSTLER_NS_COUNT_FILE:-$REPO/scripts/.foreign-ontology-namespace-co
 
 # The namespaces that are NOT ours. Add a row when another one is found; never
 # remove one to make a build pass.
-FOREIGN_RE='pwg\.dev'
+# BOTH pwg domains, not just the unregistered one.
+#
+# The first version of this regex was `pwg\.dev` alone. Measured 2026-08-17,
+# the shipping tree also carries `http://pwg.local/ontology#` in 5 files: the
+# CM019 enrichment service writes every enriched preference into it. That is a
+# THIRD pwg-branded namespace, and with a pwg.dev-only regex this ratchet
+# could not see it. Retiring pwg.dev while leaving pwg.local in place would
+# have looked like a completed migration and left "pwg" stamped into the
+# customer's graph forever.
+#
+# pwg.local is not unregistered, it is worse in one respect and better in
+# another: `.local` is reserved for mDNS, so it can never be resolved or
+# owned, and any tooling that dereferences it is querying the local network.
+# It is better only in that it cannot be taken by a stranger.
+FOREIGN_RE='pwg\.(dev|local)'
 
 # Ours, for the message. Any replacement must land on a domain we control.
 OURS='https://ostler.ai/ontology#'
@@ -113,18 +127,37 @@ declared="$(grep -vE '^[[:space:]]*#' "$COUNT_FILE" | tr -dc '0-9')"
 
 # grep -c per file then sum: `git grep -c` prints per-file counts, and a plain
 # line count would undercount two occurrences on one line.
-actual="$(git grep -ohE "$FOREIGN_RE" 2>/dev/null | grep -c . || true)"
-files="$(git grep -lE "$FOREIGN_RE" 2>/dev/null | grep -c . || true)"
+# THE INSTRUMENT MUST NOT COUNT ITSELF.
+#
+# This script and its count file both NAME the namespaces, in prose, in
+# order to explain what they are for. Without these exclusions the gate
+# measures its own documentation: widening the regex made the number rise
+# purely because the new comment mentioned the new domain. A guard whose
+# reading moves when you edit its comments is measuring the wrong thing.
+#
+# THE PATHS BELOW ARE VERIFIED TO EXIST, by the companion test, because an
+# exclusion pathspec that names a file which is not there is silently a
+# no-op: `git grep` accepts it, excludes nothing, and the count quietly
+# includes the very file the line was written to remove. The first draft of
+# this list said `tests/test_...` when the test lives at `scripts/tests/`,
+# so the gate went on counting its own test and nothing said a word.
+SELF=(
+  ":(exclude)scripts/verify_no_foreign_ontology_namespace.sh"
+  ":(exclude)scripts/.foreign-ontology-namespace-count"
+  ":(exclude)scripts/tests/test_no_foreign_ontology_namespace.sh"
+)
+actual="$(git grep -ohE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
+files="$(git grep -lE "$FOREIGN_RE" -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
 
 echo "foreign ontology namespace: occurrences=${actual} files=${files} declared=${declared}"
 
 if [ "${actual:-0}" -gt "$declared" ]; then
     echo >&2
     echo "WARN: the count went UP, ${declared} -> ${actual}." >&2
-    echo "  Something new is stamping an unregistered domain into customer data." >&2
+    echo "  Something new is stamping a pwg-branded domain into customer data." >&2
     echo "  Use ${OURS} instead. If this arrived via a re-vendor, the fix belongs" >&2
     echo "  in the SOURCE repo, not here, or the next re-vendor undoes it." >&2
-    git grep -nE "$FOREIGN_RE" | head -20 >&2
+    git grep -nE "$FOREIGN_RE" -- . "${SELF[@]}" | head -20 >&2
     [ "$declared" -eq 0 ] && exit 1
     echo >&2
     echo "  ADVISORY while the declared count is above zero (currently ${declared})." >&2
@@ -150,8 +183,18 @@ if [ "${actual:-0}" -eq 0 ]; then
     exit 0
 fi
 
+# The breakdown is printed rather than a single total, because the two domains
+# are wrong for different reasons and a reader who only sees "294" cannot tell
+# which migration is outstanding. It also keeps the sentence TRUE: only the
+# first of them is unregistered, and calling all 294 unregistered would be the
+# same kind of small false statement this gate exists to stop.
+n_dev="$(git grep -ohE 'pwg\.dev' -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
+n_local="$(git grep -ohE 'pwg\.local' -- . "${SELF[@]}" 2>/dev/null | grep -c . || true)"
+
 echo "GATE: GREEN -- at the declared count of ${declared}, not above it."
-echo "  This is a RATCHET, not an endorsement. ${actual} occurrences of an"
-echo "  UNREGISTERED domain remain in customer-facing identifiers. Migration"
-echo "  target: ${OURS}"
+echo "  This is a RATCHET, not an endorsement. ${actual} occurrences of a"
+echo "  pwg-branded namespace remain in customer-facing identifiers:"
+echo "    ${n_dev} on an UNREGISTERED domain, which anyone can buy"
+echo "    ${n_local} on a domain reserved for mDNS, which nobody can own"
+echo "  Migration target: ${OURS}"
 exit 0
