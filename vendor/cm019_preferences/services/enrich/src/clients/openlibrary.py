@@ -364,6 +364,20 @@ class OpenLibraryClient(BaseClient[BookMetadata]):
                         search_title = main_title
 
             if not search_result:
+                # An empty result means "not found" ONLY if we actually reached
+                # the service. If the transport failed we established nothing,
+                # and saying "Book not found" writes a false absence into the
+                # customer's graph that is never retried because it reads as
+                # answered. See BaseClient._last_transport_failure.
+                transport = getattr(self, "_last_transport_failure", None)
+                if transport:
+                    result.error = (
+                        f"Could not reach {self.BASE_URL} to look up {title!r} "
+                        f"({transport}). This is NOT a statement about the book."
+                    )
+                    result.confidence = 0.0
+                    result.match_type = MatchType.UNAVAILABLE
+                    return result
                 result.error = f"Book not found: {title}"
                 result.confidence = 0.0
                 result.match_type = MatchType.NONE

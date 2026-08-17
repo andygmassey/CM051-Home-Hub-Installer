@@ -1,0 +1,12 @@
+name: unreachable-not-absence
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  honesty:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: an unreachable source must never be recorded as absent
+        run: bash tests/test_unreachable_is_not_absence.sh
