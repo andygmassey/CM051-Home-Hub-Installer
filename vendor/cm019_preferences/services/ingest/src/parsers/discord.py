@@ -30,6 +30,10 @@ class DiscordParser(BaseParser):
 
     source_name = "discord"
 
+    # The four directories that sit side by side at the root of a real Discord
+    # data package. Compared as whole path SEGMENTS, never as substrings.
+    DISCORD_PACKAGE_DIRS = frozenset({"messages", "servers", "activity", "account"})
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a Discord data package."""
         name = file_path.name.lower()
@@ -42,11 +46,7 @@ class DiscordParser(BaseParser):
             # Check ZIP contents for Discord structure
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
-                    names = [n.lower() for n in zf.namelist()]
-                    # Discord packages have Messages/, Servers/, Activity/, Account/ folders
-                    # Check for these folder patterns (case-insensitive)
-                    discord_patterns = ['messages/', 'servers/', 'activity/', 'account/']
-                    return any(any(df in n for n in names) for df in discord_patterns)
+                    return self._has_discord_package_layout(zf.namelist())
             except Exception:
                 return False
 
@@ -59,6 +59,47 @@ class DiscordParser(BaseParser):
             return True
 
         return False
+
+    @classmethod
+    def _has_discord_package_layout(cls, member_names) -> bool:
+        """Return True if the archive is laid out like a Discord data package.
+
+        Two separate things were wrong with the test this replaces, which asked
+        whether any member name CONTAINED any one of "messages/", "servers/",
+        "activity/" or "account/":
+
+        1. Containment, not path-segment equality. "activity/" is a substring
+           of "your_facebook_activity/" and of "your_instagram_activity/", so
+           every Facebook and Instagram export handed to the product was
+           claimed here. ``IngestPipeline._get_parser`` takes the FIRST parser
+           that claims a file and this parser is registered ahead of
+           MetaParser, so Meta was never asked. Measured on real export
+           archives: 0 preferences out of a Facebook export, against 4 from
+           the Meta parser that should have had it.
+
+        2. Any ONE of the four folders was enough. Facebook and Instagram both
+           ship a "messages" directory inside their activity tree, so segment
+           equality ALONE would still have handed them over.
+
+        So: compare whole path SEGMENTS, and require at least TWO of the four
+        to be siblings of each other. A real Discord package has all four. An
+        unrelated export that happens to contain one "messages" folder has one.
+
+        Discord also ships packages wrapped in a single top folder, so the
+        siblings are counted at the archive root and one level below it.
+        """
+        siblings: Dict[str, set] = {}
+        for raw in member_names:
+            parts = [p for p in raw.replace("\\", "/").split("/") if p]
+            # A directory is only evidenced by something living underneath it.
+            if len(parts) >= 2:
+                siblings.setdefault("", set()).add(parts[0].lower())
+            if len(parts) >= 3:
+                siblings.setdefault(parts[0].lower(), set()).add(parts[1].lower())
+        return any(
+            len(cls.DISCORD_PACKAGE_DIRS & found) >= 2
+            for found in siblings.values()
+        )
 
     async def parse(
         self,
