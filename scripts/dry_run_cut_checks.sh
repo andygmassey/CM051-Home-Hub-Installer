@@ -154,6 +154,7 @@ verify-dmg-contents|SKIP|a CHECK, but it mounts the DMG. No DMG, nothing to moun
 verify-stapling|SKIP|a CHECK, but it mounts the DMG.
 verify-commit-parity|SKIP|a CHECK, but it mounts the DMG.
 archive|SKIP|copies the shipped DMG into the operator archive dir. That is publishing. Excluded by construction.
+publish-appcast|SKIP|PUBLISHES to the customer-facing Sparkle feed, so it is excluded by construction twice over. It is the last prerequisite of `ship:` and it is the one a dispatch must never be able to reach. It is also air-gapped by design: RELEASE_PROCESS.md gpg-decrypts the Sparkle private key from a USB volume and stops on a failed verify, which is why `make ship` calling it at all is the deliberate part and running it here would be the hand-cut the header refuses.
 PLAN
 }
 
