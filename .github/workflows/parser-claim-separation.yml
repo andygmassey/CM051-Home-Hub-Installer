@@ -45,3 +45,9 @@ jobs:
       - name: no parser may claim another service's export
         if: always()
         run: python3 tests/test_parser_claims_do_not_cross_services.py
+      - name: an EXTRACTED Discord package must still be claimed
+        # MEASURED: package.zip is claimed, but all 74 files inside the
+        # extracted tree are not, because the .json test needs the literal
+        # string "discord" in the FILENAME. if: always() -- independent axis.
+        if: always()
+        run: python3 tests/test_discord_claims_an_extracted_package.py
