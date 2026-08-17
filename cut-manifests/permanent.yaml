@@ -390,6 +390,32 @@ entries:
       kind: box_walk_probe
       probe: "install_error_honesty"
 
+  # ==========================================================================
+  # #722. The estate had no instrument that observes OUTBOUND traffic at all.
+  # Searched OS003 and CM051 with a positive control before building: the only
+  # lsof in a probe read INBOUND listeners. The strongest claim the product
+  # makes had a diagram behind it and no measurement.
+  #
+  # This row exists so the probe cannot become the thing it measures. It SKIPS
+  # while OSTLER_BOX_HOST is unset, like its siblings, and goes live the moment
+  # a cut targets a real box.
+  #
+  # READ THE PROBE'S OWN BLIND-SPOT LINE BEFORE QUOTING A GREEN FROM IT. It
+  # samples established TCP; it cannot see sub-sample-lifetime connections,
+  # UDP, DNS, proxied requests, or any payload content. A pass here is the
+  # floor of an evidence chain, not a proof of no leak, and this row must not
+  # be cited as one.
+  # ==========================================================================
+  - id: box-walk-no-unexpected-egress
+    title: no Ostler-owned process may hold a connection outside the declared local boundary
+    incident: >-
+      task #722; a cold outside read of the marketing site reached "a diagram,
+      not a proof" of the boundary claim, and the estate had zero runnable
+      instruments that observe the network in the outbound direction
+    proof:
+      kind: box_walk_probe
+      probe: "no_unexpected_egress"
+
   - id: box-walk-installed-bundle-seal-intact
     title: the installed bundle's code signature must still verify on the box
     incident: >-
