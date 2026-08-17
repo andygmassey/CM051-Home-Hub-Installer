@@ -13283,8 +13283,53 @@ for d in "${DIRS[@]}"; do
     if [[ -x "$CM019_PY" ]]; then
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
             "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+
+        # THIS CALL IS WHY THE INSTALL STALLED FOR TEN MINUTES.
+        #
+        # It passed no --budget-seconds, so it took the option default,
+        # which reads OSTLER_ENRICH_BUDGET_SECONDS and falls back to 600.
+        # Nothing sets that variable here: the recurring agent sets it in
+        # its own plist, and this script is not the agent. Ten minutes,
+        # foreground, with a person watching a progress bar.
+        #
+        # MEASURED, and it corrects the diagnosis in the box-walk row.
+        # That row says "needs a timeout". Every client already has one
+        # (base.py:99 timeout=30.0, and settings.request_timeout for the
+        # rest). The observed nine minutes in SYN_SENT was retries with
+        # backoff against an unreachable host, not an unbounded socket,
+        # and the wall-clock budget that now bounds it landed AFTER the
+        # v1.0.33 tag: budget at 7cc2a6f (2026-08-17 19:07 +0800),
+        # v1.0.33 at a1cb850 (13:30 +0800). Adding a socket timeout would
+        # have changed nothing, because the ceiling is the budget.
+        #
+        # A SHORT ALLOWANCE IS SAFE HERE AND THAT IS NOT A CONCESSION.
+        # Enrichment skips what is already enriched, so an allowance that
+        # runs out costs nothing: the recurring agent this same installer
+        # creates (com.ostler.enrich, every 1800s) resumes exactly where
+        # this stopped. The agent's own comment already states the design
+        # rule this call was breaking: enrichment is a background drain,
+        # not an install-time pass, because a full first pass over a real
+        # corpus is hours at Wikidata's one request per second.
+        #
+        # It stays non-zero rather than being removed so a manual
+        # `ostler-import` still shows something happening.
         ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
-            "$CM019_PY" -m services.enrich.src.cli enrich --all -u "$CM019_USER" ) || rc=$?
+            "$CM019_PY" -m services.enrich.src.cli enrich --all \
+                --budget-seconds "${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}" \
+                -u "$CM019_USER" ) || rc=$?
+
+        # Say what is still owed. The pass above prints PAUSED when it
+        # stops on its allowance (CM051 #821), but that word only means
+        # something if the customer is told what picks the work up.
+        echo "Enrichment ran for up to ${OSTLER_IMPORT_ENRICH_BUDGET_SECONDS:-90}s. Anything not reached is not lost: the background agent continues it."
+
+        # Start the drain now rather than up to 30 minutes from now. The
+        # agent does not exist yet during the first install (it is created
+        # later in the run), so an absent label is the NORMAL case here,
+        # not an error, and must not fail the import.
+        if launchctl print "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1; then
+            launchctl kickstart "gui/$(id -u)/com.ostler.enrich" >/dev/null 2>&1 || true
+        fi
     fi
 
     # ── Universal importer (ostler_fda.universal_import) ───────────
