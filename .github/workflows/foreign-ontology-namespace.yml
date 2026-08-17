@@ -1,0 +1,53 @@
+# The ratchet on #743 landed in CM051 #802 and NOTHING RAN IT.
+#
+# Measured on 7cc2a6f, the merge commit of #802 plus three more: no workflow,
+# no cut-gate runner and no TEST_WIRING row referenced either
+# scripts/verify_no_foreign_ontology_namespace.sh or its test. The gate was a
+# file in the repository and not an instrument. Same shape as the dark BOM
+# gate and the dark Swift suite: written, reviewed, merged, never invoked.
+#
+# DELIBERATELY NO `paths:` FILTER.
+#
+# Every other gate here is keyed to the files it guards, because they guard a
+# specific mechanism. This one guards a STRING that can arrive from anywhere:
+# a vendor drop, a new service, a copied PREFIX line, a re-vendor that undoes
+# an upstream migration. The occurrences it counts today live across 67 files
+# in vendor/, and the next one will land in a file nobody thought to list.
+# A paths filter would make it blind to exactly the event it exists to catch,
+# while still reporting green on the PRs it did run for.
+#
+# It is ADVISORY while the declared count is above zero (it warns and exits 0),
+# and becomes HARD by itself the moment that count reaches zero. So running it
+# everywhere costs no PR anything today and costs nothing to promote later.
+name: foreign-ontology-namespace
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  foreign-ontology-namespace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The controls first. If the instrument is broken, its reading about the
+      # tree is worthless, and running them in this order means a broken
+      # instrument reports as a broken instrument rather than as a clean tree.
+      - name: Prove the ratchet fires in both directions, and on both domains
+        run: bash scripts/tests/test_no_foreign_ontology_namespace.sh
+
+      - name: Count pwg-branded ontology namespaces against the declaration
+        if: always()
+        run: bash scripts/verify_no_foreign_ontology_namespace.sh
