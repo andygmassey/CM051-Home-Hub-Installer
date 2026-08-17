@@ -219,6 +219,35 @@ deferrals:
       happens not to block because CI sets OSTLER_ORPHAN_GATE_SKIP to include `daemon`. A gate
       that is skipped is not a gate that passed, and the skip is why this needed writing down.
     until_cut: v1.0.34
+
+  - ref: daemon:fix/settings-preferences-ia
+    reason: >-
+      THE SPELLING THE GATE ACTUALLY CONSULTS, AND I GOT THIS WRONG ONCE ALREADY IN THIS SAME
+      FILE. I added daemon:#313 above, reasoned at length about ref-spelling twins while doing
+      it, and then still deferred only the PR-number spelling. The v1.0.34 dry run answered
+      immediately: [RED] daemon:fix/settings-preferences-ia. The orphan gate enumerates daemon
+      refs by BRANCH NAME, so daemon:#313 is a row nothing asks about, and a deferral nothing
+      asks about holds nothing -- which is exactly the defect CM051 #792 exists to surface.
+      Same work, same mechanism, same expiry as the rows above: ostler-assistant origin/main
+      HEAD IS the DAEMON_COMMIT pinned by cuts/v1.0.34/cut.env, so merging this moves oa main
+      off the pin and flips the daemon freshness row from FRESH to RED STALE the moment it
+      lands. Merge it with the other two immediately after the v1.0.34 tag is pushed.
+    until_cut: v1.0.34
+
+  - ref: CM051:#792
+    reason: >-
+      MEASURED 2026-08-17: open, not draft, mergeable=MERGEABLE, branch
+      fix/deferrals-report-unconsulted-refs, "a deferral nothing asks about holds nothing --
+      report unconsulted refs". It is a CUT-GATE OBSERVABILITY improvement and touches no
+      customer-facing surface, so nothing a box-walk exercises rides on it. Deferred rather
+      than merged because landing a change to the orphan gate's own reporting DURING a cut,
+      on the day the cut is the blocker, is the risk the cut discipline exists to refuse: it
+      would alter the instrument while the instrument is being read. THE UNCOMFORTABLE PART,
+      recorded because it argues against this decision rather than for it: #792 would have
+      caught the daemon ref-spelling gap directly above, which I instead found by reading a
+      dry-run RED. That is a point in its favour, and it should land early in the v1.0.35
+      window rather than drift -- it is not legacy backlog and must not decay into it.
+    until_cut: v1.0.34
   # -------------------------------------------------------------------------
   # ADDED 2026-08-13 for the v1.0.26 cut. The orphan gate named exactly three
   # RED refs -- #621, #622, #623 -- all open PRs with work not in main.
