@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+#
+# test_enrichment_reaches_the_corpus.sh -- guards CM051 #746.
+#
+# WHAT HAPPENED, measured from ~/.ostler/logs/install.log on a real install,
+# 2026-08-17, install window 15:01Z to 15:22Z:
+#
+#     enrich --all      62 of 7,773 preferences processed
+#     book              10 processed   0 enriched   10 failed
+#     movie             24 processed   0 enriched   24 failed   in 0.2s
+#     music             28 processed   1 enriched   27 failed
+#     total duration    1247.3s
+#
+# Three separate defects, and NONE of them was a missing writer. The writer
+# exists at enricher.py `_store_enrichment` and works: the single success is
+# in Oxigraph, and `enrich stats` counts it. What was wrong:
+#
+#   1. `--all` meant the three string literals "book", "movie", "music"
+#      while CATEGORY_CLIENTS held 27 categories. bookmark (4,714 items),
+#      interest (569), page (516), place (84), education (106) and food (13)
+#      were never offered to enrichment at all.
+#
+#   2. Movies failed in 0.2 SECONDS because we ship no TMDB key. 24 items
+#      dispatched to a client that cannot work, recorded as failures, and
+#      retried on every future run forever.
+#
+#   3. THE ONE THAT IS NOT A DATA-QUALITY PROBLEM. One of the ten book
+#      lookups sent openlibrary.org a 400-character LinkedIn recommendation
+#      about a named individual, as a book title, because a classifier put
+#      it in `book`. Personal text about a real person left the customer's
+#      Mac as a third-party query. That lands against "nothing about you
+#      ever leaves", so the guard belongs at the EGRESS boundary rather than
+#      the classifier: it then holds for every future classifier error, not
+#      just the ones we have seen.
+#
+# WHAT IS BEHAVIOURAL HERE AND WHAT IS STRUCTURAL, stated rather than left
+# to be discovered: sections 1 and 2 import and RUN the predicate, including
+# a red proof. Section 4 runs the category derivation only when the
+# enrichment tree's dependencies are importable, and PRINTS A SKIP NAMING
+# WHAT WENT UNCOVERED when they are not. Section 3 and section 5 are
+# structural, because reaching them behaviourally needs the whole client
+# tree constructed.
+#
+# EXIT: 0 all assertions hold. 1 one or more failed.
+
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="$REPO/vendor/cm019_preferences/services/enrich/src"
+PY="${PYTHON_BIN:-python3}"
+
+pass=0; fail=0
+ok()  { printf '  \033[0;32mPASS\033[0m %s\n' "$1"; pass=$((pass + 1)); }
+bad() { printf '  \033[0;31mFAIL\033[0m %s\n' "$1"; fail=$((fail + 1));
+        [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        | /'; }
+skip(){ printf '  \033[0;33mSKIP\033[0m %s\n' "$1"; }
+
+echo "CM051 #746: enrichment reaches the corpus, and only sends what it should"
+echo
+
+[ -d "$SRC" ] || { echo "CANNOT-RUN: no enrichment tree at $SRC" >&2; exit 2; }
+[ -f "$SRC/eligibility.py" ] || { bad "eligibility.py is missing"; exit 1; }
+
+# The real strings. The prose fixture is the actual subject that reached
+# OpenLibrary, truncated only so this file does not carry 400 characters of
+# a third party's testimonial about a named person.
+PROSE='Simon is an exceptionally customer-focussed, and knows how to handle challenging scenarios in an efficient manner. He is able to defuse potentially incendiary situations quickly by his calm and courteous demeanour.'
+NARRATIVE='I first met Steve when Precedent pitched for The Pension Regulator account and he was outstanding throughout.'
+
+# ── 1. BEHAVIOURAL. The predicate refuses prose and allows real titles.
+#
+#    Both halves matter. A gate that refuses everything would pass the
+#    refusal assertions alone while silently ending enrichment, so the
+#    allow-list here is a positive control, not decoration.
+elig_out="$("$PY" - "$SRC" "$PROSE" "$NARRATIVE" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import eligibility as e
+prose, narrative = sys.argv[2], sys.argv[3]
+
+must_allow = [
+    ("openlibrary", "Animal Farm"),
+    ("openlibrary", "1984 - George Orwell"),
+    ("openlibrary", "Hitchhiker's Guide To The Galaxy"),
+    ("openlibrary", "Business Model You: A One-Page Method For Reinventing Your Career"),
+    ("musicbrainz", "Radiohead"),
+    ("wikidata",    "behavioural economics"),
+    ("google_places", "Fuel Espresso"),
+]
+must_refuse = [
+    ("openlibrary", prose),
+    ("musicbrainz", narrative),
+    ("wikidata",    "x" * 400),
+    ("musicbrainz", "line one\nline two"),
+    ("openlibrary", "   "),
+]
+# Not gated: these clients do not put the subject in a query.
+must_ignore = [("url_fetcher", prose), ("youtube", prose)]
+
+bad = []
+for c, s in must_allow:
+    good, why = e.is_eligible(c, s)
+    if not good:
+        bad.append("REFUSED a real title via %s: %s" % (c, why))
+for c, s in must_refuse:
+    good, why = e.is_eligible(c, s)
+    if good:
+        bad.append("ALLOWED something it must refuse via %s" % c)
+for c, s in must_ignore:
+    good, _ = e.is_eligible(c, s)
+    if not good:
+        bad.append("gated %s, which does not send the subject anywhere" % c)
+
+# The reason must never quote the subject back: it is the thing we just
+# decided was too sensitive to pass around.
+_, why = e.is_eligible("openlibrary", prose)
+if why and ("Simon" in why or "customer-focussed" in why):
+    bad.append("the rejection reason quotes the subject it refused")
+
+print("OK" if not bad else "\n".join(bad))
+PYEOF
+)"
+if [ "$elig_out" = "OK" ]; then
+    ok "prose and personal narrative are refused; 7 real titles and names are allowed"
+else
+    bad "the egress predicate does not behave" "$elig_out"
+fi
+
+# ── 2. PROVE RED, ONE AXIS AT A TIME.
+#
+#    The first version of this section neutered the length and word limits
+#    together and required the real prose fixture to leak. It did not leak,
+#    and the suite reported a broken red proof. That was correct: the real
+#    fixture trips length AND word count AND the sentence-boundary check, so
+#    disabling two of three proves nothing about any of them.
+#
+#    A control has to be varied along the axis the instrument actually
+#    reads. So: three fixtures, each caught by exactly ONE check, and for
+#    each one the matching check is disabled in a copy and the fixture is
+#    required to get through. That is what makes each limit load-bearing
+#    rather than merely present.
+TMP="$(mktemp -d -t enrich746_XXXXXX)"; trap 'rm -rf "$TMP"' EXIT
+
+red_axis() {   # <name> <sed-expr disabling one check> <fixture>
+    local name="$1" disable="$2" fixture="$3"
+    sed -e "$disable" "$SRC/eligibility.py" > "$TMP/eligibility.py"
+    rm -rf "$TMP/__pycache__"
+    local out
+    out="$("$PY" - "$TMP" "$fixture" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import eligibility as e
+allowed, _ = e.is_eligible("openlibrary", sys.argv[2])
+print("LEAKED" if allowed else "STILL-REFUSED")
+PYEOF
+)"
+    if [ "$out" = "LEAKED" ]; then
+        ok "PROVED RED ($name): disabling this check alone lets its fixture reach the network"
+    else
+        bad "PROVED-RED FAILED ($name): the fixture is still refused with the check disabled, so the check is not what stops it"
+    fi
+    # Confirm the SAME fixture is refused by the unmodified module, or the
+    # red proof above is measuring a fixture nothing ever caught.
+    out="$("$PY" - "$SRC" "$fixture" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import eligibility as e
+allowed, _ = e.is_eligible("openlibrary", sys.argv[2])
+print("LEAKED" if allowed else "REFUSED")
+PYEOF
+)"
+    [ "$out" = "REFUSED" ] && ok "  ...and the shipped module refuses that same fixture" \
+                           || bad "  ...but the shipped module ALLOWS it: the check does not work at all"
+}
+
+# 400 characters, one word: only the length limit can catch this.
+red_axis "length" 's/^MAX_CHARS = .*/MAX_CHARS = 100000/' "$(printf 'x%.0s' {1..400})"
+# 20 short words, 39 chars, no sentence boundary: only the word ceiling.
+red_axis "word count" 's/^MAX_WORDS = .*/MAX_WORDS = 100000/' "a b c d e f g h i j k l m n o p q r s t"
+# Two short sentences, well inside both limits: only the boundary check.
+red_axis "sentence boundary" \
+    's/^_SENTENCE_JOIN = .*/_SENTENCE_JOIN = re.compile(r"ZZ_NEVER_MATCHES_ZZ")/' \
+    "It was good. He said so."
+
+# And the defence-in-depth claim, stated because it is why the first red
+# proof failed: the REAL fixture is caught by more than one check, so no
+# single regression re-opens it.
+depth_out="$("$PY" - "$SRC" "$PROSE" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import eligibility as e
+s = sys.argv[2].strip()
+hits = 0
+if len(s) > e.MAX_CHARS: hits += 1
+if len(s.split()) > e.MAX_WORDS: hits += 1
+if e._SENTENCE_JOIN.search(s): hits += 1
+print(hits)
+PYEOF
+)"
+[ "${depth_out:-0}" -ge 2 ] && ok "the real prose fixture trips $depth_out independent checks, not one" \
+                            || bad "the real prose fixture is caught by only $depth_out check: one regression re-opens the leak"
+
+# ── 3. STRUCTURAL. The gate is CALLED, on the path that sends the query.
+#    A predicate nothing invokes is the same defect one layer down.
+n_import="$(grep -c 'from .eligibility import is_eligible' "$SRC/enricher.py")"
+[ "$n_import" -ge 1 ] && ok "enricher.py imports the egress predicate" \
+                      || bad "enricher.py does not import is_eligible, so the module is dead code"
+
+# Must sit inside enrich_batch, BEFORE enrich_preference dispatches.
+batch_body="$(awk '/    async def enrich_batch/,/    async def enrich_all/' "$SRC/enricher.py")"
+n_call="$(printf '%s' "$batch_body" | grep -c 'is_eligible(')"
+[ "$n_call" -ge 1 ] && ok "enrich_batch consults the predicate before dispatching" \
+                    || bad "enrich_batch never calls is_eligible: subjects still reach clients ungated"
+
+n_before="$(printf '%s' "$batch_body" | grep -n 'is_eligible(\|await self.enrich_preference' | head -2 | grep -c 'is_eligible')"
+[ "$n_before" -eq 1 ] && ok "the predicate runs BEFORE enrich_preference, not after the request" \
+                      || bad "is_eligible is not the first of the two: a guard after the call has already spent the egress"
+
+# ── 4. The sweep is derived from the dispatch table, not a literal list.
+#
+#    Structural half first: the three-string literal must be gone.
+n_literal="$(grep -c '\["book", "movie", "music"\]' "$SRC/cli.py")"
+[ "$n_literal" -eq 0 ] && ok "the hardcoded three-category list is gone from cli.py" \
+                       || bad "cli.py still hardcodes [\"book\", \"movie\", \"music\"] for --all"
+
+n_derive="$(grep -c 'enrichable_categories()' "$SRC/cli.py")"
+[ "$n_derive" -ge 1 ] && ok "cli.py derives --all from the dispatch table" \
+                      || bad "cli.py does not call enrichable_categories(), so --all is still a fixed list"
+
+#    Behavioural half, when the tree's dependencies are importable.
+# The precondition is the import ITSELF, not a hand-listed set of module
+# names. Listing them by hand is how this first went wrong: I named
+# pydantic_settings, the tree also needed httpx, and then aiolimiter, and
+# each missing one turned an honest skip into a traceback. Attempting the
+# real import cannot drift from what the real import needs.
+cat_out="$("$PY" - "$REPO/vendor/cm019_preferences" <<'PYEOF'
+import os, sys
+sys.path.insert(0, sys.argv[1])
+os.environ.pop("TMDB_API_KEY", None)
+try:
+    from services.enrich.src.enricher import EnrichmentService as S
+except ImportError as exc:
+    print("SKIP:%s" % exc)
+    raise SystemExit(0)
+
+bad = []
+cats = S.enrichable_categories()
+if len(cats) <= 3:
+    bad.append("only %d categories are enrichable; the defect was 3" % len(cats))
+for expected in ("bookmark", "interest", "page", "book", "music"):
+    if expected not in cats:
+        bad.append("%s is dispatchable but not in the sweep" % expected)
+
+# No credential -> excluded, and NAMED as excluded rather than silently gone.
+missing = S.categories_missing_credentials()
+if "movie" in cats:
+    bad.append("movie is swept with no TMDB key, so it can only fail")
+if "movie" not in missing:
+    bad.append("movie is skipped but not reported as needing a credential")
+
+# The discriminating control: with a key present, movie comes back. Without
+# this, "movie is excluded" could be a predicate that excludes everything.
+os.environ["TMDB_API_KEY"] = "test-key-not-a-real-credential"
+S.CLIENT_CREDENTIALS  # touch, no reload needed: the check reads env at call time
+if "movie" not in S.enrichable_categories():
+    bad.append("movie stays excluded even WITH a key: the check is not reading the credential")
+
+print("OK" if not bad else "\n".join(bad))
+PYEOF
+)"
+case "$cat_out" in
+    OK)
+        ok "the sweep covers every dispatchable category, and key-gated ones are excluded AND named" ;;
+    SKIP:*)
+        skip "category derivation not run behaviourally: ${cat_out#SKIP:}"
+        skip "     NOT COVERED: enrichable_categories() breadth, credential exclusion, credential control."
+        skip "     Fix by installing vendor/cm019_preferences/requirements.txt, as CI does." ;;
+    *)
+        bad "category derivation does not behave" "$cat_out" ;;
+esac
+
+# ── 5. STRUCTURAL. The wall-clock allowance exists and is threaded.
+#
+#    A budget that is not passed down is not a budget. Assert it reaches
+#    all three levels, and that a spent allowance is never called COMPLETE.
+n_thread="$(grep -c 'deadline=deadline' "$SRC/enricher.py")"
+[ "$n_thread" -ge 2 ] && ok "the allowance is threaded from the sweep down to the batch ($n_thread sites)" \
+                      || bad "deadline is accepted but not passed down ($n_thread call sites)"
+
+n_cli="$(grep -c 'deadline=deadline' "$SRC/cli.py")"
+[ "$n_cli" -ge 2 ] && ok "the CLI passes its allowance to both single- and multi-category paths" \
+                   || bad "the CLI computes a deadline it does not hand over ($n_cli sites)"
+
+n_pause="$(grep -c 'budget_exhausted' "$SRC/cli.py")"
+[ "$n_pause" -ge 1 ] && ok "a pass that spends its allowance is not reported as COMPLETE" \
+                     || bad "cli.py prints COMPLETE regardless: an unfinished corpus reads as a finished one"
+
+n_flag="$(grep -c 'stats.budget_exhausted = True' "$SRC/enricher.py")"
+[ "$n_flag" -ge 2 ] && ok "the exhausted flag is set at both the item and category boundary" \
+                    || bad "budget_exhausted is set in $n_flag place(s); it needs the item loop AND the category loop"
+
+# ── 6. The installer must not print one number under the other's name.
+#
+#    "Imported and enriched %s preferences" was formatted with the Qdrant
+#    points_count. On 2026-08-17 that read 2,963 while enrichment's own
+#    successful count for the same run was 1.
+STRINGS="$REPO/install.sh.strings.en-GB.sh"
+n_conflated="$(grep -c 'MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched' "$STRINGS")"
+[ "$n_conflated" -eq 0 ] && ok "the ingest count is no longer labelled as an enrichment count" \
+                         || bad "install.sh still prints the INGEST count under the words 'and enriched'"
+
+n_enr_str="$(grep -c '^MSG_HYDRATE_PREFERENCES_ENRICHED=' "$STRINGS")"
+[ "$n_enr_str" -eq 1 ] && ok "a separate string exists for the enriched count" \
+                       || bad "no MSG_HYDRATE_PREFERENCES_ENRICHED: there is nowhere to state the real number"
+
+# It has to be read from where enrichment WRITES, not from Qdrant again.
+n_pred="$(grep -c 'pwg:enrichedAt' "$REPO/install.sh")"
+[ "$n_pred" -ge 1 ] && ok "the enriched count is read from pwg:enrichedAt, the predicate enrichment writes" \
+                    || bad "install.sh never queries pwg:enrichedAt, so the second number has no source"
+
+n_used="$(grep -c 'MSG_HYDRATE_PREFERENCES_ENRICHED' "$REPO/install.sh")"
+[ "$n_used" -ge 1 ] && ok "the enriched string is actually printed" \
+                    || bad "MSG_HYDRATE_PREFERENCES_ENRICHED is defined and never used"
+
+echo
+echo "  $pass passed, $fail failed"
+[ "$fail" -eq 0 ] || exit 1
+echo "ALL #746 CONTROLS PASSED"

@@ -1212,7 +1212,13 @@ MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT="  Still loading your email preferences 
 # shared importer; only this done-count line is still referenced.
 # Privacy: enrich's lookup clients call PUBLIC item-metadata APIs only
 # (about the item, never the user); this string is a count.
-MSG_HYDRATE_PREFERENCES_DONE="Imported and enriched %s preferences"
+# This said "Imported and enriched %s preferences" and the number it
+# printed was the INGEST count. On the 2026-08-17 install it read 2,963
+# while enrichment's own successful count for the same run was 1. Two
+# separate facts, one of them borrowed the other's number. Now each is
+# counted at its own source and stated separately.
+MSG_HYDRATE_PREFERENCES_DONE="Imported %s preferences"
+MSG_HYDRATE_PREFERENCES_ENRICHED="Enriched %s of them with public reference data"
 
 # Category-coverage guard (CX: silently-blank Food / Music pages). Warned
 # when preferences landed but none carry a headline category, or when a
