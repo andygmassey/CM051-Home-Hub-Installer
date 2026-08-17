@@ -178,7 +178,47 @@ deferrals:
       v1.0.33 TAG IS PUSHED, alongside oa #312, which is held on this identical mechanism. This
       deferral expires at v1.0.33 by design: if a v1.0.34 is ever cut with this still unmerged,
       the gate must say so again rather than carry the hold silently forward.
-    until_cut: v1.0.33
+
+      RENEWED 2026-08-17 FOR v1.0.34, AND THE GATE DID SAY SO AGAIN. The instruction above --
+      "MERGE IT IMMEDIATELY AFTER THE v1.0.33 TAG IS PUSHED" -- was correct and was not
+      executed, which is the same shape as the prose instruction that killed the v1.0.31 pin.
+      It is renewed rather than carried silently, and renewed rather than merged, because the
+      mechanical reason is UNCHANGED and was RE-MEASURED, not recalled: ostler-assistant
+      origin/main HEAD is 5b7efb00a54131bf49cb659ea3e23fb325e83db7, which is byte-identical to
+      the DAEMON_COMMIT that cuts/v1.0.34/cut.env pins, because v1.0.34 rebuilds no daemon.
+      Merging ANY of these moves oa main HEAD off the pinned commit and flips the daemon
+      freshness row from FRESH to RED STALE the instant it lands, which would then demand
+      either a freshly signed and notarised daemon release for a gateway status-string fix, or
+      a hold_ack asserting a graft that does not exist. Both remain worse than waiting.
+      THE HONEST COST OF THIS DECISION: the vault-state fix has now missed two cuts, and the
+      right sequencing is to merge all three the moment the v1.0.34 tag is pushed and let the
+      NEXT daemon build carry them, rather than to renew a third time.
+    until_cut: v1.0.34
+
+  - ref: daemon:#312
+    reason: >-
+      THE SAME WORK AS THE ENTRY ABOVE, UNDER ITS OTHER REF SPELLING, AND THAT IS THE WHOLE
+      POINT OF THIS ROW. MEASURED 2026-08-17 via the ostler-ai token: oa#312 is open, unmerged,
+      and its head ref is fix/vault-state-default-status-none -- literally the branch deferred
+      above. The orphan gate spells refs both ways, so deferring the branch name left the
+      PR-number spelling of the identical work uncovered and reporting RED. A deferral that
+      covers one spelling of a ref and not the other reads as a decision about one PR and is
+      actually a gap, which is exactly the class of silent carry-forward the entry above exists
+      to prevent. Same mechanical reason, same expiry, merge them together.
+    until_cut: v1.0.34
+
+  - ref: daemon:#313
+    reason: >-
+      DIFFERENT WORK, IDENTICAL MECHANISM, AND IT WAS NEVER DEFERRED AT ALL. MEASURED
+      2026-08-17: oa#313 is open, unmerged, head ref fix/settings-preferences-ia ("a raw
+      config.toml editor was in the customer settings UI"). It is not the vault-state fix and
+      is not covered by the entry above, which names only #312. It is held here for the same
+      single reason every daemon-side merge is held at this cut: ostler-assistant main HEAD IS
+      the pinned DAEMON_COMMIT, so any merge to oa main makes the v1.0.34 daemon pin stale.
+      This row is added so the hold is a recorded decision rather than an untracked RED that
+      happens not to block because CI sets OSTLER_ORPHAN_GATE_SKIP to include `daemon`. A gate
+      that is skipped is not a gate that passed, and the skip is why this needed writing down.
+    until_cut: v1.0.34
   # -------------------------------------------------------------------------
   # ADDED 2026-08-13 for the v1.0.26 cut. The orphan gate named exactly three
   # RED refs -- #621, #622, #623 -- all open PRs with work not in main.

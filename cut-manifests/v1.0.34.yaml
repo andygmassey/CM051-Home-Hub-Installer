@@ -139,6 +139,22 @@ entries:
       pattern: '_install_enrichment_agent\(\)'
       must_match: true
 
+  - id: v1034-enrichment-invoker-is-actually-called
+    title: the enrichment invoker is INVOKED, not merely defined
+    incident: >-
+      Raised in independent review of this cut record, and it is the right objection. The entry
+      above matches the function DEFINITION, so deleting the single call site would leave it
+      green while restoring exactly the defect #816 fixed: enrichment present in the product and
+      reached by nothing. That is the "presence is not behaviour" failure in miniature, inside
+      the very manifest meant to prevent it. The call is a bare invocation with no parentheses,
+      so it needs its own multiline-anchored pattern rather than a substring of the definition.
+      This proves the call EXISTS in the shipped install.sh. It does not prove a LaunchAgent
+      fires on a real Mac, which stays a box-walk item.
+    proof:
+      kind: grep_in_installer
+      pattern: '(?m)^\s*_install_enrichment_agent\s*$'
+      must_match: true
+
   # --------------------------------------------------------------------------
   # Carried forward. An unchanged claim still has to be measured.
   # --------------------------------------------------------------------------
