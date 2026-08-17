@@ -785,20 +785,40 @@ class WikidataClient(BaseClient[WikidataEntity]):
         if unresolved:
             values = " ".join("wd:%s" % q for _, q in dict.fromkeys(
                 (b, q) for b, q in unresolved))
+            # LANGUAGE TAGS: "en" IS NOT ENOUGH, and this is why Douglas
+            # Adams was missing.
+            #
+            # Wikidata has been migrating personal names to the `mul`
+            # (multilingual) language code, because a name spelled the same
+            # way in every Latin-script language does not need one label per
+            # language. Q42's rdfs:label set contains "Douglas Adams", but
+            # NOT tagged en: filtering LANG(?label) = "en" returns nothing
+            # for him while returning fine for Karey Kirkpatrick.
+            #
+            # So an English-only filter silently drops exactly the people
+            # whose names Wikidata has tidied up. Accept en, mul and en-gb,
+            # and prefer them in that order.
             label_q = """
             SELECT ?item ?label WHERE {
               VALUES ?item { %s }
               ?item rdfs:label ?label .
-              FILTER(LANG(?label) = "en")
+              FILTER(LANG(?label) IN ("en", "mul", "en-gb"))
             }
             """ % values
             resolved = {}
             lr = await self._sparql_query(label_q)
+            PREF = {"en": 0, "en-gb": 1, "mul": 2}
+            best = {}
             for b in ((lr or {}).get("results", {}) or {}).get("bindings", []):
                 q = b.get("item", {}).get("value", "").rsplit("/", 1)[-1]
                 lab = b.get("label", {}).get("value")
-                if q and lab:
-                    resolved[q] = lab
+                lang = b.get("label", {}).get("xml:lang", "")
+                if not (q and lab):
+                    continue
+                rank = PREF.get(lang, 9)
+                if q not in best or rank < best[q][0]:
+                    best[q] = (rank, lab)
+            resolved = {q: lab for q, (_, lab) in best.items()}
             for bucket, q in unresolved:
                 if q in resolved:
                     rec[bucket].add(resolved[q])
