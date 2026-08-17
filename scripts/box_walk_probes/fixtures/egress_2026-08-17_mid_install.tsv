@@ -13,25 +13,25 @@
 # owners here. Reverse DNS was unavailable when this was captured, and naming
 # an owner from memory is the error this whole file exists to stop. Attribution
 # is the next piece of work, and it is the artefact -- see task #722.
-curl	1001	185.199.109.153:443
-curl	1001	185.199.109.154:443
-curl	1002	20.205.243.164:443
-limactl	1010	127.0.0.1:11434
-limactl	1010	127.0.0.1:49233
-limactl	1010	208.80.154.224:443
-llama-ser	1020	127.0.0.1:63128
-llama-ser	1020	127.0.0.1:63146
-Mail	1030	17.57.154.7:993
-Mail	1030	64.233.170.109:993
-ollama	1040	127.0.0.1:60293
-ollama	1040	127.0.0.1:62754
-ollama	1040	127.0.0.1:63124
-ollama	1040	127.0.0.1:63142
-python3.1	1050	127.0.0.1:11434
-rapportd	1060	192.168.1.10:56827
-rapportd	1060	[fe80:f::1493:eec6:194b:83c6]:49153
-sshd-sess	1070	192.168.1.119:50384
-ssh	1080	127.0.0.1:49229
-tailscale	1090	192.200.0.115:80
-tailscale	1090	199.165.136.100:443
-WhatsApp	1100	57.144.97.33:5222
+curl	1001	185.199.109.153:443	:/usr/bin/curl:/Applications/OstlerInstaller.app/Contents/Resources/install.sh
+curl	1001	185.199.109.154:443	:/usr/bin/curl:/Applications/OstlerInstaller.app/Contents/Resources/install.sh
+curl	1002	20.205.243.164:443	:/usr/bin/curl:/Applications/OstlerInstaller.app/Contents/Resources/install.sh
+limactl	1010	127.0.0.1:11434	:/opt/homebrew/bin/limactl:/Applications/OstlerInstaller.app/Contents/Resources/install.sh
+limactl	1010	127.0.0.1:49233	:/opt/homebrew/bin/limactl:/Applications/OstlerInstaller.app/Contents/Resources/install.sh
+limactl	1010	208.80.154.224:443	:/opt/homebrew/bin/limactl:/Applications/OstlerInstaller.app/Contents/Resources/install.sh
+llama-ser	1020	127.0.0.1:63128	:/usr/local/bin/ollama
+llama-ser	1020	127.0.0.1:63146	:/usr/local/bin/ollama
+Mail	1030	17.57.154.7:993	:/System/Applications/Mail.app/Contents/MacOS/Mail
+Mail	1030	64.233.170.109:993	:/System/Applications/Mail.app/Contents/MacOS/Mail
+ollama	1040	127.0.0.1:60293	:/usr/local/bin/ollama
+ollama	1040	127.0.0.1:62754	:/usr/local/bin/ollama
+ollama	1040	127.0.0.1:63124	:/usr/local/bin/ollama
+ollama	1040	127.0.0.1:63142	:/usr/local/bin/ollama
+python3.1	1050	127.0.0.1:11434	:/Users/x/.ostler/venv/bin/python3
+rapportd	1060	192.168.1.10:56827	:/usr/libexec/rapportd
+rapportd	1060	[fe80:f::1493:eec6:194b:83c6]:49153	:/usr/libexec/rapportd
+sshd-sess	1070	192.168.1.119:50384	:/usr/sbin/sshd
+ssh	1080	127.0.0.1:49229	:/usr/bin/ssh
+tailscale	1090	192.200.0.115:80	:/opt/homebrew/bin/tailscaled
+tailscale	1090	199.165.136.100:443	:/opt/homebrew/bin/tailscaled
+WhatsApp	1100	57.144.97.33:5222	:/Applications/WhatsApp.app/Contents/MacOS/WhatsApp

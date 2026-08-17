@@ -58,12 +58,12 @@ fi
 #    flagged rows, the old filter was not actually blind and this whole change
 #    rests on a false premise.
 # ---------------------------------------------------------------------------
-rc="$(OSTLER_EGRESS_FOREIGN_RE='^(curl|limactl|tailscale|llama-ser|python3.1|Mail|WhatsApp|rapportd|sshd-sess|ssh)[[:space:]]' classify "$FIX")"
+rc="$(OSTLER_OURS_PATH_RE='(ostler|qdrant|oxigraph|ollama|mkdocs)$' classify "$FIX")"
 n="$(grep -c . "$TMP/out" 2>/dev/null || echo 0)"
 if [ "$rc" = 1 ] && [ "$n" -gt 0 ]; then
-    no "the OLD filter flagged $n rows -- the premise of this fix is wrong" "$(cat "$TMP/out")"
+    no "the OLD product-name attribution flagged $n rows -- the premise of this fix is wrong" "$(cat "$TMP/out")"
 else
-    ok "under the OLD product-name filter the same capture flags NOTHING (the blindness, reproduced)"
+    ok "under the OLD product-name attribution the same capture flags NOTHING (the blindness, reproduced)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ fi
 # 4. It can still say GREEN. A capture with nothing outside the boundary must
 #    flag nothing and exit 0, or the probe is a permanent red nobody will keep.
 # ---------------------------------------------------------------------------
-printf 'ollama\t1\t127.0.0.1:11434\ncurl\t2\t192.168.1.50:443\ntailscale\t3\t100.87.179.65:443\n' > "$TMP/clean.tsv"
+printf 'ollama\t1\t127.0.0.1:11434\t:/Users/x/.ostler/bin/ollama\ncurl\t2\t192.168.1.50:443\t:/usr/bin/curl:/Applications/OstlerInstaller.app/x\ntailscale\t3\t100.87.179.65:443\t:/opt/homebrew/bin/tailscaled\n' > "$TMP/clean.tsv"
 rc="$(classify "$TMP/clean.tsv")"
 [ "$rc" = 0 ] && ok "loopback + LAN + tailnet only -> GREEN (the probe can pass)" \
               || no "a clean capture was flagged (rc=$rc)" "$(cat "$TMP/out")"
@@ -92,7 +92,7 @@ rc="$(classify "$TMP/clean.tsv")"
 # 5. A fixture of nothing but operator processes is CANNOT-RUN, never a pass.
 #    Nothing of ours was observed, so nothing about our egress was measured.
 # ---------------------------------------------------------------------------
-printf 'Mail\t1\t17.57.154.7:993\nSafari\t2\t93.184.216.34:443\n' > "$TMP/foreign.tsv"
+printf 'Mail\t1\t17.57.154.7:993\t:/System/Applications/Mail.app/x\nSafari\t2\t93.184.216.34:443\t:/Applications/Safari.app/x\n' > "$TMP/foreign.tsv"
 rc="$(classify "$TMP/foreign.tsv")"
 [ "$rc" = 2 ] && ok "only operator processes -> CANNOT-RUN (rc=2), not a quiet pass" \
               || no "a reading containing nothing of ours returned rc=$rc" "$(cat "$TMP/out" "$TMP/err")"
