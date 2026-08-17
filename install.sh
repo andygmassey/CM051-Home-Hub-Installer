@@ -20544,6 +20544,51 @@ docker compose --profile compile run --rm -T \
     -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
+
+# ── THE COMPILE'S EXIT CODE IS NOT AN ORACLE. COUNT THE PAGES. ───────────
+#
+# MEASURED 2026-08-17: install.sh had NO page count anywhere, so rc=0 above
+# was the only success signal for the entire wiki. That signal cannot fail:
+#
+#   CM044 compile.py:1438   returns results
+#   CM044 compile.py:1577   main() DISCARDS the return value
+#   CM044 __main__.py:4     calls main() with no sys.exit
+#
+# The container entrypoint is `python -m compiler`, so the process exits 0
+# whether it wrote eighteen thousand pages or none, and `.compile-complete`
+# is written either way (compile.py:1413-1417). That is exactly how "wiki
+# compiled zero pages" walked past a green install on Andy's box: every
+# directory present, every directory empty, 39 steps ok, err=0.
+#
+# A COUNT IS THE ONLY HONEST ORACLE HERE, because the thing we care about is
+# not "did the compiler run" but "is there a wiki". Counting the artefact
+# the customer opens needs no cooperation from CM044 and cannot be defeated
+# by a swallowed exception upstream.
+#
+# NON-FATAL BY DESIGN, and that is a deliberate limit rather than an
+# oversight. install.sh has no path that ends a step in failure (every
+# gui_step_end call site passes `ok`), so making this the first hard failure
+# would change install semantics far beyond the wiki. What it does instead:
+# state the number, mark the run unhealthy, and refuse to say the wiki is
+# ready when it is empty. A zero that is PRINTED is worth more than a zero
+# that fails silently.
+WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
+WIKI_PAGE_COUNT=0
+if [ -d "$WIKI_DOCS_DIR" ]; then
+    # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
+    # That is the exact shape the box walk found: directories present,
+    # contents absent.
+    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')"
+fi
+info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
+if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
+    # NAME THE ARTEFACT MEASURED, not the symptom. A reader must be able to
+    # go and look at the same thing this line looked at.
+    warn "The wiki compile exited ${WIKI_BASELINE_RC} but produced ZERO pages under ${WIKI_DOCS_DIR}. The compiler's exit code is not evidence: CM044 discards its own result, so a total failure also exits 0. Treat the wiki as NOT built."
+    HEALTHY=false
+    WIKI_BASELINE_RC=1
+fi
+
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # Publish the baseline. The wiki-site container now runs a static server
     # (CM044 docker/wiki-site-serve.py) that builds the HTML off the serving
