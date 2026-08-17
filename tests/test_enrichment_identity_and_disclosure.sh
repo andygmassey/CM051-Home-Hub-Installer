@@ -91,6 +91,30 @@ for needle in 'andybrandt' 'github.com/pwg' 'pwg@example.com'; do
                    || failure "$n occurrence(s) of '$needle' in a string we send to third parties" "$(grep -rn --include="*.py" --exclude-dir=__pycache__ -e "$needle" "$ENRICH" | head -5)"
 done
 
+# ── 4b. THE ONE THAT IS NOT A LITERAL, AND SO SURVIVED THE FIRST SWEEP.
+#
+#       22 clients carry their User-Agent as a string, so replacing the
+#       strings fixed them. MusicBrainz composes its one from settings:
+#       config.py builds "<name>/<version> ( <contact> )". Editing strings
+#       could not reach it, and it was still on version 0.1.0 with an EMPTY
+#       contact, which MusicBrainz's own policy asks for by name.
+#
+#       Caught only by computing the composed value rather than grepping
+#       for the identity literal. Every control above would stay green with
+#       this wrong, which is exactly why it needs its own.
+CONF="$ENRICH/config.py"
+mb_name="$(grep -A1 'musicbrainz_app_name' "$CONF" | grep -o 'default="[^"]*"' | head -1)"
+mb_vers="$(grep -A1 'musicbrainz_app_version' "$CONF" | grep -o 'default="[^"]*"' | head -1)"
+mb_cont="$(grep -A1 'musicbrainz_contact' "$CONF" | grep -o 'default="[^"]*"' | head -1)"
+
+[ "$mb_name" = 'default="Ostler"' ] && ok "MusicBrainz identity name is Ostler" \
+                                    || failure "MusicBrainz app name default is $mb_name, not Ostler"
+[ "$mb_vers" = 'default="1.0"' ] && ok "MusicBrainz identity version matches the other 22 clients (1.0)" \
+                                 || failure "MusicBrainz version default is $mb_vers; every other client sends 1.0"
+[ -n "$mb_cont" ] && [ "$mb_cont" != 'default=""' ] \
+    && ok "MusicBrainz identity carries a contact, which their policy requires" \
+    || failure "MusicBrainz contact default is empty, so we send no way to reach us, against their stated policy"
+
 # ── 5. PROVE RED. Reintroduce the browser User-Agent in a scratch copy and
 #       require control 2's predicate to fire. Without this the greens above
 #       could be measuring an empty set.
