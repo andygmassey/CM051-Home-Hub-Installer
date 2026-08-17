@@ -660,7 +660,29 @@ async def _run_enrichment(
         # Never say COMPLETE for a pass that stopped on its allowance.
         # "Complete" against an unfinished corpus is the same false absence
         # as "not found" against an unreachable service.
-        if stats.budget_exhausted:
+        #
+        # AND NEVER SAY COMPLETE OVER AN EMPTY CORPUS EITHER. Measured on a
+        # real box against an empty Qdrant collection: the pass returned in
+        # 0.2s having looked at nothing, and printed
+        #
+        #     ENRICHMENT COMPLETE
+        #     Total processed: 0
+        #
+        # A recurring agent on a machine with no preferences yet would print
+        # that every half hour, for ever, and it is indistinguishable from
+        # "I enriched everything there was". Two different events:
+        #
+        #     nothing to do        no preferences matched. Fine, and normal
+        #                          on a fresh install before any import.
+        #     did nothing          preferences existed and none enriched.
+        #                          Something is wrong.
+        #
+        # They must not print the same sentence. This is the same shape as
+        # every other false absence in this product: an empty result and an
+        # unasked question rendering identically.
+        if stats.total_processed == 0:
+            click.echo("NOTHING TO ENRICH (no preferences matched)", err=True)
+        elif stats.budget_exhausted:
             click.echo("ENRICHMENT PAUSED (allowance spent, more still owed)", err=True)
         else:
             click.echo("ENRICHMENT COMPLETE", err=True)
