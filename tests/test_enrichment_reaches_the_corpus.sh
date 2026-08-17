@@ -305,9 +305,123 @@ esac
 #
 #    A budget that is not passed down is not a budget. Assert it reaches
 #    all three levels, and that a spent allowance is never called COMPLETE.
-n_thread="$(grep -c 'deadline=deadline' "$SRC/enricher.py")"
-[ "$n_thread" -ge 2 ] && ok "the allowance is threaded from the sweep down to the batch ($n_thread sites)" \
-                      || bad "deadline is accepted but not passed down ($n_thread call sites)"
+#
+#    THIS CONTROL USED TO BE `grep -c 'deadline=deadline'` >= 2, AND THAT
+#    WAS A DEFECT IN THE INSTRUMENT, not a shorthand. It asserted a
+#    SPELLING, not the property. When the sweep learned to give each
+#    category a fair share it began passing `deadline=category_deadline`,
+#    the literal count fell 2 -> 1, and the control went RED against a tree
+#    where the threading had just got BETTER. A predicate pinned to a
+#    rendering fails in both directions: red-while-fixed here, and equally
+#    green-while-blind if someone wrote `deadline=deadline` into a comment.
+#
+#    So it now parses the module and asserts the PROPERTY, in two halves:
+#
+#      (a) NO FRAME ACCEPTS AND DROPS IT. Every function taking a `deadline`
+#          either consults it against a clock or hands it onward. A frame
+#          that accepts one and does neither is unbounded while looking
+#          bounded from the outside, which is the exact defect this PR exists
+#          to remove, one level down.
+#
+#      (b) NO CALL SITE SILENTLY UNBINDS THE SUBTREE. `deadline` defaults to
+#          None, so a caller that omits it does not inherit the parent's
+#          allowance, it removes it. Measured 2026-08-17 this caught a REAL
+#          one the literal grep could never see: enrich_parallel(), reachable
+#          as `cli.py parallel`, ran six categories with no allowance at all.
+#
+#    Proved red below by deleting a pass-down from a parsed copy.
+DEADLINE_PROBE='
+import ast, sys, copy
+
+def analyse(tree):
+    """-> (accepting, violations). Pure AST: no source text is matched."""
+    accepting, parents = {}, {}
+    class Scan(ast.NodeVisitor):
+        def __init__(self): self.stack = []
+        def visit_FunctionDef(self, n): self.fn(n)
+        def visit_AsyncFunctionDef(self, n): self.fn(n)
+        def fn(self, n):
+            a = n.args
+            if "deadline" in [x.arg for x in a.args + a.kwonlyargs]:
+                accepting[n.name] = n
+            self.stack.append(n.name)
+            for c in ast.iter_child_nodes(n): parents[id(c)] = n.name
+            self.generic_visit(n)
+            self.stack.pop()
+    Scan().visit(tree)
+
+    calls = []          # (callee, lineno, passes_deadline)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call): continue
+        f = node.func
+        name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+        if name in accepting:
+            calls.append((name, node.lineno, "deadline" in [k.arg for k in node.keywords]))
+
+    v = []
+    # (b) every call site to a deadline-accepting function supplies one.
+    for name, line, passes in calls:
+        if not passes:
+            v.append("line %d calls %s() with no deadline, so that whole subtree is unbounded" % (line, name))
+
+    # (a) every accepting frame consults the clock or passes it onward.
+    for name, node in accepting.items():
+        consults = any(
+            isinstance(s, ast.Compare) and any(
+                isinstance(x, ast.Name) and x.id == "deadline" for x in ast.walk(s))
+            for s in ast.walk(node))
+        onward = any(
+            isinstance(s, ast.Call)
+            and (s.func.attr if isinstance(s.func, ast.Attribute) else getattr(s.func, "id", None)) in accepting
+            and "deadline" in [k.arg for k in s.keywords]
+            for s in ast.walk(node))
+        if not consults and not onward:
+            v.append("%s() accepts a deadline and neither consults nor passes it: the frame is unbounded" % name)
+    return accepting, v
+
+src = open(sys.argv[1]).read()
+tree = ast.parse(src)
+accepting, viol = analyse(tree)
+
+if len(accepting) < 2:
+    print("BROKEN: only %d function(s) accept a deadline; nothing to thread" % len(accepting)); sys.exit(0)
+
+# THE RED PROOF, on a parsed COPY, so the predicate is never trusted on the
+# strength of having passed once. Strip the deadline keyword from the first
+# call site that carries one and require the analyser to report it. Without
+# this a broken analyser -- one that returns [] for everything -- is
+# indistinguishable from a healthy tree. Mutating the AST rather than the
+# text means no reformatting and no dependence on ast.unparse.
+mut = ast.parse(src)
+dropped = None
+for node in ast.walk(mut):
+    if not isinstance(node, ast.Call): continue
+    f = node.func
+    name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+    if name in accepting and any(k.arg == "deadline" for k in node.keywords):
+        node.keywords = [k for k in node.keywords if k.arg != "deadline"]
+        dropped = (name, node.lineno); break
+if dropped is None:
+    print("BROKEN: no call site passes a deadline, so the red proof has nothing to remove"); sys.exit(0)
+_, mut_viol = analyse(mut)
+if not mut_viol:
+    print("BROKEN: dropping the deadline from %s():%d changed NOTHING. The analyser "
+          "cannot see the defect it exists to find, so its verdict on the real "
+          "tree is worth nothing." % dropped); sys.exit(0)
+
+print("OK %d %s" % (len(accepting), ",".join(sorted(accepting))) if not viol
+      else "VIOLATIONS\n" + "\n".join(viol))
+'
+thread_out="$("$PY" -c "$DEADLINE_PROBE" "$SRC/enricher.py" 2>&1)"
+case "$thread_out" in
+    OK\ *)
+        ok "every deadline-accepting frame is bounded, and no call site drops it (${thread_out#OK })"
+        ok "     and the check is discriminating: removing one pass-down makes it fail" ;;
+    BROKEN:*)
+        bad "the threading check cannot measure anything" "$thread_out" ;;
+    *)
+        bad "the wall-clock allowance is accepted somewhere it is not honoured" "$thread_out" ;;
+esac
 
 n_cli="$(grep -c 'deadline=deadline' "$SRC/cli.py")"
 [ "$n_cli" -ge 2 ] && ok "the CLI passes its allowance to both single- and multi-category paths" \

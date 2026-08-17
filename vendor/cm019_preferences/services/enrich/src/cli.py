@@ -660,7 +660,29 @@ async def _run_enrichment(
         # Never say COMPLETE for a pass that stopped on its allowance.
         # "Complete" against an unfinished corpus is the same false absence
         # as "not found" against an unreachable service.
-        if stats.budget_exhausted:
+        #
+        # AND NEVER SAY COMPLETE OVER AN EMPTY CORPUS EITHER. Measured on a
+        # real box against an empty Qdrant collection: the pass returned in
+        # 0.2s having looked at nothing, and printed
+        #
+        #     ENRICHMENT COMPLETE
+        #     Total processed: 0
+        #
+        # A recurring agent on a machine with no preferences yet would print
+        # that every half hour, for ever, and it is indistinguishable from
+        # "I enriched everything there was". Two different events:
+        #
+        #     nothing to do        no preferences matched. Fine, and normal
+        #                          on a fresh install before any import.
+        #     did nothing          preferences existed and none enriched.
+        #                          Something is wrong.
+        #
+        # They must not print the same sentence. This is the same shape as
+        # every other false absence in this product: an empty result and an
+        # unasked question rendering identically.
+        if stats.total_processed == 0:
+            click.echo("NOTHING TO ENRICH (no preferences matched)", err=True)
+        elif stats.budget_exhausted:
             click.echo("ENRICHMENT PAUSED (allowance spent, more still owed)", err=True)
         else:
             click.echo("ENRICHMENT COMPLETE", err=True)
@@ -967,6 +989,16 @@ async def _run_normalization(verbose: bool):
     help="Process high-strength items first (default: true)"
 )
 @click.option(
+    "--budget-seconds",
+    default=lambda: int(os.environ.get("OSTLER_ENRICH_BUDGET_SECONDS", "600")),
+    type=int,
+    help=(
+        "Wall-clock allowance for the whole pass. 0 means no limit. "
+        "Whatever is not reached is not failed: the next run resumes it, "
+        "because enrichment skips what is already enriched."
+    )
+)
+@click.option(
     "--verbose", "-v",
     is_flag=True,
     help="Enable verbose output"
@@ -979,6 +1011,7 @@ def parallel(
     book_limit: int,
     podcast_limit: int,
     priority: bool,
+    budget_seconds: int,
     verbose: bool,
 ):
     """Run PARALLEL enrichment across all categories simultaneously.
@@ -1013,6 +1046,7 @@ def parallel(
         book_limit=book_limit,
         podcast_limit=podcast_limit,
         priority=priority,
+        budget_seconds=budget_seconds,
         verbose=verbose,
     ))
 
@@ -1025,6 +1059,7 @@ async def _run_parallel(
     book_limit: int,
     podcast_limit: int,
     priority: bool,
+    budget_seconds: int,
     verbose: bool,
 ):
     """Execute parallel enrichment."""
@@ -1051,12 +1086,23 @@ async def _run_parallel(
     service = EnrichmentService()
     start_time = datetime.utcnow()
 
+    # This command had NO allowance at all until 2026-08-17, so it could run
+    # until every category exhausted its corpus or a third party stopped
+    # answering. It is a second entry point to the same sweep, and an entry
+    # point without a bound is where an unbounded run comes back.
+    deadline = (
+        start_time + timedelta(seconds=budget_seconds)
+        if budget_seconds and budget_seconds > 0
+        else None
+    )
+
     try:
         click.echo("Starting parallel enrichment... (this runs ALL categories at once!)\n", err=True)
 
         stats_by_category = await service.enrich_parallel(
             category_configs=category_configs,
             user_id=user_id,
+            deadline=deadline,
         )
 
         # Summary

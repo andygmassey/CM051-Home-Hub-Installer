@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
 import httpx
@@ -52,6 +52,20 @@ class EnrichmentStats:
     by_category: Dict[str, int] = field(default_factory=dict)
 
     errors: List[str] = field(default_factory=list)
+
+    def attempted(self) -> int:
+        """
+        Items that were actually DISPATCHED to a third party, successfully
+        or not.
+
+        This is the unit a `--limit` bounds, and it is deliberately not
+        `total_processed`. Processing an item that turns out to be already
+        enriched, or to have no client, or to be unsendable, costs one local
+        SPARQL ASK and no egress. Counting those against an allowance is how
+        a limited run ends up spending its whole budget re-reading work it
+        finished last time.
+        """
+        return self.successful + self.failed
 
     def summary(self) -> str:
         """Generate summary string."""
@@ -737,6 +751,7 @@ INSERT DATA {{
         preferences: List[dict],
         stats: EnrichmentStats,
         deadline: Optional[datetime] = None,
+        work_allowance: Optional[int] = None,
     ) -> List[EnrichmentResult]:
         """
         Enrich a batch of preferences.
@@ -745,11 +760,16 @@ INSERT DATA {{
             preferences: List of preference dicts
             stats: Stats object to update
             deadline: Stop before starting any further item once passed
+            work_allowance: Stop once this many items have been ATTEMPTED
+                            (dispatched to a client). Items that were skipped
+                            cost nothing and do not count against it. None
+                            means unbounded.
 
         Returns:
             List of successful EnrichmentResults
         """
         results = []
+        work_at_entry = stats.attempted()
 
         for pref in preferences:
             # The allowance is checked BEFORE each item, never during one:
@@ -757,6 +777,12 @@ INSERT DATA {{
             # be recorded, so we never spend the egress and drop the result.
             if deadline is not None and datetime.utcnow() >= deadline:
                 stats.budget_exhausted = True
+                break
+
+            if (
+                work_allowance is not None
+                and stats.attempted() - work_at_entry >= work_allowance
+            ):
                 break
 
             pref_id = pref.get("id", "")
@@ -853,12 +879,35 @@ INSERT DATA {{
             f"min_strength={min_strength}, priority_order={priority_order}"
         )
 
-        while total_fetched < limit:
+        # THE LIMIT BOUNDS WORK, NOT READS, AND THAT IS THE WHOLE POINT.
+        #
+        # MEASURED ON THE BOX, 2026-08-17. It used to bound items FETCHED
+        # from Qdrant, and Qdrant does not know which preferences are already
+        # enriched -- that lives in Oxigraph, checked per item further down.
+        # So a second `--limit 10 --category movie_tv` run read the same first
+        # ten points, found nine of them already done, enriched ZERO, and
+        # printed:
+        #
+        #     ENRICHMENT COMPLETE
+        #     Total processed: 10   Successful: 0   Already enriched: 9
+        #
+        # with 165 unenriched films still sitting behind them. A recurring
+        # invoker built on that would have spun on the same ten points for
+        # ever while reporting completion every time. That is worse than not
+        # running at all, because it looks like it is working.
+        #
+        # Bounding on ATTEMPTS makes a limited run mean "do N items of real
+        # work", so successive runs walk forward through the backlog. Skips
+        # are free: they cost one local SPARQL ASK and no egress, so they
+        # must not consume the allowance. Termination is unchanged and comes
+        # from `next_offset is None`, which is reached after a full pass of
+        # the collection.
+        while stats.attempted() < limit:
             # Fetch batch
             batch, next_offset = await self._query_qdrant_preferences(
                 user_id=user_id,
                 category=category,
-                limit=min(batch_size, limit - total_fetched),
+                limit=batch_size,
                 offset=next_offset,
                 min_strength=min_strength,
                 order_by_strength=priority_order,
@@ -869,8 +918,14 @@ INSERT DATA {{
 
             total_fetched += len(batch)
 
-            # Process batch
-            await self.enrich_batch(batch, stats, deadline=deadline)
+            # Process batch, still bounded so a batch_size of 50 cannot
+            # overshoot a --limit of 10 by forty items.
+            await self.enrich_batch(
+                batch,
+                stats,
+                deadline=deadline,
+                work_allowance=limit - stats.attempted(),
+            )
 
             if stats.budget_exhausted:
                 logger.info(
@@ -925,8 +980,36 @@ INSERT DATA {{
         """
         combined_stats = EnrichmentStats()
 
+        # ONE UNREACHABLE SOURCE MUST NOT STARVE EVERY OTHER CATEGORY.
+        #
+        # MEASURED ON .219, 2026-08-17, on the first real run of the recurring
+        # invoker. The sweep handed the WHOLE remaining deadline to each
+        # category in turn, and `book` is first. OpenLibrary was unreachable,
+        # each lookup burned three retries with backoff, and the entire 180s
+        # allowance went on THREE books:
+        #
+        #     Total processed: 3   Successful: 0   Failed: 2
+        #     By category: {'book': 3}
+        #     Allowance spent before reaching category books
+        #
+        # Films, music, places and the other twenty categories were never
+        # reached. Not once, and not on the next tick either, because every
+        # tick would start at `book` and hit the same dead host. A permanently
+        # unreachable third party would have silently owned 100% of the
+        # enrichment budget for ever.
+        #
+        # A FAIR SHARE RECOMPUTED EACH TIME, not a fixed slice up front. A
+        # category with nothing to do returns in milliseconds and its unused
+        # time flows to the categories after it, so the common case loses
+        # nothing. A category that stalls is capped at its share of what was
+        # left when it started. That makes the worst case "one dead source
+        # costs one share per tick" instead of "one dead source costs
+        # everything, permanently".
+        remaining = list(categories)
+
         for category in categories:
-            if deadline is not None and datetime.utcnow() >= deadline:
+            now = datetime.utcnow()
+            if deadline is not None and now >= deadline:
                 combined_stats.budget_exhausted = True
                 logger.info(
                     "Allowance spent before reaching category %s. Not started, "
@@ -934,14 +1017,35 @@ INSERT DATA {{
                 )
                 break
 
-            logger.info(f"Enriching category: {category}")
+            category_deadline = deadline
+            if deadline is not None and remaining:
+                share = (deadline - now).total_seconds() / len(remaining)
+                category_deadline = now + timedelta(seconds=share)
+                logger.info(
+                    "Enriching category: %s (share %.0fs of %.0fs left, "
+                    "%d categories to go)",
+                    category, share, (deadline - now).total_seconds(),
+                    len(remaining),
+                )
+            else:
+                logger.info(f"Enriching category: {category}")
 
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit_per_category,
-                deadline=deadline,
+                deadline=category_deadline,
             )
+
+            # `budget_exhausted` from a per-category deadline means THAT
+            # category ran out of its share, not that the sweep is over. The
+            # merge below would otherwise mark the whole pass exhausted after
+            # the first slow category and stop, which is the starvation this
+            # block exists to remove, reintroduced one level up.
+            if category_deadline is not deadline:
+                stats.budget_exhausted = False
+
+            remaining.pop(0)
 
             # Merge stats
             combined_stats.total_processed += stats.total_processed
@@ -971,6 +1075,7 @@ INSERT DATA {{
         self,
         category_configs: List[Dict],
         user_id: Optional[str] = None,
+        deadline: Optional[datetime] = None,
     ) -> Dict[str, EnrichmentStats]:
         """
         Enrich multiple categories IN PARALLEL using different API clients.
@@ -1006,12 +1111,18 @@ INSERT DATA {{
 
             logger.info(f"[PARALLEL] Starting {category} enrichment (limit={limit})")
 
+            # ONE SHARED ABSOLUTE DEADLINE, not a fair share. These categories
+            # run CONCURRENTLY under asyncio.gather, so they all spend the same
+            # wall clock at the same time. Dividing the allowance between them
+            # here, as the sequential enrich_categories has to, would cut each
+            # one to a fraction of a budget it is not in fact competing for.
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit,
                 min_strength=min_strength,
                 priority_order=priority_order,
+                deadline=deadline,
             )
 
             logger.info(f"[PARALLEL] Completed {category}: {stats.successful} enriched")
