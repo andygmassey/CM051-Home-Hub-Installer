@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # MusicBrainz User-Agent (required by their API)
     musicbrainz_app_name: str = Field(
-        default="PWG-Enrichment",
+        default="Ostler",
         alias="MUSICBRAINZ_APP_NAME"
     )
     musicbrainz_app_version: str = Field(

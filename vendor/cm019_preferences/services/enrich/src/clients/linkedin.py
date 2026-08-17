@@ -136,11 +136,10 @@ class LinkedInClient(BaseClient[LinkedInPostMetadata]):
     def _get_headers(self) -> Dict[str, str]:
         """Get headers for requests."""
         return {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            # Was a full Chrome string assembled across three concatenated
+            # literals, which is why the first pass at this only caught the
+            # first line. We do not impersonate a browser to a third party.
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
             "Accept-Encoding": "gzip, deflate",

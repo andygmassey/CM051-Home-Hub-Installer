@@ -132,7 +132,7 @@ class OpenLibraryClient(BaseClient[BookMetadata]):
     def _get_headers(self):
         return {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0 (Personal World Graph project)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     def _normalize_subject(self, subject: str) -> str:
