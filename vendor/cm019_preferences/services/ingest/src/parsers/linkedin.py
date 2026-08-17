@@ -42,26 +42,77 @@ class LinkedInParser(BaseParser):
         "ENTERTAINMENT": 0.6,
     }
 
+    # Filenames no other export in the registration list ships. Safe to claim
+    # on the name alone.
+    LINKEDIN_UNIQUE_FILES = frozenset({
+        "company follows.csv",
+        "member_follows.csv",
+        "learning.csv",
+        "endorsement_received_info.csv",
+        "endorsement_given_info.csv",
+        "saved_items.csv",
+        "inferences_about_you.csv",
+    })
+
+    # Filenames other services ship too. Reddit's export contains its own
+    # comments.csv, and a bare reactions.csv or skills.csv could come from
+    # anywhere. Claiming these on the name alone took Reddit's comments.csv --
+    # measured: 0 preferences here, against 2 from the generic CSV parser that
+    # should have had it, because this parser is registered ahead of both
+    # Reddit and CSVParser and _get_parser stops at the first claim.
+    #
+    # The value is the set of columns LinkedIn's own version of that file
+    # carries. Reddit's comments.csv header is
+    # id,permalink,date,ip,subreddit,gildings,link,parent,body,media, which
+    # has no "message" column, so the two are told apart by shape rather than
+    # by where the customer happened to put the file.
+    LINKEDIN_AMBIGUOUS_FILES = {
+        "comments.csv": ("date", "link", "message"),
+        "reactions.csv": ("date", "link", "type"),
+        "skills.csv": ("name",),
+    }
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a LinkedIn data export."""
         name = file_path.name.lower()
 
-        # Check if it's one of the supported LinkedIn files
-        supported_files = [
-            "reactions.csv",
-            "comments.csv",
-            "company follows.csv",
-            "member_follows.csv",
-            "learning.csv",
-            "endorsement_received_info.csv",
-            "endorsement_given_info.csv",
-            "saved_items.csv",
-            "inferences_about_you.csv",
-            "skills.csv",
-        ]
+        if name.startswith("complete_linkedindataexport"):
+            return True
 
-        return any(name == f for f in supported_files) or \
-               name.startswith("complete_linkedindataexport")
+        if name in self.LINKEDIN_UNIQUE_FILES:
+            return True
+
+        if name in self.LINKEDIN_AMBIGUOUS_FILES:
+            # Inside a LinkedIn export directory the name is unambiguous.
+            if "linkedin" in str(file_path).lower():
+                return True
+            return self._header_carries(
+                file_path, self.LINKEDIN_AMBIGUOUS_FILES[name]
+            )
+
+        return False
+
+    @staticmethod
+    def _header_carries(file_path: Path, required_columns) -> bool:
+        """Return True if the CSV header holds every one of ``required_columns``.
+
+        Reads the first line only. An unreadable or headerless file is NOT
+        claimed: a file nothing can identify is better left to the generic CSV
+        fallback than taken by a parser that will produce nothing from it.
+        """
+        try:
+            with open(file_path, "r", encoding="utf-8-sig", newline="") as handle:
+                header = handle.readline()
+        except OSError:
+            return False
+        if not header.strip():
+            return False
+        try:
+            columns = next(csv.reader([header]))
+        except (csv.Error, StopIteration):
+            return False
+        present = {column.strip().lower() for column in columns}
+        return all(column in present for column in required_columns)
 
     async def parse(
         self,

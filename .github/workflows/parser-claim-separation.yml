@@ -22,3 +22,15 @@ jobs:
         run: pip install aiofiles pydantic-settings beautifulsoup4
       - name: a YouTube parser must never claim a Facebook export
         run: python3 tests/test_youtube_parser_does_not_claim_facebook.py
+      # The general case of the same defect, measured across the whole
+      # registration list rather than one pair: eight export archives were
+      # claimed by a parser that could not read them, each yielding zero. Runs
+      # in this job, not a new workflow, because it is the same defect class on
+      # the same files -- a second workflow would duplicate the checkout, the
+      # Python setup and the pip install to say the same thing.
+      # if: always() because the step above is a test, not a prerequisite. The
+      # two measure different things and a red YouTube/Facebook run must not
+      # hide whether the general case also broke.
+      - name: no parser may claim another service's export
+        if: always()
+        run: python3 tests/test_parser_claims_do_not_cross_services.py

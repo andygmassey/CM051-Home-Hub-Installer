@@ -48,18 +48,39 @@ class MetaParser(BaseParser):
         "check_ins",
     ]
 
+    # Directory names that ONLY a Facebook or Instagram export carries. A
+    # content pattern on its own cannot identify a Meta archive: the patterns
+    # above include "comments", which matches LinkedIn's Comments.csv, and
+    # "music", which matches Spotify's StreamingHistory_music_0.json. Both
+    # exports were claimed here and both yielded zero, because this parser has
+    # no idea what to do with either. Compared as whole path SEGMENTS.
+    META_STRUCTURE_DIRS = frozenset({
+        "your_facebook_activity",
+        "your_instagram_activity",
+        "comments_and_reactions",
+        "likes_and_reactions",
+        "apps_and_websites_off_of_facebook",
+        "facebook",
+        "instagram",
+    })
+
     def can_parse(self, file_path: Path) -> bool:
         """Check if file is a Meta data export."""
         if file_path.suffix.lower() == ".zip":
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
                     names = zf.namelist()
-                    return any(
-                        any(pattern in n.lower() for pattern in self.SUPPORTED_PATTERNS)
-                        for n in names
-                    )
             except Exception:
                 return False
+            # Structure first, content second. Either alone is not enough: the
+            # structure says the archive IS Facebook or Instagram, the content
+            # pattern says there is something in it this parser can read.
+            if not self._has_meta_structure(names):
+                return False
+            return any(
+                any(pattern in n.lower() for pattern in self.SUPPORTED_PATTERNS)
+                for n in names
+            )
 
         if file_path.suffix.lower() == ".json":
             name = file_path.name.lower()
@@ -77,6 +98,20 @@ class MetaParser(BaseParser):
                         continue
                 return True
 
+        return False
+
+    @classmethod
+    def _has_meta_structure(cls, member_names) -> bool:
+        """Return True if the archive carries a Facebook/Instagram directory.
+
+        Segment equality, not containment, and deliberately not a check on the
+        archive's FILENAME: a customer who renames facebook-export.zip still
+        has a Facebook export, and a nominal test would go quiet on them.
+        """
+        for raw in member_names:
+            for part in raw.replace("\\", "/").split("/"):
+                if part.lower() in cls.META_STRUCTURE_DIRS:
+                    return True
         return False
 
     @staticmethod
