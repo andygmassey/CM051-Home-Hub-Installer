@@ -83,7 +83,7 @@ fi
 # 4. It can still say GREEN. A capture with nothing outside the boundary must
 #    flag nothing and exit 0, or the probe is a permanent red nobody will keep.
 # ---------------------------------------------------------------------------
-printf 'ollama\t1\t127.0.0.1:11434\t:/Users/x/.ostler/bin/ollama\ncurl\t2\t192.168.1.50:443\t:/usr/bin/curl:/Applications/OstlerInstaller.app/x\ntailscale\t3\t100.87.179.65:443\t:/opt/homebrew/bin/tailscaled\n' > "$TMP/clean.tsv"
+printf 'ollama\t1\t127.0.0.1:11434\t:$HOME/.ostler/bin/ollama\ncurl\t2\t192.168.1.50:443\t:/usr/bin/curl:/Applications/OstlerInstaller.app/x\ntailscale\t3\t100.87.179.65:443\t:/opt/homebrew/bin/tailscaled\n' > "$TMP/clean.tsv"
 rc="$(classify "$TMP/clean.tsv")"
 [ "$rc" = 0 ] && ok "loopback + LAN + tailnet only -> GREEN (the probe can pass)" \
               || no "a clean capture was flagged (rc=$rc)" "$(cat "$TMP/out")"
