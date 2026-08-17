@@ -359,8 +359,31 @@ if [ "${1:-}" = "--inventory" ]; then
     hosts="$(grep -vE '^[[:space:]]*(#|$)' "$HOSTS_FILE" | cut -f1 | tr '\n' ' ')"
     [ -n "$hosts" ] || { echo "CANNOT-RUN: ledger declares no hosts" >&2; exit 2; }
 
-    # ONE remote call: sockets and resolutions together, tagged, same instant.
+    # DYNAMIC SOURCES. Some destinations cannot be declared statically and
+    # pretending otherwise would make the inventory permanently noisy, which is
+    # how a report gets ignored. Tailscale is the case in point: the client
+    # FETCHES its DERP map from the control plane at runtime and picks a relay
+    # by latency, so the relay address set is served, not fixed, and rotates.
+    # A static row would be wrong within days.
+    #
+    # So the probe fetches the SAME map the client used, in the SAME call as
+    # the socket read, and treats its node addresses as attributed to the
+    # relay purpose. Contemporaneous, like everything else here.
+    derp_purpose="tailnet: encrypted relay when no direct path exists"
+    derp_carries="relayed WireGuard packets. Tailscale cannot read them; keys never leave the devices."
+
+    # ONE remote call: sockets, resolutions and the DERP map together, same instant.
     joint="$(box_run "
+        curl -fsS --max-time 8 https://controlplane.tailscale.com/derpmap/default 2>/dev/null \
+          | python3 -c \"
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for rid,r in (d.get('Regions') or {}).items():
+    for n in (r.get('Nodes') or []):
+        ip=n.get('IPv4')
+        if ip: print('DERP\\t%s\\t%s' % (n.get('HostName') or 'derp', ip))
+\" 2>/dev/null
         lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
           | awk 'NR>1 { for (f=NF; f>=1; f--) { i=index(\$f,\"->\"); if (i>0) { print \"SOCK\t\" \$1 \"\t\" substr(\$f,i+2); break } } }'
         for h in ${hosts}; do
@@ -372,6 +395,7 @@ if [ "${1:-}" = "--inventory" ]; then
     [ -n "$joint" ] || { echo "CANNOT-RUN: the box returned nothing; not a clean result" >&2; exit 2; }
 
     resolved="$(printf '%s\n' "$joint" | grep '^HOST	' || true)"
+    derps="$(printf '%s\n' "$joint" | grep '^DERP	' || true)"
     # Exclusion happens per row in the loop below, against the COMMAND field,
     # not here against the whole line. Filtering the tagged stream would match
     # the tag and the address too.
@@ -380,6 +404,7 @@ if [ "${1:-}" = "--inventory" ]; then
     echo "DECLARED EGRESS INVENTORY"
     echo "  ledger        : $HOSTS_FILE ($(printf '%s\n' "$hosts" | wc -w | tr -d ' ') hosts declared)"
     echo "  resolutions   : $(printf '%s\n' "$resolved" | grep -c . ) addresses, resolved ON THE BOX in the SAME call as the socket read"
+    echo "  derp map      : $(printf '%s\n' "$derps" | grep -c . ) relay nodes, fetched live in that same call (served, not declarable)"
     echo "  NOT PROOF     : shared CDN addresses serve many tenants, so a match is"
     echo "                  'consistent with', never 'was'. Content is never observed."
     echo
@@ -391,6 +416,15 @@ if [ "${1:-}" = "--inventory" ]; then
         is_outside_boundary "$remote" || continue
         ip="${remote%:*}"
         host="$(printf '%s\n' "$resolved" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+        derp="$(printf '%s\n' "$derps" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+        if [ -z "$host" ] && [ -n "$derp" ]; then
+            printf '  ATTRIBUTED    %-12s %-22s %s\n' "$cmd" "$ip" "$derp"
+            printf '                purpose : %s\n' "$derp_purpose"
+            printf '                carries : %s\n' "$derp_carries"
+            printf '                source  : live DERP map from controlplane.tailscale.com, fetched in this same call\n'
+            att=$((att + 1))
+            continue
+        fi
         if [ -n "$host" ]; then
             purpose="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f2)"
             carries="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f3)"
