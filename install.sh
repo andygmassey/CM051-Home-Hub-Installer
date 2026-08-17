@@ -13371,6 +13371,39 @@ except Exception:
     if [[ "$_PREFS_POINTS" -gt 0 ]]; then
         ok "$(printf "$MSG_HYDRATE_PREFERENCES_DONE" "$_PREFS_POINTS")"
 
+        # ── Enriched count, read from where enrichment actually writes ──
+        #
+        # The line above used to say "Imported and enriched %s" against the
+        # INGEST count. On 2026-08-17 that printed 2,963 while enrichment
+        # had succeeded exactly once. The number was never wrong; it was
+        # answering a different question from the one the sentence asked.
+        #
+        # `pwg:enrichedAt` is the predicate enricher.py writes on success
+        # and the one `enrich stats` has always counted, so this reads the
+        # same fact the product could already state about itself. Same
+        # counts-only, non-fatal shape as the readback above: a SPARQL
+        # error degrades to 0 and prints nothing rather than aborting.
+        _PREFS_ENRICHED="$(
+            curl -sf -m 5 \
+                -H 'Content-Type: application/sparql-query' \
+                -H 'Accept: application/sparql-results+json' \
+                --data-binary 'PREFIX pwg: <http://pwg.local/ontology#>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }' \
+                "${OXIGRAPH_URL:-http://localhost:7878}/query" 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(0)' 2>/dev/null \
+            || printf '0'
+        )"
+        _PREFS_ENRICHED="${_PREFS_ENRICHED:-0}"
+        if [[ "$_PREFS_ENRICHED" -gt 0 ]]; then
+            ok "$(printf "$MSG_HYDRATE_PREFERENCES_ENRICHED" "$_PREFS_ENRICHED")"
+        fi
+
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,
         # Professional) and every Topic page read a `category` field off the

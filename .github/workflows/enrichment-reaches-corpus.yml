@@ -1,0 +1,57 @@
+name: enrichment-reaches-corpus
+
+# Regression gate for #746, measured on a real install 2026-08-17.
+#
+# `enrich --all` processed 62 of 7,773 preferences and enriched 1, because
+# --all meant three hardcoded category strings while the dispatch table held
+# 27. Films failed instantly for want of a TMDB key we do not ship. And one
+# book lookup sent openlibrary.org a 400-character LinkedIn recommendation
+# about a named individual, as a search query, because a classifier put it
+# in `book`.
+#
+# That last one is why this gate exists at PR time rather than as a nightly:
+# it guards an EGRESS boundary. The predicate that stops prose leaving the
+# Mac is proved red along each of its three axes separately, because the
+# real fixture trips all three and disabling any two proves nothing.
+#
+# Companion test: tests/test_enrichment_reaches_the_corpus.sh
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cm019_preferences/services/enrich/**'
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_enrichment_reaches_the_corpus.sh'
+      - '.github/workflows/enrichment-reaches-corpus.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  enrichment-reaches-corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the enrichment tree's own declared dependencies
+        # From the SHIPPED requirements file rather than a hand-picked list.
+        # Hand-picking is what went wrong while writing this gate: naming
+        # pydantic-settings missed httpx, which missed aiolimiter. The file
+        # the product installs cannot drift from what the product imports.
+        #
+        # Without them the category-derivation assertions SKIP and print
+        # what went uncovered rather than passing quietly.
+        run: python3 -m pip install --quiet -r vendor/cm019_preferences/requirements.txt
+
+      - name: Enrichment reaches the corpus, and only sends what it should
+        run: bash tests/test_enrichment_reaches_the_corpus.sh

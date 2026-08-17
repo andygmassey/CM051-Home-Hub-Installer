@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Set
@@ -9,6 +10,7 @@ from typing import Dict, List, Optional, Set
 import httpx
 
 from .config import settings
+from .eligibility import is_eligible
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -38,6 +40,13 @@ class EnrichmentStats:
     failed: int = 0
     skipped_already_enriched: int = 0
     skipped_no_client: int = 0
+    skipped_ineligible: int = 0
+
+    # True when the pass stopped because it ran out of its wall-clock
+    # allowance rather than because it ran out of work. The distinction
+    # matters to every caller: an exhausted budget means there IS more to
+    # do, and reporting it as completion would be a false absence.
+    budget_exhausted: bool = False
 
     by_source: Dict[str, int] = field(default_factory=dict)
     by_category: Dict[str, int] = field(default_factory=dict)
@@ -58,6 +67,8 @@ class EnrichmentStats:
             f"  Failed: {self.failed}\n"
             f"  Already enriched: {self.skipped_already_enriched}\n"
             f"  No client: {self.skipped_no_client}\n"
+            f"  Not sendable: {self.skipped_ineligible}\n"
+            f"  Budget exhausted: {self.budget_exhausted}\n"
             f"  By source: {self.by_source}\n"
             f"  By category: {self.by_category}"
         )
@@ -127,6 +138,61 @@ class EnrichmentService:
         "ticket": "events",
         "concert": "events",
     }
+
+    # Clients that cannot do anything without a credential. We ship none of
+    # these keys, so on a stock install every one of them is dead weight:
+    # the category is dispatched, the client answers instantly, and the item
+    # is recorded as a FAILURE that will be retried on every future run.
+    #
+    # Naming them here lets the caller skip those categories and SAY SO,
+    # which is the difference between "your films got nothing" and 24 rows
+    # of noise in an error list. The env var name is carried so the message
+    # can tell an operator what to set if they have their own key.
+    CLIENT_CREDENTIALS = {
+        "tmdb": "TMDB_API_KEY",
+        "google_places": "GOOGLE_PLACES_API_KEY",
+        "youtube": "YOUTUBE_API_KEY",
+        "foursquare": "FOURSQUARE_API_KEY",
+        "podcast_index": "PODCAST_INDEX_API_KEY",
+        "events": "TICKETMASTER_API_KEY",
+    }
+
+    @classmethod
+    def _credential_present(cls, client_name: str) -> bool:
+        """Is the credential this client needs actually configured?"""
+        env_name = cls.CLIENT_CREDENTIALS.get(client_name)
+        if env_name is None:
+            return True  # keyless client, nothing to check
+        # settings holds the parsed value; the env var is the operator-facing
+        # name. Check settings first so a .env file counts, then the raw env.
+        attr = env_name.lower()
+        value = getattr(settings, attr, None) or os.environ.get(env_name)
+        return bool(value)
+
+    @classmethod
+    def enrichable_categories(cls) -> List[str]:
+        """
+        Every category that has a client whose credential is present.
+
+        Derived from CATEGORY_CLIENTS rather than listed separately, so a
+        new category cannot be added to the dispatch table and then quietly
+        left out of the sweep. That is exactly the defect this replaces:
+        `--all` meant three hardcoded categories while the table held 27.
+        """
+        out = []
+        for category, client_name in cls.CATEGORY_CLIENTS.items():
+            if cls._credential_present(client_name):
+                out.append(category)
+        return out
+
+    @classmethod
+    def categories_missing_credentials(cls) -> Dict[str, str]:
+        """Category -> env var name, for every category we must skip."""
+        return {
+            category: cls.CLIENT_CREDENTIALS[client_name]
+            for category, client_name in cls.CATEGORY_CLIENTS.items()
+            if not cls._credential_present(client_name)
+        }
 
     def __init__(self):
         """Initialize the enrichment service."""
@@ -614,6 +680,7 @@ INSERT DATA {{
         self,
         preferences: List[dict],
         stats: EnrichmentStats,
+        deadline: Optional[datetime] = None,
     ) -> List[EnrichmentResult]:
         """
         Enrich a batch of preferences.
@@ -621,6 +688,7 @@ INSERT DATA {{
         Args:
             preferences: List of preference dicts
             stats: Stats object to update
+            deadline: Stop before starting any further item once passed
 
         Returns:
             List of successful EnrichmentResults
@@ -628,6 +696,13 @@ INSERT DATA {{
         results = []
 
         for pref in preferences:
+            # The allowance is checked BEFORE each item, never during one:
+            # an item that has already left the machine gets to finish and
+            # be recorded, so we never spend the egress and drop the result.
+            if deadline is not None and datetime.utcnow() >= deadline:
+                stats.budget_exhausted = True
+                break
+
             pref_id = pref.get("id", "")
             category = pref.get("category", "") or ""
 
@@ -643,6 +718,20 @@ INSERT DATA {{
             client_name = self.CATEGORY_CLIENTS.get(category.lower())
             if client_name is None:
                 stats.skipped_no_client += 1
+                continue
+
+            # The classifier decided this subject is a book/film/artist. It
+            # is sometimes wrong, and when it is wrong the subject still
+            # goes out as a query. Refuse anything shaped like prose before
+            # it reaches the network. See eligibility.py for what this does
+            # and, just as importantly, what it does not.
+            eligible, why_not = is_eligible(client_name, pref.get("subject", "") or "")
+            if not eligible:
+                stats.skipped_ineligible += 1
+                logger.info(
+                    "Not sending %s preference %s to %s (%s)",
+                    category, pref_id, client_name, why_not
+                )
                 continue
 
             # Enrich
@@ -682,6 +771,7 @@ INSERT DATA {{
         progress_callback: Optional[callable] = None,
         min_strength: Optional[float] = None,
         priority_order: bool = False,
+        deadline: Optional[datetime] = None,
     ) -> EnrichmentStats:
         """
         Enrich all unenriched preferences.
@@ -724,7 +814,15 @@ INSERT DATA {{
             total_fetched += len(batch)
 
             # Process batch
-            await self.enrich_batch(batch, stats)
+            await self.enrich_batch(batch, stats, deadline=deadline)
+
+            if stats.budget_exhausted:
+                logger.info(
+                    "Enrichment allowance spent after %d processed. The rest "
+                    "is still owed and the next run picks it up.",
+                    stats.total_processed
+                )
+                break
 
             # Progress callback
             if progress_callback:
@@ -755,6 +853,7 @@ INSERT DATA {{
         categories: List[str],
         user_id: Optional[str] = None,
         limit_per_category: int = 1000,
+        deadline: Optional[datetime] = None,
     ) -> EnrichmentStats:
         """
         Enrich specific categories.
@@ -763,6 +862,7 @@ INSERT DATA {{
             categories: List of categories to enrich (book, movie, music)
             user_id: Filter by user ID
             limit_per_category: Max items per category
+            deadline: Wall-clock stop for the WHOLE sweep, not per category
 
         Returns:
             Combined EnrichmentStats
@@ -770,12 +870,21 @@ INSERT DATA {{
         combined_stats = EnrichmentStats()
 
         for category in categories:
+            if deadline is not None and datetime.utcnow() >= deadline:
+                combined_stats.budget_exhausted = True
+                logger.info(
+                    "Allowance spent before reaching category %s. Not started, "
+                    "not failed: still owed.", category
+                )
+                break
+
             logger.info(f"Enriching category: {category}")
 
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit_per_category,
+                deadline=deadline,
             )
 
             # Merge stats
@@ -784,6 +893,10 @@ INSERT DATA {{
             combined_stats.failed += stats.failed
             combined_stats.skipped_already_enriched += stats.skipped_already_enriched
             combined_stats.skipped_no_client += stats.skipped_no_client
+            combined_stats.skipped_ineligible += stats.skipped_ineligible
+            combined_stats.budget_exhausted = (
+                combined_stats.budget_exhausted or stats.budget_exhausted
+            )
             combined_stats.errors.extend(stats.errors[:20])  # Limit errors
 
             for source, count in stats.by_source.items():

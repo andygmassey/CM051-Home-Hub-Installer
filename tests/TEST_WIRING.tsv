@@ -87,6 +87,7 @@ test_email_ingest_bootstrap_guard.sh	UNWIRED	-
 test_email_ingest_loud_guard.sh	UNWIRED	-
 test_email_ingest_venv_wired.sh	UNWIRED	-
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
+test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_err_trap_emits_done_fail.sh	UNWIRED	-
 test_every_fail_call_has_error_code.sh	UNWIRED	-
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
