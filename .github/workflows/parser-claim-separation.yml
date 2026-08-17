@@ -22,6 +22,10 @@ jobs:
         run: pip install aiofiles pydantic-settings beautifulsoup4
       - name: a YouTube parser must never claim a Facebook export
         run: python3 tests/test_youtube_parser_does_not_claim_facebook.py
+      - name: a WhatsApp parser must never claim a Meta message thread
+        # MEASURED on a real archive: 1,852 Facebook + 856 Instagram
+        # message_N.json were claimed by WhatsAppParser and yielded 0.
+        run: python3 tests/test_whatsapp_parser_does_not_claim_meta_messages.py
       # The general case of the same defect, measured across the whole
       # registration list rather than one pair: eight export archives were
       # claimed by a parser that could not read them, each yielding zero. Runs
