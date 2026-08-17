@@ -9441,8 +9441,34 @@ TOMLPREAMBLE
         # dir is created here rather than relying on the later `mkdir -p
         # "${OSTLER_DIR}/state"` around line 11200, so this block does not carry
         # a silent ordering dependency on a line 3000 lines further down.
+        #
+        # OSTLER_FINAL_DIR, NOT OSTLER_DIR, AND THIS IS #177 ALL OVER AGAIN.
+        # Measured on the .219 box running v1.0.33, 2026-08-17:
+        #
+        #     session_path = "/tmp/ostler-prelaunch-3992/state/whatsapp-session.db"
+        #
+        # This block runs PRE-FDA, when _ostler_set_paths still has OSTLER_DIR
+        # bound to the /tmp/ostler-prelaunch-<pid> staging tree. The config FILE
+        # is promoted onto ~/.ostler/ later; the VALUE inside it is not. So the
+        # shipped config pointed the WhatsApp Web device credentials at a
+        # directory macOS purges on reboot and on periodic cleanup: the link
+        # dies, the customer has to re-pair, and the daemon goes on printing
+        # "Channels: imessage, whatsapp" as though nothing happened.
+        #
+        # The comment above reasoned about Caches and missed /tmp, which is
+        # worse than Caches. Exactly the root cause of #177 (the two ollama
+        # LaunchAgents), one file over -- and tests/test_launchd_plist_no_tmp.sh
+        # was blind to it because that gate is keyed to the PLISTS by name.
+        # A gate keyed to a name does not cover a class.
+        #
+        # Do NOT also `mkdir -p "${OSTLER_FINAL_DIR}/state"` here.
+        # _ostler_promote_prelaunch_tree walks the staging tree and, on a name
+        # collision, `rm -rf`s the target before `mv`. Pre-creating the final
+        # state/ dir would hand the promote a collision to resolve by deleting
+        # whatever session the daemon had already written into it. The staging
+        # `state/` below is promoted into place, which is the intended route.
         mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true
-        _wa_session_path_esc="${OSTLER_DIR}/state/whatsapp-session.db"
+        _wa_session_path_esc="${OSTLER_FINAL_DIR}/state/whatsapp-session.db"
         _wa_session_path_esc="${_wa_session_path_esc//\"/\\\"}"
         echo "session_path = \"${_wa_session_path_esc}\""
         unset _wa_session_path_esc
