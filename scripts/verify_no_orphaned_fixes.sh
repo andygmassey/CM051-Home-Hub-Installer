@@ -665,46 +665,56 @@ fi
 # A permanent red teaches people red means nothing, which is the failure this
 # script's own header warns about.
 # ---------------------------------------------------------------------------
-if [[ -f "$DEFERRALS_FILE" ]]; then
-    declared_refs="$(sed -nE 's/^[[:space:]]*-?[[:space:]]*ref:[[:space:]]*["'"'"']?([^"'"'"']+)["'"'"']?[[:space:]]*$/\1/p' \
-                     "$DEFERRALS_FILE" | sed 's/[[:space:]]*$//' | sort -u)"
-    consulted="$(sort -u "$CONSULTED_REFS" 2>/dev/null || true)"
-    n_declared=$(printf '%s\n' "$declared_refs" | grep -c . || true)
-    n_consulted=$(printf '%s\n' "$consulted" | grep -c . || true)
+deferral_reachability_report() {
+    # Defaults are :- against a possibly-UNSET name, not just an empty one.
+    # `${3:-$unchecked_labels}` is itself an unbound-variable error under set -u,
+    # which is how the self-test below caught this function before it shipped.
+    local DEFERRALS_FILE="${1:-${DEFERRALS_FILE:-}}"
+    local CONSULTED_REFS="${2:-${CONSULTED_REFS:-}}"
+    local unchecked_labels="${3:-${unchecked_labels:-}}"
+    if [[ -f "$DEFERRALS_FILE" ]]; then
+        declared_refs="$(sed -nE 's/^[[:space:]]*-?[[:space:]]*ref:[[:space:]]*["'"'"']?([^"'"'"']+)["'"'"']?[[:space:]]*$/\1/p' \
+                         "$DEFERRALS_FILE" | sed 's/[[:space:]]*$//' | sort -u)"
+        consulted="$(sort -u "$CONSULTED_REFS" 2>/dev/null || true)"
+        n_declared=$(printf '%s\n' "$declared_refs" | grep -c . || true)
+        n_consulted=$(printf '%s\n' "$consulted" | grep -c . || true)
 
-    # VACUITY CONTROL. If nothing was consulted at all, this sweep has measured
-    # nothing and must say so rather than report every deferral as unconsulted.
-    if [[ "$n_consulted" -eq 0 ]]; then
-        say ""
-        say "   DEFERRAL REACHABILITY: CANNOT-RUN. is_deferred() was never called,"
-        say "   so this run says NOTHING about which deferrals bind. Not a pass."
-    else
-        unconsulted="$(comm -23 <(printf '%s\n' "$declared_refs") <(printf '%s\n' "$consulted"))"
-        # Exclude repos this environment did not check -- their deferrals could
-        # not have been consulted no matter how well-formed they are.
-        if [[ -n "$unchecked_labels" ]]; then
-            for _lbl in ${unchecked_labels//,/ }; do
-                _lbl="${_lbl// /}"
-                [[ -z "$_lbl" ]] && continue
-                unconsulted="$(printf '%s\n' "$unconsulted" | grep -v "^${_lbl}:" || true)"
-            done
-        fi
-        n_unconsulted=$(printf '%s\n' "$unconsulted" | grep -c . || true)
-        say ""
-        say "   DEFERRAL REACHABILITY: ${n_consulted} of ${n_declared} declared deferral(s) were consulted"
-        say "   this run; ${n_unconsulted} were NOT (excluding repos not checked here)."
-        if [[ "$n_unconsulted" -gt 0 ]]; then
-            say "   A deferral nothing asks about holds nothing. Either the ref is in the"
-            say "   wrong key shape, or the work has landed and the row should go."
-            printf '%s\n' "$unconsulted" | head -20 | while IFS= read -r _r; do
-                [[ -n "$_r" ]] && say "     UNCONSULTED  ${_r}"
-            done
-            if [[ "$n_unconsulted" -gt 20 ]]; then
-                say "     ... and $((n_unconsulted - 20)) more (showing 20 of ${n_unconsulted})"
+        # VACUITY CONTROL. If nothing was consulted at all, this sweep has measured
+        # nothing and must say so rather than report every deferral as unconsulted.
+        if [[ "$n_consulted" -eq 0 ]]; then
+            say ""
+            say "   DEFERRAL REACHABILITY: CANNOT-RUN. is_deferred() was never called,"
+            say "   so this run says NOTHING about which deferrals bind. Not a pass."
+        else
+            unconsulted="$(comm -23 <(printf '%s\n' "$declared_refs") <(printf '%s\n' "$consulted"))"
+            # Exclude repos this environment did not check -- their deferrals could
+            # not have been consulted no matter how well-formed they are.
+            if [[ -n "$unchecked_labels" ]]; then
+                for _lbl in ${unchecked_labels//,/ }; do
+                    _lbl="${_lbl// /}"
+                    [[ -z "$_lbl" ]] && continue
+                    unconsulted="$(printf '%s\n' "$unconsulted" | grep -v "^${_lbl}:" || true)"
+                done
+            fi
+            n_unconsulted=$(printf '%s\n' "$unconsulted" | grep -c . || true)
+            say ""
+            say "   DEFERRAL REACHABILITY: ${n_consulted} of ${n_declared} declared deferral(s) were consulted"
+            say "   this run; ${n_unconsulted} were NOT (excluding repos not checked here)."
+            if [[ "$n_unconsulted" -gt 0 ]]; then
+                say "   A deferral nothing asks about holds nothing. Either the ref is in the"
+                say "   wrong key shape, or the work has landed and the row should go."
+                printf '%s\n' "$unconsulted" | head -20 | while IFS= read -r _r; do
+                    [[ -n "$_r" ]] && say "     UNCONSULTED  ${_r}"
+                done
+                if [[ "$n_unconsulted" -gt 20 ]]; then
+                    say "     ... and $((n_unconsulted - 20)) more (showing 20 of ${n_unconsulted})"
+                fi
             fi
         fi
     fi
-fi
+}
+
+deferral_reachability_report "$DEFERRALS_FILE" "$CONSULTED_REFS" "$unchecked_labels"
 
 if [[ "$red" -gt 0 ]]; then
     if [[ "$unverifiable" -gt 0 ]]; then
