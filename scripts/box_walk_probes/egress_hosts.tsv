@@ -30,3 +30,74 @@ ostler.ai	installer: bootstrap + licence activation	licence ID and machine finge
 controlplane.tailscale.com	tailnet: coordination for phone to Mac	node keys and endpoints. Encrypted payloads are relayed, never readable here.
 log.tailscale.io	tailnet: Tailscale client telemetry	Tailscale's own client logging. NOT ours, and a candidate to disable.
 graph.facebook.com	whatsapp connector: Business Cloud API send path (zeroclaw-channels/src/whatsapp.rs:302,374)	outbound message sends. ONLY active when phone_number_id is configured; NOT configured on the box measured 2026-08-17.
+#
+# ── ADDED 2026-08-17 after the source sweep. The first version of this ledger
+#    was built from SAMPLING alone and was about half complete. Sampling cannot
+#    see a connection that opens and closes between two samples, which is most
+#    of an install. These rows come from the CALL SITES.
+#
+# ── container + model registries (install phase, and on every model pull) ────
+ghcr.io	installer: pull the 4 pinned container images (ostler-wiki-compiler, ostler-wiki-site, ostler-ai/vane, oxigraph/oxigraph)	HTTPS GET of public image layers by digest. No request body.
+pkg-containers.githubusercontent.com	ghcr.io layer blob CDN	HTTPS GET of public image layers. No request body.
+registry.ollama.ai	installer + Doctor: `ollama pull <model>` (15 call sites)	model name only. The models are public weights; nothing of the customer's crosses.
+huggingface.co	ostler_security OPF filter: fetch the pinned privacy-filter model revision (vendor/ostler_security/opf_filter.py:63)	model id and revision only. Pinned SHA, no customer data.
+cdn-lfs.huggingface.co	huggingface.co weight CDN	HTTPS GET of public model weights. No request body.
+#
+# ── build-time dependency registries reached BY the installer, not by us ─────
+#    We invoke these; the customer's Mac is what makes the request. Named here
+#    because "we did not write the client" is not a reason to omit a row.
+formulae.brew.sh	installer: Homebrew formula index (29 `brew install` call sites)	package names. Homebrew's own analytics are separate and OFF unless the customer enabled them.
+pypi.org	installer: Python dependency resolution (57 pip call sites)	package names and versions.
+files.pythonhosted.org	pypi.org wheel CDN	HTTPS GET of public wheels. No request body.
+#
+# ── tailnet, the rest of it ──────────────────────────────────────────────────
+login.tailscale.com	tailnet: device authentication	Tailscale account auth. Ours only in that we ship the client.
+derp*.tailscale.com	tailnet: encrypted relay when a direct path is unavailable	end-to-end encrypted packets Tailscale cannot read. The relay set is fetched live from the DERP map, so the address list is not fixed and must be resolved contemporaneously.
+#
+# ── WhatsApp connector, OPT-IN, OFF BY DEFAULT ───────────────────────────────
+#    SETTLED 2026-08-17 and it corrects the earlier entry: the shipped daemon
+#    uses the WhatsApp WEB path (wa-rs), not the Cloud API. It registers ITS
+#    OWN linked device and holds its own authenticated session. That is a
+#    materially different act from reading a local database and the consent
+#    wording does not yet say so (#741).
+web.whatsapp.com	whatsapp connector: WhatsApp Web device link (zeroclaw-channels/src/whatsapp_web.rs, wa-rs)	WhatsApp's own end-to-end encrypted protocol between the customer's linked device and their account. Ostler is the device. Nothing is routed to us.
+g.whatsapp.net	whatsapp connector: WhatsApp Web chat endpoint	as above.
+mmg.whatsapp.net	whatsapp connector: WhatsApp media endpoint	as above. Observed at 57.144.97.32 on the box, 2026-08-17, held by ostler-assistant during a pairing attempt.
+#
+# ── PUBLIC-DATA ENRICHMENT. READ THE DOC BEFORE TRUSTING THESE ROWS. ─────────
+#    install.sh:13217 runs `services.enrich.src.cli enrich --all`. The clients
+#    live in vendor/cm019_preferences/services/enrich/src/clients/ and share an
+#    httpx.AsyncClient built in clients/base.py:141.
+#
+#    THIS IS THE ONE FAMILY WHERE THE BOUNDED CLAIM IS UNDER REAL PRESSURE.
+#    A lookup of an artist, book, restaurant or place is a query whose SUBJECT
+#    came from the customer's own data. "Nothing about you ever leaves" has to
+#    survive that sentence or be changed. The "carries" column below is
+#    therefore deliberately blunt.
+#
+#    KEY-GATED, so inert on a stock install with no key set: TMDB, YouTube,
+#    Google Places, PodcastIndex, Semantic Scholar, Foursquare, Spoonacular,
+#    Ticketmaster/Eventbrite. NOT key-gated, so live by default: the rest.
+query.wikidata.org	enrichment: entity lookup (clients/wikidata.py, brand.py, musicbrainz.py)	A SUBJECT DRAWN FROM THE CUSTOMER'S DATA: the name of a thing they mentioned.
+www.wikidata.org	enrichment: entity lookup	as above.
+musicbrainz.org	enrichment: artist and release lookup	an artist or release name drawn from the customer's listening history.
+openlibrary.org	enrichment: book lookup	a book title or author drawn from the customer's reading.
+covers.openlibrary.org	enrichment: book cover images	a book identifier.
+world.openfoodfacts.org	enrichment: food product lookup	a product name or barcode.
+api.crossref.org	enrichment: DOI and publication lookup	a paper title or DOI.
+doi.org	enrichment: DOI resolution	a DOI.
+nominatim.openstreetmap.org	enrichment: geocoding (clients/geocoder.py)	A PLACE NAME OR ADDRESS DRAWN FROM THE CUSTOMER'S DATA.
+api.upcitemdb.com	enrichment: barcode lookup	a barcode or product name.
+api.upcdatabase.org	enrichment: barcode lookup	a barcode or product name.
+www.amazon.com	enrichment: ASIN lookup (clients/asin.py)	a product identifier.
+www.linkedin.com	enrichment: company and profile shape (clients/linkedin.py)	A COMPANY OR PERSON NAME DRAWN FROM THE CUSTOMER'S CONTACTS.
+api.themoviedb.org	enrichment: film and TV lookup. KEY-GATED (TMDB_API_KEY), inert without one.	a title drawn from the customer's viewing.
+www.googleapis.com	enrichment: YouTube lookup. KEY-GATED (YOUTUBE_API_KEY), inert without one.	a video or channel identifier.
+places.googleapis.com	enrichment: place lookup. KEY-GATED (GOOGLE_PLACES_API_KEY), inert without one.	a place name drawn from the customer's data.
+maps.googleapis.com	enrichment: place lookup. KEY-GATED, inert without one.	as above.
+api.podcastindex.org	enrichment: podcast lookup. KEY-GATED (PODCAST_INDEX_API_KEY), inert without one.	a podcast name.
+api.semanticscholar.org	enrichment: paper lookup. KEY-GATED (SEMANTIC_SCHOLAR_API_KEY), inert without one.	a paper title.
+api.foursquare.com	enrichment: venue lookup. KEY-GATED (FOURSQUARE_API_KEY), inert without one.	a venue name.
+api.spoonacular.com	enrichment: recipe lookup. KEY-GATED (SPOONACULAR_API_KEY), inert without one.	a dish or ingredient name.
+www.eventbriteapi.com	enrichment: event lookup. KEY-GATED, inert without one.	an event or venue name.
+app.ticketmaster.com	enrichment: event lookup. KEY-GATED, inert without one.	an event or venue name.
