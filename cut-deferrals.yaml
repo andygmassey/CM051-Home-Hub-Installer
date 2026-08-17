@@ -33,6 +33,45 @@
 
 pr_exemptions:
 
+  # ---------------------------------------------------------------------------
+  # THE 2026-06 PRE-RULE FOUR, dispositioned 2026-08-17 because check-pr-age
+  # made them RED on the v1.0.33 dry run. All four opened 2026-06-01..03, more
+  # than two months before RULE_EFFECTIVE_DATE. None is a v1.0.33 input.
+  #
+  # The standing rule in this file is right and I am not weakening it: exempting
+  # a PR that CAN merge is how a 176-PR backlog gets built. So I measured which
+  # of them actually can, rather than parking all four on age alone.
+  #
+  #   #216  mergeable, but the `contract` check is RED     -> cannot merge clean
+  #   #218  mergeable=false, dirty, AND it is a re-vendor   -> must not merge
+  #   #231  mergeable=false, dirty                          -> cannot merge
+  #   #241  mergeable, all checks green                     -> CAN merge, and I
+  #                                                            am deferring it
+  #                                                            anyway. Reason in
+  #                                                            its own entry.
+  #
+  # #216 and #241 BOTH touch install.sh, which cuts/v1.0.33/cut.env pins by
+  # BLOB. Merging either invalidates that pin and forces a re-point. That is not
+  # a reason to defer a good fix, but it is why none of them lands unreviewed in
+  # the hours before a cut.
+  # ---------------------------------------------------------------------------
+
+  - ref: "CM051-Home-Hub-Installer#216"
+    reason: "Pre-rule (opened 2026-06-01). Mergeable but the `contract` check is RED, so it cannot merge clean. Touches install.sh, which cut.env pins by blob. Skills-surface lockdown is v1.0-scoped and should land, after the contract failure is diagnosed rather than bypassed."
+    review_by: "2026-08-24"
+
+  - ref: "CM051-Home-Hub-Installer#218"
+    reason: "Pre-rule (opened 2026-06-01). mergeable=false/dirty, and it is a RE-VENDOR of ostler_fda. Re-vendoring is prohibited: sync_vendor.sh is destructive and vendored copies are AHEAD of source in more than one package, so this PR would delete work rather than add it. Recommend CLOSE rather than repair, once someone confirms the direct browsing writer it carries exists in source."
+    review_by: "2026-08-24"
+
+  - ref: "CM051-Home-Hub-Installer#231"
+    reason: "Pre-rule (opened 2026-06-02). mergeable=false/dirty after two months of drift. Dev tooling only (dev-wipe-studio.sh), touches no shipped payload path and no v1.0.33 input."
+    review_by: "2026-08-24"
+
+  - ref: "CM051-Home-Hub-Installer#241"
+    reason: "Pre-rule (opened 2026-06-03). This one CAN merge and is still deferred, so the reason has to carry its own weight. Its green is STALE: 5 checks ran, where a CM051 PR opened today runs 22. That is the task #336 pattern, a PR reading CLEAN against a two-month-old workflow set rather than against main's current gates. Separately it is a FEATURE (installer localisation foundation + Spanish strings, +64/-17 to install.sh plus a new 135-line strings file) and v1.0.33 carries the wiki pencil and a daemon bump, not new i18n. Re-run against current gates and review on merit post-launch."
+    review_by: "2026-08-24"
+
   # CM041-People-Graph#119 -- CANNOT MERGE, and that is the point of exempting it.
   #
   # This is NOT a clean PR being parked. Two independent blockers, both measured:
