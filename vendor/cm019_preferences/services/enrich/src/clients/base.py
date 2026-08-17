@@ -136,7 +136,7 @@ class BaseClient(ABC, Generic[T]):
         """Get HTTP headers for requests. Override in subclasses."""
         return {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     async def _get_client(self) -> httpx.AsyncClient:

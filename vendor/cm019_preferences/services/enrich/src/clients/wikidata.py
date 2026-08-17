@@ -142,7 +142,7 @@ class WikidataClient(BaseClient[WikidataEntity]):
     def _get_headers(self) -> Dict[str, str]:
         return {
             "Accept": "application/json",
-            "User-Agent": "PWG-Enrichment/0.1.0 (Personal World Graph project; topic normalization)",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     async def search_entity(

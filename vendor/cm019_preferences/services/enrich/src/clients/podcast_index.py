@@ -288,7 +288,7 @@ class PodcastIndexClient(BaseClient[PodcastMetadata]):
             "X-Auth-Key": self.api_key,
             "X-Auth-Date": timestamp,
             "Authorization": auth_hash,
-            "User-Agent": "PWG-Enrichment/0.1.0",
+            "User-Agent": "Ostler/1.0 (+https://ostler.ai)",
         }
 
     def _get_headers(self) -> Dict[str, str]:
@@ -300,7 +300,7 @@ class PodcastIndexClient(BaseClient[PodcastMetadata]):
         if self.api_key and self.api_secret:
             headers.update(self._get_auth_headers())
         else:
-            headers["User-Agent"] = "PWG-Enrichment/0.1.0"
+            headers["User-Agent"] = "Ostler/1.0 (+https://ostler.ai)"
 
         return headers
 

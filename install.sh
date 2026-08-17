@@ -692,11 +692,30 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    granted-and-working | tcc-denied | check-failed."
     echo "    Real macOS installs leave this unset."
     echo ""
-    echo "Your personal data stays on your machine. Ostler makes only narrow"
-    echo "public-data queries (Wikidata for enrichment, local web search via"
-    echo "the bundled Vane + SearXNG container at http://localhost:3000) and"
-    echo "downloads model and software updates. See the privacy policy at"
-    echo "creativemachines.ai/ostler/legal-privacy for full detail."
+    # NAMES THE SET, NOT ONE MEMBER OF IT. This used to say "Wikidata for
+    # enrichment" and stop there. Measured 2026-08-17: enrichment also reaches
+    # MusicBrainz and OpenLibrary on a stock install, and follows links you have
+    # bookmarked. Naming one of four is not disclosing four, and the whole point
+    # of this paragraph is that a customer can check it.
+    #
+    # AND IT MUST NOT CLAIM A CONTROL WE DO NOT SHIP. A draft of this paragraph
+    # said "You can turn them off in Settings". Measured on this tree: there is
+    # no such control. Every OSTLER_ENRICH_* knob is a throttle (budget,
+    # concurrency, interval), there is no installer prompt, and no settings
+    # surface mentions enrichment at all. Claiming an off switch that does not
+    # exist is worse than the incomplete list this paragraph replaced: the old
+    # copy was merely thin, that would have been untrue, on a consent screen.
+    # The missing switch is a real gap and is filed as its own row; until it
+    # ships, this says only what a customer can actually verify.
+    echo "Your personal data stays on your machine. To label things it finds,"
+    echo "Ostler looks them up in public reference sources -- Wikidata,"
+    echo "MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
+    echo "Those lookups send the thing being looked up (a book title, an"
+    echo "artist), never your files, messages or contacts. It also runs local"
+    echo "web search via the bundled Vane + SearXNG container at"
+    echo "http://localhost:3000, and downloads model and software updates."
+    echo "The full list of everything Ostler contacts, and why, is in the"
+    echo "privacy policy at creativemachines.ai/ostler/legal-privacy."
     exit 0
 fi
 
@@ -7405,10 +7424,15 @@ echo "    - Import ${CONTACT_COUNT} contacts from iCloud"
 echo "    - Import GDPR exports from ${EXPORTS_DIR}"
 echo "    - Import from your selected Mac sources (above)"
 echo ""
-echo "  Your personal data stays on this machine. Ostler makes only narrow"
-echo "  outbound queries for public-data enrichment and local web search"
-echo "  (Vane + SearXNG, bundled), plus model/software updates. Full detail"
-echo "  in the privacy policy."
+# Same correction as the block near line 695: name the set, not one member,
+# and claim no control we do not ship. See the reasoning there.
+echo "  Your personal data stays on this machine. To label things it finds,"
+echo "  Ostler looks them up in public reference sources -- Wikidata,"
+echo "  MusicBrainz and OpenLibrary -- and follows links you have bookmarked."
+echo "  Those lookups send the thing being looked up, never your files,"
+echo "  messages or contacts. Also local web search (Vane + SearXNG,"
+echo "  bundled) and model/software updates. Full list of everything Ostler"
+echo "  contacts in the privacy policy."
 echo "  You can remove everything at any time with: ostler-uninstall"
 echo ""
 echo -e "  ${BOLD}By continuing, you confirm:${NC}"

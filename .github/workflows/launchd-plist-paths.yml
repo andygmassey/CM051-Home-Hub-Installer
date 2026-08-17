@@ -20,6 +20,8 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_launchd_plist_no_tmp.sh'
+      - 'tests/test_enrichment_identity_and_disclosure.sh'
+      - 'vendor/cm019_preferences/services/enrich/**'
       - 'tests/test_assistant_config_no_tmp.sh'
       - 'tests/test_export_scan_plist_bootstrap_race_217.sh'
       - 'tests/test_stay_awake_agent_survives_installer_exit.sh'
@@ -72,6 +74,15 @@ jobs:
       - name: Assert no shipped assistant-config value resolves under /tmp
         if: always()
         run: bash tests/test_assistant_config_no_tmp.sh
+
+      # What Ostler announces itself as to third parties, and whether the
+      # installer's disclosure names the set it actually contacts. 23 shipped
+      # User-Agents said PWG-Enrichment, pointed at accounts that are not ours,
+      # or impersonated Chrome to scrape Amazon. Every enrichment destination
+      # receives the customer's IP, the query and this string.
+      - name: Assert our outbound identity is ours, and the disclosure names the live set
+        if: always()
+        run: bash tests/test_enrichment_identity_and_disclosure.sh
 
       - name: Assert com.ostler.export-scan bootstrap is race-safe (HR015 #217)
         if: always()
