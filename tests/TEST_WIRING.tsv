@@ -229,6 +229,7 @@ test_walkaway_no_phase2_input_leak.sh	UNWIRED	-
 test_whatsapp_channel_block.sh	UNWIRED	-
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_wiki_baseline_background.sh	UNWIRED	-
+test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
 test_wiki_compose_paths.sh	UNWIRED	-
 test_wiki_image_namespace_matches_ci.sh	WIRED	scripts/run_all_cut_gates.sh
 test_wiki_provenance_extracts_without_exec.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
