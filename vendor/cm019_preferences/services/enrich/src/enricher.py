@@ -1037,13 +1037,36 @@ INSERT DATA {{
                 deadline=category_deadline,
             )
 
-            # `budget_exhausted` from a per-category deadline means THAT
-            # category ran out of its share, not that the sweep is over. The
-            # merge below would otherwise mark the whole pass exhausted after
-            # the first slow category and stop, which is the starvation this
-            # block exists to remove, reintroduced one level up.
-            if category_deadline is not deadline:
-                stats.budget_exhausted = False
+            # A CATEGORY THAT RAN OUT OF ITS SHARE STILL OWES WORK, AND THE
+            # SWEEP MUST SAY SO.
+            #
+            # This block used to zero the flag here. The stated reason was that
+            # the merge below would otherwise "mark the whole pass exhausted
+            # after the first slow category and stop". MEASURED: nothing stops
+            # on it. `combined_stats.budget_exhausted` is local to this method
+            # and has exactly one consumer, `cli.py:685`, which uses it to
+            # choose between
+            #
+            #     ENRICHMENT PAUSED (allowance spent, more still owed)
+            #     ENRICHMENT COMPLETE
+            #
+            # The loop's own stopping condition is the `now >= deadline` check
+            # at the top, which reads the clock, not this flag. So the
+            # suppression bought no protection against starvation. What it
+            # bought was a sweep that spent its ENTIRE allowance, left backlog
+            # in every category, and printed COMPLETE, which is the same
+            # defect the rest of this file is being hardened against: an
+            # unfinished pass that reports success.
+            #
+            # The two events ARE different and the log says which. Both mean
+            # work is owed, so both propagate.
+            if stats.budget_exhausted and category_deadline is not deadline:
+                logger.info(
+                    "Category %s stopped on its own share rather than on the "
+                    "sweep allowance. Work is still owed in this category and "
+                    "the pass will be reported as PAUSED, not COMPLETE.",
+                    category,
+                )
 
             remaining.pop(0)
 
