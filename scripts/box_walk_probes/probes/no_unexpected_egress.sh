@@ -138,6 +138,25 @@ collect() {
     printf '%s' "$out" | grep -vE '^[[:space:]]*$' | sort -u
 }
 
+# is_foreign <command-name> -> 0 if the process is the OPERATOR'S, not ours.
+#
+# ONE place knows the shape of OSTLER_EGRESS_FOREIGN_RE. That regex is
+# LINE-shaped: it ends in [[:space:]] because it is written to match
+# COMMAND<TAB>PID<TAB>REMOTE. Applied to a bare command name it matches
+# NOTHING, silently, and every operator process gets attributed to us.
+#
+# That mistake has now been made TWICE in this file: once with a $ anchor that
+# put Mail and WhatsApp in the report, and once here. Both times it failed
+# open, which is the direction that produces a false accusation rather than a
+# false clean, but a probe that cries wolf gets muted and a muted probe is no
+# probe. So the delimiter is appended in exactly one function and callers pass
+# the bare name.
+#
+# grep -c, not grep -q: under `set -o pipefail` a -q exit races SIGPIPE.
+is_foreign() {
+    [ "$(printf '%s ' "$1" | grep -cE "$OSTLER_EGRESS_FOREIGN_RE")" -gt 0 ]
+}
+
 is_outside_boundary() {   # $1 = remote address:port
     local host="${1%:*}"
     printf '%s' "$host" | grep -qE "$OSTLER_EGRESS_ALLOWED_RE" && return 1
@@ -312,6 +331,121 @@ PY
 #
 # Input format is exactly what sample_sockets emits: COMMAND<TAB>PID<TAB>REMOTE
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# --inventory
+#
+# Produce the ATTRIBUTED inventory: every outside-boundary connection, joined
+# to a declared host, with a stated purpose. Unmatched observations are printed
+# as UNATTRIBUTED and are the point of the exercise.
+#
+# THE JOIN IS CONTEMPORANEOUS AND THAT IS THE WHOLE DESIGN. The socket read and
+# the hostname resolution happen in ONE remote invocation, on the same box, at
+# the same instant. Resolving afterwards is unsound: on 2026-08-17 github.com
+# returned 20.205.243.166 and then 140.82.114.3 inside a single minute, so an
+# address observed at time T cannot be attributed by a lookup at T+n. Two of
+# six addresses in the first attempt matched only because the lookup happened
+# to be close enough in time to get lucky.
+#
+# WHAT THIS STILL DOES NOT PROVE, stated because a sceptic will ask:
+#   a shared CDN address serves many tenants, so a match is "consistent with",
+#   never "was". Content is not observed at all. This narrows what an
+#   unexplained connection could be. It does not certify what an explained one
+#   carried, and the ledger's third column is a CLAIM by us, not a measurement.
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "--inventory" ]; then
+    HOSTS_FILE="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/egress_hosts.tsv}"
+    [ -f "$HOSTS_FILE" ] || { echo "CANNOT-RUN: no declared host ledger at '$HOSTS_FILE'" >&2; exit 2; }
+
+    hosts="$(grep -vE '^[[:space:]]*(#|$)' "$HOSTS_FILE" | cut -f1 | tr '\n' ' ')"
+    [ -n "$hosts" ] || { echo "CANNOT-RUN: ledger declares no hosts" >&2; exit 2; }
+
+    # DYNAMIC SOURCES. Some destinations cannot be declared statically and
+    # pretending otherwise would make the inventory permanently noisy, which is
+    # how a report gets ignored. Tailscale is the case in point: the client
+    # FETCHES its DERP map from the control plane at runtime and picks a relay
+    # by latency, so the relay address set is served, not fixed, and rotates.
+    # A static row would be wrong within days.
+    #
+    # So the probe fetches the SAME map the client used, in the SAME call as
+    # the socket read, and treats its node addresses as attributed to the
+    # relay purpose. Contemporaneous, like everything else here.
+    derp_purpose="tailnet: encrypted relay when no direct path exists"
+    derp_carries="relayed WireGuard packets. Tailscale cannot read them; keys never leave the devices."
+
+    # ONE remote call: sockets, resolutions and the DERP map together, same instant.
+    joint="$(box_run "
+        curl -fsS --max-time 8 https://controlplane.tailscale.com/derpmap/default 2>/dev/null \
+          | python3 -c \"
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for rid,r in (d.get('Regions') or {}).items():
+    for n in (r.get('Nodes') or []):
+        ip=n.get('IPv4')
+        if ip: print('DERP\\t%s\\t%s' % (n.get('HostName') or 'derp', ip))
+\" 2>/dev/null
+        lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
+          | awk 'NR>1 { for (f=NF; f>=1; f--) { i=index(\$f,\"->\"); if (i>0) { print \"SOCK\t\" \$1 \"\t\" substr(\$f,i+2); break } } }'
+        for h in ${hosts}; do
+            for a in \$(dig +short +time=3 +tries=1 \"\$h\" 2>/dev/null | grep -E '^[0-9]+\.'); do
+                printf 'HOST\t%s\t%s\n' \"\$h\" \"\$a\"
+            done
+        done
+    ")"
+    [ -n "$joint" ] || { echo "CANNOT-RUN: the box returned nothing; not a clean result" >&2; exit 2; }
+
+    resolved="$(printf '%s\n' "$joint" | grep '^HOST	' || true)"
+    derps="$(printf '%s\n' "$joint" | grep '^DERP	' || true)"
+    # Exclusion happens per row in the loop below, against the COMMAND field,
+    # not here against the whole line. Filtering the tagged stream would match
+    # the tag and the address too.
+    socks="$(printf '%s\n' "$joint" | grep '^SOCK	' || true)"
+
+    echo "DECLARED EGRESS INVENTORY"
+    echo "  ledger        : $HOSTS_FILE ($(printf '%s\n' "$hosts" | wc -w | tr -d ' ') hosts declared)"
+    echo "  resolutions   : $(printf '%s\n' "$resolved" | grep -c . ) addresses, resolved ON THE BOX in the SAME call as the socket read"
+    echo "  derp map      : $(printf '%s\n' "$derps" | grep -c . ) relay nodes, fetched live in that same call (served, not declarable)"
+    echo "  NOT PROOF     : shared CDN addresses serve many tenants, so a match is"
+    echo "                  'consistent with', never 'was'. Content is never observed."
+    echo
+
+    att=0; unatt=0
+    while IFS=$'\t' read -r tag cmd remote; do
+        [ "$tag" = "SOCK" ] || continue
+        is_foreign "$cmd" && continue
+        is_outside_boundary "$remote" || continue
+        ip="${remote%:*}"
+        host="$(printf '%s\n' "$resolved" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+        derp="$(printf '%s\n' "$derps" | awk -F'\t' -v ip="$ip" '$3==ip {print $2; exit}')"
+        if [ -z "$host" ] && [ -n "$derp" ]; then
+            printf '  ATTRIBUTED    %-12s %-22s %s\n' "$cmd" "$ip" "$derp"
+            printf '                purpose : %s\n' "$derp_purpose"
+            printf '                carries : %s\n' "$derp_carries"
+            printf '                source  : live DERP map from controlplane.tailscale.com, fetched in this same call\n'
+            att=$((att + 1))
+            continue
+        fi
+        if [ -n "$host" ]; then
+            purpose="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f2)"
+            carries="$(grep -E "^${host}	" "$HOSTS_FILE" | cut -f3)"
+            printf '  ATTRIBUTED    %-12s %-22s %s\n' "$cmd" "$ip" "$host"
+            printf '                purpose : %s\n' "$purpose"
+            printf '                carries : %s\n' "$carries"
+            att=$((att + 1))
+        else
+            printf '  UNATTRIBUTED  %-12s %-22s no declared host resolved to this address\n' "$cmd" "$ip"
+            unatt=$((unatt + 1))
+        fi
+    done <<< "$(printf '%s\n' "$socks" | sort -u)"
+
+    echo
+    echo "  attributed=${att}  unattributed=${unatt}"
+    [ "$unatt" -eq 0 ] && { echo "  every outside-boundary connection matched a declared host."; exit 0; }
+    echo "  UNATTRIBUTED connections are not a pass. Either the ledger is incomplete" >&2
+    echo "  or something is talking to a destination nobody declared." >&2
+    exit 1
+fi
+
 if [ "${1:-}" = "--classify-fixture" ]; then
     fixture="${2:-}"
     [ -f "$fixture" ] || { echo "CANNOT-RUN: no fixture at '${fixture}'" >&2; exit 2; }

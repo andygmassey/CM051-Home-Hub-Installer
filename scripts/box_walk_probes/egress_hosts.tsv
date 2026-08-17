@@ -1,0 +1,32 @@
+# DECLARED EGRESS INVENTORY. host<TAB>purpose<TAB>what it carries
+#
+# This is a LEDGER, not a scrape. Each row is a claim we are making in public:
+# that this destination exists, that it exists for this reason, and that this
+# is what crosses it. Adding a row is making a claim; a reader is entitled to
+# check it and we should expect them to.
+#
+# THE PROBE DOES NOT TRUST THIS FILE. It resolves these hosts ON THE BOX, IN
+# THE SAME SAMPLING LOOP as the socket read, and joins by address. Anything
+# observed that does not match a contemporaneously-resolved declared host is
+# reported UNATTRIBUTED and loud. So a wrong or missing row makes the probe
+# noisier, never quieter.
+#
+# WHY CONTEMPORANEOUS. Resolving afterwards is unsound: on 2026-08-17
+# github.com resolved to 20.205.243.166 and then 140.82.114.3 inside the same
+# minute. Geo and round-robin DNS mean an address seen at time T cannot be
+# attributed by a lookup at T+n. Both halves have to be sampled together.
+#
+# STILL NOT PROOF, and the limit is stated rather than buried: a shared CDN
+# address can serve thousands of tenants, so a match says "consistent with"
+# and never "was". Content is not observed at all. This narrows what an
+# unexplained connection could be; it does not certify what an explained one
+# carried.
+github.com	installer: fetch release artefacts	HTTPS GET of public release assets. No request body.
+codeload.github.com	installer: fetch source tarballs	HTTPS GET of public archives. No request body.
+raw.githubusercontent.com	installer: fetch pinned scripts	HTTPS GET of public files. No request body.
+objects.githubusercontent.com	installer: GitHub asset redirect target	HTTPS GET of public assets. No request body.
+github-releases.githubusercontent.com	installer: GitHub release asset CDN	HTTPS GET of public release binaries. No request body.
+ostler.ai	installer: bootstrap + licence activation	licence ID and machine fingerprint. NO personal data, no graph content.
+controlplane.tailscale.com	tailnet: coordination for phone to Mac	node keys and endpoints. Encrypted payloads are relayed, never readable here.
+log.tailscale.io	tailnet: Tailscale client telemetry	Tailscale's own client logging. NOT ours, and a candidate to disable.
+graph.facebook.com	whatsapp connector: Business Cloud API send path (zeroclaw-channels/src/whatsapp.rs:302,374)	outbound message sends. ONLY active when phone_number_id is configured; NOT configured on the box measured 2026-08-17.
