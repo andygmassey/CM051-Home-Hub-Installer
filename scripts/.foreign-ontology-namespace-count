@@ -1,0 +1,11 @@
+# DECLARED COUNT of occurrences of an ontology namespace on a domain we do NOT
+# own. See scripts/verify_no_foreign_ontology_namespace.sh for why this exists.
+#
+# Measured 2026-08-17 on 686d246: 276 occurrences across 63 files, all of them
+# `pwg.dev`, which DNS says is UNREGISTERED (NXDOMAIN from two networks, with
+# both controls).
+#
+# THIS NUMBER MAY ONLY GO DOWN. Lower it in the same commit that removes
+# occurrences. It reaches 0 when the source repos are migrated to
+# https://ostler.ai/ontology# and re-vendored, and then it stays at 0 forever.
+276
