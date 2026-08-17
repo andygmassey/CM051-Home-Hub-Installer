@@ -117,9 +117,22 @@ jobs:
       #
       # So the step asserts the DEFECT, not the status: it fails if and only if
       # the run prints a PROVED-RED REGRESSION. The ratio is printed either way.
+      # 5 -> 6 on 2026-08-17. verify_cut_pin_is_current.sh was reading
+      # PROVED-RED-NONE while carrying a 9-control self-test whose control (1)
+      # reproduces the v1.0.31 stale-pin defect on a real git fixture and
+      # asserts exit 1. The predicate could not see it because that self-test
+      # calls run_gate IN-PROCESS rather than re-invoking the script as a
+      # subprocess, which is the better construction and the one the
+      # subprocess-shaped search is blind to. Registered with an explicit
+      # `# PROVED-RED-BY:` header, which is exactly what that escape hatch is
+      # for: a proof the predicate cannot infer, declared and then CHECKED.
+      #
+      # NONE now means one of two things, and both are honest: no proof exists,
+      # or a proof exists in a shape nobody has declared yet. The remaining six
+      # are the standing backlog, three of them the #699 orphan knot.
       - name: Ratio on the real tree, and the proved-red ratchet
         env:
-          OSTLER_PROVED_RED_FLOOR: "5"
+          OSTLER_PROVED_RED_FLOOR: "6"
         run: |
           set +e
           out="$(bash scripts/verify_declared_gates_reachable.sh 2>&1)"
