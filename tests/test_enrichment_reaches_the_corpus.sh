@@ -61,11 +61,15 @@ echo
 [ -d "$SRC" ] || { echo "CANNOT-RUN: no enrichment tree at $SRC" >&2; exit 2; }
 [ -f "$SRC/eligibility.py" ] || { bad "eligibility.py is missing"; exit 1; }
 
-# The real strings. The prose fixture is the actual subject that reached
-# OpenLibrary, truncated only so this file does not carry 400 characters of
-# a third party's testimonial about a named person.
-PROSE='Simon is an exceptionally customer-focussed, and knows how to handle challenging scenarios in an efficient manner. He is able to defuse potentially incendiary situations quickly by his calm and courteous demeanour.'
-NARRATIVE='I first met Steve when Precedent pitched for The Pension Regulator account and he was outstanding throughout.'
+# SYNTHETIC, and the shape is what is load-bearing: over the word ceiling,
+# sentence-ending punctuation, third-person and first-person narrative. The
+# strings that reached OpenLibrary were a real testimonial about a named
+# individual and a real narrative naming a person, an agency and a regulator.
+# This repo is PUBLIC, so they are not reproduced here. Truncating a
+# testimonial is not anonymising it. If either of these now PASSES the guard
+# that is a finding about the guard, not about the fixture.
+PROSE='Marta is an exceptionally customer-focussed operator, and she knows how to handle a difficult account. She defuses situations that could easily escalate, and she does it without ever raising her voice or losing the thread.'
+NARRATIVE='I first met Devesh when Northwind pitched for the Fenwick Trust account, and he was outstanding from the first meeting through to the handover.'
 
 # ── 1. BEHAVIOURAL. The predicate refuses prose and allows real titles.
 #
