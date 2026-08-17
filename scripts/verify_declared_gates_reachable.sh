@@ -197,6 +197,81 @@ is_entry_point() {
 
 DECLARE_RE='BLOCK THE CUT|BLOCKS THE CUT|CUT BLOCKER|blocks? the release|MUST NOT SHIP|DO NOT ASSEMBLE'
 
+# ===========================================================================
+# AXIS TWO: REACHABLE IS NOT THE SAME AS ABLE TO SAY NO
+# ===========================================================================
+#
+# Axis one asks "can the cut GET to this gate". A gate can pass that and still
+# be useless, because a gate that runs, passes, and is blind to the defect it
+# names is worse than one that does not run: the green is read as coverage.
+# Measured examples from this estate, all of them gates that were REACHABLE:
+#
+#   #666  the cut-freshness self-test carried two DEAD controls -- (a) and (c)
+#         could not fail -- so the gate had no proof it detects a stale daemon.
+#   #662  a bundle-phase gate read project.yml and never the pbxproj it claimed
+#         to gate. Green on a tree where the guarded artefact was wrong.
+#   #713  every box_walk_probe row had ALWAYS returned SKIP, and SKIP does not
+#         fail the cut. A gate that has only ever abstained.
+#
+# So the second axis is: has this gate ever been SHOWN to fail? A known-failing
+# fixture is the only evidence that separates "found nothing" from "cannot see".
+#
+# WHAT COUNTS AS PROOF, AND WHY IT IS NOT "HAS A SELF-TEST"
+#
+# The obvious predicate -- does the file contain --self-test -- was measured
+# first and is wrong in both directions on this very tree. It reports 3 of 12,
+# and two of the misses (verify_cut_freshness.sh, verify_no_orphaned_fixes.sh)
+# have thorough known-failing suites living in a SEPARATE file. Scoring those
+# unguarded is the same error as pinning a predicate to a rendering: it asserts
+# the FORMATTING of a proof rather than its existence.
+#
+# The next predicate tried -- any file naming the gate and comparing a status
+# to non-zero -- is wrong the other way, and worse. On this tree it blessed
+# bin/rollforward_gate.sh on the strength of a MARKDOWN file, and blessed
+# run_all_cut_gates.sh (a known orphan) on an @echo in a Makefile plus a
+# mention in a comment. False green, which is the direction this file exists to
+# refuse.
+#
+# The discriminator that actually separates them is what a proof DOES with the
+# non-zero: a proof treats it as a PASS. A consumer treats it as a failure.
+#
+#   proof     [ "$rc_red" -eq 1 ] && ok "(9) exits 1 when orphans exist"
+#   proof     if [ "$rc" -ne 0 ]; then pass "unreachable repo fails closed"
+#   consumer  if [ "$rc" -ne 0 ]; then echo "gate failed"; exit 1; fi
+#
+# Measured over the 9 relevant files here, that predicate returns exactly the
+# 4 known proofs and exactly 0 of the 5 known non-proofs. Stated as a
+# denominator rather than a vibe: 4/4 detected, 0/5 false.
+#
+# A proof must also be REACHABLE, by the same fixpoint as axis one. A
+# known-failing fixture nobody runs is a description of a proof, not a proof.
+#
+# ESCAPE HATCH, deliberately explicit rather than clever. A gate whose proof
+# does not match the shape above declares it:
+#
+#     # PROVED-RED-BY: tests/test_my_gate.sh
+#
+# and the named file is then checked the same way (exists, reachable, names
+# this gate, contains the red-as-pass shape). Registering a proof is cheap;
+# being credited for one that cannot fail is what this axis exists to stop.
+#
+# ADVISORY, WITH A RATCHET. This axis reports a ratio and does NOT fail the
+# run on the existing backlog, because turning it blocking today would red-line
+# a main branch that has carried these gaps for months, and a permanent red
+# teaches people that red means nothing -- the exact failure this file's header
+# already warns about. It is not decorative either: OSTLER_PROVED_RED_FLOOR
+# fails the run if the proven count DROPS. Set OSTLER_REQUIRE_PROVED_RED=1 to
+# make any unproven gate blocking once the backlog is cleared.
+# ===========================================================================
+
+# A status-ish variable compared against a NON-ZERO expectation.
+RED_CMP_RE='(-ne[[:space:]]+0|-eq[[:space:]]+[1-9]|-gt[[:space:]]+0|!=[[:space:]]*0)'
+# The taken branch registers a PASS. This is the whole discriminator.
+PASS_MARK_RE='(^|[^[:alnum:]_])(ok|pass|PASS|good)([[:space:]]|\()'
+# How many lines after the comparison the pass marker may sit. Two covers the
+# `if ...; then` / `ok ...` split without swallowing an unrelated later block.
+RED_PROOF_WINDOW=2
+
 # ---------------------------------------------------------------------------
 # code_lines: emit only the lines of a file that are REAL, EXECUTED code.
 #
@@ -209,6 +284,82 @@ DECLARE_RE='BLOCK THE CUT|BLOCKS THE CUT|CUT BLOCKER|blocks? the release|MUST NO
 code_lines() {
     sed -E 's/(^|[[:space:]])#.*$/\1/' "$1" 2>/dev/null \
       | grep -vE '^[[:space:]]*[-@]?[[:space:]]*(echo|printf|say|print|puts|warn|note|info|log|cat[[:space:]]+<<)[[:space:](]'
+}
+
+# ---------------------------------------------------------------------------
+# is_red_proof_for <proof_file> <gate_basename>
+#
+# True when <proof_file> both NAMES the gate on a line of real code and treats
+# a non-zero exit from something as a PASS. See the AXIS TWO block above for
+# why the pass marker, and not the comparison, is the load-bearing half.
+#
+# Both halves are taken from code_lines, so a proof that has been commented
+# out cannot count. `ok` and `pass` survive that filter deliberately: they are
+# assertion helpers, not members of the echo/printf output family it drops.
+# If a future rename makes a pass helper look like an output statement, this
+# reports the gate as UNPROVEN, which is the safe direction.
+# ---------------------------------------------------------------------------
+# NEVER `grep -q` HERE, AND THIS IS NOT STYLE. This file runs under
+# `set -o pipefail`. `grep -q` exits the moment it matches, closing the pipe;
+# the upstream greps then die of SIGPIPE, and pipefail promotes that to a
+# non-zero pipeline status -- so a SUCCESSFUL match reports as no match.
+#
+# It is worse than a plain bug because it is SIZE-DEPENDENT. Small proof files
+# finish writing before the -q exits and look fine; the 783-line freshness
+# suite does not, and was silently scored unproven while three smaller ones
+# passed. A predicate whose answer depends on how fast a pipe drains is the
+# same family of defect this gate exists to find, so it is spelled out rather
+# than quietly fixed. Count with -c, compare the count.
+esc() { printf '%s' "$1" | tr '/' '%'; }
+
+# The code text of a file, from the fixpoint's cache when it is a graph node,
+# built once and cached otherwise. Re-running code_lines per candidate made
+# this axis quadratic and it stopped finishing -- the same trap the fixpoint
+# comment above already records, met a second time by the same author.
+code_file_for() {
+    local f="$1" n k
+    n="$(cat "$TMP/id/$(esc "$f")" 2>/dev/null)"
+    if [ -n "$n" ] && [ -f "$TMP/code/$n.txt" ]; then printf '%s' "$TMP/code/$n.txt"; return 0; fi
+    k="$TMP/code/ext_$(esc "$f").txt"
+    [ -f "$k" ] || code_lines "$f" > "$k" 2>/dev/null
+    printf '%s' "$k"
+}
+
+has_red_shape() {   # $1 = a code-text file
+    local reds
+    reds="$(grep -E "$RED_CMP_RE" -A "$RED_PROOF_WINDOW" "$1" 2>/dev/null \
+            | grep -cE "$PASS_MARK_RE")"
+    [ "${reds:-0}" -gt 0 ]
+}
+
+is_red_proof_for() {
+    local proof="$1" gate_bn="$2" cf named
+    [ -f "$proof" ] || return 1
+    is_caller_file "$proof" || return 1
+    cf="$(code_file_for "$proof")"
+    named="$(grep -cF "$gate_bn" "$cf" 2>/dev/null)"
+    [ "${named:-0}" -gt 0 ] || return 1
+    has_red_shape "$cf"
+}
+
+# A file proving ITSELF red cannot be found by name: every self-test in this
+# estate re-invokes itself through "$SELF" or ${BASH_SOURCE}, never by typing
+# its own filename. Requiring the name here scored both real self-testing gates
+# as unproven.
+#
+# The self-invocation is also what keeps this HONEST. A companion suite like
+# tests/test_cut_freshness_gate.sh is full of red-as-pass assertions, but they
+# are about $GATE -- another file. Crediting it for proving ITSELF would let a
+# suite that can never fail vouch for its own reliability, which is #666
+# exactly. So the self case demands the file run ITSELF, not merely contain
+# assertions.
+SELF_INVOKE_RE='(bash|sh|python3?|exec)[[:space:]]+"?\$\{?(SELF|BASH_SOURCE|0)'
+proves_itself_red() {
+    local g="$1" cf
+    grep -qE 'SELF_TEST|--self-test' "$g" 2>/dev/null || return 1
+    cf="$(code_file_for "$g")"
+    grep -qE "$SELF_INVOKE_RE" "$cf" 2>/dev/null || return 1
+    has_red_shape "$cf"
 }
 
 # ===========================================================================
@@ -240,7 +391,7 @@ if [ "$SELF_TEST" -eq 1 ]; then
 
     build_fixture() {   # $1 = dir, $2 = "with-orphans" | "clean"
         local r="$1" mode="$2"
-        mkdir -p "$r/scripts" "$r/docs" "$r/gui" "$r/cut-manifests"
+        mkdir -p "$r/scripts" "$r/docs" "$r/gui" "$r/cut-manifests" "$r/tests"
         for g in called_gate var_called_gate; do
             printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' > "$r/scripts/$g.sh"
         done
@@ -248,6 +399,13 @@ if [ "$SELF_TEST" -eq 1 ]; then
 GATE_SH ?= $(CURDIR)/../scripts/var_called_gate.sh
 check:
 	bash scripts/called_gate.sh
+	bash scripts/proven_gate.sh
+	bash tests/test_proven_gate.sh
+	bash scripts/consumed_gate.sh
+	bash scripts/consumer.sh
+	bash scripts/prose_gate.sh
+	bash scripts/darkly_proven_gate.sh
+	bash scripts/falsely_registered_gate.sh
 	@rc=0; bash "$(GATE_SH)" || rc=$$?; exit $$rc
 	@echo "Pre-cut gates all at once:  scripts/echoed_gate.sh"
 MK
@@ -264,6 +422,56 @@ MK
             # population, never in the orphan list.
             printf 'version: v1.0.11\nnote: this manifest MUST NOT SHIP unverified\n' \
                 > "$r/cut-manifests/v1.0.11.yaml"
+
+            # ---- AXIS TWO fixture. Each case below is a mistake this axis
+            # ---- actually made in development, kept as the control that
+            # ---- caught it.
+
+            # (A) A gate with a REAL proof: a companion that runs it on a
+            #     broken fixture and treats non-zero as a PASS.
+            printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' > "$r/scripts/proven_gate.sh"
+            {
+              printf '#!/bin/sh\n'
+              printf 'bash scripts/proven_gate.sh --broken; rc=$?\n'
+              printf '[ "$rc" -ne 0 ] && ok "RED: it blocks a broken tree"\n'
+              # PADDING, and it is load-bearing. The first version of the
+              # predicate used `grep -q`, which closes the pipe on match; under
+              # pipefail the upstream grep dies of SIGPIPE and a SUCCESSFUL
+              # match reports as failure. That is SIZE-DEPENDENT: it passed on
+              # short files and silently scored the 783-line freshness suite
+              # unproven. A small fixture cannot see it, so this one is not
+              # small.
+              i=0; while [ "$i" -lt 3000 ]; do printf 'true  # filler line %s\n' "$i"; i=$((i+1)); done
+            } > "$r/tests/test_proven_gate.sh"
+
+            # (B) A gate whose only companion CONSUMES it -- runs it and
+            #     treats non-zero as a failure. Not a proof. The loose version
+            #     of this predicate credited exactly this shape.
+            printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' > "$r/scripts/consumed_gate.sh"
+            printf '#!/bin/sh\nbash scripts/consumed_gate.sh; rc=$?\nif [ "$rc" -ne 0 ]; then exit 1; fi\n' \
+                > "$r/scripts/consumer.sh"
+
+            # (C) A gate "proved" only by PROSE. A markdown file with a red
+            #     comparison in it credited bin/rollforward_gate.sh on the
+            #     first real run.
+            printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' > "$r/scripts/prose_gate.sh"
+            printf 'When prose_gate.sh runs, if [ "$rc" -ne 0 ] then ok, it blocked.\n' \
+                > "$r/docs/prose_gate_notes.md"
+
+            # (D) A gate whose proof is real but UNREACHABLE. A fixture nobody
+            #     runs proves nothing, and axis one already knows the file is
+            #     dark -- the two axes must agree.
+            printf '#!/bin/sh\n# Non-zero = BLOCK THE CUT.\nexit 0\n' > "$r/scripts/darkly_proven_gate.sh"
+            printf '#!/bin/sh\nbash scripts/darkly_proven_gate.sh; rc=$?\n[ "$rc" -ne 0 ] && ok "RED"\n' \
+                > "$r/scripts/unreachable_proof.sh"
+
+            # (E) A registration that does not check out. Must be reported as
+            #     WORSE than no registration, never silently ignored.
+            {
+              printf '#!/bin/sh\n'
+              printf '# PROVED-RED-BY: tests/does_not_exist.sh\n'
+              printf '# Non-zero = BLOCK THE CUT.\nexit 0\n'
+            } > "$r/scripts/falsely_registered_gate.sh"
         fi
         ( cd "$r" && git init -q . && git add -A \
           && git -c user.email=t@t -c user.name=t commit -qm fixture ) >/dev/null 2>&1
@@ -301,6 +509,56 @@ MK
     fi
     [ "$rc_red" -eq 1 ] && ok "(9) exits 1 when orphans exist" \
                         || no "(9) orphans present but exit code was ${rc_red}"
+
+    # ---- AXIS TWO --------------------------------------------------------
+    # MATCH AN EXPLICIT TOKEN, NEVER A REGION OF THE LAYOUT. The first
+    # version of these two helpers sliced the report by headings, and the
+    # PROVED-RED slice ran on past its own list into the UNPROVEN one -- so
+    # (11) reported PASS with its fixture file deleted, and (14) could not
+    # fail either. Three of four new controls were blind, in the self-test of
+    # the axis whose whole subject is instruments that cannot say no. Caught
+    # only by mutating the fixture and watching what refused to go red.
+    proved_ok()   { grep -qE "PROVED-RED-OK +$1( |\$)" "$OUT"; }
+    proved_none() { grep -qE "PROVED-RED-NONE +$1( |\$)" "$OUT"; }
+
+    proved_ok "scripts/proven_gate.sh" \
+        && ok "(11) a companion that treats non-zero as a PASS counts as proof" \
+        || no "(11) MISSED a real known-failing fixture -- axis two is blind"
+
+    grep -c . "$d/red/tests/test_proven_gate.sh" | grep -qE '^[0-9]{4,}' \
+        && ok "(12) that proof file is >=1000 lines, so (11) also covers the SIGPIPE race" \
+        || no "(12) fixture shrank: a short proof cannot exercise the pipefail race"
+
+    proved_none "scripts/consumed_gate.sh" \
+        && ok "(13) a CONSUMER of the gate is not a proof of it" \
+        || no "(13) a consumer was credited as a known-failing fixture"
+
+    # (14) WAS "PROSE naming a gate is not a proof", and it was DELETED as a
+    # dead control. A .md is not a caller file, so it never enters the node
+    # set, never enters the reachable set, and can never be a proof candidate
+    # -- the control could not fail under any mutation of the fixture. It read
+    # as coverage of the doc-vs-code rule while proving nothing, which is #666
+    # in the self-test of the axis that exists to find #666. The rule it aimed
+    # at is enforced upstream by is_caller_file and is genuinely exercised by
+    # control (8). Caught by mutating the fixture and noticing which controls
+    # refused to go red; three of the four new ones were blind on first write.
+
+    proved_none "scripts/darkly_proven_gate.sh" \
+        && ok "(15) a proof the cut cannot reach does not count" \
+        || no "(15) an unreachable fixture was credited"
+
+    grep -q "PROVED-RED-NONE .*DECLARED PROOF DOES NOT CHECK OUT" "$OUT" \
+        && ok "(16) a PROVED-RED-BY pointing at nothing is reported, not ignored" \
+        || no "(16) a broken registration was silently treated as absent"
+
+    # THE RATCHET, proved in both directions. A floor that cannot fire is the
+    # same defect as a gate that cannot fail.
+    OSTLER_PROVED_RED_FLOOR=99 bash "$SELF" --repo "$d/green" >/dev/null 2>&1; rc_floor=$?
+    [ "$rc_floor" -eq 1 ] && ok "(17) RATCHET: an unreachable floor fails the run" \
+                          || no "(17) the proved-red floor cannot fail (exit ${rc_floor})"
+    OSTLER_PROVED_RED_FLOOR=0 bash "$SELF" --repo "$d/green" >/dev/null 2>&1; rc_floor0=$?
+    [ "$rc_floor0" -eq 0 ] && ok "(18) RATCHET CONTROL: a satisfied floor still passes" \
+                           || no "(18) the floor fails even when met (exit ${rc_floor0}) -- unusable"
 
     # THE GREEN CONTROL. A gate that has only ever been observed failing is not
     # known to be able to pass, and a red-only instrument gets bypassed.
@@ -391,8 +649,6 @@ entries="$(wc -l < "$TMP/reach" | tr -d ' ')"
 # and every name it mentions is resolved through the index below.
 mkdir -p "$TMP/code" "$TMP/id" "$TMP/bn"
 
-esc() { printf '%s' "$1" | tr '/' '%'; }
-
 i=0
 while IFS= read -r f; do
     i=$((i + 1))
@@ -455,6 +711,120 @@ done < "$TMP/decl_exec"
 echo "verify-declared-gates: ${exec_reach} of ${exec_total} EXECUTABLE files declaring themselves"
 echo "  cut-blocking are reachable from the cut (${entries} entry point(s), fixpoint in ${rounds} round(s))."
 
+# --- AXIS TWO: has each gate ever been shown to FAIL? ----------------------
+# Reuses the reachable set computed above. That reuse is the reason this lives
+# inside this file rather than beside it: a sibling scanner would need its own
+# copy of the fixpoint, and two enumerations of one population drift. They have
+# already drifted once here -- a scanner of mine found 3 declaring files where
+# this gate finds ${exec_total}.
+# PASS ONE: which reachable files carry the red-as-pass shape at all. One scan
+# each, off the fixpoint's cached code text.
+: > "$TMP/proofcap"
+while IFS= read -r p; do
+    is_caller_file "$p" || continue
+    pcf="$(code_file_for "$p")"
+    has_red_shape "$pcf" && echo "$p" >> "$TMP/proofcap"
+done < "$TMP/reach"
+proofcap_n=$(wc -l < "$TMP/proofcap" | tr -d ' ')
+
+proved=0
+: > "$TMP/unproved"
+: > "$TMP/proofmap"
+while IFS= read -r g; do
+    gb="$(basename "$g")"
+    proof=""
+
+    # An explicit registration wins, and is checked, not taken on trust.
+    declared_proof="$(grep -m1 -E '^[[:space:]]*#[[:space:]]*PROVED-RED-BY:' "$g" 2>/dev/null \
+                      | sed -E 's/.*PROVED-RED-BY:[[:space:]]*//' | tr -d '[:space:]')"
+    if [ -n "$declared_proof" ]; then
+        # A gate may register ITSELF, for a self-test this predicate cannot
+        # infer -- verify_cut_pin_is_current.sh drives its red control through
+        # an internal helper rather than re-executing itself, so no textual
+        # rule short of over-fitting will find it. Self-registration still has
+        # to carry the red-as-pass shape; only the name check is dropped,
+        # because a file does not type its own filename.
+        if [ "$declared_proof" = "$g" ]; then
+            if has_red_shape "$(code_file_for "$g")"; then
+                proof="$g (declared self-test)"
+            else
+                echo "${g}|DECLARED SELF-PROOF HAS NO RED ASSERTION" >> "$TMP/unproved"
+                continue
+            fi
+        elif grep -qxF "$declared_proof" "$TMP/reach" && is_red_proof_for "$declared_proof" "$gb"; then
+            proof="$declared_proof (declared)"
+        else
+            # A registration that does not check out is worse than none: it
+            # reads as coverage. Say so rather than falling back silently.
+            echo "${g}|DECLARED PROOF DOES NOT CHECK OUT: ${declared_proof}" >> "$TMP/unproved"
+            continue
+        fi
+    fi
+
+    if [ -z "$proof" ]; then
+        # Itself, then any reachable caller-file. Unreachable proofs are
+        # skipped on purpose: a fixture nobody runs proves nothing.
+        if proves_itself_red "$g"; then
+            proof="$g (own self-test)"
+        else
+            # Only files already known to carry the red-as-pass shape are
+            # candidates, so this scans a handful rather than the whole
+            # reachable set once per gate.
+            while IFS= read -r p; do
+                [ "$p" = "$g" ] && continue
+                if is_red_proof_for "$p" "$gb"; then proof="$p"; break; fi
+            done < "$TMP/proofcap"
+        fi
+    fi
+
+    if [ -n "$proof" ]; then
+        proved=$((proved + 1))
+        echo "    PROVED-RED-OK    ${g}  <-  ${proof}" >> "$TMP/proofmap"
+    else
+        echo "${g}|no known-failing fixture" >> "$TMP/unproved"
+    fi
+done < "$TMP/decl_exec"
+
+unproved_n=$(wc -l < "$TMP/unproved" | tr -d ' ')
+echo
+echo "  PROVED RED: ${proved} of ${exec_total} have a known-failing fixture -- a run in which"
+echo "  the gate was SHOWN to fail. The rest may be correct; nothing has demonstrated"
+echo "  they can say no, and a gate that cannot say no is read as coverage."
+if [ -s "$TMP/proofmap" ]; then
+    echo
+    echo "  proven, and by what:"
+    cat "$TMP/proofmap"
+fi
+if [ "$unproved_n" -gt 0 ]; then
+    echo
+    echo "  NO KNOWN-FAILING FIXTURE:"
+    while IFS='|' read -r f why; do echo "    PROVED-RED-NONE  ${f}  (${why})"; done < "$TMP/unproved"
+    echo
+    echo "  Fix by adding a fixture that BREAKS the thing the gate names, asserting the"
+    echo "  gate exits non-zero on it, and a green control proving it can still pass. A"
+    echo "  red-only instrument gets bypassed; a green-only one gets believed."
+    echo "  Register an unusual proof with a '# PROVED-RED-BY: <path>' header."
+fi
+
+# The ratchet. Advisory on the standing backlog, blocking on a REGRESSION, so
+# this axis is not decorative while the backlog is worked off.
+floor="${OSTLER_PROVED_RED_FLOOR:-}"
+axis_two_fail=0
+if [ -n "$floor" ] && [ "$proved" -lt "$floor" ]; then
+    echo >&2
+    echo "  PROVED-RED REGRESSION: ${proved} proven, floor is ${floor}." >&2
+    echo "  A gate that had a known-failing fixture no longer does. Restore it, or" >&2
+    echo "  lower OSTLER_PROVED_RED_FLOOR in the same commit that removes the proof" >&2
+    echo "  and say why -- so the loss is a decision in the log, not an erosion." >&2
+    axis_two_fail=1
+fi
+if [ "${OSTLER_REQUIRE_PROVED_RED:-0}" = "1" ] && [ "$unproved_n" -gt 0 ]; then
+    echo >&2
+    echo "  OSTLER_REQUIRE_PROVED_RED=1 and ${unproved_n} gate(s) have no known-failing" >&2
+    echo "  fixture. Blocking." >&2
+    axis_two_fail=1
+fi
+
 if [ "$other_total" -gt 0 ]; then
     echo
     echo "  NOT MEASURED ON THIS AXIS: ${other_total} non-executable file(s) also declare a"
@@ -480,5 +850,7 @@ if [ -s "$TMP/orphans" ]; then
     exit 1
 fi
 
+echo
 echo "  no orphans."
+[ "$axis_two_fail" -eq 1 ] && exit 1
 exit 0
