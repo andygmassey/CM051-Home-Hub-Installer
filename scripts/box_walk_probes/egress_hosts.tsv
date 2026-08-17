@@ -89,8 +89,25 @@ doi.org	enrichment: DOI resolution	a DOI.
 nominatim.openstreetmap.org	enrichment: geocoding (clients/geocoder.py)	A PLACE NAME OR ADDRESS DRAWN FROM THE CUSTOMER'S DATA.
 api.upcitemdb.com	enrichment: barcode lookup	a barcode or product name.
 api.upcdatabase.org	enrichment: barcode lookup	a barcode or product name.
-www.amazon.com	enrichment: ASIN lookup (clients/asin.py)	a product identifier.
-www.linkedin.com	enrichment: company and profile shape (clients/linkedin.py)	A COMPANY OR PERSON NAME DRAWN FROM THE CUSTOMER'S CONTACTS.
+#
+#    CORRECTED 2026-08-17, SAME DAY, AFTER READING THE TWO CLIENTS RATHER THAN
+#    THEIR HOSTNAMES. Both rows below were wrong when first written and one of
+#    them was wrong in the alarming direction. A ledger row is a claim we make
+#    in public; getting one wrong by reading the host instead of the code is
+#    the same mistake as calling an address "Meta" because its neighbour was.
+#
+www.amazon.com	enrichment: ASIN product lookup (clients/asin.py)	a product identifier. NOT AN API: the client sends a Chrome User-Agent and scrapes the product page. Its own docstring says "attempts to scrape Amazon product pages ... anti-bot measures. Use sparingly." Recommended CUT from the v1.0 default rather than disclosed.
+www.linkedin.com	enrichment: Open Graph metadata for a LinkedIn POST URL the customer already has (clients/linkedin.py)	a URL already in the customer's own export or bookmarks. It does NOT look up people: search() raises NotImplementedError. An earlier version of this row said "a company or person name drawn from the customer's contacts", which was wrong.
+#
+#    WHAT THE REQUESTS ANNOUNCE THEMSELVES AS, which is our choice and is
+#    currently three different things:
+#      clients/base.py:135      User-Agent: PWG-Enrichment/0.1.0
+#      clients/asin.py:160      User-Agent: a full Chrome string (see above)
+#      clients/url_fetcher.py:432  a contact URL that points at the wrong account
+#    So every destination in this section receives the customer's IP, the query
+#    term, and a string identifying the software. "PWG" is also the retired
+#    internal project name reaching a customer-facing surface, which is the
+#    same rule that keeps gamingrig and Andypedia out of the product.
 api.themoviedb.org	enrichment: film and TV lookup. KEY-GATED (TMDB_API_KEY), inert without one.	a title drawn from the customer's viewing.
 www.googleapis.com	enrichment: YouTube lookup. KEY-GATED (YOUTUBE_API_KEY), inert without one.	a video or channel identifier.
 places.googleapis.com	enrichment: place lookup. KEY-GATED (GOOGLE_PLACES_API_KEY), inert without one.	a place name drawn from the customer's data.
