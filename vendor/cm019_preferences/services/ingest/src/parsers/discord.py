@@ -54,10 +54,62 @@ class DiscordParser(BaseParser):
         if suffix == '.json' and 'discord' in name:
             return True
 
+        # An EXTRACTED Discord package. MEASURED on a real 2026 export: the
+        # archive on disk is package.zip PLUS an extracted/ tree of 74 .json,
+        # and NOT ONE of the 74 was claimable, because the test above requires
+        # the literal string "discord" in the FILENAME. A real package names
+        # its members messages.json, servers/index.json and so on. So the same
+        # bytes were claimed correctly inside the zip and became invisible the
+        # moment the customer unzipped them, which is what a customer does.
+        #
+        # Reuses the SAME two-of-four sibling rule as the zip path rather than
+        # inventing a second predicate, so the Facebook/Instagram exclusion it
+        # was hardened for holds identically here: their activity trees carry
+        # a "messages" directory but only that ONE of the four names, so they
+        # still score 1 and are still declined.
+        if suffix in ('.json', '.csv') and self._has_discord_dir_layout(file_path):
+            return True
+
         # Check for CSV message format (older exports)
         if suffix == '.csv' and 'messages' in name and 'discord' in name:
             return True
 
+        return False
+
+    @classmethod
+    def _has_discord_dir_layout(cls, file_path: Path) -> bool:
+        """Is this file inside an EXTRACTED Discord package on disk?
+
+        The zip branch answers this from a namelist. Once the customer unzips,
+        there is no namelist, and the filename test above fails because a real
+        package names its members messages.json / servers/index.json, never
+        anything containing the literal string "discord".
+
+        Deliberately the SAME rule as _has_discord_package_layout: at least TWO
+        of the four package directories present as SIBLINGS of each other. One
+        alone is not enough, and that is what keeps Facebook and Instagram out:
+        their activity trees carry a "messages" directory and none of the other
+        three, so they score 1 and are declined here exactly as they are in the
+        zip path.
+
+        Walks the ancestors rather than assuming a fixed depth, because
+        Discord ships packages both flat and wrapped in a single top folder,
+        and the customer may unzip either into a directory of their choosing.
+        """
+        seen_ancestor_dirs = 0
+        for ancestor in file_path.parents:
+            try:
+                children = {c.name.lower() for c in ancestor.iterdir() if c.is_dir()}
+            except (OSError, PermissionError):
+                continue
+            if len(cls.DISCORD_PACKAGE_DIRS & children) >= 2:
+                return True
+            seen_ancestor_dirs += 1
+            # Bounded: a Discord package root is never more than a handful of
+            # levels above one of its own files. Walking to / would make every
+            # unrelated file pay for a full upward scan.
+            if seen_ancestor_dirs >= 6:
+                break
         return False
 
     @classmethod
