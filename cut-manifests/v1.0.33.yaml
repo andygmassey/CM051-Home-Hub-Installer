@@ -105,9 +105,15 @@ entries:
       Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
       a cut, shipping an installer that reports the previous version to the customer and
       to support. Measured again before this cut: all five marketing-version sites still
-      read 1.0.32 (Info.plist, project.yml twice, pbxproj twice). They move together in
-      this cut, with CFBundleVersion left alone, matching the precedent that only the
-      marketing version advances.
+      read 1.0.32 (Info.plist, project.yml twice, pbxproj twice). They move together here.
+      CFBundleVersion moves WITH them, 3200 to 3300. I first left it alone on the strength
+      of the v1.0.32 record's prose, "matching the .26 through .31 precedent where only the
+      marketing version moves". The version-consistency gate refuted that on this very PR:
+      CFBundleVersion is the field SPARKLE COMPARES, and an update whose build number is at
+      or below the installed one is skipped SILENTLY, with no error, no prompt and no log
+      line a customer would ever see. The "precedent" was the #703 defect, not a rule: the
+      build number was last bumped for v1.0.25 and then carried unchanged through seven
+      signed and notarised cuts. All four build sites now derive from the version.
     proof:
       kind: plist_key_equals
       target: installer-app
