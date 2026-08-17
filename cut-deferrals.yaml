@@ -253,6 +253,37 @@ deferrals:
       dry-run RED. That is a point in its favour, and it should land early in the v1.0.35
       window rather than drift -- it is not legacy backlog and must not decay into it.
     until_cut: v1.0.34
+
+  - ref: CM051:fix/egress-probe-sees-every-process
+    reason: >-
+      MEASURED BY PATCH-ID, NOT BY THE GATE'S COUNT. The gate reported "4 commit(s) not in
+      origin/main" after its own `gh pr list` call failed, and that fallback over-counts:
+      git cherry marks f5dfcff as ALREADY IN MAIN (it shipped as PR #796, merged 07:41 today)
+      and only THREE are genuinely absent -- 0b94c33, 0663889, 6cd7110. Deferred because all
+      three change the INSTRUMENT, not the product. Measured file scope:
+      scripts/box_walk_probes/probes/no_unexpected_egress.sh, scripts/box_walk_probes/
+      egress_hosts.tsv and docs/EGRESS_INVENTORY.md, with install.sh touched ZERO times in
+      all three. Nothing a customer runs changes. THE HONEST COST, stated because this is a
+      security probe and understating it would be the wrong kind of quiet: the v1.0.34 walk
+      runs the OLDER egress probe, which cannot attribute DERP relays from the live map and
+      does not attribute contemporaneously. That makes the walk's egress finding LESS
+      CONCLUSIVE. It does not make the product's egress worse, and the two must not be
+      conflated when the walk is read. Merge these before the next cut so the instrument is
+      ahead of the box it inspects.
+    until_cut: v1.0.34
+
+  - ref: CM051:#825
+    reason: >-
+      MEASURED 2026-08-17: open, mergeable=true, file scope exactly ONE file --
+      scripts/provenance_gate.sh -- with install.sh touched zero times. Deferred on the
+      identical reasoning to CM051:#792 above, applied consistently rather than selectively:
+      it improves what a CUT GATE SAYS ABOUT ITSELF, and landing a change to a gate's own
+      self-description during the cut that gate is adjudicating alters the instrument while
+      the instrument is being read. It is also not mine to merge. NOT deferred because it is
+      unimportant: a gate that misdescribes its own coverage is the exact failure class this
+      cut spent the night chasing. The safe moment is immediately AFTER the v1.0.34 tag.
+      Land it alongside #792 at the top of v1.0.35.
+    until_cut: v1.0.34
   # -------------------------------------------------------------------------
   # ADDED 2026-08-13 for the v1.0.26 cut. The orphan gate named exactly three
   # RED refs -- #621, #622, #623 -- all open PRs with work not in main.
