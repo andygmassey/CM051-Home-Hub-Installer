@@ -53,6 +53,20 @@ class EnrichmentStats:
 
     errors: List[str] = field(default_factory=list)
 
+    def attempted(self) -> int:
+        """
+        Items that were actually DISPATCHED to a third party, successfully
+        or not.
+
+        This is the unit a `--limit` bounds, and it is deliberately not
+        `total_processed`. Processing an item that turns out to be already
+        enriched, or to have no client, or to be unsendable, costs one local
+        SPARQL ASK and no egress. Counting those against an allowance is how
+        a limited run ends up spending its whole budget re-reading work it
+        finished last time.
+        """
+        return self.successful + self.failed
+
     def summary(self) -> str:
         """Generate summary string."""
         duration = (
@@ -737,6 +751,7 @@ INSERT DATA {{
         preferences: List[dict],
         stats: EnrichmentStats,
         deadline: Optional[datetime] = None,
+        work_allowance: Optional[int] = None,
     ) -> List[EnrichmentResult]:
         """
         Enrich a batch of preferences.
@@ -745,11 +760,16 @@ INSERT DATA {{
             preferences: List of preference dicts
             stats: Stats object to update
             deadline: Stop before starting any further item once passed
+            work_allowance: Stop once this many items have been ATTEMPTED
+                            (dispatched to a client). Items that were skipped
+                            cost nothing and do not count against it. None
+                            means unbounded.
 
         Returns:
             List of successful EnrichmentResults
         """
         results = []
+        work_at_entry = stats.attempted()
 
         for pref in preferences:
             # The allowance is checked BEFORE each item, never during one:
@@ -757,6 +777,12 @@ INSERT DATA {{
             # be recorded, so we never spend the egress and drop the result.
             if deadline is not None and datetime.utcnow() >= deadline:
                 stats.budget_exhausted = True
+                break
+
+            if (
+                work_allowance is not None
+                and stats.attempted() - work_at_entry >= work_allowance
+            ):
                 break
 
             pref_id = pref.get("id", "")
@@ -853,12 +879,35 @@ INSERT DATA {{
             f"min_strength={min_strength}, priority_order={priority_order}"
         )
 
-        while total_fetched < limit:
+        # THE LIMIT BOUNDS WORK, NOT READS, AND THAT IS THE WHOLE POINT.
+        #
+        # MEASURED ON THE BOX, 2026-08-17. It used to bound items FETCHED
+        # from Qdrant, and Qdrant does not know which preferences are already
+        # enriched -- that lives in Oxigraph, checked per item further down.
+        # So a second `--limit 10 --category movie_tv` run read the same first
+        # ten points, found nine of them already done, enriched ZERO, and
+        # printed:
+        #
+        #     ENRICHMENT COMPLETE
+        #     Total processed: 10   Successful: 0   Already enriched: 9
+        #
+        # with 165 unenriched films still sitting behind them. A recurring
+        # invoker built on that would have spun on the same ten points for
+        # ever while reporting completion every time. That is worse than not
+        # running at all, because it looks like it is working.
+        #
+        # Bounding on ATTEMPTS makes a limited run mean "do N items of real
+        # work", so successive runs walk forward through the backlog. Skips
+        # are free: they cost one local SPARQL ASK and no egress, so they
+        # must not consume the allowance. Termination is unchanged and comes
+        # from `next_offset is None`, which is reached after a full pass of
+        # the collection.
+        while stats.attempted() < limit:
             # Fetch batch
             batch, next_offset = await self._query_qdrant_preferences(
                 user_id=user_id,
                 category=category,
-                limit=min(batch_size, limit - total_fetched),
+                limit=batch_size,
                 offset=next_offset,
                 min_strength=min_strength,
                 order_by_strength=priority_order,
@@ -869,8 +918,14 @@ INSERT DATA {{
 
             total_fetched += len(batch)
 
-            # Process batch
-            await self.enrich_batch(batch, stats, deadline=deadline)
+            # Process batch, still bounded so a batch_size of 50 cannot
+            # overshoot a --limit of 10 by forty items.
+            await self.enrich_batch(
+                batch,
+                stats,
+                deadline=deadline,
+                work_allowance=limit - stats.attempted(),
+            )
 
             if stats.budget_exhausted:
                 logger.info(
