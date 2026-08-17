@@ -6,8 +6,9 @@
 # Structure:
 #   Phase 1: Check prerequisites (automatic, no input)
 #   Phase 2: Collect ALL user input upfront (~2 minutes)
-#   Phase 3: Install everything unattended (~15-60 minutes, depending
-#            on how much history is on your Mac)
+#   Phase 3: Install everything unattended (~45 minutes to a few
+#            hours, depending on how much history is on your Mac
+#            and how fast your connection is)
 #   Phase 4: Health check + next steps
 #
 # What this does NOT do:
@@ -594,7 +595,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
     echo "  2. Asks you a few questions (~2 minutes)"
-    echo "  3. Installs everything automatically (~15-60 minutes, depending on your history)"
+    echo "  3. Installs everything automatically (~45 minutes to a few hours, depending on your history)"
     echo "  4. You walk away and come back to a working system"
     echo ""
     echo "Environment variables (advanced - override before running):"
@@ -2934,7 +2935,8 @@ else
 fi
 gui_emit PCT "step=prereq_check" "pct=85"
 
-# Power source check. On a MacBook, Phase 3 runs ~15-60 minutes of
+# Power source check. On a MacBook, Phase 3 runs ~45 minutes to a few
+# hours of
 # continuous Docker pulls, Ollama model downloads and history
 # backfill (the upper end on a Mac with years of mail / messages).
 # The hub power
@@ -7665,7 +7667,7 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away -- this takes 15-60 minutes, depending on how much history is on your Mac.${NC}"
+    echo -e "  ${GREEN}  You can walk away -- this takes 45 minutes to a few hours, depending on how much history is on your Mac.${NC}"
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

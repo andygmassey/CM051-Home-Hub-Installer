@@ -22,8 +22,8 @@
   "setup_complete_wrap_up": {
     "id": "setup_complete_wrap_up",
     "title": "Questions done. Setup continues in the background.",
-    "subtitle": "Roughly 15 to 60 minutes; it runs on its own",
-    "why": "Your answers are saved. The install now runs unattended for roughly 15 to 60 minutes, depending on how much history is on your Mac: Docker, Ollama, the knowledge graph, the assistant binary. Long quiet stretches are normal while things download and set up. You can leave it running and check back later. Nothing else needs your input.",
+    "subtitle": "Roughly 45 minutes to a few hours; it runs on its own",
+    "why": "Your answers are saved. The install now runs unattended for roughly 45 minutes to a few hours, depending on how much history is on your Mac and how fast your connection is: Docker, Ollama, the knowledge graph, the assistant binary. Long quiet stretches are normal while things download and set up. You can leave it running and check back later. Nothing else needs your input.",
     "duration_estimate_s": 5,
     "long_running_threshold_s": 30,
     "illustration": null,
