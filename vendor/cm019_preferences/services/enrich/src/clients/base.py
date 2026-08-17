@@ -124,6 +124,10 @@ class BaseClient(ABC, Generic[T]):
         self._cache_hits = 0
         self._cache_misses = 0
         self._errors = 0
+        # None = no transport failure on the last completed request.
+        # A string = we could not reach the source, and any empty result from
+        # that attempt is NOT evidence of absence.
+        self._last_transport_failure: Optional[str] = None
 
         # Persistent HTTP client (created lazily)
         self._http_client: Optional[httpx.AsyncClient] = None
@@ -177,6 +181,8 @@ class BaseClient(ABC, Generic[T]):
                 async with self.rate_limiter:
                     client = await self._get_client()
                     self._request_count += 1
+                    # A fresh attempt: no transport verdict yet.
+                    self._last_transport_failure = None
 
                     response = await client.request(
                         method=method,
@@ -257,9 +263,23 @@ class BaseClient(ABC, Generic[T]):
                 self._errors += 1
                 return None
 
-        # All retries exhausted
+        # All retries exhausted.
+        #
+        # MEASURED 2026-08-17: this returns the SAME None as "the API answered
+        # and had no results". Callers cannot tell the two apart, so
+        # openlibrary.enrich() wrote "Book not found: Animal Farm" on a run
+        # where openlibrary.org was simply unreachable -- DNS resolved,
+        # archive.org (same organisation) answered in 0.77s, and only that one
+        # host timed out. 61 of 62 items were recorded as absent when the truth
+        # was that nothing had been asked. A false negative gets written into
+        # the customer's graph and is never retried, because it reads as
+        # answered.
+        #
+        # The transport verdict is now recorded so a caller can say "could not
+        # reach" instead of asserting an absence it never established.
         logger.error(f"All {self.max_retries} retries exhausted. Last error: {last_error}")
         self._errors += 1
+        self._last_transport_failure = last_error or "unreachable"
         return None
 
     async def _get(
