@@ -75,20 +75,21 @@ mmg.whatsapp.net	whatsapp connector: WhatsApp media endpoint	as above. Observed 
 #    survive that sentence or be changed. The "carries" column below is
 #    therefore deliberately blunt.
 #
-#    KEY-GATED, so inert on a stock install with no key set: TMDB, YouTube,
-#    Google Places, PodcastIndex, Semantic Scholar, Foursquare, Spoonacular,
-#    Ticketmaster/Eventbrite. NOT key-gated, so live by default: the rest.
-query.wikidata.org	enrichment: entity lookup (clients/wikidata.py, brand.py, musicbrainz.py)	A SUBJECT DRAWN FROM THE CUSTOMER'S DATA: the name of a thing they mentioned.
-www.wikidata.org	enrichment: entity lookup	as above.
-musicbrainz.org	enrichment: artist and release lookup	an artist or release name drawn from the customer's listening history.
-openlibrary.org	enrichment: book lookup	a book title or author drawn from the customer's reading.
-covers.openlibrary.org	enrichment: book cover images	a book identifier.
-world.openfoodfacts.org	enrichment: food product lookup	a product name or barcode.
-api.crossref.org	enrichment: DOI and publication lookup	a paper title or DOI.
-doi.org	enrichment: DOI resolution	a DOI.
-nominatim.openstreetmap.org	enrichment: geocoding (clients/geocoder.py)	A PLACE NAME OR ADDRESS DRAWN FROM THE CUSTOMER'S DATA.
-api.upcitemdb.com	enrichment: barcode lookup	a barcode or product name.
-api.upcdatabase.org	enrichment: barcode lookup	a barcode or product name.
+#    SUPERSEDED -- see the CORRECTION block at the foot of this section. This
+#    paragraph classified rows by whether an API KEY was needed and called the
+#    ungated ones "live by default". Wrong axis. Every row now carries a
+#    [MEASURED: ...] tag taken from whether enricher.py CONSTRUCTS the client.
+query.wikidata.org	enrichment: entity lookup (clients/wikidata.py, brand.py, musicbrainz.py)	A SUBJECT DRAWN FROM THE CUSTOMER'S DATA: the name of a thing they mentioned.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
+www.wikidata.org	enrichment: entity lookup	as above.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
+musicbrainz.org	enrichment: artist and release lookup	an artist or release name drawn from the customer's listening history.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
+openlibrary.org	enrichment: book lookup	a book title or author drawn from the customer's reading.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
+covers.openlibrary.org	enrichment: book cover images	a book identifier.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
+world.openfoodfacts.org	enrichment: food product lookup	a product name or barcode.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+api.crossref.org	enrichment: DOI and publication lookup	a paper title or DOI.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+doi.org	enrichment: DOI resolution	a DOI.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+nominatim.openstreetmap.org	enrichment: geocoding (clients/geocoder.py)	A PLACE NAME OR ADDRESS DRAWN FROM THE CUSTOMER'S DATA.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+api.upcitemdb.com	enrichment: barcode lookup	a barcode or product name.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+api.upcdatabase.org	enrichment: barcode lookup	a barcode or product name.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
 #
 #    CORRECTED 2026-08-17, SAME DAY, AFTER READING THE TWO CLIENTS RATHER THAN
 #    THEIR HOSTNAMES. Both rows below were wrong when first written and one of
@@ -96,8 +97,8 @@ api.upcdatabase.org	enrichment: barcode lookup	a barcode or product name.
 #    in public; getting one wrong by reading the host instead of the code is
 #    the same mistake as calling an address "Meta" because its neighbour was.
 #
-www.amazon.com	enrichment: ASIN product lookup (clients/asin.py)	a product identifier. NOT AN API: the client sends a Chrome User-Agent and scrapes the product page. Its own docstring says "attempts to scrape Amazon product pages ... anti-bot measures. Use sparingly." Recommended CUT from the v1.0 default rather than disclosed.
-www.linkedin.com	enrichment: Open Graph metadata for a LinkedIn POST URL the customer already has (clients/linkedin.py)	a URL already in the customer's own export or bookmarks. It does NOT look up people: search() raises NotImplementedError. An earlier version of this row said "a company or person name drawn from the customer's contacts", which was wrong.
+www.amazon.com	enrichment: ASIN product lookup (clients/asin.py)	a product identifier. NOT AN API: the client sends a Chrome User-Agent and scrapes the product page. Its own docstring says "attempts to scrape Amazon product pages ... anti-bot measures. Use sparingly." Recommended CUT from the v1.0 default rather than disclosed.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+www.linkedin.com	enrichment: Open Graph metadata for a LinkedIn POST URL the customer already has (clients/linkedin.py)	a URL already in the customer's own export or bookmarks. It does NOT look up people: search() raises NotImplementedError. An earlier version of this row said "a company or person name drawn from the customer's contacts", which was wrong.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
 #
 #    WHAT THE REQUESTS ANNOUNCE THEMSELVES AS, which is our choice and is
 #    currently three different things:
@@ -108,13 +109,36 @@ www.linkedin.com	enrichment: Open Graph metadata for a LinkedIn POST URL the cus
 #    term, and a string identifying the software. "PWG" is also the retired
 #    internal project name reaching a customer-facing surface, which is the
 #    same rule that keeps gamingrig and Andypedia out of the product.
-api.themoviedb.org	enrichment: film and TV lookup. KEY-GATED (TMDB_API_KEY), inert without one.	a title drawn from the customer's viewing.
-www.googleapis.com	enrichment: YouTube lookup. KEY-GATED (YOUTUBE_API_KEY), inert without one.	a video or channel identifier.
-places.googleapis.com	enrichment: place lookup. KEY-GATED (GOOGLE_PLACES_API_KEY), inert without one.	a place name drawn from the customer's data.
-maps.googleapis.com	enrichment: place lookup. KEY-GATED, inert without one.	as above.
-api.podcastindex.org	enrichment: podcast lookup. KEY-GATED (PODCAST_INDEX_API_KEY), inert without one.	a podcast name.
-api.semanticscholar.org	enrichment: paper lookup. KEY-GATED (SEMANTIC_SCHOLAR_API_KEY), inert without one.	a paper title.
-api.foursquare.com	enrichment: venue lookup. KEY-GATED (FOURSQUARE_API_KEY), inert without one.	a venue name.
-api.spoonacular.com	enrichment: recipe lookup. KEY-GATED (SPOONACULAR_API_KEY), inert without one.	a dish or ingredient name.
-www.eventbriteapi.com	enrichment: event lookup. KEY-GATED, inert without one.	an event or venue name.
-app.ticketmaster.com	enrichment: event lookup. KEY-GATED, inert without one.	an event or venue name.
+api.themoviedb.org	enrichment: film and TV lookup. KEY-GATED (TMDB_API_KEY), inert without one.	a title drawn from the customer's viewing.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+www.googleapis.com	enrichment: YouTube lookup. KEY-GATED (YOUTUBE_API_KEY), inert without one.	a video or channel identifier.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+places.googleapis.com	enrichment: place lookup. KEY-GATED (GOOGLE_PLACES_API_KEY), inert without one.	a place name drawn from the customer's data.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+maps.googleapis.com	enrichment: place lookup. KEY-GATED, inert without one.	as above.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+api.podcastindex.org	enrichment: podcast lookup. KEY-GATED (PODCAST_INDEX_API_KEY), inert without one.	a podcast name.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+api.semanticscholar.org	enrichment: paper lookup. KEY-GATED (SEMANTIC_SCHOLAR_API_KEY), inert without one.	a paper title.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+api.foursquare.com	enrichment: venue lookup. KEY-GATED (FOURSQUARE_API_KEY), inert without one.	a venue name.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+api.spoonacular.com	enrichment: recipe lookup. KEY-GATED (SPOONACULAR_API_KEY), inert without one.	a dish or ingredient name.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+www.eventbriteapi.com	enrichment: event lookup. KEY-GATED, inert without one.	an event or venue name.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+app.ticketmaster.com	enrichment: event lookup. KEY-GATED, inert without one.	an event or venue name.  [MEASURED: constructed by enricher.py but KEY-GATED -- inert with no key set]
+#
+# ── CORRECTION 2026-08-17, SECOND ONE TODAY ON THIS SECTION ──────────────────
+#    I classified these rows by whether an API KEY was required, and called the
+#    ungated ones "live by default". That was the wrong axis. The right question
+#    is whether anything CONSTRUCTS the client. Measured, in
+#    services/enrich/src/enricher.py:
+#
+#      CONSTRUCTED (11): Brand, Event, Foursquare, MusicBrainz, OpenLibrary,
+#                        Places, PodcastIndex, TMDB, URLFetcher, Wikidata, YouTube
+#      REACHED VIA EventClient: Ticketmaster, Eventbrite
+#      NOTHING CONSTRUCTS THEM: Airport, ASIN, CrossRef, Geocoder, LinkedIn,
+#                        OpenFoodFacts, UPC, SemanticScholar, Spoonacular
+#
+#    So on a stock install with NO keys set, the enrichment destinations that
+#    can actually be contacted are: Wikidata, MusicBrainz, OpenLibrary -- and
+#    the URL fetcher below. Everything else is key-gated or dead code.
+#
+#    That is far narrower than the previous version of this file said, and it
+#    was found only because a wrong grep pattern produced an all-zero table
+#    that was obviously implausible against a known positive.
+#
+# ── THE ONE THAT IS NOT A FIXED DESTINATION AT ALL ───────────────────────────
+<arbitrary>	enrichment: clients/url_fetcher.py, constructed by enricher.py, fetches BOOKMARKED URLS	THE TARGET IS WHATEVER IS IN THE CUSTOMER'S BOOKMARKS. There is no allowlist, so this row cannot name a host: the destination set is the customer's own browsing. It sends a "PWG-BookmarkEnricher" User-Agent and a contact URL pointing at an account that is not ours. This, not the API list, is the widest enrichment surface.
