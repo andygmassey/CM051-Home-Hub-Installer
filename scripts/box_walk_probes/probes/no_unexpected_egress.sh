@@ -58,8 +58,50 @@ set -uo pipefail
 PROBE_NAME="no_unexpected_egress"
 PROBE_QUESTION="does anything Ostler runs hold a connection outside the local boundary?"
 
-# Processes considered part of the product. Matched against lsof's COMMAND.
-OSTLER_EGRESS_PROC_RE="${OSTLER_EGRESS_PROC_RE:-ostler|Ostler|qdrant|oxigraph|ollama|mkdocs}"
+# ---------------------------------------------------------------------------
+# ATTRIBUTION IS AN EXCLUSION LIST, NOT AN INCLUSION LIST. This is the whole
+# correctness argument of the file, so it is stated before the code.
+#
+# THIS PROBE SHIPPED WITH THE OPPOSITE, AND IT WAS BLIND. The first version
+# kept only processes matching a hand-written product name list
+#
+#     ostler|Ostler|qdrant|oxigraph|ollama|mkdocs
+#
+# and silently dropped everything else. Run against a real box mid-install on
+# 2026-08-17, it reported FOUR ollama sockets, all loopback, and PASSED. What
+# was actually established on that machine at the same instant:
+#
+#     curl       185.199.109.153:443     outside the boundary
+#     curl       185.199.109.154:443     outside the boundary
+#     curl       20.205.243.164:443      outside the boundary
+#     limactl    208.80.154.224:443      outside the boundary
+#     tailscale  192.200.0.115:80        outside the boundary
+#     tailscale  199.165.136.100:443     outside the boundary
+#
+# curl, limactl and tailscale are how the INSTALLER fetches, virtualises and
+# joins the tailnet. They are as much "what Ostler runs" as ollama is, and not
+# one of them matched the list. The green was a property of the regex, not of
+# the machine, and it was queued to be published as evidence.
+#
+# So the default is inverted. An outside-boundary socket is REPORTABLE unless
+# its process is positively named as belonging to the operator rather than to
+# us. Unknown becomes loud instead of invisible, which is the same contract as
+# verify_cut_freshness.sh's verify_exempt rows: an exclusion is a ledger line a
+# reader can audit, never an absence they have to infer.
+#
+# Adding a process here is a claim that it is the OPERATOR'S, not ours. Get it
+# wrong and the probe goes blind again, in exactly the way it just did.
+# ---------------------------------------------------------------------------
+# NOTE THE ANCHOR. lsof truncates COMMAND to 9 characters (sshd-sess, llama-ser,
+# identityse), and the row is COMMAND<TAB>PID<TAB>REMOTE, so the name must be
+# anchored to the TAB and not to end-of-line. The first version used $ and
+# matched nothing at all: Mail and WhatsApp both came back flagged as ours on
+# the very first fixture run. Truncated forms are listed explicitly.
+OSTLER_EGRESS_FOREIGN_RE="${OSTLER_EGRESS_FOREIGN_RE:-^(Mail|WhatsApp|Messages|Safari|firefox|Google|Slack|Spotify|Dropbox|zoom|Music|Photos|AddressBook|akd|apsd|rapportd|nsurlsessi|nsurlsessiond|trustd|cloudd|bird|identityse|Finder|sshd|sshd-sess|ssh|mDNSRespon|mDNSResponder|configd|netbiosd|Terminal|iTerm2|Code)[[:space:]]}"
+
+# Kept ONLY to label a row as unmistakably ours in the report. It no longer
+# decides what is examined, and nothing is dropped for failing to match it.
+OSTLER_EGRESS_PROC_RE="${OSTLER_EGRESS_PROC_RE:-ostler|Ostler|qdrant|oxigraph|ollama|mkdocs|curl|limactl|tailscale|colima|docker|python3}"
 
 # Inside the boundary. See the header: declared, not assumed.
 OSTLER_EGRESS_ALLOWED_RE="${OSTLER_EGRESS_ALLOWED_RE:-^(127\.|\[::1\]|localhost|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|\[f[cd]|\[fe80)}"
@@ -108,7 +150,8 @@ run_probe() {
     fi
 
     probe_note "boundary policy : ${OSTLER_EGRESS_ALLOWED_RE}"
-    probe_note "product procs   : ${OSTLER_EGRESS_PROC_RE}"
+    probe_note "operator procs  : ${OSTLER_EGRESS_FOREIGN_RE}"
+    probe_note "                  (EXCLUDED by name. Everything else is examined.)"
     probe_note "sampling        : ${SAMPLES} samples, ${SAMPLE_GAP}s apart"
     probe_note "BLIND TO        : sub-sample-lifetime connections, UDP, DNS,"
     probe_note "                  proxied requests, and all payload content."
@@ -123,15 +166,21 @@ run_probe() {
         probe_cannot_run "lsof returned no established sockets at all across ${SAMPLES} samples -- not even the ssh session or a browser. That is a probe that cannot see, not a quiet machine."
     fi
 
-    ours="$(printf '%s' "$all" | grep -E "^(${OSTLER_EGRESS_PROC_RE})" || true)"
+    # EXCLUDE the operator's own processes by name; keep EVERYTHING else. The
+    # old code did the reverse and that is the defect this change exists to
+    # fix, so the direction of this grep is the load-bearing character in the
+    # file: -vE, not -E.
+    local foreign_n
+    ours="$(printf '%s' "$all" | grep -vE "$OSTLER_EGRESS_FOREIGN_RE" || true)"
     ours_n="$(printf '%s' "$ours" | grep -c . )"
+    foreign_n=$((total_sockets - ours_n))
 
-    probe_examined "${ours_n:-0}" "distinct Ostler-owned established connections (of ${total_sockets} on the box)"
+    probe_examined "${ours_n:-0}" "established connections examined (of ${total_sockets} on the box; ${foreign_n} excluded as the operator's own processes)"
 
     if [ "${ours_n:-0}" -eq 0 ]; then
-        # Honest: this is not a pass. Nothing of the product was running, so
-        # nothing about the product was measured.
-        probe_cannot_run "no process matching '${OSTLER_EGRESS_PROC_RE}' held any established connection. Nothing of the product was observed, so this run says nothing about its egress. Start the product and re-run."
+        # Honest: this is not a pass. Nothing attributable to us was running,
+        # so nothing about our egress was measured.
+        probe_cannot_run "every established connection on the box belonged to a process named in the operator-process exclusion list. Nothing attributable to Ostler was observed, so this run says nothing about its egress. Start the product and re-run."
     fi
 
     outside=""
@@ -146,10 +195,10 @@ run_probe() {
     if [ -n "$outside" ]; then
         probe_note "OUTSIDE THE BOUNDARY:"
         printf '%s' "$outside"
-        probe_fail "$(printf '%s' "$outside" | grep -c .) Ostler-owned connection(s) to destinations outside the declared boundary. Each one is either a claim that needs correcting or a defect that needs fixing; neither is resolved by leaving it unreported."
+        probe_fail "$(printf '%s' "$outside" | grep -c .) attributable connection(s) to destinations outside the declared boundary. Each one is either a claim that needs correcting or a defect that needs fixing; neither is resolved by leaving it unreported."
     fi
 
-    probe_pass "all ${ours_n} Ostler-owned established connections were inside the declared boundary, across ${SAMPLES} samples. This is a floor, not a proof of no leak -- see the BLIND TO line above."
+    probe_pass "all ${ours_n} examined established connections were inside the declared boundary, across ${SAMPLES} samples. This is a floor, not a proof of no leak -- see the BLIND TO line above."
 }
 
 # ---------------------------------------------------------------------------
@@ -245,5 +294,42 @@ PY
 
     probe_fail "negative control behaved correctly on a REAL planted socket: flagged (${red_hits}) under a boundary that excludes loopback, and not flagged (${green_hits}) under one that includes it. Nothing left the machine."
 }
+
+# ---------------------------------------------------------------------------
+# --classify-fixture <file>
+#
+# Run the attribution and boundary logic over a RECORDED reading instead of a
+# live box, and print the rows it would flag. One flagged row per line, exit 1
+# if any, 0 if none.
+#
+# This exists so the reading that caught the blindness becomes a permanent
+# control. The 2026-08-17 mid-install capture is committed as a fixture: under
+# the old inclusion filter it flagged NOTHING, under this one it flags six.
+# A test can now prove the regression cannot come back, which a self-test that
+# only plants its own loopback socket could never do -- that control was
+# working perfectly and was blind to this defect, because it never exercised
+# ATTRIBUTION at all, only the boundary regex.
+#
+# Input format is exactly what sample_sockets emits: COMMAND<TAB>PID<TAB>REMOTE
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "--classify-fixture" ]; then
+    fixture="${2:-}"
+    [ -f "$fixture" ] || { echo "CANNOT-RUN: no fixture at '${fixture}'" >&2; exit 2; }
+
+    kept="$(grep -vE '^[[:space:]]*(#|$)' "$fixture" | grep -vE "$OSTLER_EGRESS_FOREIGN_RE" || true)"
+    [ -n "$kept" ] || { echo "CANNOT-RUN: fixture has no rows left after exclusion" >&2; exit 2; }
+
+    flagged=0
+    while IFS=$'\t' read -r cmd pid remote; do
+        [ -n "${remote:-}" ] || continue
+        if is_outside_boundary "$remote"; then
+            printf '%s\t%s\n' "$cmd" "$remote"
+            flagged=$((flagged + 1))
+        fi
+    done <<< "$kept"
+
+    [ "$flagged" -eq 0 ] && exit 0
+    exit 1
+fi
 
 probe_main "$@"
