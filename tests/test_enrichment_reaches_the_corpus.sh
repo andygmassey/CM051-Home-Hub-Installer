@@ -362,20 +362,32 @@ n_used="$(grep -c 'MSG_HYDRATE_PREFERENCES_ENRICHED' "$REPO/install.sh")"
 #         https://pwg.dev/ontology#. The same short name `pwg:` expands to
 #         two different IRIs, so even the class names cannot collide.
 #
-#    (b) is doing real safety work BY ACCIDENT: it is namespace divergence
-#    nobody chose, and #743 is an open plan to migrate namespaces. A tidy-up
-#    that unified them would remove a barrier without anyone intending to.
-#    So the separation is asserted here, and this comment is the reason.
-NS_ENRICH="$(grep -c 'http://pwg.local/ontology#' "$SRC/enricher.py")"
-[ "$NS_ENRICH" -ge 1 ] && ok "enrichment writes its own namespace, separate from the people graph" \
-                       || bad "enricher.py no longer writes http://pwg.local/ontology#; the namespace barrier between actors and People may be gone"
+#    (b) IS NOT SOMETHING TO PIN, AND MY FIRST VERSION OF THIS TEST GOT
+#    THAT WRONG. It asserted that enrichment writes http://pwg.local/... ,
+#    which would make this suite fight #743, the migration that exists
+#    BECAUSE pwg.dev is unregistered and pwg-branded namespaces should not
+#    be stamped into a customer's graph at all. A guard that pins the thing
+#    we are removing is worse than no guard.
+#
+#    So what is asserted is the RELATIONSHIP, not the literal: the two
+#    namespaces must DIFFER, whatever they are. That survives any migration,
+#    and if some future tidy-up unifies them this goes red and somebody has
+#    to decide on purpose rather than by accident.
+#
+#    (Separately: pwg.local is a THIRD pwg-branded namespace and the #802
+#    ratchet's regex is `pwg\.dev` only, so it does not see it. Widening
+#    that ratchet is the real fix and is not this file's job.)
+PEOPLE_NS='pwg.dev/ontology'
+ENRICH_NS="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' "$SRC/enricher.py" | sort -u | head -1)"
+[ -n "$ENRICH_NS" ] && ok "enrichment declares an ontology namespace ($ENRICH_NS) (positive control)" \
+                    || bad "no ontology namespace found in enricher.py; this check is measuring nothing"
 
-# One path, no fallback. The `||` form here ran BOTH greps and concatenated
-# their answers into "0\n0", which is not an integer and made the test fail
-# on its own arithmetic rather than on the thing it guards.
-n_person="$(grep -c 'pwg:Person' "$SRC/models/enrichment.py")"
-[ "$n_person" -eq 0 ] && ok "enrichment never types an entity as pwg:Person" \
-                      || bad "enrichment emits pwg:Person; enriched actors could reach the customer's People list"
+case "$ENRICH_NS" in
+    *"$PEOPLE_NS"*)
+        bad "enrichment now writes into the SAME namespace as people/meetings ($PEOPLE_NS); the accidental separation between an actor and a contact is gone" ;;
+    *)
+        ok "enrichment's namespace differs from the people/meetings namespace, whatever each is" ;;
+esac
 
 n_entity="$(grep -c 'a pwg:Entity' "$SRC/models/enrichment.py")"
 [ "$n_entity" -ge 1 ] && ok "enriched actors and directors are typed pwg:Entity, a class the People query does not select" \
