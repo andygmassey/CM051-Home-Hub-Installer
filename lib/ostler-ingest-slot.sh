@@ -113,11 +113,31 @@ _ostler_slot_ws() {
 _OSTLER_SLOT_DIR="${OSTLER_INGEST_LOCK:-$(_ostler_slot_ws)/ingest-ollama.lock.d}"
 _OSTLER_SLOT_WAITERS="${_OSTLER_SLOT_DIR%.d}.waiters.d"
 _OSTLER_SLOT_STATE="${OSTLER_SLOT_STATE_DIR:-$(_ostler_slot_ws)/ingest-slot}"
-_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-900}"
+# MEASURED on the v1.0.33 box, 2026-08-17. The mechanism was not missing --
+# waiters dir, max-hold and starve-after all exist and all worked. The RATIO
+# between two of them guaranteed starvation:
+#
+#   MAX_HOLD 900s   a holder keeps the slot 15 minutes even with a waiter
+#   WAIT      75s   a HEALTHY waiter gives up after 75 seconds
+#
+# A waiter's patience was 1/12th of a holder's right, so it could never
+# outlast one. Observed: email-bundle held with 895s remaining while
+# imessage-bundle got 4s. Twelve contentions in the log, email-bundle winning
+# eight of them, and whatsapp/imessage/spoken all starved in turn.
+#
+# STARVE_AFTER 21600s meant the "this feed is starving" escalation fired only
+# after SIX HOURS -- long after the install finished and the owner had already
+# looked at an empty Messages surface and concluded the product was broken.
+#
+# MAX_HOLD is now 180s: longer than any feed's real work (imessage needed 4s)
+# and comfortably above WAIT=75s, so a holder still finishes a unit of work
+# but a waiter that keeps asking now outlives it. STARVE_AFTER 1800s puts the
+# escalation inside the install window where somebody can act on it.
+_OSTLER_SLOT_MAX_HOLD="${OSTLER_SLOT_MAX_HOLD_SECS:-180}"
 _OSTLER_SLOT_WAIT="${OSTLER_SLOT_WAIT_SECS:-75}"
 _OSTLER_SLOT_GRACE="${OSTLER_SLOT_GRACE_SECS:-60}"
 _OSTLER_SLOT_POLL="${OSTLER_SLOT_POLL_SECS:-5}"
-_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-21600}"
+_OSTLER_SLOT_STARVE_AFTER="${OSTLER_SLOT_STARVE_AFTER_SECS:-1800}"
 _OSTLER_SLOT_LEGACY_HOLD="${OSTLER_SLOT_LEGACY_MAX_HOLD_SECS:-3600}"
 
 _OSTLER_SLOT_FEED=""
