@@ -1075,6 +1075,7 @@ INSERT DATA {{
         self,
         category_configs: List[Dict],
         user_id: Optional[str] = None,
+        deadline: Optional[datetime] = None,
     ) -> Dict[str, EnrichmentStats]:
         """
         Enrich multiple categories IN PARALLEL using different API clients.
@@ -1110,12 +1111,18 @@ INSERT DATA {{
 
             logger.info(f"[PARALLEL] Starting {category} enrichment (limit={limit})")
 
+            # ONE SHARED ABSOLUTE DEADLINE, not a fair share. These categories
+            # run CONCURRENTLY under asyncio.gather, so they all spend the same
+            # wall clock at the same time. Dividing the allowance between them
+            # here, as the sequential enrich_categories has to, would cut each
+            # one to a fraction of a budget it is not in fact competing for.
             stats = await self.enrich_all(
                 user_id=user_id,
                 category=category,
                 limit=limit,
                 min_strength=min_strength,
                 priority_order=priority_order,
+                deadline=deadline,
             )
 
             logger.info(f"[PARALLEL] Completed {category}: {stats.successful} enriched")
