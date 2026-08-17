@@ -22,6 +22,17 @@ jobs:
         run: pip install aiofiles pydantic-settings beautifulsoup4
       - name: a YouTube parser must never claim a Facebook export
         run: python3 tests/test_youtube_parser_does_not_claim_facebook.py
+      - name: a WhatsApp parser must never claim a Meta message thread
+        # MEASURED on a real archive: 1,852 Facebook + 856 Instagram
+        # message_N.json were claimed by WhatsAppParser and yielded 0.
+        #
+        # if: always() because these two claim tests are INDEPENDENT axes.
+        # Without it this step is skipped whenever the YouTube step above
+        # fails, so a run that is already red would silently stop reporting
+        # the WhatsApp axis -- a gate that hides exactly when it matters most.
+        # ci-maskless caught this; the step was maskable as first written.
+        if: always()
+        run: python3 tests/test_whatsapp_parser_does_not_claim_meta_messages.py
       # The general case of the same defect, measured across the whole
       # registration list rather than one pair: eight export archives were
       # claimed by a parser that could not read them, each yielding zero. Runs
