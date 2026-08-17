@@ -29,3 +29,4 @@ github-releases.githubusercontent.com	installer: GitHub release asset CDN	HTTPS 
 ostler.ai	installer: bootstrap + licence activation	licence ID and machine fingerprint. NO personal data, no graph content.
 controlplane.tailscale.com	tailnet: coordination for phone to Mac	node keys and endpoints. Encrypted payloads are relayed, never readable here.
 log.tailscale.io	tailnet: Tailscale client telemetry	Tailscale's own client logging. NOT ours, and a candidate to disable.
+graph.facebook.com	whatsapp connector: Business Cloud API send path (zeroclaw-channels/src/whatsapp.rs:302,374)	outbound message sends. ONLY active when phone_number_id is configured; NOT configured on the box measured 2026-08-17.
