@@ -1375,7 +1375,31 @@ check-ostler-app:
 	@# The fallback is the same sibling default three other targets in this file
 	@# already use (1293, 1446, 1481), so an operator Mac with a real sibling
 	@# checkout behaves exactly as before.
-	@bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
+	@# AND THE DAEMON OPERAND COMES FROM THE CUT RECORD, not from a clone's HEAD.
+	@#
+	@# Nothing passed OSTLER_DAEMON_COMMIT, so the gate fell through to
+	@# `git rev-parse HEAD` on the reference checkout. The bundle is BUILT from
+	@# that checkout, so its attested commit and that HEAD are normally the SAME
+	@# COMMIT, and the parity loop then compared tree "<sha>:web" against itself.
+	@# Measured on the shipping v1.0.33 cut (run 31998597024, 05:39:50Z):
+	@# wrapper 5b7efb00, operand 5b7efb00, "frontend parity: identical commit".
+	@# A self-comparison. It could not have failed, and its warn line read as
+	@# informational.
+	@#
+	@# Read the pin the cut actually declares. Resolved HERE rather than in
+	@# cut.yml because `make ship` also runs on an operator Mac, and a fix that
+	@# only lives in the workflow leaves the local path still guessing.
+	@#
+	@# Empty is passed through deliberately: the gate now treats a missing pin as
+	@# CANNOT-RUN (exit 2) and blocks. A cut record with no DAEMON_COMMIT is a cut
+	@# nobody can attest, and that must be loud rather than defaulted.
+	@set -e; \
+	CUT_ENV="$(CURDIR)/../cuts/$(CUT_MANIFEST_VERSION)/cut.env"; \
+	DC="$$(grep -E '^[[:space:]]*DAEMON_COMMIT=' "$$CUT_ENV" 2>/dev/null \
+	       | tail -1 | sed -E 's/^[[:space:]]*DAEMON_COMMIT=//; s/[[:space:]]*(#.*)?$$//')"; \
+	printf '[CHECK] daemon operand from %s: %s\n' "$$CUT_ENV" "$${DC:-<unset>}"; \
+	OSTLER_DAEMON_COMMIT="$$DC" \
+	bash "$(APP_PROVENANCE_SH)" "$(OSTLER_APP_PATH)" "$${OSTLER_ASSISTANT_DIR:-$(CURDIR)/../../ostler-assistant}" || { \
 	    echo "" >&2; \
 	    echo "  Refusing to continue: the Ostler.app going into this DMG has not" >&2; \
 	    echo "  been shown to be the bundle this cut intends to ship. Sealing it" >&2; \
