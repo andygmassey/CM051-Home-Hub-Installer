@@ -28,5 +28,9 @@ jobs:
       # in this job, not a new workflow, because it is the same defect class on
       # the same files -- a second workflow would duplicate the checkout, the
       # Python setup and the pip install to say the same thing.
+      # if: always() because the step above is a test, not a prerequisite. The
+      # two measure different things and a red YouTube/Facebook run must not
+      # hide whether the general case also broke.
       - name: no parser may claim another service's export
+        if: always()
         run: python3 tests/test_parser_claims_do_not_cross_services.py

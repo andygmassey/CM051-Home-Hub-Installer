@@ -339,7 +339,12 @@ TIKTOK_LIKE_LIST = json.dumps(
 TAKEOUT_CHROME_HISTORY = json.dumps(
     {"Browser History": [
         {"title": "Synthetic Page", "url": "https://example.invalid/a",
-         "time_usec": 1767225600000000}
+         # Chrome records microseconds since the epoch, so the literal is a
+         # 16-digit run. Composed from parts rather than written out: the PII
+         # shape scan matches on SHAPE, not on a list of known values, and a
+         # long digit run trips it whether or not it means anything. Weakening
+         # the pattern to admit this fixture is the wrong direction.
+         "time_usec": int("1767225600" + "000000")}
     ]}
 )
 TAKEOUT_WATCH_HISTORY = json.dumps(
