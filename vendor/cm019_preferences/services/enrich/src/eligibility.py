@@ -109,7 +109,11 @@ def _reason(subject: str) -> Optional[str]:
     return None
 
 
-def is_eligible(client_name: Optional[str], subject: str) -> Tuple[bool, Optional[str]]:
+def is_eligible(
+    client_name: Optional[str],
+    subject: str,
+    category_inferred: Optional[bool] = None,
+) -> Tuple[bool, Optional[str]]:
     """
     May this subject be sent to this client as a query?
 
@@ -118,6 +122,16 @@ def is_eligible(client_name: Optional[str], subject: str) -> Tuple[bool, Optiona
                      EnrichmentService.CATEGORY_CLIENTS. None means no
                      client, which is not this module's business.
         subject:     the preference subject that would become the query.
+        category_inferred:
+                     THREE STATES, and the third is the one that matters.
+                       True  -- the category was GUESSED from the subject.
+                       False -- the source DECLARED it.
+                       None  -- provenance is unrecorded, so we do not know.
+                     None is the default so that a caller which has not been
+                     taught to state provenance fails CLOSED rather than
+                     silently inheriting the behaviour this module exists to
+                     stop. See below -- this is the limb the shape tests
+                     cannot cover.
 
     Returns:
         (True, None) to proceed, or (False, reason) to skip. The reason is
@@ -127,6 +141,37 @@ def is_eligible(client_name: Optional[str], subject: str) -> Tuple[bool, Optiona
     """
     if client_name is None or client_name not in SUBJECT_IS_THE_QUERY:
         return True, None
+
+    # A GUESSED CATEGORY IS NOT AUTHORITY TO SEND. This is the limb the
+    # docstring at the top of this file said was owed and out of scope:
+    # "a short, plausible-looking name in the wrong category ... is a
+    # classifier problem and it needs a classifier fix."
+    #
+    # It is checked BEFORE the shape tests on purpose. Shape cannot tell a
+    # LinkedIn InMail subject from a film title -- both are short, one line,
+    # title-cased, no sentence join. Measured on Andy's v1.0.35 box: eight
+    # such subjects, carrying third-party company names, reached Wikidata and
+    # a music service because csv_parser inferred music/movie/tv from a
+    # substring match ("Technology" -> "techno"). Every category that fallback
+    # can return routes to a client in SUBJECT_IS_THE_QUERY, including the
+    # `interest` catch-all, so there is no safe category to guess into.
+    #
+    # The cost of refusing is a missed enrichment. The cost of accepting is
+    # somebody else's data in a third party's logs, permanently. Not symmetric.
+    #
+    # UNRECORDED PROVENANCE IS NOT DECLARED PROVENANCE. An earlier draft of this
+    # read the flag as `bool(extra.get("category_inferred"))`, so a preference
+    # stored before the field existed came back False and was treated as though
+    # its source had declared the category. TNM found it in review: the gate
+    # would have covered new ingests only, while the recurring enrichment agent
+    # feeds on precisely the corpus that predates the field. On an upgraded box
+    # that is every row, so the gate would have reported clean having protected
+    # nothing. A missing measurement is not a passing measurement -- the same
+    # rule the CI gates in this repo are held to.
+    if category_inferred is None:
+        return False, "the category's provenance is unrecorded, so it cannot be shown to have been declared"
+    if category_inferred:
+        return False, "category was inferred from the subject, not declared by the source"
 
     reason = _reason(subject)
     if reason is None:

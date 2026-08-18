@@ -94,6 +94,7 @@ test_email_ingest_venv_wired.sh	UNWIRED	-
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_enrichment_optin_is_owed_after_v1_0_36.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_enrichment_reaches_the_corpus.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_err_trap_emits_done_fail.sh	UNWIRED	-
 test_every_fail_call_has_error_code.sh	UNWIRED	-
@@ -123,12 +124,14 @@ test_imessage_fda_probe.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_imessage_ladder_not_pinned.sh	WIRED	.github/workflows/imessage-ladder.yml
 test_imessage_self_handles_fallback.sh	UNWIRED	-
 test_imessage_tcc_posture.sh	UNWIRED	-
+test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ingest_offpeak_throttle.sh	UNWIRED	-
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
 test_install_daily_briefs.sh	UNWIRED	-
 test_install_first_month_free.sh	UNWIRED	-
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
 test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contract.yml
+test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	UNWIRED	-
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml

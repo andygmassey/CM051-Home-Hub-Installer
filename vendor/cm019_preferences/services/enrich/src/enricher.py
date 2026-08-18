@@ -807,7 +807,22 @@ INSERT DATA {{
             # goes out as a query. Refuse anything shaped like prose before
             # it reaches the network. See eligibility.py for what this does
             # and, just as importantly, what it does not.
-            eligible, why_not = is_eligible(client_name, pref.get("subject", "") or "")
+            # `category_inferred` is set by the ingest parser when the routing
+            # category was GUESSED from the subject rather than declared by the
+            # source, and ParsedPreference.to_payload() now states it on EVERY
+            # row it writes, True or False, so absence has exactly one meaning:
+            # this row was stored before the field existed.
+            #
+            # PASSED THROUGH RAW, NOT COERCED WITH bool(). Absent must arrive as
+            # None so eligibility can treat it as UNKNOWN provenance. Coercing
+            # it here would turn "we never recorded this" into "the source
+            # declared it", which is the false all-clear that would have left
+            # the whole pre-existing corpus egressing while the gate read green.
+            eligible, why_not = is_eligible(
+                client_name,
+                pref.get("subject", "") or "",
+                category_inferred=(pref.get("extra") or {}).get("category_inferred"),
+            )
             if not eligible:
                 stats.skipped_ineligible += 1
                 logger.info(
