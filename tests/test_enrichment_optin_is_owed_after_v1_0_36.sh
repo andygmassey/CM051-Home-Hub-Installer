@@ -68,7 +68,22 @@ fi
 #      READS it as ${OSTLER_ENRICH_AGENT_ENABLED:-0}, so a read is not a wire.
 #   2. A QUESTION exists whose id names enrichment. This is what stops a
 #      hardcoded =1 from satisfying a consent gate.
-assign_hits="$(grep -cE '^[[:space:]]*(export[[:space:]]+)?OSTLER_ENRICH_AGENT_ENABLED=' "$TARGET" || true)"
+# NOT ANCHORED TO LINE START, and TNM found out why the hard way.
+#
+# The first version of this used `^[[:space:]]*`, which only matches an
+# assignment that begins its own line. But the natural way to write this opt-in
+# is on the back of the condition that decides it:
+#
+#     [[ "$ans" == y ]] && OSTLER_ENRICH_AGENT_ENABLED=1
+#
+# That is midline, so the anchored predicate scored 0, and the gate stayed RED
+# with the work genuinely finished. A gate that can only be satisfied by
+# guessing the author's formatting is the "nobody can ever go green, so somebody
+# deletes the gate" failure narrowed rather than removed -- and my own
+# satisfiable control arm passed only because I happened to plant the assignment
+# at column zero, so the control confirmed my formatting rather than the space of
+# legitimate ones. There is now a fifth arm that plants it midline.
+assign_hits="$(grep -cE '(^|[[:space:]&|;()])(export[[:space:]]+)?OSTLER_ENRICH_AGENT_ENABLED=' "$TARGET" || true)"
 question_hits="$(grep -icE 'gui_read[^\n]*enrich|id=["'"'"']?[a-z_]*enrich[a-z_]*["'"'"']?' "$TARGET" || true)"
 
 has_optin=0
