@@ -282,8 +282,9 @@ class CSVParser(BaseParser):
             observed_at=observed_at,
             size=size,
             # Provenance, read by eligibility.is_eligible() before any outbound
-            # query. Set ONLY when the category was guessed from the subject.
-            # A row whose CSV declared its category is untouched and enriches
-            # exactly as before.
-            extra={"category_inferred": True} if category_inferred else {},
+            # query. Stated on every row, True or False, never left absent:
+            # absence is reserved to mean "stored before this field existed",
+            # which eligibility refuses. A row whose CSV declared its category
+            # says so explicitly and enriches exactly as before.
+            extra={"category_inferred": bool(category_inferred)},
         )

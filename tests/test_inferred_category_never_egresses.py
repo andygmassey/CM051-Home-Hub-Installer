@@ -38,6 +38,8 @@ CM019 = REPO / "vendor" / "cm019_preferences"
 PARSER = CM019 / "services" / "ingest" / "src" / "parsers" / "csv_parser.py"
 ELIGIBILITY = CM019 / "services" / "enrich" / "src" / "eligibility.py"
 ENRICHER = CM019 / "services" / "enrich" / "src" / "enricher.py"
+BASE = CM019 / "services" / "ingest" / "src" / "parsers" / "base.py"
+FILTERS = CM019 / "services" / "ingest" / "src" / "filters.py"
 
 # Ordinary business subjects. SYNTHETIC: no real correspondent, company or
 # subject line appears here, and none is needed -- the defect is in the
@@ -132,16 +134,125 @@ class TestInferredNeverEgresses(unittest.TestCase):
                                         category_inferred=False)
         self.assertTrue(ok, f"a DECLARED category was refused: {why}")
 
-    def test_default_is_backwards_compatible(self):
-        """Callers that predate this parameter keep working unchanged."""
-        ok, _ = self.elig.is_eligible("musicbrainz", "Dark Side of the Moon")
-        self.assertTrue(ok)
+    def test_unrecorded_provenance_is_refused(self):
+        """THE ONE TNM FOUND IN REVIEW, and it inverts what this test used to say.
+
+        An earlier version of this file asserted the opposite -- that omitting
+        the parameter kept the old behaviour -- under the heading "callers that
+        predate this parameter keep working unchanged". That is precisely the
+        false all-clear: a preference stored before the field existed came back
+        as "not inferred", which reads identically to "the source declared it".
+
+        It matters because the recurring enrichment agent feeds on the corpus
+        that ALREADY EXISTS on the box, and on an upgraded install every row in
+        that corpus predates the field. The gate would have reported clean
+        having protected nothing.
+
+        Unknown provenance now refuses, and the reason says WHY it refused
+        rather than borrowing the "inferred" wording, because the operator
+        reading the log needs to tell "we guessed" from "we never recorded".
+        """
+        ok, why = self.elig.is_eligible("musicbrainz", "Dark Side of the Moon")
+        self.assertFalse(ok, "an omitted provenance was treated as declared")
+        self.assertIn("unrecorded", (why or "").lower())
+
+        ok_explicit, _ = self.elig.is_eligible("musicbrainz", "Dark Side of the Moon",
+                                               category_inferred=None)
+        self.assertFalse(ok_explicit, "an explicit None was treated as declared")
+
+    def test_the_three_states_are_distinguishable(self):
+        """False enriches, True refuses, None refuses. Three states, not two."""
+        verdicts = {
+            state: self.elig.is_eligible("musicbrainz", "Dark Side of the Moon",
+                                         category_inferred=state)[0]
+            for state in (False, True, None)
+        }
+        self.assertEqual(verdicts, {False: True, True: False, None: False})
+
+    def test_the_reader_does_not_flatten_absence_to_false(self):
+        """`bool()` around the read would undo all of this in one character.
+
+        The three-state gate only works if absence reaches it as None. Wrapping
+        the payload read in `bool()` collapses None to False, which is the
+        "source declared it" branch, and every pre-existing row starts
+        egressing again while every test above still passes -- because they all
+        call `is_eligible` directly and never go through this line.
+        """
+        src = ENRICHER.read_text(encoding="utf-8")
+        m = re.search(r"category_inferred=(.+?),\n", src)
+        self.assertIsNotNone(m, "the is_eligible call site moved -- re-read this test")
+        arg = m.group(1)
+        self.assertNotIn(
+            "bool(", arg,
+            "the enricher coerces the provenance read with bool(), so a row "
+            f"stored before the field existed arrives as False, not None: {arg}",
+        )
 
     def test_reason_never_quotes_the_subject(self):
         """The refusal reason is logged. It must not leak what it refused."""
         secret = "Opportunity at a named company"
         _, why = self.elig.is_eligible("wikidata", secret, category_inferred=True)
         self.assertNotIn(secret, why or "")
+
+
+class TestEveryWrittenRowStatesItsProvenance(unittest.TestCase):
+    """The writer half of the contract the reader above depends on.
+
+    Refusing unknown provenance is only safe if rows written from now on are
+    never unknown. There are 23 parsers and exactly one of them (csv_parser)
+    has any opinion about inferred categories, so the guarantee cannot live in
+    the parsers -- it lives in ParsedPreference.to_payload(), which every row
+    passes through on its way to Qdrant.
+
+    Without this, the reader's refusal would take enrichment dark for all 22
+    other sources, and the first anyone would know is a customer asking why
+    nothing enriches.
+    """
+
+    def setUp(self):
+        self.base = _load(BASE, "_ostler_parsers_base")
+
+    def test_payload_always_states_provenance(self):
+        p = self.base.ParsedPreference(subject="Dark Side of the Moon",
+                                       source="spotify", category="music")
+        payload = p.to_payload("test-user")
+        self.assertIn("extra", payload,
+                      "a parser that sets no extra produced a payload with no provenance")
+        self.assertIn("category_inferred", payload["extra"])
+        self.assertIs(payload["extra"]["category_inferred"], False)
+
+    def test_an_explicit_inferred_flag_is_not_overwritten(self):
+        """setdefault, not assignment. csv_parser's True must survive."""
+        p = self.base.ParsedPreference(subject="Technology roundup", source="csv",
+                                       category="music",
+                                       extra={"category_inferred": True})
+        self.assertIs(p.to_payload("test-user")["extra"]["category_inferred"], True)
+
+    def test_other_extra_keys_are_preserved(self):
+        p = self.base.ParsedPreference(subject="x", source="csv",
+                                       extra={"frequency": 3})
+        extra = p.to_payload("test-user")["extra"]
+        self.assertEqual(extra["frequency"], 3)
+        self.assertIs(extra["category_inferred"], False)
+
+    def test_the_aggregation_step_carries_the_flag(self):
+        """The middle hop, which was the joint I could not vouch for.
+
+        `filters.py` rebuilds `extra` during frequency aggregation. It spreads
+        `**pref.extra` FIRST and then adds its own keys, so the flag survives.
+        That ordering is the whole contract, and it is one edit away from being
+        silently reversed, so it is asserted against the shipped source rather
+        than trusted.
+        """
+        src = FILTERS.read_text(encoding="utf-8")
+        m = re.search(r"extra=\{\s*\n\s*\*\*pref\.extra\s*,", src)
+        self.assertIsNotNone(
+            m,
+            "filters.py no longer spreads **pref.extra first when rebuilding "
+            "extra during aggregation. If that dict is now composed without the "
+            "spread, category_inferred is dropped between the parser and Qdrant "
+            "and the egress gate silently stops seeing inferred rows.",
+        )
 
 
 class TestNoSafeCategoryToGuessInto(unittest.TestCase):

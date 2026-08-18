@@ -112,7 +112,7 @@ def _reason(subject: str) -> Optional[str]:
 def is_eligible(
     client_name: Optional[str],
     subject: str,
-    category_inferred: bool = False,
+    category_inferred: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     May this subject be sent to this client as a query?
@@ -123,9 +123,15 @@ def is_eligible(
                      client, which is not this module's business.
         subject:     the preference subject that would become the query.
         category_inferred:
-                     True when the routing category was GUESSED from the
-                     subject text rather than declared by the source. See
-                     below -- this is the limb the shape tests cannot cover.
+                     THREE STATES, and the third is the one that matters.
+                       True  -- the category was GUESSED from the subject.
+                       False -- the source DECLARED it.
+                       None  -- provenance is unrecorded, so we do not know.
+                     None is the default so that a caller which has not been
+                     taught to state provenance fails CLOSED rather than
+                     silently inheriting the behaviour this module exists to
+                     stop. See below -- this is the limb the shape tests
+                     cannot cover.
 
     Returns:
         (True, None) to proceed, or (False, reason) to skip. The reason is
@@ -152,6 +158,18 @@ def is_eligible(
     #
     # The cost of refusing is a missed enrichment. The cost of accepting is
     # somebody else's data in a third party's logs, permanently. Not symmetric.
+    #
+    # UNRECORDED PROVENANCE IS NOT DECLARED PROVENANCE. An earlier draft of this
+    # read the flag as `bool(extra.get("category_inferred"))`, so a preference
+    # stored before the field existed came back False and was treated as though
+    # its source had declared the category. TNM found it in review: the gate
+    # would have covered new ingests only, while the recurring enrichment agent
+    # feeds on precisely the corpus that predates the field. On an upgraded box
+    # that is every row, so the gate would have reported clean having protected
+    # nothing. A missing measurement is not a passing measurement -- the same
+    # rule the CI gates in this repo are held to.
+    if category_inferred is None:
+        return False, "the category's provenance is unrecorded, so it cannot be shown to have been declared"
     if category_inferred:
         return False, "category was inferred from the subject, not declared by the source"
 
