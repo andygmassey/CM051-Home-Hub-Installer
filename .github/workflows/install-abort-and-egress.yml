@@ -1,0 +1,35 @@
+name: install-abort-and-egress
+
+# The two gates that came out of the v1.0.35 box walk (#409, #410).
+#
+# #409  install.sh called _install_enrichment_agent at line 13480 and defined it
+#       at 18386. Bash creates a function when its definition line EXECUTES, so
+#       every install died at step 15 of 39 with `command not found`.
+#       `bash -n` parses, it does not order, so nothing here could catch it.
+#
+# #410  csv_parser inferred a category by UNANCHORED SUBSTRING ("Technology"
+#       contains "techno"), and every category it can infer routes to a client
+#       that puts the SUBJECT in an outbound query -- including the `interest`
+#       catch-all. LinkedIn InMail subjects reached Wikidata and MusicBrainz.
+#
+# Both gates carry their own controls: the install.sh scanner plants a synthetic
+# call-before-definition and refuses (rc=2) if it cannot find it, and the python
+# suite reads the SHIPPED keyword table rather than a copy so the table cannot
+# drift away from its own test.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No function is called before it is defined in install.sh
+        run: bash tests/test_install_sh_no_call_before_definition.sh
+
+      - name: An inferred category never authorises egress
+        run: python3 tests/test_inferred_category_never_egresses.py
