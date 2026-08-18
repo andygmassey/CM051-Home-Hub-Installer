@@ -13675,7 +13675,32 @@ except Exception:
         # the number could only ever change when the customer dropped
         # another data export into ~/Downloads, because that was the only
         # path in the product that reached enrichment at all.
-        _install_enrichment_agent
+        #
+        # OFF UNLESS EXPLICITLY ENABLED. Andy's decision, 2026-08-18.
+        #
+        # This agent runs every 30 minutes, indefinitely, and each pass sends
+        # preference subjects to third-party services (Wikidata, MusicBrainz,
+        # Open Library). That is a standing outbound behaviour, and the
+        # directive is that the customer decides whether public-data
+        # enrichment runs at all rather than discovering it later.
+        #
+        # DEFAULTING TO OFF PRESERVES SHIPPED BEHAVIOUR RATHER THAN CHANGING
+        # IT, which is the part that is easy to get backwards. The call above
+        # was unreachable in every DMG to date: the function was defined 4,906
+        # lines BELOW this line, so bash had not created it yet and the
+        # install died here. No customer Mac has ever run this agent. Enabling
+        # it by default would therefore not be restoring an existing feature,
+        # it would be switching on a new unattended network behaviour in the
+        # launch cut.
+        #
+        # The one-shot enrichment pass earlier in this step is unaffected and
+        # still runs, and the #410 provenance gate covers what it may send.
+        # The customer-facing question that turns this on lives in #397.
+        if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
+            _install_enrichment_agent
+        else
+            info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
+        fi
 
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,

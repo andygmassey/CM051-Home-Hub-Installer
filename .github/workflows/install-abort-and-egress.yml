@@ -45,3 +45,12 @@ jobs:
       - name: An inferred category never authorises egress
         if: always()
         run: python3 tests/test_inferred_category_never_egresses.py
+
+      # The tripwire on Andy's one ratified cut of deferral. v1.0.36 ships the
+      # enrichment agent gated OFF; the cut after it must carry the question
+      # that lets the customer decide. This step is green today and turns red
+      # by itself the moment CFBundleShortVersionString goes past 1.0.36, so
+      # the deferral cannot quietly become the permanent behaviour.
+      - name: The enrichment opt-in question lands in the cut after v1.0.36
+        if: always()
+        run: bash tests/test_enrichment_optin_is_owed_after_v1_0_36.sh
