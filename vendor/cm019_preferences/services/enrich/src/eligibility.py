@@ -109,7 +109,11 @@ def _reason(subject: str) -> Optional[str]:
     return None
 
 
-def is_eligible(client_name: Optional[str], subject: str) -> Tuple[bool, Optional[str]]:
+def is_eligible(
+    client_name: Optional[str],
+    subject: str,
+    category_inferred: bool = False,
+) -> Tuple[bool, Optional[str]]:
     """
     May this subject be sent to this client as a query?
 
@@ -118,6 +122,10 @@ def is_eligible(client_name: Optional[str], subject: str) -> Tuple[bool, Optiona
                      EnrichmentService.CATEGORY_CLIENTS. None means no
                      client, which is not this module's business.
         subject:     the preference subject that would become the query.
+        category_inferred:
+                     True when the routing category was GUESSED from the
+                     subject text rather than declared by the source. See
+                     below -- this is the limb the shape tests cannot cover.
 
     Returns:
         (True, None) to proceed, or (False, reason) to skip. The reason is
@@ -127,6 +135,25 @@ def is_eligible(client_name: Optional[str], subject: str) -> Tuple[bool, Optiona
     """
     if client_name is None or client_name not in SUBJECT_IS_THE_QUERY:
         return True, None
+
+    # A GUESSED CATEGORY IS NOT AUTHORITY TO SEND. This is the limb the
+    # docstring at the top of this file said was owed and out of scope:
+    # "a short, plausible-looking name in the wrong category ... is a
+    # classifier problem and it needs a classifier fix."
+    #
+    # It is checked BEFORE the shape tests on purpose. Shape cannot tell a
+    # LinkedIn InMail subject from a film title -- both are short, one line,
+    # title-cased, no sentence join. Measured on Andy's v1.0.35 box: eight
+    # such subjects, carrying third-party company names, reached Wikidata and
+    # a music service because csv_parser inferred music/movie/tv from a
+    # substring match ("Technology" -> "techno"). Every category that fallback
+    # can return routes to a client in SUBJECT_IS_THE_QUERY, including the
+    # `interest` catch-all, so there is no safe category to guess into.
+    #
+    # The cost of refusing is a missed enrichment. The cost of accepting is
+    # somebody else's data in a third party's logs, permanently. Not symmetric.
+    if category_inferred:
+        return False, "category was inferred from the subject, not declared by the source"
 
     reason = _reason(subject)
     if reason is None:

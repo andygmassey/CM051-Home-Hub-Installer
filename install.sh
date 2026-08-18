@@ -12246,6 +12246,204 @@ NGINXWIKIBODYEOF
     chmod 644 "$_wg_file"
     return 0
 }
+
+# MOVED HERE 2026-08-18 (task #409). It used to be defined at line 18386 and
+# CALLED at 13480. Bash creates a function when its definition line EXECUTES,
+# so the call ran 4,906 lines before the definition existed and every install
+# died with `_install_enrichment_agent: command not found` at step 15 of 39.
+# Verified on Andy's 16 GB Mini: ERR-99-INSTALL-ABORT-L13549.
+#
+# Its body needs OSTLER_DIR (set line 283), USER_ID_ARG (13237) and the
+# installed CM019 tree (step 14, immediately before the caller). All present
+# at the call site, which is why moving the DEFINITION is sufficient and the
+# CALL does not move.
+_install_enrichment_agent() {
+    local label="com.ostler.enrich"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_ENRICH_INTERVAL_S:-1800}"
+    local budget_s="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-enrich-tick"
+    local cm019_dir="${OSTLER_DIR}/services/cm019"
+    local enrich_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+    # THE ONTOLOGY IRI IS READ FROM THE WRITER, NOT TYPED HERE.
+    #
+    # The tick counts `pwg:enrichedAt` subjects to report its own delta, so
+    # its PREFIX has to match whatever enrichment actually writes. Typing the
+    # IRI in would be a second source of truth for one fact, and this file
+    # already carries the readback further up: two literals, one of which
+    # would be silently wrong the day #743 migrates the namespace.
+    #
+    # Deriving it also means this installer contributes NO ontology domain
+    # literal of its own for the #802 ratchet to count. Falls back to the
+    # value the shipped enricher uses today if the source is not readable,
+    # because a tick that cannot form its query is worse than one that
+    # guesses the status quo.
+    local enrich_ns
+    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
+                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
+                 | sort -u | head -1)"
+    #
+    # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
+    # parts so the ratchet would not see it. That is laundering: the string
+    # would still be in the shipped installer, just spelled in a way the
+    # instrument cannot read, which is worse than the occurrence it hides.
+    # If the writer cannot be read, the tick simply cannot state a delta,
+    # and it already has a branch that says exactly that.
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Single-quoted heredoc: nothing expands at install time. The wrapper
+    # resolves its paths at run time, so a re-install or a moved OSTLER_DIR
+    # does not leave a wrapper pointing at a path that no longer exists.
+    cat > "$wrapper" <<'ENRTICKEOF'
+#!/usr/bin/env bash
+# Drain the enrichment backlog in bounded slices. See #747.
+#
+# `set -uo pipefail` and NOT -e, matching ostler-scan-exports: a single
+# failing lookup must not kill the tick, because the next slice is how the
+# backlog gets drained and an agent that dies on one bad title stops
+# draining for ever.
+set -uo pipefail
+
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+STATE_DIR="${OSTLER_DIR}/state"
+CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
+CM019_PY="${CM019_DIR}/.venv/bin/python3"
+ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
+# Supplied by the plist, derived there from the shipped enricher. Empty means
+# the installer could not read the writer, and the readback below must then
+# report UNREADABLE rather than query a malformed prefix and get 0 back: a
+# zero that means "I could not ask" must never print as "nothing enriched".
+ENRICH_NS="${OSTLER_ENRICH_NS:-}"
+BUDGET_S="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
+OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
+LOG_FILE="${LOGS_DIR}/enrich.log"
+LOCK_DIR="${STATE_DIR}/enrich.lock"
+
+mkdir -p "$LOGS_DIR" "$STATE_DIR"
+
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+# A slice can outlast its interval on a slow network. Overlapping passes
+# would double the outbound rate to a third party we do not own, which is
+# a courtesy issue and a rate-limit issue, so a second instance stands
+# down rather than queueing. mkdir is the atomic primitive here; a lock
+# FILE plus a test would be a race.
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "a previous enrichment pass is still running; standing down"
+    exit 0
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
+if [[ ! -x "$CM019_PY" ]]; then
+    log "no preferences service at ${CM019_DIR}; nothing to enrich"
+    exit 0
+fi
+
+# Counts-only readback, before and after. This is what makes the log
+# EVIDENCE rather than noise: a tick that enriched nothing and a tick that
+# never ran print differently, which is the whole lesson of every silent
+# failure in this product. No item content is read or logged.
+enriched_count() {
+    [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
+    curl -sf -m 5 \
+        -H 'Content-Type: application/sparql-query' \
+        -H 'Accept: application/sparql-results+json' \
+        --data-binary "PREFIX pwg: <${ENRICH_NS}>
+SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }" \
+        "${OXIGRAPH_URL}/query" 2>/dev/null \
+    | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    b=(d.get("results") or {}).get("bindings") or []
+    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
+except Exception:
+    print(-1)' 2>/dev/null \
+    || printf '%s' -1
+}
+
+before="$(enriched_count)"
+log "tick start: enrichedAt=${before} budget=${BUDGET_S}s"
+
+( cd "$CM019_DIR" && QDRANT_COLLECTION="${QDRANT_COLLECTION:-preferences}" \
+    "$CM019_PY" -m services.enrich.src.cli enrich \
+        --all --budget-seconds "$BUDGET_S" -u "$ENRICH_USER" \
+) >>"$LOG_FILE" 2>&1
+rc=$?
+
+after="$(enriched_count)"
+
+# -1 means the readback itself failed, which is a DIFFERENT event from
+# "enriched nothing" and must not be reported as a delta.
+if [[ "$before" -lt 0 || "$after" -lt 0 ]]; then
+    log "tick finished rc=${rc}, but the graph readback failed; no delta can be stated"
+elif [[ "$after" -gt "$before" ]]; then
+    log "tick finished rc=${rc}: enrichedAt ${before} -> ${after} (+$((after - before)))"
+else
+    log "tick finished rc=${rc}: enrichedAt unchanged at ${after} (backlog may be drained, or every item in this slice failed)"
+fi
+exit 0
+ENRTICKEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<ENRPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_DIR}</string>
+        <key>OSTLER_CM019_DIR</key>
+        <string>${cm019_dir}</string>
+        <key>OSTLER_ENRICH_USER</key>
+        <string>${enrich_user}</string>
+        <key>OSTLER_ENRICH_BUDGET_SECONDS</key>
+        <string>${budget_s}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>QDRANT_COLLECTION</key>
+        <string>preferences</string>
+        <key>OSTLER_ENRICH_NS</key>
+        <string>${enrich_ns}</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/enrich.out</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/enrich.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+ENRPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
+    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
+       launchctl load "$plist" 2>/dev/null; then
+        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
+    else
+        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
+    fi
+}
+
 # --- END write_wiki_tailnet_gate --- (tests/test_wiki_tailnet_gate.sh
 # lifts the function out between the `write_wiki_tailnet_gate() {` line
 # and this marker, and runs it for real. It cannot key on a column-0
@@ -18383,192 +18581,6 @@ DCUPLIST
 # re-read the same finished head and printed COMPLETE. Bounded on work
 # attempted, successive runs walk forward. Without that fix this agent
 # would have been an expensive no-op that looked like it was working.
-_install_enrichment_agent() {
-    local label="com.ostler.enrich"
-    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
-    local interval_s="${OSTLER_ENRICH_INTERVAL_S:-1800}"
-    local budget_s="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
-    local wrapper="${OSTLER_DIR}/bin/ostler-enrich-tick"
-    local cm019_dir="${OSTLER_DIR}/services/cm019"
-    local enrich_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
-
-    # THE ONTOLOGY IRI IS READ FROM THE WRITER, NOT TYPED HERE.
-    #
-    # The tick counts `pwg:enrichedAt` subjects to report its own delta, so
-    # its PREFIX has to match whatever enrichment actually writes. Typing the
-    # IRI in would be a second source of truth for one fact, and this file
-    # already carries the readback further up: two literals, one of which
-    # would be silently wrong the day #743 migrates the namespace.
-    #
-    # Deriving it also means this installer contributes NO ontology domain
-    # literal of its own for the #802 ratchet to count. Falls back to the
-    # value the shipped enricher uses today if the source is not readable,
-    # because a tick that cannot form its query is worse than one that
-    # guesses the status quo.
-    local enrich_ns
-    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
-                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
-                 | sort -u | head -1)"
-    #
-    # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
-    # parts so the ratchet would not see it. That is laundering: the string
-    # would still be in the shipped installer, just spelled in a way the
-    # instrument cannot read, which is worse than the occurrence it hides.
-    # If the writer cannot be read, the tick simply cannot state a delta,
-    # and it already has a branch that says exactly that.
-
-    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
-
-    # Single-quoted heredoc: nothing expands at install time. The wrapper
-    # resolves its paths at run time, so a re-install or a moved OSTLER_DIR
-    # does not leave a wrapper pointing at a path that no longer exists.
-    cat > "$wrapper" <<'ENRTICKEOF'
-#!/usr/bin/env bash
-# Drain the enrichment backlog in bounded slices. See #747.
-#
-# `set -uo pipefail` and NOT -e, matching ostler-scan-exports: a single
-# failing lookup must not kill the tick, because the next slice is how the
-# backlog gets drained and an agent that dies on one bad title stops
-# draining for ever.
-set -uo pipefail
-
-OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
-LOGS_DIR="${OSTLER_DIR}/logs"
-STATE_DIR="${OSTLER_DIR}/state"
-CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
-CM019_PY="${CM019_DIR}/.venv/bin/python3"
-ENRICH_USER="${OSTLER_ENRICH_USER:-ostler}"
-# Supplied by the plist, derived there from the shipped enricher. Empty means
-# the installer could not read the writer, and the readback below must then
-# report UNREADABLE rather than query a malformed prefix and get 0 back: a
-# zero that means "I could not ask" must never print as "nothing enriched".
-ENRICH_NS="${OSTLER_ENRICH_NS:-}"
-BUDGET_S="${OSTLER_ENRICH_BUDGET_SECONDS:-600}"
-OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
-LOG_FILE="${LOGS_DIR}/enrich.log"
-LOCK_DIR="${STATE_DIR}/enrich.lock"
-
-mkdir -p "$LOGS_DIR" "$STATE_DIR"
-
-log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
-
-# A slice can outlast its interval on a slow network. Overlapping passes
-# would double the outbound rate to a third party we do not own, which is
-# a courtesy issue and a rate-limit issue, so a second instance stands
-# down rather than queueing. mkdir is the atomic primitive here; a lock
-# FILE plus a test would be a race.
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    log "a previous enrichment pass is still running; standing down"
-    exit 0
-fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
-
-if [[ ! -x "$CM019_PY" ]]; then
-    log "no preferences service at ${CM019_DIR}; nothing to enrich"
-    exit 0
-fi
-
-# Counts-only readback, before and after. This is what makes the log
-# EVIDENCE rather than noise: a tick that enriched nothing and a tick that
-# never ran print differently, which is the whole lesson of every silent
-# failure in this product. No item content is read or logged.
-enriched_count() {
-    [ -n "$ENRICH_NS" ] || { printf '%s' -1; return 0; }
-    curl -sf -m 5 \
-        -H 'Content-Type: application/sparql-query' \
-        -H 'Accept: application/sparql-results+json' \
-        --data-binary "PREFIX pwg: <${ENRICH_NS}>
-SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p pwg:enrichedAt ?d }" \
-        "${OXIGRAPH_URL}/query" 2>/dev/null \
-    | python3 -c 'import json,sys
-try:
-    d=json.loads(sys.stdin.read())
-    b=(d.get("results") or {}).get("bindings") or []
-    print(int((b[0].get("n") or {}).get("value") or 0) if b else 0)
-except Exception:
-    print(-1)' 2>/dev/null \
-    || printf '%s' -1
-}
-
-before="$(enriched_count)"
-log "tick start: enrichedAt=${before} budget=${BUDGET_S}s"
-
-( cd "$CM019_DIR" && QDRANT_COLLECTION="${QDRANT_COLLECTION:-preferences}" \
-    "$CM019_PY" -m services.enrich.src.cli enrich \
-        --all --budget-seconds "$BUDGET_S" -u "$ENRICH_USER" \
-) >>"$LOG_FILE" 2>&1
-rc=$?
-
-after="$(enriched_count)"
-
-# -1 means the readback itself failed, which is a DIFFERENT event from
-# "enriched nothing" and must not be reported as a delta.
-if [[ "$before" -lt 0 || "$after" -lt 0 ]]; then
-    log "tick finished rc=${rc}, but the graph readback failed; no delta can be stated"
-elif [[ "$after" -gt "$before" ]]; then
-    log "tick finished rc=${rc}: enrichedAt ${before} -> ${after} (+$((after - before)))"
-else
-    log "tick finished rc=${rc}: enrichedAt unchanged at ${after} (backlog may be drained, or every item in this slice failed)"
-fi
-exit 0
-ENRTICKEOF
-    chmod +x "$wrapper"
-
-    cat > "$plist" <<ENRPLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${label}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${wrapper}</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-        <key>OSTLER_DIR</key>
-        <string>${OSTLER_DIR}</string>
-        <key>OSTLER_CM019_DIR</key>
-        <string>${cm019_dir}</string>
-        <key>OSTLER_ENRICH_USER</key>
-        <string>${enrich_user}</string>
-        <key>OSTLER_ENRICH_BUDGET_SECONDS</key>
-        <string>${budget_s}</string>
-        <key>OXIGRAPH_URL</key>
-        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
-        <key>QDRANT_COLLECTION</key>
-        <string>preferences</string>
-        <key>OSTLER_ENRICH_NS</key>
-        <string>${enrich_ns}</string>
-    </dict>
-    <key>StartInterval</key>
-    <integer>${interval_s}</integer>
-    <key>RunAtLoad</key>
-    <false/>
-    <key>StandardOutPath</key>
-    <string>${LOGS_DIR}/enrich.out</string>
-    <key>StandardErrorPath</key>
-    <string>${LOGS_DIR}/enrich.err</string>
-    <key>ProcessType</key>
-    <string>Background</string>
-    <key>Nice</key>
-    <integer>10</integer>
-</dict>
-</plist>
-ENRPLIST
-    chmod 0644 "$plist"
-
-    launchctl bootout "gui/\$(id -u)/${label}" 2>/dev/null || true
-    if launchctl bootstrap "gui/\$(id -u)" "$plist" 2>/dev/null || \
-       launchctl load "$plist" 2>/dev/null; then
-        ok "\$MSG_OK_ENRICH_AGENT_LOADED"
-    else
-        warn "\$MSG_WARN_ENRICH_AGENT_LOAD_FAILED"
-    fi
-}
 
 _HYDRATE_VCF="${OSTLER_DIR}/imports/icloud-contacts.vcf"
 _HYDRATE_API="${PWG_ICAL_SERVER_URL:-http://localhost:8089}"

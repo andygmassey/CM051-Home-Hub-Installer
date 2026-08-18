@@ -807,7 +807,16 @@ INSERT DATA {{
             # goes out as a query. Refuse anything shaped like prose before
             # it reaches the network. See eligibility.py for what this does
             # and, just as importantly, what it does not.
-            eligible, why_not = is_eligible(client_name, pref.get("subject", "") or "")
+            # `category_inferred` is set by the ingest parser when the routing
+            # category was GUESSED from the subject rather than declared by the
+            # source. Read defensively: a preference stored before this field
+            # existed has no `extra`, and absent must mean "not inferred" so
+            # old rows keep their previous behaviour rather than all going dark.
+            eligible, why_not = is_eligible(
+                client_name,
+                pref.get("subject", "") or "",
+                category_inferred=bool((pref.get("extra") or {}).get("category_inferred")),
+            )
             if not eligible:
                 stats.skipped_ineligible += 1
                 logger.info(
