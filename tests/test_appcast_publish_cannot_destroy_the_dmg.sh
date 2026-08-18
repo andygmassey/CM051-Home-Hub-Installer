@@ -281,28 +281,65 @@ command -v python3 >/dev/null 2>&1 || py_ok=0
 if [ "$py_ok" -eq 0 ]; then
     echo "  [skip] CAPTURE-UNCONDITIONAL not checked: python3 unavailable to parse YAML."
 else
-    cap="$(python3 - "$WF" <<'PYEOF'
+    # THE PROGRAM IS WRITTEN TO A FILE, NOT PIPED IN FROM A HEREDOC INSIDE
+    # `$( )`. bash 3.2 -- which is /bin/bash on the macOS cut host -- does not
+    # reliably skip a here-document body while scanning for the closing paren
+    # of a command substitution, so quotes and parens in the EMBEDDED PYTHON
+    # can make the whole shell file fail to parse. It parsed under bash 5 and
+    # died under 3.2 on the first edit to this block; the "parses under
+    # /bin/bash 3.2" step in appcast-ship-wiring.yml is what caught it.
+    # A heredoc at statement level has no such problem.
+    PYPROG="$WORK/capture_check.py"
+    cat >"$PYPROG" <<'PYEOF'
 import sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
 steps = d['jobs']['cut']['steps']
 bad = []
+n_verify = n_upload = n_publish = 0
 for s in steps:
     n = str(s.get('name') or s.get('uses') or '')
-    if 'Verify the artefact' in n or 'upload-artifact' in n:
+    is_verify = 'Verify the artefact' in n
+    is_upload = 'upload-artifact' in n
+    is_publish = 'appcast publish' in n
+    n_verify += is_verify
+    n_upload += is_upload
+    n_publish += is_publish
+    if is_verify or is_upload:
         if str(s.get('if', '')).strip() != 'always()':
             bad.append('%s (if=%s)' % (n[:52], s.get('if', '<none>')))
     # A swallowed publish failure is task #370 wearing a green tick: the
     # publisher does not run and the job still reports success. The repo has no
     # OSTLER_SPARKLE_SIGNING_KEY secret, so that would be EVERY cut.
-    if 'appcast publish' in n and s.get('continue-on-error'):
+    if is_publish and s.get('continue-on-error'):
         bad.append('%s (continue-on-error swallows a dark appcast)' % n[:52])
+
+# THE FLOOR. Every check above is keyed to a step NAME, so a rename silently
+# reduces this to a loop over zero matches -- and an empty `bad` list prints as
+# a confident [OK] about steps that were never examined. That is the same
+# defect class the file already guards one layer up (a target that satisfies
+# every grep for its own name while being reached by nothing), and it is what
+# CM044 #218's self-test hit: no failures out of nothing is still no failures.
+#
+# So the DENOMINATOR is asserted, not assumed. If a step is renamed, this goes
+# red and names which one vanished, which is a 30-second fix; going quietly
+# green is a check that has stopped existing without telling anyone.
+sys.stderr.write('denominator: %d step(s) examined, verify=%d upload=%d publish=%d\n'
+                 % (len(steps), n_verify, n_upload, n_publish))
+if n_verify == 0:
+    bad.append('NO step named like "Verify the artefact" -- the if: always() '
+               'check examined NOTHING (renamed?)')
+if n_upload == 0:
+    bad.append('NO upload-artifact step -- the capture check examined NOTHING')
+if n_publish == 0:
+    bad.append('NO step named like "appcast publish" -- the '
+               'continue-on-error check examined NOTHING (renamed?)')
 print('|'.join(bad))
 PYEOF
-)" || cap="CANNOT"
+    cap="$(python3 "$PYPROG" "$WF")" || cap="CANNOT"
     if [ "$cap" = "CANNOT" ]; then
         echo "  [skip] CAPTURE-UNCONDITIONAL not checked: could not parse the workflow."
     elif [ -z "$cap" ]; then
-        echo "  [OK] CAPTURED UNCONDITIONALLY: staging and upload both carry if: always()."
+        echo "  [OK] CAPTURED UNCONDITIONALLY: staging and upload both carry if: always(), and the publish is not swallowed. Step counts on stderr above are the denominator."
     else
         FAIL=1
         echo >&2

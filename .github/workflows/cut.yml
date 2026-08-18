@@ -605,38 +605,35 @@ jobs:
       # This does not weaken a single gate. The verifications below still run
       # and still fail the job; they simply no longer decide whether the
       # evidence survives. A step whose job is to fail must not also be the
-      # step that destroys the evidence. If `make ship` died before any DMG
-      # existed, this step fails on its own assertions and the upload finds an
-      # empty dist and warns -- which is the correct outcome, not an error.
+      # step that destroys the evidence.
       #
       # `always()` is already the idiom in this file (see :206, :302).
+      #
+      # THE PREDICATE LIVES IN A SCRIPT, AND `always()` IS THE REASON.
+      #
+      # Making this step unconditional also changed WHEN it runs: it now runs
+      # on every failed cut, including the ones where `make ship` died long
+      # before a DMG existed. An earlier draft simply asserted
+      # `[ -f "$DMG" ] || exit 1` there, which sent every unrelated failure red
+      # TWICE, the second time with an annotation naming a CONSEQUENCE. On the
+      # night v1.0.34 burned, "no DMG produced" was the sentence that meant a
+      # version had been spent; printing it on every unrelated failure spends
+      # its meaning.
+      #
+      # So the question is not "is there a DMG" but "was there SUPPOSED to be
+      # one", which is three states, not two: CANNOT-RUN when the job was
+      # already red, FAIL when every prior step was green and there is still
+      # no artefact, and strict verification whenever a DMG does exist,
+      # red job or not. That is the same third state CM044's operator-pii-scan
+      # took, for the same reason.
+      #
+      # It is a script because a four-branch decision inlined in YAML cannot be
+      # proved red. scripts/stage_and_verify_dmg.sh --self-test drives all four
+      # with make/xcrun/spctl stubbed on PATH, and carries a declared control
+      # floor so a self-test that runs nothing fails instead of passing.
       - name: Verify the artefact, not the build log
         if: always()
-        run: |
-          set -euo pipefail
-          # ASK make WHERE IT PUT THE DMG. Do not guess, and do not restate the
-          # path here. v1.0.26 ran `find dist -name '*.dmg'` while DIST_DIR
-          # defaults to /tmp/ostler-installer-dist-$USER, so on the first run
-          # where notarise + staple + create-dmg ALL succeeded this step died on
-          #     find: dist: No such file or directory
-          # and upload-artifact was skipped -- a fully notarised, stapled DMG
-          # discarded with the runner because two steps read a path the build
-          # never writes.
-          DMG="$(make -C gui --no-print-directory print-dmg-path)"
-          [ -n "$DMG" ] || { echo "::error::make could not name the DMG path" >&2; exit 1; }
-          [ -f "$DMG" ] || { echo "::error::no DMG produced at $DMG" >&2; exit 1; }
-          echo "dmg: $DMG"
-          # notarytool exits 0 on `Invalid`, so parse the status rather than $?.
-          xcrun stapler validate "$DMG"
-          spctl -a -vvv -t install "$DMG" 2>&1 | tee /tmp/spctl.txt
-          grep -q 'source=Notarized Developer ID' /tmp/spctl.txt || {
-            echo "::error::DMG is not Notarized Developer ID" >&2; exit 1; }
-          # Stage into dist/ so the upload globs have a stable, workspace-local
-          # home regardless of where DIST_DIR points.
-          mkdir -p dist
-          cp "$DMG" dist/
-          ( cd dist && shasum -a 256 "$(basename "$DMG")" | tee SHA256SUMS )
-          ls -la dist/
+        run: bash scripts/stage_and_verify_dmg.sh --job-status "${{ job.status }}"
 
       # Paired with the condition on the staging step above -- both, or neither
       # works. Staging happens inside that step, so guarding only the upload
@@ -713,11 +710,38 @@ jobs:
       # PUBLISH_APPCAST keeps its hard-require. #776 exists because #370 was
       # dark; softening it to a warning would put it straight back. The fix is
       # WHERE it runs, not WHETHER it is enforced.
+      # THE FAILURE TEXT MUST SAY THE DMG SURVIVED, and it cannot be fixed in
+      # the Makefile. gui/Makefile's hard-require branch ends with "and
+      # re-run", which is correct advice for a LOCAL cut, where re-running
+      # costs minutes and no artefact has been uploaded. On CI it is the one
+      # instruction that costs a version number, and it is the branch that
+      # fires on every cut: PUBLISH_APPCAST defaults to 1, so HARD=1. The
+      # sentence that reassures ("The DMG shipped, but NO appcast entry was
+      # added") lives in the SOFT branch, which can therefore never execute
+      # here. Only the workflow knows the artefact is already off the machine,
+      # so only the workflow can say so.
+      #
+      # This matters beyond tidiness. A red cut at 03:00, hours after a red cut
+      # destroyed a version, reads to a tired human as "we lost another one".
+      # Left unsaid, the correct response (download the artefact, ignore the
+      # red) and the catastrophic one (re-tag and spend another version) look
+      # identical from the run summary.
       - name: AU-1 appcast publish (post-upload, cannot destroy the artefact)
         if: always()
         env:
           OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
-        run: make -C gui publish-appcast
+        run: |
+          set -uo pipefail
+          rc=0
+          make -C gui publish-appcast || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=Appcast not published -- the DMG is SAFE::The DMG for this cut is COMPLETE (notarised, stapled, seal-verified) and was ALREADY UPLOADED as a run artefact before this step ran. It is retrievable from this run right now. DO NOT re-tag to recover the build: nothing was lost and a new tag spends a version number for nothing. This red is the auto-update FEED only. Most likely cause: OSTLER_SPARKLE_SIGNING_KEY is not an Actions secret on this repo, pending a decision on holding a Sparkle EdDSA key in a PUBLIC repo."
+          fi
+          # NOT swallowed. The job conclusion is what every downstream tool
+          # reads, and a dark publisher wearing a green tick is task #370
+          # restored. The red is honest; the annotation above is what stops it
+          # being misread.
+          exit "$rc"
 
   # ---------------------------------------------------------------------
   # 3. DRY RUN. workflow_dispatch ONLY. Runs the cut path's CHECKS and stops.

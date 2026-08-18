@@ -77,6 +77,15 @@ jobs:
         if: always()
         run: python3 scripts/appcast_version_guard.py --self-test
 
+      # The staging step's own predicate. `if: always()` made it run on failed
+      # cuts too, so it has to tell "the build never produced one" apart from
+      # "the build produced a bad one" -- four branches, and the fix is which
+      # branch fires when. Stubs make, xcrun and spctl on PATH so the shipped
+      # code path runs unmodified; carries a declared control floor.
+      - name: The staging step can tell CANNOT-RUN from FAIL
+        if: always()
+        run: /bin/bash scripts/stage_and_verify_dmg.sh --self-test
+
       # A gate that only parses under bash 5 reads CANNOT-RUN for ever on the
       # machine that cuts.
       - name: Everything parses under /bin/bash 3.2 (the cut host's shell)
@@ -85,6 +94,7 @@ jobs:
           /bin/bash --version | head -1
           /bin/bash -n tests/test_ship_prereqs_are_a_superset.sh
           /bin/bash -n tests/test_appcast_publish_cannot_destroy_the_dmg.sh
+          /bin/bash -n scripts/stage_and_verify_dmg.sh
           python3 -m py_compile scripts/appcast_version_guard.py
           echo "OK: parses under the shell and interpreter the cut actually uses"
 
@@ -183,7 +193,15 @@ jobs:
         run: |
           set -uo pipefail
           MUT="$(mktemp -d)"
-          sed 's|run: make -C gui publish-appcast|run: echo not-published|' \
+          # NOT anchored on `run: make ...`. The publish step now wraps the
+          # invocation in a block so it can annotate its own failure with the
+          # fact that the DMG survived, which moved the command off the `run:`
+          # line. A mutation anchored on the old spelling would stop applying
+          # and this control would report MUTATION DID NOT APPLY on every run
+          # -- red for a reason that is not the defect, which is how a control
+          # gets deleted rather than fixed. Match the INVOCATION, not its
+          # position.
+          sed 's|make -C gui publish-appcast|echo not-published|' \
             .github/workflows/cut.yml > "$MUT/cut.yml"
           if [ "$(grep -c 'make -C gui publish-appcast' "$MUT/cut.yml")" -ne 0 ]; then
             echo "MUTATION DID NOT APPLY -- workflow still invokes the publisher." >&2
@@ -201,3 +219,37 @@ jobs:
             exit 1
           fi
           echo "OK: Control B fails, exit 1, when the publisher goes dark again."
+
+      # THE ASSERTION THAT GUARDS THE ASSERTIONS. Assertion 4 finds its steps by
+      # NAME, so renaming one turns its loop into a loop over zero matches --
+      # and an empty findings list printed as [OK] is a check reporting success
+      # about something it never looked at. That is not hypothetical: the
+      # obvious tidy-up while working on this file is to rename the staging step
+      # to something more descriptive.
+      #
+      # The mutation renames it and leaves everything else correct, so the ONLY
+      # thing that can go red is the floor.
+      - name: Assertion 4 goes RED when a step is RENAMED out of its own check
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's|Verify the artefact, not the build log|Stage and check the disk image|' \
+            .github/workflows/cut.yml > "$MUT/cut.yml"
+          if [ "$(grep -c 'Verify the artefact' "$MUT/cut.yml")" -ne 0 ]; then
+            echo "MUTATION DID NOT APPLY -- the step is still named 'Verify the artefact'." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(OSTLER_CUT_WORKFLOW="$MUT/cut.yml" /bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the renamed mutant, got $rc." >&2
+            echo "A rename must not be able to switch a check off silently." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'examined NOTHING')" -eq 0 ]; then
+            echo "The failure did not say the check examined nothing, which IS the defect." >&2
+            exit 1
+          fi
+          echo "OK: assertion 4 fails, exit 1, when a rename empties its denominator."
