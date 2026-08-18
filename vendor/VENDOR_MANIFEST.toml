@@ -296,7 +296,7 @@ name             = "ostler_fda"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
-  pinned_sha = "991ef89f579870e389cc168106760cd4861a12a6"
+  pinned_sha = "9cf567be7c6c7d045acd7f45b7a1dc0f0076117d"
   divergence_patch = "vendor/divergences/ostler_fda.patch"
   # shipping_bugfixes_grafted for this tree is declared further down in this
   # same entry, alongside the note about discharging hold_acks with proof.
