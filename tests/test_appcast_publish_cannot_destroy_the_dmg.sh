@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test_publish_appcast_reached_from_ship.sh -- CONTROL B.
+# test_appcast_publish_cannot_destroy_the_dmg.sh -- CONTROL B.
 #
 # `publish-appcast` must be REACHED FROM `ship:`, not merely defined.
 #
@@ -170,33 +170,45 @@ echo "appcast-reachability: ${reached_total} target(s) reachable from '${ROOT_TA
 
 FAIL=0
 
-# --- 1. REACHABLE ---------------------------------------------------------
+# --- 1. NOT REACHABLE FROM ship: ------------------------------------------
+# THIS ASSERTION IS INVERTED FROM ITS ORIGINAL FORM, AND v1.0.34 IS THE REASON.
+#
+# It used to require that publish-appcast BE reachable from ship:, last, after
+# archive. That is what #776 wired, and it worked -- it fired on the very first
+# cut that reached it, and firing there destroyed the build.
+#
+# MEASURED, run 32093975602, tag v1.0.34:
+#   03:10:03  DMG notarised, status: Accepted
+#   03:10:03  stapled, "The staple and validate action worked!"
+#   03:10:04  spctl, source=Notarized Developer ID
+#   03:10:09  publish-appcast: OSTLER_SPARKLE_SIGNING_KEY unset -> Error 1
+#   make ship non-zero -> "Verify the artefact" SKIPPED, upload SKIPPED
+#   actions/runs/32093975602/artifacts -> total_count = 0
+#
+# A finished, notarised, stapled, parity-verified DMG existed for five seconds
+# on an ephemeral runner and no human ever had it. The version number is spent.
+#
+# So the rule is now the opposite: NOTHING THAT CAN FAIL MAY SIT BETWEEN A
+# VERIFIED ARTEFACT AND ITS UPLOAD. Publishing an appcast advertises a build to
+# customers; doing it before the build is retrievable is backwards anyway.
 if grep -qxF "$WANTED" "$WORK/seen"; then
-    # Walk the parents back so the reader gets the route, not just a verdict.
+    FAIL=1
     path="$WANTED"; cur="$WANTED"
     while :; do
         up="$(grep -m1 -F "$(printf '%s\t' "$cur")" "$WORK/parent" | cut -f2)"
         [ -z "$up" ] || [ "$up" = "-" ] && break
         path="$up -> $path"; cur="$up"
     done
-    echo "  [OK] REACHABLE: $path"
-else
-    FAIL=1
     echo >&2
-    echo "  [FAIL] '$WANTED' is NOT reachable from '$ROOT_TARGET'." >&2
-    if grep -qE "^${WANTED}:" "$GRAPH"; then
-        line="$(grep -nE "^${WANTED}:" "$MAKEFILE" | head -1 | cut -d: -f1)"
-        echo >&2
-        echo "  IT IS DEFINED. gui/Makefile line ${line:-?} declares it, and the cut" >&2
-        echo "  cannot get to it. That is not a near miss, it is the ORIGINAL defect" >&2
-        echo "  reproduced one layer up: CM050's publisher was also written, merged" >&2
-        echo "  and called by nothing, and every Hub silently stopped receiving" >&2
-        echo "  updates. Every grep for the name still hits. Add it to the 'ship:'" >&2
-        echo "  prerequisite list, LAST, after archive." >&2
-    else
-        echo "  It is not defined anywhere either. Define the target AND name it in" >&2
-        echo "  the 'ship:' prerequisite list -- doing only the first is the defect." >&2
-    fi
+    echo "  [FAIL] '$WANTED' IS reachable from '$ROOT_TARGET': $path" >&2
+    echo >&2
+    echo "  Anything in the 'ship:' graph can fail, and a failure anywhere in it" >&2
+    echo "  aborts the run before the artefact is uploaded. On v1.0.34 that cost a" >&2
+    echo "  fully notarised DMG and a version number (run 32093975602, artifacts" >&2
+    echo "  total_count=0). Take it back out of 'ship:' and invoke it from the cut" >&2
+    echo "  workflow AFTER the upload step -- assertion 3 checks that half." >&2
+else
+    echo "  [OK] NOT REACHABLE from '$ROOT_TARGET': it cannot abort the cut before upload."
 fi
 
 # --- 2. HAS A BODY --------------------------------------------------------
@@ -218,46 +230,44 @@ else
     echo "  after the notarisation cycles have already been spent." >&2
 fi
 
-# --- 3. ORDERED -----------------------------------------------------------
-SHIP_LINE="$(grep -m1 "^${ROOT_TARGET}:" "$GRAPH")"
-ORDERED="$WORK/ordered.txt"
-printf '%s\n' "${SHIP_LINE#*:}" | tr ' ' '\n' | grep . >"$ORDERED"
-pos_of() { grep -nxF "$1" "$ORDERED" | head -1 | cut -d: -f1; }
-
-want_pos="$(pos_of "$WANTED")"
-if [ -z "$want_pos" ]; then
-    echo "  [skip] ORDERING not checked: '$WANTED' is not a DIRECT prerequisite of" \
-         "'$ROOT_TARGET' (see the reachability result above)."
+# --- 3. STILL INVOKED BY THE CUT, AND ONLY AFTER THE UPLOAD ----------------
+# Removing it from ship: must NOT re-dark it. #370 was "auto-update is dark
+# because nothing calls the publisher", and #776 is the fix; deleting the call
+# site instead of moving it would reinstate the original defect and this file
+# would have helped. So the enforcement moves with the call: the cut workflow
+# must invoke publish-appcast, and it must do so AFTER the upload step.
+WF="${OSTLER_CUT_WORKFLOW:-$REPO_ROOT/.github/workflows/cut.yml}"
+if [ ! -f "$WF" ]; then
+    echo "appcast-ordering: CANNOT RUN -- no workflow at $WF" >&2
+    exit 2
+fi
+up_line="$(grep -n 'uses: actions/upload-artifact' "$WF" | head -1 | cut -d: -f1)"
+pub_line="$(grep -n 'make -C gui publish-appcast' "$WF" | head -1 | cut -d: -f1)"
+if [ -z "$up_line" ]; then
+    echo "appcast-ordering: CANNOT RUN -- no upload-artifact step found in cut.yml." >&2
+    echo "  Nothing was compared. This has NOT found the ordering correct." >&2
+    exit 2
+fi
+if [ -z "$pub_line" ]; then
+    FAIL=1
+    echo >&2
+    echo "  [FAIL] cut.yml never invokes 'make -C gui publish-appcast'." >&2
+    echo "  It was taken out of 'ship:' and not re-attached anywhere, so the" >&2
+    echo "  publisher is called by nothing. That is task #370 exactly: CM050's" >&2
+    echo "  publisher written, merged, and dark, with every Hub silently not" >&2
+    echo "  receiving updates. Removing the hazard must not remove the feature." >&2
+elif [ "$pub_line" -lt "$up_line" ]; then
+    FAIL=1
+    echo >&2
+    echo "  [FAIL] publish-appcast (line $pub_line) runs BEFORE the upload (line $up_line)." >&2
+    echo "  That is the v1.0.34 shape again: a step that can fail, sitting between" >&2
+    echo "  a verified artefact and the only action that makes it retrievable." >&2
 else
-    bad=""
-    for gate in "${MUST_PRECEDE[@]}"; do
-        gpos="$(pos_of "$gate")"
-        if [ -z "$gpos" ]; then
-            # Its absence is Control A's finding, not this one's. Say so rather
-            # than silently treating a missing gate as a satisfied ordering.
-            bad="$bad\n    ? $gate is not in 'ship:' at all (see test_ship_prereqs_are_a_superset.sh)"
-        elif [ "$gpos" -gt "$want_pos" ]; then
-            bad="$bad\n    - $gate is at position $gpos, AFTER $WANTED at position $want_pos"
-        fi
-    done
-    if [ -z "$bad" ]; then
-        echo "  [OK] ORDERED: '$WANTED' is at position $want_pos of $(grep -c . "$ORDERED"), after every verification gate."
-    else
-        FAIL=1
-        echo >&2
-        echo "  [FAIL] '$WANTED' is sequenced wrongly in the 'ship:' prerequisite list:" >&2
-        printf "%b\n" "$bad" >&2
-        echo >&2
-        echo "  GNU make builds prerequisites left to right, so serially that list is" >&2
-        echo "  the running order. Publishing before a gate means a release that FAILED" >&2
-        echo "  verification can still be advertised to every installed Hub -- and a" >&2
-        echo "  published appcast row cannot be recalled from a machine that fetched it." >&2
-        echo "  Move '$WANTED' to the END of the list." >&2
-    fi
+    echo "  [OK] INVOKED AFTER UPLOAD: cut.yml publishes at line $pub_line, upload at line $up_line."
 fi
 
 if [ "$FAIL" -ne 0 ]; then
     exit 1
 fi
-echo "  all three assertions hold."
+echo "  all three assertions hold: not in ship:, has a body, invoked after upload."
 exit 0

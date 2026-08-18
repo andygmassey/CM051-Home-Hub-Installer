@@ -613,6 +613,40 @@ jobs:
             dist/SHA256SUMS
           retention-days: 90
 
+      # AU-1 appcast publish (#776, task #370) -- DELIBERATELY AFTER THE UPLOAD.
+      #
+      # This used to be the LAST prerequisite of `ship:`, and on v1.0.34 that
+      # position destroyed a finished build. Measured on run 32093975602: the
+      # DMG was notarised (status: Accepted), stapled ("The staple and validate
+      # action worked!") and spctl-verified (source=Notarized Developer ID) at
+      # 03:10:04, then publish-appcast hard-failed five seconds later on an
+      # unset OSTLER_SPARKLE_SIGNING_KEY. `make ship` returned non-zero, so the
+      # verify step and THIS upload were both SKIPPED, and the runner was torn
+      # down with the only copy on it. actions/runs/32093975602/artifacts
+      # returned total_count=0. A complete, shippable, notarised DMG existed
+      # for about five seconds and no human ever had it.
+      #
+      # The ordering is now the invariant, not the intention: nothing that can
+      # fail may sit between a verified artefact and its upload. Publishing an
+      # appcast is a POST-SHIP act -- it advertises a build to customers, which
+      # is meaningless before the build is retrievable.
+      #
+      # `if: always()` so a publish failure is reported without pretending the
+      # cut failed: by this point the DMG is uploaded and the cut HAS produced
+      # its artefact. continue-on-error keeps the job's conclusion honest about
+      # the DMG while the step's own red still shows.
+      #
+      # NOT SOFTENED: PUBLISH_APPCAST keeps its hard-require. #776 exists
+      # because #370 was dark -- nothing called the publisher -- and turning the
+      # hard-require into a warning would put it straight back in the dark. The
+      # fix is WHERE it runs, not WHETHER it is enforced.
+      - name: AU-1 appcast publish (post-upload, cannot destroy the artefact)
+        if: always()
+        continue-on-error: true
+        env:
+          OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
+        run: make -C gui publish-appcast
+
   # ---------------------------------------------------------------------
   # 3. DRY RUN. workflow_dispatch ONLY. Runs the cut path's CHECKS and stops.
   #
