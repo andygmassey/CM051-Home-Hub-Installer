@@ -1268,6 +1268,27 @@ final class InstallerCoordinator: ObservableObject {
             // some sub-tools (mkdocs, pip).
             "TERM": "dumb",
             "NO_COLOR": "1",
+            // KEEP PYTHON BYTECODE OUT OF THE SIGNED BUNDLE.
+            //
+            // install.sh runs the Python interpreter shipped at
+            // Contents/Resources/python. CPython writes __pycache__/*.pyc NEXT
+            // TO the source it imports, and that source is inside the notarised
+            // app, so every run breaks the code seal.
+            //
+            // MEASURED on the v1.0.36 box, 2026-08-18, after the walk:
+            //   codesign --verify --deep --strict  rc=1
+            //   spctl -a -t exec -vv               rc=1, Gatekeeper REFUSES
+            //   239 .pyc inside the bundle (plus 17 egg-info, fixed separately
+            //   by routing the ostler_fda pip install through
+            //   _ostler_pip_install_pkg)
+            //
+            // PYTHONPYCACHEPREFIX rather than PYTHONDONTWRITEBYTECODE: the
+            // prefix REDIRECTS the cache to a writable dir, so repeat runs keep
+            // the startup benefit. DONTWRITEBYTECODE would suppress caching
+            // entirely and would also be silently defeated if anything later
+            // sets the prefix. One mechanism, not two fighting.
+            "PYTHONPYCACHEPREFIX": (NSHomeDirectory() as NSString)
+                .appendingPathComponent(".ostler/cache/pycache"),
         ]
         let env = ProcessInfo.processInfo.environment
             .merging(overrides) { _, new in new }
