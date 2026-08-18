@@ -276,10 +276,33 @@ fi
 #
 # Capturing the artefact and blessing it are different questions. These two
 # steps answer the first one and must not be gated on the second.
+# A SKIP HERE WAS A LIE, AND IT WAS MEASURED.
+#
+# This assertion is the only thing in the file that parses YAML, and
+# `macos-latest` python3 has no PyYAML. So it took the skip branch on EVERY CI
+# run from the moment it was written, and the summary three lines below still
+# printed "all four assertions hold ... artefact captured unconditionally",
+# naming the one assertion that had just declined to look.
+#
+# MEASURED 2026-08-18 across every appcast-ship-wiring run since it landed
+# (32095389421, 32095682207, 32095929595, 32096418569 including the v1.0.35 cut
+# branch): "CAPTURE-UNCONDITIONAL not checked" 3 hits each, "[OK] CAPTURED
+# UNCONDITIONALLY" ZERO. The proof that a red step cannot discard a notarised
+# DMG had never once executed on a runner. It printed green.
+#
+# So the skip is now exit 2, CANNOT RUN. A check that could not look must never
+# be followed by a line saying it looked, and CANNOT-RUN is not a pass -- this
+# repo's own ci_pr_gates.sh settled that, and this file was the counter-example.
 py_ok=1
 command -v python3 >/dev/null 2>&1 || py_ok=0
+if [ "$py_ok" -eq 1 ] && ! python3 -c 'import yaml' >/dev/null 2>&1; then py_ok=0; fi
 if [ "$py_ok" -eq 0 ]; then
-    echo "  [skip] CAPTURE-UNCONDITIONAL not checked: python3 unavailable to parse YAML."
+    echo "appcast-capture: CANNOT RUN -- python3 with PyYAML is unavailable." >&2
+    echo "  The capture-unconditional assertion examined NOTHING. This has NOT" >&2
+    echo "  found the workflow correct, and it is the assertion that proves a red" >&2
+    echo "  step cannot discard a notarised DMG." >&2
+    echo "  Install it in the job (see .github/workflows/appcast-ship-wiring.yml)." >&2
+    exit 2
 else
     # THE PROGRAM IS WRITTEN TO A FILE, NOT PIPED IN FROM A HEREDOC INSIDE
     # `$( )`. bash 3.2 -- which is /bin/bash on the macOS cut host -- does not
@@ -337,7 +360,11 @@ print('|'.join(bad))
 PYEOF
     cap="$(python3 "$PYPROG" "$WF")" || cap="CANNOT"
     if [ "$cap" = "CANNOT" ]; then
-        echo "  [skip] CAPTURE-UNCONDITIONAL not checked: could not parse the workflow."
+        # Same rule as the interpreter check above: a parse that did not happen
+        # is CANNOT RUN, not a skip, and never a pass.
+        echo "appcast-capture: CANNOT RUN -- the workflow did not parse." >&2
+        echo "  Nothing was examined. This has NOT found the workflow correct." >&2
+        exit 2
     elif [ -z "$cap" ]; then
         echo "  [OK] CAPTURED UNCONDITIONALLY: staging and upload both carry if: always(), and the publish is not swallowed. Step counts on stderr above are the denominator."
     else

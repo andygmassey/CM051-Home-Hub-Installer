@@ -63,6 +63,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # WITHOUT THIS, ASSERTION 4 IS DARK, AND IT WAS DARK FROM THE DAY IT WAS
+      # WRITTEN. macos-latest python3 has no PyYAML, so the only assertion in
+      # Control B that parses YAML -- the one proving the artefact is captured
+      # unconditionally -- took its skip branch on EVERY run while the summary
+      # still printed "all four assertions hold".
+      #
+      # MEASURED 2026-08-18 over every appcast-ship-wiring run since it landed
+      # (32095389421, 32095682207, 32095929595, and 32096418569 on the v1.0.35
+      # cut branch): "CAPTURE-UNCONDITIONAL not checked" three hits each,
+      # "[OK] CAPTURED UNCONDITIONALLY" zero. Never once executed on a runner.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true`.
+      - name: PyYAML must be present, or the capture assertion cannot run
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages pyyaml \
+              || python3 -m pip install --quiet pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
       - name: CONTROL A -- ship still names every prerequisite it named before
         run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh
 
