@@ -13,9 +13,55 @@ Design constraints (TNM brief, locked 2026-05-31):
   - Local only. The only host contacted is 127.0.0.1. No outbound calls.
   - Compact. CONTEXT.md rides in every prompt, so it is capped at a few KB.
   - Privacy aware. Nothing derived from L3 ("private") content is emitted.
-  - Graceful. If the server is down or an endpoint errors, the prior
-    CONTEXT.md is left untouched and the script exits 0 rather than crashing.
-    A digest is only written when at least one section returned real data.
+  - Degrades without crashing, but NEVER silently. A section that could not
+    be read is reported by name with the status code that was actually
+    observed, and the exit code carries the verdict. The prior CONTEXT.md is
+    left untouched when nothing could be assembled, because a stale digest
+    beats no digest -- but the run does not exit 0.
+
+AUTHENTICATION (the defect this file carried until 2026-08-18)
+--------------------------------------------------------------
+The ical-server's data plane has been behind a bearer token since v1.0.10
+(#200): ``_PUBLIC_GET_PATHS`` there is exactly ``{"/health",
+"/api/v1/hydration/status"}`` and every other route fails CLOSED with 401.
+This script sent no ``Authorization`` header, so all four of its
+``/api/v1/*`` reads returned 401 on every install, every tick, since the
+day the token landed. The token was sitting on disk the whole time.
+
+Measured on a v1.0.36 install, 2026-08-18, before the fix:
+
+    GET /health                    -> 200   (unauthenticated, always was)
+    GET /api/v1/timeline           -> 401
+    GET /api/v1/suggestions        -> 401
+    GET /api/v1/coach/recent       -> 401
+    GET /api/v1/people/recent      -> 401
+    ... and with `Authorization: Bearer <secrets/service_token>`:
+    GET /api/v1/timeline           -> 200, 200 items (61 of kind "meeting")
+    GET /api/v1/suggestions        -> 200, 5 recent_meetings + 5 birthdays
+
+Three separate things kept that invisible, and all three are fixed here:
+  1. ``_get_json`` swallowed the HTTPError and returned None, which the
+     callers read as "this section is unavailable". Degrading gracefully
+     from SIX of six sections is total failure wearing partial success.
+  2. The failure line named two causes -- "ical-server down or empty
+     graph" -- that this script never measured. On the install that
+     surfaced it, ical-server answered /health 200 and the graph held
+     6,549 person nodes, so BOTH named causes were false and every reader
+     was sent the wrong way. A message must name what it MEASURED.
+  3. It returned 0, so the LaunchAgent reported success.
+
+The gate/defect split that hid it: the install-time health check probes
+``/health``, which is unauthenticated and returns 200. The consumer uses
+``/api/v1/*``, which is authenticated. Gate and defect sat on different
+surfaces, so the gate was green forever.
+
+The token is read from the environment first (matching the daemon and the
+Doctor, which both accept OSTLER_SERVICE_TOKEN then legacy
+PWG_SERVICE_TOKEN) and then from ``~/.ostler/secrets/service_token``,
+which install.sh writes 0600. It is deliberately NOT rendered into this
+LaunchAgent's plist: INSTALL_SNIPPET chmods plists 0644, and a 0600 secret
+does not belong in a 0644 file when the process can simply read the
+original. The token value is never logged.
 
 Run it after each hydrate and on an interval (the CM051 installer wires a
 LaunchAgent that calls this; see the hand-off note in the builder report).
@@ -96,6 +142,109 @@ WORKSPACE_DIR = Path(
 )
 CONTEXT_PATH = WORKSPACE_DIR / "CONTEXT.md"
 
+# Env vars the service token may be seeded under. Same names, same
+# precedence, as the Doctor proxy (vendor/doctor/agent/proxy.py
+# _SERVICE_TOKEN_ENV_VARS) and the ical-server itself
+# (vendor/cm041/assistant_api/ical-server.py _expected_service_token).
+# OSTLER_SERVICE_TOKEN wins; PWG_SERVICE_TOKEN is the legacy name still
+# rendered into the assistant LaunchAgent by install.sh.
+_SERVICE_TOKEN_ENV_VARS = ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN")
+
+# Fallback: the file install.sh writes 0600 in the auth_tokens phase. This
+# is the path the daemon's own code-side fallback reads, so a Hub where the
+# env was never seeded still authenticates.
+SERVICE_TOKEN_PATH = Path(
+    os.environ.get("OSTLER_SERVICE_TOKEN_PATH")
+    or (Path.home() / ".ostler" / "secrets" / "service_token")
+)
+
+# Exit codes. The LaunchAgent's exit status is the only signal launchd and
+# the Doctor get, so it has to carry the verdict rather than always saying
+# "fine". Documented here because the wrapper and the plist both cite them.
+EXIT_OK = 0                 # digest written, every source answered
+EXIT_WRITE_FAILED = 1       # digest built but could not be written to disk
+EXIT_NOTHING_PRODUCED = 2   # zero of six sections; no digest exists to write
+EXIT_DEGRADED = 3           # digest written, but one or more sources failed
+
+
+# ── Measured outcomes ────────────────────────────────────────────────────────
+#
+# Every source read appends one factual line here: what was asked, and what
+# came back. Nothing in these lists is inferred -- a line is appended only by
+# the code that performed the read and saw the answer. This exists because the
+# message it replaces named causes ("ical-server down or empty graph") that the
+# script had never checked, and both were false on the install that surfaced
+# the defect.
+
+_READS: list[str] = []
+_FAILURES: list[str] = []
+# Per-section item counts from the last build_digest() call, in digest order.
+_SECTION_COUNTS: list[tuple[str, int]] = []
+
+
+def _reset_measurements() -> None:
+    """Clear the measured-outcome ledgers. Called at the top of build_digest so
+    a second call in one process reports that call, not the accumulated pair."""
+    _READS.clear()
+    _FAILURES.clear()
+    _SECTION_COUNTS.clear()
+
+
+def _note_read(line: str) -> None:
+    _READS.append(line)
+
+
+def _note_failure(line: str) -> None:
+    _READS.append(line)
+    _FAILURES.append(line)
+
+
+def _tilde(path: Path) -> str:
+    """Render a path with the home prefix collapsed to ``~``, so a log line
+    never carries the operator's home directory."""
+    try:
+        return "~/" + str(path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
+
+
+# ── Service token ────────────────────────────────────────────────────────────
+
+
+def service_token() -> str:
+    """Return the ical-server service bearer, or "" when none can be found.
+
+    Environment first (OSTLER_SERVICE_TOKEN, then legacy PWG_SERVICE_TOKEN),
+    then the 0600 file install.sh writes. Mirrors the resolution order the
+    daemon and the Doctor already use, so there is one scheme on this box and
+    not three. The value is never logged, only its provenance.
+    """
+    for name in _SERVICE_TOKEN_ENV_VARS:
+        raw = (os.environ.get(name) or "").strip()
+        if raw:
+            return raw
+    try:
+        return SERVICE_TOKEN_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _token_provenance() -> str:
+    """Where the token came from, for the measured report. Never the value."""
+    for name in _SERVICE_TOKEN_ENV_VARS:
+        if (os.environ.get(name) or "").strip():
+            return f"service token: resolved from ${name}"
+    try:
+        if SERVICE_TOKEN_PATH.read_text(encoding="utf-8").strip():
+            return f"service token: resolved from {_tilde(SERVICE_TOKEN_PATH)}"
+    except OSError:
+        pass
+    return (
+        "service token: NOT FOUND ("
+        + " and ".join(f"${n}" for n in _SERVICE_TOKEN_ENV_VARS)
+        + f" unset or empty; {_tilde(SERVICE_TOKEN_PATH)} unreadable or empty)"
+    )
+
 
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
@@ -103,24 +252,52 @@ CONTEXT_PATH = WORKSPACE_DIR / "CONTEXT.md"
 def _get_json(path: str) -> dict | None:
     """GET a JSON endpoint on the local ical-server.
 
-    Returns the parsed object on success, or None on any failure (server down,
-    timeout, non-200, malformed JSON). Never raises: callers treat None as
-    "this section is unavailable" and the digest degrades gracefully.
+    Returns the parsed object on success, or None when the read could not
+    deliver data. Does not raise -- a section that cannot be read is omitted
+    rather than crashing the tick -- but every non-delivery is RECORDED in
+    ``_FAILURES`` with the status actually observed, and the recorded failures
+    are what drive the exit code. Silence is what made this defect invisible;
+    "returns None" is not the same thing as "there is nothing there".
     """
     url = f"{BASE_URL}{path}"
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    token = service_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECS) as resp:
             if resp.status != 200:
+                _note_failure(f"GET {path} -> HTTP {resp.status}")
                 return None
             raw = resp.read()
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+    except urllib.error.HTTPError as exc:
+        # Must be caught BEFORE URLError: HTTPError subclasses it, and the
+        # old combined tuple is precisely how six 401s vanished without trace.
+        hint = ""
+        if exc.code in (401, 403):
+            # The provenance line is printed once, at the head of the report;
+            # repeating it on every refused route buries the reads it is
+            # meant to explain.
+            hint = " -- the ical-server data plane requires the service bearer"
+        _note_failure(f"GET {path} -> HTTP {exc.code}{hint}")
+        return None
+    except (urllib.error.URLError, OSError) as exc:
+        _note_failure(f"GET {path} -> unreachable ({type(exc).__name__}: {exc})")
+        return None
+    except ValueError as exc:
+        _note_failure(f"GET {path} -> bad request ({type(exc).__name__}: {exc})")
         return None
     try:
         parsed = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
+        _note_failure(f"GET {path} -> HTTP 200 but body was not JSON")
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        _note_failure(f"GET {path} -> HTTP 200 but body was not a JSON object")
+        return None
+    _note_read(f"GET {path} -> HTTP 200")
+    return parsed
 
 
 def _sparql_select(sparql: str) -> list[dict] | None:
@@ -129,8 +306,15 @@ def _sparql_select(sparql: str) -> list[dict] | None:
     Mirrors the ical-server's own ``_sparql_select`` shape (one value per
     binding key) but degrades like ``_get_json``: returns None on any failure
     (store down, timeout, non-200, malformed JSON) so the section can be
-    omitted without crashing the LaunchAgent. Never raises.
+    omitted without crashing the LaunchAgent. Does not raise, and like
+    ``_get_json`` it RECORDS every non-delivery rather than absorbing it.
+
+    Oxigraph is unauthenticated on the Hub (measured 2026-08-18 on a v1.0.36
+    install: a bare SPARQL POST to 127.0.0.1:7878/query returns 200), so no
+    bearer is attached here. If that ever changes, this is the second site to
+    teach about ``service_token()``.
     """
+    label = "POST oxigraph /query"
     req = urllib.request.Request(
         OXIGRAPH_URL.rstrip("/") + "/query",
         data=sparql.encode("utf-8"),
@@ -142,19 +326,31 @@ def _sparql_select(sparql: str) -> list[dict] | None:
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECS) as resp:
             if resp.status != 200:
+                _note_failure(f"{label} -> HTTP {resp.status}")
                 return None
             raw = resp.read()
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError):
+    except urllib.error.HTTPError as exc:
+        _note_failure(f"{label} -> HTTP {exc.code}")
+        return None
+    except (urllib.error.URLError, OSError) as exc:
+        _note_failure(f"{label} -> unreachable ({type(exc).__name__}: {exc})")
+        return None
+    except ValueError as exc:
+        _note_failure(f"{label} -> bad request ({type(exc).__name__}: {exc})")
         return None
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
+        _note_failure(f"{label} -> HTTP 200 but body was not JSON")
         return None
     if not isinstance(data, dict):
+        _note_failure(f"{label} -> HTTP 200 but body was not a JSON object")
         return None
     bindings = data.get("results", {}).get("bindings", [])
     if not isinstance(bindings, list):
+        _note_failure(f"{label} -> HTTP 200 but results.bindings was not a list")
         return None
+    _note_read(f"{label} -> HTTP 200, {len(bindings)} binding(s)")
     return [
         {k: v["value"] for k, v in b.items() if isinstance(v, dict) and "value" in v}
         for b in bindings
@@ -436,15 +632,31 @@ def build_digest() -> str | None:
     """Assemble the CONTEXT.md body.
 
     Returns the markdown string when at least one section has real data, or
-    None when nothing useful could be gathered (server down / empty graph), so
-    the caller can leave any prior digest in place.
+    None when no section produced anything, so the caller can leave any prior
+    digest in place.
+
+    Returning None says only "there is nothing to write". It does NOT say why,
+    and it must never be read as "everything is fine": the per-section counts
+    land in ``_SECTION_COUNTS`` and every source read lands in ``_READS`` /
+    ``_FAILURES``, and those are what ``main`` reports and exits on.
     """
+    _reset_measurements()
+
     user_asserted = _user_asserted_section()
     people = _people_section()
     recent = _meetings_section()
     calendar_by_owner = _calendar_by_owner_section()
     preferences = _preferences_section()
     orgs = _orgs_section()
+
+    _SECTION_COUNTS.extend([
+        ("confirmed-by-you", len(user_asserted)),
+        ("people", len(people)),
+        ("recent-meetings", len(recent)),
+        ("calendar-by-owner", len(calendar_by_owner)),
+        ("preferences", len(preferences)),
+        ("key-organisations", len(orgs)),
+    ])
 
     if not (user_asserted or people or recent
             or calendar_by_owner or preferences or orgs):
@@ -544,17 +756,57 @@ def build_digest() -> str | None:
     return digest
 
 
+def _measured_report() -> list[str]:
+    """The run's measured outcome, line by line.
+
+    Every line here is something this process OBSERVED. There is deliberately
+    no sentence of the form "the server is probably down" or "the graph is
+    empty" -- the message this replaced asserted exactly that pair of causes
+    without measuring either, and both were false on the install where the
+    digest had never once been produced.
+    """
+    filled = sum(1 for _, n in _SECTION_COUNTS if n > 0)
+    total = len(_SECTION_COUNTS) or 6
+    out = [
+        f"generate_pwg_context: {filled} of {total} sections produced content.",
+        f"generate_pwg_context:   {_token_provenance()}",
+        "generate_pwg_context:   sections:",
+    ]
+    for name, count in _SECTION_COUNTS:
+        out.append(f"generate_pwg_context:     {name}: {count} item(s)")
+    out.append("generate_pwg_context:   source reads:")
+    if _READS:
+        for line in _READS:
+            out.append(f"generate_pwg_context:     {line}")
+    else:
+        out.append(
+            "generate_pwg_context:     (none recorded -- no source read was "
+            "attempted in this run)"
+        )
+    if _FAILURES:
+        out.append(
+            f"generate_pwg_context:   {len(_FAILURES)} of {len(_READS)} "
+            "source read(s) did not deliver data."
+        )
+    return out
+
+
 def main() -> int:
     digest = build_digest()
+
     if digest is None:
-        # Server down or empty graph. Leave any prior CONTEXT.md untouched and
-        # succeed quietly so the LaunchAgent does not flag a transient outage.
+        # Zero of six sections. The prior CONTEXT.md is left in place (a stale
+        # digest beats none), but this is a FAILED run and the exit code says
+        # so. It used to return 0, which is why nothing ever noticed that this
+        # script had not produced a digest on a single install.
+        for line in _measured_report():
+            print(line, file=sys.stderr)
         print(
-            "generate_pwg_context: no data available "
-            "(ical-server down or empty graph); leaving CONTEXT.md unchanged",
+            "generate_pwg_context: no digest assembled; CONTEXT.md not "
+            "written and any prior copy left unchanged",
             file=sys.stderr,
         )
-        return 0
+        return EXIT_NOTHING_PRODUCED
 
     try:
         WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
@@ -564,10 +816,19 @@ def main() -> int:
         os.replace(tmp_path, CONTEXT_PATH)
     except OSError as exc:
         print(f"generate_pwg_context: failed to write digest: {exc}", file=sys.stderr)
-        return 1
+        return EXIT_WRITE_FAILED
 
     print(f"generate_pwg_context: wrote {len(digest)} chars to {CONTEXT_PATH}")
-    return 0
+
+    if _FAILURES:
+        # A digest exists, so the assistant is not blind -- but it was built
+        # from fewer sources than it asked for, and a partial digest that
+        # reports success is the shape of the original defect.
+        for line in _measured_report():
+            print(line, file=sys.stderr)
+        return EXIT_DEGRADED
+
+    return EXIT_OK
 
 
 if __name__ == "__main__":
