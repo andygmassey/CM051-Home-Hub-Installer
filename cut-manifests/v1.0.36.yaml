@@ -1,0 +1,288 @@
+# cut-manifests/v1.0.36.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.36.
+#
+# WHY v1.0.36 EXISTS: NO DMG EVER CUT HAS FINISHED AN INSTALL.
+# ---------------------------------------------------------------------------
+# v1.0.35 ran 14 steps green on Andy's wiped 16 GB Mini and aborted at step 15
+# of 39 with `_install_enrichment_agent: command not found`
+# (ERR-99-INSTALL-ABORT-L13549). The function was CALLED at install.sh:13480
+# and DEFINED at 18386, and bash creates a function when its definition line
+# EXECUTES. Deterministic on every box, and the same line numbers were on
+# origin/main, so every DMG this project has produced carried it.
+#
+# THE HEADLINE ASSERTION OF THIS CUT IS AN ORDERING, NOT A PRESENCE.
+# v1.0.35's manifest already asserted that the definition exists AND that it is
+# called -- both were TRUE of the artefact that aborted. Presence was never the
+# question. So the entries below assert the DEFINITION PRECEDES THE CALL, in
+# both directions, and the negative limb is the one that would have gone red on
+# the shipped file.
+#
+# WHAT THIS CUT CARRIES
+#   CM051 #409  the abort: the definition moves above its only caller
+#   CM051 #410  the leak that fixing #409 alone would have made PERMANENT
+#   everything in v1.0.35, which no customer has ever reached
+#
+# #410 IS NOT A PASSENGER
+# ---------------------------------------------------------------------------
+# The missing function is currently the only thing LIMITING a leak: enrichment
+# ran ONCE, inline, 83 seconds, and 8 LinkedIn InMail subjects went to Wikidata
+# and MusicBrainz. The agent #409 installs runs every 30 minutes, indefinitely.
+# Shipping #409 alone converts a one-off leak into a permanent unattended
+# half-hourly export of a customer's correspondents and their employers. The
+# two are one commit so that this is structural, not remembered.
+#
+# THE APPCAST STEP IS EXPECTED TO END RED, AND THAT IS THE DESIGN
+# ---------------------------------------------------------------------------
+# Unchanged from v1.0.35. OSTLER_SPARKLE_SIGNING_KEY is not among this repo's
+# Actions secrets; the hard-require fires and the job goes red with the DMG
+# already uploaded, because #828 put the upload in front of it. Read WHICH step
+# failed before concluding anything -- v1.0.34 died the same colour because the
+# artefact never left the runner. Tracked at #370.
+#
+# NOT ASSERTED HERE, DELIBERATELY
+# ---------------------------------------------------------------------------
+# 1. That `extra.category_inferred` SURVIVES the ingest pipeline into the
+#    stored Qdrant payload. The flag is verified at the parser and at the
+#    eligibility gate, and the end-to-end carry is NOT proven. #835 flagged
+#    this itself as still owed. A writer/reader contract that is not tested is
+#    exactly the shape that fails silently. Needs a pipeline test or a box
+#    re-run; box-walk item, not a cut claim.
+# 2. That an install now REACHES step 39. This cut removes the abort at step
+#    15. It does not prove the remaining 24 steps pass, because no install has
+#    ever executed them. Steps 16-39 are UNEXERCISED TERRITORY on every box.
+#    That is the single most important thing the box-walk must find out.
+# 3. That the wiki RENDERS its navigation. Carried unproven from v1.0.35.
+# 4. That the calendar ladder WIDENS on a real box, which happens across ticks
+#    over weeks.
+# 5. That the appcast published. It did not, by design.
+version: v1.0.36
+entries:
+  # --------------------------------------------------------------------------
+  # #409 -- THE ABORT. THE REASON THIS VERSION EXISTS.
+  #
+  # Two limbs because ordering is a two-sided fact and only one side can fail
+  # in a way that reads as green. Both patterns were validated against a
+  # synthetic reproduction of the SHIPPED (broken) file before being written
+  # here: positive 0 hits / negative 1 hit on the broken shape, positive 1 hit
+  # / negative 0 hits on the real tree. A gate that has not been shown to go
+  # red on the defect it names is decoration.
+  # --------------------------------------------------------------------------
+  - id: v1036-enrichment-definition-precedes-its-call
+    title: _install_enrichment_agent is DEFINED before it is CALLED
+    incident: >-
+      Every DMG ever cut aborted at step 15 of 39. The function was called at
+      install.sh:13480 and defined at 18386, and bash creates a function when its
+      definition line EXECUTES, so the name did not exist yet. v1.0.35's manifest
+      asserted the definition EXISTS and that it is CALLED, and both were true of the
+      artefact that aborted -- presence was never the question, ORDER was. DOTALL
+      anchored: this matches only when the definition line precedes the call line.
+    proof:
+      kind: grep_in_installer
+      pattern: '(?ms)^_install_enrichment_agent\(\) \{.*^\s*_install_enrichment_agent\s*$'
+      must_match: true
+
+  - id: v1036-no-enrichment-call-precedes-the-definition
+    title: no call to _install_enrichment_agent appears above its definition
+    incident: >-
+      The limb that would have gone RED on the shipped file. The positive limb alone
+      can be satisfied by a file that calls the function early, defines it later, and
+      calls it again -- which is the defect plus a second call site. Measured 1 hit
+      against a synthetic reconstruction of the v1.0.35 shape and 0 against this tree,
+      so it discriminates rather than passing vacuously.
+    proof:
+      kind: grep_in_installer
+      pattern: '(?ms)^\s*_install_enrichment_agent\s*$.*^_install_enrichment_agent\(\) \{'
+      must_match: false
+
+  - id: v1036-the-abort-line-marker-is-gone
+    title: the moved definition records why it moved
+    incident: >-
+      The move is a 4,906-line relocation with no behavioural diff, which is exactly
+      the kind of edit a later refactor silently reverts. The comment binding it to
+      task #409 and to the measured abort is what stops that.
+    proof:
+      kind: grep_in_installer
+      pattern: 'MOVED HERE 2026-08-18 \(task #409\)'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # #410 -- THE LEAK. Asserted in the VENDORED tree, because that is the copy
+  # that runs on the box: #835 measured vendored and on-box csv_parser.py as
+  # byte-identical (sha256 ca80e7e6) and edited in place.
+  # --------------------------------------------------------------------------
+  - id: v1036-category-keywords-are-word-anchored
+    title: the CSV category inference matches whole words, not substrings
+    incident: >-
+      _infer_category matched keywords by unanchored substring, so 12 of 12 ordinary
+      business subjects filed as media against the SHIPPED keyword table: "Chief
+      TECHNOlogy Officer" -> music, "Managing DIRECTOR" -> movie, "FaceBOOK" -> book,
+      "capaCITY" -> place. Anchored with (?<!\w)/(?!\w) rather than \b, because \b
+      matches across an underscore and a keyword abutting an underscore is not a word
+      use. Necessary hygiene and NOT the fix -- it takes 12 wrong to 2.
+    proof:
+      kind: grep_in_dmg_tree
+      target: installer-tree
+      path: vendor/cm019_preferences/services/ingest/src/parsers/csv_parser.py
+      pattern: 'r"\(\?<!\\w\)" \+ re\.escape\(kw\) \+ r"\(\?!\\w\)"'
+      must_match: true
+
+  - id: v1036-a-guessed-category-is-recorded-as-guessed
+    title: the parser marks an inferred category as inferred
+    incident: >-
+      Word boundaries leave "festive season" and "Managing Director" misfiled, because
+      those ARE standalone words that simply are not about TV or film. No shape test
+      separates a short title-shaped subject from a film title, so the closing limb is
+      provenance, not classification: the parser records that it GUESSED.
+    proof:
+      kind: grep_in_dmg_tree
+      target: installer-tree
+      path: vendor/cm019_preferences/services/ingest/src/parsers/csv_parser.py
+      pattern: 'extra=\{"category_inferred": bool\(category_inferred\)\}'
+      must_match: true
+
+  - id: v1036-a-guessed-category-cannot-authorise-egress
+    title: eligibility refuses a subject whose category was guessed
+    incident: >-
+      Measured across CATEGORY_CLIENTS x SUBJECT_IS_THE_QUERY, EVERY category the
+      fallback can return routes to a client that puts the subject in an outbound
+      query, including the `interest` catch-all the code comment treated as the safe
+      default. There is no safe category to guess into, so a guessed category no
+      longer authorises egress at all.
+    proof:
+      kind: grep_in_dmg_tree
+      target: installer-tree
+      path: vendor/cm019_preferences/services/enrich/src/eligibility.py
+      pattern: 'category_inferred: Optional\[bool\] = None'
+      must_match: true
+
+  - id: v1036-unrecorded-provenance-fails-closed
+    title: an unrecorded category provenance is refused, not treated as declared
+    incident: >-
+      TNM found this in review. An earlier draft read the flag as
+      bool(extra.get("category_inferred")), so a preference stored BEFORE the field
+      existed came back False and was treated as though its source had declared the
+      category. The gate would then have covered new ingests only, while the recurring
+      agent kept enriching every pre-existing row. None is the default so an untaught
+      caller fails CLOSED.
+    proof:
+      kind: grep_in_dmg_tree
+      target: installer-tree
+      path: vendor/cm019_preferences/services/enrich/src/eligibility.py
+      pattern: 'if category_inferred is None:'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # THE WIKI IMAGES. Carried forward from v1.0.35 unchanged. Two entries,
+  # because the two images are pinned on separate lines and a single assertion
+  # passes with one left on v0.1.17. Anchored on the FULL 64-hex digest.
+  # --------------------------------------------------------------------------
+  - id: v1036-wiki-site-is-v0118
+    title: install.sh pins the wiki-site image that carries the navigation fix
+    incident: >-
+      CM044 #210 (bf5dfe68) is the fix for the missing wiki navigation and v0.1.17
+      predates it by exactly one commit. Unchanged by this cut, and re-measured rather
+      than assumed: an unchanged claim still has to be measured.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670'
+      must_match: true
+
+  - id: v1036-wiki-compiler-is-v0118
+    title: install.sh pins the wiki-compiler image from the same v0.1.18 source
+    incident: >-
+      The compiler and the site are pinned on different lines and have drifted apart
+      before. Both must come from CM044 bf5dfe68 or the rendered wiki and the compiler
+      that produced it disagree about what the page template is.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f'
+      must_match: true
+
+  - id: v1036-no-v0117-wiki-pin-survives
+    title: no v0.1.17 wiki digest is left anywhere in install.sh
+    incident: >-
+      A re-pin that edits one of two lines leaves the other live, and the failure is
+      silent because both lines are individually well-formed. Measured at 0 hits, so
+      this discriminates rather than passing vacuously.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a|21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e)'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # CARRIED FORWARD. An unchanged claim still has to be measured.
+  # --------------------------------------------------------------------------
+  - id: v1036-wiki-compile-has-a-page-count-oracle
+    title: install.sh counts the wiki pages instead of trusting the compiler's exit code
+    incident: >-
+      On Andy's box the wiki compiled zero pages while the install reported green.
+      CM044 discards its own result, so a total compile failure exits 0 too. The count
+      is -type f, so a tree of empty directories counts zero rather than reading as a
+      built wiki.
+    proof:
+      kind: grep_in_installer
+      pattern: 'WIKI_PAGE_COUNT="\$\(find "\$WIKI_DOCS_DIR" -type f'
+      must_match: true
+
+  - id: v1036-zero-pages-is-reported-as-not-built
+    title: a zero-page compile is stated as NOT built, not summarised as green
+    incident: >-
+      Counting is only half an oracle; the count has to change what the installer SAYS.
+      Without this the number is printed and the step still reads green.
+    proof:
+      kind: grep_in_installer
+      pattern: 'produced ZERO pages under'
+      must_match: true
+
+  - id: v1036-calendar-ladder-rungs-survived-the-graft
+    title: the calendar backfill ladder ships with its explicit rungs
+    incident: >-
+      THE RUNGS ARE THE PART A GRAFT DROPS SILENTLY: DEFAULT_LADDER opens at 45 days to
+      bound iMessage inference cost, and calendar is a straight EventKit read, so
+      falling through to the default would REGRESS day one from 365 to 45 -- a
+      customer-visible regression inside a fix, green throughout.
+    proof:
+      kind: grep_in_dmg_tree
+      target: installer-tree
+      path: vendor/ostler_fda/extract_all.py
+      pattern: 'ladder=\[365, 730, 1825\]'
+      must_match: true
+
+  - id: v1036-payload-carries-the-0458-daemon
+    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+    incident: >-
+      v1.0.31 moved this line and had to move the pins naming the daemon with it or ship
+      halves of two builds. This cut rebuilds no daemon, so the pair is re-measured
+      rather than assumed to have stayed together: gui/Makefile, install.sh's version
+      and install.sh's tarball checksum all read d4f274cb, and the annotated tag
+      hub-v0.4.58 dereferences to commit 5b7efb00a541.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1036-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. Re-asserted every cut because "the DMG contains the Hub" is only ever
+      true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1036-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.36
+    incident: >-
+      Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
+      a cut, shipping an installer that reports the previous version to the customer and
+      to support. CFBundleVersion moves WITH it, 3500 to 3600, because that is the field
+      SPARKLE COMPARES: an update whose build number is at or below the installed one is
+      skipped SILENTLY. All ten sites moved together and the derivation gate was run
+      (8/8 self-test, then PASS naming v1.0.36 build 3600).
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.36"
