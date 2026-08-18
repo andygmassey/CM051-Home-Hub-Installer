@@ -58,7 +58,7 @@ set -uo pipefail
 # The DECLARED number of self-test controls. Moved by hand when a control is
 # added or removed. Without a floor, a self-test that runs NOTHING reports a
 # pass: no failures out of nothing is still no failures.
-EXPECTED_CONTROLS=8
+EXPECTED_CONTROLS=11
 
 # ---------------------------------------------------------------- predicate --
 
@@ -118,6 +118,54 @@ stage_and_verify() {
             ;;
     esac
 
+    # ---- THE SEAL IS NOT THE PAYLOAD -------------------------------------
+    #
+    # Everything above this point measures the CONTAINER: stapled, notarised,
+    # accepted by Gatekeeper. v1.0.35 passed ALL THREE and could not finish an
+    # install. Measured 2026-08-18 by running this file's checks against that
+    # exact artefact: stapler validate rc=0, spctl accepted with
+    # source=Notarized Developer ID, sha256 matching its own SHA256SUMS. The
+    # shipped install.sh inside it called `_install_enrichment_agent` at 13480
+    # and defined it at 18386, so every install died at step 15 of 39.
+    #
+    # A correctly sealed envelope containing the wrong letter is the failure
+    # this limb exists to catch, and nothing else in the cut looked inside.
+    #
+    # WHY EQUALITY RATHER THAN A CONTENT CHECK. The obvious move is to re-run
+    # the ordering rule against the shipped copy. That would be a SECOND
+    # spelling of a rule tests/test_install_sh_no_call_before_definition.sh
+    # already owns, and two spellings drift. Asserting the shipped bytes are
+    # IDENTICAL to the repo's install.sh makes every repo-side check
+    # transitively true of the artefact: one equality inherits a whole suite,
+    # and it also catches defects nobody has thought to write a rule for.
+    local mnt shipped shipped_sha repo_sha
+    mnt="$(mktemp -d -t dmgpayload.XXXXXX)"
+    if ! hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" -quiet; then
+        echo "::error title=Could not mount the DMG::hdiutil attach failed for ${dmg}, so the payload was never inspected. This is CANNOT-VERIFY, not a pass." >&2
+        echo "FAIL: could not mount ${dmg}; payload unverified." >&2
+        rmdir "$mnt" 2>/dev/null || true
+        return 1
+    fi
+
+    shipped="$(find "$mnt" -name install.sh -print -quit 2>/dev/null || true)"
+    if [ -z "$shipped" ]; then
+        echo "::error title=No install.sh inside the DMG::mounted ${dmg} and found no install.sh. The installer cannot install." >&2
+        echo "FAIL: no install.sh in the mounted artefact." >&2
+        hdiutil detach "$mnt" -quiet 2>/dev/null || true
+        return 1
+    fi
+
+    shipped_sha="$(shasum -a 256 "$shipped" | awk '{print $1}')"
+    repo_sha="$(shasum -a 256 install.sh | awk '{print $1}')"
+    hdiutil detach "$mnt" -quiet 2>/dev/null || true
+
+    if [ "$shipped_sha" != "$repo_sha" ]; then
+        echo "::error title=Shipped install.sh is NOT the repo install.sh::the DMG carries ${shipped_sha} but this tree has ${repo_sha}. Every repo-side check passed on a file the customer will not run." >&2
+        echo "FAIL: payload drift. shipped=${shipped_sha} repo=${repo_sha}" >&2
+        return 1
+    fi
+    echo "payload: shipped install.sh == repo install.sh (${shipped_sha})"
+
     # Stage into dist/ so the upload globs have a stable, workspace-local home
     # regardless of where DIST_DIR points.
     mkdir -p dist
@@ -171,11 +219,40 @@ EOF
 printf '%s\n' '${spctl_text}'
 exit 0
 EOF
-        chmod +x "$d/make" "$d/xcrun" "$d/spctl"
+        # hdiutil stub. `attach` materialises a fake mounted payload whose
+        # install.sh content is whatever PAYLOAD_TEXT says, so a case can make
+        # the shipped copy match the repo's or differ from it. `detach` clears
+        # it. Anything else is a test bug and says so rather than exiting 0,
+        # because a stub that silently accepts unexpected arguments is how a
+        # self-test passes while measuring nothing.
+        cat > "$d/hdiutil" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  attach)
+    mnt=""
+    while [ $# -gt 0 ]; do
+      [ "$1" = "-mountpoint" ] && { mnt="$2"; shift; }
+      shift
+    done
+    [ -n "$mnt" ] || { echo "STUB hdiutil attach: no -mountpoint" >&2; exit 99; }
+    mkdir -p "${mnt}/OstlerInstaller.app/Contents/Resources"
+    printf '%s' "${PAYLOAD_TEXT:-}" > "${mnt}/OstlerInstaller.app/Contents/Resources/install.sh"
+    exit "${ATTACH_RC:-0}"
+    ;;
+  detach) exit 0 ;;
+  *) echo "STUB hdiutil: unexpected $*" >&2; exit 99 ;;
+esac
+EOF
+        chmod +x "$d/make" "$d/xcrun" "$d/spctl" "$d/hdiutil"
         printf '%s' "$d"
     }
 
     # run_case <name> <want-rc> <dmg-exists yes|no> <job-status> <staple-rc> <spctl-text> [grep-for]
+    #
+    # PAYLOAD_TEXT (env, optional) is what the stubbed mount will contain as the
+    # shipped install.sh. Default MATCHES the repo copy the case writes, so the
+    # pre-existing cases keep testing what they always tested and the new limb
+    # does not silently redden them.
     run_case() {
         local desc="$1" want_rc="$2" exists="$3" js="$4" src="$5" stext="$6" needle="${7:-}"
         local case_dir; case_dir="$(mktemp -d "${root}/caseXXXXXX")"
@@ -183,8 +260,15 @@ EOF
         [ "$exists" = "yes" ] && printf 'not a real dmg' > "$dmg"
         local bin; bin="$(build_stubs "$case_dir" "$dmg" "$src" "$stext")"
 
+        # The repo-side install.sh the predicate hashes. `cd "$case_dir"` below
+        # makes this the one it reads.
+        local repo_text="${REPO_TEXT:-#!/usr/bin/env bash
+echo the real installer}"
+        printf '%s' "$repo_text" > "${case_dir}/install.sh"
+
         local out rc=0
         out="$(cd "$case_dir" && PATH="${bin}:$PATH" GUI_DIR=gui \
+                 PAYLOAD_TEXT="${PAYLOAD_TEXT-$repo_text}" ATTACH_RC="${ATTACH_RC:-0}" \
                  bash "$SCRIPT_PATH" --job-status "$js" 2>&1)" || rc=$?
 
         local ok=1
@@ -246,6 +330,27 @@ source=Unnotarized Developer ID'
     #    stops case 3 from being over-applied into "if the job is red, shut
     #    up about everything", which would let an unnotarised artefact upload
     #    unchallenged.
+    # 9. THE PAYLOAD ARM, and it is the one v1.0.35 needed. A DMG that is
+    #    stapled, notarised and Gatekeeper-accepted, whose install.sh is NOT
+    #    the one in this tree, must FAIL. Without this case the limb above is
+    #    unproven and could pass on anything.
+    PAYLOAD_TEXT='#!/usr/bin/env bash
+echo A DIFFERENT INSTALLER' \
+    run_case "sealed DMG whose install.sh is NOT the repo copy -> FAIL" \
+             1 yes success 0 "$GOOD" "payload drift"
+
+    # 10. THE DISCRIMINATING CONTROL. If 9 passed because the check rejects
+    #     everything, this fails and says so. Matching payload must still stage.
+    run_case "sealed DMG whose install.sh MATCHES the repo -> staged" \
+             0 yes success 0 "$GOOD" "payload: shipped install.sh == repo install.sh"
+
+    # 11. A mount that does not happen is CANNOT-VERIFY, never a pass. This is
+    #     the arm that stops the payload check degrading to silence on a runner
+    #     where hdiutil is unavailable or the image is corrupt.
+    ATTACH_RC=1 \
+    run_case "DMG present but mount FAILS -> FAIL, payload unverified" \
+             1 yes success 0 "$GOOD" "payload was never inspected"
+
     run_case "RED job, DMG present but unnotarised -> still FAIL" \
              1 yes failure 0 "$BAD" "not Notarized Developer ID"
 
