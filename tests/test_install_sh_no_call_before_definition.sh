@@ -108,18 +108,53 @@ if [[ -z "$defined" || "$defined" -lt 50 ]]; then
     exit 2
 fi
 
-# POSITIVE CONTROL. Prove the scanner FIRES on the real defect before believing
-# its zero on the real file. The control is the exact shape that shipped.
+# POSITIVE CONTROL. Prove the scanner FIRES before believing its zero.
+#
+# THE CONTROL IS PLANTED INTO A COPY OF THE REAL TARGET, not a toy file, and
+# that is the whole point. TNM ran a sweep of this same class on 2026-08-18
+# using global brace depth, and heredocs plus embedded python corrupted the
+# counter so badly that the KNOWN-TRUE defect at 13480 was classified as 29
+# levels deep inside a function. Their detector was blind to the exact thing
+# they had just diagnosed from a crash log, and a toy control would have passed
+# happily while it was blind.
+#
+# A control built from `seq` proves the scanner works on input with no
+# heredocs, no embedded python and no brace noise. install.sh has all three.
+# So the canary goes into the real file, at a provably top-level line: the
+# first line after a function definition's closing brace, which is a structural
+# boundary rather than a guess about indentation or column.
 ctl="$(mktemp -t cbd_control.XXXXXX.sh)"
-{
-    echo '#!/usr/bin/env bash'
-    for i in $(seq 1 60); do echo "placeholder_${i}=1"; done
-    echo '_control_agent'
-    for i in $(seq 1 60); do echo "trailing_${i}=1"; done
-    echo '_control_agent() {'
-    echo '    echo "defined far below its only caller"'
-    echo '}'
-} > "$ctl"
+python3 - "$TARGET" "$ctl" <<'PLANT'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+lines = open(src, encoding='utf-8', errors='replace').read().split('\n')
+fn = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{')
+# Find a function definition, walk to its closing brace: the line AFTER that
+# brace is top level by construction, whatever the heredocs are doing.
+plant_at = None
+for i, l in enumerate(lines, 1):
+    if not fn.match(l):
+        continue
+    d = 0
+    for j in range(i - 1, len(lines)):
+        d += lines[j].count('{') - lines[j].count('}')
+        if d <= 0 and j > i - 1:
+            plant_at = j + 1          # 1-based line of the closing brace
+            break
+    if plant_at:
+        break
+if plant_at is None:
+    sys.exit(3)                       # no function boundary: cannot plant
+out = lines[:plant_at] + ["_synthetic_canary_probe"] + lines[plant_at:]
+out += ["_synthetic_canary_probe() {", "    echo planted", "}"]
+open(dst, 'w', encoding='utf-8').write('\n'.join(out))
+PLANT
+plant_rc=$?
+if [[ $plant_rc -ne 0 ]]; then
+    echo "CANNOT-RUN: could not plant the positive control into a copy of ${TARGET} (rc=$plant_rc)."
+    rm -f "$ctl"
+    exit 2
+fi
 ctl_hits="$(scan "$ctl" | grep -c '^HIT' || true)"
 rm -f "$ctl"
 
