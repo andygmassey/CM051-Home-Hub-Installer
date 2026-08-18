@@ -10,9 +10,21 @@
 #
 # Lines starting with # and blank lines are ignored.
 #
-# --- tracked debt (fix separately, not in the browsing re-vendor PR) ---
+# THIS LIST IS EMPTY, AND THAT IS THE STRONGEST STATE IT CAN BE IN.
 #
-# cm024_knowledge (Knowledge wing) ships a query package whose __init__
-# imports a retriever module that was never vendored. Top-level import,
-# so `import ...query` ImportErrors at runtime. Surfaced by this guard;
-# owned by the Knowledge vendoring work, not the browsing re-vendor.
+# Every vendored package now resolves its own intra-package imports. The
+# last entry was cm024_knowledge's src/query/, whose __init__ imported a
+# retriever module that was never vendored; it was deleted rather than
+# repaired because nothing imported it, measured at three widths (the
+# package, the whole repo, and an installed box). See task #424.
+#
+# What an empty baseline means for the two arms of the ratchet:
+#
+#   new_failures   = failure_set - baseline   ->  now the WHOLE failure set
+#   stale_baseline = baseline - failure_set   ->  now vacuous
+#
+# So any unresolved import anywhere in vendor/ fails the build immediately,
+# with nothing forgiven. Do not add a line here to make a red build green.
+# An entry is an admission of debt, and the only correct direction is
+# fewer. If you genuinely need one, say which package, which import, and
+# who owns paying it back, as the deleted entry above did.
