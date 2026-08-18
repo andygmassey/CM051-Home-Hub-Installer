@@ -112,7 +112,7 @@ test_gen_patch_new_files.sh	UNWIRED	-
 test_governor_pause_throttle.sh	UNWIRED	-
 test_graph_db_pull_retry.sh	UNWIRED	-
 test_grep_c_arith_safety.sh	UNWIRED	-
-test_gui_progress_emitter.sh	UNWIRED	-
+test_gui_progress_emitter.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hydrate_apple_notes_wired.sh	UNWIRED	-
 test_hydrate_email_preferences_wired.sh	UNWIRED	-
@@ -188,6 +188,7 @@ test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.y
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_stay_awake_agent_survives_installer_exit.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_stderr_tail.sh	WIRED	.github/workflows/stderr-tail.yml
+test_step_end_does_not_report_a_timed_out_step_as_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_subscription_activation_path.sh	UNWIRED	-
 test_sync_vendor_pin_untouched_on_abort.sh	UNWIRED	-
 test_tailnet_owner_resolution.py	UNWIRED	-

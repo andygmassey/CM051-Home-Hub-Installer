@@ -742,6 +742,11 @@ fi
 gui_emit()        { :; }
 gui_step_begin()  { :; }
 gui_step_end()    { :; }
+# #839: rc folding is a no-op before the emitter is sourced, same as
+# every other helper here. Present so the hydrate sentinel recorders
+# can call it unguarded.
+gui_step_record_rc() { :; }
+gui_step_status() { printf 'ok'; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -2229,6 +2234,8 @@ else
     gui_emit()        { :; }
     gui_step_begin()  { :; }
     gui_step_end()    { :; }
+    gui_step_record_rc() { :; }
+    gui_step_status() { printf 'ok'; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -7807,8 +7814,14 @@ progress() {
     # Close any prior step (no-op if none open) before opening this
     # one. STEP_BEGIN carries idx/total so the GUI can render its own
     # progress bar without re-deriving from PCT.
+    #
+    # #839: NO ARGUMENT. This call used to read `gui_step_end ok`, and
+    # since it closes 38 of the 39 steps, that literal was the status
+    # field for almost the entire install. gui_step_end now reads the
+    # status accumulated by gui_step_record_rc from the step's own
+    # children. Passing `ok` here would assert over a measurement.
     if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-        gui_step_end ok
+        gui_step_end
     fi
     gui_step_begin "$id" "$title" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
     gui_emit PCT "step=$id" "pct=$PCT"
@@ -18358,11 +18371,25 @@ _hydrate_sentinel_record() {
 # but _hydrate_sentinel_fresh will not treat it as done, so the next
 # install or re-run attempts the source again.
 # Use as: _hydrate_sentinel_record_error imessage "$rc" "people=0"
+#
+# #839: this recorder is ALSO the step's status source. The marker file
+# and the STEP_END log line are now written from the SAME rc, on the
+# same surface, in the same function. They cannot disagree again.
+#
+# The disagreement they used to have was total. On a v1.0.36 install,
+# 2026-08-18, ~/.ostler/state/hydrate/people.done recorded
+# `status=error rc=124 payload=sent=0` while the log for the same step
+# recorded `STEP_END id=hydrate_people status=ok elapsed_s=90`. Both
+# lines described one 90-second timeout that ingested nothing. Only one
+# of them said so, and it was not the one anybody greps.
 _hydrate_sentinel_record_error() {
     local source="$1"
     local rc="${2:-1}"
     local payload="${3:-}"
     local sentinel="${_HYDRATE_SENTINEL_DIR}/${source}.done"
+    # Fold the rc into the open step BEFORE writing the file, so an
+    # unwritable sentinel dir cannot also cost us the log line.
+    gui_step_record_rc "$rc"
     {
         printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         printf 'source=%s\n' "$source"
@@ -19100,6 +19127,11 @@ if [[ -x "$_HYDRATE_EMAIL_PY" ]] && [[ -x "$_HYDRATE_EMAIL_BIN" ]]; then
         if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
             _HYDRATE_EMAIL_TIMED_OUT=true
         fi
+        # #839: email hydration writes no .done sentinel, so this is the
+        # only place its rc exists. Fold it into the enclosing
+        # hydrate_graph step or it is discarded here and the step closes
+        # ok over a mail drain that never happened.
+        gui_step_record_rc "$rc"
     fi
 
     if [[ "$_HYDRATE_EMAIL_TIMED_OUT" == "true" ]]; then
@@ -20320,6 +20352,7 @@ if [[ "$_INITIAL_HYDRATE_COLLECTIONS_BEFORE" -eq 0 ]] \
     elif command -v timeout >/dev/null 2>&1; then
         _INITIAL_HYDRATE_TIMEOUT_WRAP="timeout 90"
     fi
+    _INITIAL_HYDRATE_RETRY_RC=0
 
     $_INITIAL_HYDRATE_TIMEOUT_WRAP \
     "$_INITIAL_HYDRATE_PY" -c "
@@ -20331,7 +20364,13 @@ try:
     print(json.dumps(result))
 except Exception as exc:
     print(json.dumps({'status': 'error', 'error': type(exc).__name__}))
-" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || true
+" >>"$_INITIAL_HYDRATE_LOG" 2>&1 || _INITIAL_HYDRATE_RETRY_RC=$?
+
+    # #839: the `|| true` that used to sit here kept errexit off the
+    # retry AND threw the rc away in the same stroke. Capturing it into
+    # a variable does the first without the second, so a retry killed by
+    # its 90 s cap is visible on the step's STEP_END instead of vanishing.
+    gui_step_record_rc "${_INITIAL_HYDRATE_RETRY_RC:-0}"
 
     # Poll Qdrant for up to 30s while the gateway writes through. The
     # first POST creates the collection lazily, so the count flips from
@@ -20345,6 +20384,7 @@ except Exception as exc:
         _INITIAL_HYDRATE_POLL_ELAPSED=$((_INITIAL_HYDRATE_POLL_ELAPSED + 2))
     done
     unset _INITIAL_HYDRATE_POLL_ELAPSED _INITIAL_HYDRATE_TIMEOUT_WRAP
+    unset _INITIAL_HYDRATE_RETRY_RC
 fi
 
 _INITIAL_HYDRATE_COLLECTIONS_AFTER="$(_initial_hydrate_qdrant_count)"
@@ -20603,12 +20643,19 @@ set -e
 # by a swallowed exception upstream.
 #
 # NON-FATAL BY DESIGN, and that is a deliberate limit rather than an
-# oversight. install.sh has no path that ends a step in failure (every
-# gui_step_end call site passes `ok`), so making this the first hard failure
+# oversight. Making an empty wiki the first HARD failure (an aborted install)
 # would change install semantics far beyond the wiki. What it does instead:
 # state the number, mark the run unhealthy, and refuse to say the wiki is
 # ready when it is empty. A zero that is PRINTED is worth more than a zero
 # that fails silently.
+#
+# #839 (2026-08-18) UPDATE. The paragraph above used to read "install.sh has
+# no path that ends a step in failure (every gui_step_end call site passes
+# `ok`)". That was true, and it was the defect: the status field on all 39
+# STEP_END lines was a literal, so no measurement could reach it. There IS
+# now a path -- gui_step_record_rc -- and non-fatal no longer has to mean
+# unrecorded. An empty wiki is still non-fatal to the install and still shows
+# the customer the same screen; it now also closes its step honestly.
 WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
 WIKI_PAGE_COUNT=0
 if [ -d "$WIKI_DOCS_DIR" ]; then
@@ -20625,6 +20672,11 @@ if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
     HEALTHY=false
     WIKI_BASELINE_RC=1
 fi
+
+# #839: carry the compile's verdict onto the step's STEP_END. The count
+# above is the honest oracle; this is what stops that verdict dying in
+# the log body while the step line says ok.
+gui_step_record_rc "${WIKI_BASELINE_RC:-0}"
 
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # Publish the baseline. The wiki-site container now runs a static server
@@ -20729,7 +20781,7 @@ step "$MSG_STEP_RUNNING_HEALTH_CHECK" "health_check"
 # then jumped straight to "Done" -- confusing because the customer
 # sees the row never visibly complete.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-    gui_step_end ok
+    gui_step_end
 fi
 __OSTLER_STEP_ID="health_check"
 gui_step_begin "health_check" "$MSG_STEP_RUNNING_HEALTH_CHECK" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
@@ -21171,9 +21223,20 @@ if [[ -x "${ASSISTANT_BINARY:-}" ]]; then
     # ERR trap for exactly this probe, then restore the abort handler.
     _saved_err_trap=$(trap -p ERR)
     trap - ERR
-    DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || \
+    _DOCTOR_PROBE_RC=0
+    DOCTOR_OUTPUT=$($_DOCTOR_TIMEOUT_WRAP "${ASSISTANT_BINARY}" doctor 2>&1) || {
+        _DOCTOR_PROBE_RC=$?
         DOCTOR_OUTPUT="__DOCTOR_INVOCATION_FAILED__"
+    }
     eval "${_saved_err_trap:-}"
+    # #839: a warming daemon is an EXPECTED non-zero here and the step
+    # must not be marked bad for it, so only the 10 s cap is folded in.
+    # A probe that hit its cap means the daemon never answered, which is
+    # a fact about this install, not about the probe.
+    if [[ "$_DOCTOR_PROBE_RC" -eq 124 ]] || [[ "$_DOCTOR_PROBE_RC" -eq 137 ]]; then
+        gui_step_record_rc "$_DOCTOR_PROBE_RC"
+    fi
+    unset _DOCTOR_PROBE_RC
 
     if [[ "$DOCTOR_OUTPUT" == "__DOCTOR_INVOCATION_FAILED__" ]]; then
         info "$MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY"
@@ -21561,6 +21624,11 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             if [[ "$_aiconv_rc" -eq 124 ]] || [[ "$_aiconv_rc" -eq 137 ]]; then
                 _AICONV_TIMED_OUT=true
             fi
+            # #839: the AI-Conversations drain deliberately writes NO
+            # sentinel on the timeout / crash arms (so the next run
+            # retries), which means its rc never reached the shared
+            # recorder. Fold it in explicitly.
+            gui_step_record_rc "$_aiconv_rc"
 
             _AICONV_JSON="$(tail -n 1 "$_AICONV_OUT" 2>/dev/null)" || _AICONV_JSON=""
             rm -f "$_AICONV_OUT"
@@ -21985,7 +22053,7 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 # its sidebar to the success state and offer a "Reveal in Finder"
 # affordance for ~/Documents/Ostler.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
-    gui_step_end ok
+    gui_step_end
 fi
 gui_done ok
 
