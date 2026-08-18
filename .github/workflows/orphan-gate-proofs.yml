@@ -30,6 +30,10 @@ on:
       - 'scripts/orphan_gate_selftest.sh'
       - 'tests/test_no_orphaned_fixes_gate.sh'
       - 'tests/test_orphan_gate_cannot_verify.sh'
+      - 'tests/test_deferral_reason_reads_block_scalars.sh'
+      # The gate READS this file, so a change to its shape (a reason moving to
+      # a block scalar, say) can silently change what the gate can report.
+      - 'cut-deferrals.yaml'
       # A proof must re-run when the thing that INVOKES the gate changes: a
       # Makefile edit can unhook it without touching the gate itself.
       - 'gui/Makefile'
@@ -133,3 +137,6 @@ jobs:
       - name: Orphan gate cannot-verify semantics
         if: always()
         run: ./tests/test_orphan_gate_cannot_verify.sh
+      - name: A deferral's REASON is reported, not its YAML block marker
+        if: always()
+        run: ./tests/test_deferral_reason_reads_block_scalars.sh

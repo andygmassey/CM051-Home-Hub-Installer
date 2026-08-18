@@ -113,9 +113,68 @@ is_deferred() {
         "$DEFERRALS_FILE"
 }
 
+# Read a deferral's reason, INCLUDING the YAML block-scalar form.
+#
+# This used to take only the text after `reason:` on that one line. For
+# `reason: >-` -- which is how every substantial reason in this file is
+# written, because they run to paragraphs -- that text is the literal string
+# ">-", so the gate printed:
+#
+#     [warn] deferred: daemon:#312 -- >-
+#
+# MEASURED 2026-08-17 on this file: 21 of 594 refs rendered as a bare block
+# scalar token, including the three daemon rows renewed for the v1.0.34 cut.
+#
+# That is not cosmetic. A deferral's whole justification is that the hold is
+# a RECORDED DECISION rather than a silent absence, and the record is the
+# reason text. Printing ">-" turns "this is deferred and here is why" into
+# "this is deferred", which is the state the file exists to abolish. It also
+# hides expiry instructions: the vault-state row's own text says the gate
+# must speak up again at the next cut, and the gate was structurally unable
+# to say it.
+#
+# Handles: same-line plain/quoted scalars (unchanged), and `>`, `>-`, `|`,
+# `|-` followed by an indented block, folded onto one line for the warn
+# output. Empty after the key is treated as a block too.
 deferral_reason() {
     local ref="$1"
     awk -v want="$ref" '
+        # NOTE: exit runs the END rule, where `collecting` would still be 1
+        # and would flush a second time. Clearing it first is what makes this
+        # print exactly once. (Caught by the printed output being duplicated.)
+        function flush_block() {
+            collecting = 0
+            gsub(/[[:space:]]+/, " ", buf)
+            sub(/^ /, "", buf); sub(/ $/, "", buf)
+            print buf
+            exit
+        }
+        # Collecting a block scalar: indented lines continue it, anything
+        # at or left of the key indent ends it.
+        collecting {
+            if ($0 ~ /^[[:space:]]*$/) { buf = buf " "; next }
+            match($0, /^[[:space:]]*/)
+            if (RLENGTH > key_indent) {
+                line = $0; gsub(/^[[:space:]]+/, "", line)
+                # NO QUOTE STRIPPING HERE, and the asymmetry with the inline
+                # arm below is the whole point. On an inline scalar the quotes
+                # are YAML SYNTAX and must come off. Inside a block scalar they
+                # are literal CONTENT, and stripping them rewrites the reason.
+                #
+                # Found in review, on the worst possible row: this cut renews
+                # daemon:fix/vault-state-default-status-none, whose reason says
+                # the bug was "degraded to status '' not 'none'". Stripped, the
+                # gate printed "degraded to status not none" -- which states the
+                # OPPOSITE of the defect. Measured over the whole file, 13 rows
+                # rendered a reason that was not their reason.
+                #
+                # That is the same failure as printing the bare block marker,
+                # only quieter: a mangled why still reads as an explanation.
+                buf = buf " " line
+                next
+            }
+            flush_block()
+        }
         $0 ~ /ref:/ {
             line = $0; gsub(/.*ref:[[:space:]]*/, "", line)
             gsub(/["'"'"']/, "", line); gsub(/[[:space:]]*$/, "", line)
@@ -123,8 +182,26 @@ deferral_reason() {
         }
         cur && /reason:/ {
             r = $0; gsub(/.*reason:[[:space:]]*/, "", r)
-            gsub(/["'"'"']/, "", r); print r; exit
+            gsub(/[[:space:]]*$/, "", r)
+            if (r == ">-" || r == ">" || r == "|" || r == "|-" || r == "") {
+                match($0, /^[[:space:]]*/); key_indent = RLENGTH
+                collecting = 1; buf = ""
+                next
+            }
+            # Strip ONE MATCHING OUTER PAIR, not every quote in the string.
+            # The old gsub removed inner quotes too, so an inline reason
+            # citing a value -- 'none', "do not do this" -- was printed
+            # without them. Measured: 4 rows file-wide, and they are the
+            # remainder of the same defect the block arm above carries a
+            # comment about. Truncation-shaped rather than meaning-inverting,
+            # but a reason is evidence and evidence is quoted.
+            if ((substr(r, 1, 1) == "\"" && substr(r, length(r), 1) == "\"") ||
+                (substr(r, 1, 1) == "'"'"'" && substr(r, length(r), 1) == "'"'"'")) {
+                r = substr(r, 2, length(r) - 2)
+            }
+            print r; exit
         }
+        END { if (collecting) flush_block() }
     ' "$DEFERRALS_FILE" 2>/dev/null
 }
 
