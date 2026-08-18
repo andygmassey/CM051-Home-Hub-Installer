@@ -205,7 +205,7 @@ def _run(hub_url: str, workspace: Path, *, token: str | None,
     env = _base_env(workspace)
     if token is not None:
         env["OSTLER_SERVICE_TOKEN"] = token
-    env["OSTLER_SERVICE_TOKEN_PATH"] = str(
+    env["OSTLER_SERVICE_TOKEN_FILE"] = str(
         token_file if token_file is not None else workspace / "no-such-token-file"
     )
     env["OSTLER_ICAL_BASE_URL"] = hub_url
@@ -377,7 +377,7 @@ def test_partial_digest_exits_degraded_not_ok(hub, tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     env = _base_env(workspace)
     env["OSTLER_SERVICE_TOKEN"] = _GOOD_TOKEN
-    env["OSTLER_SERVICE_TOKEN_PATH"] = str(workspace / "no-such-token-file")
+    env["OSTLER_SERVICE_TOKEN_FILE"] = str(workspace / "no-such-token-file")
     env["OSTLER_ICAL_BASE_URL"] = hub
     # Port 1 on loopback: reserved, nothing listens, connection refused fast.
     env["OXIGRAPH_URL"] = "http://127.0.0.1:1"

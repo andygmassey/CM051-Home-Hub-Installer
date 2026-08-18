@@ -263,7 +263,7 @@ rc=0
 OSTLER_DIR="$WORKDIR/noauth" \
 OSTLER_ICAL_BASE_URL="http://127.0.0.1:$PORT" \
 OXIGRAPH_URL="http://127.0.0.1:$PORT" \
-OSTLER_SERVICE_TOKEN_PATH="$WORKDIR/no-such-token-file" \
+OSTLER_SERVICE_TOKEN_FILE="$WORKDIR/no-such-token-file" \
     bash "$TICK" > "$WORKDIR/noauth.out" 2>&1 || rc=$?
 [ "$rc" -ne 0 ] \
     || fail "tick exited 0 with no service token; every /api/v1 read was 401"

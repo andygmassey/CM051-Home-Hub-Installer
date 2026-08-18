@@ -28,6 +28,21 @@ This script sent no ``Authorization`` header, so all four of its
 ``/api/v1/*`` reads returned 401 on every install, every tick, since the
 day the token landed. The token was sitting on disk the whole time.
 
+AND THE FIX ALREADY EXISTED. This is a VENDOR STALENESS defect, not a
+missed bug. Upstream ``ostler-assistant scripts/generate_pwg_context.py``
+has carried ``_service_token()`` since PR #232 ("v1.0.11 data-dark fix"),
+and upstream CI has a job named "Context Digest Auth" whose step is
+"Digest writer sends service-token auth". That gate has been green the
+whole time. It guards the copy that does NOT ship: the release tarball
+carries the daemon binary and its .app, never ``scripts/``, so the copy
+customers actually run is this vendored one, pinned at ``f441f09f`` from
+BEFORE #232, in a repo with no such gate.
+
+So the gate and the defect were not merely on different surfaces, they
+were in different repositories. Worth stating plainly, because the next
+person to "fix" this by re-vendoring will take the auth and silently drop
+the three CM051-local read-side divergences below it.
+
 Measured on a v1.0.36 install, 2026-08-18, before the fix:
 
     GET /health                    -> 200   (unauthenticated, always was)
@@ -153,8 +168,12 @@ _SERVICE_TOKEN_ENV_VARS = ("OSTLER_SERVICE_TOKEN", "PWG_SERVICE_TOKEN")
 # Fallback: the file install.sh writes 0600 in the auth_tokens phase. This
 # is the path the daemon's own code-side fallback reads, so a Hub where the
 # env was never seeded still authenticates.
+#
+# Override env var is OSTLER_SERVICE_TOKEN_FILE, matching the name upstream
+# already uses in ostler-assistant scripts/generate_pwg_context.py. Same name
+# on both sides keeps the eventual re-vendor a merge rather than a puzzle.
 SERVICE_TOKEN_PATH = Path(
-    os.environ.get("OSTLER_SERVICE_TOKEN_PATH")
+    os.environ.get("OSTLER_SERVICE_TOKEN_FILE")
     or (Path.home() / ".ostler" / "secrets" / "service_token")
 )
 
@@ -263,7 +282,11 @@ def _get_json(path: str) -> dict | None:
     headers = {"Accept": "application/json"}
     token = service_token()
     if token:
+        # Both accepted forms, matching upstream. The ical-server's
+        # _presented_token reads Authorization: Bearer first and falls back to
+        # X-Ostler-Service, so sending both works regardless of build.
         headers["Authorization"] = f"Bearer {token}"
+        headers["X-Ostler-Service"] = token
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECS) as resp:
