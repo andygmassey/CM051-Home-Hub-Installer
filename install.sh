@@ -15540,7 +15540,25 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
 
     info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
     "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-    if "$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC" 2>/tmp/ostler-fda-pip.log; then
+    # VIA THE HELPER, NOT A RAW `pip install`. This line used to be
+    # `"$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC"`, and
+    # OSTLER_FDA_SRC is "${SCRIPT_DIR}/ostler_fda" on a productised install, i.e.
+    # INSIDE the notarised app bundle. `pip install <dir>` builds IN PLACE, so it
+    # wrote ostler_fda.egg-info/ into /Applications/OstlerInstaller.app and broke
+    # the code seal.
+    #
+    # MEASURED on the v1.0.36 box, 2026-08-18, after the walk:
+    #   codesign --verify --deep --strict  rc=1  "a sealed resource is missing"
+    #   spctl -a -t exec -vv               rc=1  same, so GATEKEEPER REFUSES IT
+    #   17 egg-info files + 239 .pyc = 256 unsealed, of 3239 total
+    #
+    # _ostler_pip_install_pkg exists precisely for this and its own docstring
+    # says "ostler_fda already did the right thing". THAT CLAIM WAS FALSE. What
+    # does the right thing is the cp -R at the fda-module staging site; THIS
+    # consumer, the email-ingest venv, went straight at SCRIPT_DIR and nobody
+    # noticed because the comment asserted otherwise. A docstring is not a
+    # measurement.
+    if _ostler_pip_install_pkg "$EMAIL_INGEST_VENV/bin/pip" "$OSTLER_FDA_SRC" --quiet 2>/tmp/ostler-fda-pip.log; then
         ok "$MSG_OK_OSTLER_FDA_INSTALLED_VENV"
     else
         warn "$MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL"
