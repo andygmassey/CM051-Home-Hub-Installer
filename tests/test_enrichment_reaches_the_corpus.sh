@@ -102,22 +102,53 @@ must_refuse = [
 must_ignore = [("url_fetcher", prose), ("youtube", prose)]
 
 bad = []
+# PROVENANCE IS HELD CONSTANT AT "DECLARED" THROUGHOUT THIS SECTION, and that
+# is deliberate rather than convenient.
+#
+# is_eligible has two independent limbs: WHERE the category came from, and
+# what SHAPE the subject is. This section measures the shape limb, so the
+# provenance limb has to be held fixed or it is not a controlled measurement.
+# Left unstated it defaults to None (unrecorded), which refuses BEFORE the
+# shape tests run -- every real title below would be refused for a reason that
+# has nothing to do with what this section is testing, and every red proof
+# further down would report the shape check as load-bearing when what actually
+# stopped the fixture was its missing provenance.
+#
+# The provenance limb has its own coverage: the must_refuse case below and
+# tests/test_inferred_category_never_egresses.py.
+DECLARED = dict(category_inferred=False)
+
 for c, s in must_allow:
-    good, why = e.is_eligible(c, s)
+    good, why = e.is_eligible(c, s, **DECLARED)
     if not good:
         bad.append("REFUSED a real title via %s: %s" % (c, why))
 for c, s in must_refuse:
-    good, why = e.is_eligible(c, s)
+    good, why = e.is_eligible(c, s, **DECLARED)
     if good:
         bad.append("ALLOWED something it must refuse via %s" % c)
 for c, s in must_ignore:
-    good, _ = e.is_eligible(c, s)
+    good, _ = e.is_eligible(c, s, **DECLARED)
     if not good:
         bad.append("gated %s, which does not send the subject anywhere" % c)
 
+# THE PROVENANCE LIMB, asserted here rather than only in the unit tests,
+# because this is the gate that guards the egress boundary at PR time.
+#
+# A subject can be a perfectly well-shaped real title and still be unsendable:
+# "Animal Farm" passes every shape check there is. What makes it sendable is
+# that the SOURCE said it was a book, rather than a keyword matcher guessing
+# from the text. Unrecorded provenance must refuse, or a preference stored
+# before that field existed reads as though its source had declared it.
+for state, label in ((None, "unrecorded"), (True, "guessed")):
+    good, why = e.is_eligible("openlibrary", "Animal Farm", category_inferred=state)
+    if good:
+        bad.append("ALLOWED a %s category to authorise egress" % label)
+    elif not why:
+        bad.append("refused a %s category without saying why" % label)
+
 # The reason must never quote the subject back: it is the thing we just
 # decided was too sensitive to pass around.
-_, why = e.is_eligible("openlibrary", prose)
+_, why = e.is_eligible("openlibrary", prose, **DECLARED)
 if why and ("Simon" in why or "customer-focussed" in why):
     bad.append("the rejection reason quotes the subject it refused")
 
@@ -154,7 +185,11 @@ red_axis() {   # <name> <sed-expr disabling one check> <fixture>
 import sys
 sys.path.insert(0, sys.argv[1])
 import eligibility as e
-allowed, _ = e.is_eligible("openlibrary", sys.argv[2])
+# Declared provenance: this proof varies ONE axis, the shape check named by
+# the caller. Leaving provenance unstated would refuse before the shape tests
+# ran, and the proof would report every check as load-bearing regardless of
+# whether it does anything.
+allowed, _ = e.is_eligible("openlibrary", sys.argv[2], category_inferred=False)
 print("LEAKED" if allowed else "STILL-REFUSED")
 PYEOF
 )"
@@ -169,7 +204,7 @@ PYEOF
 import sys
 sys.path.insert(0, sys.argv[1])
 import eligibility as e
-allowed, _ = e.is_eligible("openlibrary", sys.argv[2])
+allowed, _ = e.is_eligible("openlibrary", sys.argv[2], category_inferred=False)
 print("LEAKED" if allowed else "REFUSED")
 PYEOF
 )"
