@@ -54,3 +54,14 @@ jobs:
       - name: The enrichment opt-in question lands in the cut after v1.0.36
         if: always()
         run: bash tests/test_enrichment_optin_is_owed_after_v1_0_36.sh
+
+      # TNM's review point, and it was a fair one: the aggregation assertion in
+      # the egress suite is a regex over source text that never constructs a
+      # PreferenceFilter. It is sensitive to spelling and blind to behaviour,
+      # which is the wrong way round for the one hop between a parser that
+      # records provenance and a gate that reads it. This suite executes the
+      # real filter, including the warm-from-storage path that is the only way
+      # a preference gets built by something other than a parser.
+      - name: Provenance survives the filter, proved by running it
+        if: always()
+        run: python3 tests/test_provenance_survives_the_filter_under_execution.py
