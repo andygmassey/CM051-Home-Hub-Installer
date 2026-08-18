@@ -154,9 +154,28 @@ verify-dmg-contents|SKIP|a CHECK, but it mounts the DMG. No DMG, nothing to moun
 verify-stapling|SKIP|a CHECK, but it mounts the DMG.
 verify-commit-parity|SKIP|a CHECK, but it mounts the DMG.
 archive|SKIP|copies the shipped DMG into the operator archive dir. That is publishing. Excluded by construction.
-publish-appcast|SKIP|PUBLISHES to the customer-facing Sparkle feed, so it is excluded by construction twice over. It is the last prerequisite of `ship:` and it is the one a dispatch must never be able to reach. It is also air-gapped by design: RELEASE_PROCESS.md gpg-decrypts the Sparkle private key from a USB volume and stops on a failed verify, which is why `make ship` calling it at all is the deliberate part and running it here would be the hand-cut the header refuses.
 PLAN
 }
+
+# publish-appcast IS DELIBERATELY ABSENT FROM THIS TIER-1 PLAN.
+#
+# It is no longer a prerequisite of `ship:`. CM051 #828 lifted it out and moved
+# it into .github/workflows/cut.yml as a step that runs AFTER upload-artifact,
+# because on v1.0.34 it was the LAST prerequisite of ship: and its failure
+# destroyed a finished build: DMG notarised, stapled and spctl-verified at
+# 03:10:04, publish-appcast hard-failed on an unset OSTLER_SPARKLE_SIGNING_KEY
+# at 03:10:09, `make ship` returned non-zero, so the verify step and the upload
+# were SKIPPED and the ephemeral runner was torn down with the only copy on it
+# (run 32093975602, artifacts total_count = 0).
+#
+# This plan's denominator is `ship:`. A row here for a target ship: no longer
+# names would report coverage of something this tier does not contain, which is
+# the exact failure the CANNOT-RUN below exists to catch -- and it caught mine.
+#
+# It is NOT unenforced. tests/test_appcast_publish_cannot_destroy_the_dmg.sh
+# asserts it is absent from ship:, has a body, is invoked by cut.yml AFTER the
+# upload, and carries no continue-on-error.
+
 
 tier2_plan() {
 cat <<'PLAN'
