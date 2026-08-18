@@ -16,4 +16,3 @@
 # imports a retriever module that was never vendored. Top-level import,
 # so `import ...query` ImportErrors at runtime. Surfaced by this guard;
 # owned by the Knowledge vendoring work, not the browsing re-vendor.
-vendor/cm024_knowledge/src/query/__init__.py: 'from .retriever import ...' -> unresolved module
