@@ -266,8 +266,54 @@ else
     echo "  [OK] INVOKED AFTER UPLOAD: cut.yml publishes at line $pub_line, upload at line $up_line."
 fi
 
+# --- 4. THE ARTEFACT IS CAPTURED UNCONDITIONALLY ---------------------------
+# The class this file now guards is bigger than publish-appcast, and it has
+# fired three times: v1.0.26 (a bad find path), v1.0.34 (the Sparkle key), and
+# it would fire again for any future step that can go red while holding a good
+# DMG. The trigger changed each time. The shape did not: the staging step and
+# the upload had no `if:`, so GitHub's default -- run only if everything before
+# succeeded -- discarded a notarised build with the runner.
+#
+# Capturing the artefact and blessing it are different questions. These two
+# steps answer the first one and must not be gated on the second.
+py_ok=1
+command -v python3 >/dev/null 2>&1 || py_ok=0
+if [ "$py_ok" -eq 0 ]; then
+    echo "  [skip] CAPTURE-UNCONDITIONAL not checked: python3 unavailable to parse YAML."
+else
+    cap="$(python3 - "$WF" <<'PYEOF'
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+steps = d['jobs']['cut']['steps']
+bad = []
+for s in steps:
+    n = str(s.get('name') or s.get('uses') or '')
+    if 'Verify the artefact' in n or 'upload-artifact' in n:
+        if str(s.get('if', '')).strip() != 'always()':
+            bad.append('%s (if=%s)' % (n[:52], s.get('if', '<none>')))
+print('|'.join(bad))
+PYEOF
+)" || cap="CANNOT"
+    if [ "$cap" = "CANNOT" ]; then
+        echo "  [skip] CAPTURE-UNCONDITIONAL not checked: could not parse the workflow."
+    elif [ -z "$cap" ]; then
+        echo "  [OK] CAPTURED UNCONDITIONALLY: staging and upload both carry if: always()."
+    else
+        FAIL=1
+        echo >&2
+        echo "  [FAIL] a DMG-capture step is conditional on everything before it succeeding:" >&2
+        printf '    %s\n' "$cap" | tr '|' '\n' >&2
+        echo >&2
+        echo "  With no 'if: always()', GitHub runs these only when every prior step" >&2
+        echo "  passed -- so one unrelated red discards a notarised, stapled DMG with" >&2
+        echo "  the ephemeral runner. That is v1.0.26 and v1.0.34, twice, same shape," >&2
+        echo "  different triggers. Both steps need it: staging happens INSIDE the" >&2
+        echo "  verify step, so guarding one without the other captures nothing." >&2
+    fi
+fi
+
 if [ "$FAIL" -ne 0 ]; then
     exit 1
 fi
-echo "  all three assertions hold: not in ship:, has a body, invoked after upload."
+echo "  all four assertions hold: not in ship, has a body, invoked after upload, artefact captured unconditionally."
 exit 0

@@ -578,7 +578,40 @@ jobs:
           OSTLER_CUT_VERSION: ${{ github.ref_name }}
         run: make -C gui ship
 
+      # CAPTURE THE ARTEFACT AND BLESS THE ARTEFACT ARE DIFFERENT QUESTIONS.
+      #
+      # This step had no `if:`, so GitHub's default applied: run only if every
+      # previous step succeeded. It stages the DMG into dist/ (mkdir/cp/shasum
+      # are INSIDE this step), so any earlier failure meant nothing was staged
+      # and the upload below had nothing to upload -- on an ephemeral runner
+      # that is torn down seconds later.
+      #
+      # THIS IS THE THIRD OCCURRENCE OF THE SAME CLASS, not the first:
+      #   v1.0.26  `find dist` ran against a path DIST_DIR did not point at,
+      #            died on "find: dist: No such file or directory", upload
+      #            skipped. The INSTANCE was fixed by repairing the path; the
+      #            CLASS was written into the post-mortem comment above and
+      #            left standing.
+      #   v1.0.34  publish-appcast hard-failed on an unset Sparkle key five
+      #            seconds after the DMG was notarised, stapled and
+      #            spctl-verified. Steps 9 and 10 SKIPPED,
+      #            actions/runs/32093975602/artifacts -> total_count = 0.
+      #
+      # A red run WITH the DMG captured is a diagnosis somebody can act on. A
+      # red run with NO DMG is a spent version number and a night gone. So the
+      # artefact leaves the machine as soon as it exists, BEFORE anything
+      # downstream is allowed to have an opinion about it.
+      #
+      # This does not weaken a single gate. The verifications below still run
+      # and still fail the job; they simply no longer decide whether the
+      # evidence survives. A step whose job is to fail must not also be the
+      # step that destroys the evidence. If `make ship` died before any DMG
+      # existed, this step fails on its own assertions and the upload finds an
+      # empty dist and warns -- which is the correct outcome, not an error.
+      #
+      # `always()` is already the idiom in this file (see :206, :302).
       - name: Verify the artefact, not the build log
+        if: always()
         run: |
           set -euo pipefail
           # ASK make WHERE IT PUT THE DMG. Do not guess, and do not restate the
@@ -605,12 +638,23 @@ jobs:
           ( cd dist && shasum -a 256 "$(basename "$DMG")" | tee SHA256SUMS )
           ls -la dist/
 
+      # Paired with the condition on the staging step above -- both, or neither
+      # works. Staging happens inside that step, so guarding only the upload
+      # would upload an empty dist, and guarding only the staging would stage a
+      # file nothing collects.
+      #
+      # if-no-files-found: warn is deliberate. If `make ship` died before a DMG
+      # ever existed there is nothing to capture, and that is not this step's
+      # failure to report -- the job is already red from the real cause, and an
+      # error here would bury it under a second, misleading one.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ostler-dmg-${{ github.ref_name }}
           path: |
             dist/*.dmg
             dist/SHA256SUMS
+          if-no-files-found: warn
           retention-days: 90
 
       # AU-1 appcast publish (#776, task #370) -- DELIBERATELY AFTER THE UPLOAD.
