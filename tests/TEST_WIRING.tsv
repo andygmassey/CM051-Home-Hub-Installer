@@ -42,7 +42,8 @@ test_calendar_attendee_resolve_before_create.py	UNWIRED	-
 test_calendar_hydrate_venv.sh	UNWIRED	-
 test_cm048_prompts_packaged.sh	UNWIRED	-
 test_cm048_settings_models_wired.sh	UNWIRED	-
-test_colima_start_retry.sh	UNWIRED	-
+test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
+test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
 test_composite_cleanup.sh	UNWIRED	-
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
