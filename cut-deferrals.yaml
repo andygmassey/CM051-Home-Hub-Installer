@@ -272,23 +272,6 @@ deferrals:
       ahead of the box it inspects.
     until_cut: v1.0.34
 
-  - ref: CM051:#830
-    reason: >-
-      MEASURED 2026-08-18: open, branch fix/verify-step-cannot-run-vs-fail, "the staging step
-      must tell CANNOT-RUN from FAIL, and a red publish must say the DMG survived". File scope
-      is .github/workflows/cut.yml, .github/workflows/appcast-ship-wiring.yml, a new
-      scripts/stage_and_verify_dmg.sh and tests/test_appcast_publish_cannot_destroy_the_dmg.sh,
-      with install.sh touched ZERO times. It is the failure-TEXT half of task #407 and it is
-      GOOD work -- it makes the step I added in #828 distinguish "no DMG was ever built" from
-      "the DMG is bad", which are the two states my version reports identically. Deferred on
-      the identical reasoning applied to #792 and #825 all night, and applied consistently
-      rather than selectively BECAUSE it improves the very step this cut depends on: landing a
-      change to the staging step during the cut that step is executing alters the instrument
-      while it is being read. It also rewrites my own control file, so merging it mid-cut
-      would leave the enforcer and the thing it enforces changing together, unreviewed against
-      a live tag. Land it first in v1.0.36, before the calendar-comment coupling.
-    until_cut: v1.0.35
-
   - ref: CM051:#832
     reason: >-
       SUPERSEDED AND ALREADY CLOSED, recorded so the orphan gate stops reading it as abandoned
