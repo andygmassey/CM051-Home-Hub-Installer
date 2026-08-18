@@ -28,8 +28,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `if: always()` ON EVERY GATE AFTER THE FIRST, and I earned this comment
+      # the embarrassing way. GitHub's default step condition is "run only if
+      # every previous step succeeded", so without it a failure in the install.sh
+      # gate SKIPS the egress gate, and a skipped gate reports nothing while
+      # looking like it was considered.
+      #
+      # That is the identical shape as the missing `if:` on upload-artifact that
+      # destroyed the v1.0.26 and v1.0.34 DMGs. ci-maskless caught it here, in a
+      # workflow written hours after fixing that exact class. These two gates are
+      # independent: neither result tells you anything about the other, so both
+      # must always report.
       - name: No function is called before it is defined in install.sh
         run: bash tests/test_install_sh_no_call_before_definition.sh
 
       - name: An inferred category never authorises egress
+        if: always()
         run: python3 tests/test_inferred_category_never_egresses.py
