@@ -63,6 +63,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # WITHOUT THIS, ASSERTION 4 IS DARK, AND IT WAS DARK FROM THE DAY IT WAS
+      # WRITTEN. macos-latest python3 has no PyYAML, so the only assertion in
+      # Control B that parses YAML -- the one proving the artefact is captured
+      # unconditionally -- took its skip branch on EVERY run while the summary
+      # still printed "all four assertions hold".
+      #
+      # MEASURED 2026-08-18 over every appcast-ship-wiring run since it landed
+      # (32095389421, 32095682207, 32095929595, and 32096418569 on the v1.0.35
+      # cut branch): "CAPTURE-UNCONDITIONAL not checked" three hits each,
+      # "[OK] CAPTURED UNCONDITIONALLY" zero. Never once executed on a runner.
+      #
+      # THE VERIFY LINE IS NOT DECORATION. An install that quietly does nothing
+      # reproduces the same defect one layer up, so the import is proved AFTER
+      # the install and the step dies if it is still missing. No `|| true`.
+      - name: PyYAML must be present, or the capture assertion cannot run
+        run: |
+          set -uo pipefail
+          if ! python3 -c 'import yaml' 2>/dev/null; then
+            python3 -m pip install --quiet --break-system-packages pyyaml \
+              || python3 -m pip install --quiet pyyaml \
+              || pip3 install --quiet pyyaml \
+              || true
+          fi
+          python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
+
       - name: CONTROL A -- ship still names every prerequisite it named before
         run: /bin/bash tests/test_ship_prereqs_are_a_superset.sh
 
@@ -77,6 +102,15 @@ jobs:
         if: always()
         run: python3 scripts/appcast_version_guard.py --self-test
 
+      # The staging step's own predicate. `if: always()` made it run on failed
+      # cuts too, so it has to tell "the build never produced one" apart from
+      # "the build produced a bad one" -- four branches, and the fix is which
+      # branch fires when. Stubs make, xcrun and spctl on PATH so the shipped
+      # code path runs unmodified; carries a declared control floor.
+      - name: The staging step can tell CANNOT-RUN from FAIL
+        if: always()
+        run: /bin/bash scripts/stage_and_verify_dmg.sh --self-test
+
       # A gate that only parses under bash 5 reads CANNOT-RUN for ever on the
       # machine that cuts.
       - name: Everything parses under /bin/bash 3.2 (the cut host's shell)
@@ -85,6 +119,7 @@ jobs:
           /bin/bash --version | head -1
           /bin/bash -n tests/test_ship_prereqs_are_a_superset.sh
           /bin/bash -n tests/test_appcast_publish_cannot_destroy_the_dmg.sh
+          /bin/bash -n scripts/stage_and_verify_dmg.sh
           python3 -m py_compile scripts/appcast_version_guard.py
           echo "OK: parses under the shell and interpreter the cut actually uses"
 
@@ -183,7 +218,15 @@ jobs:
         run: |
           set -uo pipefail
           MUT="$(mktemp -d)"
-          sed 's|run: make -C gui publish-appcast|run: echo not-published|' \
+          # NOT anchored on `run: make ...`. The publish step now wraps the
+          # invocation in a block so it can annotate its own failure with the
+          # fact that the DMG survived, which moved the command off the `run:`
+          # line. A mutation anchored on the old spelling would stop applying
+          # and this control would report MUTATION DID NOT APPLY on every run
+          # -- red for a reason that is not the defect, which is how a control
+          # gets deleted rather than fixed. Match the INVOCATION, not its
+          # position.
+          sed 's|make -C gui publish-appcast|echo not-published|' \
             .github/workflows/cut.yml > "$MUT/cut.yml"
           if [ "$(grep -c 'make -C gui publish-appcast' "$MUT/cut.yml")" -ne 0 ]; then
             echo "MUTATION DID NOT APPLY -- workflow still invokes the publisher." >&2
@@ -201,3 +244,37 @@ jobs:
             exit 1
           fi
           echo "OK: Control B fails, exit 1, when the publisher goes dark again."
+
+      # THE ASSERTION THAT GUARDS THE ASSERTIONS. Assertion 4 finds its steps by
+      # NAME, so renaming one turns its loop into a loop over zero matches --
+      # and an empty findings list printed as [OK] is a check reporting success
+      # about something it never looked at. That is not hypothetical: the
+      # obvious tidy-up while working on this file is to rename the staging step
+      # to something more descriptive.
+      #
+      # The mutation renames it and leaves everything else correct, so the ONLY
+      # thing that can go red is the floor.
+      - name: Assertion 4 goes RED when a step is RENAMED out of its own check
+        if: always()
+        run: |
+          set -uo pipefail
+          MUT="$(mktemp -d)"
+          sed 's|Verify the artefact, not the build log|Stage and check the disk image|' \
+            .github/workflows/cut.yml > "$MUT/cut.yml"
+          if [ "$(grep -c 'Verify the artefact' "$MUT/cut.yml")" -ne 0 ]; then
+            echo "MUTATION DID NOT APPLY -- the step is still named 'Verify the artefact'." >&2
+            exit 1
+          fi
+          rc=0
+          out="$(OSTLER_CUT_WORKFLOW="$MUT/cut.yml" /bin/bash tests/test_appcast_publish_cannot_destroy_the_dmg.sh 2>&1)" || rc=$?
+          echo "$out"
+          if [ "$rc" -ne 1 ]; then
+            echo "EXPECTED exit 1 from the renamed mutant, got $rc." >&2
+            echo "A rename must not be able to switch a check off silently." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s\n' "$out" | grep -c 'examined NOTHING')" -eq 0 ]; then
+            echo "The failure did not say the check examined nothing, which IS the defect." >&2
+            exit 1
+          fi
+          echo "OK: assertion 4 fails, exit 1, when a rename empties its denominator."
