@@ -1,0 +1,84 @@
+name: step-end-status-honesty
+
+# THE INSTRUMENT AND THE DEFECT MUST SHARE A SURFACE.
+#
+# On 2026-08-18 a v1.0.36 install log reported `#OSTLER DONE status=ok`,
+# 39 of 39 steps, and 40 STEP_END lines of which ZERO said anything other
+# than status=ok. Two of those steps had been killed by their 90-second
+# cap and moved no data:
+#
+#     #OSTLER STEP_END id=hydrate_browsing status=ok elapsed_s=90
+#     #OSTLER STEP_END id=hydrate_people   status=ok elapsed_s=90
+#
+# Their own .done markers under ~/.ostler/state/hydrate/ recorded
+# `status=error rc=124 payload=sent=0`. The reviewer grepped the log for
+# ERR- codes, found none, and called the install clean. A timeout emits
+# no ERR- code, so the instrument was green by construction.
+#
+# The cause was that gui_step_end took its status as an argument
+# defaulting to "ok" and every call site in install.sh passed the literal
+# `ok`. The status field was a constant. No rc could reach it, so no box
+# walk on any cut could ever have reported a step failure, including the
+# launch cut's.
+#
+# This gate runs the test that replays that exact input.
+#
+# WHY macos, NOT ubuntu
+#
+# The test replays a REAL timeout kill, and the wrapper ladder under test
+# (`command -v gtimeout` then `command -v timeout`) resolves differently
+# on the two platforms: ubuntu has coreutils timeout, stock macOS and the
+# macos-14 runner have neither, which is precisely why install.sh carries
+# an empty-wrapper arm. The installer only ever runs on macOS. The gate
+# runs where the code runs. The test supplies its own shim and PROVES the
+# shim returns 124 before any assertion leans on it.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'lib/progress_emitter.sh'
+      - 'tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh'
+      - 'tests/test_gui_progress_emitter.sh'
+      - '.github/workflows/step-end-status-honesty.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Supersede in-flight runs for the same branch or PR.
+  # NEVER cancels main: a cancelled main run is a gate that did not report.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  step-end-honesty:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test extracts progress() and both hydrate sentinel recorders
+      # from install.sh and EXECUTES them, so it cannot pass against a
+      # copy of the logic. It carries its own positive control (a clean
+      # step must still close status=ok), so it cannot pass by the
+      # emitter being dead or by stamping everything not-ok.
+      - name: A step killed by its timeout must not report status=ok (#839)
+        run: /bin/bash tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
+
+      # if: always() so a failure above cannot silence this one. A skipped
+      # test reads as "no objection", which is the class of defect this
+      # workflow exists to remove.
+      - name: The emitter's existing marker contract still holds
+        if: always()
+        run: /bin/bash tests/test_gui_progress_emitter.sh
+
+      - name: Both files parse under /bin/bash 3.2 (the cut host's shell)
+        if: always()
+        run: |
+          /bin/bash --version | head -1
+          /bin/bash -n tests/test_step_end_does_not_report_a_timed_out_step_as_ok.sh
+          /bin/bash -n lib/progress_emitter.sh
+          /bin/bash -n install.sh
+          echo "OK: parses under the shell the cut actually uses"

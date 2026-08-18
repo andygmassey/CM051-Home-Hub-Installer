@@ -157,6 +157,12 @@ final class InstallerCoordinator: ObservableObject {
         case .none: return .running
         case .some(.ok): return .success
         case .some(.warn): return .success // warn surfaces in-line; not a failure transition
+        // #839: DONE never carries these two today (they are step-level
+        // statuses), but the enum is shared, so state the intent rather
+        // than leaving it to a default. A run that gave up waiting still
+        // reached the end; a run that errored did not.
+        case .some(.timeout): return .success
+        case .some(.error): return .failed(step: currentStepId)
         case .some(.fail): return .failed(step: currentStepId)
         }
     }
@@ -1605,7 +1611,11 @@ final class InstallerCoordinator: ObservableObject {
                 status: status,
                 elapsed: elapsed
             ))
-            appendLog(level: status == .ok ? "info" : "warn",
+            // #839: `isProblem` rather than `!= .ok` so a status added
+            // later is logged as a problem by default. The rc that
+            // produced a timeout/error is on the STEP_END marker itself
+            // and reaches the Log drawer through the raw line.
+            appendLog(level: status.isProblem ? "warn" : "info",
                       msg: "← \(id) (\(status.rawValue), \(elapsed)s)")
             OstlerLog.subprocess.info("event STEP_END id=\(id, privacy: .public) status=\(status.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)s")
         case .phase(let id, let title):
@@ -1738,10 +1748,10 @@ final class InstallerCoordinator: ObservableObject {
                 return .failure(message: "The installer stopped before it finished. Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
             }
             return .failure(message: "The installer stopped before it finished (exit \(exitCode)). Some steps did not run. Use Copy log and Try again, or contact support@ostler.ai.")
-        case .fail:
+        case .fail, .error:
             // install.sh already told us it failed. Honour it.
             return .confirmedFailure
-        case .warn:
+        case .timeout, .warn:
             // A terminal `warn` finish is treated as a (non-fatal)
             // completion; require a clean exit to call it success.
             if exitCode == 0 {
