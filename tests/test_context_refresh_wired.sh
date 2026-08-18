@@ -120,9 +120,17 @@ trap 'kill "${SERVER_PID:-}" 2>/dev/null || true; rm -rf "$WORKDIR"' EXIT
 
 # A synthetic loopback ical-server serving just enough for the people
 # section. Synthetic data only (Rule zero); no real records.
+#
+# It ENFORCES THE BEARER, because the real one does (v1.0.10 #200) and a
+# fixture that does not is how this whole chain stayed green while the
+# generator sent no Authorization header and never once produced a digest
+# on a real install. It also stands in for Oxigraph on POST /query so a
+# clean run here is genuinely clean rather than quietly degraded.
 cat > "$WORKDIR/fake_ical.py" <<'PYEOF'
 import json, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+EXPECTED_TOKEN = sys.argv[2]
 
 SUGGESTIONS = {
     "recent_meetings": [
@@ -130,23 +138,48 @@ SUGGESTIONS = {
          "organisation": "Northwind Labs", "last_contact": "2026-05-30"},
     ]
 }
+EMPTY_SPARQL = {"head": {"vars": []}, "results": {"bindings": []}}
 
 class H(BaseHTTPRequestHandler):
-    def do_GET(self):
-        path = self.path.split("?", 1)[0]
-        body = SUGGESTIONS if path == "/api/v1/suggestions" else {}
+    def _send(self, code, body):
         payload = json.dumps(body).encode()
-        self.send_response(200)
+        self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _authorised(self):
+        raw = self.headers.get("Authorization") or ""
+        return raw.startswith("Bearer ") and raw[7:].strip() == EXPECTED_TOKEN
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        # Mirrors the real _PUBLIC_GET_PATHS: /health needs no credential.
+        if path == "/health":
+            return self._send(200, {"status": "ok"})
+        if not self._authorised():
+            return self._send(
+                401, {"error": "Unauthorized: missing or invalid service token"})
+        return self._send(
+            200, SUGGESTIONS if path == "/api/v1/suggestions" else {})
+
+    def do_POST(self):
+        # Oxigraph stand-in: unauthenticated, deliberately empty.
+        n = int(self.headers.get("Content-Length") or 0)
+        if n:
+            self.rfile.read(n)
+        return self._send(200, EMPTY_SPARQL)
+
     def log_message(self, *a):
         pass
 
 port = int(sys.argv[1])
 HTTPServer(("127.0.0.1", port), H).serve_forever()
 PYEOF
+
+# Synthetic, fixed, obviously fake.
+FAKE_TOKEN="synthetic-service-token-for-tests-0000"
 
 # Pick a free port.
 PORT="$("$PYTHON_BIN" - <<'PYEOF'
@@ -158,7 +191,7 @@ s.close()
 PYEOF
 )"
 
-"$PYTHON_BIN" "$WORKDIR/fake_ical.py" "$PORT" &
+"$PYTHON_BIN" "$WORKDIR/fake_ical.py" "$PORT" "$FAKE_TOKEN" &
 SERVER_PID=$!
 
 # Wait for the server to accept connections (max ~3s).
@@ -182,23 +215,62 @@ done
 # OSTLER_DIR, bypasses any proxy for loopback, and runs the generator.
 # A live ical-server -> CONTEXT.md under
 # $OSTLER_DIR/assistant-config/workspace (the daemon's workspace dir).
+rc=0
 OSTLER_DIR="$WORKDIR" \
 OSTLER_ICAL_BASE_URL="http://127.0.0.1:$PORT" \
-    bash "$TICK"
+OXIGRAPH_URL="http://127.0.0.1:$PORT" \
+OSTLER_SERVICE_TOKEN="$FAKE_TOKEN" \
+    bash "$TICK" || rc=$?
 
 WS="$WORKDIR/assistant-config/workspace"
 [ -f "$WS/CONTEXT.md" ] \
     || fail "tick did not write CONTEXT.md into \$OSTLER_DIR/assistant-config/workspace ($WS)"
 grep -q "Jordan Blake" "$WS/CONTEXT.md" \
     || fail "CONTEXT.md did not include the synthetic person from the ical-server"
+[ "$rc" -eq 0 ] \
+    || fail "a fully-served run exited $rc, expected 0 (every source answered)"
 echo "functional check: tick wrote CONTEXT.md into the assistant-config/workspace dir (proxy bypassed)"
 
-# No-data path: server down -> exit 0, no file written (graceful no-op).
+# ---------------------------------------------------------------------------
+# 7. The exit code has to carry the verdict.
+#
+# This section used to assert the OPPOSITE -- that a run which produced
+# nothing exits 0, described as "a graceful no-op". That was the defect,
+# written down as a requirement and tested for. On a real v1.0.36 install
+# the generator produced zero of six sections on every tick, said so in a
+# log line naming two causes it had never measured, and returned 0, so
+# launchd, the Doctor and this test all reported success over a digest
+# that had never existed. Exit 2 now means "nothing produced".
+# ---------------------------------------------------------------------------
+rc=0
 OSTLER_DIR="$WORKDIR/down" \
 OSTLER_ICAL_BASE_URL="http://127.0.0.1:1" \
-    bash "$TICK"
+OXIGRAPH_URL="http://127.0.0.1:1" \
+OSTLER_SERVICE_TOKEN="$FAKE_TOKEN" \
+    bash "$TICK" || rc=$?
 [ ! -f "$WORKDIR/down/assistant-config/workspace/CONTEXT.md" ] \
-    || fail "tick wrote a digest when the ical-server was unreachable (should be a no-op)"
-echo "functional check: tick is a clean no-op when the ical-server is down"
+    || fail "tick wrote a digest when no source was reachable"
+[ "$rc" -ne 0 ] \
+    || fail "tick exited 0 after producing no digest at all -- this is the original defect"
+[ "$rc" -eq 2 ] \
+    || fail "expected exit 2 (nothing produced) when no source is reachable, got $rc"
+echo "functional check: a run that produces no digest exits non-zero (2), not 0"
+
+# And the same, for the reason that actually shipped: the server is UP and
+# answering, the credential is simply missing. This is the case the old
+# message misdiagnosed as "ical-server down".
+rc=0
+OSTLER_DIR="$WORKDIR/noauth" \
+OSTLER_ICAL_BASE_URL="http://127.0.0.1:$PORT" \
+OXIGRAPH_URL="http://127.0.0.1:$PORT" \
+OSTLER_SERVICE_TOKEN_FILE="$WORKDIR/no-such-token-file" \
+    bash "$TICK" > "$WORKDIR/noauth.out" 2>&1 || rc=$?
+[ "$rc" -ne 0 ] \
+    || fail "tick exited 0 with no service token; every /api/v1 read was 401"
+grep -q "HTTP 401" "$WORKDIR/noauth.out" \
+    || fail "the report does not name the 401 it observed: $(cat "$WORKDIR/noauth.out")"
+grep -q "ical-server down or empty graph" "$WORKDIR/noauth.out" \
+    && fail "the invented-cause message is back (the server was up and answering)"
+echo "functional check: an unauthenticated run fails loudly and names the measured 401"
 
 echo "PASS: context-refresh wiring guard (#608)"
