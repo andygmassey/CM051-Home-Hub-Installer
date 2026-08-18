@@ -1,0 +1,216 @@
+# cut-manifests/v1.0.35.yaml
+# ============================================================================
+# EVERY ASSERTION HERE IS A DECISION ABOUT v1.0.35.
+#
+# WHY v1.0.35 EXISTS: v1.0.34 BUILT A PERFECT DMG AND THREW IT AWAY.
+# ---------------------------------------------------------------------------
+# Not a re-cut of a broken build. v1.0.34's artefact was complete and correct
+# and nobody ever had it. Run 32093975602: notarised (Accepted), stapled, spctl
+# source=Notarized Developer ID at 03:10:04, then publish-appcast hard-failed
+# on an unset OSTLER_SPARKLE_SIGNING_KEY at 03:10:09. `make ship` returned
+# non-zero, so the verify step and the upload were both SKIPPED, and the
+# ephemeral runner was destroyed with the only copy on it. Artefact count: 0.
+#
+# The version was spent on step ORDERING, not on anything the DMG contained.
+#
+# WHAT THIS CUT CARRIES (unchanged content from v1.0.34, plus the cut-path fix)
+#   CM051 #808  the YouTube parser claimed three Facebook files and destroyed each
+#   CM051 #817  the WhatsApp parser ate 2,708 Facebook and Instagram message files
+#   CM051 #816  enrichment had NO invoker, so on a stock install it had never run
+#   CM051 #818  the ten-minute enrich stall was an unset allowance, not a timeout
+#   CM051 #820  a sweep that spent its whole allowance reported ENRICHMENT COMPLETE
+#   CM051 #823  the wiki page-count oracle
+#   CM051 #809  wiki re-pin to v0.1.18, the navigation fix
+#   HR015 #417  calendar could never widen past 365 days (grafted + re-pinned)
+#   CM051 #828  the artefact now outlives a red step
+#
+# THE PUBLISH STEP IS EXPECTED TO END RED, AND THAT IS THE DESIGN
+# ---------------------------------------------------------------------------
+# Measured on this repo, secret NAMES only: OSTLER_SPARKLE_SIGNING_KEY is not
+# among the seven Actions secrets. The hard-require fires, the step fails, the
+# job goes red -- with the DMG already uploaded, because #828 moved the upload
+# in front of it. A red run that hands back a complete artefact is exactly what
+# #828 was built to produce. It is NOT a failed cut. The appcast remains a
+# known dark surface tracked at #370 until Andy answers the signing-key
+# question, and nothing in this cut works around that.
+#
+# NOT ASSERTED HERE, DELIBERATELY
+# ---------------------------------------------------------------------------
+# 1. That the wiki RENDERS its navigation. #809 got the CSS into the image the
+#    installer pulls; nobody has opened the fixed wiki in a browser. Box-walk.
+# 2. That enrichment PRODUCES enrichment. The entries below prove the invoker
+#    exists and is called; whether a LaunchAgent fires on a real Mac and writes
+#    facts is behaviour, and behaviour is what the walk is for.
+# 3. That the calendar ladder WIDENS on a real box. #417 is content-verified in
+#    the vendored tree and its rungs are asserted below, but the widening
+#    happens across successive ticks on a customer machine over weeks.
+# 4. That the appcast published. It did not, by design. See above.
+version: v1.0.35
+entries:
+  # --------------------------------------------------------------------------
+  # THE WIKI IMAGES. Two entries, because the two images are pinned on separate
+  # lines and a single assertion passes with one left on v0.1.17 -- the
+  # half-shipped state v1.0.32 was in. Anchored on the FULL 64-hex digest.
+  # --------------------------------------------------------------------------
+  - id: v1035-wiki-site-is-v0118
+    title: install.sh pins the wiki-site image that carries the navigation fix
+    incident: >-
+      CM044 #210 (bf5dfe68) is the fix for the missing wiki navigation and v0.1.17
+      predates it by exactly one commit, so the fix was merged and the image every
+      install pulls did not contain it. Andy raised the missing navigation twice.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-site@sha256:635e3ee7cacdc31252b52771600e337e5c9ec649e0c0c6f982395d40a63f3670'
+      must_match: true
+
+  - id: v1035-wiki-compiler-is-v0118
+    title: install.sh pins the wiki-compiler image from the same v0.1.18 source
+    incident: >-
+      The compiler and the site are pinned on different lines and have drifted apart
+      before. Both must come from CM044 bf5dfe68 or the rendered wiki and the compiler
+      that produced it disagree about what the page template is.
+    proof:
+      kind: grep_in_installer
+      pattern: 'ostler-wiki-compiler@sha256:c6a207fc727940edcb5263748698a5d9565e39290e1c571439b57b0096e2ad1f'
+      must_match: true
+
+  - id: v1035-no-v0117-wiki-pin-survives
+    title: no v0.1.17 wiki digest is left anywhere in install.sh
+    incident: >-
+      A re-pin that edits one of two lines leaves the other live, and the failure is
+      silent because both lines are individually well-formed. Measured at 0 hits, so
+      this discriminates rather than passing vacuously.
+    proof:
+      kind: grep_in_installer
+      pattern: 'sha256:(510ffc6a561a5087373558994199121ababd1b7b6aa37f8f82082e3721fd413a|21c59bdf1fc6032ef6efc4ba008d3b30404519fc6b196f86daa5a13514669c6e)'
+      must_match: false
+
+  # --------------------------------------------------------------------------
+  # THE FIX THAT WOULD HAVE CAUGHT ANDY'S LAST BOX.
+  # --------------------------------------------------------------------------
+  - id: v1035-wiki-compile-has-a-page-count-oracle
+    title: install.sh counts the wiki pages instead of trusting the compiler's exit code
+    incident: >-
+      On Andy's last box the wiki compiled zero pages while the install reported 39/39
+      green. CM044 discards its own result, so a total compile failure exits 0 too. The
+      count is -type f, so a tree of empty directories counts zero rather than reading
+      as a built wiki.
+    proof:
+      kind: grep_in_installer
+      pattern: 'WIKI_PAGE_COUNT="\$\(find "\$WIKI_DOCS_DIR" -type f'
+      must_match: true
+
+  - id: v1035-zero-pages-is-reported-as-not-built
+    title: a zero-page compile is stated as NOT built, not summarised as green
+    incident: >-
+      Counting is only half an oracle; the count has to change what the installer SAYS.
+      Without this the number is printed and the step still reads green, which is the
+      walk-past that produced the original 39/39.
+    proof:
+      kind: grep_in_installer
+      pattern: 'produced ZERO pages under'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # ENRICHMENT. Presence AND invocation; behaviour is a walk item.
+  # --------------------------------------------------------------------------
+  - id: v1035-enrichment-has-an-invoker
+    title: the installer registers a recurring enrichment invoker
+    incident: >-
+      There was exactly ONE invocation of enrichment in the entire product, inside
+      bin/ostler-import, which runs only when a GDPR export is dropped. On a Mac where
+      the customer never drops one, enrichment had never run and never would.
+    proof:
+      kind: grep_in_installer
+      pattern: '_install_enrichment_agent\(\)'
+      must_match: true
+
+  - id: v1035-enrichment-invoker-is-actually-called
+    title: the enrichment invoker is INVOKED, not merely defined
+    incident: >-
+      Raised in review of the v1.0.34 record. Matching only the DEFINITION would stay
+      green if the single call site were deleted, restoring exactly the defect #816
+      fixed: enrichment present in the product and reached by nothing. The call is a
+      bare invocation, so it needs its own multiline-anchored pattern.
+    proof:
+      kind: grep_in_installer
+      pattern: '(?m)^\s*_install_enrichment_agent\s*$'
+      must_match: true
+
+  # --------------------------------------------------------------------------
+  # THE CALENDAR LADDER (#417), grafted into vendor/ostler_fda for this cut.
+  # --------------------------------------------------------------------------
+  - id: v1035-calendar-ladder-rungs-survived-the-graft
+    title: the calendar backfill ladder ships with its explicit rungs
+    incident: >-
+      Calendar was the only backfillable source with a hardcoded window, so a recurring
+      tick re-requested the same 365 days forever and a customer's older meetings were
+      unreachable short of editing shipped source. install.sh tells the reader we walk
+      five years. THE RUNGS ARE THE PART A GRAFT DROPS SILENTLY: DEFAULT_LADDER opens
+      at 45 days to bound iMessage inference cost, and calendar is a straight EventKit
+      read, so falling through to the default would have REGRESSED day one from 365 to
+      45 -- a customer-visible regression inside a fix, green throughout. Asserted on
+      the rungs themselves, not on the function name.
+    proof:
+      kind: grep_in_dmg_tree
+      target: installer-tree
+      path: vendor/ostler_fda/extract_all.py
+      pattern: 'ladder=\[365, 730, 1825\]'
+      must_match: true
+
+  # THE NEGATIVE HALF IS DELIBERATELY NOT ASSERTED, AND THE REASON IS ITSELF
+  # A FINDING. An entry asserting `extract_events(since_days=365,` is ABSENT
+  # cannot discriminate here: grep_in_dmg_tree scans install.sh too, and
+  # install.sh:18831 carries that exact string inside a COMMENT documenting the
+  # defect -- "limb 2 vendor/ostler_fda/extract_all.py:502 calls
+  # extract_events(since_days=365, future_days=30) with the 365 HARDCODED ...
+  # NOT fixed here". Prose describing a bug is indistinguishable from the bug
+  # to a text scan, so the assertion would fail forever on a correct tree.
+  #
+  # THAT COMMENT IS NOW STALE: #417 IS grafted, so "NOT fixed here" is false and
+  # the next reader will believe calendar is still hardcoded. Filed rather than
+  # edited, because touching install.sh moves the shipping blob and forces a
+  # re-pin of cuts/v1.0.35/cut.env on the cut Andy is waiting for, to correct a
+  # comment that misleads engineers rather than customers. Fix it first thing
+  # in v1.0.36.
+  # --------------------------------------------------------------------------
+  # Carried forward. An unchanged claim still has to be measured.
+  # --------------------------------------------------------------------------
+  - id: v1035-payload-carries-the-0458-daemon
+    title: the shipped payload is the hub-v0.4.58 daemon, in lockstep with the Hub app
+    incident: >-
+      v1.0.31 moved this line and had to move the pins naming the daemon with it or ship
+      halves of two builds: install.sh's DEFAULT_ASSISTANT_TARBALL_SHA256 held the
+      previous digest while the version string had advanced, and a customer install
+      would have fetched the new tarball and aborted on its own fail-closed checksum.
+      This cut rebuilds no daemon, so the pair is re-measured rather than assumed to
+      have stayed together: gui/Makefile, install.sh's version, install.sh's tarball
+      checksum and the PUBLISHED hub-v0.4.58 .sha256 sidecar all read d4f274cb.
+    proof:
+      kind: payload_version_matches_daemon_version
+
+  - id: v1035-hub-app-reaches-the-artefact
+    title: the shipped installer actually carries Ostler.app
+    incident: >-
+      v1018-D668: a missing Hub app was non-fatal, so a Hub-less DMG shipped with every
+      step green. Re-asserted every cut because "the DMG contains the Hub" is only ever
+      true of an artefact somebody opened.
+    proof:
+      kind: file_exists_in_artefact
+      target: daemon-app
+      path: Contents/MacOS/ostler-hub
+
+  - id: v1035-installer-version-stamp
+    title: the shipped OstlerInstaller.app declares 1.0.35
+    incident: >-
+      Task #171 records the build pipeline failing to bump CFBundleShortVersionString on
+      a cut, shipping an installer that reports the previous version to the customer and
+      to support. CFBundleVersion moves WITH it, 3400 to 3500, because that is the field
+      SPARKLE COMPARES: an update whose build number is at or below the installed one is
+      skipped SILENTLY. All ten sites moved together and the derivation gate was run.
+    proof:
+      kind: plist_key_equals
+      target: installer-app
+      path: Contents/Info.plist
+      key: CFBundleShortVersionString
+      value: "1.0.35"
