@@ -154,9 +154,37 @@ verify-dmg-contents|SKIP|a CHECK, but it mounts the DMG. No DMG, nothing to moun
 verify-stapling|SKIP|a CHECK, but it mounts the DMG.
 verify-commit-parity|SKIP|a CHECK, but it mounts the DMG.
 archive|SKIP|copies the shipped DMG into the operator archive dir. That is publishing. Excluded by construction.
-publish-appcast|SKIP|PUBLISHES to the customer-facing Sparkle feed, so it is excluded by construction twice over. It is the last prerequisite of `ship:` and it is the one a dispatch must never be able to reach. It is also air-gapped by design: RELEASE_PROCESS.md gpg-decrypts the Sparkle private key from a USB volume and stops on a failed verify, which is why `make ship` calling it at all is the deliberate part and running it here would be the hand-cut the header refuses.
 PLAN
 }
+
+# WHERE publish-appcast WENT, AND WHY IT IS NOT A ROW ANY MORE.
+#
+# It used to be the last prerequisite of `ship:`, and it had a SKIP row here
+# saying so. #828 took it OUT of `ship:` because being there destroyed
+# v1.0.34: a finished, notarised, stapled DMG existed for five seconds and was
+# torn down with the runner when this step failed on an unset signing key,
+# before the upload could run. It is now invoked directly by the cut workflow,
+# AFTER the artefact has been uploaded.
+#
+# So the row had to go, and NOT because it stopped mattering. This plan
+# reconciles one-to-one against `ship:`'s actual prerequisites, and a row
+# naming something that is no longer one is a phantom -- which validate_plan
+# correctly refuses with CANNOT RUN rather than quietly reporting a denominator
+# that describes a Makefile we no longer have. That refusal is what surfaced
+# this, on the dispatch immediately before the v1.0.35 tag.
+#
+# THE PROPERTY THE ROW USED TO CARRY IS UNCHANGED, and it is now enforced
+# structurally rather than by a skip verdict. A dispatch cannot reach the
+# publish for two independent reasons:
+#   1. It is not in `ship:`, so nothing this script walks can invoke it.
+#   2. It lives in the `cut` job, which is `if: github.event_name == 'push'`,
+#      while this runs in `dry-run`, which is
+#      `if: github.event_name == 'workflow_dispatch'`. The two are disjoint.
+# scripts/verify_dispatch_cannot_ship.py asserts the second one directly.
+#
+# The air-gap note is worth keeping too: RELEASE_PROCESS.md gpg-decrypts the
+# Sparkle private key from a USB volume and stops on a failed verify, so even
+# a reachable publish could not sign one here.
 
 tier2_plan() {
 cat <<'PLAN'
