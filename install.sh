@@ -8357,9 +8357,58 @@ else
     # ensure_colima_running()), and the bare LaunchAgent is intentionally NOT
     # created here. The install-time `colima start` above still runs under the
     # installer's own FDA, which is correct for the first install; steady-state
-    # reboot start is the daemon's job. Upgrade cleanup of any pre-existing
-    # com.ostler.colima agent lives in the LaunchAgent teardown section below.
+    # reboot start is the daemon's job.
+    #
+    # CORRECTED 2026-08-18: this comment used to end "Upgrade cleanup of any
+    # pre-existing com.ostler.colima agent lives in the LaunchAgent teardown
+    # section below", and that was never true. The only bootout of that label
+    # sits inside the `cat > ostler-uninstall <<'UNINSTALLEOF'` heredoc, so
+    # install.sh WRITES it into the uninstaller and never RUNS it. An upgrade
+    # therefore left the FDA-less agent in place. The real removal now happens
+    # immediately after this block; see the section below the `fi`.
 fi
+
+# ── 3.2b Remove any stale FDA-less Colima LaunchAgent ──────────────
+#
+# An install upgrading from before v1.0.10 still has
+# ~/Library/LaunchAgents/com.ostler.colima.plist on disk. That agent
+# runs `colima start` directly from launchd, which means NO Full Disk
+# Access, which means Colima cannot mount ~/Documents, which means the
+# wiki-site and wiki-compiler binds
+#   ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}...
+# fail and the wiki dies on every reboot. That is the exact Group C
+# failure the agent was deleted to fix (6723acc).
+#
+# Leaving it also RACES the daemon: whichever of the two reaches
+# `colima start` first wins, so an upgraded box could come up with an
+# FDA-less VM even though the daemon was ready to start a correct one.
+#
+# WHY THIS IS NOT IN THE UNINSTALLER'S REGISTER: that register runs when
+# the customer removes Ostler. This has to run when they KEEP it. The
+# comment above claimed the uninstaller's copy covered upgrades for four
+# weeks; it is inside a quoted heredoc and has never executed at install
+# time.
+#
+# Unconditional and outside the HAS_DOCKER branch on purpose: a box that
+# now uses Docker Desktop can still carry the stale agent from when it
+# used Colima, and that agent is just as wrong there.
+_STALE_COLIMA_LABEL="com.ostler.colima"
+_STALE_COLIMA_PLIST="${HOME}/Library/LaunchAgents/${_STALE_COLIMA_LABEL}.plist"
+if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
+    info "$MSG_INFO_REMOVING_STALE_COLIMA_LAUNCHAGENT"
+    # bootout is not removal (#706): unload the running job AND delete the
+    # file, or launchd re-bootstraps it at the next login and the agent is
+    # back with the same missing FDA.
+    launchctl bootout "gui/$(id -u)/${_STALE_COLIMA_LABEL}" 2>/dev/null || \
+        launchctl unload "$_STALE_COLIMA_PLIST" 2>/dev/null || true
+    rm -f "$_STALE_COLIMA_PLIST"
+    if [[ -f "$_STALE_COLIMA_PLIST" ]]; then
+        warn "$MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED"
+    else
+        ok "$MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED"
+    fi
+fi
+unset _STALE_COLIMA_LABEL _STALE_COLIMA_PLIST
 
 # ── 3.3 Ollama ─────────────────────────────────────────────────────
 
