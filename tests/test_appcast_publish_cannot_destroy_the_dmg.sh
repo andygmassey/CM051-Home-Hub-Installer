@@ -291,6 +291,11 @@ for s in steps:
     if 'Verify the artefact' in n or 'upload-artifact' in n:
         if str(s.get('if', '')).strip() != 'always()':
             bad.append('%s (if=%s)' % (n[:52], s.get('if', '<none>')))
+    # A swallowed publish failure is task #370 wearing a green tick: the
+    # publisher does not run and the job still reports success. The repo has no
+    # OSTLER_SPARKLE_SIGNING_KEY secret, so that would be EVERY cut.
+    if 'appcast publish' in n and s.get('continue-on-error'):
+        bad.append('%s (continue-on-error swallows a dark appcast)' % n[:52])
 print('|'.join(bad))
 PYEOF
 )" || cap="CANNOT"
@@ -301,14 +306,22 @@ PYEOF
     else
         FAIL=1
         echo >&2
-        echo "  [FAIL] a DMG-capture step is conditional on everything before it succeeding:" >&2
+        echo "  [FAIL] the cut can lose evidence or hide a dark appcast:" >&2
         printf '    %s\n' "$cap" | tr '|' '\n' >&2
         echo >&2
-        echo "  With no 'if: always()', GitHub runs these only when every prior step" >&2
+        echo "  Two distinct defects share this check, and the line above says which." >&2
+        echo >&2
+        echo "  CAPTURE (if=<none>): with no 'if: always()', GitHub runs these only" >&2
+        echo "  when every prior step" >&2
         echo "  passed -- so one unrelated red discards a notarised, stapled DMG with" >&2
         echo "  the ephemeral runner. That is v1.0.26 and v1.0.34, twice, same shape," >&2
         echo "  different triggers. Both steps need it: staging happens INSIDE the" >&2
         echo "  verify step, so guarding one without the other captures nothing." >&2
+        echo >&2
+        echo "  SWALLOWED PUBLISH (continue-on-error): the job reports SUCCESS while" >&2
+        echo "  the appcast was never published. This repo has no" >&2
+        echo "  OSTLER_SPARKLE_SIGNING_KEY secret, so the hard-require fires on EVERY" >&2
+        echo "  cut -- a permanent green lie. That is task #370 with a tick on it." >&2
     fi
 fi
 

@@ -675,18 +675,46 @@ jobs:
       # appcast is a POST-SHIP act -- it advertises a build to customers, which
       # is meaningless before the build is retrievable.
       #
-      # `if: always()` so a publish failure is reported without pretending the
-      # cut failed: by this point the DMG is uploaded and the cut HAS produced
-      # its artefact. continue-on-error keeps the job's conclusion honest about
-      # the DMG while the step's own red still shows.
+      # `if: always()` so the publish is attempted even when an earlier step
+      # went red -- by this point the DMG is already uploaded, so there is
+      # nothing left to protect it from.
       #
-      # NOT SOFTENED: PUBLISH_APPCAST keeps its hard-require. #776 exists
-      # because #370 was dark -- nothing called the publisher -- and turning the
-      # hard-require into a warning would put it straight back in the dark. The
-      # fix is WHERE it runs, not WHETHER it is enforced.
+      # DELIBERATELY NOT continue-on-error, AND THIS WAS A REVIEW CATCH.
+      #
+      # An earlier draft carried it, reasoning that a publish failure should
+      # not make the job red when the DMG is safely uploaded. That inverts
+      # which honesty is scarce. The JOB CONCLUSION is what every downstream
+      # tool reads programmatically; a step-level red that no API field
+      # surfaces is a decoration, not a signal.
+      #
+      # MEASURED on this repo, secret NAMES only: the seven Actions secrets are
+      # CM051_RELEASES_READ, OSTLER_GH_TOKEN_ANDYGMASSEY, OSTLER_NOTARY_ISSUER,
+      # OSTLER_NOTARY_KEY, OSTLER_NOTARY_KEY_ID, OSTLER_SIGNING_CERT_P12 and
+      # OSTLER_SIGNING_CERT_PASSWORD. OSTLER_SPARKLE_SIGNING_KEY IS NOT AMONG
+      # THEM. So with continue-on-error the env would resolve empty, the
+      # hard-require would fire, the step would exit 1, the failure would be
+      # swallowed, and the job would report SUCCESS with no appcast published
+      # -- on every cut, until somebody noticed. That is task #370 restored
+      # exactly (the publisher does not run and nothing tells you), except
+      # wearing a green tick, which is strictly worse than today's behaviour
+      # because today it at least screams.
+      #
+      # continue-on-error was only ever load-bearing while a late failure could
+      # destroy the artefact. The unconditional upload above removes that
+      # constraint, so a publish failure can now fail the job honestly and cost
+      # nothing but a red tick and a diagnosis. Late failures are safe now, so
+      # they no longer need hiding. That is this PR's own thesis applied to its
+      # last step.
+      #
+      # THE CONSEQUENCE IS REAL AND IT IS THE RIGHT TRADE: until the signing-key
+      # question is answered, EVERY cut ends red on this step and still hands
+      # back a complete, notarised, stapled, uploaded DMG.
+      #
+      # PUBLISH_APPCAST keeps its hard-require. #776 exists because #370 was
+      # dark; softening it to a warning would put it straight back. The fix is
+      # WHERE it runs, not WHETHER it is enforced.
       - name: AU-1 appcast publish (post-upload, cannot destroy the artefact)
         if: always()
-        continue-on-error: true
         env:
           OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
         run: make -C gui publish-appcast
