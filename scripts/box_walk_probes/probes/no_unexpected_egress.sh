@@ -192,6 +192,39 @@ is_ours() {
     [ "$(printf '%s' "$1" | grep -cE "$OSTLER_OURS_PATH_RE")" -gt 0 ]
 }
 
+# attribution_of <ancestor-chain> -> ours | third-party | unattributable
+#
+# THREE STATES, AND THE THIRD ONE IS THE POINT. is_ours() answers a yes/no
+# question, and a yes/no answer cannot distinguish "this is definitely somebody
+# else's process" from "I could not find out whose process this is". Before this
+# function existed, both landed in the same bucket and the report described that
+# bucket, in words, as "the operator's own processes".
+#
+# THE FAILURE IS BIASED TOWARDS EXONERATING US, which is what makes it worse
+# than a coin flip. sample_sockets() builds the chain by walking `ps` from the
+# socket-holder upwards, AFTER lsof has already listed the socket. A process
+# that exits in that window yields an empty chain -- and the processes most
+# likely to exit in a sub-second window are exactly ours: the short-lived curl
+# and python3 calls the installer and the ingest ticks are built out of. A
+# long-running browser is still there when the walk happens. So the sockets this
+# probe silently reassigned to the customer were disproportionately the ones it
+# was built to watch.
+#
+# An unattributable socket is NOT evidence of a leak. It is the absence of
+# evidence either way, and it has to be counted and printed as such, because a
+# blind spot that is not reported reads exactly like a clean result.
+#
+# A chain of only separators (":", ":::") means every `ps` in the walk returned
+# empty -- raced or permission-denied -- so it is unattributable too, not a
+# third party with a funny name.
+attribution_of() {
+    local chain="${1:-}"
+    case "$(printf '%s' "$chain" | tr -d ': \t')" in
+        "") printf 'unattributable\n'; return 0 ;;
+    esac
+    if is_ours "$chain"; then printf 'ours\n'; else printf 'third-party\n'; fi
+}
+
 is_outside_boundary() {   # $1 = remote address:port
     local host="${1%:*}"
     printf '%s' "$host" | grep -qE "$OSTLER_EGRESS_ALLOWED_RE" && return 1
@@ -225,17 +258,46 @@ run_probe() {
     # old code did the reverse and that is the defect this change exists to
     # fix, so the direction of this grep is the load-bearing character in the
     # file: -vE, not -E.
-    local foreign_n
-    ours="$(printf '%s\n' "$all" | while IFS=$'\t' read -r c p r path; do is_ours "${path:-}" && printf '%s\t%s\t%s\t%s\n' "$c" "$p" "$r" "$path"; done || true)"
+    # THREE BUCKETS. The third one is the fix: a socket whose owner we could not
+    # resolve is NOT the operator's, it is UNKNOWN, and it is counted and named
+    # as unknown. See attribution_of() for why conflating the two was biased
+    # towards clearing us rather than towards a false alarm.
+    local third_n unattrib unattrib_n
+    ours="$(printf '%s\n' "$all" | while IFS=$'\t' read -r c p r path; do
+        [ "$(attribution_of "${path:-}")" = ours ] && printf '%s\t%s\t%s\t%s\n' "$c" "$p" "$r" "$path"
+    done || true)"
+    unattrib="$(printf '%s\n' "$all" | while IFS=$'\t' read -r c p r path; do
+        [ "$(attribution_of "${path:-}")" = unattributable ] && printf '%s\t%s\t%s\n' "$c" "$p" "$r"
+    done || true)"
     ours_n="$(printf '%s' "$ours" | grep -c . )"
-    foreign_n=$((total_sockets - ours_n))
+    unattrib_n="$(printf '%s' "$unattrib" | grep -c . )"
+    third_n=$(( total_sockets - ours_n - unattrib_n ))
 
-    probe_examined "${ours_n:-0}" "established connections examined (of ${total_sockets} on the box; ${foreign_n} excluded as the operator's own processes)"
+    probe_examined "${ours_n:-0}" "established connections examined (of ${total_sockets} on the box; ${third_n} attributed to the operator's own processes; ${unattrib_n} UNATTRIBUTABLE)"
+
+    # Print them. An unreported blind spot is indistinguishable from a clean run,
+    # which is the whole complaint this change answers.
+    if [ "${unattrib_n:-0}" -gt 0 ]; then
+        probe_note "UNATTRIBUTABLE (owner could not be resolved; may be ours, may not):"
+        printf '%s\n' "$unattrib" | while IFS=$'\t' read -r c p r; do
+            [ -n "${c:-}" ] && printf '    %s (pid %s) -> %s\n' "$c" "$p" "$r"
+        done
+    fi
 
     if [ "${ours_n:-0}" -eq 0 ]; then
         # Honest: this is not a pass. Nothing attributable to us was running,
         # so nothing about our egress was measured.
         probe_cannot_run "every established connection on the box belonged to a process named in the operator-process exclusion list. Nothing attributable to Ostler was observed, so this run says nothing about its egress. Start the product and re-run."
+    fi
+
+    # THE BLIND-SPOT CEILING. If we could not attribute more sockets than we
+    # could, the examined set is not a representative floor and a PASS off it
+    # would be a guess dressed as a measurement. Deliberately a ratio and not
+    # "any unattributable at all": a single raced short-lived process is normal
+    # on a busy box, and a probe that refuses to run on one is a probe nobody
+    # keeps. The threshold is stated so it can be argued with.
+    if [ "${unattrib_n:-0}" -gt "${ours_n:-0}" ]; then
+        probe_cannot_run "more sockets were UNATTRIBUTABLE (${unattrib_n}) than were attributable to Ostler (${ours_n}). The examined set is not a floor worth reporting: the processes that race the ps-walk are disproportionately short-lived ones like ours. Re-run when the box is quieter, or raise OSTLER_EGRESS_SAMPLES."
     fi
 
     outside=""
@@ -253,7 +315,10 @@ run_probe() {
         probe_fail "$(printf '%s' "$outside" | grep -c .) attributable connection(s) to destinations outside the declared boundary. Each one is either a claim that needs correcting or a defect that needs fixing; neither is resolved by leaving it unreported."
     fi
 
-    probe_pass "all ${ours_n} examined established connections were inside the declared boundary, across ${SAMPLES} samples. This is a floor, not a proof of no leak -- see the BLIND TO line above."
+    # The PASS line CARRIES the blind-spot count. A verdict that states its own
+    # denominator and its own unknowns cannot be quoted as "clean" by someone
+    # reading only the last line, which is how a floor gets promoted to a proof.
+    probe_pass "all ${ours_n} examined established connections were inside the declared boundary, across ${SAMPLES} samples, with ${unattrib_n} socket(s) unattributable. This is a floor, not a proof of no leak -- see the BLIND TO line above."
 }
 
 # ---------------------------------------------------------------------------

@@ -104,6 +104,66 @@ rc="$(classify "$TMP/nope.tsv")"
 [ "$rc" = 2 ] && ok "absent fixture -> CANNOT-RUN (rc=2)" || no "absent fixture gave rc=$rc"
 
 echo
+
+# ---------------------------------------------------------------------------
+# 4-7. THE THIRD STATE. attribution_of() must distinguish "definitely not ours"
+#      from "could not tell", because conflating them silently reassigned our
+#      own short-lived sockets to the customer.
+#
+#      These EXTRACT AND RUN the real function out of the probe rather than
+#      restating it, so the controls cannot pass against a copy that has
+#      drifted from the shipped one.
+# ---------------------------------------------------------------------------
+ATTR_SRC="$TMP/attr.sh"
+{
+  sed -n '/^OSTLER_OURS_PATH_RE=/p'            "$PROBE"
+  sed -n '/^is_ours() {/,/^}/p'                "$PROBE"
+  sed -n '/^attribution_of() {/,/^}/p'         "$PROBE"
+} > "$ATTR_SRC"
+
+if ! grep -q '^attribution_of() {' "$ATTR_SRC"; then
+    no "could not extract attribution_of() from the probe -- these controls examined NOTHING" "$(wc -l < "$ATTR_SRC") lines extracted"
+else
+  # shellcheck disable=SC1090
+  . "$ATTR_SRC"
+
+  # A REAL chain shape. `ps -o comm=` returns the full executable path on
+  # macOS, and every alternative in OSTLER_OURS_PATH_RE is anchored on a
+  # leading '/'. An earlier version of this arm used a bare command name and
+  # failed -- correctly. The fixture was wrong, not the regex, and the arm
+  # discriminating between those two is the reason it is worth having.
+  got="$(attribution_of ':/Users/runner/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant:/sbin/launchd')"
+  [ "$got" = ours ] && ok "4 ours: a real full-path chain naming our binary is attributed to us" \
+                     || no "4 ours: expected 'ours', got '$got'"
+
+  got="$(attribution_of ':Google Chrome:launchd')"
+  [ "$got" = third-party ] && ok "5 third-party: a RESOLVED foreign chain stays the operator's" \
+                            || no "5 third-party: expected 'third-party', got '$got'"
+
+  # THE DEFECT. Empty chain = the ps-walk lost the race. Old code: is_ours -> 1
+  # -> counted in foreign_n -> printed as "the operator's own processes".
+  got="$(attribution_of '')"
+  [ "$got" = unattributable ] && ok "6 RED-BEFORE-FIX: an EMPTY chain is unattributable, not the operator's" \
+                               || no "6 an empty chain returned '$got' -- it is being silently reassigned to the customer"
+
+  # Separator-only: every ps in the walk returned empty (raced/denied).
+  got="$(attribution_of ':::')"
+  [ "$got" = unattributable ] && ok "7 RED-BEFORE-FIX: a separator-only chain is unattributable, not a third party" \
+                               || no "7 a ':::' chain returned '$got'"
+
+  # ---------------------------------------------------------------------------
+  # 8. THE OLD PREDICATE MUST GO GREEN ON THE SAME FIXTURES. Without this the
+  #    arms above prove only that the new code agrees with itself.
+  # ---------------------------------------------------------------------------
+  old_says_not_ours=0
+  for chain in '' ':::'; do
+      is_ours "$chain" || old_says_not_ours=$((old_says_not_ours+1))
+  done
+  [ "$old_says_not_ours" -eq 2 ] \
+      && ok "8 CONTROL: is_ours() returns false for BOTH unattributable shapes, which is exactly how they were binned as the customer's" \
+      || no "8 CONTROL FAILED: is_ours() did not return false for both -- the premise of this fix is wrong"
+fi
+
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ] || exit 1
 echo "ALL EGRESS ATTRIBUTION CONTROLS PASSED"
