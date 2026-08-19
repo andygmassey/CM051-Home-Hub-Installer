@@ -4708,7 +4708,7 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
                 case "${_early_mail_answer:-n}" in
                     y|Y|yes|YES|Yes)
                         ok "$MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS"
-                        open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                        open "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension" 2>/dev/null || true
                         ;;
                     *)
                         ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
@@ -16183,11 +16183,12 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         case "${_mail_remediation_answer:-n}" in
             y|Y|yes|YES|Yes)
                 ok "$MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS"
-                # System Settings deep-link reliably opens the
-                # Internet Accounts pane on macOS 13+; older macOS
-                # versions silently fall back to the top-level pane,
-                # which is acceptable for v1.0.
-                open "x-apple.systempreferences:com.apple.preferences.internetaccounts" 2>/dev/null || true
+                # Modern System Settings deep-link (macOS 13+ scheme).
+                # The legacy com.apple.preferences.internetaccounts URL
+                # stopped navigating on Ventura+; the .extension form
+                # opens the Internet Accounts pane. Older macOS silently
+                # falls back to the top-level pane, acceptable for v1.0.
+                open "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension" 2>/dev/null || true
                 ;;
             *)
                 ok "$MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS"
@@ -16992,6 +16993,11 @@ else
                     _fda_probe_pid=$!
                     ( sleep 15; kill -TERM "$_fda_probe_pid" 2>/dev/null ) &
                     _fda_probe_killer=$!
+                    # v1.0.11: disown the watchdog so that TERM-ing it below
+                    # (the common fast-path where the probe finished early)
+                    # does not print an async "Terminated: 15" job-control
+                    # notice to the user. kill-by-PID still works post-disown.
+                    disown 2>/dev/null || true
                     wait "$_fda_probe_pid" 2>/dev/null || true
                     kill -TERM "$_fda_probe_killer" 2>/dev/null || true
                 fi
@@ -18596,6 +18602,42 @@ remove_self() {
     rm -f "$PLIST" "$TRIES_FILE"
 }
 
+# v1.0.11 single-instance guard. A whole-graph converge takes 20-40 min on a
+# large address book, but this agent's StartInterval fires every ~10 min --
+# and launchd can fire several accumulated StartInterval ticks at once when
+# the Mac wakes from sleep. Without a mutex, overlapping converge passes
+# stacked and drove system load from ~5 to ~12. macOS ships no flock(1), so
+# use an atomic mkdir as a portable, dependency-free lock. Stale-lock
+# recovery: if the recorded holder PID is gone, reclaim it so a crashed tick
+# can never wedge the agent permanently.
+LOCK_DIR="${STATE_DIR}/dedupe-catchup.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    _lock_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || echo '')"
+    # NIT-1 (v1.0.11): an EMPTY pid means a holder just won the mkdir but
+    # hasn't recorded its pid yet (the mkdir -> atomic pid-write window
+    # below); a LIVE pid means it is genuinely still converging. In both
+    # cases another instance owns the lock, so skip -- never reclaim on an
+    # empty pid, or two ticks each conclude the other is "stale" and
+    # converge in parallel (the exact pileup this lock prevents). `-z`
+    # short-circuits so we never call `kill -0` with an empty argument.
+    if [[ -z "$_lock_pid" ]] || kill -0 "$_lock_pid" 2>/dev/null; then
+        log "another dedupe catch-up (pid ${_lock_pid:-starting}) holds the lock; skipping this tick"
+        exit 0
+    fi
+    log "reclaiming stale dedupe catch-up lock (holder pid ${_lock_pid} gone)"
+    rm -rf "$LOCK_DIR"
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        log "could not acquire dedupe catch-up lock after reclaim; skipping this tick"
+        exit 0
+    fi
+fi
+# NIT-1 (v1.0.11): record our pid ATOMICALLY -- write to pid.tmp then
+# mv into place -- so a racing tick never reads a half-written / empty
+# pid file and mis-reclaims a live lock. `mv` within the same dir is
+# atomic; the pid file, once present, is always a complete pid.
+printf '%s' "$$" >"${LOCK_DIR}/pid.tmp" && mv -f "${LOCK_DIR}/pid.tmp" "${LOCK_DIR}/pid"
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
 # Already converged (install finished it, or a previous tick did): nothing
 # left to do; remove the agent.
 if [[ -f "$DONE_MARKER" ]]; then
@@ -20047,6 +20089,12 @@ if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python
         # work done so far is lost.
         if [[ "$_DEDUPE_WAITED" -ge "$_DEDUPE_BUDGET_S" ]] && kill -0 "$_DEDUPE_PID" 2>/dev/null; then
             _DEDUPE_TIMED_OUT=true
+            # v1.0.11: disown BEFORE killing so job-control does not print an
+            # async "Terminated: 15" to the user. Only done on the timeout
+            # path — the success path leaves the job in the table so the
+            # `wait "$_DEDUPE_PID"` below can still read its real exit status.
+            # The timeout-path wait is `|| true`, so it needs no status.
+            disown 2>/dev/null || true
             kill "$_DEDUPE_PID" 2>/dev/null || true
             # Give it a moment to unwind, then hard-kill if still alive.
             sleep 2
@@ -21406,6 +21454,23 @@ if [[ -n "$RECOVERY_KEY" ]]; then
     echo -e "    ${YELLOW}${BOLD}${RECOVERY_KEY}${NC}"
     echo ""
 
+    # v1.0.11 UX fix (keychain-save stall): pre-warm the Swift toolchain
+    # module cache in the BACKGROUND now, so it runs concurrently with the
+    # user reading the pitch below and answering the save prompt. The first
+    # `swift` invocation of the session cold-loads Foundation + Security
+    # (several seconds). Previously that cost was paid synchronously AFTER
+    # the user opted in -- a long dead pause between announcing the save and
+    # confirming it. Paying it here, overlapped with human read+decide time,
+    # means the real keychain write further down runs warm, so the announce
+    # and the "saved" confirmation are adjacent. Fire-and-forget; disowned so
+    # its exit never prints "Terminated: 15" if the shell tears down.
+    if command -v swift &>/dev/null || xcrun -f swift &>/dev/null 2>&1; then
+        ( _kc_pw="$(command -v swift 2>/dev/null || xcrun -f swift 2>/dev/null)"; \
+          [[ -n "$_kc_pw" ]] && printf 'import Foundation\nimport Security\n' \
+              | "$_kc_pw" - >/dev/null 2>&1 ) &
+        disown 2>/dev/null || true
+    fi
+
     # Offer to save to macOS Keychain automatically
     SAVED_TO_KEYCHAIN=false
     echo "  We can save this to your macOS Keychain (Passwords app)"
@@ -22022,10 +22087,29 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true || "$CHANNEL_EMAIL_ENABLED" == true ||
     fi
     echo -e "  ${BOLD}Talk to ${ASSISTANT_NAME}:${NC}"
     if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
-        echo "     - iMessage from: ${CHANNEL_IMESSAGE_ALLOWED}"
+        # v1.0.11: keep this consistent with the "iMessage delivery posture"
+        # banner emitted below. When the install-time Automation probe could
+        # NOT confirm delivery (tcc-denied / check-failed), do not present
+        # iMessage as ready here -- flag it as pending and point at the
+        # banner. Previously this line said "iMessage from: <contact>"
+        # (implying it works) while the banner said "NOT YET CONFIRMED",
+        # contradicting each other in the same recap.
+        if [[ -n "${IMESSAGE_TCC_STATUS:-}" && "${IMESSAGE_TCC_STATUS}" != "granted-and-working" ]]; then
+            echo "     - iMessage from: ${CHANNEL_IMESSAGE_ALLOWED} (pending Automation permission -- see below)"
+        else
+            echo "     - iMessage from: ${CHANNEL_IMESSAGE_ALLOWED}"
+        fi
     fi
     if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
-        echo "     - Email to:     ${CHANNEL_EMAIL_USERNAME}"
+        # v1.0.11: CHANNEL_EMAIL_USERNAME is empty on the skip-for-now /
+        # deferred-credentials path, which previously printed a bare
+        # "Email to:" label with no value. Show the address when we have
+        # it; otherwise point the user at config.toml rather than a blank.
+        if [[ -n "${CHANNEL_EMAIL_USERNAME:-}" ]]; then
+            echo "     - Email to:     ${CHANNEL_EMAIL_USERNAME}"
+        else
+            echo "     - Email:        add your address in config.toml (not set yet)"
+        fi
     fi
     if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
         # WhatsApp Web mode needs a pair-code link before it can
