@@ -20709,10 +20709,37 @@ except Exception:
     # because imessage.done is fresh and says people=0. A refusal that
     # lasts one run becomes a refusal that lasts a week.
     #
-    # A timeout is NOT an error here: the background continuation
-    # message has already been shown, the work carries on, and the
-    # existing arm above owns that case.
-    if [[ "$_HYDRATE_IMESSAGE_TIMED_OUT" != "true" ]] && [[ "$rc" -ne 0 ]]; then
+    # 🔴 #774: A TIMEOUT IS NOT A SUCCESSFUL HYDRATE, and this guard used to
+    # say it was. The previous version read:
+    #
+    #     if [[ "$_HYDRATE_IMESSAGE_TIMED_OUT" != "true" ]] && [[ "$rc" -ne 0 ]]
+    #
+    # so rc=124 took the ELSE arm and wrote a SUCCESS sentinel. Three things
+    # followed from one line, and only the first was ever noticed:
+    #
+    #   1. STEP_END recorded status=ok over a step that gtimeout had killed.
+    #      That is the v1.0.36 walk symptom: a source times out and the
+    #      installer's own log says it was fine.
+    #   2. The success sentinel DEDUPES RE-RUNS FOR SEVEN DAYS (see #48g
+    #      above), so the retry that would have finished the job is suppressed
+    #      on the strength of a run that did not. This is #711 and #712
+    #      exactly -- both fixed it for every other source and both left this
+    #      conjunct standing.
+    #   3. No rc was folded, so nothing downstream could tell.
+    #
+    # THE OLD JUSTIFICATION, AND WHY IT DOES NOT SURVIVE. The comment argued
+    # "the work carries on". That premise is TRUE -- the imessage-bundle tick
+    # recurs under the daemon's source scheduler and does dispatch (measured
+    # 2026-08-19, and .224's slot log shows it holding the slot repeatedly).
+    # But it is an argument about what to TELL THE CUSTOMER, not about what to
+    # RECORD. Every other source in this file reaches its recorder on a
+    # timeout and still shows a calm message; iMessage was the only one that
+    # bought calm by writing something untrue.
+    #
+    # The reassurance is unaffected: the background-continuation message is
+    # printed by the arm above and stays. A log line tells a human, an rc
+    # tells the system, and only one of them suppresses next week's retry.
+    if [[ "$rc" -ne 0 ]]; then
         _hydrate_sentinel_record_error "imessage" "$rc" \
             "people=${_HYDRATE_IMESSAGE_COUNT:-0}"
     else
