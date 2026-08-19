@@ -241,7 +241,13 @@ jobs:
 
       - name: Silent-failure grafts survive in the shipped Doctor
         if: always()
-        run: python3 tests/test_doctor_silent_failure_grafts.py
+        # `python3 ./tests/...` and not `python3 tests/...`. is_invoked_in_corpus()
+        # (scripts/lib/strip_comments.sh) accepts bash/sh, pytest, `python3 -m` and
+        # a leading `./` as execution verbs -- a BARE `python3 <file>` is a real
+        # execution the predicate does not recognise, so it scores the test DARK.
+        # cut.yml already uses the `./` form for test_doctor_secret_scrub.py; this
+        # matches it rather than widening a shared predicate at cut time.
+        run: python3 ./tests/test_doctor_silent_failure_grafts.py
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
